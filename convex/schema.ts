@@ -58,6 +58,7 @@ export default defineSchema({
     highlightTo: v.number(),
     highlightText: v.string(),
     body: v.string(),
+    suggestedEdit: v.optional(v.string()),
     resolved: v.boolean(),
     createdAt: v.number(),
   }).index("by_projectId", ["projectId"]),
@@ -67,6 +68,51 @@ export default defineSchema({
     name: v.string(),
     color: v.string(),
     createdAt: v.number(),
+  }).index("by_projectId", ["projectId"]),
+
+  financialUploads: defineTable({
+    projectId: v.id("projects"),
+    fileName: v.string(),
+    fileType: v.union(
+      v.literal("slack_export"),
+      v.literal("whatsapp_chat"),
+      v.literal("git_log"),
+      v.literal("timesheet"),
+      v.literal("trial_balance"),
+      v.literal("general_ledger"),
+      v.literal("other")
+    ),
+    content: v.string(),
+    createdAt: v.number(),
+  }).index("by_projectId", ["projectId"]),
+
+  timesheetEntries: defineTable({
+    projectId: v.id("projects"),
+    uploadId: v.id("financialUploads"),
+    personName: v.string(),
+    date: v.string(),
+    hours: v.number(),
+    description: v.string(),
+    sredEligible: v.boolean(),
+    sredReason: v.optional(v.string()),
+    confidence: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
+    source: v.string(),
+  }).index("by_projectId", ["projectId"]),
+
+  financialSummaries: defineTable({
+    projectId: v.id("projects"),
+    totalHours: v.number(),
+    sredHours: v.number(),
+    nonSredHours: v.number(),
+    personnelBreakdown: v.string(),
+    generatedAt: v.number(),
+  }).index("by_projectId", ["projectId"]),
+
+  reportViews: defineTable({
+    projectId: v.id("projects"),
+    viewerName: v.string(),
+    viewerType: v.union(v.literal("client"), v.literal("writer")),
+    viewedAt: v.number(),
   }).index("by_projectId", ["projectId"]),
 
   generations: defineTable({

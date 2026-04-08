@@ -71,8 +71,9 @@ export default function NewProjectPage() {
 
   return (
     <div className="flex flex-1 flex-col bg-canvas">
-      <header className="flex items-center bg-navy px-6 py-3.5">
-        <Link href="/dashboard" className="flex items-center gap-2 flex-shrink-0">
+      <div className="sticky top-0 z-50 w-full pt-5 px-[10%] bg-canvas">
+        <header className="flex items-center bg-navy px-5 py-5 rounded-xl">
+        <Link href="/dashboard" className="flex items-center gap-5 flex-shrink-0">
           <Image src="/logo.png" alt="Banhall" width={89} height={89} className="-my-5 brightness-0 invert" />
           <span className="text-sm text-white/60 hover:text-white/80 transition-colors">Dashboard</span>
         </Link>
@@ -81,6 +82,7 @@ export default function NewProjectPage() {
         </svg>
         <span className="text-sm font-medium text-white">New Project</span>
       </header>
+      </div>
 
       <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-8">
         <h2 className="text-xl font-semibold text-gray-900">New Project</h2>

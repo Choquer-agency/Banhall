@@ -47,6 +47,7 @@ export function CommentSidebar({
   const addComment = useMutation(api.comments.addComment);
   const resolveComment = useMutation(api.comments.resolveComment);
   const unresolveComment = useMutation(api.comments.unresolveComment);
+  const acceptEdit = useMutation(api.comments.acceptEdit);
 
   const [showResolved, setShowResolved] = useState(false);
 
@@ -65,7 +66,7 @@ export function CommentSidebar({
 
   const totalActive = activeComments.length;
 
-  async function handleSubmitComment(body: string) {
+  async function handleSubmitComment(body: string, suggestedEdit?: string) {
     if (!pendingHighlight) return;
     await addComment({
       projectId,
@@ -76,6 +77,7 @@ export function CommentSidebar({
       highlightTo: pendingHighlight.to,
       highlightText: pendingHighlight.text,
       body,
+      ...(suggestedEdit ? { suggestedEdit } : {}),
       shareToken,
     });
     onClearPending?.();
@@ -121,6 +123,7 @@ export function CommentSidebar({
             onSubmit={handleSubmitComment}
             onCancel={onClearPending}
             autoFocus
+            highlightText={pendingHighlight?.text}
           />
         </div>
       )}
@@ -147,6 +150,7 @@ export function CommentSidebar({
               commenter={commenterMap.get(comment.commenterId) ?? null}
               commenterType={commenterType}
               onResolve={() => resolveComment({ commentId: comment._id, shareToken })}
+              onAcceptEdit={comment.suggestedEdit ? () => acceptEdit({ commentId: comment._id }) : undefined}
               onClick={() => handleCommentClick(comment)}
               isActive={activeCommentId === comment._id}
             />

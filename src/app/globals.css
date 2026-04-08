@@ -188,7 +188,7 @@ body {
   border-top: 1px solid #0A3A38;
 }
 
-/* Comment highlights in editor */
+/* Comment highlights in editor — writer (default: amber/yellow) */
 .comment-highlight {
   background-color: #FEF3C7;
   border-bottom: 2px solid #F59E0B;
@@ -205,6 +205,21 @@ body {
 .comment-highlight--active {
   background-color: #FDE68A;
   border-bottom-color: #D97706;
+}
+
+/* Comment highlights — client (teal / brand) */
+.comment-highlight--client {
+  background-color: #CCFBF1;
+  border-bottom-color: #20B7B0;
+}
+
+.comment-highlight--client:hover {
+  background-color: #99F6E4;
+}
+
+.comment-highlight--client.comment-highlight--active {
+  background-color: #99F6E4;
+  border-bottom-color: #0A3A38;
 }
 
 /* Read-only editor selection for commenting */

@@ -9,6 +9,53 @@ import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
 import { runQAAgent } from "./qaAgent";
+import { runChronologyAgent } from "./chronologyAgent";
+
+/**
+ * Programmatic safety net: replace banned words that the LLM self-check may have missed.
+ * Case-insensitive, whole-word replacements to avoid corrupting partial matches.
+ */
+const BANNED_REPLACEMENTS: [RegExp, string][] = [
+  [/\bnovel\b/gi, "new"],
+  [/\bpioneering\b/gi, "new"],
+  [/\brevolutionary\b/gi, "new"],
+  [/\bpivotal\b/gi, "critical"],
+  [/\bseamless\b/gi, "smooth"],
+  [/\bsubstantially?\b/gi, "considerably"],
+  [/\bsignificantly?\b/gi, "markedly"],
+  [/\bunique\b/gi, "distinct"],
+  [/\bgroundbreaking\b/gi, "new"],
+  [/\bcutting-edge\b/gi, "advanced"],
+  [/\bstate-of-the-art\b/gi, "current"],
+  [/\bcomprehensive\b/gi, "thorough"],
+  [/\brobust\b/gi, "reliable"],
+  [/\bholistic\b/gi, "complete"],
+  [/\bsynergy\b/gi, "coordination"],
+  [/\bleverage[ds]?\b/gi, "use"],
+  [/\bleveraging\b/gi, "using"],
+  [/\bharness(?:ed|ing)?\b/gi, "use"],
+  [/\brevolutioniz(?:e[ds]?|ing)\b/gi, "change"],
+  [/\btransformative\b/gi, "important"],
+  [/\bgame-changing\b/gi, "important"],
+  [/\bfundamentally\b/gi, ""],
+  [/\bparadigm\b/gi, "approach"],
+  [/\becosystem\b/gi, "environment"],
+  [/\bfurthermore,?\s*/gi, ""],
+  [/\bmoreover,?\s*/gi, ""],
+  [/\badditionally,?\s*/gi, ""],
+  [/\binnovative\b/gi, "new"],
+  [/\bspearheading\b/gi, "leading"],
+  [/\bdelving into\b/gi, "examining"],
+];
+
+function scrubBannedWords(text: string): string {
+  let result = text;
+  for (const [pattern, replacement] of BANNED_REPLACEMENTS) {
+    result = result.replace(pattern, replacement);
+  }
+  // Clean up any double spaces from removals
+  return result.replace(/ {2,}/g, " ").trim();
+}
 
 /**
  * Build a Tiptap-compatible JSON document from the section texts and QA scorecard.
@@ -156,26 +203,28 @@ export const generateReport = internalAction({
         currentStep: "Drafting sections 242, 244, 246...",
       });
 
-      const [section242, section244, section246] = await Promise.all([
+      const [raw242, raw244, raw246] = await Promise.all([
         runSection242Agent(anthropic, analysis),
         runSection244Agent(anthropic, analysis),
         runSection246Agent(anthropic, analysis),
       ]);
 
-      // Step 4: Run QA Agent
+      // Safety net: programmatically replace banned words the LLM may have missed
+      const section242 = scrubBannedWords(raw242);
+      const section244 = scrubBannedWords(raw244);
+      const section246 = scrubBannedWords(raw246);
+
+      // Step 4: Run QA Agent + Chronology Agent in parallel
       await ctx.runMutation(internal.generations.updateGenerationStatus, {
         generationId: genId,
         status: "running",
-        currentStep: "Running quality check...",
+        currentStep: "Running quality check & building chronology...",
       });
 
-      const qaScorecard = await runQAAgent(
-        anthropic,
-        analysis,
-        section242,
-        section244,
-        section246
-      );
+      const [qaScorecard, chronology] = await Promise.all([
+        runQAAgent(anthropic, analysis, section242, section244, section246),
+        runChronologyAgent(anthropic, analysis),
+      ]);
 
       // Step 5: Build Tiptap document and save
       await ctx.runMutation(internal.generations.updateGenerationStatus, {
@@ -218,6 +267,7 @@ export const generateReport = internalAction({
           section244,
           section246,
           qa: qaScorecard,
+          chronology,
         }),
         completedAt: Date.now(),
       });

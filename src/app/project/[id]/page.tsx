@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { GenerationProgress } from "@/components/generation/GenerationProgress";
 import { Editor, EditorHandle, CommentRange } from "@/components/editor/Editor";
 import { QAScorePanel } from "@/components/editor/QAScorePanel";
+import { ChronologyPanel } from "@/components/editor/ChronologyTable";
 import { MarginComments } from "@/components/comments/MarginComments";
 import { exportToDocx } from "@/lib/exportDocx";
 import Link from "next/link";
@@ -44,6 +45,7 @@ export default function ProjectPage() {
   const transcript = useQuery(api.transcripts.getTranscript, { projectId });
   const user = useQuery(api.users.getCurrentUser);
   const comments = useQuery(api.comments.listComments, { projectId });
+  const viewSummary = useQuery(api.reportViews.getViewSummary, { projectId });
 
   const generateReport = useMutation(api.projects.scheduleGenerateReport);
   const updateReport = useMutation(api.reports.updateReportContent);
@@ -69,7 +71,9 @@ export default function ProjectPage() {
       id: c._id,
       from: c.highlightFrom,
       to: c.highlightTo,
+      text: c.highlightText,
       active: c._id === activeCommentId,
+      isClient: c.commenterType === "client",
     }));
 
   useEffect(() => {
@@ -162,11 +166,12 @@ export default function ProjectPage() {
   const nextStatus = STATUS_FLOW.find((s) => s.from === project.status);
 
   return (
-    <div className="flex flex-1 flex-col">
-      {/* Top bar — dark brand */}
-      <header className="flex items-center justify-between bg-navy px-6 py-3.5">
+    <div className="flex flex-1 flex-col bg-canvas">
+      {/* Top bar — floating dark brand */}
+      <div className="sticky top-0 z-50 w-full pt-5 px-[10%] bg-canvas">
+        <header className="flex items-center justify-between bg-navy px-5 py-5 rounded-xl">
         <div className="flex items-center gap-3 min-w-0">
-          <Link href="/dashboard" className="flex items-center gap-2 flex-shrink-0">
+          <Link href="/dashboard" className="flex items-center gap-5 flex-shrink-0">
             <Image src="/logo.png" alt="Banhall" width={89} height={89} className="-my-5 brightness-0 invert" />
             <span className="text-sm text-white/60 hover:text-white/80 transition-colors">Dashboard</span>
           </Link>
@@ -178,7 +183,7 @@ export default function ProjectPage() {
           </span>
         </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-3 flex-shrink-0">
           {saving && (
             <span className="hidden text-xs text-white/40 sm:inline">
               Saving...
@@ -212,10 +217,18 @@ export default function ProjectPage() {
               >
                 {exporting ? "Exporting..." : "Export .docx"}
               </button>
+
+              <Link
+                href={`/project/${projectId}/financial`}
+                className="hidden h-8 rounded-lg bg-white/10 px-4 text-xs font-medium text-white hover:bg-white/20 transition-colors sm:inline-flex items-center justify-center"
+              >
+                Financial
+              </Link>
             </>
           )}
         </div>
       </header>
+      </div>
 
       {/* Generation progress */}
       {(isGenerating ||
@@ -252,6 +265,24 @@ export default function ProjectPage() {
                   <p className="text-gray-700">{new Date(project.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</p>
                 </div>
               </div>
+              {/* View tracking */}
+              {viewSummary && viewSummary.totalViews > 0 && (
+                <div className="mt-3 flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    {viewSummary.totalViews} view{viewSummary.totalViews !== 1 ? "s" : ""}
+                  </div>
+                  {viewSummary.uniqueViewers.map((v) => (
+                    <span key={`${v.name}-${v.type}`} className="inline-flex items-center gap-1 rounded-full bg-chrome px-2 py-0.5 text-xs text-gray-500">
+                      {v.name}
+                      <span className="text-gray-300">{new Date(v.lastViewed).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Editor column */}
@@ -270,6 +301,9 @@ export default function ProjectPage() {
             {/* QA Score — full width of the content area */}
             <div className="mt-8 mb-12">
               <QAScorePanel agentOutputs={generation?.agentOutputs} reportContent={report.content} />
+              <div className="mt-4">
+                <ChronologyPanel agentOutputs={generation?.agentOutputs} />
+              </div>
             </div>
 
             {/* Margin comments — positioned absolutely to the right of editor */}

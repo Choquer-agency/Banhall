@@ -58,9 +58,10 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-1 flex-col bg-canvas">
-      {/* Top bar — dark brand */}
-      <header className="flex items-center justify-between bg-navy px-6 py-3.5">
-        <div className="flex items-center gap-3">
+      {/* Top bar — floating dark brand */}
+      <div className="sticky top-0 z-50 w-full pt-5 px-[10%]">
+        <header className="flex items-center justify-between bg-navy px-5 py-5 rounded-xl">
+        <div className="flex items-center gap-5">
           <Image src="/logo.png" alt="Banhall" width={89} height={89} className="-my-5 brightness-0 invert" />
           <span className="text-sm font-semibold text-white/90">Dashboard</span>
         </div>
@@ -76,6 +77,7 @@ export default function DashboardPage() {
           </button>
         </div>
       </header>
+      </div>
 
       {/* Content */}
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
@@ -88,14 +90,21 @@ export default function DashboardPage() {
               </p>
             )}
           </div>
-          <Link href="/project/new">
-            <Button>
-              <svg className="mr-1.5 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-              New Project
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/project/questionnaire">
+              <Button variant="secondary">
+                Self-Serve
+              </Button>
+            </Link>
+            <Link href="/project/new">
+              <Button>
+                <svg className="mr-1.5 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+                New Project
+              </Button>
+            </Link>
+          </div>
         </div>
 
         {/* Filters */}

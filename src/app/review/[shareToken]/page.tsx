@@ -2,12 +2,12 @@
 
 import { useQuery, useMutation } from "convex/react";
 import { useParams } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../../../convex/_generated/api";
 import { Doc } from "../../../../convex/_generated/dataModel";
 import { NameGate } from "@/components/review/NameGate";
-import { Editor } from "@/components/editor/Editor";
-import { CommentSidebar } from "@/components/comments/CommentSidebar";
+import { Editor, EditorHandle, CommentRange } from "@/components/editor/Editor";
+import { MarginComments } from "@/components/comments/MarginComments";
 import Image from "next/image";
 
 export default function ClientReviewPage() {
@@ -21,16 +21,24 @@ export default function ClientReviewPage() {
     api.reports.getLatestReport,
     project ? { projectId: project._id, shareToken } : "skip"
   );
+  const comments = useQuery(
+    api.comments.listComments,
+    project ? { projectId: project._id, shareToken } : "skip"
+  );
 
   const getOrCreateCommenter = useMutation(api.comments.getOrCreateCommenter);
+  const logView = useMutation(api.reportViews.logView);
 
+  const editorRef = useRef<EditorHandle>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [commenter, setCommenter] = useState<Doc<"commenters"> | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pendingHighlight, setPendingHighlight] = useState<{
     from: number;
     to: number;
     text: string;
   } | null>(null);
+  const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+  const [hoveredCommentId, setHoveredCommentId] = useState<string | null>(null);
 
   const handleNameEnter = useCallback(
     async (name: string) => {
@@ -40,24 +48,32 @@ export default function ClientReviewPage() {
         name,
         shareToken,
       });
-      if (result) setCommenter(result);
+      if (result) {
+        setCommenter(result);
+        logView({
+          projectId: project._id,
+          viewerName: name,
+          viewerType: "client",
+        }).catch(() => {});
+      }
     },
-    [project, getOrCreateCommenter]
+    [project, getOrCreateCommenter, logView, shareToken]
   );
 
-  const handleComment = useCallback(() => {
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed) return;
-    const text = selection.toString().trim();
-    if (!text) return;
-    const range = selection.getRangeAt(0);
-    setPendingHighlight({
-      from: range.startOffset,
-      to: range.endOffset,
-      text: text.slice(0, 200),
-    });
-    setSidebarOpen(true);
+  const handleComment = useCallback((selection: { from: number; to: number; text: string }) => {
+    setPendingHighlight(selection);
   }, []);
+
+  // Build comment ranges with commenter type info for color differentiation
+  const commentRanges: CommentRange[] = (comments ?? [])
+    .filter((c) => !c.resolved)
+    .map((c) => ({
+      id: c._id,
+      from: c.highlightFrom,
+      to: c.highlightTo,
+      active: c._id === activeCommentId,
+      isClient: c.commenterType === "client",
+    }));
 
   // Loading
   if (project === undefined) {
@@ -77,12 +93,8 @@ export default function ClientReviewPage() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
           </svg>
         </div>
-        <h1 className="text-lg font-semibold text-gray-900">
-          Report Not Found
-        </h1>
-        <p className="mt-1 text-sm text-gray-500">
-          This review link may be invalid or expired.
-        </p>
+        <h1 className="text-lg font-semibold text-gray-900">Report Not Found</h1>
+        <p className="mt-1 text-sm text-gray-500">This review link may be invalid or expired.</p>
       </div>
     );
   }
@@ -103,94 +115,75 @@ export default function ClientReviewPage() {
     return (
       <div className="flex flex-1 flex-col items-center justify-center bg-canvas px-4">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-navy border-t-transparent" />
-        <h1 className="mt-4 text-lg font-semibold text-gray-900">
-          {project.title}
-        </h1>
-        <p className="mt-1 text-sm text-gray-500">
-          The report is being prepared. This page will update automatically.
-        </p>
+        <h1 className="mt-4 text-lg font-semibold text-gray-900">{project.title}</h1>
+        <p className="mt-1 text-sm text-gray-500">The report is being prepared. This page will update automatically.</p>
       </div>
     );
   }
 
   return (
     <div className="flex flex-1 flex-col bg-canvas">
-      {/* Top bar */}
-      <header className="flex items-center justify-between bg-navy px-6 py-3.5">
-        <div className="flex items-center gap-3 min-w-0">
-          <Image src="/logo.png" alt="Banhall" width={89} height={89} className="-my-5 brightness-0 invert" />
-          <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold text-white">
-              {project.title}
-            </h1>
-            <p className="text-xs text-white/50">{project.clientName}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="flex items-center gap-1.5">
-            <div
-              className="h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
-              style={{ backgroundColor: commenter.color }}
-            >
-              {commenter.name[0]?.toUpperCase()}
+      {/* Top bar — floating */}
+      <div className="sticky top-0 z-50 w-full pt-5 px-[10%] bg-canvas">
+        <header className="flex items-center justify-between bg-navy px-5 py-5 rounded-xl">
+          <div className="flex items-center gap-3 min-w-0">
+            <Image src="/logo.png" alt="Banhall" width={89} height={89} className="-my-5 brightness-0 invert" />
+            <div className="min-w-0">
+              <h1 className="truncate text-sm font-semibold text-white">{project.title}</h1>
+              <p className="text-xs text-white/50">{project.clientName}</p>
             </div>
-            <span className="hidden text-xs text-white/60 sm:inline">
-              {commenter.name}
-            </span>
           </div>
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
-              sidebarOpen
-                ? "bg-primary text-white"
-                : "bg-white/10 text-white hover:bg-white/20"
-            }`}
-          >
-            <svg
-              className="h-3.5 w-3.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
-              />
-            </svg>
-            <span className="hidden sm:inline">Comments</span>
-          </button>
-        </div>
-      </header>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-1.5">
+              <div
+                className="h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                style={{ backgroundColor: commenter.color }}
+              >
+                {commenter.name[0]?.toUpperCase()}
+              </div>
+              <span className="hidden text-xs text-white/60 sm:inline">{commenter.name}</span>
+            </div>
+          </div>
+        </header>
+      </div>
 
-      {/* Main content + sidebar */}
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-[720px] px-6 py-8">
+      {/* Main content with margin comments — same layout as writer page */}
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+        <div className="relative mx-auto max-w-[1100px] px-6 py-8">
+          {/* Editor column */}
+          <div className="max-w-[680px]">
             <Editor
+              ref={editorRef}
               content={report.content}
               editable={false}
               onComment={handleComment}
+              commentRanges={commentRanges}
+              onHoverComment={setHoveredCommentId}
             />
             <p className="mt-8 text-center text-xs text-gray-300">
               Select text to leave a comment.
             </p>
           </div>
-        </div>
 
-        <CommentSidebar
-          projectId={project._id}
-          reportId={report._id}
-          commenterId={commenter._id}
-          commenterType="client"
-          commenterName={commenter.name}
-          pendingHighlight={pendingHighlight}
-          onClearPending={() => setPendingHighlight(null)}
-          isOpen={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-          shareToken={shareToken}
-        />
+          {/* Margin comments — positioned to the right */}
+          <div className="absolute top-8 right-6" style={{ left: 'calc(680px + 2rem + 1.5rem)', width: '256px' }}>
+            <MarginComments
+              projectId={project._id}
+              reportId={report._id}
+              commenterId={commenter._id}
+              commenterType="client"
+              commenterName={commenter.name}
+              pendingHighlight={pendingHighlight}
+              onClearPending={() => setPendingHighlight(null)}
+              editorRef={editorRef}
+              scrollContainerRef={scrollContainerRef}
+              activeCommentId={activeCommentId}
+              onActiveCommentChange={setActiveCommentId}
+              hoveredCommentId={hoveredCommentId}
+              shareToken={shareToken}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );

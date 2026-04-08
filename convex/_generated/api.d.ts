@@ -9,6 +9,8 @@
  */
 
 import type * as ai_analyzerAgent from "../ai/analyzerAgent.js";
+import type * as ai_chronologyAgent from "../ai/chronologyAgent.js";
+import type * as ai_financialAgent from "../ai/financialAgent.js";
 import type * as ai_pipeline from "../ai/pipeline.js";
 import type * as ai_prompts from "../ai/prompts.js";
 import type * as ai_qaAgent from "../ai/qaAgent.js";
@@ -18,10 +20,12 @@ import type * as ai_section244Agent from "../ai/section244Agent.js";
 import type * as ai_section246Agent from "../ai/section246Agent.js";
 import type * as auth from "../auth.js";
 import type * as comments from "../comments.js";
+import type * as financial from "../financial.js";
 import type * as generations from "../generations.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as projects from "../projects.js";
+import type * as reportViews from "../reportViews.js";
 import type * as reports from "../reports.js";
 import type * as transcripts from "../transcripts.js";
 import type * as users from "../users.js";
@@ -34,6 +38,8 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   "ai/analyzerAgent": typeof ai_analyzerAgent;
+  "ai/chronologyAgent": typeof ai_chronologyAgent;
+  "ai/financialAgent": typeof ai_financialAgent;
   "ai/pipeline": typeof ai_pipeline;
   "ai/prompts": typeof ai_prompts;
   "ai/qaAgent": typeof ai_qaAgent;
@@ -43,10 +49,12 @@ declare const fullApi: ApiFromModules<{
   "ai/section246Agent": typeof ai_section246Agent;
   auth: typeof auth;
   comments: typeof comments;
+  financial: typeof financial;
   generations: typeof generations;
   http: typeof http;
   "lib/auth": typeof lib_auth;
   projects: typeof projects;
+  reportViews: typeof reportViews;
   reports: typeof reports;
   transcripts: typeof transcripts;
   users: typeof users;

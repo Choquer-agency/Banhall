@@ -43,6 +43,7 @@ export const addComment = mutation({
     highlightTo: v.number(),
     highlightText: v.string(),
     body: v.string(),
+    suggestedEdit: v.optional(v.string()),
     shareToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -85,6 +86,81 @@ export const resolveComment = mutation({
     await ctx.db.patch(args.commentId, { resolved: true });
   },
 });
+
+export const acceptEdit = mutation({
+  args: {
+    commentId: v.id("comments"),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const comment = await ctx.db.get(args.commentId);
+    if (!comment) throw new Error("Comment not found");
+    if (!comment.suggestedEdit) throw new Error("No suggested edit on this comment");
+
+    const project = await ctx.db.get(comment.projectId);
+    if (!project || project.createdBy !== userId) throw new Error("Not authorized");
+
+    // Get the latest report
+    const report = await ctx.db
+      .query("reports")
+      .withIndex("by_projectId", (q) => q.eq("projectId", comment.projectId))
+      .order("desc")
+      .first();
+    if (!report) throw new Error("Report not found");
+
+    // Apply the edit: find the highlighted text and replace it
+    const doc = JSON.parse(report.content);
+    const docText = extractDocText(doc);
+    const editedText = docText.replace(comment.highlightText, comment.suggestedEdit);
+
+    if (editedText !== docText) {
+      // Rebuild doc with the edit applied — simple text replacement in paragraph nodes
+      const updatedContent = JSON.stringify(applyTextReplace(doc, comment.highlightText, comment.suggestedEdit));
+      await ctx.db.patch(report._id, { content: updatedContent, updatedAt: Date.now() });
+    }
+
+    // Resolve the comment
+    await ctx.db.patch(args.commentId, { resolved: true });
+  },
+});
+
+function extractDocText(doc: { content?: Array<{ content?: Array<{ text?: string }> }> }): string {
+  if (!doc.content) return "";
+  return doc.content
+    .map((node) =>
+      node.content?.map((c) => c.text ?? "").join("") ?? ""
+    )
+    .join("\n");
+}
+
+function applyTextReplace(
+  doc: Record<string, unknown>,
+  oldText: string,
+  newText: string
+): Record<string, unknown> {
+  const content = doc.content as Array<Record<string, unknown>> | undefined;
+  if (!content) return doc;
+
+  return {
+    ...doc,
+    content: content.map((node) => {
+      const children = node.content as Array<Record<string, unknown>> | undefined;
+      if (!children) return node;
+
+      return {
+        ...node,
+        content: children.map((child) => {
+          if (child.type === "text" && typeof child.text === "string" && child.text.includes(oldText)) {
+            return { ...child, text: child.text.replace(oldText, newText) };
+          }
+          return child;
+        }),
+      };
+    }),
+  };
+}
 
 export const unresolveComment = mutation({
   args: {

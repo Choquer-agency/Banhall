@@ -162,8 +162,8 @@ export function SlashCommandMenu({
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 w-64 rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
-      style={{ top: position.top, left: position.left }}
+      className="fixed z-50 w-64 max-h-[min(400px,calc(100vh-var(--menu-top)-16px))] overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+      style={{ top: position.top, left: position.left, "--menu-top": `${position.top}px` } as React.CSSProperties}
     >
       {filter && (
         <div className="px-3 py-1 text-xs text-gray-400">

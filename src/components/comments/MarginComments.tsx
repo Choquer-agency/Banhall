@@ -24,6 +24,7 @@ interface MarginCommentsProps {
   activeCommentId: string | null;
   onActiveCommentChange: (id: string | null) => void;
   hoveredCommentId?: string | null;
+  shareToken?: string;
 }
 
 export function MarginComments({
@@ -39,12 +40,14 @@ export function MarginComments({
   activeCommentId,
   onActiveCommentChange,
   hoveredCommentId,
+  shareToken,
 }: MarginCommentsProps) {
-  const comments = useQuery(api.comments.listComments, { projectId });
-  const commenters = useQuery(api.comments.listCommenters, { projectId });
+  const comments = useQuery(api.comments.listComments, { projectId, shareToken });
+  const commenters = useQuery(api.comments.listCommenters, { projectId, shareToken });
   const addComment = useMutation(api.comments.addComment);
   const resolveComment = useMutation(api.comments.resolveComment);
   const unresolveComment = useMutation(api.comments.unresolveComment);
+  const acceptEdit = useMutation(api.comments.acceptEdit);
 
   const [positions, setPositions] = useState<Map<string, number>>(new Map());
   const [pendingY, setPendingY] = useState<number | null>(null);
@@ -64,7 +67,7 @@ export function MarginComments({
     const newPositions = new Map<string, number>();
     for (const comment of comments) {
       if (comment.resolved) continue;
-      const y = editorRef.current.getYForPos(comment.highlightFrom);
+      const y = editorRef.current.getYForPos(comment.highlightFrom, comment.highlightText);
       if (y !== null) {
         newPositions.set(comment._id, y);
       }
@@ -109,7 +112,7 @@ export function MarginComments({
     return () => clearTimeout(timer);
   }, [comments, recalcPositions]);
 
-  async function handleSubmitComment(body: string) {
+  async function handleSubmitComment(body: string, suggestedEdit?: string) {
     if (!pendingHighlight) return;
     await addComment({
       projectId,
@@ -120,6 +123,8 @@ export function MarginComments({
       highlightTo: pendingHighlight.to,
       highlightText: pendingHighlight.text,
       body,
+      ...(suggestedEdit ? { suggestedEdit } : {}),
+      ...(shareToken ? { shareToken } : {}),
     });
     onClearPending?.();
   }
@@ -168,7 +173,9 @@ export function MarginComments({
     const targetY = item.y;
     const actualY = Math.max(targetY, lastBottom + GAP);
     resolvedPositions.set(item.id, actualY);
-    const height = measuredHeightsRef.current.get(item.id) ?? FALLBACK_HEIGHT;
+    const measured = measuredHeightsRef.current.get(item.id);
+    const fallback = item.id === "__pending__" ? 220 : FALLBACK_HEIGHT;
+    const height = measured ?? fallback;
     lastBottom = actualY + height;
   }
 
@@ -190,6 +197,7 @@ export function MarginComments({
               onSubmit={handleSubmitComment}
               onCancel={onClearPending}
               autoFocus
+              highlightText={pendingHighlight.text}
             />
           </div>
         </div>
@@ -216,16 +224,22 @@ export function MarginComments({
             style={{ top: y }}
             onClick={() => {
               onActiveCommentChange(comment._id);
-              editorRef.current?.scrollToPosition(comment.highlightFrom, comment.highlightTo);
+              editorRef.current?.scrollToPosition(comment.highlightFrom, comment.highlightTo, comment.highlightText);
             }}
           >
             <div
               className={`rounded-lg border p-3 transition-all ${
                 isActive
-                  ? "border-navy/30 bg-white shadow-md"
+                  ? comment.commenterType === "client"
+                    ? "border-primary/30 bg-primary/5 shadow-md"
+                    : "border-navy/30 bg-white shadow-md"
                   : isHovered
-                    ? "border-gray-300 bg-amber-50/50 shadow"
-                    : "border-gray-200 bg-white shadow-sm hover:border-gray-300 hover:shadow"
+                    ? comment.commenterType === "client"
+                      ? "border-primary/20 bg-primary/5 shadow"
+                      : "border-gray-300 bg-amber-50/50 shadow"
+                    : comment.commenterType === "client"
+                      ? "border-primary/10 bg-primary/5 shadow-sm hover:border-primary/20 hover:shadow"
+                      : "border-gray-200 bg-white shadow-sm hover:border-gray-300 hover:shadow"
               }`}
             >
               {/* Quoted text */}
@@ -255,12 +269,42 @@ export function MarginComments({
                 {comment.body}
               </p>
 
+              {/* Suggested edit */}
+              {comment.suggestedEdit && (
+                <div className="mt-1.5 rounded border border-primary/20 bg-primary/5 px-2 py-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-primary-dark mb-0.5">Suggested edit</p>
+                  <p className="text-xs text-gray-700">{comment.suggestedEdit}</p>
+                  {commenterType === "writer" && (
+                    <div className="mt-1 flex items-center gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          acceptEdit({ commentId: comment._id });
+                        }}
+                        className="rounded bg-primary px-2 py-0.5 text-[10px] font-medium text-white hover:bg-primary-dark transition-colors"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          resolveComment({ commentId: comment._id, shareToken });
+                        }}
+                        className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Actions */}
-              {commenterType === "writer" && (
+              {commenterType === "writer" && !comment.suggestedEdit && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    resolveComment({ commentId: comment._id });
+                    resolveComment({ commentId: comment._id, shareToken });
                   }}
                   className="mt-1.5 text-xs text-gray-400 hover:text-green-600 transition-colors"
                 >

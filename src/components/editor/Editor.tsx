@@ -12,7 +12,9 @@ export interface CommentRange {
   id: string;
   from: number;
   to: number;
+  text?: string;
   active?: boolean;
+  isClient?: boolean;
 }
 
 interface EditorProps {
@@ -25,9 +27,44 @@ interface EditorProps {
 }
 
 export interface EditorHandle {
-  scrollToPosition: (from: number, to: number) => void;
-  getYForPos: (pos: number) => number | null;
+  scrollToPosition: (from: number, to: number, text?: string) => void;
+  getYForPos: (pos: number, text?: string) => number | null;
   getEditorTop: () => number;
+}
+
+function findTextInDoc(doc: Parameters<typeof DecorationSet.create>[0], text: string, hintFrom: number): { from: number; to: number } | null {
+  const docSize = doc.content.size;
+  if (!text || docSize < 2) return null;
+
+  // Build a map of (textOffset → prosemirror pos) by walking text nodes
+  // Use the same separator as textBetween uses ("\n" for blocks)
+  const posMap: number[] = []; // posMap[textOffset] = pmPos
+  doc.descendants((node, pos) => {
+    if (node.isText && node.text) {
+      for (let i = 0; i < node.text.length; i++) {
+        posMap.push(pos + i);
+      }
+    } else if (node.isBlock && posMap.length > 0) {
+      posMap.push(-1); // newline separator placeholder
+    }
+    return true;
+  });
+
+  // Get the full text using the same separator
+  const fullText = doc.textBetween(1, docSize, "\n");
+
+  // Search near hint position first, then anywhere
+  const hintOffset = Math.max(0, hintFrom - 1);
+  let idx = fullText.indexOf(text, Math.max(0, hintOffset - 500));
+  if (idx === -1) idx = fullText.indexOf(text);
+  if (idx === -1) return null;
+
+  // Map text indices to ProseMirror positions
+  const fromPos = posMap[idx];
+  const toPos = posMap[idx + text.length - 1];
+  if (fromPos === undefined || toPos === undefined || fromPos === -1 || toPos === -1) return null;
+
+  return { from: fromPos, to: toPos + 1 }; // +1 because to is exclusive in PM
 }
 
 function buildDecorationSet(doc: Parameters<typeof DecorationSet.create>[0], ranges: CommentRange[]) {
@@ -35,13 +72,39 @@ function buildDecorationSet(doc: Parameters<typeof DecorationSet.create>[0], ran
   const docSize = doc.content.size;
 
   for (const range of ranges) {
-    const from = Math.max(1, Math.min(range.from, docSize));
-    const to = Math.max(from, Math.min(range.to, docSize));
+    let from = Math.max(1, Math.min(range.from, docSize));
+    let to = Math.max(from, Math.min(range.to, docSize));
+
+    // If we have the original text, verify the positions match — if not, search for it
+    if (range.text && from < to) {
+      try {
+        const currentText = doc.textBetween(from, to, " ");
+        if (currentText !== range.text) {
+          const found = findTextInDoc(doc, range.text, range.from);
+          if (found) {
+            from = found.from;
+            to = found.to;
+          }
+        }
+      } catch {
+        // positions out of range — try text search
+        const found = range.text ? findTextInDoc(doc, range.text, range.from) : null;
+        if (found) {
+          from = found.from;
+          to = found.to;
+        }
+      }
+    }
+
     if (from >= to) continue;
 
     decorations.push(
       Decoration.inline(from, to, {
-        class: range.active ? "comment-highlight comment-highlight--active" : "comment-highlight",
+        class: [
+          "comment-highlight",
+          range.active ? "comment-highlight--active" : "",
+          range.isClient ? "comment-highlight--client" : "",
+        ].filter(Boolean).join(" "),
         "data-comment-id": range.id,
       })
     );
@@ -112,6 +175,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       if (onUpdate) {
         if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = setTimeout(() => {
+          localEditRef.current = true;
           onUpdate(JSON.stringify(ed.getJSON()));
         }, 1000);
       }
@@ -119,14 +183,35 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   });
 
   useImperativeHandle(ref, () => ({
-    scrollToPosition: (from: number, to: number) => {
+    scrollToPosition: (from: number, to: number, text?: string) => {
       if (!editor) return;
       try {
         const docSize = editor.state.doc.content.size;
-        const clampedFrom = Math.min(from, docSize);
-        const clampedTo = Math.min(to, docSize);
-        editor.chain().focus().setTextSelection({ from: clampedFrom, to: clampedTo }).run();
-        const coords = editor.view.coordsAtPos(clampedFrom);
+        let resolvedFrom = Math.min(from, docSize);
+        let resolvedTo = Math.min(to, docSize);
+
+        // Verify positions match the text — if not, search for it
+        if (text) {
+          try {
+            const currentText = editor.state.doc.textBetween(resolvedFrom, resolvedTo, " ");
+            if (currentText !== text) {
+              const found = findTextInDoc(editor.state.doc, text, from);
+              if (found) {
+                resolvedFrom = found.from;
+                resolvedTo = found.to;
+              }
+            }
+          } catch {
+            const found = findTextInDoc(editor.state.doc, text, from);
+            if (found) {
+              resolvedFrom = found.from;
+              resolvedTo = found.to;
+            }
+          }
+        }
+
+        editor.chain().focus().setTextSelection({ from: resolvedFrom, to: resolvedTo }).run();
+        const coords = editor.view.coordsAtPos(resolvedFrom);
         const editorDom = editor.view.dom.closest('.overflow-y-auto');
         if (editorDom) {
           const containerRect = editorDom.getBoundingClientRect();
@@ -135,11 +220,18 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
         }
       } catch { /* position out of range */ }
     },
-    getYForPos: (pos: number) => {
+    getYForPos: (pos: number, text?: string) => {
       if (!editor) return null;
       try {
         const docSize = editor.state.doc.content.size;
-        const clamped = Math.min(pos, docSize);
+        let clamped = Math.min(pos, docSize);
+
+        // If text provided, verify position and search if needed
+        if (text) {
+          const found = findTextInDoc(editor.state.doc, text, pos);
+          if (found) clamped = found.from;
+        }
+
         const coords = editor.view.coordsAtPos(clamped);
         const editorRect = editor.view.dom.getBoundingClientRect();
         return coords.top - editorRect.top;
@@ -167,12 +259,19 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     });
   }, [editor, onComment]);
 
-  // Update content when it changes externally
+  // Update content when it changes externally — but skip round-trips
+  // from our own edits (which would reset cursor position and scroll).
   const lastContentRef = useRef(content);
+  const localEditRef = useRef(false);
   useEffect(() => {
     if (!editor) return;
     if (content !== lastContentRef.current) {
       lastContentRef.current = content;
+      // If this change came from our own onUpdate save, skip setContent
+      if (localEditRef.current) {
+        localEditRef.current = false;
+        return;
+      }
       const parsed = parseContent(content);
       if (parsed) {
         editor.commands.setContent(parsed);

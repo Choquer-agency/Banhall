@@ -140,8 +140,22 @@ GENERAL RULES:
 - Tie every claim back to evidence from the transcript analysis.
 - Word count is a guideline — the official constraint is line count. Write in dense, formal paragraphs.
 
+REPETITION TRACKING (MANDATORY):
+As you write, mentally count uses of "systematic investigation" and "systematic experimentation" combined. After the 3rd use across the entire output, STOP using either phrase and switch to alternatives: "the experimental work", "this investigation", "the planned approach", "the company's testing". Similarly, track "technological uncertainty" — after the 4th use, switch to "the uncertainty regarding", "this open question", "the unresolved challenge of".
+
 FINAL SELF-CHECK (MANDATORY — do this before returning your output):
-Scan every sentence you wrote for these banned words: substantially, significantly, unique, innovative, groundbreaking, cutting-edge, robust, comprehensive, holistic, leverage, harness, revolutionize, transform, game-changing, fundamentally, paradigm, ecosystem. If ANY appear, rewrite that sentence to remove or replace the word. Do not return output containing any word from this list.
+Scan EVERY sentence you wrote for ALL of these banned words and phrases. If ANY appear, rewrite that sentence BEFORE returning output:
+- novel, pioneering, revolutionary, pivotal, seamless
+- substantial, substantially, significant, significantly
+- unique, groundbreaking, cutting-edge, state-of-the-art
+- comprehensive, robust, holistic, synergy
+- leverage, harness, revolutionize, transform, game-changing
+- leveraging, harnessing, revolutionizing, spearheading, delving into
+- fundamentally, paradigm, ecosystem
+- furthermore, moreover, additionally
+- innovative, formed the foundation, paved the way, serves as a testament, measurable improvement
+Common replacements: "novel" → "new" or "alternative" or "specialized"; "additionally" → just start the next sentence; "robust" → "reliable" or "consistent"; "comprehensive" → "thorough" or "complete"; "innovative" → describe what makes it new instead.
+Do NOT skip this step. The word "novel" in particular appears frequently in AI-generated text and MUST be caught and replaced.
 `;
 
 // ─── AGENT 2: SECTION 242 — WHY BEING SOUGHT ────────────────────────────────
@@ -236,10 +250,12 @@ GOOD (specific, testable, measurable):
 "It was hypothesized that if temporal dual-spectrum image sequences were combined with correlated environmental sensor data from controlled multi-species experiments, then computer vision models could classify ornamental plant growth stages with accuracy exceeding manual assessment methods and predict developmental timelines within a commercially viable forecasting window across morphologically diverse species."
 
 Rules for the hypothesis:
-- The IF clause must name the specific technical approach (not just "if we do the work")
-- The THEN clause must name a measurable outcome (not just "then it would work")
-- The hypothesis should be falsifiable — a reader should be able to imagine a result that would disprove it
+- The IF clause must name the specific technical approach, method, or experimental condition (not just "if we do the work" or "if the company could build the system")
+- The THEN clause MUST contain at least one concrete, measurable outcome — a metric, threshold, comparison baseline, or quantifiable performance target. Examples: "accuracy exceeding X%", "prediction within Y timeframe", "classification error below Z", "performance surpassing manual methods by [specific measure]"
+- The hypothesis MUST be falsifiable — a reader should be able to imagine a specific experimental result that would disprove it
 - Never write "if the company could [do their project plan]" — that's a project description, not a hypothesis
+- TEST: Cover the IF clause and read only the THEN clause. If it says "then it would work" or "then the system would function as intended", the hypothesis is too vague. The THEN clause must specify WHAT specifically would be true and HOW you would measure it
+- TEST: Could a graduate student design an experiment to test this hypothesis? If not, it needs more specificity
 
 **Paragraphs 4, 5, 6 — EXPERIMENTATION/ITERATIONS:**
 Each experimentation paragraph must follow this internal structure:
@@ -250,6 +266,8 @@ Each experimentation paragraph must follow this internal structure:
 5. CONCLUSION (1 sentence): What knowledge was gained?
 
 This creates a tight narrative arc: tried X → discovered Y → adapted to Z → learned W. Do NOT write experimentation paragraphs as flat descriptions of what was done. They must have tension — the uncertainty, the attempt, the surprise or failure, the adaptation, the learning. This is what makes SR&ED reports persuasive.
+
+SELF-CHECK FOR EACH EXPERIMENTATION PARAGRAPH: After writing it, verify it contains ALL five elements (problem, initial approach, unexpected finding, revised approach, conclusion). If any element is missing, the paragraph reads like a project log entry rather than SR&ED evidence. The "unexpected finding" is the most commonly missing element — if you didn't describe something that surprised the team or forced a change in approach, the paragraph will be flagged by QA.
 
 IMPORTANT: Use the phrase "systematic investigation" or "systematic experimentation" NO MORE THAN TWICE in the entire section. Demonstrate the systematic approach through the content itself — describe ordered steps, controlled variables, and evidence-based conclusions — rather than asserting "systematic" repeatedly.
 
@@ -269,6 +287,8 @@ You will receive structured analysis of an interview transcript. Use ONLY the in
 
 CRITICAL RULE: KNOWLEDGE FIRST, CAPABILITIES SECOND.
 This is the single biggest quality gap to avoid. Section 246 describes "the WHY that was ultimately achieved" — meaning WHAT WAS LEARNED, not WHAT WAS BUILT. Every paragraph must lead with knowledge or understanding gained. The physical outcome is mentioned only AFTER the knowledge claim, as evidence.
+
+SELF-CHECK FOR PARAGRAPHS 2, 3, 4: After writing each advancement paragraph, re-read its FIRST SENTENCE. If the subject is a system, tool, product, or prototype ("The system achieved...", "The model demonstrated...", "The platform enabled..."), REWRITE it to lead with the knowledge finding instead ("It was determined that...", "Through this investigation, it was established that...", "The experimental work revealed that..."). The physical system is EVIDENCE for the knowledge claim, not the claim itself.
 
 ## Paragraph Structure
 

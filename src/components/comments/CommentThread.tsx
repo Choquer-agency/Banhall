@@ -8,6 +8,7 @@ interface CommentThreadProps {
   commenterType: "client" | "writer";
   onResolve?: () => void;
   onUnresolve?: () => void;
+  onAcceptEdit?: () => void;
   onClick?: () => void;
   resolved?: boolean;
   isActive?: boolean;
@@ -19,6 +20,7 @@ export function CommentThread({
   commenterType,
   onResolve,
   onUnresolve,
+  onAcceptEdit,
   onClick,
   resolved = false,
   isActive = false,
@@ -75,9 +77,39 @@ export function CommentThread({
         {comment.body}
       </p>
 
+      {/* Suggested edit */}
+      {comment.suggestedEdit && !resolved && (
+        <div className="mt-2 rounded-md border border-primary/20 bg-primary/5 px-2.5 py-1.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-primary-dark mb-1">Suggested edit</p>
+          <p className="text-xs text-gray-700 leading-relaxed">{comment.suggestedEdit}</p>
+          {commenterType === "writer" && onAcceptEdit && (
+            <div className="mt-1.5 flex items-center gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAcceptEdit();
+                }}
+                className="rounded bg-primary px-2 py-0.5 text-[10px] font-medium text-white hover:bg-primary-dark transition-colors"
+              >
+                Accept edit
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onResolve?.();
+                }}
+                className="text-[10px] font-medium text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Actions */}
       <div className="mt-2 flex items-center gap-3">
-        {!resolved && onResolve && commenterType === "writer" && (
+        {!resolved && onResolve && commenterType === "writer" && !comment.suggestedEdit && (
           <button
             onClick={(e) => {
               e.stopPropagation();

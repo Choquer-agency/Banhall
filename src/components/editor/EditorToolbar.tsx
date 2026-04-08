@@ -15,9 +15,36 @@ export function EditorToolbar({
   commentOnly = false,
 }: EditorToolbarProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const mouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const mouseDownInEditorRef = useRef(false);
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(
     null
   );
+
+  // Track actual mouse position + whether mouse is down inside the editor
+  useEffect(() => {
+    const editorDom = editor.view.dom;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      mouseRef.current = { x: e.clientX, y: e.clientY };
+    };
+    const handleMouseDown = () => {
+      mouseDownInEditorRef.current = true;
+    };
+    const handleMouseUp = () => {
+      // Small delay so selectionUpdate fires first
+      setTimeout(() => { mouseDownInEditorRef.current = false; }, 50);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    editorDom.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      editorDom.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [editor]);
 
   const updatePosition = useCallback(() => {
     const { from, to } = editor.state.selection;
@@ -26,18 +53,25 @@ export function EditorToolbar({
       return;
     }
 
-    const start = editor.view.coordsAtPos(from);
-    const end = editor.view.coordsAtPos(to);
+    // Only show toolbar for user-initiated selections (mouse drag in editor),
+    // not for programmatic selections (e.g., clicking a comment card)
+    if (!mouseDownInEditorRef.current) {
+      return;
+    }
+
     const editorRect = editor.view.dom.getBoundingClientRect();
+    const mouse = mouseRef.current;
+
+    const mouseY = Math.max(editorRect.top, Math.min(mouse.y, editorRect.bottom));
+    const mouseX = Math.max(editorRect.left, Math.min(mouse.x, editorRect.right));
 
     setCoords({
-      top: start.top - editorRect.top - 45,
-      left: (start.left + end.right) / 2 - editorRect.left,
+      top: mouseY - editorRect.top - 45,
+      left: mouseX - editorRect.left,
     });
   }, [editor]);
 
   const handleBlur = useCallback(({ event }: { event: FocusEvent }) => {
-    // Don't hide if focus moved to the toolbar itself
     const relatedTarget = event.relatedTarget as Node | null;
     if (menuRef.current && relatedTarget && menuRef.current.contains(relatedTarget)) {
       return;
