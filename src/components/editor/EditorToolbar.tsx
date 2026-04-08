@@ -1,6 +1,7 @@
 "use client";
 
-import { BubbleMenu, Editor } from "@tiptap/react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { Editor } from "@tiptap/react";
 
 interface EditorToolbarProps {
   editor: Editor;
@@ -13,14 +14,62 @@ export function EditorToolbar({
   onComment,
   commentOnly = false,
 }: EditorToolbarProps) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(
+    null
+  );
+
+  const updatePosition = useCallback(() => {
+    const { from, to } = editor.state.selection;
+    if (from === to) {
+      setCoords(null);
+      return;
+    }
+
+    const start = editor.view.coordsAtPos(from);
+    const end = editor.view.coordsAtPos(to);
+    const editorRect = editor.view.dom.getBoundingClientRect();
+
+    setCoords({
+      top: start.top - editorRect.top - 45,
+      left: (start.left + end.right) / 2 - editorRect.left,
+    });
+  }, [editor]);
+
+  const handleBlur = useCallback(({ event }: { event: FocusEvent }) => {
+    // Don't hide if focus moved to the toolbar itself
+    const relatedTarget = event.relatedTarget as Node | null;
+    if (menuRef.current && relatedTarget && menuRef.current.contains(relatedTarget)) {
+      return;
+    }
+    setCoords(null);
+  }, []);
+
+  useEffect(() => {
+    editor.on("selectionUpdate", updatePosition);
+    editor.on("blur", handleBlur);
+
+    return () => {
+      editor.off("selectionUpdate", updatePosition);
+      editor.off("blur", handleBlur);
+    };
+  }, [editor, updatePosition, handleBlur]);
+
+  if (!coords) return null;
+
   return (
-    <BubbleMenu
-      editor={editor}
-      tippyOptions={{
-        duration: 150,
-        placement: "top",
+    <div
+      ref={menuRef}
+      className="absolute z-50 flex items-center gap-0.5 rounded-lg border border-gray-200 bg-white px-1 py-1 shadow-lg"
+      style={{
+        top: coords.top,
+        left: coords.left,
+        transform: "translateX(-50%)",
       }}
-      className="flex items-center gap-0.5 rounded-lg border border-gray-200 bg-white px-1 py-1 shadow-lg"
+      onMouseDown={(e) => {
+        // Prevent toolbar clicks from stealing focus from the editor
+        e.preventDefault();
+      }}
     >
       {!commentOnly && (
         <>
@@ -55,16 +104,6 @@ export function EditorToolbar({
           >
             <span className="line-through">S</span>
           </ToolbarButton>
-
-          <div className="mx-0.5 h-5 w-px bg-gray-200" />
-
-          <ToolbarButton
-            active={editor.isActive("highlight")}
-            onClick={() => editor.chain().focus().toggleHighlight().run()}
-            title="Highlight (Cmd+Shift+H)"
-          >
-            <span className="rounded bg-yellow-200 px-0.5">H</span>
-          </ToolbarButton>
         </>
       )}
 
@@ -88,7 +127,7 @@ export function EditorToolbar({
           </ToolbarButton>
         </>
       )}
-    </BubbleMenu>
+    </div>
   );
 }
 

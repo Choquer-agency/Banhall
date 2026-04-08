@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { assertProjectAccess, assertProjectOwner } from "./lib/auth";
 
 const COMMENTER_COLORS = [
   "#818CF8", // indigo
@@ -14,8 +14,18 @@ const COMMENTER_COLORS = [
 ];
 
 export const listComments = query({
-  args: { projectId: v.id("projects") },
+  args: {
+    projectId: v.id("projects"),
+    shareToken: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
+    const project = await assertProjectAccess(
+      ctx,
+      args.projectId,
+      args.shareToken
+    );
+    if (!project) return [];
+
     return await ctx.db
       .query("comments")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -33,10 +43,23 @@ export const addComment = mutation({
     highlightTo: v.number(),
     highlightText: v.string(),
     body: v.string(),
+    shareToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const project = await assertProjectAccess(
+      ctx,
+      args.projectId,
+      args.shareToken
+    );
+    if (!project) throw new Error("Not authorized");
+
+    if (args.body.length > 5000) throw new Error("Comment too long");
+    if (args.highlightText.length > 1000)
+      throw new Error("Highlight text too long");
+
+    const { shareToken, ...commentData } = args;
     return await ctx.db.insert("comments", {
-      ...args,
+      ...commentData,
       resolved: false,
       createdAt: Date.now(),
     });
@@ -44,15 +67,41 @@ export const addComment = mutation({
 });
 
 export const resolveComment = mutation({
-  args: { commentId: v.id("comments") },
+  args: {
+    commentId: v.id("comments"),
+    shareToken: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
+    const comment = await ctx.db.get(args.commentId);
+    if (!comment) throw new Error("Comment not found");
+
+    const project = await assertProjectAccess(
+      ctx,
+      comment.projectId,
+      args.shareToken
+    );
+    if (!project) throw new Error("Not authorized");
+
     await ctx.db.patch(args.commentId, { resolved: true });
   },
 });
 
 export const unresolveComment = mutation({
-  args: { commentId: v.id("comments") },
+  args: {
+    commentId: v.id("comments"),
+    shareToken: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
+    const comment = await ctx.db.get(args.commentId);
+    if (!comment) throw new Error("Comment not found");
+
+    const project = await assertProjectAccess(
+      ctx,
+      comment.projectId,
+      args.shareToken
+    );
+    if (!project) throw new Error("Not authorized");
+
     await ctx.db.patch(args.commentId, { resolved: false });
   },
 });
@@ -60,6 +109,12 @@ export const unresolveComment = mutation({
 export const deleteComment = mutation({
   args: { commentId: v.id("comments") },
   handler: async (ctx, args) => {
+    const comment = await ctx.db.get(args.commentId);
+    if (!comment) throw new Error("Comment not found");
+
+    const project = await assertProjectOwner(ctx, comment.projectId);
+    if (!project) throw new Error("Not authorized");
+
     await ctx.db.delete(args.commentId);
   },
 });
@@ -70,8 +125,19 @@ export const getOrCreateCommenter = mutation({
   args: {
     projectId: v.id("projects"),
     name: v.string(),
+    shareToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const project = await assertProjectAccess(
+      ctx,
+      args.projectId,
+      args.shareToken
+    );
+    if (!project) throw new Error("Not authorized");
+
+    if (args.name.trim().length === 0) throw new Error("Name is required");
+    if (args.name.length > 100) throw new Error("Name too long");
+
     // Check if this name already exists for this project
     const existing = await ctx.db
       .query("commenters")
@@ -98,8 +164,18 @@ export const getOrCreateCommenter = mutation({
 });
 
 export const listCommenters = query({
-  args: { projectId: v.id("projects") },
+  args: {
+    projectId: v.id("projects"),
+    shareToken: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
+    const project = await assertProjectAccess(
+      ctx,
+      args.projectId,
+      args.shareToken
+    );
+    if (!project) return [];
+
     return await ctx.db
       .query("commenters")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))

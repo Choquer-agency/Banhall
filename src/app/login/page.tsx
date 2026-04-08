@@ -19,11 +19,45 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Auto-login: sign in as shared demo user so testers skip the login form
+  const [autoLoginAttempted, setAutoLoginAttempted] = useState(false);
+
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      router.replace("/dashboard");
+    if (isLoading) return;
+    if (isAuthenticated) {
+      window.location.href = "/dashboard";
+      return;
     }
-  }, [isAuthenticated, isLoading, router]);
+    if (autoLoginAttempted) return;
+    setAutoLoginAttempted(true);
+
+    const demoEmail = "demo@banhall.ca";
+    const demoPassword = "BanhallDemo2026!";
+
+    signIn("password", { email: demoEmail, password: demoPassword, flow: "signIn" })
+      .then((result) => {
+        if (result.signingIn) {
+          setTimeout(() => { window.location.href = "/dashboard"; }, 800);
+        }
+      })
+      .catch(() => {
+        // First time: account doesn't exist yet, so create it
+        signIn("password", {
+          email: demoEmail,
+          password: demoPassword,
+          name: "Banhall Team",
+          flow: "signUp",
+        })
+          .then((result) => {
+            if (result.signingIn) {
+              setTimeout(() => { window.location.href = "/dashboard"; }, 800);
+            }
+          })
+          .catch(() => {
+            // Auto-login failed — show the normal login form as fallback
+          });
+      });
+  }, [isAuthenticated, isLoading, autoLoginAttempted, signIn]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -31,28 +65,35 @@ export default function LoginPage() {
     setSubmitting(true);
 
     try {
-      await signIn("password", {
+      const result = await signIn("password", {
         email,
         password,
         name: mode === "signUp" ? name : undefined,
         flow: mode,
       });
-      router.replace("/dashboard");
-    } catch {
+      if (result.signingIn) {
+        // Wait for auth state to propagate, then redirect
+        setTimeout(() => {
+          window.location.href = "/dashboard";
+        }, 1000);
+      }
+    } catch (err) {
+      console.error("Auth error:", err);
       setError(
         mode === "signIn"
           ? "Invalid email or password."
-          : "Could not create account. Email may already be in use."
+          : `Could not create account: ${err instanceof Error ? err.message : "Unknown error"}`
       );
     } finally {
       setSubmitting(false);
     }
   }
 
-  if (isLoading) {
+  if (isLoading || (!isAuthenticated && !autoLoginAttempted)) {
     return (
-      <div className="flex flex-1 items-center justify-center bg-canvas">
+      <div className="flex flex-1 flex-col items-center justify-center bg-canvas">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-navy border-t-transparent" />
+        <p className="mt-3 text-sm text-gray-400">Signing you in...</p>
       </div>
     );
   }

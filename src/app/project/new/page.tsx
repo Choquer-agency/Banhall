@@ -1,21 +1,24 @@
 "use client";
 
-import { useConvexAuth, useAction, useMutation } from "convex/react";
+import { useConvexAuth, useMutation } from "convex/react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../../../../convex/_generated/api";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import Link from "next/link";
+import Image from "next/image";
 
 export default function NewProjectPage() {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const router = useRouter();
   const createProject = useMutation(api.projects.createProject);
-  const generateReport = useAction(api.ai.pipeline.generateReport);
+  const generateReport = useMutation(api.projects.scheduleGenerateReport);
 
   const [title, setTitle] = useState("");
   const [clientName, setClientName] = useState("");
+  const [writer, setWriter] = useState("");
+  const [interviewer, setInterviewer] = useState("");
   const [transcript, setTranscript] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -44,11 +47,13 @@ export default function NewProjectPage() {
       const { projectId, transcriptId } = await createProject({
         title: title.trim(),
         clientName: clientName.trim(),
+        ...(writer.trim() ? { writer: writer.trim() } : {}),
+        ...(interviewer.trim() ? { interviewer: interviewer.trim() } : {}),
         transcriptContent: transcript,
       });
 
-      // Fire and forget — generation runs in background
-      generateReport({ projectId, transcriptId }).catch(console.error);
+      // Schedule generation in background — returns immediately
+      await generateReport({ projectId, transcriptId });
       router.push(`/project/${projectId}`);
     } catch {
       setError("Failed to create project. Please try again.");
@@ -66,17 +71,15 @@ export default function NewProjectPage() {
 
   return (
     <div className="flex flex-1 flex-col bg-canvas">
-      <header className="flex items-center border-b border-gray-200 bg-white px-6 py-3">
-        <Link
-          href="/dashboard"
-          className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          Dashboard
+      <header className="flex items-center bg-navy px-6 py-3.5">
+        <Link href="/dashboard" className="flex items-center gap-2 flex-shrink-0">
+          <Image src="/logo.png" alt="Banhall" width={89} height={89} className="-my-5 brightness-0 invert" />
+          <span className="text-sm text-white/60 hover:text-white/80 transition-colors">Dashboard</span>
         </Link>
-        <svg className="mx-2 h-3 w-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <svg className="mx-2 h-3 w-3 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
-        <span className="text-sm font-medium text-gray-900">New Project</span>
+        <span className="text-sm font-medium text-white">New Project</span>
       </header>
 
       <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-8">
@@ -103,6 +106,20 @@ export default function NewProjectPage() {
               onChange={(e) => setClientName(e.target.value)}
               placeholder="GreenStem Nurseries Inc."
               required
+            />
+            <Input
+              id="writer"
+              label="Writer"
+              value={writer}
+              onChange={(e) => setWriter(e.target.value)}
+              placeholder="Jane Smith"
+            />
+            <Input
+              id="interviewer"
+              label="Interviewer"
+              value={interviewer}
+              onChange={(e) => setInterviewer(e.target.value)}
+              placeholder="John Doe"
             />
           </div>
 

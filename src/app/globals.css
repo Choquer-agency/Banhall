@@ -1,10 +1,13 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-canvas: #FAFAF8;
-  --color-chrome: #F5F5F3;
-  --color-navy: #1A1A2E;
-  --color-navy-light: #2A2A4E;
+  --color-canvas: #F6FAFA;
+  --color-chrome: #EDF5F5;
+  --color-navy: #0A3A38;
+  --color-navy-light: #0E4E4B;
+  --color-primary: #20B7B0;
+  --color-primary-light: #3DCCC5;
+  --color-primary-dark: #189E98;
   --color-gap-bg: #FEF3C7;
   --color-gap-text: #92400E;
   --font-sans: "DM Sans", system-ui, sans-serif;
@@ -50,8 +53,8 @@ body {
   font-size: 1.125rem;
   font-weight: 600;
   line-height: 1.4;
-  color: #1A1A2E;
-  margin-top: 2rem;
+  color: #0A3A38;
+  margin-top: 3rem;
   margin-bottom: 0.75rem;
   padding-bottom: 0.375rem;
   border-bottom: 1px solid #e5e5e3;
@@ -87,9 +90,18 @@ body {
   margin: 1.5rem 0;
 }
 
+/* Hide redundant HRs: after the title heading, and consecutive HRs */
+.tiptap-editor h1 + hr {
+  display: none;
+}
+
+.tiptap-editor hr + hr {
+  display: none;
+}
+
 /* Blockquotes */
 .tiptap-editor blockquote {
-  border-left: 3px solid #1A1A2E;
+  border-left: 3px solid #0A3A38;
   padding-left: 1rem;
   margin-left: 0;
   color: #4b5563;
@@ -163,7 +175,7 @@ body {
 
 /* Drop cursor */
 .tiptap-editor .ProseMirror-dropcursor {
-  border-color: #1A1A2E;
+  border-color: #0A3A38;
   border-width: 2px;
 }
 
@@ -173,25 +185,26 @@ body {
 }
 
 .tiptap-editor .ProseMirror-gapcursor::after {
-  border-top: 1px solid #1A1A2E;
+  border-top: 1px solid #0A3A38;
 }
 
 /* Comment highlights in editor */
 .comment-highlight {
-  border-bottom: 2px solid var(--comment-color, #818CF8);
-  background-color: color-mix(in srgb, var(--comment-color, #818CF8) 10%, transparent);
-  border-radius: 2px;
+  background-color: #FEF3C7;
+  border-bottom: 2px solid #F59E0B;
+  border-radius: 1px;
   cursor: pointer;
-  transition: background-color 0.15s;
+  transition: background-color 0.15s, border-color 0.15s;
+  padding-bottom: 1px;
 }
 
 .comment-highlight:hover {
-  background-color: color-mix(in srgb, var(--comment-color, #818CF8) 20%, transparent);
+  background-color: #FDE68A;
 }
 
-.comment-highlight.resolved {
-  border-bottom-style: dashed;
-  opacity: 0.5;
+.comment-highlight--active {
+  background-color: #FDE68A;
+  border-bottom-color: #D97706;
 }
 
 /* Read-only editor selection for commenting */

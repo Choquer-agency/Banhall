@@ -10,6 +10,7 @@ export default function Home() {
 
   useEffect(() => {
     if (isLoading) return;
+    // Send everyone to /login which auto-authenticates as the demo user
     if (isAuthenticated) {
       router.replace("/dashboard");
     } else {

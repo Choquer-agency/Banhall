@@ -20,36 +20,44 @@ interface QAScorecard {
   suggested_improvements: string[];
 }
 
-export function QAScorePanel({ reportContent }: { reportContent: string }) {
+export function QAScorePanel({ agentOutputs, reportContent }: { agentOutputs?: string | null; reportContent?: string | null }) {
   const [isOpen, setIsOpen] = useState(false);
 
   const scorecard = useMemo(() => {
-    try {
-      const doc = JSON.parse(reportContent);
-      // Find the codeBlock node with QA scorecard JSON
-      const codeBlock = doc.content?.find(
-        (node: { type: string; attrs?: { language?: string } }) =>
-          node.type === "codeBlock" && node.attrs?.language === "json"
-      );
-      if (!codeBlock?.content?.[0]?.text) return null;
-      const parsed = JSON.parse(codeBlock.content[0].text);
-      if ("overall_score" in parsed) return parsed as QAScorecard;
-      return null;
-    } catch {
-      return null;
+    // Try agentOutputs first (new reports)
+    if (agentOutputs) {
+      try {
+        const parsed = JSON.parse(agentOutputs);
+        if (parsed.qa && "overall_score" in parsed.qa) return parsed.qa as QAScorecard;
+      } catch { /* fall through */ }
     }
-  }, [reportContent]);
+    // Fallback: extract from report content codeBlock (old reports)
+    if (reportContent) {
+      try {
+        const doc = JSON.parse(reportContent);
+        const codeBlock = doc.content?.find(
+          (node: { type: string; attrs?: { language?: string } }) =>
+            node.type === "codeBlock" && node.attrs?.language === "json"
+        );
+        if (codeBlock?.content?.[0]?.text) {
+          const parsed = JSON.parse(codeBlock.content[0].text);
+          if ("overall_score" in parsed) return parsed as QAScorecard;
+        }
+      } catch { /* no scorecard */ }
+    }
+    return null;
+  }, [agentOutputs, reportContent]);
 
   if (!scorecard) return null;
 
   const overall = scorecard.overall_score;
 
   return (
-    <div className="border-t border-gray-200 bg-white">
+    <div className="rounded-xl border border-gray-200 bg-white">
       {/* Toggle bar */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center justify-between px-6 py-3 text-left hover:bg-gray-50"
+        className="flex w-full items-center justify-between rounded-xl px-5 py-3 text-left hover:bg-gray-50 transition-colors"
       >
         <div className="flex items-center gap-3">
           <div
@@ -86,7 +94,7 @@ export function QAScorePanel({ reportContent }: { reportContent: string }) {
 
       {/* Expanded panel */}
       {isOpen && (
-        <div className="border-t border-gray-100 px-6 py-4">
+        <div className="border-t border-gray-100 px-5 py-4">
           {/* Section scores */}
           <div className="grid grid-cols-3 gap-3 mb-5">
             {Object.entries(scorecard.section_scores).map(([key, section]) => (
@@ -171,16 +179,16 @@ export function QAScorePanel({ reportContent }: { reportContent: string }) {
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
                 Language Flags
               </p>
-              <div className="space-y-1">
+              <div className="flex flex-wrap gap-1.5">
                 {scorecard.ai_language_flags.map((flag, i) => (
-                  <p key={`ai-${i}`} className="text-xs text-amber-700">
-                    AI language: {flag}
-                  </p>
+                  <span key={`ai-${i}`} className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+                    {flag}
+                  </span>
                 ))}
                 {scorecard.superlative_flags.map((flag, i) => (
-                  <p key={`sup-${i}`} className="text-xs text-amber-700">
-                    Superlative: {flag}
-                  </p>
+                  <span key={`sup-${i}`} className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-700">
+                    {flag}
+                  </span>
                 ))}
               </div>
             </div>

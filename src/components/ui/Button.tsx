@@ -6,11 +6,11 @@ type Variant = "primary" | "secondary" | "ghost";
 
 const variantStyles: Record<Variant, string> = {
   primary:
-    "bg-navy text-white hover:bg-navy-light focus-visible:ring-navy",
+    "bg-primary text-white hover:bg-primary-dark focus-visible:ring-primary",
   secondary:
-    "bg-chrome text-navy border border-gray-200 hover:bg-gray-100 focus-visible:ring-navy",
+    "bg-chrome text-navy border border-gray-200 hover:bg-gray-100 focus-visible:ring-primary",
   ghost:
-    "text-gray-600 hover:text-navy hover:bg-gray-100 focus-visible:ring-navy",
+    "text-gray-600 hover:text-navy hover:bg-gray-100 focus-visible:ring-primary",
 };
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

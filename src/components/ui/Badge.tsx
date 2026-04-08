@@ -17,7 +17,7 @@ const statusConfig: Record<string, { label: string; className: string }> = {
   },
   final: {
     label: "Final",
-    className: "bg-green-50 text-green-700",
+    className: "bg-primary/15 text-navy",
   },
 };
 

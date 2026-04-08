@@ -8,16 +8,18 @@ export default defineSchema({
   users: defineTable({
     name: v.optional(v.string()),
     email: v.optional(v.string()),
-    role: v.union(v.literal("writer"), v.literal("admin")),
+    role: v.optional(v.union(v.literal("writer"), v.literal("admin"))),
     image: v.optional(v.string()),
     emailVerificationTime: v.optional(v.number()),
     isAnonymous: v.optional(v.boolean()),
-    createdAt: v.number(),
+    createdAt: v.optional(v.number()),
   }).index("by_email", ["email"]),
 
   projects: defineTable({
     title: v.string(),
     clientName: v.string(),
+    writer: v.optional(v.string()),
+    interviewer: v.optional(v.string()),
     status: v.union(
       v.literal("draft"),
       v.literal("generating"),

@@ -8,6 +8,7 @@ import { Doc } from "../../../../convex/_generated/dataModel";
 import { NameGate } from "@/components/review/NameGate";
 import { Editor } from "@/components/editor/Editor";
 import { CommentSidebar } from "@/components/comments/CommentSidebar";
+import Image from "next/image";
 
 export default function ClientReviewPage() {
   const params = useParams();
@@ -18,7 +19,7 @@ export default function ClientReviewPage() {
   });
   const report = useQuery(
     api.reports.getLatestReport,
-    project ? { projectId: project._id } : "skip"
+    project ? { projectId: project._id, shareToken } : "skip"
   );
 
   const getOrCreateCommenter = useMutation(api.comments.getOrCreateCommenter);
@@ -37,6 +38,7 @@ export default function ClientReviewPage() {
       const result = await getOrCreateCommenter({
         projectId: project._id,
         name,
+        shareToken,
       });
       if (result) setCommenter(result);
     },
@@ -114,12 +116,15 @@ export default function ClientReviewPage() {
   return (
     <div className="flex flex-1 flex-col bg-canvas">
       {/* Top bar */}
-      <header className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2.5 sm:px-6">
-        <div className="min-w-0">
-          <h1 className="truncate text-sm font-semibold text-gray-900">
-            {project.title}
-          </h1>
-          <p className="text-xs text-gray-500">{project.clientName}</p>
+      <header className="flex items-center justify-between bg-navy px-6 py-3.5">
+        <div className="flex items-center gap-3 min-w-0">
+          <Image src="/logo.png" alt="Banhall" width={89} height={89} className="-my-5 brightness-0 invert" />
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-semibold text-white">
+              {project.title}
+            </h1>
+            <p className="text-xs text-white/50">{project.clientName}</p>
+          </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <div className="flex items-center gap-1.5">
@@ -129,7 +134,7 @@ export default function ClientReviewPage() {
             >
               {commenter.name[0]?.toUpperCase()}
             </div>
-            <span className="hidden text-xs text-gray-500 sm:inline">
+            <span className="hidden text-xs text-white/60 sm:inline">
               {commenter.name}
             </span>
           </div>
@@ -137,8 +142,8 @@ export default function ClientReviewPage() {
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
               sidebarOpen
-                ? "bg-navy text-white"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                ? "bg-primary text-white"
+                : "bg-white/10 text-white hover:bg-white/20"
             }`}
           >
             <svg
@@ -184,6 +189,7 @@ export default function ClientReviewPage() {
           onClearPending={() => setPendingHighlight(null)}
           isOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
+          shareToken={shareToken}
         />
       </div>
     </div>

@@ -3,6 +3,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { QA_SYSTEM_PROMPT } from "./prompts";
 import { TranscriptAnalysis } from "./analyzerAgent";
+import { runDeterministicChecks } from "./qaChecks";
 
 export interface QAScorecard {
   overall_score: number;
@@ -34,6 +35,13 @@ export async function runQAAgent(
   section244: string,
   section246: string
 ): Promise<QAScorecard> {
+  // Run deterministic checks first
+  const preComputedChecks = runDeterministicChecks(
+    section242,
+    section244,
+    section246
+  );
+
   const response = await client.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 4096,
@@ -42,6 +50,8 @@ export async function runQAAgent(
       {
         role: "user",
         content: `Review the following SR&ED report draft.
+
+${preComputedChecks}
 
 ## Original Transcript Analysis
 ${JSON.stringify(analysis, null, 2)}

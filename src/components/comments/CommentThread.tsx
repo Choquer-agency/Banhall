@@ -10,6 +10,7 @@ interface CommentThreadProps {
   onUnresolve?: () => void;
   onClick?: () => void;
   resolved?: boolean;
+  isActive?: boolean;
 }
 
 export function CommentThread({
@@ -20,6 +21,7 @@ export function CommentThread({
   onUnresolve,
   onClick,
   resolved = false,
+  isActive = false,
 }: CommentThreadProps) {
   const timeAgo = formatTimeAgo(comment.createdAt);
   const color = commenter?.color ?? "#9CA3AF";
@@ -27,15 +29,30 @@ export function CommentThread({
 
   return (
     <div
-      className={`cursor-pointer border-b border-gray-50 px-4 py-3 transition-colors hover:bg-gray-50 ${
-        resolved ? "opacity-60" : ""
+      className={`cursor-pointer border-l-2 px-4 py-3 transition-all ${
+        isActive
+          ? "border-l-navy bg-blue-50/50"
+          : resolved
+            ? "border-l-transparent opacity-50 hover:opacity-75"
+            : "border-l-transparent hover:bg-gray-50"
       }`}
       onClick={onClick}
     >
+      {/* Quoted text — prominent */}
+      <div className={`mb-2 rounded-md border px-2.5 py-1.5 ${
+        isActive
+          ? "border-navy/20 bg-navy/5"
+          : "border-gray-200 bg-gray-50"
+      }`}>
+        <p className="text-xs leading-relaxed text-gray-500 line-clamp-2">
+          &ldquo;{comment.highlightText}&rdquo;
+        </p>
+      </div>
+
       {/* Header */}
       <div className="flex items-center gap-2">
         <div
-          className="h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+          className="h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
           style={{ backgroundColor: color }}
         >
           {name[0]?.toUpperCase()}
@@ -49,27 +66,24 @@ export function CommentThread({
         )}
       </div>
 
-      {/* Highlighted text excerpt */}
-      <p className="mt-1.5 text-xs italic text-gray-400 line-clamp-1">
-        &ldquo;{comment.highlightText}&rdquo;
-      </p>
-
       {/* Comment body */}
       <p
-        className={`mt-1 text-sm text-gray-700 ${resolved ? "line-through" : ""}`}
+        className={`mt-1.5 text-sm leading-relaxed ${
+          resolved ? "text-gray-400 line-through" : "text-gray-700"
+        }`}
       >
         {comment.body}
       </p>
 
       {/* Actions */}
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex items-center gap-3">
         {!resolved && onResolve && commenterType === "writer" && (
           <button
             onClick={(e) => {
               e.stopPropagation();
               onResolve();
             }}
-            className="text-xs text-gray-400 hover:text-green-600"
+            className="text-xs font-medium text-gray-400 hover:text-green-600 transition-colors"
           >
             Resolve
           </button>
@@ -80,7 +94,7 @@ export function CommentThread({
               e.stopPropagation();
               onUnresolve();
             }}
-            className="text-xs text-gray-400 hover:text-navy"
+            className="text-xs font-medium text-gray-400 hover:text-navy transition-colors"
           >
             Reopen
           </button>
