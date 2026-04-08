@@ -66,7 +66,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     position: { top: number; left: number };
   }>({ isOpen: false, position: { top: 0, left: 0 } });
 
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const editor = useEditor({
     immediatelyRender: false,

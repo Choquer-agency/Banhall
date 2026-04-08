@@ -48,7 +48,7 @@ export function MarginComments({
 
   const [positions, setPositions] = useState<Map<string, number>>(new Map());
   const [pendingY, setPendingY] = useState<number | null>(null);
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number | undefined>(undefined);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const measuredHeightsRef = useRef<Map<string, number>>(new Map());
   const [layoutTick, setLayoutTick] = useState(0);
