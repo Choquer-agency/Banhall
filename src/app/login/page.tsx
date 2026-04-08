@@ -65,12 +65,9 @@ export default function LoginPage() {
     setSubmitting(true);
 
     try {
-      const result = await signIn("password", {
-        email,
-        password,
-        name: mode === "signUp" ? name : undefined,
-        flow: mode,
-      });
+      const params: Record<string, string> = { email, password, flow: mode };
+      if (mode === "signUp") params.name = name;
+      const result = await signIn("password", params);
       if (result.signingIn) {
         // Wait for auth state to propagate, then redirect
         setTimeout(() => {
