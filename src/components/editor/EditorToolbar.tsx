@@ -2,16 +2,19 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Editor } from "@tiptap/react";
+import { ChatIcon } from "@/components/ui/ChatIcon";
 
 interface EditorToolbarProps {
   editor: Editor;
   onComment?: () => void;
+  onAskAI?: () => void;
   commentOnly?: boolean;
 }
 
 export function EditorToolbar({
   editor,
   onComment,
+  onAskAI,
   commentOnly = false,
 }: EditorToolbarProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -160,6 +163,12 @@ export function EditorToolbar({
             </svg>
           </ToolbarButton>
         </>
+      )}
+
+      {onAskAI && (
+        <ToolbarButton active={false} onClick={onAskAI} title="Ask AI about this">
+          <ChatIcon className="h-3.5 w-3.5" />
+        </ToolbarButton>
       )}
     </div>
   );

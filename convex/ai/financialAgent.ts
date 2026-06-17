@@ -4,6 +4,7 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import Anthropic from "@anthropic-ai/sdk";
+import { MODEL } from "./model";
 
 const TIMESHEET_EXTRACTION_PROMPT = `You are a financial analyst for an SR&ED (Scientific Research & Experimental Development) consulting firm. Your job is to reconstruct timesheets from unstructured data sources.
 
@@ -75,7 +76,7 @@ export const processFinancialUpload = internalAction({
 
     // Step 1: Extract timesheet entries from the raw data
     const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: MODEL,
       max_tokens: 8192,
       system: TIMESHEET_EXTRACTION_PROMPT,
       messages: [
@@ -115,7 +116,7 @@ export const processFinancialUpload = internalAction({
     const sredHours = result.entries.filter((e) => e.sredEligible).reduce((sum, e) => sum + e.hours, 0);
 
     const summaryResponse = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: MODEL,
       max_tokens: 4096,
       system: FINANCIAL_SUMMARY_PROMPT,
       messages: [

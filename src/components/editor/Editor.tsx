@@ -20,7 +20,14 @@ export interface CommentRange {
 interface EditorProps {
   content: string;
   onUpdate?: (json: string) => void;
-  onComment?: (selection: { from: number; to: number; text: string }) => void;
+  onComment?: (selection: {
+    from: number;
+    to: number;
+    text: string;
+    x?: number;
+    y?: number;
+  }) => void;
+  onAskAI?: (selection: { from: number; to: number; text: string }) => void;
   editable?: boolean;
   commentRanges?: CommentRange[];
   onHoverComment?: (commentId: string | null) => void;
@@ -118,6 +125,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     content,
     onUpdate,
     onComment,
+    onAskAI,
     editable = true,
     commentRanges = [],
     onHoverComment,
@@ -175,8 +183,9 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       if (onUpdate) {
         if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = setTimeout(() => {
-          localEditRef.current = true;
-          onUpdate(JSON.stringify(ed.getJSON()));
+          const json = JSON.stringify(ed.getJSON());
+          lastSavedContentRef.current = json;
+          onUpdate(json);
         }, 1000);
       }
     },
@@ -252,26 +261,46 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     if (from === to) return;
     const text = editor.state.doc.textBetween(from, to, " ");
     if (!text.trim()) return;
+    let x: number | undefined;
+    let y: number | undefined;
+    try {
+      const coords = editor.view.coordsAtPos(to);
+      x = coords.left;
+      y = coords.bottom;
+    } catch {
+      /* position out of range */
+    }
     onComment({
       from,
       to,
       text: text.trim().slice(0, 200),
+      x,
+      y,
     });
   }, [editor, onComment]);
 
-  // Update content when it changes externally — but skip round-trips
-  // from our own edits (which would reset cursor position and scroll).
+  // Handle "Ask AI" action from toolbar — pass the full selected text (no
+  // 200-char cap; the chat needs the whole excerpt to edit it).
+  const handleAskAI = useCallback(() => {
+    if (!editor || !onAskAI) return;
+    const { from, to } = editor.state.selection;
+    if (from === to) return;
+    const text = editor.state.doc.textBetween(from, to, "\n");
+    if (!text.trim()) return;
+    onAskAI({ from, to, text: text.trim() });
+  }, [editor, onAskAI]);
+
+  // Apply external content changes (AI replace, restore, regenerate). Only the
+  // exact echo of our own last autosave is skipped — anything else is applied,
+  // so restores/replaces always reflect even right after an edit.
   const lastContentRef = useRef(content);
-  const localEditRef = useRef(false);
+  const lastSavedContentRef = useRef<string | null>(null);
   useEffect(() => {
     if (!editor) return;
     if (content !== lastContentRef.current) {
       lastContentRef.current = content;
-      // If this change came from our own onUpdate save, skip setContent
-      if (localEditRef.current) {
-        localEditRef.current = false;
-        return;
-      }
+      // Skip re-applying the round-trip echo of our own save.
+      if (content === lastSavedContentRef.current) return;
       const parsed = parseContent(content);
       if (parsed) {
         editor.commands.setContent(parsed);
@@ -327,7 +356,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
 
       {/* Floating toolbar on text selection */}
       {editable && (
-        <EditorToolbar editor={editor} onComment={handleComment} />
+        <EditorToolbar
+          editor={editor}
+          onComment={handleComment}
+          onAskAI={onAskAI ? handleAskAI : undefined}
+        />
       )}
 
       {/* Comment-only bubble for read-only mode */}

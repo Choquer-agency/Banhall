@@ -1,6 +1,7 @@
 "use node";
 
 import Anthropic from "@anthropic-ai/sdk";
+import { MODEL } from "./model";
 import { SECTION_244_SYSTEM_PROMPT } from "./prompts";
 import { TranscriptAnalysis } from "./analyzerAgent";
 
@@ -9,7 +10,7 @@ export async function runSection244Agent(
   analysis: TranscriptAnalysis
 ): Promise<string> {
   const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: MODEL,
     max_tokens: 4096,
     system: SECTION_244_SYSTEM_PROMPT,
     messages: [

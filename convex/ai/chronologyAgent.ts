@@ -1,6 +1,7 @@
 "use node";
 
 import Anthropic from "@anthropic-ai/sdk";
+import { MODEL } from "./model";
 import { TranscriptAnalysis } from "./analyzerAgent";
 
 export interface ChronologyEntry {
@@ -54,7 +55,7 @@ export async function runChronologyAgent(
   analysis: TranscriptAnalysis
 ): Promise<ChronologyTable> {
   const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: MODEL,
     max_tokens: 4096,
     system: CHRONOLOGY_SYSTEM_PROMPT,
     messages: [

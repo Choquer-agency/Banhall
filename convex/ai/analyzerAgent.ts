@@ -1,6 +1,7 @@
 "use node";
 
 import Anthropic from "@anthropic-ai/sdk";
+import { MODEL } from "./model";
 import { ANALYZER_SYSTEM_PROMPT } from "./prompts";
 
 export interface TranscriptAnalysis {
@@ -35,7 +36,7 @@ export async function runAnalyzerAgent(
   transcript: string
 ): Promise<TranscriptAnalysis> {
   const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: MODEL,
     max_tokens: 8192,
     system: ANALYZER_SYSTEM_PROMPT,
     messages: [

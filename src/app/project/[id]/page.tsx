@@ -16,20 +16,15 @@ import { GenerationProgress } from "@/components/generation/GenerationProgress";
 import { Editor, EditorHandle, CommentRange } from "@/components/editor/Editor";
 import { QAScorePanel } from "@/components/editor/QAScorePanel";
 import { ChronologyPanel } from "@/components/editor/ChronologyTable";
-import { MarginComments } from "@/components/comments/MarginComments";
+import { FilesPanel } from "@/components/editor/FilesPanel";
+import { LogsPanel } from "@/components/editor/LogsPanel";
+import { CommentOverlay } from "@/components/comments/CommentOverlay";
+import { ChatPanel } from "@/components/chat/ChatPanel";
+import { IconAction } from "@/components/ui/IconAction";
+import { VersionHistory } from "@/components/history/VersionHistory";
 import { exportToDocx } from "@/lib/exportDocx";
 import Link from "next/link";
 import Image from "next/image";
-
-const STATUS_FLOW: Array<{
-  from: string;
-  to: string;
-  label: string;
-}> = [
-  { from: "review", to: "client_review", label: "Send to Client" },
-  { from: "client_review", to: "final", label: "Mark as Final" },
-  { from: "final", to: "review", label: "Reopen" },
-];
 
 export default function ProjectPage() {
   const { isAuthenticated, isLoading } = useConvexAuth();
@@ -49,20 +44,35 @@ export default function ProjectPage() {
 
   const generateReport = useMutation(api.projects.scheduleGenerateReport);
   const updateReport = useMutation(api.reports.updateReportContent);
-  const updateStatus = useMutation(api.projects.updateProjectStatus);
+  const createSnapshot = useMutation(api.snapshots.createManualSnapshot);
 
   const editorRef = useRef<EditorHandle>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const lastSnapshotAtRef = useRef(0);
   const [saving, setSaving] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [pendingHighlight, setPendingHighlight] = useState<{
     from: number;
     to: number;
     text: string;
+    x?: number;
+    y?: number;
   } | null>(null);
   const [copied, setCopied] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
   const [hoveredCommentId, setHoveredCommentId] = useState<string | null>(null);
+  const [pendingChatHighlight, setPendingChatHighlight] = useState<{
+    from: number;
+    to: number;
+    text: string;
+  } | null>(null);
+
+  const handleAskAI = useCallback(
+    (selection: { from: number; to: number; text: string }) => {
+      setPendingChatHighlight(selection);
+    },
+    []
+  );
 
   // Build comment ranges for editor highlights (only unresolved comments)
   const commentRanges: CommentRange[] = (comments ?? [])
@@ -72,7 +82,6 @@ export default function ProjectPage() {
       from: c.highlightFrom,
       to: c.highlightTo,
       text: c.highlightText,
-      active: c._id === activeCommentId,
       isClient: c.commenterType === "client",
     }));
 
@@ -87,6 +96,15 @@ export default function ProjectPage() {
       if (!report) return;
       setSaving(true);
       try {
+        // Take a restore-point checkpoint of the prior state at most once every
+        // 5 minutes of active editing (deduped + log-thinned server-side).
+        const now = Date.now();
+        if (now - lastSnapshotAtRef.current > 300_000) {
+          lastSnapshotAtRef.current = now;
+          createSnapshot({ reportId: report._id, reason: "manual" }).catch(
+            () => {}
+          );
+        }
         await updateReport({ reportId: report._id, content: json });
       } catch (e) {
         console.error("Failed to save:", e);
@@ -94,7 +112,7 @@ export default function ProjectPage() {
         setSaving(false);
       }
     },
-    [report, updateReport]
+    [report, updateReport, createSnapshot]
   );
 
   const handleRegenerate = useCallback(async () => {
@@ -113,9 +131,18 @@ export default function ProjectPage() {
     setTimeout(() => setCopied(false), 2000);
   }, [project]);
 
-  const handleComment = useCallback((selection: { from: number; to: number; text: string }) => {
-    setPendingHighlight(selection);
-  }, []);
+  const handleComment = useCallback(
+    (selection: {
+      from: number;
+      to: number;
+      text: string;
+      x?: number;
+      y?: number;
+    }) => {
+      setPendingHighlight(selection);
+    },
+    []
+  );
 
   const handleExport = useCallback(async () => {
     if (!report || !project) return;
@@ -131,16 +158,6 @@ export default function ProjectPage() {
       setExporting(false);
     }
   }, [report, project]);
-
-  const handleStatusChange = useCallback(
-    async (newStatus: string) => {
-      await updateStatus({
-        projectId,
-        status: newStatus as "draft" | "review" | "client_review" | "final",
-      });
-    },
-    [projectId, updateStatus]
-  );
 
   if (isLoading || !isAuthenticated || project === undefined) {
     return (
@@ -163,87 +180,100 @@ export default function ProjectPage() {
 
   const isGenerating = generation?.status === "running";
   const hasReport = !!report;
-  const nextStatus = STATUS_FLOW.find((s) => s.from === project.status);
 
   return (
-    <div className="flex flex-1 flex-col bg-canvas">
-      {/* Top bar — floating dark brand */}
-      <div className="sticky top-0 z-50 w-full pt-5 px-[10%] bg-canvas">
-        <header className="flex items-center justify-between bg-navy px-5 py-5 rounded-xl">
-        <div className="flex items-center gap-3 min-w-0">
-          <Link href="/dashboard" className="flex items-center gap-5 flex-shrink-0">
-            <Image src="/logo.png" alt="Banhall" width={89} height={89} className="-my-5 brightness-0 invert" />
-            <span className="text-sm text-white/60 hover:text-white/80 transition-colors">Dashboard</span>
-          </Link>
-          <svg className="h-3 w-3 flex-shrink-0 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-          <span className="truncate text-sm font-medium text-white">
-            {project.title}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-3 flex-shrink-0">
-          {saving && (
-            <span className="hidden text-xs text-white/40 sm:inline">
-              Saving...
-            </span>
-          )}
-
-          <Badge status={project.status} />
-
-          {hasReport && (
-            <>
-              {nextStatus && (
-                <button
-                  onClick={() => handleStatusChange(nextStatus.to)}
-                  className="hidden h-8 rounded-lg bg-primary px-4 text-xs font-medium text-white hover:bg-primary-dark transition-colors sm:inline-flex items-center justify-center"
-                >
-                  {nextStatus.label}
-                </button>
+    <div className="flex h-screen flex-col overflow-hidden bg-canvas">
+      {/* Top bar — dark main menu + white sub-menu */}
+      <div className="w-full shrink-0 px-[10%] pt-5">
+        <div className="flex items-stretch gap-3">
+          {/* Main menu (dark) */}
+          <header className="flex min-w-0 flex-1 items-center gap-4 rounded-xl bg-navy px-5 py-4">
+            <Link href="/dashboard" className="flex-shrink-0">
+              <Image src="/logo.png" alt="Banhall" width={89} height={89} className="-my-5 brightness-0 invert" />
+            </Link>
+            <div className="ml-auto flex min-w-0 items-center gap-3">
+              <Link href="/dashboard" className="text-sm text-white/60 transition-colors hover:text-white/80">
+                Dashboard
+              </Link>
+              <svg className="h-3 w-3 flex-shrink-0 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+              <span className="truncate text-sm font-medium text-white">
+                {project.title}
+              </span>
+              <Badge status={project.status} />
+              {saving && (
+                <span className="ml-1 hidden text-xs text-white/40 sm:inline">
+                  Saving…
+                </span>
               )}
+            </div>
+          </header>
 
-              <button
+          {/* Sub-menu (white) — icons that reveal their label on hover */}
+          {hasReport && (
+            <nav className="hidden flex-shrink-0 items-center gap-1 rounded-xl bg-white px-2 py-2 sm:flex">
+              <IconAction
+                label={copied ? "Copied!" : "Share"}
+                title="Share"
                 onClick={handleCopyShareLink}
-                className="hidden h-8 rounded-lg bg-white/10 px-4 text-xs font-medium text-white hover:bg-white/20 transition-colors sm:inline-flex items-center justify-center"
-              >
-                {copied ? "Copied!" : "Share"}
-              </button>
-
-              <button
+                icon={
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                  </svg>
+                }
+              />
+              <IconAction
+                label="History"
+                onClick={() => setShowHistory(true)}
+                icon={
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                }
+              />
+              <IconAction
+                label={exporting ? "Exporting…" : "Export .docx"}
+                title="Export .docx"
                 onClick={handleExport}
                 disabled={exporting}
-                className="hidden h-8 rounded-lg bg-white/10 px-4 text-xs font-medium text-white hover:bg-white/20 transition-colors disabled:opacity-50 sm:inline-flex items-center justify-center"
-              >
-                {exporting ? "Exporting..." : "Export .docx"}
-              </button>
-
-              <Link
+                icon={
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                }
+              />
+              <IconAction
+                label="Financial"
                 href={`/project/${projectId}/financial`}
-                className="hidden h-8 rounded-lg bg-white/10 px-4 text-xs font-medium text-white hover:bg-white/20 transition-colors sm:inline-flex items-center justify-center"
-              >
-                Financial
-              </Link>
-            </>
+                icon={
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                }
+              />
+            </nav>
           )}
         </div>
-      </header>
       </div>
 
       {/* Generation progress */}
       {(isGenerating ||
         (generation && generation.status === "failed" && !hasReport)) && (
-        <div className="mx-auto w-full max-w-3xl px-6 py-8">
-          <GenerationProgress projectId={projectId} />
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-3xl px-6 py-8">
+            <GenerationProgress projectId={projectId} />
+          </div>
         </div>
       )}
 
-      {/* Editor workspace + margin comments */}
+      {/* Editor workspace + chat rail (single view) */}
       {hasReport && (
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-          <div className="relative mx-auto max-w-[1100px] px-6 py-8">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-[760px] px-8 py-10">
             {/* Project info header */}
-            <div className="max-w-[680px] mb-8 pb-6 border-b border-gray-200">
+            <div className="mb-8 pb-6 border-b border-gray-200">
               <h1 className="text-2xl font-bold text-gray-900">{project.title}</h1>
               <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                 <div>
@@ -286,52 +316,71 @@ export default function ProjectPage() {
             </div>
 
             {/* Editor column */}
-            <div className="max-w-[680px]">
-              <Editor
-                ref={editorRef}
-                content={report.content}
-                onUpdate={handleEditorUpdate}
-                onComment={handleComment}
-                editable={true}
-                commentRanges={commentRanges}
-                onHoverComment={setHoveredCommentId}
-              />
-            </div>
+            <Editor
+              ref={editorRef}
+              content={report.content}
+              onUpdate={handleEditorUpdate}
+              onComment={handleComment}
+              onAskAI={handleAskAI}
+              editable={true}
+              commentRanges={commentRanges}
+              onHoverComment={setHoveredCommentId}
+            />
 
-            {/* QA Score — full width of the content area */}
+            {/* QA Score */}
             <div className="mt-8 mb-12">
               <QAScorePanel agentOutputs={generation?.agentOutputs} reportContent={report.content} />
               <div className="mt-4">
                 <ChronologyPanel agentOutputs={generation?.agentOutputs} />
               </div>
-            </div>
-
-            {/* Margin comments — positioned absolutely to the right of editor */}
-            {report && user && (
-              <div className="absolute top-8 right-6" style={{ left: 'calc(680px + 2rem + 1.5rem)', width: '256px' }}>
-                <MarginComments
-                  projectId={projectId}
-                  reportId={report._id}
-                  commenterId={user._id}
-                  commenterType="writer"
-                  commenterName={user.name ?? user.email ?? "Writer"}
-                  pendingHighlight={pendingHighlight}
-                  onClearPending={() => setPendingHighlight(null)}
-                  editorRef={editorRef}
-                  scrollContainerRef={scrollContainerRef}
-                  activeCommentId={activeCommentId}
-                  onActiveCommentChange={setActiveCommentId}
-                  hoveredCommentId={hoveredCommentId}
-                />
+              <div className="mt-4">
+                <FilesPanel projectId={projectId} />
               </div>
-            )}
+              <LogsPanel projectId={projectId} />
+            </div>
           </div>
         </div>
+
+        {/* Chat rail — sticky, padded, rounded card */}
+        {report && user && (
+          <aside className="flex w-[460px] flex-shrink-0 flex-col bg-canvas pb-[25px] pl-6 pr-[25px] pt-[25px]">
+            <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-chrome bg-white shadow-sm">
+              <ChatPanel
+                projectId={projectId}
+                reportId={report._id}
+                pendingHighlight={pendingChatHighlight}
+                onClearHighlight={() => setPendingChatHighlight(null)}
+              />
+            </div>
+          </aside>
+        )}
+        </div>
+      )}
+
+      {/* Comment authoring + hover overlay (single view) */}
+      {hasReport && report && user && (
+        <CommentOverlay
+          projectId={projectId}
+          reportId={report._id}
+          commenterId={user._id}
+          commenterName={user.name ?? user.email ?? "Writer"}
+          hoveredCommentId={hoveredCommentId}
+          pendingHighlight={pendingHighlight}
+          onClearPending={() => setPendingHighlight(null)}
+        />
+      )}
+
+      {/* Version history modal */}
+      {showHistory && report && (
+        <VersionHistory
+          reportId={report._id}
+          onClose={() => setShowHistory(false)}
+        />
       )}
 
       {/* No report, not generating — show transcript */}
       {!hasReport && !isGenerating && (
-        <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
+        <main className="mx-auto w-full max-w-3xl min-h-0 flex-1 overflow-y-auto px-6 py-8">
           <h1 className="text-2xl font-bold text-gray-900">{project.title}</h1>
           <p className="mt-1 text-sm text-gray-500">{project.clientName}</p>
 

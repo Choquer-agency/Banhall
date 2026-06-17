@@ -1,6 +1,7 @@
 "use node";
 
 import Anthropic from "@anthropic-ai/sdk";
+import { MODEL } from "./model";
 import { QA_SYSTEM_PROMPT } from "./prompts";
 import { TranscriptAnalysis } from "./analyzerAgent";
 import { runDeterministicChecks } from "./qaChecks";
@@ -43,7 +44,7 @@ export async function runQAAgent(
   );
 
   const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: MODEL,
     max_tokens: 4096,
     system: QA_SYSTEM_PROMPT,
     messages: [
