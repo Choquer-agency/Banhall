@@ -1,4 +1,40 @@
 import { internalMutation } from "./_generated/server";
+import { v } from "convex/values";
+
+/**
+ * Maintenance: dedupe projectDocuments by fileName (keeping the copy with
+ * stored bytes) and tag the survivor with a category. One-off helper.
+ *
+ * Run with:  npx convex run seed:tagAndDedupeDoc '{"fileName":"X.pdf","category":"background"}'
+ */
+export const tagAndDedupeDoc = internalMutation({
+  args: {
+    fileName: v.string(),
+    category: v.union(
+      v.literal("previous_pd"),
+      v.literal("scoping_notes"),
+      v.literal("writer_notes"),
+      v.literal("background"),
+      v.literal("other")
+    ),
+  },
+  handler: async (ctx, args) => {
+    const all = await ctx.db.query("projectDocuments").collect();
+    const matches = all.filter((d) => d.fileName === args.fileName);
+    if (matches.length === 0) return { found: 0 };
+    // Prefer keeping the copy that has original bytes stored.
+    matches.sort((a, b) => (b.storageId ? 1 : 0) - (a.storageId ? 1 : 0));
+    const keep = matches[0];
+    let deleted = 0;
+    for (let i = 1; i < matches.length; i++) {
+      if (matches[i].storageId) await ctx.storage.delete(matches[i].storageId!);
+      await ctx.db.delete(matches[i]._id);
+      deleted++;
+    }
+    await ctx.db.patch(keep._id, { category: args.category });
+    return { found: matches.length, kept: keep._id, deleted };
+  },
+});
 
 /**
  * Seeds a demo project + transcript + generated report + generation record for

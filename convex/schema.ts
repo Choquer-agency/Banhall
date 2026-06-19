@@ -125,6 +125,7 @@ export default defineSchema({
     ),
     agentOutputs: v.optional(v.string()),
     currentStep: v.optional(v.string()),
+    progressLog: v.optional(v.array(v.string())),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),
@@ -200,6 +201,16 @@ export default defineSchema({
     // Original file bytes in Convex storage (for preview/download).
     storageId: v.optional(v.id("_storage")),
     mimeType: v.optional(v.string()),
+    // Contextual-input category (BNH-9) used for SR&ED weighting at generation.
+    category: v.optional(
+      v.union(
+        v.literal("previous_pd"),
+        v.literal("scoping_notes"),
+        v.literal("writer_notes"),
+        v.literal("background"),
+        v.literal("other")
+      )
+    ),
     source: v.string(),
     uploadedBy: v.string(),
     createdAt: v.number(),

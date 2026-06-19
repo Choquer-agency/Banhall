@@ -1,8 +1,8 @@
 "use node";
 
 import Anthropic from "@anthropic-ai/sdk";
-import { MODEL } from "./model";
 import { TranscriptAnalysis } from "./analyzerAgent";
+import { generateStructured } from "./structured";
 
 export interface ChronologyEntry {
   phase: string;
@@ -54,25 +54,33 @@ export async function runChronologyAgent(
   client: Anthropic,
   analysis: TranscriptAnalysis
 ): Promise<ChronologyTable> {
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 4096,
+  return await generateStructured<ChronologyTable>(client, {
     system: CHRONOLOGY_SYSTEM_PROMPT,
-    messages: [
-      {
-        role: "user",
-        content: `Generate a chronology table from this transcript analysis:\n\n${JSON.stringify(analysis, null, 2)}`,
-      },
-    ],
+    user: `Generate a chronology table from this transcript analysis:\n\n${JSON.stringify(analysis, null, 2)}`,
+    toolName: "submit_chronology_table",
+    description: "Submit the SR&ED chronology table.",
+    schema: CHRONOLOGY_SCHEMA,
+    maxTokens: 4096,
   });
-
-  const text =
-    response.content[0].type === "text" ? response.content[0].text : "";
-
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error("Chronology agent did not return valid JSON");
-  }
-
-  return JSON.parse(jsonMatch[0]) as ChronologyTable;
 }
+
+const CHRONOLOGY_SCHEMA: Anthropic.Tool.InputSchema = {
+  type: "object",
+  properties: {
+    entries: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          phase: { type: "string" },
+          description: { type: "string" },
+          uncertaintyAddressed: { type: "string" },
+          activityType: { type: "string", enum: ["experimental", "supporting"] },
+          estimatedHours: { type: "string" },
+        },
+        required: ["phase", "description", "uncertaintyAddressed", "activityType"],
+      },
+    },
+  },
+  required: ["entries"],
+};

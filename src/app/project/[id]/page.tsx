@@ -74,6 +74,51 @@ export default function ProjectPage() {
     []
   );
 
+  // BNH-14: resizable chat panel (default 50/50). Full-screen toggle is hidden
+  // for now — keep `chatFull` as a dormant flag so it's easy to re-enable.
+  const [chatRatio, setChatRatio] = useState(0.5);
+  const chatFull = false;
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+
+  useEffect(() => {
+    const r = sessionStorage.getItem("banhall_chat_ratio");
+    if (r) setChatRatio(Math.min(0.8, Math.max(0.25, parseFloat(r))));
+    sessionStorage.removeItem("banhall_chat_full");
+  }, []);
+  useEffect(() => {
+    sessionStorage.setItem("banhall_chat_ratio", String(chatRatio));
+  }, [chatRatio]);
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      if (!draggingRef.current || !workspaceRef.current) return;
+      const rect = workspaceRef.current.getBoundingClientRect();
+      const ratio = (rect.right - e.clientX) / rect.width;
+      setChatRatio(Math.min(0.8, Math.max(0.25, ratio)));
+    }
+    function onUp() {
+      if (draggingRef.current) {
+        draggingRef.current = false;
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+      }
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  const startDrag = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    draggingRef.current = true;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+  }, []);
+
   // Build comment ranges for editor highlights (only unresolved comments)
   const commentRanges: CommentRange[] = (comments ?? [])
     .filter((c) => !c.resolved)
@@ -267,11 +312,12 @@ export default function ProjectPage() {
         </div>
       )}
 
-      {/* Editor workspace + chat rail (single view) */}
+      {/* Editor workspace + chat rail (single view, resizable — BNH-14) */}
       {hasReport && (
-        <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div ref={workspaceRef} className="flex min-h-0 flex-1 overflow-hidden">
+        {!chatFull && (
         <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-[760px] px-8 py-10">
+          <div className="mx-auto max-w-[760px] px-10 py-10">
             {/* Project info header */}
             <div className="mb-8 pb-6 border-b border-gray-200">
               <h1 className="text-2xl font-bold text-gray-900">{project.title}</h1>
@@ -340,10 +386,25 @@ export default function ProjectPage() {
             </div>
           </div>
         </div>
+        )}
 
-        {/* Chat rail — sticky, padded, rounded card */}
+        {/* Draggable divider */}
+        {!chatFull && report && user && (
+          <div
+            onMouseDown={startDrag}
+            title="Drag to resize"
+            className="group flex w-3 flex-none cursor-col-resize items-center justify-center"
+          >
+            <div className="h-10 w-1 rounded-full bg-gray-300 transition-colors group-hover:bg-primary" />
+          </div>
+        )}
+
+        {/* Chat rail — resizable / full-screen */}
         {report && user && (
-          <aside className="flex w-[460px] flex-shrink-0 flex-col bg-canvas pb-[25px] pl-6 pr-[25px] pt-[25px]">
+          <aside
+            className="flex min-h-0 flex-none flex-col bg-canvas py-6 pl-1 pr-6"
+            style={{ width: chatFull ? "100%" : `${chatRatio * 100}%` }}
+          >
             <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-chrome bg-white shadow-sm">
               <ChatPanel
                 projectId={projectId}

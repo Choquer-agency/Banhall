@@ -9,12 +9,19 @@ import remarkGfm from "remark-gfm";
 import { ProposedEditCard } from "./ProposedEditCard";
 import { ChatIcon } from "@/components/ui/ChatIcon";
 import { parseFileToText } from "@/lib/parseDocument";
+import {
+  CONTEXT_CATEGORIES,
+  ContextCategoryId,
+  categoryMeta,
+} from "@/lib/contextCategories";
 
 interface ChatPanelProps {
   projectId: Id<"projects">;
   reportId: Id<"reports">;
   pendingHighlight?: { from: number; to: number; text: string } | null;
   onClearHighlight?: () => void;
+  isFull?: boolean;
+  onToggleFull?: () => void;
 }
 
 function trimName(name: string): string {
@@ -37,6 +44,8 @@ export function ChatPanel({
   reportId,
   pendingHighlight,
   onClearHighlight,
+  isFull,
+  onToggleFull,
 }: ChatPanelProps) {
   const threads = useQuery(api.chat.listThreads, { reportId });
   const [selectedThreadId, setSelectedThreadId] =
@@ -69,8 +78,10 @@ export function ChatPanel({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<
-    { documentId: Id<"projectDocuments">; fileName: string }[]
+    { documentId: Id<"projectDocuments">; fileName: string; category: ContextCategoryId }[]
   >([]);
+  // Files picked via the paperclip, awaiting a category choice before upload.
+  const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -143,12 +154,13 @@ export function ChatPanel({
     ]
   );
 
-  async function handleFiles(files: FileList | null) {
+  async function uploadFiles(files: File[], category: ContextCategoryId) {
     if (!files || files.length === 0) return;
+    setPendingFiles(null);
     setUploading(true);
     setUploadError(null);
     try {
-      for (const file of Array.from(files)) {
+      for (const file of files) {
         // 1. Store the original file bytes so it can be previewed/downloaded.
         let storageId: Id<"_storage"> | undefined;
         try {
@@ -181,10 +193,11 @@ export function ChatPanel({
           fileType: parsed.fileType,
           content: parsed.content,
           source: "chat_upload",
+          category,
           ...(storageId ? { storageId } : {}),
           ...(file.type ? { mimeType: file.type } : {}),
         });
-        setAttachments((a) => [...a, { documentId, fileName: file.name }]);
+        setAttachments((a) => [...a, { documentId, fileName: file.name, category }]);
 
         // 4. Tell the writer if the assistant won't have any text from it.
         if (!parsed.content.trim()) {
@@ -223,30 +236,64 @@ export function ChatPanel({
         </div>
       )}
 
+      {/* Category prompt — asks what the just-picked file(s) are */}
+      {pendingFiles && (
+        <div className="mb-2 rounded-xl border border-navy/15 bg-navy/5 p-3">
+          <p className="mb-2 text-xs text-navy">
+            What {pendingFiles.length > 1 ? "are these files" : `is “${trimName(pendingFiles[0].name)}”`}? Pick a category:
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {CONTEXT_CATEGORIES.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => uploadFiles(pendingFiles, c.id)}
+                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-opacity hover:opacity-80 ${c.pill}`}
+              >
+                {c.label}
+              </button>
+            ))}
+            <button
+              onClick={() => setPendingFiles(null)}
+              className="rounded-full px-2.5 py-1 text-[11px] font-medium text-gray-400 hover:text-gray-600"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Attachment chips above the box */}
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
-          {attachments.map((a, i) => (
-            <span
-              key={`${a.documentId}-${i}`}
-              className="inline-flex items-center gap-1 rounded-md bg-chrome px-2 py-1 text-[11px] text-gray-600"
-            >
-              <svg className="h-3 w-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-              </svg>
-              {trimName(a.fileName)}
-              <button
-                onClick={() =>
-                  setAttachments((list) => list.filter((_, idx) => idx !== i))
-                }
-                className="ml-0.5 text-gray-400 hover:text-gray-600"
+          {attachments.map((a, i) => {
+            const meta = categoryMeta(a.category);
+            return (
+              <span
+                key={`${a.documentId}-${i}`}
+                className="inline-flex items-center gap-1 rounded-md bg-chrome px-2 py-1 text-[11px] text-gray-600"
               >
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                <svg className="h-3 w-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                 </svg>
-              </button>
-            </span>
-          ))}
+                {trimName(a.fileName)}
+                {meta && (
+                  <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${meta.pill}`}>
+                    {meta.label}
+                  </span>
+                )}
+                <button
+                  onClick={() =>
+                    setAttachments((list) => list.filter((_, idx) => idx !== i))
+                  }
+                  className="ml-0.5 text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </span>
+            );
+          })}
         </div>
       )}
 
@@ -272,7 +319,12 @@ export function ChatPanel({
           multiple
           accept=".txt,.md,.markdown,.pdf,.docx"
           className="hidden"
-          onChange={(e) => handleFiles(e.target.files)}
+          onChange={(e) => {
+            if (e.target.files && e.target.files.length) {
+              setPendingFiles(Array.from(e.target.files));
+            }
+            e.target.value = "";
+          }}
         />
         {/* Pasted-text pill sits inline; text starts beside it (terminal-style) */}
         <div className="relative flex-1 py-1">
@@ -345,6 +397,23 @@ export function ChatPanel({
           <ChatIcon className="h-3 w-3" />
         </span>
         <span className="text-[15px] font-semibold text-navy">Assistant</span>
+        {onToggleFull && (
+          <button
+            onClick={onToggleFull}
+            title={isFull ? "Exit full screen" : "Expand to full screen"}
+            className="ml-auto flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-chrome hover:text-navy"
+          >
+            {isFull ? (
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 9L4 4m0 0v4m0-4h4m7 5l5-5m0 0v4m0-4h-4M9 15l-5 5m0 0v-4m0 4h4m7-5l5 5m0 0v-4m0 4h-4" />
+              </svg>
+            ) : (
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+              </svg>
+            )}
+          </button>
+        )}
       </div>
 
       {isEmpty ? (

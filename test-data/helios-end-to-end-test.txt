@@ -1,0 +1,138 @@
+==================================================================
+BANHALL — END-TO-END TEST KIT  (Project Helios)
+==================================================================
+HOW TO USE
+1. Step 1 of New Project: paste the PROJECT FIELDS + TRANSCRIPT below.
+2. Save each "FILE" section as its own .pdf or .docx.
+3. Step 2: upload each file under the matching category
+   (FILE 1 → Previous-year reports / 2024, FILE 2 → Scoping notes, etc.).
+4. Generate. Then use the GOLDEN-NUGGET CHECKLIST at the very bottom to
+   confirm the report pulled a fact from EACH context file — none of the
+   nuggets appear in the transcript, so if they show up in the report,
+   the contextual-inputs pipeline is working.
+==================================================================
+
+
+==================================================================
+PROJECT FIELDS  (Step 1)
+==================================================================
+Project title:   Project Helios F2025
+Client name:     Verdant Grid Technologies Inc.
+Writer:          (auto-filled from your signed-in account)
+Interviewer:     Dana Whitfield
+
+
+==================================================================
+INTERVIEW TRANSCRIPT  (Step 1 — paste into the transcript box)
+==================================================================
+Interviewer (Dana): Thanks for the time, Marcus. Can you describe what Verdant Grid set out to build this year?
+
+Subject (Marcus Lindqvist, CTO): Sure. We build controllers for residential solar microgrids — neighbourhoods where a lot of homes have rooftop solar and a battery, all tied together. This year's project was a predictive load-balancing controller. The goal was to keep voltage stable across the cluster while shifting load and battery charge/discharge around, so no single feeder gets overloaded when everyone's exporting at noon or pulling hard at dinner.
+
+Dana: What made that hard? Couldn't you just use standard grid controls?
+
+Marcus: The standard stuff assumes a central operator and predictable one-way power flow. Our situation is the opposite — power flows both directions, generation is intermittent, and there's no central meter we can trust in real time. The big unknown was whether we could forecast cluster-level net load accurately enough to act ahead of a voltage event, given how fast cloud cover changes generation. We genuinely didn't know if a useful forecast was even possible at the timescale we needed.
+
+Dana: So what did you try?
+
+Marcus: First we tried a rule-based controller — thresholds on voltage that triggered battery dispatch. It oscillated badly; batteries fought each other across homes and we got voltage flicker. So that approach told us coordination had to be predictive, not reactive. Then we built a forecasting model off historical generation and weather, and drove dispatch from the forecast. That was better in steady conditions but fell apart during fast partial-cloud transitions — the forecast lagged reality. The third iteration was a distributed approach where each home's controller negotiates with its neighbours instead of relying on a central forecast. That held voltage much better, but it introduced a new problem: the negotiation could fail to converge when comms latency spiked.
+
+Dana: Where did it land?
+
+Marcus: We've got the distributed negotiation working in simulation and on a small bench setup. Voltage stays within band in most scenarios. The open question we're still chasing is convergence guarantees under degraded communications — we don't yet know the conditions where it's provably stable. And honestly there's a lot of homeowner-app polish we did too, the dashboard and notifications, which took a chunk of time. But the core controller is the real work.
+
+Dana: Anything on results?
+
+Marcus: In sim, the distributed controller cut voltage excursions by about two-thirds versus the rule-based baseline. That's the headline. The convergence-under-latency thing is next year's problem.
+==================================================================
+
+
+==================================================================
+FILE 1 — PREVIOUS-YEAR REPORT (FY2024)  → category: Previous-year reports (2024)
+==================================================================
+Verdant Grid Technologies Inc. — SR&ED Project Description, Fiscal 2024
+Project: Microgrid Protection & Islanding Controller
+
+Summary of FY2024 work:
+The fiscal 2024 SR&ED claim centred on the islanding-detection subsystem — determining whether a safe, fast disconnect from the utility grid could be achieved without nuisance tripping. Through systematic investigation the company established that the islanding-detection algorithm could reliably achieve a sub-200ms disconnect time across the tested fault conditions, which became the qualifying advancement for the year.
+
+Carried-forward uncertainty:
+During FY2024 the company also determined that generation forecasting was viable only out to a 15-minute horizon; beyond that, error grew faster than the control loop could tolerate. Extending useful prediction beyond this 15-minute forecast horizon was explicitly left as an open uncertainty to be addressed in a future fiscal year.
+==================================================================
+
+
+==================================================================
+FILE 2 — SCOPING NOTES  → category: Scoping notes
+==================================================================
+Pre-interview scoping call — Project Helios
+
+Context gathered before the technical interview:
+- The deployment grid operator is the Coastline Power Authority, and their interconnection agreement is the binding constraint on the design.
+- The central technical challenge the writer should anchor the SR&ED argument around is compliance with the IEEE 1547-2018 reactive-power ride-through requirement while still performing predictive load balancing — the controller must hold reactive-power support through voltage disturbances, which conventional residential inverters are not designed to coordinate.
+- The client considers the reactive-power ride-through behaviour the make-or-break requirement; if the controller can't maintain it during a disturbance, the whole interconnection fails review.
+==================================================================
+
+
+==================================================================
+FILE 3 — WRITER'S NOTES (unreliable narrator)  → category: Writer's notes
+==================================================================
+My notes after the interview (interviewer guidance — treat as authoritative):
+
+- IGNORE the CTO's tangent about the homeowner mobile app, the dashboard and notifications. That is routine UI development and is NOT SR&ED. Do not include it as work performed.
+- The CTO undersold the real uncertainty. The TRUE technological uncertainty this year was state-of-charge (SoC) estimation drift: under partial shading the per-home SoC estimate drifted by more than 8%, which corrupted the dispatch decisions. Center the uncertainty discussion on this SoC drift, not on the forecasting framing he led with.
+- Of the iterations he described, only write up iteration 2 (the forecasting model) and iteration 4 (the distributed negotiation). Skip the others for the narrative.
+==================================================================
+
+
+==================================================================
+FILE 4 — BACKGROUND RESEARCH  → category: Background research
+==================================================================
+Background reference notes (general domain context, not company-specific):
+
+- Partial shading on a PV string causes "bypass diode activation," where shaded cells are bypassed and the string's output drops in characteristic steps. This is a well-documented cause of generation mismatch in residential arrays.
+- For lithium battery systems, the industry-standard baseline for state-of-charge estimation error using coulomb-counting methods is typically around 3% under controlled conditions; real-world error is higher.
+- These are general background facts about the technology area and should inform terminology only — not be presented as the company's own experimental findings.
+==================================================================
+
+
+==================================================================
+FILE 5 — OTHER SUPPORTING DOC  → category: Other
+==================================================================
+Deployment & logistics notes:
+
+- The field pilot for Project Helios ran across a 42-home pilot in the Fraser Valley microgrid cluster, from March to August 2025.
+- One node in the cluster was a community centre with a 3-phase connection, which behaved differently from the single-phase residential nodes and was used as a stress-test site.
+==================================================================
+
+
+==================================================================
+GOLDEN-NUGGET CHECKLIST  (do NOT upload — this is your answer key)
+==================================================================
+None of these appear in the transcript. After generating, search the report
+(and the QA panel / chat) for each. A hit means that context file was used:
+
+[ ] FILE 1 (Previous-year): "sub-200ms" islanding disconnect  AND/OR  "15-minute forecast horizon"
+[ ] FILE 2 (Scoping):        "IEEE 1547-2018" reactive-power ride-through  /  "Coastline Power Authority"
+[ ] FILE 3 (Writer's notes): SoC estimation drift ">8% under partial shading"  AND the report should NOT
+                             feature the homeowner mobile app / dashboard (proves the override was followed)
+[ ] FILE 4 (Background):     "bypass diode activation" terminology (framing only, not as the company's finding)
+[ ] FILE 5 (Other):          "42-home pilot" / "Fraser Valley" / "March–August 2025" / "community centre 3-phase"
+
+Bonus checks (weighting behaviour):
+- Writer's notes should OVERRIDE the transcript: the report centers on SoC drift, and the mobile-app work is excluded.
+- Background facts should appear as context/terminology only, never as the company's own SR&ED evidence.
+==================================================================
+
+
+
+Generation failed
+Read interview transcript — 414 words.
+Pulling in 5 contextual document(s) and weighting by SR&ED priority.
+Analyzing the transcript against the CRA SR&ED criteria…
+Identified 0 technological uncertainties and 0 experimental iteration(s).
+Drafting Line 242 — Scientific/Technological Uncertainty…
+Drafting Line 244 — Work Performed…
+Drafting Line 246 — Scientific/Technological Advancement…
+All three sections drafted. Scrubbing banned/marketing language…
+Running the QA review and building the chronology table…
+Cannot read properties of undefined (reading 'length')

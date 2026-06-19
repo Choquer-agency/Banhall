@@ -176,6 +176,13 @@ export const generateReport = internalAction({
       projectId: args.projectId,
     });
 
+    // Live "thinking" log shown in the generation UI.
+    const log = (line: string) =>
+      ctx.runMutation(internal.generations.appendProgress, {
+        generationId: genId,
+        line,
+      });
+
     try {
       // Step 1: Get transcript content
       const transcript = await ctx.runQuery(
@@ -187,6 +194,9 @@ export const generateReport = internalAction({
         throw new Error("Transcript not found");
       }
 
+      const transcriptWords = transcript.split(/\s+/).filter(Boolean).length;
+      await log(`Read interview transcript — ${transcriptWords.toLocaleString()} words.`);
+
       // Step 2: Run Transcript Analyzer
       await ctx.runMutation(internal.generations.updateGenerationStatus, {
         generationId: genId,
@@ -194,7 +204,24 @@ export const generateReport = internalAction({
         currentStep: "Analyzing transcript...",
       });
 
-      const analysis = await runAnalyzerAgent(anthropic, transcript);
+      // BNH-9: pull categorized contextual inputs (previous PDs, scoping notes,
+      // writer's notes, background) so the analyzer can weight them per SR&ED.
+      const contextDocs = await ctx.runQuery(
+        internal.documents.getContextDocsForGeneration,
+        { projectId: args.projectId }
+      );
+      if (contextDocs.length > 0) {
+        await log(`Pulling in ${contextDocs.length} contextual document(s) and weighting by SR&ED priority.`);
+      }
+      await log("Analyzing the transcript against the CRA SR&ED criteria…");
+
+      const analysis = await runAnalyzerAgent(anthropic, transcript, contextDocs);
+      const uncertaintyCount =
+        (analysis.passive_uncertainties?.length ?? 0) +
+        (analysis.active_uncertainties?.length ?? 0);
+      await log(
+        `Identified ${uncertaintyCount} technological uncertaint${uncertaintyCount === 1 ? "y" : "ies"} and ${analysis.work_performed?.experiments_iterations?.length ?? 0} experimental iteration(s).`
+      );
 
       // Step 3: Run Section drafters in parallel
       await ctx.runMutation(internal.generations.updateGenerationStatus, {
@@ -202,6 +229,9 @@ export const generateReport = internalAction({
         status: "running",
         currentStep: "Drafting sections 242, 244, 246...",
       });
+      await log("Drafting Line 242 — Scientific/Technological Uncertainty…");
+      await log("Drafting Line 244 — Work Performed…");
+      await log("Drafting Line 246 — Scientific/Technological Advancement…");
 
       const [raw242, raw244, raw246] = await Promise.all([
         runSection242Agent(anthropic, analysis),
@@ -213,18 +243,23 @@ export const generateReport = internalAction({
       const section242 = scrubBannedWords(raw242);
       const section244 = scrubBannedWords(raw244);
       const section246 = scrubBannedWords(raw246);
+      await log("All three sections drafted. Scrubbing banned/marketing language…");
 
       // Step 4: Run QA Agent + Chronology Agent in parallel
       await ctx.runMutation(internal.generations.updateGenerationStatus, {
         generationId: genId,
         status: "running",
-        currentStep: "Running quality check & building chronology...",
+        currentStep: "Running quality check...",
       });
+      await log("Running the QA review and building the chronology table…");
 
       const [qaScorecard, chronology] = await Promise.all([
         runQAAgent(anthropic, analysis, section242, section244, section246),
         runChronologyAgent(anthropic, analysis),
       ]);
+      await log(
+        `QA score ${qaScorecard?.overall_score ?? "—"}/100 · ${chronology?.entries?.length ?? 0} chronology phase(s).`
+      );
 
       // Step 5: Build Tiptap document and save
       await ctx.runMutation(internal.generations.updateGenerationStatus, {
@@ -232,6 +267,7 @@ export const generateReport = internalAction({
         status: "running",
         currentStep: "Assembling report...",
       });
+      await log("Assembling the final report…");
 
       const project = await ctx.runQuery(internal.generations.getProjectTitle, {
         projectId: args.projectId,
@@ -255,6 +291,7 @@ export const generateReport = internalAction({
         content: JSON.stringify(doc),
         version,
       });
+      await log("Report ready ✓");
 
       // Mark generation complete
       await ctx.runMutation(internal.generations.updateGenerationStatus, {

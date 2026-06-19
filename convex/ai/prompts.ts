@@ -443,6 +443,26 @@ Respond with ONLY valid JSON:
   "suggested_improvements": ["string"]
 }`;
 
+// ─── CONTEXTUAL INPUTS (BNH-9): how to weight attached materials ─────────────
+
+/**
+ * Guidance for the analyzer on how to treat categorized contextual inputs
+ * relative to the transcript, following the SR&ED framework. Full per-document
+ * weighting will be refined once the Brain exists; this captures the priorities.
+ */
+export const CONTEXT_INPUTS_GUIDANCE = `
+## How to use the attached contextual materials
+
+The interview transcript is your primary source. The materials below are additional context, provided in categories. Weight them as follows, and NEVER let them introduce technical claims that aren't genuinely supported:
+
+- **WRITER'S NOTES (unreliable narrator)** — HIGHEST TRUST for intent. These are the writer's own corrections and direction. Where they conflict with the transcript, the writer's notes win: they tell you what to ignore from the transcript, which uncertainties are the "true" ones, and how to frame the SR&ED argument. Treat them as authoritative guidance.
+- **PREVIOUS-YEAR REPORTS** — authoritative for prior work and continuation. Use them to establish prior-year status, previously established uncertainties, and what carried forward. Do NOT copy their prose; extract continuity.
+- **SCOPING NOTES** — pre-interview context about the project and the central technological challenge. Use to orient and fill gaps, but the transcript and writer's notes take precedence on specifics.
+- **BACKGROUND RESEARCH / LINKS** — supporting context only (e.g. what a technology generally is). This is the LOWEST weight: it may inform terminology and framing, but must NEVER be used as evidence of THIS company's SR&ED work or to invent technical detail. If background and transcript conflict, the transcript wins.
+- **OTHER** — supporting; use judgment, lower than the transcript.
+
+If a category is absent, simply proceed without it. Do not fabricate.`;
+
 // ─── CHAT: document-scoped editing assistant ─────────────────────────────────
 
 /**

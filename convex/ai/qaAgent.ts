@@ -1,10 +1,10 @@
 "use node";
 
 import Anthropic from "@anthropic-ai/sdk";
-import { MODEL } from "./model";
 import { QA_SYSTEM_PROMPT } from "./prompts";
 import { TranscriptAnalysis } from "./analyzerAgent";
 import { runDeterministicChecks } from "./qaChecks";
+import { generateStructured } from "./structured";
 
 export interface QAScorecard {
   overall_score: number;
@@ -43,14 +43,9 @@ export async function runQAAgent(
     section246
   );
 
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 4096,
+  return await generateStructured<QAScorecard>(client, {
     system: QA_SYSTEM_PROMPT,
-    messages: [
-      {
-        role: "user",
-        content: `Review the following SR&ED report draft.
+    user: `Review the following SR&ED report draft.
 
 ${preComputedChecks}
 
@@ -65,17 +60,53 @@ ${section244}
 
 ## Section 246 — Scientific/Technological Advancement
 ${section246}`,
-      },
-    ],
+    toolName: "submit_qa_scorecard",
+    description: "Submit the QA scorecard for the SR&ED report draft.",
+    schema: QA_SCHEMA,
+    maxTokens: 4096,
   });
-
-  const text =
-    response.content[0].type === "text" ? response.content[0].text : "";
-
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error("QA agent did not return valid JSON");
-  }
-
-  return JSON.parse(jsonMatch[0]) as QAScorecard;
 }
+
+const sectionScore = {
+  type: "object",
+  properties: {
+    score: { type: "number" },
+    issues: { type: "array", items: { type: "string" } },
+    strengths: { type: "array", items: { type: "string" } },
+  },
+} as const;
+
+const QA_SCHEMA: Anthropic.Tool.InputSchema = {
+  type: "object",
+  properties: {
+    overall_score: { type: "number" },
+    section_scores: {
+      type: "object",
+      properties: { "242": sectionScore, "244": sectionScore, "246": sectionScore },
+    },
+    cra_compliance: {
+      type: "object",
+      properties: {
+        verbiage_present: { type: "boolean" },
+        why_how_why_intact: { type: "boolean" },
+        uncertainties_distinguished: { type: "boolean" },
+      },
+    },
+    hallucination_risks: { type: "array", items: { type: "string" } },
+    ai_language_flags: { type: "array", items: { type: "string" } },
+    superlative_flags: { type: "array", items: { type: "string" } },
+    gaps_requiring_client_followup: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          section: { type: "string" },
+          paragraph: { type: "number" },
+          question: { type: "string" },
+        },
+      },
+    },
+    suggested_improvements: { type: "array", items: { type: "string" } },
+  },
+  required: ["overall_score", "section_scores"],
+};

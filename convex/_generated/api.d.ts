@@ -20,6 +20,7 @@ import type * as ai_qaChecks from "../ai/qaChecks.js";
 import type * as ai_section242Agent from "../ai/section242Agent.js";
 import type * as ai_section244Agent from "../ai/section244Agent.js";
 import type * as ai_section246Agent from "../ai/section246Agent.js";
+import type * as ai_structured from "../ai/structured.js";
 import type * as auth from "../auth.js";
 import type * as chat from "../chat.js";
 import type * as comments from "../comments.js";
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   "ai/section242Agent": typeof ai_section242Agent;
   "ai/section244Agent": typeof ai_section244Agent;
   "ai/section246Agent": typeof ai_section246Agent;
+  "ai/structured": typeof ai_structured;
   auth: typeof auth;
   chat: typeof chat;
   comments: typeof comments;

@@ -55,7 +55,20 @@ export const createGeneration = internalMutation({
       transcriptId: args.transcriptId,
       status: "running",
       currentStep: "Starting...",
+      progressLog: [],
       startedAt: Date.now(),
+    });
+  },
+});
+
+/** Append a line to the live "thinking" log shown during generation. */
+export const appendProgress = internalMutation({
+  args: { generationId: v.id("generations"), line: v.string() },
+  handler: async (ctx, args) => {
+    const gen = await ctx.db.get(args.generationId);
+    if (!gen) return;
+    await ctx.db.patch(args.generationId, {
+      progressLog: [...(gen.progressLog ?? []), args.line],
     });
   },
 });

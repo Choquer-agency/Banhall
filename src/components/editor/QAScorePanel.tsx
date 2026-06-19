@@ -20,6 +20,29 @@ interface QAScorecard {
   suggested_improvements: string[];
 }
 
+/** Fill any missing fields with safe defaults so the panel never crashes on a
+ *  partial scorecard (the model can omit optional arrays). */
+function normalize(raw: Partial<QAScorecard>): QAScorecard {
+  const sections: QAScorecard["section_scores"] = {};
+  for (const [k, v] of Object.entries(raw.section_scores ?? {})) {
+    sections[k] = {
+      score: v?.score ?? 0,
+      issues: v?.issues ?? [],
+      strengths: v?.strengths ?? [],
+    };
+  }
+  return {
+    overall_score: raw.overall_score ?? 0,
+    section_scores: sections,
+    cra_compliance: raw.cra_compliance ?? {},
+    hallucination_risks: raw.hallucination_risks ?? [],
+    ai_language_flags: raw.ai_language_flags ?? [],
+    superlative_flags: raw.superlative_flags ?? [],
+    gaps_requiring_client_followup: raw.gaps_requiring_client_followup ?? [],
+    suggested_improvements: raw.suggested_improvements ?? [],
+  };
+}
+
 export function QAScorePanel({ agentOutputs, reportContent }: { agentOutputs?: string | null; reportContent?: string | null }) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -28,7 +51,7 @@ export function QAScorePanel({ agentOutputs, reportContent }: { agentOutputs?: s
     if (agentOutputs) {
       try {
         const parsed = JSON.parse(agentOutputs);
-        if (parsed.qa && "overall_score" in parsed.qa) return parsed.qa as QAScorecard;
+        if (parsed.qa && "overall_score" in parsed.qa) return normalize(parsed.qa);
       } catch { /* fall through */ }
     }
     // Fallback: extract from report content codeBlock (old reports)
@@ -41,7 +64,7 @@ export function QAScorePanel({ agentOutputs, reportContent }: { agentOutputs?: s
         );
         if (codeBlock?.content?.[0]?.text) {
           const parsed = JSON.parse(codeBlock.content[0].text);
-          if ("overall_score" in parsed) return parsed as QAScorecard;
+          if ("overall_score" in parsed) return normalize(parsed);
         }
       } catch { /* no scorecard */ }
     }

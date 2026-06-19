@@ -4,12 +4,14 @@ import { useQuery, useConvex } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { useState } from "react";
+import { categoryMeta } from "@/lib/contextCategories";
 
 type DocRow = {
   _id: Id<"projectDocuments">;
   fileName: string;
   fileType: "txt" | "md" | "pdf" | "docx" | "other";
   source: string;
+  category: string | null;
   createdAt: number;
   sizeChars: number;
   hasFile: boolean;
@@ -90,10 +92,11 @@ export function FilesPanel({ projectId }: { projectId: Id<"projects"> }) {
                 >
                   <FileTypeIcon type={doc.fileType} />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-gray-800">{doc.fileName}</p>
-                    <p className="text-xs text-gray-400">
-                      {labelForSource(doc.source)} · {formatDate(doc.createdAt)}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm text-gray-800">{doc.fileName}</p>
+                      <CategoryPill category={doc.category} source={doc.source} />
+                    </div>
+                    <p className="text-xs text-gray-400">{formatDate(doc.createdAt)}</p>
                   </div>
                   <button
                     onClick={() => setPreview(doc)}
@@ -207,8 +210,29 @@ function FileTypeIcon({ type }: { type: DocRow["fileType"] }) {
   );
 }
 
-function labelForSource(source: string): string {
-  return source === "chat_upload" ? "Chat upload" : source;
+function CategoryPill({
+  category,
+  source,
+}: {
+  category: string | null;
+  source: string;
+}) {
+  const meta = categoryMeta(category);
+  if (meta) {
+    return (
+      <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${meta.pill}`}>
+        {meta.label}
+      </span>
+    );
+  }
+  if (source === "chat_upload") {
+    return (
+      <span className="flex-shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">
+        Chat
+      </span>
+    );
+  }
+  return null;
 }
 
 function formatDate(ts: number): string {
