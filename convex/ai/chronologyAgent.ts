@@ -52,7 +52,8 @@ Respond with ONLY valid JSON:
 
 export async function runChronologyAgent(
   client: Anthropic,
-  analysis: TranscriptAnalysis
+  analysis: TranscriptAnalysis,
+  model?: string
 ): Promise<ChronologyTable> {
   return await generateStructured<ChronologyTable>(client, {
     system: CHRONOLOGY_SYSTEM_PROMPT,
@@ -61,6 +62,7 @@ export async function runChronologyAgent(
     description: "Submit the SR&ED chronology table.",
     schema: CHRONOLOGY_SCHEMA,
     maxTokens: 4096,
+    model,
   });
 }
 

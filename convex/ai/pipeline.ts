@@ -4,12 +4,13 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import Anthropic from "@anthropic-ai/sdk";
-import { runAnalyzerAgent } from "./analyzerAgent";
+import { runAnalyzerAgent, ContextDoc } from "./analyzerAgent";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
 import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
+import { CANDIDATE_MODELS } from "./model";
 
 /**
  * Programmatic safety net: replace banned words that the LLM self-check may have missed.
@@ -148,11 +149,54 @@ function buildTiptapDocument(
 }
 
 /**
- * Main pipeline action. Runs all 5 agents in sequence (with 2/3/4 in parallel)
- * and saves the result.
- *
- * All mutations are in generations.ts (non-Node.js file) since Convex
- * mutations cannot be defined in "use node" files.
+ * Run the full pipeline once for a single model → a complete candidate report
+ * (content + agentOutputs incl. QA + chronology). Used for BNH-15 A/B testing.
+ */
+async function runPipelineForModel(
+  anthropic: Anthropic,
+  modelId: string,
+  transcript: string,
+  contextDocs: ContextDoc[],
+  title: string
+): Promise<{ content: string; agentOutputs: string; qaScore: number | null }> {
+  const analysis = await runAnalyzerAgent(anthropic, transcript, contextDocs, modelId);
+  const [raw242, raw244, raw246] = await Promise.all([
+    runSection242Agent(anthropic, analysis, modelId),
+    runSection244Agent(anthropic, analysis, modelId),
+    runSection246Agent(anthropic, analysis, modelId),
+  ]);
+  const section242 = scrubBannedWords(raw242);
+  const section244 = scrubBannedWords(raw244);
+  const section246 = scrubBannedWords(raw246);
+  const [qaScorecard, chronology] = await Promise.all([
+    runQAAgent(anthropic, analysis, section242, section244, section246, modelId),
+    runChronologyAgent(anthropic, analysis, modelId),
+  ]);
+  const doc = buildTiptapDocument(
+    title,
+    section242,
+    section244,
+    section246,
+    qaScorecard as unknown as Record<string, unknown>
+  );
+  return {
+    content: JSON.stringify(doc),
+    agentOutputs: JSON.stringify({
+      analyzer: analysis,
+      section242,
+      section244,
+      section246,
+      qa: qaScorecard,
+      chronology,
+    }),
+    qaScore: qaScorecard?.overall_score ?? null,
+  };
+}
+
+/**
+ * Main pipeline action (BNH-15). Runs the full pipeline once per candidate
+ * model and stores each as a candidate report for the writer to choose from.
+ * The chosen draft is promoted to the report on selection (see selectReportCandidate).
  */
 export const generateReport = internalAction({
   args: {
@@ -197,15 +241,7 @@ export const generateReport = internalAction({
       const transcriptWords = transcript.split(/\s+/).filter(Boolean).length;
       await log(`Read interview transcript — ${transcriptWords.toLocaleString()} words.`);
 
-      // Step 2: Run Transcript Analyzer
-      await ctx.runMutation(internal.generations.updateGenerationStatus, {
-        generationId: genId,
-        status: "running",
-        currentStep: "Analyzing transcript...",
-      });
-
-      // BNH-9: pull categorized contextual inputs (previous PDs, scoping notes,
-      // writer's notes, background) so the analyzer can weight them per SR&ED.
+      // BNH-9: pull categorized contextual inputs (shared across all candidates).
       const contextDocs = await ctx.runQuery(
         internal.documents.getContextDocsForGeneration,
         { projectId: args.projectId }
@@ -213,101 +249,61 @@ export const generateReport = internalAction({
       if (contextDocs.length > 0) {
         await log(`Pulling in ${contextDocs.length} contextual document(s) and weighting by SR&ED priority.`);
       }
-      await log("Analyzing the transcript against the CRA SR&ED criteria…");
 
-      const analysis = await runAnalyzerAgent(anthropic, transcript, contextDocs);
-      const uncertaintyCount =
-        (analysis.passive_uncertainties?.length ?? 0) +
-        (analysis.active_uncertainties?.length ?? 0);
+      const title =
+        (await ctx.runQuery(internal.generations.getProjectTitle, {
+          projectId: args.projectId,
+        })) ?? "Untitled Report";
+
+      // BNH-15: run the full pipeline once per candidate model.
+      await ctx.runMutation(internal.generations.updateGenerationStatus, {
+        generationId: genId,
+        status: "running",
+        currentStep: "Generating candidate drafts...",
+      });
       await log(
-        `Identified ${uncertaintyCount} technological uncertaint${uncertaintyCount === 1 ? "y" : "ies"} and ${analysis.work_performed?.experiments_iterations?.length ?? 0} experimental iteration(s).`
+        `Generating ${CANDIDATE_MODELS.length} candidate drafts — ${CANDIDATE_MODELS.map((m) => m.label).join(", ")}.`
       );
 
-      // Step 3: Run Section drafters in parallel
+      let succeeded = 0;
+      for (const m of CANDIDATE_MODELS) {
+        await log(`Generating with ${m.label}…`);
+        try {
+          const { content, agentOutputs, qaScore } = await runPipelineForModel(
+            anthropic,
+            m.id,
+            transcript,
+            contextDocs,
+            title
+          );
+          await ctx.runMutation(internal.generations.addCandidate, {
+            generationId: genId,
+            projectId: args.projectId,
+            model: m.id,
+            label: m.label,
+            content,
+            agentOutputs,
+          });
+          await log(`✓ ${m.label} draft ready (QA ${qaScore ?? "—"}/100).`);
+          succeeded++;
+        } catch (e) {
+          await log(
+            `✗ ${m.label} failed: ${e instanceof Error ? e.message : "error"} — skipping.`
+          );
+        }
+      }
+
+      if (succeeded === 0) {
+        throw new Error("All candidate models failed to generate.");
+      }
+
+      // Hand off to the writer to choose a draft.
       await ctx.runMutation(internal.generations.updateGenerationStatus, {
         generationId: genId,
-        status: "running",
-        currentStep: "Drafting sections 242, 244, 246...",
+        status: "awaiting_selection",
+        currentStep: "Choose your preferred draft",
       });
-      await log("Drafting Line 242 — Scientific/Technological Uncertainty…");
-      await log("Drafting Line 244 — Work Performed…");
-      await log("Drafting Line 246 — Scientific/Technological Advancement…");
-
-      const [raw242, raw244, raw246] = await Promise.all([
-        runSection242Agent(anthropic, analysis),
-        runSection244Agent(anthropic, analysis),
-        runSection246Agent(anthropic, analysis),
-      ]);
-
-      // Safety net: programmatically replace banned words the LLM may have missed
-      const section242 = scrubBannedWords(raw242);
-      const section244 = scrubBannedWords(raw244);
-      const section246 = scrubBannedWords(raw246);
-      await log("All three sections drafted. Scrubbing banned/marketing language…");
-
-      // Step 4: Run QA Agent + Chronology Agent in parallel
-      await ctx.runMutation(internal.generations.updateGenerationStatus, {
-        generationId: genId,
-        status: "running",
-        currentStep: "Running quality check...",
-      });
-      await log("Running the QA review and building the chronology table…");
-
-      const [qaScorecard, chronology] = await Promise.all([
-        runQAAgent(anthropic, analysis, section242, section244, section246),
-        runChronologyAgent(anthropic, analysis),
-      ]);
-      await log(
-        `QA score ${qaScorecard?.overall_score ?? "—"}/100 · ${chronology?.entries?.length ?? 0} chronology phase(s).`
-      );
-
-      // Step 5: Build Tiptap document and save
-      await ctx.runMutation(internal.generations.updateGenerationStatus, {
-        generationId: genId,
-        status: "running",
-        currentStep: "Assembling report...",
-      });
-      await log("Assembling the final report…");
-
-      const project = await ctx.runQuery(internal.generations.getProjectTitle, {
-        projectId: args.projectId,
-      });
-
-      const doc = buildTiptapDocument(
-        project ?? "Untitled Report",
-        section242,
-        section244,
-        section246,
-        qaScorecard as unknown as Record<string, unknown>
-      );
-
-      const version = await ctx.runQuery(
-        internal.generations.getNextReportVersion,
-        { projectId: args.projectId }
-      );
-
-      await ctx.runMutation(internal.generations.saveReport, {
-        projectId: args.projectId,
-        content: JSON.stringify(doc),
-        version,
-      });
-      await log("Report ready ✓");
-
-      // Mark generation complete
-      await ctx.runMutation(internal.generations.updateGenerationStatus, {
-        generationId: genId,
-        status: "completed",
-        currentStep: "Complete",
-        agentOutputs: JSON.stringify({
-          analyzer: analysis,
-          section242,
-          section244,
-          section246,
-          qa: qaScorecard,
-          chronology,
-        }),
-        completedAt: Date.now(),
-      });
+      await log(`All ${succeeded} candidate(s) ready — choose your preferred draft.`);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unknown error occurred";

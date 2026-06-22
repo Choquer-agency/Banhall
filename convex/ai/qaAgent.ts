@@ -34,7 +34,8 @@ export async function runQAAgent(
   analysis: TranscriptAnalysis,
   section242: string,
   section244: string,
-  section246: string
+  section246: string,
+  model?: string
 ): Promise<QAScorecard> {
   // Run deterministic checks first
   const preComputedChecks = runDeterministicChecks(
@@ -64,6 +65,7 @@ ${section246}`,
     description: "Submit the QA scorecard for the SR&ED report draft.",
     schema: QA_SCHEMA,
     maxTokens: 4096,
+    model,
   });
 }
 

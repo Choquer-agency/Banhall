@@ -120,6 +120,7 @@ export default defineSchema({
     transcriptId: v.id("transcripts"),
     status: v.union(
       v.literal("running"),
+      v.literal("awaiting_selection"),
       v.literal("completed"),
       v.literal("failed")
     ),
@@ -130,6 +131,33 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),
   }).index("by_projectId", ["projectId"]),
+
+  // ─── BNH-15: model A/B testing ─────────────────────────────────────────────
+
+  // One candidate report per model for a given generation; the writer picks one.
+  reportCandidates: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    model: v.string(),
+    label: v.string(),
+    content: v.string(),
+    agentOutputs: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_generationId", ["generationId"])
+    .index("by_projectId", ["projectId"]),
+
+  // Logged model choices, for aggregate preference stats + recommendation.
+  modelSelections: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    userId: v.string(),
+    model: v.string(),
+    label: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_projectId", ["projectId"]),
 
   // ─── AI Chat (document-scoped assistant) ───────────────────────────────────
 

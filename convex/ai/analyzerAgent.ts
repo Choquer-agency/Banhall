@@ -77,7 +77,8 @@ export interface TranscriptAnalysis {
 export async function runAnalyzerAgent(
   client: Anthropic,
   transcript: string,
-  contextDocs: ContextDoc[] = []
+  contextDocs: ContextDoc[] = [],
+  model?: string
 ): Promise<TranscriptAnalysis> {
   const contextBlock = buildContextBlock(contextDocs);
   return await generateStructured<TranscriptAnalysis>(client, {
@@ -88,6 +89,7 @@ export async function runAnalyzerAgent(
       "Submit the structured analysis of the SR&ED interview transcript.",
     schema: ANALYSIS_SCHEMA,
     maxTokens: 8192,
+    model,
   });
 }
 

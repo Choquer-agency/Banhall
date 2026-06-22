@@ -13,6 +13,7 @@ import { Id } from "../../../../convex/_generated/dataModel";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { GenerationProgress } from "@/components/generation/GenerationProgress";
+import { CandidateSelection } from "@/components/generation/CandidateSelection";
 import { Editor, EditorHandle, CommentRange } from "@/components/editor/Editor";
 import { QAScorePanel } from "@/components/editor/QAScorePanel";
 import { ChronologyPanel } from "@/components/editor/ChronologyTable";
@@ -224,6 +225,7 @@ export default function ProjectPage() {
   }
 
   const isGenerating = generation?.status === "running";
+  const awaitingSelection = generation?.status === "awaiting_selection";
   const hasReport = !!report;
 
   return (
@@ -312,8 +314,11 @@ export default function ProjectPage() {
         </div>
       )}
 
+      {/* BNH-15: choose between candidate drafts before they become the report */}
+      {awaitingSelection && <CandidateSelection projectId={projectId} />}
+
       {/* Editor workspace + chat rail (single view, resizable — BNH-14) */}
-      {hasReport && (
+      {!awaitingSelection && hasReport && (
         <div ref={workspaceRef} className="flex min-h-0 flex-1 overflow-hidden">
         {!chatFull && (
         <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto">
@@ -419,7 +424,7 @@ export default function ProjectPage() {
       )}
 
       {/* Comment authoring + hover overlay (single view) */}
-      {hasReport && report && user && (
+      {!awaitingSelection && hasReport && report && user && (
         <CommentOverlay
           projectId={projectId}
           reportId={report._id}
@@ -440,7 +445,7 @@ export default function ProjectPage() {
       )}
 
       {/* No report, not generating — show transcript */}
-      {!hasReport && !isGenerating && (
+      {!hasReport && !isGenerating && !awaitingSelection && (
         <main className="mx-auto w-full max-w-3xl min-h-0 flex-1 overflow-y-auto px-6 py-8">
           <h1 className="text-2xl font-bold text-gray-900">{project.title}</h1>
           <p className="mt-1 text-sm text-gray-500">{project.clientName}</p>

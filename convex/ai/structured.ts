@@ -15,10 +15,11 @@ export async function generateStructured<T>(
     description: string;
     schema?: Anthropic.Tool.InputSchema;
     maxTokens?: number;
+    model?: string;
   }
 ): Promise<T> {
   const res = await client.messages.create({
-    model: MODEL,
+    model: opts.model ?? MODEL,
     max_tokens: opts.maxTokens ?? 8192,
     system: opts.system,
     tools: [

@@ -7,10 +7,11 @@ import { TranscriptAnalysis } from "./analyzerAgent";
 
 export async function runSection244Agent(
   client: Anthropic,
-  analysis: TranscriptAnalysis
+  analysis: TranscriptAnalysis,
+  model: string = MODEL
 ): Promise<string> {
   const response = await client.messages.create({
-    model: MODEL,
+    model,
     max_tokens: 4096,
     system: SECTION_244_SYSTEM_PROMPT,
     messages: [

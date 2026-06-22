@@ -10,3 +10,14 @@
  *   - Haiku 4.5:   "claude-haiku-4-5-20251001"  (cheapest/fastest)
  */
 export const MODEL = "claude-sonnet-4-6";
+
+/**
+ * Candidate models for A/B testing (BNH-15). Each generation runs the full
+ * pipeline once per model; the writer picks their preferred draft and the
+ * choice is logged. Edit this list to change which models compete.
+ */
+export const CANDIDATE_MODELS: { id: string; label: string }[] = [
+  { id: "claude-sonnet-4-6", label: "Sonnet 4.6" },
+  { id: "claude-opus-4-8", label: "Opus 4.8" },
+  { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
+];
