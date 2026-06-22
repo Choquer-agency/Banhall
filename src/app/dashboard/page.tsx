@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { ProjectCard } from "@/components/dashboard/ProjectCard";
 import Link from "next/link";
 import Image from "next/image";
+import { BuildStamp } from "@/components/BuildStamp";
 
 type StatusFilter = "all" | "draft" | "generating" | "review" | "client_review" | "final";
 
@@ -64,6 +65,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-5">
           <Image src="/logo.png" alt="Banhall" width={89} height={89} className="-my-5 brightness-0 invert" />
           <span className="text-sm font-semibold text-white/90">Dashboard</span>
+          <BuildStamp className="hidden text-white/50 lg:inline-flex" />
         </div>
         <div className="flex items-center gap-4">
           <span className="hidden text-sm text-white/60 sm:inline">

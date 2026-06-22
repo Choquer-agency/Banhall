@@ -18,6 +18,7 @@ import Image from "next/image";
 
 type StagedCategory = { files: File[]; text: string };
 type Staged = Record<ContextCategoryId, StagedCategory>;
+type PyRow = { id: string; year: number; note: string; files: File[] };
 
 function emptyStaged(): Staged {
   const out = {} as Staged;
@@ -55,10 +56,13 @@ export default function NewProjectPage() {
   const [transcript, setTranscript] = useState("");
   const [staged, setStaged] = useState<Staged>(emptyStaged);
 
-  // Previous-year reports get a structured year-by-year UI (BNH-9 phase 1).
+  // Previous-year reports get a structured year-by-year UI (BNH-9 / BNH-26).
+  // Multiple files + an optional note per year; the year label is editable, so
+  // each row carries a stable id (year alone isn't safe identity once editable).
   const baseYear = new Date().getFullYear() - 1;
-  const [pyRows, setPyRows] = useState<{ year: number; files: File[] }[]>([
-    { year: baseYear, files: [] },
+  const pyIdRef = useRef(1);
+  const [pyRows, setPyRows] = useState<PyRow[]>([
+    { id: "py-0", year: baseYear, note: "", files: [] },
   ]);
   const [committing, setCommitting] = useState(false);
   const [progress, setProgress] = useState("");
@@ -70,6 +74,9 @@ export default function NewProjectPage() {
 
   const wordCount = transcript.trim().split(/\s+/).filter(Boolean).length;
   const pyFileCount = pyRows.reduce((n, r) => n + r.files.length, 0);
+  const pyNoteOnlyCount = pyRows.filter(
+    (r) => r.files.length === 0 && r.note.trim()
+  ).length;
   const fileCount =
     CONTEXT_CATEGORIES.reduce(
       (n, c) =>
@@ -77,24 +84,36 @@ export default function NewProjectPage() {
           ? n
           : n + staged[c.id].files.length + (staged[c.id].text.trim() ? 1 : 0),
       0
-    ) + pyFileCount;
+    ) +
+    pyFileCount +
+    pyNoteOnlyCount;
 
-  function addPyFiles(year: number, files: File[]) {
+  function addPyFiles(id: string, files: File[]) {
     setPyRows((rows) =>
-      rows.map((r) => (r.year === year ? { ...r, files: [...r.files, ...files] } : r))
+      rows.map((r) => (r.id === id ? { ...r, files: [...r.files, ...files] } : r))
     );
   }
-  function removePyFile(year: number, idx: number) {
+  function removePyFile(id: string, idx: number) {
     setPyRows((rows) =>
       rows.map((r) =>
-        r.year === year ? { ...r, files: r.files.filter((_, i) => i !== idx) } : r
+        r.id === id ? { ...r, files: r.files.filter((_, i) => i !== idx) } : r
       )
     );
+  }
+  function updatePyYear(id: string, year: number) {
+    setPyRows((rows) => rows.map((r) => (r.id === id ? { ...r, year } : r)));
+  }
+  function updatePyNote(id: string, note: string) {
+    setPyRows((rows) => rows.map((r) => (r.id === id ? { ...r, note } : r)));
+  }
+  function removePyYear(id: string) {
+    setPyRows((rows) => (rows.length > 1 ? rows.filter((r) => r.id !== id) : rows));
   }
   function addPyYear() {
     setPyRows((rows) => {
       const minYear = Math.min(...rows.map((r) => r.year));
-      return [...rows, { year: minYear - 1, files: [] }];
+      const id = `py-${pyIdRef.current++}`;
+      return [...rows, { id, year: minYear - 1, note: "", files: [] }];
     });
   }
 
@@ -175,14 +194,26 @@ export default function NewProjectPage() {
         });
       };
 
-      // Previous-year reports — tagged with their fiscal year.
+      // Previous-year reports — tagged with their fiscal year + optional note.
       for (const row of pyRows) {
+        const noteLine = row.note.trim() ? `Note: ${row.note.trim()}\n` : "";
         for (const file of row.files) {
           await uploadFile(
             file,
             "previous_pd",
-            `[Previous-year report — fiscal ${row.year}]\n\n`
+            `[Previous-year report — fiscal ${row.year}]\n${noteLine}\n`
           );
+        }
+        // A note with no files still carries useful prior-year context.
+        if (row.note.trim() && row.files.length === 0) {
+          await uploadDocument({
+            projectId,
+            fileName: `Previous-year note (FY ${row.year})`,
+            fileType: "txt",
+            content: `[Previous-year note — fiscal ${row.year}]\n\n${row.note.trim()}`,
+            source: "context_input",
+            category: "previous_pd",
+          });
         }
       }
 
@@ -321,6 +352,9 @@ export default function NewProjectPage() {
                   rows={pyRows}
                   onAddFiles={addPyFiles}
                   onRemoveFile={removePyFile}
+                  onUpdateYear={updatePyYear}
+                  onUpdateNote={updatePyNote}
+                  onRemoveYear={removePyYear}
                   onAddYear={addPyYear}
                 />
               ) : (
@@ -360,15 +394,27 @@ export default function NewProjectPage() {
             </div>
             {fileCount > 0 && (
               <div className="rounded-xl border border-gray-200 bg-white p-4">
-                {pyFileCount > 0 && (
+                {(pyFileCount > 0 || pyNoteOnlyCount > 0) && (
                   <div className="mb-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Previous-year reports</p>
                     <ul className="mt-0.5 text-sm text-gray-700">
-                      {pyRows.flatMap((r) =>
-                        r.files.map((f, i) => (
-                          <li key={`${r.year}-${i}`} className="truncate">• {f.name} <span className="text-gray-400">(FY {r.year})</span></li>
-                        ))
-                      )}
+                      {pyRows
+                        .filter((r) => r.files.length || r.note.trim())
+                        .map((r) => (
+                          <li key={r.id} className="truncate">
+                            <span className="text-gray-400">FY {r.year}:</span>{" "}
+                            {r.files.length
+                              ? r.files.map((f) => f.name).join(", ")
+                              : "note only"}
+                            {r.note.trim() && (
+                              <span className="text-gray-400">
+                                {" "}
+                                — “{r.note.trim().slice(0, 50)}
+                                {r.note.trim().length > 50 ? "…" : ""}”
+                              </span>
+                            )}
+                          </li>
+                        ))}
                     </ul>
                   </div>
                 )}
@@ -558,12 +604,18 @@ function PreviousYearCard({
   rows,
   onAddFiles,
   onRemoveFile,
+  onUpdateYear,
+  onUpdateNote,
+  onRemoveYear,
   onAddYear,
 }: {
   def: ContextCategoryDef;
-  rows: { year: number; files: File[] }[];
-  onAddFiles: (year: number, files: File[]) => void;
-  onRemoveFile: (year: number, idx: number) => void;
+  rows: PyRow[];
+  onAddFiles: (id: string, files: File[]) => void;
+  onRemoveFile: (id: string, idx: number) => void;
+  onUpdateYear: (id: string, year: number) => void;
+  onUpdateNote: (id: string, note: string) => void;
+  onRemoveYear: (id: string) => void;
   onAddYear: () => void;
 }) {
   const minYear = Math.min(...rows.map((r) => r.year));
@@ -577,14 +629,19 @@ function PreviousYearCard({
       </div>
       <p className="mt-0.5 text-xs text-gray-500">{def.help}</p>
 
-      <div className="mt-3 flex flex-col gap-2">
+      <div className="mt-3 flex flex-col gap-2.5">
         {rows.map((r) => (
           <YearRow
-            key={r.year}
+            key={r.id}
             year={r.year}
+            note={r.note}
             files={r.files}
-            onAddFiles={(fs) => onAddFiles(r.year, fs)}
-            onRemoveFile={(i) => onRemoveFile(r.year, i)}
+            canRemove={rows.length > 1}
+            onAddFiles={(fs) => onAddFiles(r.id, fs)}
+            onRemoveFile={(i) => onRemoveFile(r.id, i)}
+            onUpdateYear={(y) => onUpdateYear(r.id, y)}
+            onUpdateNote={(n) => onUpdateNote(r.id, n)}
+            onRemoveYear={() => onRemoveYear(r.id)}
           />
         ))}
       </div>
@@ -592,7 +649,7 @@ function PreviousYearCard({
       <button
         type="button"
         onClick={onAddYear}
-        className="mt-2 inline-flex items-center gap-1 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:border-primary/50 hover:text-navy"
+        className="mt-2.5 inline-flex items-center gap-1 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:border-primary/50 hover:text-navy"
       >
         <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -605,42 +662,64 @@ function PreviousYearCard({
 
 function YearRow({
   year,
+  note,
   files,
+  canRemove,
   onAddFiles,
   onRemoveFile,
+  onUpdateYear,
+  onUpdateNote,
+  onRemoveYear,
 }: {
   year: number;
+  note: string;
   files: File[];
+  canRemove: boolean;
   onAddFiles: (files: File[]) => void;
   onRemoveFile: (idx: number) => void;
+  onUpdateYear: (year: number) => void;
+  onUpdateNote: (note: string) => void;
+  onRemoveYear: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-gray-100 bg-canvas px-3 py-2">
-      <span className="w-12 flex-shrink-0 text-sm font-semibold text-navy">{year}</span>
-      <div className="flex flex-1 flex-wrap items-center gap-1.5">
-        {files.length === 0 ? (
-          <span className="text-xs text-gray-400">No file added</span>
-        ) : (
-          files.map((f, i) => (
-            <span key={`${f.name}-${i}`} className="inline-flex items-center gap-1 rounded-md bg-chrome px-2 py-1 text-[11px] text-gray-600">
-              {f.name}
-              <button type="button" onClick={() => onRemoveFile(i)} className="ml-0.5 text-gray-400 hover:text-gray-600">
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </span>
-          ))
-        )}
+    <div className="rounded-lg border border-gray-100 bg-canvas p-3">
+      {/* Editable year + actions */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-400">Fiscal year</label>
+          <input
+            type="number"
+            value={year}
+            onChange={(e) => onUpdateYear(parseInt(e.target.value, 10) || year)}
+            className="w-[5.5rem] rounded-md border border-gray-200 bg-white px-2 py-1 text-sm font-semibold text-navy focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-navy transition-colors hover:bg-chrome"
+          >
+            Add files
+          </button>
+          {canRemove && (
+            <button
+              type="button"
+              onClick={onRemoveYear}
+              title="Remove this year"
+              className="rounded-md p-1 text-gray-300 transition-colors hover:bg-chrome hover:text-gray-500"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        className="flex-shrink-0 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-navy transition-colors hover:bg-chrome"
-      >
-        {files.length ? "Add another" : "Add file"}
-      </button>
+
       <input
         ref={inputRef}
         type="file"
@@ -651,6 +730,52 @@ function YearRow({
           if (e.target.files) onAddFiles(Array.from(e.target.files));
           e.target.value = "";
         }}
+      />
+
+      {/* Drop zone — consistent with the other context categories */}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          if (e.dataTransfer.files) onAddFiles(Array.from(e.dataTransfer.files));
+        }}
+        className={`mt-2 rounded-lg border border-dashed px-3 py-2 text-center text-xs transition-colors ${
+          dragOver
+            ? "border-primary bg-primary/5 text-primary-dark"
+            : "border-gray-200 text-gray-400"
+        }`}
+      >
+        Drag files here, or use “Add files”
+      </div>
+
+      {/* Staged files */}
+      {files.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {files.map((f, i) => (
+            <span key={`${f.name}-${i}`} className="inline-flex items-center gap-1 rounded-md bg-chrome px-2 py-1 text-[11px] text-gray-600">
+              {f.name}
+              <button type="button" onClick={() => onRemoveFile(i)} className="ml-0.5 text-gray-400 hover:text-gray-600">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Optional per-year note */}
+      <textarea
+        value={note}
+        onChange={(e) => onUpdateNote(e.target.value)}
+        rows={2}
+        placeholder="Optional note for this year (e.g. “covers two projects — focus on the membrane work”)"
+        className="mt-2 w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
       />
     </div>
   );

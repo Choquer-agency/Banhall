@@ -94,9 +94,12 @@ function extractPlainText(contentJson: string): string {
 interface ChatReply {
   reply: string;
   proposedEdit?: {
-    targetText: string;
-    newText: string;
+    targetText?: string;
+    newText?: string;
+    replacements?: { find: string; replaceWith: string }[];
   };
+  // BNH-25: passages to locate & highlight for a pure find/show request (no edit).
+  references?: string[];
 }
 
 export const processChatMessage = internalAction({
@@ -224,29 +227,49 @@ export const processChatMessage = internalAction({
 
       let proposedEdit:
         | {
-            targetText: string;
-            newText: string;
+            targetText?: string;
+            newText?: string;
+            replacements?: { find: string; replaceWith: string }[];
             state: "pending";
           }
         | undefined;
 
-      if (
-        parsed.proposedEdit &&
-        parsed.proposedEdit.targetText &&
-        parsed.proposedEdit.newText
-      ) {
+      const pe = parsed.proposedEdit;
+      // Multi-instance find/replace (BNH-27) — used for edits like pronoun
+      // normalization where the same phrase recurs throughout the report.
+      const replacements = Array.isArray(pe?.replacements)
+        ? pe!.replacements
+            .filter((r) => r && typeof r.find === "string" && r.find.length > 0)
+            .map((r) => ({
+              find: r.find,
+              replaceWith: scrubBannedWords(r.replaceWith ?? ""),
+            }))
+        : undefined;
+
+      if (replacements && replacements.length > 0) {
+        proposedEdit = { replacements, state: "pending" };
+      } else if (pe && pe.targetText && pe.newText) {
         proposedEdit = {
-          targetText: parsed.proposedEdit.targetText,
-          newText: scrubBannedWords(parsed.proposedEdit.newText),
+          targetText: pe.targetText,
+          newText: scrubBannedWords(pe.newText),
           state: "pending",
         };
       }
+
+      // Locate/highlight-only request (no edit): pass through the verbatim
+      // passages so the document panel can scroll to + highlight them (BNH-25).
+      const references = Array.isArray(parsed.references)
+        ? parsed.references.filter((r) => typeof r === "string" && r.trim())
+        : undefined;
 
       await ctx.runMutation(internal.chat.completeAssistantMessage, {
         messageId: args.assistantMessageId,
         content: stripMetaNotes(parsed.reply ?? "") || "Done.",
         status: "complete",
         ...(proposedEdit ? { proposedEdit } : {}),
+        ...(references && references.length && !proposedEdit
+          ? { references }
+          : {}),
       });
     } catch (error) {
       const message =

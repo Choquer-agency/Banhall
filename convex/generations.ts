@@ -58,7 +58,35 @@ export const createGeneration = internalMutation({
       status: "running",
       currentStep: "Starting...",
       progressLog: [],
+      candidatesDone: 0,
       startedAt: Date.now(),
+    });
+  },
+});
+
+/** BNH-21: store the up-front time estimate + how many candidate drafts to expect. */
+export const setGenerationEstimate = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    estimatedMs: v.number(),
+    totalCandidates: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.generationId, {
+      estimatedMs: args.estimatedMs,
+      totalCandidates: args.totalCandidates,
+    });
+  },
+});
+
+/** BNH-21: bump the completed-draft counter for milestone progress. */
+export const incrementCandidatesDone = internalMutation({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const gen = await ctx.db.get(args.generationId);
+    if (!gen) return;
+    await ctx.db.patch(args.generationId, {
+      candidatesDone: (gen.candidatesDone ?? 0) + 1,
     });
   },
 });

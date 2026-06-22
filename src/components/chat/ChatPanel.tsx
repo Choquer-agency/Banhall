@@ -22,6 +22,37 @@ interface ChatPanelProps {
   onClearHighlight?: () => void;
   isFull?: boolean;
   onToggleFull?: () => void;
+  // BNH-25: highlight the given passages in the document panel, scrolling to
+  // `scrollTo` (one of them) or the first if omitted.
+  onReferenceText?: (texts: string[], scrollTo?: string) => void;
+}
+
+/** The source passages an edit references — for scroll-and-highlight (BNH-25). */
+function refsFromEdit(pe: {
+  targetText?: string;
+  replacements?: { find: string; replaceWith: string }[];
+}): string[] {
+  if (pe.replacements && pe.replacements.length) {
+    return pe.replacements.map((r) => r.find).filter(Boolean);
+  }
+  if (pe.targetText) return [pe.targetText];
+  return [];
+}
+
+/** All passages a message points at — an edit's source text, or a locate-only
+ * `references` list (BNH-25). */
+function messageRefs(m: {
+  proposedEdit?: {
+    targetText?: string;
+    replacements?: { find: string; replaceWith: string }[];
+  } | null;
+  references?: string[] | null;
+}): string[] {
+  if (m.proposedEdit) {
+    const r = refsFromEdit(m.proposedEdit);
+    if (r.length) return r;
+  }
+  return m.references ?? [];
 }
 
 function trimName(name: string): string {
@@ -46,6 +77,7 @@ export function ChatPanel({
   onClearHighlight,
   isFull,
   onToggleFull,
+  onReferenceText,
 }: ChatPanelProps) {
   const threads = useQuery(api.chat.listThreads, { reportId });
   const [selectedThreadId, setSelectedThreadId] =
@@ -105,6 +137,37 @@ export function ChatPanel({
       viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
     }
   }, [messages, sending]);
+
+  // BNH-25: when a NEW assistant message references passages, auto scroll the
+  // document to them and highlight. Seed on first load so we don't jump to a
+  // historical edit when the thread first opens — only fire for fresh replies.
+  const lastRefMsgRef = useRef<string | null>(null);
+  const refSeededRef = useRef(false);
+  useEffect(() => {
+    if (!messages) return;
+    let latest: (typeof messages)[number] | null = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (
+        m.role === "assistant" &&
+        m.status === "complete" &&
+        messageRefs(m).length > 0
+      ) {
+        latest = m;
+        break;
+      }
+    }
+    if (!latest) return;
+    if (!refSeededRef.current) {
+      refSeededRef.current = true;
+      lastRefMsgRef.current = latest._id;
+      return;
+    }
+    if (lastRefMsgRef.current === latest._id) return;
+    lastRefMsgRef.current = latest._id;
+    const refs = messageRefs(latest);
+    if (refs.length) onReferenceText?.(refs);
+  }, [messages, onReferenceText]);
 
   // Focus the input when a highlight is piped in from the editor.
   useEffect(() => {
@@ -439,6 +502,11 @@ export function ChatPanel({
                   docNames={docNameById}
                   onReplace={() => applyProposedEdit({ messageId: m._id })}
                   onReject={() => rejectProposedEdit({ messageId: m._id })}
+                  onShowInDoc={
+                    messageRefs(m).length > 0
+                      ? (scrollTo) => onReferenceText?.(messageRefs(m), scrollTo)
+                      : undefined
+                  }
                 />
               ))}
             </div>
@@ -460,10 +528,12 @@ type ChatMessage = {
   highlight?: { text: string; from: number; to: number } | null;
   attachmentIds?: Id<"projectDocuments">[];
   proposedEdit?: {
-    targetText: string;
-    newText: string;
+    targetText?: string;
+    newText?: string;
+    replacements?: { find: string; replaceWith: string }[];
     state: "pending" | "applied" | "rejected";
   } | null;
+  references?: string[] | null;
 };
 
 function MessageBubble({
@@ -471,11 +541,13 @@ function MessageBubble({
   docNames,
   onReplace,
   onReject,
+  onShowInDoc,
 }: {
   message: ChatMessage;
   docNames: Map<string, string>;
   onReplace: () => Promise<unknown>;
   onReject: () => Promise<unknown>;
+  onShowInDoc?: (scrollTo?: string) => void;
 }) {
   if (message.role === "writer") {
     const attachments = (message.attachmentIds ?? []).map(
@@ -537,6 +609,7 @@ function MessageBubble({
       {message.proposedEdit && (
         <ProposedEditCard
           newText={message.proposedEdit.newText}
+          replacements={message.proposedEdit.replacements}
           state={message.proposedEdit.state}
           onReplace={async () => {
             await onReplace();
@@ -544,8 +617,35 @@ function MessageBubble({
           onReject={async () => {
             await onReject();
           }}
+          onShowInDoc={onShowInDoc}
         />
       )}
+
+      {/* Locate-only references (no edit) — one chip per passage; each jumps to
+          and highlights its own occurrence in the document (BNH-25). */}
+      {!message.proposedEdit &&
+        message.references &&
+        message.references.length > 0 &&
+        onShowInDoc && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 text-xs text-gray-400">
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              {message.references.length === 1 ? "Jump to:" : `Jump to (${message.references.length}):`}
+            </span>
+            {message.references.map((ref, i) => (
+              <button
+                key={i}
+                onClick={() => onShowInDoc(ref)}
+                title={ref.length > 90 ? `${ref.slice(0, 90)}…` : ref}
+                className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-md border border-gray-200 px-2 text-xs font-semibold text-navy transition-colors hover:border-primary/50 hover:bg-primary/5"
+              >
+                {i + 1}
+              </button>
+            ))}
+          </div>
+        )}
     </div>
   );
 }

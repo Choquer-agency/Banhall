@@ -16,10 +16,13 @@ const highlightValidator = v.object({
 });
 
 const proposedEditValidator = v.object({
-  targetText: v.string(),
+  targetText: v.optional(v.string()),
   targetFrom: v.optional(v.number()),
   targetTo: v.optional(v.number()),
-  newText: v.string(),
+  newText: v.optional(v.string()),
+  replacements: v.optional(
+    v.array(v.object({ find: v.string(), replaceWith: v.string() }))
+  ),
   summaryBefore: v.optional(v.string()),
   summaryAfter: v.optional(v.string()),
   state: v.union(
@@ -89,7 +92,16 @@ export const listProjectLog = query({
         createdAt: m.createdAt,
         highlight: m.highlight?.text ?? null,
         proposedEdit: m.proposedEdit
-          ? { newText: m.proposedEdit.newText, state: m.proposedEdit.state }
+          ? {
+              newText:
+                m.proposedEdit.newText ??
+                (m.proposedEdit.replacements
+                  ? m.proposedEdit.replacements
+                      .map((r) => `"${r.find}" → "${r.replaceWith}"`)
+                      .join(", ")
+                  : undefined),
+              state: m.proposedEdit.state,
+            }
           : null,
       }));
   },
@@ -208,14 +220,27 @@ export const applyProposedEdit = mutation({
       .first();
     if (!report) throw new Error("Report not found");
 
-    const { targetText, newText } = message.proposedEdit;
+    const { targetText, newText, replacements } = message.proposedEdit;
 
-    // Apply the replacement to the report JSON.
+    // Build the find/replace pairs: an explicit multi-instance list (BNH-27) or
+    // the single passage replacement. Empty/invalid pairs are dropped.
+    const pairs: { find: string; replaceWith: string }[] = (
+      replacements && replacements.length
+        ? replacements
+        : targetText
+          ? [{ find: targetText, replaceWith: newText ?? "" }]
+          : []
+    ).filter((p) => p.find);
+
+    if (pairs.length === 0) {
+      throw new Error("This edit has nothing to replace.");
+    }
+
+    // Apply every pair to every occurrence in the report JSON.
     const doc = JSON.parse(report.content);
-    const updated = applyTextReplace(doc, targetText, newText);
-    const applied = JSON.stringify(updated) !== JSON.stringify(doc);
+    const { doc: updated, count } = applyReplacements(doc, pairs);
 
-    if (!applied) {
+    if (count === 0) {
       throw new Error(
         "Couldn't find the original passage in the report to replace — it may have already changed. Try asking again."
       );
@@ -243,7 +268,7 @@ export const applyProposedEdit = mutation({
 
     await pruneSnapshots(ctx, report._id);
 
-    return { applied };
+    return { applied: true, count };
   },
 });
 
@@ -320,7 +345,16 @@ export const getChatContext = internalQuery({
         status: m.status,
         highlight: m.highlight ?? null,
         proposedEdit: m.proposedEdit
-          ? { newText: m.proposedEdit.newText, state: m.proposedEdit.state }
+          ? {
+              newText:
+                m.proposedEdit.newText ??
+                (m.proposedEdit.replacements
+                  ? m.proposedEdit.replacements
+                      .map((r) => `"${r.find}" → "${r.replaceWith}"`)
+                      .join(", ")
+                  : undefined),
+              state: m.proposedEdit.state,
+            }
           : null,
       })),
     };
@@ -333,53 +367,154 @@ export const completeAssistantMessage = internalMutation({
     content: v.string(),
     status: v.union(v.literal("complete"), v.literal("error")),
     proposedEdit: v.optional(proposedEditValidator),
+    references: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.messageId, {
       content: args.content,
       status: args.status,
       ...(args.proposedEdit ? { proposedEdit: args.proposedEdit } : {}),
+      ...(args.references ? { references: args.references } : {}),
     });
   },
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+type PMNode = Record<string, unknown>;
+type ReplacePair = { find: string; replaceWith: string };
+
 /**
- * Replace the first text node containing `oldText` with `newText`.
- * Mirrors the proven logic used by comments.acceptEdit.
+ * Normalize for matching WITHOUT changing length (1:1) so offsets in the
+ * normalized string map back to the original: unify curly quotes, dashes, and
+ * whitespace. The model routinely emits straight quotes / hyphens where the
+ * report has typographic ones, which broke exact matching (BNH-27).
  */
-function applyTextReplace(
-  doc: Record<string, unknown>,
-  oldText: string,
-  newText: string
-): Record<string, unknown> {
-  const content = doc.content as Array<Record<string, unknown>> | undefined;
-  if (!content) return doc;
+function normalizeForMatch(s: string): string {
+  return s
+    .replace(/[‘’′´`]/g, "'")
+    .replace(/[“”″]/g, '"')
+    .replace(/[–—−]/g, "-")
+    .replace(/\s/g, " ");
+}
 
-  let done = false;
-  return {
-    ...doc,
-    content: content.map((node) => {
-      if (done) return node;
-      const children = node.content as Array<Record<string, unknown>> | undefined;
-      if (!children) return node;
+/**
+ * Replace every (non-overlapping) occurrence of `find` with `replaceWith`.
+ * Tries an exact match first (preserves text verbatim), then a punctuation/
+ * whitespace-normalized match — splicing the ORIGINAL text at the matched
+ * offsets (normalization is length-preserving, so offsets line up).
+ */
+function replaceAll(text: string, find: string, replaceWith: string): { text: string; count: number } {
+  if (!find) return { text, count: 0 };
 
-      return {
-        ...node,
-        content: children.map((child) => {
-          if (
-            !done &&
-            child.type === "text" &&
-            typeof child.text === "string" &&
-            child.text.includes(oldText)
-          ) {
-            done = true;
-            return { ...child, text: child.text.replace(oldText, newText) };
-          }
-          return child;
-        }),
-      };
-    }),
+  // Fast path: exact occurrences.
+  if (text.includes(find)) {
+    const parts = text.split(find);
+    return { text: parts.join(replaceWith), count: parts.length - 1 };
+  }
+
+  // Tolerant path: match on normalized text, splice original at same offsets.
+  const nText = normalizeForMatch(text);
+  const nFind = normalizeForMatch(find);
+  if (!nFind) return { text, count: 0 };
+
+  let out = "";
+  let last = 0;
+  let count = 0;
+  let idx = nText.indexOf(nFind);
+  while (idx !== -1) {
+    out += text.slice(last, idx) + replaceWith;
+    last = idx + nFind.length;
+    count += 1;
+    idx = nText.indexOf(nFind, last);
+  }
+  out += text.slice(last);
+  return { text: out, count };
+}
+
+/**
+ * BNH-27: apply find/replace pairs to a Tiptap JSON doc across ALL occurrences.
+ *
+ * Pass 1 walks every text node at any depth and replaces in place — this is
+ * mark-preserving and handles the common case (a phrase repeated across the
+ * document, e.g. third-person → first-person pronouns).
+ *
+ * Pass 2 is a fallback for any pair whose `find` still survives because it spans
+ * multiple inline nodes (e.g. a passage broken by a [GAP:] highlight or bold
+ * run). For those, we rebuild the affected block's inline text as a single text
+ * node so the replacement still lands instead of throwing.
+ */
+function applyReplacements(
+  doc: PMNode,
+  pairs: ReplacePair[]
+): { doc: PMNode; count: number } {
+  let count = 0;
+
+  // ── Pass 1: per-text-node, mark-preserving, global ──
+  const walk = (node: PMNode): PMNode => {
+    let next = node;
+    const children = next.content as PMNode[] | undefined;
+    if (Array.isArray(children)) {
+      next = { ...next, content: children.map(walk) };
+    }
+    if (next.type === "text" && typeof next.text === "string") {
+      let text = next.text as string;
+      for (const { find, replaceWith } of pairs) {
+        const r = replaceAll(text, find, replaceWith);
+        text = r.text;
+        count += r.count;
+      }
+      if (text !== next.text) next = { ...next, text };
+    }
+    return next;
   };
+  let result = walk(doc);
+
+  // ── Pass 2: block-level fallback for finds that span inline nodes ──
+  // Check presence on normalized text so punctuation differences don't hide a
+  // cross-node match.
+  const normResultText = normalizeForMatch(nodeText(result));
+  const stillPresent = pairs.filter((p) =>
+    normResultText.includes(normalizeForMatch(p.find))
+  );
+  if (stillPresent.length > 0) {
+    const collapse = (node: PMNode): PMNode => {
+      const next = node;
+      const children = next.content as PMNode[] | undefined;
+      if (!Array.isArray(children)) return next;
+
+      // A block whose children are all inline text/breaks can be flattened.
+      const inlineOnly = children.every(
+        (c) => c.type === "text" || c.type === "hardBreak"
+      );
+      if (inlineOnly && children.some((c) => c.type === "text")) {
+        let text = children
+          .map((c) => (c.type === "text" ? (c.text as string) ?? "" : "\n"))
+          .join("");
+        let changed = false;
+        for (const { find, replaceWith } of stillPresent) {
+          const r = replaceAll(text, find, replaceWith);
+          if (r.count > 0) {
+            text = r.text;
+            count += r.count;
+            changed = true;
+          }
+        }
+        if (changed) return { ...next, content: [{ type: "text", text }] };
+        return next;
+      }
+      return { ...next, content: children.map(collapse) };
+    };
+    result = collapse(result);
+  }
+
+  return { doc: result, count };
+}
+
+/** Concatenate all text in a node tree (for presence checks). */
+function nodeText(node: PMNode): string {
+  if (node.type === "text" && typeof node.text === "string") return node.text;
+  const children = node.content as PMNode[] | undefined;
+  if (!Array.isArray(children)) return "";
+  return children.map(nodeText).join("");
 }

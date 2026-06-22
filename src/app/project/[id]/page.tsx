@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { GenerationProgress } from "@/components/generation/GenerationProgress";
 import { CandidateSelection } from "@/components/generation/CandidateSelection";
+import { BuildStamp } from "@/components/BuildStamp";
 import { Editor, EditorHandle, CommentRange } from "@/components/editor/Editor";
 import { QAScorePanel } from "@/components/editor/QAScorePanel";
 import { ChronologyPanel } from "@/components/editor/ChronologyTable";
@@ -238,6 +239,7 @@ export default function ProjectPage() {
             <Link href="/dashboard" className="flex-shrink-0">
               <Image src="/logo.png" alt="Banhall" width={89} height={89} className="-my-5 brightness-0 invert" />
             </Link>
+            <BuildStamp className="hidden text-white/50 lg:inline-flex" />
             <div className="ml-auto flex min-w-0 items-center gap-3">
               <Link href="/dashboard" className="text-sm text-white/60 transition-colors hover:text-white/80">
                 Dashboard
@@ -416,6 +418,7 @@ export default function ProjectPage() {
                 reportId={report._id}
                 pendingHighlight={pendingChatHighlight}
                 onClearHighlight={() => setPendingChatHighlight(null)}
+                onReferenceText={(texts, scrollTo) => editorRef.current?.highlightText(texts, scrollTo)}
               />
             </div>
           </aside>

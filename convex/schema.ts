@@ -127,6 +127,10 @@ export default defineSchema({
     agentOutputs: v.optional(v.string()),
     currentStep: v.optional(v.string()),
     progressLog: v.optional(v.array(v.string())),
+    // BNH-21: time-estimate + milestone progress for the loading screen.
+    estimatedMs: v.optional(v.number()),
+    totalCandidates: v.optional(v.number()),
+    candidatesDone: v.optional(v.number()),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),
@@ -191,13 +195,22 @@ export default defineSchema({
     ),
     // Documents referenced by this message (uploaded via the paperclip).
     attachmentIds: v.optional(v.array(v.id("projectDocuments"))),
-    // A proposed edit the assistant wants to make to the report.
+    // BNH-25: passages the assistant located for a "find/show/highlight" request
+    // (no edit) — drives scroll-and-highlight in the document panel.
+    references: v.optional(v.array(v.string())),
+    // A proposed edit the assistant wants to make to the report. Either a single
+    // passage replacement (targetText → newText) or, for multi-instance edits
+    // like pronoun normalization, a list of find/replace pairs applied to every
+    // occurrence (BNH-27).
     proposedEdit: v.optional(
       v.object({
-        targetText: v.string(),
+        targetText: v.optional(v.string()),
         targetFrom: v.optional(v.number()),
         targetTo: v.optional(v.number()),
-        newText: v.string(),
+        newText: v.optional(v.string()),
+        replacements: v.optional(
+          v.array(v.object({ find: v.string(), replaceWith: v.string() }))
+        ),
         summaryBefore: v.optional(v.string()),
         summaryAfter: v.optional(v.string()),
         state: v.union(
@@ -243,6 +256,34 @@ export default defineSchema({
     uploadedBy: v.string(),
     createdAt: v.number(),
   }).index("by_projectId", ["projectId"]),
+
+  // ─── Error reporting (in-app "we noticed an error" + manual flag) ──────────
+  // One row per reported issue. Captures everything Claude Code needs to debug:
+  // the error message/stack, the page, the user's note, and a breadcrumb trail
+  // of the last actions taken before the report. Breadcrumbs are a small bounded
+  // list (capped client-side) so storing them inline is safe.
+  errorReports: defineTable({
+    // "auto" = surfaced by the error banner; "manual" = user clicked "Flag issue".
+    kind: v.union(v.literal("auto"), v.literal("manual")),
+    message: v.string(),
+    stack: v.optional(v.string()),
+    source: v.optional(v.string()),
+    url: v.string(),
+    userNote: v.optional(v.string()),
+    breadcrumbs: v.array(
+      v.object({
+        type: v.string(),
+        label: v.string(),
+        detail: v.optional(v.string()),
+        at: v.number(),
+      })
+    ),
+    userAgent: v.optional(v.string()),
+    userId: v.optional(v.id("users")),
+    userEmail: v.optional(v.string()),
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    createdAt: v.number(),
+  }).index("by_status", ["status"]),
 
   // Non-destructive version history of the report (Google-Docs-style restore).
   reportSnapshots: defineTable({

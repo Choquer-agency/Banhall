@@ -255,6 +255,24 @@ export const generateReport = internalAction({
           projectId: args.projectId,
         })) ?? "Untitled Report";
 
+      // BNH-21: estimate generation time up front so the UI can show a
+      // countdown + progress bar. Scales with input volume (transcript +
+      // context docs) and the number of candidate models we run end-to-end.
+      const contextWords = contextDocs.reduce(
+        (n, d) => n + (d.content?.split(/\s+/).filter(Boolean).length ?? 0),
+        0
+      );
+      const inputWords = transcriptWords + contextWords;
+      const perModelSec = 45 + inputWords / 150;
+      const estimatedMs = Math.round(
+        perModelSec * CANDIDATE_MODELS.length * 1000
+      );
+      await ctx.runMutation(internal.generations.setGenerationEstimate, {
+        generationId: genId,
+        estimatedMs,
+        totalCandidates: CANDIDATE_MODELS.length,
+      });
+
       // BNH-15: run the full pipeline once per candidate model.
       await ctx.runMutation(internal.generations.updateGenerationStatus, {
         generationId: genId,
@@ -283,6 +301,9 @@ export const generateReport = internalAction({
             label: m.label,
             content,
             agentOutputs,
+          });
+          await ctx.runMutation(internal.generations.incrementCandidatesDone, {
+            generationId: genId,
           });
           await log(`✓ ${m.label} draft ready (QA ${qaScore ?? "—"}/100).`);
           succeeded++;

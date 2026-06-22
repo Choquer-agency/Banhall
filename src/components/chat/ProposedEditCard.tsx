@@ -3,17 +3,21 @@
 import { useState } from "react";
 
 interface ProposedEditCardProps {
-  newText: string;
+  newText?: string;
+  replacements?: { find: string; replaceWith: string }[];
   state: "pending" | "applied" | "rejected";
   onReplace: () => Promise<void> | void;
   onReject: () => Promise<void> | void;
+  onShowInDoc?: () => void;
 }
 
 export function ProposedEditCard({
   newText,
+  replacements,
   state,
   onReplace,
   onReject,
+  onShowInDoc,
 }: ProposedEditCardProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,11 +38,32 @@ export function ProposedEditCard({
 
   return (
     <div className="mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-      {/* The proposed text itself */}
+      {/* The proposed change: a multi-instance find/replace list, or the new text */}
       <div className="max-h-72 overflow-y-auto px-4 py-3.5">
-        <p className="whitespace-pre-wrap font-serif text-[15px] leading-relaxed text-gray-900">
-          {newText}
-        </p>
+        {replacements && replacements.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+              {replacements.length} replacement{replacements.length === 1 ? "" : "s"} — applied to every occurrence
+            </p>
+            {replacements.map((r, i) => (
+              <div key={i} className="flex items-center gap-2 text-[14px]">
+                <span className="rounded bg-red-50 px-1.5 py-0.5 font-serif text-red-700 line-through decoration-red-300">
+                  {r.find}
+                </span>
+                <svg className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                </svg>
+                <span className="rounded bg-green-50 px-1.5 py-0.5 font-serif text-green-700">
+                  {r.replaceWith}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="whitespace-pre-wrap font-serif text-[15px] leading-relaxed text-gray-900">
+            {newText}
+          </p>
+        )}
       </div>
 
       {/* Actions */}
@@ -69,6 +94,19 @@ export function ProposedEditCard({
           </span>
         ) : (
           <span className="text-xs text-gray-400">Rejected</span>
+        )}
+
+        {onShowInDoc && (
+          <button
+            onClick={onShowInDoc}
+            title="Scroll to and highlight this in the document"
+            className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:bg-gray-100 hover:text-navy"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            Show in document
+          </button>
         )}
       </div>
 

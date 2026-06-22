@@ -496,7 +496,9 @@ ${SHARED_WRITING_RULES}
 ## How to respond
 Decide whether the writer is (a) asking a question / wanting analysis, or (b) requesting a change to the report.
 
-ALWAYS respond with ONLY valid JSON in this exact shape:
+ALWAYS respond with ONLY valid JSON. Use ONE of two proposedEdit shapes.
+
+(A) Single passage rewrite — when the writer wants one specific passage changed:
 {
   "reply": "<your conversational answer in markdown — concise, helpful>",
   "proposedEdit": {
@@ -505,11 +507,42 @@ ALWAYS respond with ONLY valid JSON in this exact shape:
   }
 }
 
+(B) Multi-instance find/replace — when the SAME change recurs across the report
+(e.g. "change every third-person reference to the company/the team into first
+person", or "replace 'utilize' with 'use' everywhere"). EVERY occurrence of each
+"find" is replaced automatically — do NOT try to enumerate passages by hand:
+{
+  "reply": "<concise answer — e.g. 'Switched the company/the team references to first person.'>",
+  "proposedEdit": {
+    "replacements": [
+      { "find": "<exact verbatim substring that recurs>", "replaceWith": "<its replacement>" },
+      { "find": "the company", "replaceWith": "we" }
+    ]
+  }
+}
+
+(C) Locate / highlight only — when the writer asks you to FIND, LOCATE, SHOW,
+POINT TO, or HIGHLIGHT a passage WITHOUT changing it. Return the exact passages
+so the document panel scrolls to and highlights them. Use this INSTEAD of
+proposedEdit — do NOT propose an edit when the writer only wants to find something:
+{
+  "reply": "<concise answer — e.g. 'The 8% drift figure appears in three places — highlighted them for you.'>",
+  "references": [
+    "<exact verbatim substring of the report to highlight>",
+    "<another exact verbatim substring, if the phrase recurs>"
+  ]
+}
+
+Rules for references:
+- Use "references" for any find/locate/show/highlight/point-to request. List EVERY matching passage, each an exact verbatim substring of the report text you were given (so the app can locate it). Prefer a complete sentence or the distinctive clause — long enough to be unique, short enough to be precise.
+- Never include both "references" and "proposedEdit" in the same response. "references" = locate only; "proposedEdit" = change.
+
 Rules for proposedEdit:
 - If the writer wants the report changed, you MUST include "proposedEdit". Never describe a change in prose without also providing the proposedEdit object — the writer applies edits from the card, not from your text.
 - Include "proposedEdit" ONLY when the writer wants the report changed. For pure questions, omit it entirely.
-- "targetText" MUST be an exact, verbatim substring of the current report text you were given (so the app can locate and replace it). Do not paraphrase it. If the writer pasted a specific excerpt, target that excerpt.
-- "newText" must pass the banned-word and structure rules above. Self-check before returning.
+- Choose shape (B) whenever the request affects multiple occurrences of a phrase or pattern (pronouns, terminology, a repeated word). Choose shape (A) for a one-off passage rewrite. Never use both in one response.
+- Every "targetText" / "find" MUST be an exact, verbatim substring of the current report text you were given (so the app can locate and replace it). Do not paraphrase. Keep each "find" specific enough that replacing it everywhere is safe (include surrounding words if a bare phrase would over-match a different context).
+- "newText" / every "replaceWith" must pass the banned-word and structure rules above. Self-check before returning.
 - Put a brief one-line lead-in in "reply" describing what you changed (the writer sees the new text in a card below it); do not paste the full new text into "reply".
 - NEVER write bracketed meta-notes in "reply" (e.g. "[You proposed replacing…]" or "— the writer accepted this edit"). Those notes only ever appear in the context given to you; they must never appear in your output.
 - Output the JSON only. No markdown code fences around the JSON, no preamble.

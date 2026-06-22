@@ -25,6 +25,7 @@ import type * as auth from "../auth.js";
 import type * as chat from "../chat.js";
 import type * as comments from "../comments.js";
 import type * as documents from "../documents.js";
+import type * as errorReports from "../errorReports.js";
 import type * as financial from "../financial.js";
 import type * as generations from "../generations.js";
 import type * as http from "../http.js";
@@ -62,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   chat: typeof chat;
   comments: typeof comments;
   documents: typeof documents;
+  errorReports: typeof errorReports;
   financial: typeof financial;
   generations: typeof generations;
   http: typeof http;

@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { api } from "../../../../convex/_generated/api";
 import Link from "next/link";
 import Image from "next/image";
+import { BuildStamp } from "@/components/BuildStamp";
 
 type Stat = { model: string; label: string; count: number; pct: number };
 
@@ -63,6 +64,7 @@ export default function AdminModelsPage() {
           <Link href="/dashboard" className="flex-shrink-0">
             <Image src="/logo.png" alt="Banhall" width={89} height={89} className="-my-5 brightness-0 invert" />
           </Link>
+          <BuildStamp className="hidden text-white/50 lg:inline-flex" />
           <div className="ml-auto flex items-center gap-3">
             <Link href="/dashboard" className="text-sm text-white/60 transition-colors hover:text-white/80">
               Dashboard

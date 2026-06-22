@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { BuildStamp } from "@/components/BuildStamp";
 
 export default function LoginPage() {
   const { signIn } = useAuthActions();
@@ -187,6 +188,9 @@ export default function LoginPage() {
         <p className="mt-6 text-center text-xs text-gray-400">
           Banhall SR&ED Consulting
         </p>
+        <div className="mt-2 flex justify-center">
+          <BuildStamp className="text-gray-300" />
+        </div>
       </div>
     </div>
   );
