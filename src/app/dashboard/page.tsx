@@ -10,6 +10,52 @@ import { ProjectCard } from "@/components/dashboard/ProjectCard";
 import Link from "next/link";
 import Image from "next/image";
 import { BuildStamp } from "@/components/BuildStamp";
+import { Doc } from "../../../convex/_generated/dataModel";
+
+type Project = Doc<"projects">;
+
+/** BNH-36: group projects company (A→Z) → fiscal year (newest first) → reports. */
+function groupByCompanyAndYear(projects: Project[]) {
+  const byCompany = new Map<string, Map<string, Project[]>>();
+  for (const p of projects) {
+    const company = p.clientName?.trim() || "—";
+    const fyKey = p.fiscalYearEnd
+      ? String(new Date(p.fiscalYearEnd).getFullYear())
+      : "none";
+    if (!byCompany.has(company)) byCompany.set(company, new Map());
+    const years = byCompany.get(company)!;
+    if (!years.has(fyKey)) years.set(fyKey, []);
+    years.get(fyKey)!.push(p);
+  }
+
+  return [...byCompany.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }))
+    .map(([company, years]) => {
+      const total = [...years.values()].reduce((n, a) => n + a.length, 0);
+      const yearGroups = [...years.entries()]
+        .sort((a, b) => {
+          if (a[0] === "none") return 1;
+          if (b[0] === "none") return -1;
+          return Number(b[0]) - Number(a[0]);
+        })
+        .map(([fyKey, ps]) => {
+          const withDate = ps.find((p) => p.fiscalYearEnd);
+          return {
+            fyKey,
+            label: fyKey === "none" ? "No fiscal year set" : `Fiscal ${fyKey}`,
+            dateLabel: withDate
+              ? new Date(withDate.fiscalYearEnd!).toLocaleDateString("en-CA", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })
+              : null,
+            projects: [...ps].sort((a, b) => b.updatedAt - a.updatedAt),
+          };
+        });
+      return { company, total, yearGroups };
+    });
+}
 
 type StatusFilter = "all" | "draft" | "generating" | "review" | "client_review" | "final";
 
@@ -27,8 +73,20 @@ export default function DashboardPage() {
   const router = useRouter();
   const user = useQuery(api.users.getCurrentUser);
   const projects = useQuery(api.projects.listProjects);
+  const openAlerts = useQuery(api.errorReports.openCount);
 
   const [filter, setFilter] = useState<StatusFilter>("all");
+  const [search, setSearch] = useState("");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  function toggle(key: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -57,6 +115,18 @@ export default function DashboardPage() {
     {} as Record<string, number>
   );
 
+  const q = search.trim().toLowerCase();
+  const searched = (filtered ?? []).filter(
+    (p) =>
+      !q ||
+      p.title.toLowerCase().includes(q) ||
+      p.clientName.toLowerCase().includes(q) ||
+      (p.writer ?? "").toLowerCase().includes(q)
+  );
+  const groups = groupByCompanyAndYear(searched);
+  // Default collapsed; searching forces everything open so matches are visible.
+  const isOpen = (key: string) => q.length > 0 || expanded.has(key);
+
   return (
     <div className="flex flex-1 flex-col bg-canvas">
       {/* Top bar — floating dark brand */}
@@ -68,6 +138,17 @@ export default function DashboardPage() {
           <BuildStamp className="hidden text-white/50 lg:inline-flex" />
         </div>
         <div className="flex items-center gap-4">
+          <Link
+            href="/alerts"
+            className="relative flex items-center gap-1.5 text-sm text-white/60 transition-colors hover:text-white/90"
+          >
+            Alerts
+            {openAlerts ? (
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">
+                {openAlerts}
+              </span>
+            ) : null}
+          </Link>
           <span className="hidden text-sm text-white/60 sm:inline">
             {user?.name ?? user?.email}
           </span>
@@ -109,9 +190,24 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* Search */}
+        {projects && projects.length > 0 && (
+          <div className="relative mt-4">
+            <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by company, project, or writer…"
+              className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+            />
+          </div>
+        )}
+
         {/* Filters */}
         {projects && projects.length > 0 && (
-          <div className="mt-4 flex items-center gap-1">
+          <div className="mt-3 flex items-center gap-1">
             {FILTERS.map((f) => {
               const count =
                 f.value === "all"
@@ -161,6 +257,16 @@ export default function DashboardPage() {
               Show all projects
             </button>
           </div>
+        ) : searched.length === 0 && q ? (
+          <div className="mt-12 text-center">
+            <p className="text-sm text-gray-400">No matches for “{search}”.</p>
+            <button
+              onClick={() => setSearch("")}
+              className="mt-2 text-xs text-primary hover:underline"
+            >
+              Clear search
+            </button>
+          </div>
         ) : filtered && filtered.length === 0 ? (
           <div className="mt-16 text-center">
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-chrome">
@@ -177,10 +283,62 @@ export default function DashboardPage() {
             </Link>
           </div>
         ) : (
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered?.map((project) => (
-              <ProjectCard key={project._id} project={project} />
-            ))}
+          /* BNH-36: company (A→Z) → fiscal year → report cards */
+          <div className="mt-5 flex flex-col gap-2">
+            {groups.map((g) => {
+              const companyOpen = isOpen(g.company);
+              return (
+                <div key={g.company} className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                  <button
+                    onClick={() => toggle(g.company)}
+                    className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-gray-50"
+                  >
+                    <svg className={`h-4 w-4 flex-shrink-0 text-gray-400 transition-transform ${companyOpen ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                    <span className="text-sm font-semibold text-navy">{g.company}</span>
+                    <span className="text-xs text-gray-400">
+                      {g.total} report{g.total !== 1 ? "s" : ""}
+                    </span>
+                  </button>
+
+                  {companyOpen && (
+                    <div className="border-t border-gray-100">
+                      {g.yearGroups.map((yg) => {
+                        const yearKey = `${g.company}|${yg.fyKey}`;
+                        const yearOpen = isOpen(yearKey);
+                        return (
+                          <div key={yearKey} className="border-b border-gray-50 last:border-0">
+                            <button
+                              onClick={() => toggle(yearKey)}
+                              className="flex w-full items-center gap-2 px-4 py-2.5 pl-7 text-left transition-colors hover:bg-gray-50"
+                            >
+                              <svg className={`h-3.5 w-3.5 flex-shrink-0 text-gray-300 transition-transform ${yearOpen ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                              </svg>
+                              <span className="text-sm font-medium text-gray-700">{yg.label}</span>
+                              {yg.dateLabel && (
+                                <span className="text-xs text-gray-400">· {yg.dateLabel}</span>
+                              )}
+                              <span className="ml-auto text-xs text-gray-400">
+                                {yg.projects.length}
+                              </span>
+                            </button>
+                            {yearOpen && (
+                              <div className="grid gap-3 px-4 pb-4 pl-10 pt-1 sm:grid-cols-2">
+                                {yg.projects.map((project) => (
+                                  <ProjectCard key={project._id} project={project} />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </main>

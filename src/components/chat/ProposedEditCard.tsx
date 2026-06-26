@@ -9,6 +9,8 @@ interface ProposedEditCardProps {
   onReplace: () => Promise<void> | void;
   onReject: () => Promise<void> | void;
   onShowInDoc?: () => void;
+  onReviewOneByOne?: () => void;
+  reviewing?: boolean;
 }
 
 export function ProposedEditCard({
@@ -18,6 +20,8 @@ export function ProposedEditCard({
   onReplace,
   onReject,
   onShowInDoc,
+  onReviewOneByOne,
+  reviewing,
 }: ProposedEditCardProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,22 +72,57 @@ export function ProposedEditCard({
 
       {/* Actions */}
       <div className="flex items-center gap-2 border-t border-gray-100 bg-gray-50 px-3 py-2.5">
-        {state === "pending" ? (
+        {state === "pending" && reviewing ? (
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-navy">
+            <div className="h-3 w-3 animate-spin rounded-full border-2 border-navy/30 border-t-navy" />
+            Stepping through in the document…
+          </span>
+        ) : state === "pending" ? (
           <>
-            <button
-              onClick={() => handle(onReplace)}
-              disabled={busy}
-              className="rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
-            >
-              {busy ? "Replacing…" : "Replace"}
-            </button>
-            <button
-              onClick={() => handle(onReject)}
-              disabled={busy}
-              className="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:opacity-50"
-            >
-              Reject
-            </button>
+            {/* BNH-30: multi-instance edits — step through (green), bulk (orange),
+                or reject (red). */}
+            {onReviewOneByOne ? (
+              <>
+                <button
+                  onClick={onReviewOneByOne}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1 rounded-lg bg-green-500 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-green-600 disabled:opacity-50"
+                >
+                  Replace One By One
+                </button>
+                <button
+                  onClick={() => handle(onReplace)}
+                  disabled={busy}
+                  className="rounded-lg bg-orange-500 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-orange-600 disabled:opacity-50"
+                >
+                  {busy ? "Replacing…" : "Replace All"}
+                </button>
+                <button
+                  onClick={() => handle(onReject)}
+                  disabled={busy}
+                  className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-600 disabled:opacity-50"
+                >
+                  Reject
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => handle(onReplace)}
+                  disabled={busy}
+                  className="rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+                >
+                  {busy ? "Replacing…" : "Replace"}
+                </button>
+                <button
+                  onClick={() => handle(onReject)}
+                  disabled={busy}
+                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:opacity-50"
+                >
+                  Reject
+                </button>
+              </>
+            )}
           </>
         ) : state === "applied" ? (
           <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600">

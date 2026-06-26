@@ -3,6 +3,7 @@ import { DM_Sans } from "next/font/google";
 import "./globals.css";
 import { ConvexAuthProvider } from "./ConvexAuthProvider";
 import { ErrorMonitor } from "@/components/errors/ErrorMonitor";
+import { PageErrorBoundary } from "@/components/errors/PageErrorBoundary";
 
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
@@ -23,7 +24,7 @@ export default function RootLayout({
     <html lang="en" className={`${dmSans.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col font-sans">
         <ConvexAuthProvider>
-          {children}
+          <PageErrorBoundary>{children}</PageErrorBoundary>
           <ErrorMonitor />
         </ConvexAuthProvider>
       </body>

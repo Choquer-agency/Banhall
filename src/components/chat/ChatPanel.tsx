@@ -8,7 +8,12 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ProposedEditCard } from "./ProposedEditCard";
 import { ChatIcon } from "@/components/ui/ChatIcon";
-import { parseFileToText } from "@/lib/parseDocument";
+import {
+  parseFileToText,
+  isSupportedFile,
+  SUPPORTED_ACCEPT,
+  SUPPORTED_LABEL,
+} from "@/lib/parseDocument";
 import {
   CONTEXT_CATEGORIES,
   ContextCategoryId,
@@ -25,6 +30,13 @@ interface ChatPanelProps {
   // BNH-25: highlight the given passages in the document panel, scrolling to
   // `scrollTo` (one of them) or the first if omitted.
   onReferenceText?: (texts: string[], scrollTo?: string) => void;
+  // BNH-30: start the one-by-one replace-and-scan-next review in the document.
+  onReviewReplacements?: (
+    pairs: { find: string; replaceWith: string }[],
+    messageId: Id<"chatMessages">
+  ) => void;
+  // The message whose edit is currently being stepped through (disables its card).
+  reviewingMessageId?: Id<"chatMessages"> | null;
 }
 
 /** The source passages an edit references — for scroll-and-highlight (BNH-25). */
@@ -61,10 +73,12 @@ function trimName(name: string): string {
 
 function guessFileType(
   name: string
-): "txt" | "md" | "pdf" | "docx" | "other" {
+): "txt" | "md" | "pdf" | "docx" | "msg" | "eml" | "other" {
   const l = name.toLowerCase();
   if (l.endsWith(".pdf")) return "pdf";
   if (l.endsWith(".docx")) return "docx";
+  if (l.endsWith(".msg")) return "msg";
+  if (l.endsWith(".eml") || l.endsWith(".mbox")) return "eml";
   if (l.endsWith(".md") || l.endsWith(".markdown")) return "md";
   if (l.endsWith(".txt")) return "txt";
   return "other";
@@ -78,6 +92,8 @@ export function ChatPanel({
   isFull,
   onToggleFull,
   onReferenceText,
+  onReviewReplacements,
+  reviewingMessageId,
 }: ChatPanelProps) {
   const threads = useQuery(api.chat.listThreads, { reportId });
   const [selectedThreadId, setSelectedThreadId] =
@@ -380,11 +396,21 @@ export function ChatPanel({
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".txt,.md,.markdown,.pdf,.docx"
+          accept={SUPPORTED_ACCEPT}
           className="hidden"
           onChange={(e) => {
             if (e.target.files && e.target.files.length) {
-              setPendingFiles(Array.from(e.target.files));
+              const all = Array.from(e.target.files);
+              const ok = all.filter((f) => isSupportedFile(f.name));
+              const bad = all.filter((f) => !isSupportedFile(f.name));
+              if (bad.length) {
+                setUploadError(
+                  `Unsupported file type: ${bad
+                    .map((f) => f.name)
+                    .join(", ")}. Supported: ${SUPPORTED_LABEL}.`
+                );
+              }
+              if (ok.length) setPendingFiles(ok);
             }
             e.target.value = "";
           }}
@@ -507,6 +533,18 @@ export function ChatPanel({
                       ? (scrollTo) => onReferenceText?.(messageRefs(m), scrollTo)
                       : undefined
                   }
+                  onReviewOneByOne={
+                    m.proposedEdit?.replacements &&
+                    m.proposedEdit.replacements.length > 0 &&
+                    onReviewReplacements
+                      ? () =>
+                          onReviewReplacements(
+                            m.proposedEdit!.replacements!,
+                            m._id
+                          )
+                      : undefined
+                  }
+                  reviewing={reviewingMessageId === m._id}
                 />
               ))}
             </div>
@@ -542,12 +580,16 @@ function MessageBubble({
   onReplace,
   onReject,
   onShowInDoc,
+  onReviewOneByOne,
+  reviewing,
 }: {
   message: ChatMessage;
   docNames: Map<string, string>;
   onReplace: () => Promise<unknown>;
   onReject: () => Promise<unknown>;
   onShowInDoc?: (scrollTo?: string) => void;
+  onReviewOneByOne?: () => void;
+  reviewing?: boolean;
 }) {
   if (message.role === "writer") {
     const attachments = (message.attachmentIds ?? []).map(
@@ -618,6 +660,8 @@ function MessageBubble({
             await onReject();
           }}
           onShowInDoc={onShowInDoc}
+          onReviewOneByOne={onReviewOneByOne}
+          reviewing={reviewing}
         />
       )}
 

@@ -17,6 +17,26 @@ export const listProjects = query({
   },
 });
 
+/** BNH-36: set/clear the client's fiscal year-end on an existing project. */
+export const updateProjectFiscalYear = mutation({
+  args: {
+    projectId: v.id("projects"),
+    fiscalYearEnd: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.createdBy !== userId) {
+      throw new Error("Not authorized");
+    }
+    await ctx.db.patch(args.projectId, {
+      fiscalYearEnd: args.fiscalYearEnd,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
 export const getProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
@@ -44,6 +64,7 @@ export const createProject = mutation({
     clientName: v.string(),
     writer: v.optional(v.string()),
     interviewer: v.optional(v.string()),
+    fiscalYearEnd: v.optional(v.number()),
     transcriptContent: v.string(),
   },
   handler: async (ctx, args) => {
@@ -58,6 +79,7 @@ export const createProject = mutation({
       clientName: args.clientName,
       ...(args.writer ? { writer: args.writer } : {}),
       ...(args.interviewer ? { interviewer: args.interviewer } : {}),
+      ...(args.fiscalYearEnd ? { fiscalYearEnd: args.fiscalYearEnd } : {}),
       status: "draft",
       createdBy: userId,
       shareToken,

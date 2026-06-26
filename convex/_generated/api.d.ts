@@ -34,6 +34,7 @@ import type * as lib_snapshots from "../lib/snapshots.js";
 import type * as projects from "../projects.js";
 import type * as reportViews from "../reportViews.js";
 import type * as reports from "../reports.js";
+import type * as reviews from "../reviews.js";
 import type * as seed from "../seed.js";
 import type * as snapshots from "../snapshots.js";
 import type * as transcripts from "../transcripts.js";
@@ -72,6 +73,7 @@ declare const fullApi: ApiFromModules<{
   projects: typeof projects;
   reportViews: typeof reportViews;
   reports: typeof reports;
+  reviews: typeof reviews;
   seed: typeof seed;
   snapshots: typeof snapshots;
   transcripts: typeof transcripts;

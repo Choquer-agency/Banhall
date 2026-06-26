@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "../../../convex/_generated/api";
+import { Id } from "../../../convex/_generated/dataModel";
 
 interface QAScorecard {
   overall_score: number;
@@ -43,7 +46,15 @@ function normalize(raw: Partial<QAScorecard>): QAScorecard {
   };
 }
 
-export function QAScorePanel({ agentOutputs, reportContent }: { agentOutputs?: string | null; reportContent?: string | null }) {
+export function QAScorePanel({
+  agentOutputs,
+  reportContent,
+  reportId,
+}: {
+  agentOutputs?: string | null;
+  reportContent?: string | null;
+  reportId?: Id<"reports">;
+}) {
   const [isOpen, setIsOpen] = useState(false);
 
   const scorecard = useMemo(() => {
@@ -71,9 +82,47 @@ export function QAScorePanel({ agentOutputs, reportContent }: { agentOutputs?: s
     return null;
   }, [agentOutputs, reportContent]);
 
+  // BNH-29: the writer's own QA review for this report version.
+  const myReview = useQuery(
+    api.reviews.getMyWriterReview,
+    reportId ? { reportId } : "skip"
+  );
+  const submitReview = useMutation(api.reviews.submitWriterReview);
+  const [draft, setDraft] = useState<{ score: string; comment: string } | null>(
+    null
+  );
+  const [saving, setSaving] = useState(false);
+
   if (!scorecard) return null;
 
   const overall = scorecard.overall_score;
+
+  // Show the saved review unless the writer is mid-edit (draft).
+  const reviewScore = draft ? draft.score : myReview ? String(myReview.score) : "";
+  const reviewComment = draft ? draft.comment : myReview?.comment ?? "";
+  const hasReview = myReview != null;
+  const dirty =
+    draft != null &&
+    (Number(draft.score) !== (myReview?.score ?? NaN) ||
+      draft.comment !== (myReview?.comment ?? ""));
+
+  async function saveReview() {
+    if (!reportId || reviewScore === "") return;
+    setSaving(true);
+    try {
+      await submitReview({
+        reportId,
+        score: Number(reviewScore),
+        comment: reviewComment,
+        aiScore: overall,
+      });
+      setDraft(null); // reflect the saved server value
+    } catch (e) {
+      console.error("writer review save failed", e);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white">
@@ -97,6 +146,11 @@ export function QAScorePanel({ agentOutputs, reportContent }: { agentOutputs?: s
           <span className="text-sm font-medium text-gray-900">
             QA Score
           </span>
+          {hasReview && (
+            <span className="rounded-full bg-navy/5 px-2 py-0.5 text-xs font-medium text-navy">
+              You: {myReview!.score}
+            </span>
+          )}
           {scorecard.gaps_requiring_client_followup.length > 0 && (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
               {scorecard.gaps_requiring_client_followup.length} gap
@@ -118,6 +172,67 @@ export function QAScorePanel({ agentOutputs, reportContent }: { agentOutputs?: s
       {/* Expanded panel */}
       {isOpen && (
         <div className="border-t border-gray-100 px-5 py-4">
+          {/* BNH-29: writer's human QA review (independent of the AI score) */}
+          {reportId && (
+            <div className="mb-5 rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                  Your review
+                </p>
+                <span className="text-[11px] text-gray-400">
+                  AI scored this {overall}/100
+                </span>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <label className="text-xs text-gray-600">Your score</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={reviewScore}
+                  onChange={(e) =>
+                    setDraft({ score: e.target.value, comment: reviewComment })
+                  }
+                  placeholder="0–100"
+                  className="w-20 rounded-md border border-gray-200 bg-white px-2 py-1 text-sm font-semibold text-navy focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                />
+                <span className="text-xs text-gray-400">/ 100</span>
+              </div>
+              <textarea
+                value={reviewComment}
+                onChange={(e) =>
+                  setDraft({ score: reviewScore, comment: e.target.value })
+                }
+                rows={2}
+                placeholder="Comments on this report's quality (what worked, what to fix)…"
+                className="mt-2 w-full resize-none rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+              />
+              <div className="mt-2 flex items-center gap-3">
+                <button
+                  onClick={saveReview}
+                  disabled={saving || reviewScore === "" || (hasReview && !dirty)}
+                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+                >
+                  {saving
+                    ? "Saving…"
+                    : hasReview
+                      ? dirty
+                        ? "Update review"
+                        : "Saved"
+                      : "Save review"}
+                </button>
+                {hasReview && !dirty && !saving && (
+                  <span className="inline-flex items-center gap-1 text-xs text-green-600">
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Recorded
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Section scores */}
           <div className="grid grid-cols-3 gap-3 mb-5">
             {Object.entries(scorecard.section_scores).map(([key, section]) => (

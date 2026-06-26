@@ -8,6 +8,8 @@ const fileTypeValidator = v.union(
   v.literal("md"),
   v.literal("pdf"),
   v.literal("docx"),
+  v.literal("msg"),
+  v.literal("eml"),
   v.literal("other")
 );
 
@@ -110,8 +112,21 @@ export const listDocuments = query({
         hasFile: !!d.storageId,
         mimeType: d.mimeType ?? null,
         url: d.storageId ? await ctx.storage.getUrl(d.storageId) : null,
+        archived: d.archived ?? false,
       }))
     );
+  },
+});
+
+/** BNH-24: archive (or restore) a file — keeps it visible but out of AI context. */
+export const setDocumentArchived = mutation({
+  args: { documentId: v.id("projectDocuments"), archived: v.boolean() },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc) throw new Error("Document not found");
+    const project = await assertProjectOwner(ctx, doc.projectId);
+    if (!project) throw new Error("Not authorized");
+    await ctx.db.patch(args.documentId, { archived: args.archived });
   },
 });
 
@@ -151,7 +166,7 @@ export const getContextDocsForGeneration = internalQuery({
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .collect();
     return docs
-      .filter((d) => d.category && d.content.trim().length > 0)
+      .filter((d) => !d.archived && d.category && d.content.trim().length > 0)
       .map((d) => ({
         category: d.category!,
         fileName: d.fileName,

@@ -7,7 +7,12 @@ import { api } from "../../../../convex/_generated/api";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { parseFileToText } from "@/lib/parseDocument";
+import {
+  parseFileToText,
+  isSupportedFile,
+  SUPPORTED_ACCEPT,
+  SUPPORTED_LABEL,
+} from "@/lib/parseDocument";
 import {
   CONTEXT_CATEGORIES,
   ContextCategoryId,
@@ -26,13 +31,45 @@ function emptyStaged(): Staged {
   return out;
 }
 
-function guessFileType(name: string): "txt" | "md" | "pdf" | "docx" | "other" {
+function guessFileType(
+  name: string
+): "txt" | "md" | "pdf" | "docx" | "msg" | "eml" | "other" {
   const l = name.toLowerCase();
   if (l.endsWith(".pdf")) return "pdf";
   if (l.endsWith(".docx")) return "docx";
+  if (l.endsWith(".msg")) return "msg";
+  if (l.endsWith(".eml") || l.endsWith(".mbox")) return "eml";
   if (l.endsWith(".md") || l.endsWith(".markdown")) return "md";
   if (l.endsWith(".txt")) return "txt";
   return "other";
+}
+
+/** BNH-33: split an incoming file list into parseable vs. unsupported. */
+function partitionSupported(files: File[]): { ok: File[]; rejected: string[] } {
+  const ok: File[] = [];
+  const rejected: string[] = [];
+  for (const f of files) {
+    if (isSupportedFile(f.name)) ok.push(f);
+    else rejected.push(f.name);
+  }
+  return { ok, rejected };
+}
+
+/** Inline warning shown when a writer attaches a file type we can't parse. */
+function UnsupportedWarning({ names }: { names: string[] }) {
+  if (names.length === 0) return null;
+  return (
+    <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+      <svg className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+      </svg>
+      <span>
+        <span className="font-medium">Not added — unsupported file type:</span>{" "}
+        {names.join(", ")}.{" "}
+        <span className="text-amber-700">Supported: {SUPPORTED_LABEL}.</span>
+      </span>
+    </div>
+  );
 }
 
 const STEPS = ["Details", "Context & files", "Review"];
@@ -53,8 +90,40 @@ export default function NewProjectPage() {
   const [title, setTitle] = useState("");
   const [clientName, setClientName] = useState("");
   const [interviewer, setInterviewer] = useState("");
+  const [fiscalYearEnd, setFiscalYearEnd] = useState(""); // yyyy-mm-dd (BNH-36)
   const [transcript, setTranscript] = useState("");
   const [staged, setStaged] = useState<Staged>(emptyStaged);
+
+  // BNH-31: drag-and-drop a transcript file on the Details step.
+  const transcriptInputRef = useRef<HTMLInputElement>(null);
+  const [transcriptDragOver, setTranscriptDragOver] = useState(false);
+  const [parsingTranscript, setParsingTranscript] = useState<string | null>(null);
+  const [transcriptFileError, setTranscriptFileError] = useState("");
+
+  async function handleTranscriptFile(file: File) {
+    if (!isSupportedFile(file.name)) {
+      setTranscriptFileError(
+        `Can't read ${file.name} — unsupported type. Supported: ${SUPPORTED_LABEL}.`
+      );
+      return;
+    }
+    setTranscriptFileError("");
+    setParsingTranscript(file.name);
+    try {
+      const parsed = await parseFileToText(file);
+      const text = parsed.content.trim();
+      if (!text) {
+        setTranscriptFileError(`Couldn't extract any text from ${file.name}.`);
+      } else {
+        // Append if the writer already has text, otherwise populate.
+        setTranscript((prev) => (prev.trim() ? `${prev.trim()}\n\n${text}` : text));
+      }
+    } catch {
+      setTranscriptFileError(`Couldn't read ${file.name}. Try another file.`);
+    } finally {
+      setParsingTranscript(null);
+    }
+  }
 
   // Previous-year reports get a structured year-by-year UI (BNH-9 / BNH-26).
   // Multiple files + an optional note per year; the year label is editable, so
@@ -128,6 +197,10 @@ export default function NewProjectPage() {
         setError("Project title and client name are required.");
         return;
       }
+      if (!fiscalYearEnd) {
+        setError("Please set the client's fiscal year-end date.");
+        return;
+      }
       if (!transcript.trim()) {
         setError("Please paste the interview transcript.");
         return;
@@ -162,6 +235,9 @@ export default function NewProjectPage() {
         clientName: clientName.trim(),
         ...(writerName ? { writer: writerName } : {}),
         ...(interviewer.trim() ? { interviewer: interviewer.trim() } : {}),
+        ...(fiscalYearEnd
+          ? { fiscalYearEnd: new Date(`${fiscalYearEnd}T00:00:00`).getTime() }
+          : {}),
         transcriptContent: transcript,
       });
 
@@ -300,7 +376,7 @@ export default function NewProjectPage() {
             <div>
               <h2 className="text-xl font-semibold text-gray-900">Project details</h2>
               <p className="mt-1 text-sm text-gray-500">
-                Enter the basics and paste the interview transcript.
+                Enter the basics, then drop a transcript file or paste it below.
               </p>
             </div>
             <div className="grid gap-5 sm:grid-cols-2">
@@ -316,18 +392,85 @@ export default function NewProjectPage() {
                 </div>
               </div>
               <Input id="interviewer" label="Interviewer" value={interviewer} onChange={(e) => setInterviewer(e.target.value)} placeholder="John Doe" />
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="fiscalYearEnd" className="text-sm font-medium text-gray-700">
+                  Fiscal year-end <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="fiscalYearEnd"
+                  type="date"
+                  value={fiscalYearEnd}
+                  onChange={(e) => setFiscalYearEnd(e.target.value)}
+                  className="h-[42px] rounded-lg border border-gray-200 bg-white px-3.5 text-sm text-gray-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                />
+                <span className="text-xs text-gray-400">
+                  Groups this report under the client&apos;s fiscal year (e.g. Dec 31, 2025 → Fiscal 2025).
+                </span>
+              </div>
             </div>
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between">
                 <label htmlFor="transcript" className="text-sm font-medium text-gray-700">Interview transcript</label>
                 {wordCount > 0 && <span className="text-xs text-gray-400">{wordCount.toLocaleString()} words</span>}
               </div>
+
+              {/* BNH-31: large drag-and-drop zone to import a transcript file */}
+              <div
+                onClick={() => transcriptInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); setTranscriptDragOver(true); }}
+                onDragLeave={() => setTranscriptDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setTranscriptDragOver(false);
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) handleTranscriptFile(file);
+                }}
+                className={`flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-7 text-center transition-colors ${
+                  transcriptDragOver
+                    ? "border-primary bg-primary/5"
+                    : "border-gray-200 bg-canvas hover:border-gray-300"
+                }`}
+              >
+                {parsingTranscript ? (
+                  <span className="inline-flex items-center gap-2 text-sm text-navy">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-navy/30 border-t-navy" />
+                    Reading {parsingTranscript}…
+                  </span>
+                ) : (
+                  <>
+                    <svg className="h-7 w-7 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                    </svg>
+                    <span className="text-sm font-medium text-gray-600">
+                      Drag a transcript file here, or click to browse
+                    </span>
+                    <span className="text-xs text-gray-400">
+                      Word (.docx), PDF, .txt, email (.eml/.msg) — or just paste below
+                    </span>
+                  </>
+                )}
+              </div>
+              <input
+                ref={transcriptInputRef}
+                type="file"
+                accept={SUPPORTED_ACCEPT}
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleTranscriptFile(file);
+                  e.target.value = "";
+                }}
+              />
+              {transcriptFileError && (
+                <p className="text-xs text-red-600">{transcriptFileError}</p>
+              )}
+
               <textarea
                 id="transcript"
-                rows={16}
+                rows={14}
                 value={transcript}
                 onChange={(e) => setTranscript(e.target.value)}
-                placeholder="Paste the full interview transcript here..."
+                placeholder="…or paste the full interview transcript here"
                 className="rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 font-serif text-sm leading-relaxed text-gray-900 placeholder:font-sans placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
               />
             </div>
@@ -521,6 +664,13 @@ function CategoryCard({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [rejected, setRejected] = useState<string[]>([]);
+
+  const accept = (files: File[]) => {
+    const { ok, rejected: bad } = partitionSupported(files);
+    if (ok.length) onAddFiles(ok);
+    setRejected(bad);
+  };
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -547,10 +697,10 @@ function CategoryCard({
         ref={inputRef}
         type="file"
         multiple
-        accept=".txt,.md,.markdown,.pdf,.docx"
+        accept={SUPPORTED_ACCEPT}
         className="hidden"
         onChange={(e) => {
-          if (e.target.files) onAddFiles(Array.from(e.target.files));
+          if (e.target.files) accept(Array.from(e.target.files));
           e.target.value = "";
         }}
       />
@@ -562,14 +712,16 @@ function CategoryCard({
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
-          if (e.dataTransfer.files) onAddFiles(Array.from(e.dataTransfer.files));
+          if (e.dataTransfer.files) accept(Array.from(e.dataTransfer.files));
         }}
-        className={`mt-3 rounded-lg border border-dashed px-3 py-2 text-center text-xs transition-colors ${
+        className={`mt-3 rounded-lg border border-dashed px-3 py-3.5 text-center text-xs transition-colors ${
           dragOver ? "border-primary bg-primary/5 text-primary-dark" : "border-gray-200 text-gray-400"
         }`}
       >
         Drag files here, or use “Add files”
       </div>
+
+      <UnsupportedWarning names={rejected} />
 
       {/* Staged files */}
       {value.files.length > 0 && (
@@ -683,6 +835,13 @@ function YearRow({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [rejected, setRejected] = useState<string[]>([]);
+
+  const accept = (incoming: File[]) => {
+    const { ok, rejected: bad } = partitionSupported(incoming);
+    if (ok.length) onAddFiles(ok);
+    setRejected(bad);
+  };
 
   return (
     <div className="rounded-lg border border-gray-100 bg-canvas p-3">
@@ -724,10 +883,10 @@ function YearRow({
         ref={inputRef}
         type="file"
         multiple
-        accept=".txt,.md,.markdown,.pdf,.docx"
+        accept={SUPPORTED_ACCEPT}
         className="hidden"
         onChange={(e) => {
-          if (e.target.files) onAddFiles(Array.from(e.target.files));
+          if (e.target.files) accept(Array.from(e.target.files));
           e.target.value = "";
         }}
       />
@@ -742,9 +901,9 @@ function YearRow({
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
-          if (e.dataTransfer.files) onAddFiles(Array.from(e.dataTransfer.files));
+          if (e.dataTransfer.files) accept(Array.from(e.dataTransfer.files));
         }}
-        className={`mt-2 rounded-lg border border-dashed px-3 py-2 text-center text-xs transition-colors ${
+        className={`mt-2 rounded-lg border border-dashed px-3 py-3.5 text-center text-xs transition-colors ${
           dragOver
             ? "border-primary bg-primary/5 text-primary-dark"
             : "border-gray-200 text-gray-400"
@@ -752,6 +911,8 @@ function YearRow({
       >
         Drag files here, or use “Add files”
       </div>
+
+      <UnsupportedWarning names={rejected} />
 
       {/* Staged files */}
       {files.length > 0 && (

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { pushBreadcrumb, getBreadcrumbs } from "./breadcrumbs";
+import { APP_ERROR_EVENT, type AppErrorDetail } from "./PageErrorBoundary";
 
 type DetectedError = {
   message: string;
@@ -105,7 +106,8 @@ export function ErrorMonitor() {
     };
 
     // Wrap fetch → record non-OK responses and network failures.
-    const origFetch = window.fetch;
+    // Bind to window so calling it bare doesn't trip "Illegal invocation".
+    const origFetch = window.fetch.bind(window);
     window.fetch = async (...args: Parameters<typeof fetch>) => {
       try {
         const res = await origFetch(...args);
@@ -127,6 +129,19 @@ export function ErrorMonitor() {
       }
     };
 
+    // Render-time crashes, relayed from PageErrorBoundary.
+    const onAppError = (e: Event) => {
+      const detail = (e as CustomEvent<AppErrorDetail>).detail;
+      if (!detail) return;
+      setDetected({
+        message: detail.message,
+        stack: detail.stack,
+        source: detail.source,
+      });
+      setBannerDismissed(false);
+    };
+    window.addEventListener(APP_ERROR_EVENT, onAppError);
+
     // Capture meaningful clicks (buttons / links).
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
@@ -145,6 +160,7 @@ export function ErrorMonitor() {
     return () => {
       window.removeEventListener("error", onError);
       window.removeEventListener("unhandledrejection", onRejection);
+      window.removeEventListener(APP_ERROR_EVENT, onAppError);
       document.removeEventListener("click", onClick, true);
       console.error = origConsoleError;
       window.fetch = origFetch;
@@ -252,10 +268,10 @@ export function ErrorMonitor() {
       <button
         onClick={() => setModalMode("manual")}
         title="Something off? Flag it so we can take a look."
-        className="fixed bottom-5 right-5 z-[90] flex items-center gap-2 rounded-full bg-navy px-4 py-3 text-sm font-medium text-white shadow-xl shadow-navy/30 transition-transform hover:scale-105 active:scale-95"
+        className="fixed right-3 top-3 z-[90] flex items-center gap-1 rounded-full bg-navy px-2.5 py-1.5 text-xs font-medium text-white shadow-lg shadow-navy/30 transition-transform hover:scale-105 active:scale-95"
       >
         <svg
-          className="h-4 w-4"
+          className="h-3 w-3"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"

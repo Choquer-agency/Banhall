@@ -20,6 +20,9 @@ export default defineSchema({
     clientName: v.string(),
     writer: v.optional(v.string()),
     interviewer: v.optional(v.string()),
+    // BNH-36: client's fiscal year-end (timestamp) — drives company → fiscal-year
+    // grouping on the dashboard. "Fiscal 2025" = the year of this date.
+    fiscalYearEnd: v.optional(v.number()),
     status: v.union(
       v.literal("draft"),
       v.literal("generating"),
@@ -236,12 +239,17 @@ export default defineSchema({
       v.literal("md"),
       v.literal("pdf"),
       v.literal("docx"),
+      v.literal("msg"),
+      v.literal("eml"),
       v.literal("other")
     ),
     content: v.string(),
     // Original file bytes in Convex storage (for preview/download).
     storageId: v.optional(v.id("_storage")),
     mimeType: v.optional(v.string()),
+    // BNH-24: archived files stay visible to reviewers but are excluded from
+    // AI context (generation + chat).
+    archived: v.optional(v.boolean()),
     // Contextual-input category (BNH-9) used for SR&ED weighting at generation.
     category: v.optional(
       v.union(
@@ -300,4 +308,23 @@ export default defineSchema({
     createdByRole: v.union(v.literal("writer"), v.literal("system")),
     createdAt: v.number(),
   }).index("by_reportId", ["reportId"]),
+
+  // ─── BNH-29: writer's human QA score + feedback on a generated report ───────
+  // One review per writer per report version. Surfaced to the admin alongside
+  // the AI QA score; NEVER auto-applied to the brain (manual review only).
+  writerReviews: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    reportVersion: v.optional(v.number()),
+    userId: v.string(),
+    writerName: v.optional(v.string()),
+    score: v.number(), // writer's 0–100 quality score
+    comment: v.optional(v.string()),
+    aiScore: v.optional(v.number()), // AI QA score at submit, for gap analytics
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_reportId", ["reportId"])
+    .index("by_user_report", ["userId", "reportId"])
+    .index("by_projectId", ["projectId"]),
 });

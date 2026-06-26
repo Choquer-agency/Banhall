@@ -47,6 +47,7 @@ export default function ProjectPage() {
   const generateReport = useMutation(api.projects.scheduleGenerateReport);
   const updateReport = useMutation(api.reports.updateReportContent);
   const createSnapshot = useMutation(api.snapshots.createManualSnapshot);
+  const markEditApplied = useMutation(api.chat.markProposedEditApplied);
 
   const editorRef = useRef<EditorHandle>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -68,6 +69,109 @@ export default function ProjectPage() {
     to: number;
     text: string;
   } | null>(null);
+
+  // BNH-30: one-by-one replace-and-scan-next session.
+  type ReplaceMatch = { from: number; to: number; replaceWith: string; text: string };
+  type ReplaceSession = {
+    pairs: { find: string; replaceWith: string }[];
+    messageId: Id<"chatMessages">;
+    cursor: number;
+    total: number;
+    position: number;
+    current: ReplaceMatch | null;
+    replaced: number;
+  };
+  const [replaceSession, setReplaceSession] = useState<ReplaceSession | null>(null);
+  const [replaceNotice, setReplaceNotice] = useState<string | null>(null);
+  function notifyReplace(msg: string) {
+    setReplaceNotice(msg);
+    setTimeout(() => setReplaceNotice(null), 4000);
+  }
+
+  function startReplaceReview(
+    pairs: { find: string; replaceWith: string }[],
+    messageId: Id<"chatMessages">
+  ) {
+    const ed = editorRef.current;
+    if (!ed || !report) return;
+    const matches = ed.findReplaceMatches(pairs);
+    if (matches.length === 0) {
+      // Nothing left to replace — almost always because it's already applied.
+      // Collapse the card so its buttons stop looking actionable.
+      notifyReplace(
+        `No remaining “${pairs[0]?.find ?? "matches"}” in the report — already applied.`
+      );
+      markEditApplied({ messageId }).catch(() => {});
+      return;
+    }
+    // Snapshot once so the whole stepping pass can be undone.
+    createSnapshot({ reportId: report._id, reason: "manual" }).catch(() => {});
+    const first = matches[0];
+    ed.highlightRange(first.from, first.to, first.text);
+    setReplaceSession({
+      pairs,
+      messageId,
+      cursor: 0,
+      total: matches.length,
+      position: 1,
+      current: first,
+      replaced: 0,
+    });
+  }
+
+  function advanceReplace(cursor: number, addedReplaced: number) {
+    const sess = replaceSession;
+    const ed = editorRef.current;
+    if (!sess || !ed) return;
+    const next =
+      ed.findReplaceMatches(sess.pairs).find((m) => m.from >= cursor) ?? null;
+    const replaced = sess.replaced + addedReplaced;
+    if (next) {
+      ed.highlightRange(next.from, next.to, next.text);
+      setReplaceSession({ ...sess, cursor, position: sess.position + 1, current: next, replaced });
+    } else {
+      ed.clearHighlight();
+      if (replaced > 0) markEditApplied({ messageId: sess.messageId }).catch(() => {});
+      setReplaceSession(null);
+    }
+  }
+
+  function replaceAndNext() {
+    const sess = replaceSession;
+    const ed = editorRef.current;
+    if (!sess?.current || !ed) return;
+    ed.replaceRange(sess.current.from, sess.current.to, sess.current.replaceWith);
+    advanceReplace(sess.current.from + sess.current.replaceWith.length, 1);
+  }
+
+  function rejectAndNext() {
+    const sess = replaceSession;
+    if (!sess?.current) return;
+    advanceReplace(sess.current.to, 0);
+  }
+
+  function replaceAllRemaining() {
+    const sess = replaceSession;
+    const ed = editorRef.current;
+    if (!sess || !ed) return;
+    let cursor = sess.current ? sess.current.from : sess.cursor;
+    let replaced = sess.replaced;
+    for (let i = 0; i < 5000; i++) {
+      const m = ed.findReplaceMatches(sess.pairs).find((x) => x.from >= cursor);
+      if (!m) break;
+      ed.replaceRange(m.from, m.to, m.replaceWith);
+      cursor = m.from + m.replaceWith.length;
+      replaced++;
+    }
+    ed.clearHighlight();
+    if (replaced > 0) markEditApplied({ messageId: sess.messageId }).catch(() => {});
+    setReplaceSession(null);
+  }
+
+  function endReplaceReview() {
+    editorRef.current?.clearHighlight();
+    setReplaceSession(null);
+  }
 
   const handleAskAI = useCallback(
     (selection: { from: number; to: number; text: string }) => {
@@ -347,6 +451,13 @@ export default function ProjectPage() {
                   <span className="text-gray-400">Created</span>
                   <p className="text-gray-700">{new Date(project.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</p>
                 </div>
+                <div>
+                  <span className="text-gray-400">Fiscal year-end</span>
+                  <FiscalYearField
+                    projectId={projectId}
+                    fiscalYearEnd={project.fiscalYearEnd ?? null}
+                  />
+                </div>
               </div>
               {/* View tracking */}
               {viewSummary && viewSummary.totalViews > 0 && (
@@ -382,12 +493,12 @@ export default function ProjectPage() {
 
             {/* QA Score */}
             <div className="mt-8 mb-12">
-              <QAScorePanel agentOutputs={generation?.agentOutputs} reportContent={report.content} />
+              <QAScorePanel agentOutputs={generation?.agentOutputs} reportContent={report.content} reportId={report._id} />
               <div className="mt-4">
                 <ChronologyPanel agentOutputs={generation?.agentOutputs} />
               </div>
               <div className="mt-4">
-                <FilesPanel projectId={projectId} />
+                <FilesPanel projectId={projectId} reportId={report._id} />
               </div>
               <LogsPanel projectId={projectId} />
             </div>
@@ -419,10 +530,77 @@ export default function ProjectPage() {
                 pendingHighlight={pendingChatHighlight}
                 onClearHighlight={() => setPendingChatHighlight(null)}
                 onReferenceText={(texts, scrollTo) => editorRef.current?.highlightText(texts, scrollTo)}
+                onReviewReplacements={startReplaceReview}
+                reviewingMessageId={replaceSession?.messageId ?? null}
               />
             </div>
           </aside>
         )}
+        </div>
+      )}
+
+      {/* BNH-30: one-by-one replace stepper — Word-style "replace & find next" */}
+      {replaceSession && (
+        <div className="fixed bottom-6 left-1/2 z-[80] -translate-x-1/2">
+          <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-xl">
+            <div className="flex flex-col">
+              <span className="text-xs font-medium text-gray-400">
+                Reviewing replacements
+              </span>
+              <span className="text-sm font-semibold text-navy">
+                {replaceSession.current
+                  ? `Instance ${replaceSession.position} of ${replaceSession.total}`
+                  : "Done"}
+                {replaceSession.current && (
+                  <span className="ml-2 font-normal text-gray-500">
+                    “{replaceSession.current.text}” →{" "}
+                    <span className="text-primary-dark">
+                      {replaceSession.current.replaceWith}
+                    </span>
+                  </span>
+                )}
+              </span>
+            </div>
+            <div className="ml-2 flex items-center gap-1.5">
+              <button
+                onClick={replaceAndNext}
+                className="inline-flex items-center gap-1 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-green-600"
+              >
+                Replace · Next
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+              </button>
+              <button
+                onClick={replaceAllRemaining}
+                className="rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-orange-600"
+              >
+                Replace All
+              </button>
+              <button
+                onClick={rejectAndNext}
+                className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-600"
+              >
+                Reject
+              </button>
+              <button
+                onClick={endReplaceReview}
+                title="Stop reviewing"
+                className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-chrome hover:text-gray-600"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BNH-30: transient notice (e.g. text not found to replace) */}
+      {replaceNotice && (
+        <div className="fixed bottom-6 left-1/2 z-[85] -translate-x-1/2 rounded-lg bg-navy px-4 py-2 text-sm text-white shadow-xl">
+          {replaceNotice}
         </div>
       )}
 
@@ -479,5 +657,103 @@ export default function ProjectPage() {
         </main>
       )}
     </div>
+  );
+}
+
+function toDateInput(ts: number | null): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+/** BNH-36: view/edit the client's fiscal year-end on the project header. */
+function FiscalYearField({
+  projectId,
+  fiscalYearEnd,
+}: {
+  projectId: Id<"projects">;
+  fiscalYearEnd: number | null;
+}) {
+  const update = useMutation(api.projects.updateProjectFiscalYear);
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await update({
+        projectId,
+        fiscalYearEnd: value ? new Date(`${value}T00:00:00`).getTime() : undefined,
+      });
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+        <input
+          type="date"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="rounded-md border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+        />
+        <button
+          onClick={save}
+          disabled={saving}
+          className="rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+        >
+          {saving ? "…" : "Save"}
+        </button>
+        <button
+          onClick={() => setEditing(false)}
+          className="rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  if (!fiscalYearEnd) {
+    return (
+      <button
+        onClick={() => {
+          setValue("");
+          setEditing(true);
+        }}
+        className="mt-0.5 inline-flex items-center gap-1 text-sm font-medium text-primary transition-colors hover:text-primary-dark"
+      >
+        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+        </svg>
+        Set fiscal year-end
+      </button>
+    );
+  }
+
+  const d = new Date(fiscalYearEnd);
+  return (
+    <p className="mt-0.5 inline-flex items-center gap-1.5 text-gray-700">
+      {d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+      <span className="text-xs text-gray-400">(Fiscal {d.getFullYear()})</span>
+      <button
+        onClick={() => {
+          setValue(toDateInput(fiscalYearEnd));
+          setEditing(true);
+        }}
+        title="Edit fiscal year-end"
+        className="text-gray-300 transition-colors hover:text-navy"
+      >
+        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+        </svg>
+      </button>
+    </p>
   );
 }

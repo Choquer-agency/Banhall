@@ -272,6 +272,25 @@ export const applyProposedEdit = mutation({
   },
 });
 
+/**
+ * BNH-30: mark a proposed edit as applied without re-running the server replace.
+ * Used after the writer steps through the one-by-one replace flow in the live
+ * editor (the document edits already happened client-side + autosaved).
+ */
+export const markProposedEditApplied = mutation({
+  args: { messageId: v.id("chatMessages") },
+  handler: async (ctx, args) => {
+    const message = await ctx.db.get(args.messageId);
+    if (!message) throw new Error("Message not found");
+    if (!message.proposedEdit) return;
+    const project = await assertProjectOwner(ctx, message.projectId);
+    if (!project) throw new Error("Not authorized");
+    await ctx.db.patch(args.messageId, {
+      proposedEdit: { ...message.proposedEdit, state: "applied" },
+    });
+  },
+});
+
 export const rejectProposedEdit = mutation({
   args: { messageId: v.id("chatMessages") },
   handler: async (ctx, args) => {
@@ -335,10 +354,12 @@ export const getChatContext = internalQuery({
       projectId: thread.projectId,
       reportContent: report?.content ?? null,
       agentOutputs: generation?.agentOutputs ?? null,
-      documents: documents.map((d) => ({
-        fileName: d.fileName,
-        content: d.content,
-      })),
+      documents: documents
+        .filter((d) => !d.archived) // BNH-24: archived docs are out of AI context
+        .map((d) => ({
+          fileName: d.fileName,
+          content: d.content,
+        })),
       messages: messages.map((m) => ({
         role: m.role,
         content: m.content,
@@ -398,24 +419,34 @@ function normalizeForMatch(s: string): string {
     .replace(/\s/g, " ");
 }
 
+/** Capitalize the replacement's first letter when the matched text was capitalized. */
+function smartCaseReplace(matched: string, replaceWith: string): string {
+  const mi = matched.search(/[A-Za-z]/);
+  const ri = replaceWith.search(/[a-z]/);
+  if (mi >= 0 && ri >= 0) {
+    const ch = matched[mi];
+    if (ch === ch.toUpperCase() && ch !== ch.toLowerCase()) {
+      return (
+        replaceWith.slice(0, ri) +
+        replaceWith[ri].toUpperCase() +
+        replaceWith.slice(ri + 1)
+      );
+    }
+  }
+  return replaceWith;
+}
+
 /**
  * Replace every (non-overlapping) occurrence of `find` with `replaceWith`.
- * Tries an exact match first (preserves text verbatim), then a punctuation/
- * whitespace-normalized match — splicing the ORIGINAL text at the matched
- * offsets (normalization is length-preserving, so offsets line up).
+ * Matching is punctuation/whitespace-normalized AND case-insensitive (so "the
+ * system" also matches "The system" at sentence starts), splicing the ORIGINAL
+ * text at the matched offsets with case-preserving replacement (BNH-27/30).
  */
 function replaceAll(text: string, find: string, replaceWith: string): { text: string; count: number } {
   if (!find) return { text, count: 0 };
 
-  // Fast path: exact occurrences.
-  if (text.includes(find)) {
-    const parts = text.split(find);
-    return { text: parts.join(replaceWith), count: parts.length - 1 };
-  }
-
-  // Tolerant path: match on normalized text, splice original at same offsets.
-  const nText = normalizeForMatch(text);
-  const nFind = normalizeForMatch(find);
+  const nText = normalizeForMatch(text).toLowerCase();
+  const nFind = normalizeForMatch(find).toLowerCase();
   if (!nFind) return { text, count: 0 };
 
   let out = "";
@@ -423,7 +454,8 @@ function replaceAll(text: string, find: string, replaceWith: string): { text: st
   let count = 0;
   let idx = nText.indexOf(nFind);
   while (idx !== -1) {
-    out += text.slice(last, idx) + replaceWith;
+    const matched = text.slice(idx, idx + nFind.length);
+    out += text.slice(last, idx) + smartCaseReplace(matched, replaceWith);
     last = idx + nFind.length;
     count += 1;
     idx = nText.indexOf(nFind, last);
@@ -473,9 +505,9 @@ function applyReplacements(
   // ── Pass 2: block-level fallback for finds that span inline nodes ──
   // Check presence on normalized text so punctuation differences don't hide a
   // cross-node match.
-  const normResultText = normalizeForMatch(nodeText(result));
+  const normResultText = normalizeForMatch(nodeText(result)).toLowerCase();
   const stillPresent = pairs.filter((p) =>
-    normResultText.includes(normalizeForMatch(p.find))
+    normResultText.includes(normalizeForMatch(p.find).toLowerCase())
   );
   if (stillPresent.length > 0) {
     const collapse = (node: PMNode): PMNode => {

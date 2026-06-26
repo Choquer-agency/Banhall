@@ -78,7 +78,18 @@ export function ProjectCard({ project }: { project: Doc<"projects"> }) {
           <Badge status={project.status} />
         </div>
 
-        <div className="mt-4 flex items-center gap-3 pl-2 text-xs text-gray-400">
+        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 pl-2 text-xs text-gray-400">
+          {project.writer && (
+            <>
+              <span className="inline-flex items-center gap-1 text-gray-500">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                {project.writer}
+              </span>
+              <span className="h-0.5 w-0.5 rounded-full bg-gray-300" />
+            </>
+          )}
           <span>Created {createdDate}</span>
           <span className="h-0.5 w-0.5 rounded-full bg-gray-300" />
           <span>Updated {updatedDate}</span>

@@ -43,6 +43,12 @@ export interface EditorHandle {
    */
   highlightText: (texts: string[], scrollTo?: string) => void;
   clearHighlight: () => void;
+  // BNH-30: one-by-one replace stepping primitives.
+  findReplaceMatches: (
+    pairs: { find: string; replaceWith: string }[]
+  ) => { from: number; to: number; replaceWith: string; text: string }[];
+  replaceRange: (from: number, to: number, newText: string) => void;
+  highlightRange: (from: number, to: number, text: string) => void;
 }
 
 type Range = { from: number; to: number; text: string };
@@ -166,6 +172,70 @@ function findAllInDoc(
   }
 
   return [];
+}
+
+/**
+ * BNH-30: every occurrence of `find`, case-insensitive (so "the system" also
+ * matches "The system" at sentence starts). Returns the ACTUAL matched text so
+ * the replacement can preserve casing.
+ */
+function findAllOccurrencesCI(
+  doc: Parameters<typeof DecorationSet.create>[0],
+  find: string
+): Range[] {
+  const docSize = doc.content.size;
+  const needle = (find ?? "").trim();
+  if (!needle || docSize < 2) return [];
+
+  const posMap: number[] = [];
+  doc.descendants((node, pos) => {
+    if (node.isText && node.text) {
+      for (let i = 0; i < node.text.length; i++) posMap.push(pos + i);
+    } else if (node.isBlock && posMap.length > 0) {
+      posMap.push(-1);
+    }
+    return true;
+  });
+
+  const hay = normalizeForMatch(doc.textBetween(1, docSize, "\n")).toLowerCase();
+  const ned = normalizeForMatch(needle).toLowerCase();
+  if (!ned) return [];
+
+  const out: Range[] = [];
+  let idx = hay.indexOf(ned);
+  while (idx !== -1) {
+    const fromPos = posMap[idx];
+    const toPos = posMap[idx + ned.length - 1];
+    if (fromPos !== undefined && toPos !== undefined && fromPos !== -1 && toPos !== -1) {
+      let actual = needle;
+      try {
+        actual = doc.textBetween(fromPos, toPos + 1, " ");
+      } catch {
+        /* keep needle */
+      }
+      out.push({ from: fromPos, to: toPos + 1, text: actual });
+    }
+    idx = hay.indexOf(ned, idx + Math.max(1, ned.length));
+  }
+  return out;
+}
+
+/** Capitalize the replacement's first letter when the matched text was capitalized. */
+function smartCaseReplace(matched: string, replaceWith: string): string {
+  const mi = matched.search(/[A-Za-z]/);
+  const ri = replaceWith.search(/[a-z]/);
+  if (mi >= 0 && ri >= 0) {
+    const ch = matched[mi];
+    const isUpper = ch === ch.toUpperCase() && ch !== ch.toLowerCase();
+    if (isUpper) {
+      return (
+        replaceWith.slice(0, ri) +
+        replaceWith[ri].toUpperCase() +
+        replaceWith.slice(ri + 1)
+      );
+    }
+  }
+  return replaceWith;
 }
 
 function findTextInDoc(doc: Parameters<typeof DecorationSet.create>[0], text: string, hintFrom: number): { from: number; to: number } | null {
@@ -440,6 +510,42 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
       }
     },
     clearHighlight: () => setAiHighlights([]),
+    findReplaceMatches: (pairs) => {
+      if (!editor) return [];
+      const out: { from: number; to: number; replaceWith: string; text: string }[] = [];
+      for (const p of pairs) {
+        if (!p.find) continue;
+        for (const r of findAllOccurrencesCI(editor.state.doc, p.find)) {
+          out.push({
+            from: r.from,
+            to: r.to,
+            replaceWith: smartCaseReplace(r.text, p.replaceWith),
+            text: r.text,
+          });
+        }
+      }
+      return out.sort((a, b) => a.from - b.from);
+    },
+    replaceRange: (from, to, newText) => {
+      if (!editor) return;
+      editor.chain().insertContentAt({ from, to }, newText).run();
+    },
+    highlightRange: (from, to, text) => {
+      if (!editor) return;
+      setAiHighlights([{ from, to, text }]);
+      try {
+        const coords = editor.view.coordsAtPos(from);
+        const editorDom = editor.view.dom.closest(".overflow-y-auto");
+        if (editorDom) {
+          const containerRect = editorDom.getBoundingClientRect();
+          const scrollTarget =
+            coords.top - containerRect.top + editorDom.scrollTop - 120;
+          editorDom.scrollTo({ top: scrollTarget, behavior: "smooth" });
+        }
+      } catch {
+        /* position out of range */
+      }
+    },
   }), [editor]);
 
   // Handle comment action from toolbar
