@@ -88,6 +88,7 @@ export default function NewProjectPage() {
 
   const [step, setStep] = useState(0);
   const [title, setTitle] = useState("");
+  const [sredTitle, setSredTitle] = useState(""); // BNH-23: formal SR&ED title
   const [clientName, setClientName] = useState("");
   const [interviewer, setInterviewer] = useState("");
   const [fiscalYearEnd, setFiscalYearEnd] = useState(""); // yyyy-mm-dd (BNH-36)
@@ -232,6 +233,7 @@ export default function NewProjectPage() {
       setProgress("Creating project…");
       const { projectId, transcriptId } = await createProject({
         title: title.trim(),
+        ...(sredTitle.trim() ? { sredTitle: sredTitle.trim() } : {}),
         clientName: clientName.trim(),
         ...(writerName ? { writer: writerName } : {}),
         ...(interviewer.trim() ? { interviewer: interviewer.trim() } : {}),
@@ -380,7 +382,8 @@ export default function NewProjectPage() {
               </p>
             </div>
             <div className="grid gap-5 sm:grid-cols-2">
-              <Input id="title" label="Project title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Project Verdant F2024" required />
+              <Input id="title" label="Internal project title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Project Verdant F2024" required />
+              <Input id="sredTitle" label="SR&ED title (optional — finalize later)" value={sredTitle} onChange={(e) => setSredTitle(e.target.value)} placeholder="e.g. Development of a multi-home SoC estimation system" />
               <Input id="clientName" label="Client name" value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="GreenStem Nurseries Inc." required />
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium text-gray-700">Writer</label>

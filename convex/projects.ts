@@ -17,6 +17,31 @@ export const listProjects = query({
   },
 });
 
+/** BNH-23: edit the internal and/or formal SR&ED title on an existing project. */
+export const updateProjectTitles = mutation({
+  args: {
+    projectId: v.id("projects"),
+    title: v.optional(v.string()),
+    sredTitle: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.createdBy !== userId) {
+      throw new Error("Not authorized");
+    }
+    const patch: Record<string, unknown> = { updatedAt: Date.now() };
+    if (args.title !== undefined && args.title.trim()) {
+      patch.title = args.title.trim();
+    }
+    if (args.sredTitle !== undefined) {
+      patch.sredTitle = args.sredTitle.trim() || undefined;
+    }
+    await ctx.db.patch(args.projectId, patch);
+  },
+});
+
 /** BNH-36: set/clear the client's fiscal year-end on an existing project. */
 export const updateProjectFiscalYear = mutation({
   args: {
@@ -61,6 +86,7 @@ export const getProjectByShareToken = query({
 export const createProject = mutation({
   args: {
     title: v.string(),
+    sredTitle: v.optional(v.string()),
     clientName: v.string(),
     writer: v.optional(v.string()),
     interviewer: v.optional(v.string()),
@@ -77,6 +103,7 @@ export const createProject = mutation({
     const projectId = await ctx.db.insert("projects", {
       title: args.title,
       clientName: args.clientName,
+      ...(args.sredTitle ? { sredTitle: args.sredTitle } : {}),
       ...(args.writer ? { writer: args.writer } : {}),
       ...(args.interviewer ? { interviewer: args.interviewer } : {}),
       ...(args.fiscalYearEnd ? { fiscalYearEnd: args.fiscalYearEnd } : {}),

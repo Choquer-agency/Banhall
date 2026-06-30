@@ -53,6 +53,7 @@ export function ErrorMonitor() {
   const [detected, setDetected] = useState<DetectedError | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode | null>(null);
+  const [flagType, setFlagType] = useState<"bug" | "feature">("bug"); // BNH-38
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -170,6 +171,7 @@ export function ErrorMonitor() {
   const closeModal = useCallback(() => {
     setModalMode(null);
     setNote("");
+    setFlagType("bug");
   }, []);
 
   const submit = useCallback(async () => {
@@ -180,8 +182,9 @@ export function ErrorMonitor() {
     try {
       await reportError({
         kind: isManual ? "manual" : "auto",
+        reportType: isManual ? flagType : "bug",
         message: isManual
-          ? "(manual flag — no error message)"
+          ? `(manual ${flagType === "feature" ? "feature request" : "flag"} — no error message)`
           : d?.message ?? "Unknown error",
         stack: isManual ? undefined : d?.stack,
         source: isManual ? undefined : d?.source,
@@ -210,7 +213,7 @@ export function ErrorMonitor() {
     } finally {
       setSending(false);
     }
-  }, [sending, modalMode, note, reportError, closeModal]);
+  }, [sending, modalMode, note, flagType, reportError, closeModal]);
 
   const showBanner = detected && !bannerDismissed && !modalMode;
   const crumbCount = getBreadcrumbs().length;
@@ -297,13 +300,45 @@ export function ErrorMonitor() {
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-lg font-semibold text-navy">
-              {modalMode === "manual" ? "Flag an issue" : "Send this error"}
+              {modalMode === "manual"
+                ? flagType === "feature"
+                  ? "Request a feature"
+                  : "Flag an issue"
+                : "Send this error"}
             </h2>
             <p className="mt-1 text-sm text-gray-500">
               {modalMode === "manual"
-                ? "Tell us what went wrong. We'll attach what you were just doing automatically."
+                ? flagType === "feature"
+                  ? "Describe what you'd like the tool to do. It goes to Michael's feature list."
+                  : "Tell us what went wrong. We'll attach what you were just doing automatically."
                 : "We've captured the error and what led up to it. Add anything that helps."}
             </p>
+
+            {/* BNH-38: bug vs feature selector (manual flags only) */}
+            {modalMode === "manual" && (
+              <div className="mt-3 inline-flex rounded-lg border border-gray-200 p-0.5">
+                <button
+                  onClick={() => setFlagType("bug")}
+                  className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    flagType === "bug"
+                      ? "bg-red-500 text-white"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  🐞 Bug
+                </button>
+                <button
+                  onClick={() => setFlagType("feature")}
+                  className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    flagType === "feature"
+                      ? "bg-primary text-white"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  ✨ Feature request
+                </button>
+              </div>
+            )}
 
             {modalMode === "auto" && detected && (
               <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -318,7 +353,11 @@ export function ErrorMonitor() {
               value={note}
               onChange={(e) => setNote(e.target.value)}
               rows={4}
-              placeholder="Anything else you want to add? e.g. what you were trying to do…"
+              placeholder={
+                modalMode === "manual" && flagType === "feature"
+                  ? "What would you like it to do? e.g. “add a button to…”"
+                  : "Anything else you want to add? e.g. what you were trying to do…"
+              }
               className="mt-3 w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
 
@@ -344,7 +383,11 @@ export function ErrorMonitor() {
                 {sending && (
                   <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                 )}
-                {modalMode === "manual" ? "Send flag" : "Send error"}
+                {modalMode === "manual"
+                  ? flagType === "feature"
+                    ? "Send feature request"
+                    : "Send flag"
+                  : "Send error"}
               </button>
             </div>
           </div>

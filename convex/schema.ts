@@ -16,7 +16,10 @@ export default defineSchema({
   }).index("by_email", ["email"]),
 
   projects: defineTable({
+    // Plain-language internal title (set at the start; shown in lists).
     title: v.string(),
+    // BNH-23: formal SR&ED / science title for the report (finalized at the end).
+    sredTitle: v.optional(v.string()),
     clientName: v.string(),
     writer: v.optional(v.string()),
     interviewer: v.optional(v.string()),
@@ -273,6 +276,8 @@ export default defineSchema({
   errorReports: defineTable({
     // "auto" = surfaced by the error banner; "manual" = user clicked "Flag issue".
     kind: v.union(v.literal("auto"), v.literal("manual")),
+    // BNH-38: bug report vs. feature request (auto-captured errors are always bugs).
+    reportType: v.optional(v.union(v.literal("bug"), v.literal("feature"))),
     message: v.string(),
     stack: v.optional(v.string()),
     source: v.optional(v.string()),

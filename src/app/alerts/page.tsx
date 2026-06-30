@@ -70,12 +70,18 @@ function ReportRow({ report }: { report: Doc<"errorReports"> }) {
 
         <span
           className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-            report.kind === "manual"
-              ? "bg-amber-100 text-amber-700"
-              : "bg-red-100 text-red-700"
+            report.reportType === "feature"
+              ? "bg-primary/15 text-primary-dark"
+              : report.kind === "manual"
+                ? "bg-amber-100 text-amber-700"
+                : "bg-red-100 text-red-700"
           }`}
         >
-          {report.kind === "manual" ? "Flag" : "Error"}
+          {report.reportType === "feature"
+            ? "Feature"
+            : report.kind === "manual"
+              ? "Bug"
+              : "Error"}
         </span>
 
         <span className="min-w-0 flex-1 truncate text-sm text-navy">
@@ -215,7 +221,16 @@ export default function AlertsPage() {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const router = useRouter();
   const [includeResolved, setIncludeResolved] = useState(false);
+  const [tab, setTab] = useState<"all" | "bug" | "feature">("all");
   const reports = useQuery(api.errorReports.listErrors, { includeResolved });
+
+  // BNH-38: split bugs (incl. auto-captured errors) from feature requests.
+  const isFeature = (r: Doc<"errorReports">) => r.reportType === "feature";
+  const filtered = (reports ?? []).filter((r) =>
+    tab === "all" ? true : tab === "feature" ? isFeature(r) : !isFeature(r)
+  );
+  const bugCount = (reports ?? []).filter((r) => !isFeature(r)).length;
+  const featureCount = (reports ?? []).filter(isFeature).length;
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) router.replace("/login");
@@ -256,9 +271,9 @@ export default function AlertsPage() {
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-navy">Error reports</h2>
+            <h2 className="text-xl font-semibold text-navy">Alerts &amp; requests</h2>
             <p className="mt-0.5 text-sm text-gray-400">
-              Auto-captured errors and manually flagged issues. Expand a row and
+              Bugs (auto-captured + flagged) and feature requests. Expand a row and
               copy it straight into Claude Code.
             </p>
           </div>
@@ -273,12 +288,37 @@ export default function AlertsPage() {
           </label>
         </div>
 
+        {/* BNH-38: bug vs feature tabs */}
+        <div className="mt-4 flex items-center gap-1">
+          {([
+            ["all", "All"],
+            ["bug", "Bugs"],
+            ["feature", "Feature requests"],
+          ] as const).map(([val, label]) => {
+            const count = val === "all" ? bugCount + featureCount : val === "bug" ? bugCount : featureCount;
+            return (
+              <button
+                key={val}
+                onClick={() => setTab(val)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  tab === val ? "bg-navy text-white" : "text-gray-500 hover:bg-chrome hover:text-navy"
+                }`}
+              >
+                {label}
+                <span className={`ml-1.5 ${tab === val ? "text-primary-light" : "text-gray-400"}`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
         <div className="mt-6 space-y-2">
           {reports === undefined ? (
             <div className="mt-12 flex justify-center">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             </div>
-          ) : reports.length === 0 ? (
+          ) : filtered.length === 0 ? (
             <div className="mt-16 text-center">
               <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-chrome">
                 <svg
@@ -303,7 +343,7 @@ export default function AlertsPage() {
               </p>
             </div>
           ) : (
-            reports.map((r) => <ReportRow key={r._id} report={r} />)
+            filtered.map((r) => <ReportRow key={r._id} report={r} />)
           )}
         </div>
       </main>

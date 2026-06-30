@@ -48,6 +48,7 @@ export default function ProjectPage() {
   const updateReport = useMutation(api.reports.updateReportContent);
   const createSnapshot = useMutation(api.snapshots.createManualSnapshot);
   const markEditApplied = useMutation(api.chat.markProposedEditApplied);
+  const updateTitles = useMutation(api.projects.updateProjectTitles);
 
   const editorRef = useRef<EditorHandle>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -434,6 +435,26 @@ export default function ProjectPage() {
               <h1 className="text-2xl font-bold text-gray-900">{project.title}</h1>
               <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                 <div>
+                  <span className="text-gray-400">Internal title</span>
+                  <EditableText
+                    value={project.title}
+                    placeholder="Set internal title"
+                    onSave={async (v) => {
+                      await updateTitles({ projectId, title: v });
+                    }}
+                  />
+                </div>
+                <div>
+                  <span className="text-gray-400">SR&amp;ED title</span>
+                  <EditableText
+                    value={project.sredTitle ?? ""}
+                    placeholder="Add the formal SR&ED title (finalize at the end)"
+                    onSave={async (v) => {
+                      await updateTitles({ projectId, sredTitle: v });
+                    }}
+                  />
+                </div>
+                <div>
                   <span className="text-gray-400">Client</span>
                   <p className="text-gray-700">{project.clientName}</p>
                 </div>
@@ -657,6 +678,73 @@ export default function ProjectPage() {
         </main>
       )}
     </div>
+  );
+}
+
+/** BNH-23: inline view/edit for a short text field (used for the two titles). */
+function EditableText({
+  value,
+  placeholder,
+  onSave,
+}: {
+  value: string;
+  placeholder: string;
+  onSave: (v: string) => Promise<void> | void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  if (editing) {
+    return (
+      <div className="mt-0.5 flex items-center gap-1.5">
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          className="min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+        />
+        <button
+          onClick={async () => {
+            setSaving(true);
+            try {
+              await onSave(draft);
+              setEditing(false);
+            } finally {
+              setSaving(false);
+            }
+          }}
+          disabled={saving}
+          className="rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+        >
+          {saving ? "…" : "Save"}
+        </button>
+        <button
+          onClick={() => setEditing(false)}
+          className="rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <p className="group mt-0.5 inline-flex items-center gap-1.5 text-gray-700">
+      {value || <span className="italic text-gray-400">{placeholder}</span>}
+      <button
+        onClick={() => {
+          setDraft(value);
+          setEditing(true);
+        }}
+        title="Edit"
+        className="text-gray-300 transition-colors hover:text-navy"
+      >
+        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+        </svg>
+      </button>
+    </p>
   );
 }
 

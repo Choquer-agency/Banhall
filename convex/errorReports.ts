@@ -18,6 +18,7 @@ const breadcrumbValidator = v.object({
 export const reportError = mutation({
   args: {
     kind: v.union(v.literal("auto"), v.literal("manual")),
+    reportType: v.optional(v.union(v.literal("bug"), v.literal("feature"))),
     message: v.string(),
     stack: v.optional(v.string()),
     source: v.optional(v.string()),
@@ -36,6 +37,8 @@ export const reportError = mutation({
 
     return await ctx.db.insert("errorReports", {
       ...args,
+      // Auto-captured = always a bug; manual defaults to bug unless flagged feature.
+      reportType: args.reportType ?? "bug",
       userId: userId ?? undefined,
       userEmail,
       status: "open",
