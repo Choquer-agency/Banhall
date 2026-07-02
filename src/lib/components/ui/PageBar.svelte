@@ -19,32 +19,39 @@
     actions?: Snippet;
   } = $props();
 
-  // Transparent while at the top; solid white once the bar is "stuck".
-  // Measured directly: the sentinel rests just under the 54px sticky nav and
-  // moves up as soon as anything scrolls. Capture-phase listener sees scrolls
-  // from the window AND any inner container (scroll doesn't bubble, but it
-  // does capture through document).
+  // Transparent at the top; solid white once the bar is "stuck". Stuckness is
+  // measured live: the sentinel sits in normal flow where the bar would be —
+  // once the bar pins under the nav, the gap between them equals the scrolled
+  // distance. No mount-time baseline (HMR/remount/scroll-restore safe), and
+  // the capture-phase listener sees window AND inner-container scrolls.
   let scrolled = $state(false);
   let sentinel: HTMLElement | null = $state(null);
+  let barEl: HTMLElement | null = $state(null);
   $effect(() => {
-    const el = sentinel;
-    if (!el) return;
-    const rest = el.getBoundingClientRect().top; // measured, not assumed
-    // 28px of scroll before the surface turns solid (ScrollTrigger
-    // `top+=28 top` feel), hysteresis-free since it's a hard threshold.
-    const measure = () =>
-      (scrolled = el.getBoundingClientRect().top < rest - 28);
+    const s = sentinel;
+    const b = barEl;
+    if (!s || !b) return;
+    const measure = () => {
+      const gap =
+        b.getBoundingClientRect().top - s.getBoundingClientRect().top;
+      // 28px of scroll before the surface turns solid (ScrollTrigger
+      // `top+=28 top` feel).
+      scrolled = gap > 28;
+    };
     document.addEventListener("scroll", measure, { capture: true, passive: true });
+    window.addEventListener("resize", measure, { passive: true });
     measure();
-    return () =>
+    return () => {
       document.removeEventListener("scroll", measure, { capture: true });
+      window.removeEventListener("resize", measure);
+    };
   });
 </script>
 
 <div bind:this={sentinel} aria-hidden="true" class="h-px w-full"></div>
 <!-- top-[54px] = AppNav h-13 (52px) + 2px baseline rule; travels with the nav.
      The surface caps at the global rail width — canvas shows beyond it. -->
-<div class="sticky top-[54px] z-40 -mt-px w-full">
+<div bind:this={barEl} class="sticky top-[54px] z-40 -mt-px w-full">
   <div
     class={`mx-auto flex h-11 w-full items-center justify-between gap-3 rounded-b-xl border-x border-b px-6 transition-colors duration-300 ${
       scrolled ? "border-line-soft bg-white" : "border-transparent bg-transparent"
