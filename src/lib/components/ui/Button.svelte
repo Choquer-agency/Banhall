@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { HTMLButtonAttributes } from "svelte/elements";
 
-  type Variant = "primary" | "secondary" | "ghost";
+  type Variant = "primary" | "secondary" | "ghost" | "link";
 
   const variantStyles: Record<Variant, string> = {
     primary:
@@ -10,6 +10,8 @@
       "bg-chrome text-navy border border-gray-200 hover:bg-primary-wash focus-visible:ring-primary",
     ghost:
       "text-gray-600 hover:text-navy hover:bg-primary-wash focus-visible:ring-primary",
+    link:
+      "px-0 py-0 text-navy underline-offset-4 hover:text-primary focus-visible:ring-primary",
   };
 
   let {

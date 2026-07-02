@@ -26,7 +26,7 @@
   <div class={`mx-auto flex h-11 w-full items-center justify-between gap-3 rounded-b-xl border-x border-b border-line-soft bg-white px-6 ${width}`}>
     <a
       href={backHref}
-      class="-ml-3 flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-navy transition-colors hover:bg-primary-wash"
+      class="-ml-3 flex h-9 items-center gap-1.5 px-3 text-xs font-medium text-navy transition-colors hover:text-primary"
     >
       <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />

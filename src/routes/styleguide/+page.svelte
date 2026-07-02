@@ -98,6 +98,7 @@
         <Button>Primary action</Button>
         <Button variant="secondary">Secondary</Button>
         <Button variant="ghost">Ghost</Button>
+        <Button variant="link">Link</Button>
         <Button disabled>Disabled</Button>
       </div>
       <div class="flex flex-wrap items-center gap-2">

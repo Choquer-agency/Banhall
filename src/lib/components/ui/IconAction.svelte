@@ -19,7 +19,7 @@
   } = $props();
 
   const className =
-    "flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-navy transition-colors hover:bg-primary-wash disabled:opacity-50";
+    "flex h-9 items-center gap-1.5 px-3 text-xs font-medium text-navy transition-colors hover:text-primary disabled:opacity-50";
 </script>
 
 {#snippet inner()}
