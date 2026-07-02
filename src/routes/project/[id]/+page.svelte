@@ -359,7 +359,7 @@
     </AppNav>
 
     <!-- Page bar: back + report actions (hidden while picking a draft) -->
-    <PageBar width="max-w-7xl">
+    <PageBar>
       {#snippet actions()}
         {#if report && !awaitingSelection}
             <IconAction

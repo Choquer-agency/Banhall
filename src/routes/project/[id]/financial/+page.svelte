@@ -105,7 +105,7 @@
         { label: "Financial" },
       ]}
     />
-    <PageBar width="max-w-5xl" backHref={`/project/${projectId}`} backLabel="Back to report" />
+    <PageBar backHref={`/project/${projectId}`} backLabel="Back to report" />
 
     <main class="mx-auto w-full max-w-5xl flex-1 px-6 pt-12 pb-8">
       <h2 class="text-display">Financial Analysis</h2>

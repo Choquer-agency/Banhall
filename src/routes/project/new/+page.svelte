@@ -283,8 +283,8 @@
   </div>
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav width="max-w-2xl" breadcrumbs={[{ label: "New project" }]} />
-    <PageBar width="max-w-2xl" backHref="/dashboard" backLabel="Back" />
+    <AppNav breadcrumbs={[{ label: "New project" }]} />
+    <PageBar backHref="/dashboard" backLabel="Back" />
 
     <main class="mx-auto w-full max-w-2xl flex-1 px-6 pt-12 pb-8">
       <!-- Step indicator -->

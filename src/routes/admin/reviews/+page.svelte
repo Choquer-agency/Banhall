@@ -35,8 +35,8 @@
   </div>
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav width="max-w-4xl" breadcrumbs={[{ label: "Writer QA reviews" }]} />
-    <PageBar width="max-w-4xl" backHref="/dashboard" backLabel="Back" />
+    <AppNav breadcrumbs={[{ label: "Writer QA reviews" }]} />
+    <PageBar backHref="/dashboard" backLabel="Back" />
 
     <main class="mx-auto w-full max-w-4xl px-6 pt-12 pb-10">
       <h1 class="text-display">Writer QA reviews</h1>

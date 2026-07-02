@@ -49,8 +49,8 @@
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
     <!-- Floating dark brand bar (matches dashboard) -->
-    <AppNav width="max-w-3xl" breadcrumbs={[{ label: "Alerts" }]} />
-    <PageBar width="max-w-3xl" backHref="/dashboard" backLabel="Back" />
+    <AppNav breadcrumbs={[{ label: "Alerts" }]} />
+    <PageBar backHref="/dashboard" backLabel="Back" />
 
     <main class="mx-auto w-full max-w-3xl flex-1 px-6 pt-12 pb-8">
       <div class="flex items-center justify-between">

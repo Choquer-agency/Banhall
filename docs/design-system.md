@@ -62,8 +62,9 @@ values are legacy — replace on touch.
   fir bar, h-12, logo→Dashboard + breadcrumb trail, actions right, and the
   **baseline rule** (`.nav-baseline`, teal fading right) as the signature.
   Only the report workspace (`project/[id]`) keeps a custom dense header.
-- Page container: `max-w-7xl` dashboard-class pages, `max-w-3xl/4xl` for
-  focused reads; `px-6 py-8`.
+- **Global rail**: AppNav + PageBar inner containers are ALWAYS `max-w-7xl`
+  (never per-page). Page `<main>` may be narrower for reading width
+  (`max-w-3xl/4xl`), centered inside the same gutters; `px-6 pt-12`.
 
 ## Rules of use
 

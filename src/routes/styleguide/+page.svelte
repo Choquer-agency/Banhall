@@ -36,8 +36,8 @@
 </script>
 
 <div class="flex flex-1 flex-col bg-canvas">
-  <AppNav width="max-w-5xl" breadcrumbs={[{ label: "Styleguide" }]} />
-  <PageBar width="max-w-5xl" backHref="/dashboard" backLabel="Back" />
+  <AppNav breadcrumbs={[{ label: "Styleguide" }]} />
+  <PageBar backHref="/dashboard" backLabel="Back" />
 
   <main class="mx-auto w-full max-w-5xl flex-1 px-6 pt-12 pb-10">
     <h1 class="text-display">Design system</h1>
