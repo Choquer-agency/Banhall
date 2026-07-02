@@ -4,7 +4,7 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import Anthropic from "@anthropic-ai/sdk";
-import { runAnalyzerAgent, ContextDoc } from "./analyzerAgent";
+import { runAnalyzerAgent, type ContextDoc } from "./analyzerAgent";
 import { formatBrainExemplars } from "./brain/retrieve";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";

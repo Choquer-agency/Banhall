@@ -4,8 +4,8 @@ import {
   internalQuery,
   internalMutation,
   internalAction,
-  QueryCtx,
-  MutationCtx,
+  type QueryCtx,
+  type MutationCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";

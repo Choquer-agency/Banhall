@@ -1,5 +1,5 @@
-import { MutationCtx } from "../_generated/server";
-import { Id } from "../_generated/dataModel";
+import type { MutationCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;

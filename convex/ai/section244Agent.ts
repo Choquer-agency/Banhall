@@ -3,7 +3,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { MODEL } from "./model";
 import { SECTION_244_SYSTEM_PROMPT } from "./prompts";
-import { TranscriptAnalysis } from "./analyzerAgent";
+import type { TranscriptAnalysis } from "./analyzerAgent";
 
 export async function runSection244Agent(
   client: Anthropic,

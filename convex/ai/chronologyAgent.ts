@@ -1,7 +1,7 @@
 "use node";
 
 import Anthropic from "@anthropic-ai/sdk";
-import { TranscriptAnalysis } from "./analyzerAgent";
+import type { TranscriptAnalysis } from "./analyzerAgent";
 import { generateStructured } from "./structured";
 
 export interface ChronologyEntry {

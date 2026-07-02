@@ -2,7 +2,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { QA_SYSTEM_PROMPT } from "./prompts";
-import { TranscriptAnalysis } from "./analyzerAgent";
+import type { TranscriptAnalysis } from "./analyzerAgent";
 import { runDeterministicChecks } from "./qaChecks";
 import { generateStructured } from "./structured";
 
