@@ -1,23 +1,132 @@
 @import "tailwindcss";
 
+/* ═══ Banhall design system ═══════════════════════════════════════════════
+   Canonical reference: docs/design-system.md · live: /styleguide
+   "Ledger paper": pale-teal working surface with near-invisible ruled lines,
+   one deep-fir app bar, a single teal accent, and a teal-cast neutral ramp.
+   ══════════════════════════════════════════════════════════════════════════ */
+
 @theme inline {
-  --color-canvas: #F6FAFA;
-  --color-chrome: #EDF5F5;
-  --color-navy: #0A3A38;
-  --color-navy-light: #0E4E4B;
-  --color-primary: #20B7B0;
-  --color-primary-light: #3DCCC5;
-  --color-primary-dark: #189E98;
+  /* Surfaces */
+  --color-canvas: #F5F9F8;        /* app background (ledger paper) */
+  --color-chrome: #EAF2F1;        /* recessed UI: wells, hovers, pills */
+
+  /* Brand */
+  --color-navy: #0A3A38;          /* fir — app bar, primary text on light */
+  --color-navy-light: #114b48;    /* fir hover */
+  --color-primary: #189E98;       /* lagoon — actions (AA on white at 14px+ bold) */
+  --color-primary-light: #3DCCC5; /* lagoon on dark surfaces */
+  --color-primary-dark: #10807B;  /* action hover / pressed */
+
+  /* Report gap highlight (BNH editor) */
   --color-gap-bg: #FEF3C7;
   --color-gap-text: #92400E;
+
+  /* Neutral ramp — teal-cast grays. gray-* utilities are REMAPPED app-wide:
+     900/800 ink · 700/600 secondary · 500 muted · 400 faint/placeholder ·
+     300 disabled · 200/100 lines · 50 wash. Redefining these harmonizes every
+     existing text-gray-*/border-gray-* usage without touching components. */
+  --color-gray-50:  #F3F7F6;
+  --color-gray-100: #E9F0EF;
+  --color-gray-200: #DAE5E3;
+  --color-gray-300: #C2D0CD;
+  --color-gray-400: #93A5A1;
+  --color-gray-500: #6B7F7B;
+  --color-gray-600: #4F615D;
+  --color-gray-700: #3B4B47;
+  --color-gray-800: #263230;
+  --color-gray-900: #16211F;
+
+  /* Semantic aliases — prefer these in NEW code */
+  --color-ink: #16211F;           /* primary text */
+  --color-ink-secondary: #4F615D; /* supporting text */
+  --color-ink-muted: #6B7F7B;     /* captions, meta */
+  --color-ink-faint: #93A5A1;     /* placeholders, disabled labels */
+  --color-line: #DAE5E3;          /* default border */
+  --color-line-soft: #E9F0EF;     /* hairline dividers */
+
   --font-sans: "DM Sans Variable", "DM Sans", system-ui, sans-serif;
   --font-serif: Georgia, "Times New Roman", serif;
   --font-mono: "Geist Mono", ui-monospace, monospace;
 }
 
+/* ─── Type roles (use these before reaching for ad-hoc sizes) ─────────────── */
+
+@utility text-display {
+  /* Page titles */
+  font-size: 1.5rem;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-ink);
+}
+
+@utility text-title {
+  /* Card / section titles */
+  font-size: 1.0625rem;
+  line-height: 1.35;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+}
+
+@utility text-body {
+  /* Default UI copy */
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--color-ink-secondary);
+}
+
+@utility text-label {
+  /* Eyebrows, column headers, form-line labels */
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
+
+@utility text-data {
+  /* Numbers, scores, ids, timestamps — always mono, always tabular */
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* ─── Surfaces ────────────────────────────────────────────────────────────── */
+
+@utility card {
+  background: #fff;
+  border: 1px solid var(--color-line);
+  border-radius: 0.75rem;
+}
+
+/* The signature: nav's baseline rule — a teal accent fading right, the one
+   loud element in the system. */
+@utility nav-baseline {
+  background: linear-gradient(
+    90deg,
+    var(--color-primary) 0,
+    var(--color-primary) 18%,
+    rgba(24, 158, 152, 0.25) 45%,
+    transparent 80%
+  );
+}
+
 body {
-  background: var(--color-canvas);
-  color: #1a1a1a;
+  /* Ledger paper: canvas with ruled lines every 2rem at ~3% fir. Content
+     sits on solid white cards, so the rules read as texture, not noise. */
+  background-color: var(--color-canvas);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(2rem - 1px),
+    rgba(10, 58, 56, 0.032) calc(2rem - 1px),
+    rgba(10, 58, 56, 0.032) 2rem
+  );
+  color: var(--color-ink);
   font-family: var(--font-sans);
 }
 

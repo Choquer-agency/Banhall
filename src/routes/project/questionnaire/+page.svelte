@@ -171,7 +171,7 @@
       <!-- Step: Project info -->
       {#if step === -1}
         <div>
-          <h2 class="text-xl font-semibold text-navy">Project Details</h2>
+          <h2 class="text-display">Project Details</h2>
           <p class="mt-1 text-sm text-gray-500">Basic information about the SR&ED project.</p>
           <div class="mt-6 grid gap-5 sm:grid-cols-2">
             <Input
@@ -242,7 +242,7 @@
       <!-- Step: Review & Submit -->
       {#if isReview}
         <form onsubmit={handleSubmit}>
-          <h2 class="text-xl font-semibold text-navy">Review & Submit</h2>
+          <h2 class="text-display">Review & Submit</h2>
           <p class="mt-1 text-sm text-gray-500">
             Review your answers below. Click any section to edit. The AI will generate a full SR&ED report from your responses.
           </p>

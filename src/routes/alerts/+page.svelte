@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AppNav from "$lib/components/ui/AppNav.svelte";
   import { goto } from "$app/navigation";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
@@ -46,31 +47,12 @@
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
     <!-- Floating dark brand bar (matches dashboard) -->
-    <div class="sticky top-0 z-50 w-full px-[10%] pt-5">
-      <header class="flex items-center justify-between rounded-xl bg-navy px-5 py-5">
-        <a href="/dashboard" class="flex items-center gap-5">
-          <img
-            src="/logo.png"
-            alt="Banhall"
-            width="89"
-            height="89"
-            class="-my-5 brightness-0 invert"
-          />
-          <span class="text-sm font-semibold text-white/90">Alerts</span>
-        </a>
-        <a
-          href="/dashboard"
-          class="text-sm text-white/40 transition-colors hover:text-white/70"
-        >
-          ← Dashboard
-        </a>
-      </header>
-    </div>
+    <AppNav breadcrumbs={[{ label: "Alerts" }]} />
 
     <main class="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
       <div class="flex items-center justify-between">
         <div>
-          <h2 class="text-xl font-semibold text-navy">Alerts &amp; requests</h2>
+          <h2 class="text-display">Alerts &amp; requests</h2>
           <p class="mt-0.5 text-sm text-gray-400">
             Bugs (auto-captured + flagged) and feature requests. Expand a row and
             copy it straight into Claude Code.

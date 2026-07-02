@@ -6,7 +6,7 @@
   import type { Doc } from "../../../convex/_generated/dataModel";
   import Button from "$lib/components/ui/Button.svelte";
   import ProjectCard from "$lib/components/dashboard/ProjectCard.svelte";
-  import BuildStamp from "$lib/components/BuildStamp.svelte";
+  import AppNav from "$lib/components/ui/AppNav.svelte";
   import { SvelteSet } from "svelte/reactivity";
 
   type Project = Doc<"projects">;
@@ -128,44 +128,36 @@
   </div>
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
-    <!-- Top bar — floating dark brand -->
-    <div class="sticky top-0 z-50 w-full px-[10%] pt-5">
-      <header class="flex items-center justify-between rounded-xl bg-navy px-5 py-5">
-        <div class="flex items-center gap-5">
-          <img src="/logo.png" alt="Banhall" width="89" height="89" class="-my-5 brightness-0 invert" />
-          <span class="text-sm font-semibold text-white/90">Dashboard</span>
-          <BuildStamp class="hidden text-white/50 lg:inline-flex" />
-        </div>
-        <div class="flex items-center gap-4">
-          <a
-            href="/alerts"
-            class="relative flex items-center gap-1.5 text-sm text-white/60 transition-colors hover:text-white/90"
-          >
-            Alerts
-            {#if openAlerts}
-              <span class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">
-                {openAlerts}
-              </span>
-            {/if}
-          </a>
-          <span class="hidden text-sm text-white/60 sm:inline">
-            {user.data?.name ?? user.data?.email}
-          </span>
-          <button
-            onclick={() => signOut()}
-            class="text-sm text-white/40 transition-colors hover:text-white/70"
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
-    </div>
+    <AppNav>
+      {#snippet actions()}
+        <a
+          href="/alerts"
+          class="relative flex items-center gap-1.5 text-sm text-white/60 transition-colors hover:text-white/90"
+        >
+          Alerts
+          {#if openAlerts}
+            <span class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">
+              {openAlerts}
+            </span>
+          {/if}
+        </a>
+        <span class="hidden text-sm text-white/60 sm:inline">
+          {user.data?.name ?? user.data?.email}
+        </span>
+        <button
+          onclick={() => signOut()}
+          class="text-sm text-white/40 transition-colors hover:text-white/70"
+        >
+          Sign out
+        </button>
+      {/snippet}
+    </AppNav>
 
     <!-- Content -->
     <main class="mx-auto w-full max-w-7xl flex-1 px-6 py-8">
       <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 class="text-xl font-semibold text-navy">Projects</h2>
+          <h2 class="text-display">Projects</h2>
           {#if projects && projects.length > 0}
             <p class="mt-0.5 text-sm text-gray-400">
               {projects.length} project{projects.length !== 1 ? "s" : ""}

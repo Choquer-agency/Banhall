@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AppNav from "$lib/components/ui/AppNav.svelte";
   import { goto } from "$app/navigation";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
@@ -55,27 +56,10 @@
   </div>
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
-    <!-- Top bar -->
-    <div class="w-full shrink-0 px-[10%] pt-5">
-      <header class="flex items-center gap-4 rounded-xl bg-navy px-5 py-4">
-        <a href="/dashboard" class="flex-shrink-0">
-          <img src="/logo.png" alt="Banhall" width="89" height="89" class="-my-5 brightness-0 invert" />
-        </a>
-        <BuildStamp class="hidden text-white/50 lg:inline-flex" />
-        <div class="ml-auto flex items-center gap-3">
-          <a href="/dashboard" class="text-sm text-white/60 transition-colors hover:text-white/80">
-            Dashboard
-          </a>
-          <svg class="h-3 w-3 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-          <span class="text-sm font-medium text-white">Model preferences</span>
-        </div>
-      </header>
-    </div>
+    <AppNav breadcrumbs={[{ label: "Model preferences" }]} />
 
     <main class="mx-auto w-full max-w-3xl px-6 py-10">
-      <h1 class="text-2xl font-bold text-gray-900">Model A/B preferences</h1>
+      <h1 class="text-display">Model A/B preferences</h1>
       <p class="mt-1 text-sm text-gray-500">
         Which model writers keep when shown side-by-side candidate drafts.
       </p>
