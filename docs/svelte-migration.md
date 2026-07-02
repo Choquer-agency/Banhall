@@ -89,9 +89,21 @@ on disk as the porting reference until parity; SvelteKit app lives in
   flags one, keeping `npx tsc --noEmit -p convex/tsconfig.json` green)
 - Don't commit.
 
-## Status
+## Status — MIGRATION COMPLETE (2026-07-02)
 
 - [x] Scaffold, theme, primitives, auth, login, dashboard
-- [ ] Simple routes (admin×3, alerts, review, questionnaire, new, financial)
-- [ ] Editor (svelte-tiptap + NodeViews), chat panels, comments, generation UX
-- [ ] project/[id] assembly, cutover (remove React, adapter build, e2e)
+- [x] All routes (admin×3, alerts, review, questionnaire, new, financial, project/[id])
+- [x] Editor, chat panels (streaming agent chat incl.), comments, generation UX
+- [x] Cutover: React app deleted, next/react deps removed, adapter-vercel build green,
+      12/12 routes 200 under `npm run dev` (scripts point at vite — npm/bun/pnpm all work)
+
+## Post-cutover notes
+
+- `$lib/exportDocx` is NOT SSR-safe — always lazy `await import(...)` in handlers.
+- `$lib/chat/agentInternal.ts` deep-imports @convex-dev/agent dist internals —
+  re-verify paths on any agent version bump.
+- Vercel dashboard (user action at deploy): framework preset → SvelteKit,
+  env var renames NEXT_PUBLIC_CONVEX_URL→PUBLIC_CONVEX_URL,
+  NEXT_PUBLIC_CONVEX_SITE_URL→PUBLIC_CONVEX_SITE_URL,
+  NEXT_PUBLIC_AGENT_CHAT→PUBLIC_AGENT_CHAT, NEXT_PUBLIC_BUILD_TIME→PUBLIC_BUILD_TIME.
+- Old NEXT_PUBLIC_* lines in .env.local are inert; PUBLIC_* variants added.
