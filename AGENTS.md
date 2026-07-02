@@ -1,8 +1,11 @@
-<!-- BEGIN:nextjs-agent-rules -->
-# This is NOT the Next.js you know
+# Frontend: SvelteKit 2 + Svelte 5 (runes) — NOT React/Next.js
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
-<!-- END:nextjs-agent-rules -->
+The frontend was migrated off Next.js/React on 2026-07-02. Do not write JSX,
+React hooks, or Next.js APIs. **Read `docs/svelte-migration.md` before any
+frontend work** — it has the stack, React→Svelte conventions, convex-svelte
+idioms, and post-cutover gotchas (e.g. exportDocx is not SSR-safe). Routes
+live in `src/routes/`, components in `src/lib/components/`. Dev server:
+`npm run dev` (or bun/pnpm) → localhost:3000.
 
 <!-- convex-ai-start -->
 
