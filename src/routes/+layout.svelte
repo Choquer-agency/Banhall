@@ -5,6 +5,8 @@
   import { setupConvex } from "convex-svelte";
   import { setupConvexAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
   import { PUBLIC_CONVEX_URL } from "$env/static/public";
+  import PageErrorBoundary from "$lib/components/errors/PageErrorBoundary.svelte";
+  import ErrorMonitor from "$lib/components/errors/ErrorMonitor.svelte";
 
   let { children, data } = $props();
 
@@ -24,5 +26,8 @@
 </svelte:head>
 
 <div class="flex min-h-screen flex-col font-sans antialiased">
-  {@render children()}
+  <PageErrorBoundary>
+    {@render children()}
+  </PageErrorBoundary>
+  <ErrorMonitor />
 </div>
