@@ -43,7 +43,7 @@
   }
 </script>
 
-<div class="mt-0.5">
+<div class="mt-1">
   <Select.Root
     type="single"
     value={industry ?? ""}

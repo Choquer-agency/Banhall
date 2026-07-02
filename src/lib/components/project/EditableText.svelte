@@ -32,7 +32,7 @@
 </script>
 
 {#if editing}
-  <div class="mt-0.5 flex items-center gap-1.5">
+  <div class="mt-1 flex items-center gap-1.5">
     <input
       bind:this={inputEl}
       bind:value={draft}
@@ -53,7 +53,7 @@
     </button>
   </div>
 {:else}
-  <p class="group mt-0.5 inline-flex items-center gap-1.5 text-gray-700">
+  <p class="group mt-1 inline-flex items-center gap-1.5 text-gray-800">
     {#if value}
       {value}
     {:else}

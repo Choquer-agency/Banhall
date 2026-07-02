@@ -18,12 +18,25 @@
     width?: string;
     actions?: Snippet;
   } = $props();
+
+  // Transparent while at the top of the page; solid white once scrolled.
+  let scrolled = $state(false);
+  $effect(() => {
+    const onScroll = () => (scrolled = window.scrollY > 8);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener("scroll", onScroll);
+  });
 </script>
 
 <!-- top-[54px] = AppNav h-13 (52px) + 2px baseline rule; travels with the nav.
-     The white surface caps at the global rail width — canvas shows beyond it. -->
+     The surface caps at the global rail width — canvas shows beyond it. -->
 <div class="sticky top-[54px] z-40 w-full">
-  <div class={`mx-auto flex h-11 w-full items-center justify-between gap-3 rounded-b-xl border-x border-b border-line-soft bg-white px-6 ${width}`}>
+  <div
+    class={`mx-auto flex h-11 w-full items-center justify-between gap-3 rounded-b-xl border-x border-b px-6 transition-colors duration-300 ${
+      scrolled ? "border-line-soft bg-white" : "border-transparent bg-transparent"
+    } ${width}`}
+  >
     <a
       href={backHref}
       class="-ml-3 flex h-9 items-center gap-1.5 px-3 text-xs font-medium text-navy transition-colors hover:text-primary"

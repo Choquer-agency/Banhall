@@ -426,9 +426,9 @@
               <!-- Project info header -->
               <div class="mb-8 pb-6 border-b border-gray-200">
                 <h1 class="text-display">{project.title}</h1>
-                <div class="mt-3 grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+                <div class="mt-5 grid grid-cols-2 gap-x-10 gap-y-4 text-sm">
                   <div>
-                    <span class="text-gray-400">Internal title</span>
+                    <span class="text-label">Internal title</span>
                     <EditableText
                       value={project.title}
                       placeholder="Set internal title"
@@ -438,7 +438,7 @@
                     />
                   </div>
                   <div>
-                    <span class="text-gray-400">SR&amp;ED title</span>
+                    <span class="text-label">SR&amp;ED title</span>
                     <EditableText
                       value={project.sredTitle ?? ""}
                       placeholder="Add the formal SR&ED title (finalize at the end)"
@@ -448,32 +448,32 @@
                     />
                   </div>
                   <div>
-                    <span class="text-gray-400">Client</span>
-                    <p class="text-gray-700">{project.clientName}</p>
+                    <span class="text-label">Client</span>
+                    <p class="mt-1 text-gray-800">{project.clientName}</p>
                   </div>
                   <div>
-                    <span class="text-gray-400">Writer</span>
-                    <p class="text-gray-700">{project.writer || "Catherine Tremblay"}</p>
+                    <span class="text-label">Writer</span>
+                    <p class="mt-1 text-gray-800">{project.writer || "Catherine Tremblay"}</p>
                   </div>
                   {#if project.interviewer}
                     <div>
-                      <span class="text-gray-400">Interviewer</span>
-                      <p class="text-gray-700">{project.interviewer}</p>
+                      <span class="text-label">Interviewer</span>
+                      <p class="mt-1 text-gray-800">{project.interviewer}</p>
                     </div>
                   {/if}
                   <div>
-                    <span class="text-gray-400">Created</span>
-                    <p class="text-gray-700">{new Date(project.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</p>
+                    <span class="text-label">Created</span>
+                    <p class="mt-1 text-gray-800">{new Date(project.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</p>
                   </div>
                   <div>
-                    <span class="text-gray-400">Fiscal year-end</span>
+                    <span class="text-label">Fiscal year-end</span>
                     <FiscalYearField
                       {projectId}
                       fiscalYearEnd={project.fiscalYearEnd ?? null}
                     />
                   </div>
                   <div>
-                    <span class="text-gray-400">Industry</span>
+                    <span class="text-label">Industry</span>
                     <IndustryField
                       {projectId}
                       industry={project.industry ?? null}

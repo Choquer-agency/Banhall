@@ -40,7 +40,7 @@
 </script>
 
 {#if editing}
-  <div class="mt-0.5 flex flex-wrap items-center gap-1.5">
+  <div class="mt-1 flex flex-wrap items-center gap-1.5">
     <input
       type="date"
       bind:value
@@ -66,7 +66,7 @@
       value = "";
       editing = true;
     }}
-    class="mt-0.5 inline-flex items-center gap-1 text-sm font-medium text-primary transition-colors hover:text-primary-dark"
+    class="mt-1 inline-flex items-center gap-1 text-sm font-medium text-primary transition-colors hover:text-primary-dark"
   >
     <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
@@ -75,7 +75,7 @@
   </button>
 {:else}
   {@const d = new Date(fiscalYearEnd)}
-  <p class="mt-0.5 inline-flex items-center gap-1.5 text-gray-700">
+  <p class="mt-1 inline-flex items-center gap-1.5 text-gray-800">
     {d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
     <span class="text-xs text-gray-400">(Fiscal {d.getFullYear()})</span>
     <button
