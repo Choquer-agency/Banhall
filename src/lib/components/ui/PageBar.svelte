@@ -20,21 +20,22 @@
   } = $props();
 
   // Transparent while at the top; solid white once the bar is "stuck".
-  // A sentinel above the sticky wrapper leaves the (nav-offset) viewport the
-  // moment scrolling starts — works whether the window or an inner container
-  // scrolls.
+  // Measured directly: the sentinel rests just under the 54px sticky nav and
+  // moves up as soon as anything scrolls. Capture-phase listener sees scrolls
+  // from the window AND any inner container (scroll doesn't bubble, but it
+  // does capture through document).
   let scrolled = $state(false);
   let sentinel: HTMLElement | null = $state(null);
   $effect(() => {
-    if (!sentinel) return;
-    const io = new IntersectionObserver(
-      ([entry]) => (scrolled = !entry.isIntersecting),
-      // Sentinel rests ~54px down (under the sticky nav); boundary must sit
-      // ABOVE that or the bar reads as scrolled at rest.
-      { rootMargin: "-50px 0px 0px 0px", threshold: 0 }
-    );
-    io.observe(sentinel);
-    return () => io.disconnect();
+    const el = sentinel;
+    if (!el) return;
+    const rest = el.getBoundingClientRect().top; // measured, not assumed
+    const measure = () =>
+      (scrolled = el.getBoundingClientRect().top < rest - 2);
+    document.addEventListener("scroll", measure, { capture: true, passive: true });
+    measure();
+    return () =>
+      document.removeEventListener("scroll", measure, { capture: true });
   });
 </script>
 
