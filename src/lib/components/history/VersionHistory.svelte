@@ -1,18 +1,23 @@
 <script lang="ts">
+  import { Dialog } from "bits-ui";
   import { useQuery, useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import ReadOnlyEditor from "$lib/components/review/ReadOnlyEditor.svelte";
 
   /**
-   * Version history modal (port of src/components/history/VersionHistory.tsx).
-   * Full-screen overlay (z-[100], click outside to close) with a snapshot list on
-   * the left, a read-only preview on the right, plus copy-text and non-destructive
-   * restore actions. Auto-selects the newest snapshot when the list loads.
+   * Version history modal (bits-ui Dialog).
+   * Full-screen overlay (z-[100], click outside or Escape to close) with a
+   * snapshot list on the left, a read-only preview on the right, plus copy-text
+   * and non-destructive restore actions. Auto-selects the newest snapshot when
+   * the list loads.
+   *
+   * Rendered conditionally by the parent, so the dialog is always open while
+   * mounted; every close path funnels through onOpenChange -> onClose.
    *
    * Props:
    * - reportId: report whose snapshots are listed
-   * - onClose: close the modal (backdrop click, X button, and after a restore)
+   * - onClose: close the modal (backdrop click, Escape, X button, and after a restore)
    */
   let {
     reportId,
@@ -106,24 +111,25 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  class="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-6"
-  onclick={onClose}
+<Dialog.Root
+  open={true}
+  onOpenChange={(o) => {
+    if (!o) onClose();
+  }}
 >
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="flex h-[80vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl"
-    onclick={(e) => e.stopPropagation()}
-  >
+  <Dialog.Portal>
+    <Dialog.Overlay class="fixed inset-0 z-[100] bg-black/40" />
+    <!-- Centering wrapper: clicks here are outside Dialog.Content, so they close -->
+    <div class="fixed inset-0 z-[100] flex items-center justify-center p-6">
+      <Dialog.Content
+        class="flex h-[80vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl"
+      >
     <!-- Snapshot list -->
     <div class="flex w-72 flex-shrink-0 flex-col border-r border-gray-200">
       <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3">
-        <span class="text-sm font-semibold text-gray-700">
+        <Dialog.Title class="text-sm font-semibold text-gray-700">
           Version history
-        </span>
+        </Dialog.Title>
       </div>
       <div class="flex-1 overflow-y-auto">
         {#if snapshotsQ.data === undefined}
@@ -175,15 +181,14 @@
           >
             {restoring ? "Restoring…" : "Restore this version"}
           </button>
-          <button
-            onclick={onClose}
+          <Dialog.Close
             aria-label="Close version history"
             class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
           >
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
-          </button>
+          </Dialog.Close>
         </div>
       </div>
       <div class="flex-1 overflow-y-auto bg-canvas px-8 py-6">
@@ -202,5 +207,7 @@
         first, so you can always come back to it.
       </p>
     </div>
-  </div>
-</div>
+      </Dialog.Content>
+    </div>
+  </Dialog.Portal>
+</Dialog.Root>

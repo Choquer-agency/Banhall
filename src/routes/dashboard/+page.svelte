@@ -162,7 +162,7 @@
     </div>
 
     <!-- Content -->
-    <main class="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
+    <main class="mx-auto w-full max-w-7xl flex-1 px-6 py-8">
       <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 class="text-xl font-semibold text-navy">Projects</h2>
@@ -298,7 +298,7 @@
                         <span class="ml-auto text-xs text-gray-400">{yg.projects.length}</span>
                       </button>
                       {#if yearOpen}
-                        <div class="grid gap-3 px-4 pb-4 pl-10 pt-1 sm:grid-cols-2">
+                        <div class="grid gap-3 px-4 pb-4 pl-10 pt-1 sm:grid-cols-2 lg:grid-cols-3">
                           {#each yg.projects as project (project._id)}
                             <ProjectCard {project} />
                           {/each}

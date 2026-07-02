@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { DropdownMenu } from "bits-ui";
   import Badge from "$lib/components/ui/Badge.svelte";
+  import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import type { Doc } from "../../../../convex/_generated/dataModel";
   import { useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
@@ -16,7 +18,6 @@
 
   let menuOpen = $state(false);
   let confirming = $state(false);
-  let menuEl: HTMLDivElement | null = $state(null);
   const deleteProject = useMutation(api.projects.deleteProject);
 
   const updatedDate = $derived(
@@ -33,20 +34,10 @@
     })
   );
 
-  // Close menu on outside click
-  $effect(() => {
-    if (!menuOpen) return;
-    function handleClick(e: MouseEvent) {
-      if (menuEl && !menuEl.contains(e.target as Node)) {
-        menuOpen = false;
-        confirming = false;
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  });
-
-  async function handleDelete() {
+  // First select arms the confirm state, second select deletes. preventDefault
+  // keeps the menu open (bits-ui closes on select by default).
+  async function handleDelete(e: Event) {
+    e.preventDefault();
     if (!confirming) {
       confirming = true;
       return;
@@ -94,48 +85,54 @@
   </a>
 
   <!-- Three-dot menu — appears on hover -->
-  <div bind:this={menuEl} class="absolute bottom-3 right-3">
-    <button
-      aria-label="Project actions"
-      onclick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        menuOpen = !menuOpen;
-        confirming = false;
+  <div class="absolute bottom-3 right-3">
+    <DropdownMenu.Root
+      bind:open={menuOpen}
+      onOpenChange={(o) => {
+        if (!o) confirming = false;
       }}
-      class={`flex h-7 w-7 items-center justify-center rounded-md transition-all ${
-        menuOpen
-          ? "bg-gray-100 text-gray-600"
-          : "text-gray-300 opacity-0 hover:bg-gray-100 hover:text-gray-600 group-hover:opacity-100"
-      }`}
     >
-      <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-        <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-      </svg>
-    </button>
+      <Tooltip text="Project actions">
+        {#snippet children({ props: tooltipProps })}
+          <DropdownMenu.Trigger
+            {...tooltipProps}
+            aria-label="Project actions"
+            class={`flex h-7 w-7 items-center justify-center rounded-md transition-all ${
+              menuOpen
+                ? "bg-gray-100 text-gray-600"
+                : "text-gray-300 opacity-0 hover:bg-gray-100 hover:text-gray-600 group-hover:opacity-100"
+            }`}
+          >
+            <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+            </svg>
+          </DropdownMenu.Trigger>
+        {/snippet}
+      </Tooltip>
 
-    {#if menuOpen}
-      <div
-        class={`absolute bottom-8 right-0 z-20 w-40 overflow-hidden rounded-lg border shadow-lg ${
-          confirming ? "border-red-200 bg-red-50" : "border-gray-200 bg-white"
-        }`}
-      >
-        <button
-          onclick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            handleDelete();
-          }}
-          class={`flex w-full items-center gap-2 whitespace-nowrap px-3 py-2.5 text-left text-sm transition-colors ${
-            confirming ? "font-medium text-red-600" : "text-red-500 hover:bg-red-50"
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          side="top"
+          align="end"
+          sideOffset={4}
+          preventScroll={false}
+          class={`z-20 w-40 overflow-hidden rounded-lg border shadow-lg ${
+            confirming ? "border-red-200 bg-red-50" : "border-gray-200 bg-white"
           }`}
         >
-          <svg class="h-3.5 w-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
-          {confirming ? "Confirm delete?" : "Delete"}
-        </button>
-      </div>
-    {/if}
+          <DropdownMenu.Item
+            onSelect={handleDelete}
+            class={`flex w-full items-center gap-2 whitespace-nowrap px-3 py-2.5 text-left text-sm transition-colors ${
+              confirming ? "font-medium text-red-600" : "text-red-500 hover:bg-red-50"
+            }`}
+          >
+            <svg class="h-3.5 w-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            {confirming ? "Confirm delete?" : "Delete"}
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   </div>
 </div>

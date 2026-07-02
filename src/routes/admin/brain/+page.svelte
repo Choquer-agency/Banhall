@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Tabs } from "bits-ui";
   import { goto } from "$app/navigation";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
@@ -127,20 +128,22 @@
         </div>
 
         <!-- Tabs -->
-        <div class="mt-6 flex gap-1 rounded-xl border border-gray-200 bg-white p-1">
-          {#each tabs as t (t.key)}
-            <button
-              onclick={() => (tab = t.key)}
-              class={`flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                tab === t.key
-                  ? "bg-navy text-white"
-                  : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
-              }`}
-            >
-              {t.label}{t.count != null && t.count > 0 ? ` · ${t.count}` : ""}
-            </button>
-          {/each}
-        </div>
+        <Tabs.Root value={tab} onValueChange={(v) => (tab = v as Tab)} class="mt-6">
+          <Tabs.List class="flex gap-1 rounded-xl border border-gray-200 bg-white p-1">
+            {#each tabs as t (t.key)}
+              <Tabs.Trigger
+                value={t.key}
+                class={`flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                  tab === t.key
+                    ? "bg-navy text-white"
+                    : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                }`}
+              >
+                {t.label}{t.count != null && t.count > 0 ? ` · ${t.count}` : ""}
+              </Tabs.Trigger>
+            {/each}
+          </Tabs.List>
+        </Tabs.Root>
 
         <!-- Panel -->
         <div class="mt-4 overflow-hidden rounded-xl border border-gray-200 bg-white">
