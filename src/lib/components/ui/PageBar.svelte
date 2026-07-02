@@ -20,9 +20,10 @@
   } = $props();
 </script>
 
-<!-- top-[54px] = AppNav h-13 (52px) + 2px baseline rule; travels with the nav -->
-<div class="sticky top-[54px] z-40 w-full border-b border-line-soft bg-white">
-  <div class={`mx-auto flex h-11 w-full items-center justify-between gap-3 px-6 ${width}`}>
+<!-- top-[54px] = AppNav h-13 (52px) + 2px baseline rule; travels with the nav.
+     The white surface caps at the global rail width — canvas shows beyond it. -->
+<div class="sticky top-[54px] z-40 w-full">
+  <div class={`mx-auto flex h-11 w-full items-center justify-between gap-3 rounded-b-xl border-x border-b border-line-soft bg-white px-6 ${width}`}>
     <a
       href={backHref}
       class="-ml-3 flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-navy transition-colors hover:bg-primary-wash"
