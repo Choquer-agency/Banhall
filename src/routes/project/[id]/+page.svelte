@@ -11,6 +11,7 @@
   import IconAction from "$lib/components/ui/IconAction.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import AppNav from "$lib/components/ui/AppNav.svelte";
+  import PageBar from "$lib/components/ui/PageBar.svelte";
   import GenerationProgress from "$lib/components/generation/GenerationProgress.svelte";
   import CandidateSelection from "$lib/components/generation/CandidateSelection.svelte";
   import Editor from "$lib/components/editor/Editor.svelte";
@@ -357,11 +358,10 @@
       {/snippet}
     </AppNav>
 
-    <!-- Sub-menu (white) — icons that reveal their label on hover -->
-    {#if report}
-      <div class="mx-auto w-full max-w-7xl shrink-0 px-6 pt-4">
-        <div class="flex justify-end">
-          <nav class="hidden flex-shrink-0 items-center gap-1 rounded-xl border border-line-soft bg-white px-2 py-2 sm:flex">
+    <!-- Page bar: back + report actions (hidden while picking a draft) -->
+    <PageBar width="max-w-7xl">
+      {#snippet actions()}
+        {#if report && !awaitingSelection}
             <IconAction
               label={copied ? "Copied!" : "Share"}
               title="Share"
@@ -399,10 +399,9 @@
                 </svg>
               {/snippet}
             </IconAction>
-          </nav>
-        </div>
-      </div>
-    {/if}
+        {/if}
+      {/snippet}
+    </PageBar>
 
     <!-- Generation progress -->
     {#if isGenerating || (generation && generation.status === "failed" && !report)}

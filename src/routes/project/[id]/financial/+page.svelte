@@ -7,6 +7,7 @@
   import type { Id } from "../../../../../convex/_generated/dataModel";
   import Button from "$lib/components/ui/Button.svelte";
   import AppNav from "$lib/components/ui/AppNav.svelte";
+  import PageBar from "$lib/components/ui/PageBar.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
 
   const FILE_TYPES = [
@@ -104,6 +105,7 @@
         { label: "Financial" },
       ]}
     />
+    <PageBar width="max-w-5xl" backHref={`/project/${projectId}`} backLabel="Back to report" />
 
     <main class="mx-auto w-full max-w-5xl flex-1 px-6 pt-12 pb-8">
       <h2 class="text-display">Financial Analysis</h2>

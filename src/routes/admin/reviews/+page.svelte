@@ -1,5 +1,6 @@
 <script lang="ts">
   import AppNav from "$lib/components/ui/AppNav.svelte";
+  import PageBar from "$lib/components/ui/PageBar.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goto } from "$app/navigation";
   import { useQuery } from "convex-svelte";
@@ -35,6 +36,7 @@
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
     <AppNav width="max-w-4xl" breadcrumbs={[{ label: "Writer QA reviews" }]} />
+    <PageBar width="max-w-4xl" backHref="/dashboard" backLabel="Back" />
 
     <main class="mx-auto w-full max-w-4xl px-6 pt-12 pb-10">
       <h1 class="text-display">Writer QA reviews</h1>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import AppNav from "$lib/components/ui/AppNav.svelte";
+  import PageBar from "$lib/components/ui/PageBar.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import Badge from "$lib/components/ui/Badge.svelte";
   import Input from "$lib/components/ui/Input.svelte";
@@ -36,6 +37,7 @@
 
 <div class="flex flex-1 flex-col bg-canvas">
   <AppNav width="max-w-5xl" breadcrumbs={[{ label: "Styleguide" }]} />
+  <PageBar width="max-w-5xl" backHref="/dashboard" backLabel="Back" />
 
   <main class="mx-auto w-full max-w-5xl flex-1 px-6 pt-12 pb-10">
     <h1 class="text-display">Design system</h1>

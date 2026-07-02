@@ -7,6 +7,7 @@
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import AppNav from "$lib/components/ui/AppNav.svelte";
+  import PageBar from "$lib/components/ui/PageBar.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import {
     parseFileToText,
@@ -283,6 +284,7 @@
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
     <AppNav width="max-w-2xl" breadcrumbs={[{ label: "New project" }]} />
+    <PageBar width="max-w-2xl" backHref="/dashboard" backLabel="Back" />
 
     <main class="mx-auto w-full max-w-2xl flex-1 px-6 pt-12 pb-8">
       <!-- Step indicator -->
