@@ -40,7 +40,7 @@
       <!-- Trail — centered cluster -->
       <div class="absolute left-1/2 flex min-w-0 max-w-[60%] -translate-x-1/2 items-center gap-1.5">
         {#if breadcrumbs.length === 0}
-          <span class="rounded-md bg-white/12 px-2.5 py-1 text-sm font-medium text-white">Dashboard</span>
+          <span class="text-sm font-medium text-white">Dashboard</span>
         {:else}
           <a
             href="/dashboard"
