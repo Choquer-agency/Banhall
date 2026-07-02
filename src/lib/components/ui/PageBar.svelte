@@ -29,7 +29,9 @@
     if (!sentinel) return;
     const io = new IntersectionObserver(
       ([entry]) => (scrolled = !entry.isIntersecting),
-      { rootMargin: "-56px 0px 0px 0px", threshold: 0 }
+      // Sentinel rests ~54px down (under the sticky nav); boundary must sit
+      // ABOVE that or the bar reads as scrolled at rest.
+      { rootMargin: "-50px 0px 0px 0px", threshold: 0 }
     );
     io.observe(sentinel);
     return () => io.disconnect();
