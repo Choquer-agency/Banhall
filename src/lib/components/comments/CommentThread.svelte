@@ -35,7 +35,7 @@
   } = $props();
 
   const timeAgo = $derived(formatTimeAgo(comment.createdAt));
-  const color = $derived(commenter?.color ?? "#9CA3AF");
+  const color = $derived(commenter?.color ?? "var(--color-ink-faint)");
   const name = $derived(commenter?.name ?? "Unknown");
 
   function formatTimeAgo(timestamp: number): string {
@@ -62,7 +62,7 @@
       ? "border-l-navy bg-blue-50/50"
       : resolved
         ? "border-l-transparent opacity-50 hover:opacity-75"
-        : "border-l-transparent hover:bg-gray-50"
+        : "border-l-transparent hover:bg-primary-wash"
   }`}
   onclick={onClick}
 >

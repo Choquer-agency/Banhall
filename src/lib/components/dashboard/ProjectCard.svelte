@@ -51,7 +51,7 @@
 <div class="group relative">
   <a
     href={`/project/${project._id}`}
-    class="relative block rounded-xl border border-gray-200 bg-white p-5 transition-all duration-150 hover:border-primary/30 hover:shadow-md"
+    class="card relative block p-5 transition-all duration-300 hover:border-primary/30 hover:shadow-md"
   >
     <!-- Status indicator line -->
     <div
@@ -100,7 +100,7 @@
             class={`flex h-7 w-7 items-center justify-center rounded-md transition-all ${
               menuOpen
                 ? "bg-gray-100 text-gray-600"
-                : "text-gray-300 opacity-0 hover:bg-gray-100 hover:text-gray-600 group-hover:opacity-100"
+                : "text-gray-300 opacity-0 hover:bg-primary-wash hover:text-gray-600 group-hover:opacity-100"
             }`}
           >
             <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">

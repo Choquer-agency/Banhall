@@ -6,6 +6,8 @@
   import { api } from "../../../../../convex/_generated/api";
   import type { Id } from "../../../../../convex/_generated/dataModel";
   import Button from "$lib/components/ui/Button.svelte";
+  import AppNav from "$lib/components/ui/AppNav.svelte";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
 
   const FILE_TYPES = [
     { value: "slack_export", label: "Slack Export" },
@@ -91,39 +93,26 @@
 
 {#if auth.isLoading || !auth.isAuthenticated || !project}
   <div class="flex flex-1 items-center justify-center bg-canvas">
-    <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+    <Spinner />
   </div>
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
-    <div class="sticky top-0 z-50 w-full bg-canvas px-[10%] pt-5">
-      <header class="flex items-center justify-between rounded-xl bg-navy px-5 py-5">
-        <div class="flex min-w-0 items-center gap-3">
-          <a href="/dashboard" class="flex flex-shrink-0 items-center gap-5">
-            <img src="/logo.png" alt="Banhall" width="89" height="89" class="-my-5 brightness-0 invert" />
-            <span class="text-sm text-white/60 transition-colors hover:text-white/80">Dashboard</span>
-          </a>
-          <svg class="h-3 w-3 flex-shrink-0 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-          <a href={`/project/${projectId}`} class="truncate text-sm text-white/60 transition-colors hover:text-white/80">
-            {project.title}
-          </a>
-          <svg class="h-3 w-3 flex-shrink-0 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-          <span class="text-sm font-medium text-white">Financial</span>
-        </div>
-      </header>
-    </div>
+    <AppNav
+      width="max-w-5xl"
+      breadcrumbs={[
+        { label: project.title || "Project", href: `/project/${projectId}` },
+        { label: "Financial" },
+      ]}
+    />
 
-    <main class="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
-      <h2 class="text-xl font-semibold text-navy">Financial Analysis</h2>
+    <main class="mx-auto w-full max-w-5xl flex-1 px-6 pt-12 pb-8">
+      <h2 class="text-display">Financial Analysis</h2>
       <p class="mt-1 text-sm text-gray-500">
         Upload communication logs, Git commits, or financial data to reconstruct timesheets and classify SR&amp;ED eligibility.
       </p>
 
       <!-- Upload form -->
-      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-5">
+      <div class="card mt-6 p-5">
         <h3 class="text-sm font-semibold text-gray-900">Upload Data</h3>
         <div class="mt-3 grid gap-4 sm:grid-cols-2">
           <div>
@@ -196,17 +185,17 @@
       <!-- Summary -->
       {#if summary}
         <div class="mt-6 grid gap-4 sm:grid-cols-3">
-          <div class="rounded-xl border border-gray-200 bg-white p-5">
-            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Total Hours</p>
+          <div class="card p-5">
+            <p class="text-label">Total Hours</p>
             <p class="mt-1 text-2xl font-bold text-navy">{summary.totalHours.toFixed(1)}</p>
           </div>
-          <div class="rounded-xl border border-gray-200 bg-white p-5">
-            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">SR&amp;ED Eligible</p>
+          <div class="card p-5">
+            <p class="text-label">SR&amp;ED Eligible</p>
             <p class="mt-1 text-2xl font-bold text-primary">{summary.sredHours.toFixed(1)}</p>
             <p class="text-xs text-gray-400">{summary.totalHours > 0 ? Math.round((summary.sredHours / summary.totalHours) * 100) : 0}% of total</p>
           </div>
-          <div class="rounded-xl border border-gray-200 bg-white p-5">
-            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Non-Eligible</p>
+          <div class="card p-5">
+            <p class="text-label">Non-Eligible</p>
             <p class="mt-1 text-2xl font-bold text-gray-600">{summary.nonSredHours.toFixed(1)}</p>
           </div>
         </div>
@@ -214,15 +203,15 @@
 
       <!-- Personnel breakdown -->
       {#if personnelData.length > 0}
-        <div class="mt-6 rounded-xl border border-gray-200 bg-white p-5">
+        <div class="card mt-6 p-5">
           <h3 class="mb-3 text-sm font-semibold text-gray-900">Personnel Breakdown</h3>
           <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-gray-200">
-                <th class="pb-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">Person</th>
-                <th class="pb-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-400">Total Hours</th>
-                <th class="pb-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-400">SR&amp;ED Hours</th>
-                <th class="pb-2 pl-4 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">Primary Activities</th>
+                <th class="text-label pb-2 text-left">Person</th>
+                <th class="text-label pb-2 text-right">Total Hours</th>
+                <th class="text-label pb-2 text-right">SR&amp;ED Hours</th>
+                <th class="text-label pb-2 pl-4 text-left">Primary Activities</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -241,7 +230,7 @@
 
       <!-- Timesheet entries -->
       {#if entries && entries.length > 0}
-        <div class="mt-6 rounded-xl border border-gray-200 bg-white p-5">
+        <div class="card mt-6 p-5">
           <h3 class="mb-3 text-sm font-semibold text-gray-900">
             Extracted Timesheet Entries
             <span class="ml-2 text-xs font-normal text-gray-400">
@@ -252,12 +241,12 @@
             <table class="w-full text-sm">
               <thead>
                 <tr class="border-b border-gray-200">
-                  <th class="pb-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">Person</th>
-                  <th class="pb-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">Date</th>
-                  <th class="pb-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-400">Hours</th>
-                  <th class="pb-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">Description</th>
-                  <th class="pb-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">SR&amp;ED</th>
-                  <th class="pb-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">Confidence</th>
+                  <th class="text-label pb-2 text-left">Person</th>
+                  <th class="text-label pb-2 text-left">Date</th>
+                  <th class="text-label pb-2 text-right">Hours</th>
+                  <th class="text-label pb-2 text-left">Description</th>
+                  <th class="text-label pb-2 text-left">SR&amp;ED</th>
+                  <th class="text-label pb-2 text-left">Confidence</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">

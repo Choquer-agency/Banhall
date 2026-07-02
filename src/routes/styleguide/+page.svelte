@@ -8,15 +8,16 @@
   // Canonical written reference: docs/design-system.md.
 
   const surfaces = [
-    { name: "canvas", cls: "bg-canvas", hex: "#F5F9F8", role: "App background (ledger paper)" },
+    { name: "canvas", cls: "bg-canvas", hex: "#F9FCFB", role: "App background (ledger paper)" },
     { name: "white / card", cls: "bg-white", hex: "#FFFFFF", role: "Content surfaces" },
     { name: "chrome", cls: "bg-chrome", hex: "#EAF2F1", role: "Wells, hovers, pills" },
   ];
   const brand = [
     { name: "navy (fir)", cls: "bg-navy", hex: "#0A3A38", role: "App bar, emphasis text" },
-    { name: "primary (lagoon)", cls: "bg-primary", hex: "#189E98", role: "Actions, links, focus" },
-    { name: "primary-dark", cls: "bg-primary-dark", hex: "#10807B", role: "Action hover" },
-    { name: "primary-light", cls: "bg-primary-light", hex: "#3DCCC5", role: "Accents on dark" },
+    { name: "primary (lagoon)", cls: "bg-primary", hex: "#0DACA5", role: "Actions, links, focus" },
+    { name: "primary-dark", cls: "bg-primary-dark", hex: "#0A8A84", role: "Action hover" },
+    { name: "primary-light", cls: "bg-primary-light", hex: "#45CFC9", role: "Accents on dark" },
+    { name: "primary-wash", cls: "bg-primary-wash", hex: "#F1FAF9", role: "Hover fills on light" },
   ];
   const ramp = [
     { step: "900", cls: "bg-gray-900", role: "Ink — headings, primary text" },
@@ -34,9 +35,9 @@
 </script>
 
 <div class="flex flex-1 flex-col bg-canvas">
-  <AppNav breadcrumbs={[{ label: "Styleguide" }]} />
+  <AppNav width="max-w-5xl" breadcrumbs={[{ label: "Styleguide" }]} />
 
-  <main class="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
+  <main class="mx-auto w-full max-w-5xl flex-1 px-6 pt-12 pb-10">
     <h1 class="text-display">Design system</h1>
     <p class="mt-1 max-w-xl text-body">
       “Ledger paper” — a pale-teal working surface with ruled lines, one deep-fir

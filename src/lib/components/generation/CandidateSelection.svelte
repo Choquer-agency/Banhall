@@ -41,6 +41,7 @@
   import { useQuery, useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import ReadOnlyEditor from "$lib/components/review/ReadOnlyEditor.svelte";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
 
   /**
    * Blind A/B candidate picker (port of src/components/generation/CandidateSelection.tsx).
@@ -129,7 +130,7 @@
           class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
         >
           {#if choosing}
-            <div class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+            <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
             Saving…
           {:else}
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

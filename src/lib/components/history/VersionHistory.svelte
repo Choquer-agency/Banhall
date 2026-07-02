@@ -144,7 +144,7 @@
             <button
               onclick={() => (selectedId = s._id)}
               class={`block w-full border-b border-gray-100 px-4 py-3 text-left transition-colors ${
-                selectedId === s._id ? "bg-chrome" : "hover:bg-gray-50"
+                selectedId === s._id ? "bg-chrome" : "hover:bg-primary-wash"
               }`}
             >
               <p class="text-sm font-medium text-gray-800">
@@ -183,7 +183,7 @@
           </button>
           <Dialog.Close
             aria-label="Close version history"
-            class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-primary-wash hover:text-gray-600"
           >
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />

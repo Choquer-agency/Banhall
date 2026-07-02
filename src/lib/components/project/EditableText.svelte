@@ -47,7 +47,7 @@
     </button>
     <button
       onclick={() => (editing = false)}
-      class="rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100"
+      class="rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-primary-wash"
     >
       Cancel
     </button>

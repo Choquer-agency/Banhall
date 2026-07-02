@@ -7,7 +7,9 @@
   import Button from "$lib/components/ui/Button.svelte";
   import ProjectCard from "$lib/components/dashboard/ProjectCard.svelte";
   import AppNav from "$lib/components/ui/AppNav.svelte";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
   import { SvelteSet } from "svelte/reactivity";
+  import { slide } from "svelte/transition";
 
   type Project = Doc<"projects">;
 
@@ -124,7 +126,7 @@
 
 {#if auth.isLoading || !auth.isAuthenticated}
   <div class="flex flex-1 items-center justify-center bg-canvas">
-    <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+    <Spinner />
   </div>
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
@@ -154,7 +156,7 @@
     </AppNav>
 
     <!-- Content -->
-    <main class="mx-auto w-full max-w-7xl flex-1 px-6 py-8">
+    <main class="mx-auto w-full max-w-7xl flex-1 px-6 pt-12 pb-8">
       <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 class="text-display">Projects</h2>
@@ -204,7 +206,7 @@
                 class={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                   filter === f.value
                     ? "bg-navy text-white"
-                    : "text-gray-500 hover:bg-chrome hover:text-navy"
+                    : "text-gray-500 hover:bg-primary-wash hover:text-navy"
                 }`}
               >
                 {f.label}
@@ -221,8 +223,8 @@
 
       <!-- Project grid -->
       {#if projects === undefined}
-        <div class="mt-12 flex justify-center">
-          <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+        <div class="flex min-h-[55vh] items-center justify-center">
+          <Spinner />
         </div>
       {:else if filtered && filtered.length === 0 && filter !== "all"}
         <div class="mt-12 text-center">
@@ -256,41 +258,41 @@
         <div class="mt-5 flex flex-col gap-2">
           {#each groups as g (g.company)}
             {@const companyOpen = isOpen(g.company)}
-            <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
+            <div class="card overflow-hidden">
               <button
                 onclick={() => toggle(g.company)}
-                class="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-gray-50"
+                class="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-primary-wash"
               >
-                <svg class={`h-4 w-4 flex-shrink-0 text-gray-400 transition-transform ${companyOpen ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-                <span class="text-sm font-semibold text-navy">{g.company}</span>
+                <span class={`text-sm font-semibold transition-colors duration-300 ${companyOpen ? "text-primary" : "text-navy"}`}>{g.company}</span>
                 <span class="text-xs text-gray-400">
                   {g.total} report{g.total !== 1 ? "s" : ""}
                 </span>
+                <svg class={`ml-auto h-4 w-4 flex-shrink-0 transition-all duration-300 ${companyOpen ? "rotate-180 text-primary" : "text-gray-400"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
               </button>
 
               {#if companyOpen}
-                <div class="border-t border-gray-100">
+                <div class="border-t border-gray-100" transition:slide={{ duration: 300 }}>
                   {#each g.yearGroups as yg (yg.fyKey)}
                     {@const yearKey = `${g.company}|${yg.fyKey}`}
                     {@const yearOpen = isOpen(yearKey)}
                     <div class="border-b border-gray-50 last:border-0">
                       <button
                         onclick={() => toggle(yearKey)}
-                        class="flex w-full items-center gap-2 px-4 py-2.5 pl-7 text-left transition-colors hover:bg-gray-50"
+                        class="flex w-full items-center gap-2 px-4 py-2.5 pl-7 text-left transition-colors hover:bg-primary-wash"
                       >
-                        <svg class={`h-3.5 w-3.5 flex-shrink-0 text-gray-300 transition-transform ${yearOpen ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-                        </svg>
                         <span class="text-sm font-medium text-gray-700">{yg.label}</span>
                         {#if yg.dateLabel}
                           <span class="text-xs text-gray-400">· {yg.dateLabel}</span>
                         {/if}
                         <span class="ml-auto text-xs text-gray-400">{yg.projects.length}</span>
+                        <svg class={`h-3.5 w-3.5 flex-shrink-0 transition-all duration-300 ${yearOpen ? "rotate-180 text-primary" : "text-gray-300"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
                       </button>
                       {#if yearOpen}
-                        <div class="grid gap-3 px-4 pb-4 pl-10 pt-1 sm:grid-cols-2 lg:grid-cols-3">
+                        <div class="grid gap-3 px-4 pb-4 pl-10 pt-1 sm:grid-cols-2 lg:grid-cols-3" transition:slide={{ duration: 300 }}>
                           {#each yg.projects as project (project._id)}
                             <ProjectCard {project} />
                           {/each}

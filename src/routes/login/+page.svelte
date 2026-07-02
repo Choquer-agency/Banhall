@@ -3,6 +3,7 @@
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import BuildStamp from "$lib/components/BuildStamp.svelte";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
 
   const auth = useAuth();
   const { signIn } = auth;
@@ -83,7 +84,7 @@
 
 {#if auth.isLoading || (!auth.isAuthenticated && !autoLoginAttempted)}
   <div class="flex flex-1 flex-col items-center justify-center bg-canvas">
-    <div class="h-6 w-6 animate-spin rounded-full border-2 border-navy border-t-transparent"></div>
+    <Spinner />
     <p class="mt-3 text-sm text-gray-400">Signing you in...</p>
   </div>
 {:else}
@@ -94,8 +95,8 @@
         <p class="mt-1 text-sm text-gray-500">SR&amp;ED Report Generator</p>
       </div>
 
-      <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <h2 class="text-lg font-semibold text-gray-900">
+      <div class="card p-6 shadow-sm">
+        <h2 class="text-title">
           {mode === "signIn" ? "Welcome back" : "Create account"}
         </h2>
         <p class="mt-1 text-sm text-gray-500">

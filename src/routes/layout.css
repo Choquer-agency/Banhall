@@ -8,24 +8,25 @@
 
 @theme inline {
   /* Surfaces */
-  --color-canvas: #F5F9F8;        /* app background (ledger paper) */
+  --color-canvas: #F9FCFB;        /* app background (ledger paper) */
   --color-chrome: #EAF2F1;        /* recessed UI: wells, hovers, pills */
 
   /* Brand */
   --color-navy: #0A3A38;          /* fir — app bar, primary text on light */
   --color-navy-light: #114b48;    /* fir hover */
-  --color-primary: #189E98;       /* lagoon — actions (AA on white at 14px+ bold) */
-  --color-primary-light: #3DCCC5; /* lagoon on dark surfaces */
-  --color-primary-dark: #10807B;  /* action hover / pressed */
+  --color-primary: #0DACA5;       /* lagoon — actions, links, active */
+  --color-primary-light: #45CFC9; /* lagoon on dark surfaces */
+  --color-primary-dark: #0A8A84;  /* action hover / pressed */
+  --color-primary-wash: #F1FAF9;  /* hover fill on light surfaces (subtle) */
 
   /* Report gap highlight (BNH editor) */
   --color-gap-bg: #FEF3C7;
   --color-gap-text: #92400E;
 
-  /* Neutral ramp — teal-cast grays. gray-* utilities are REMAPPED app-wide:
+  /* Neutral ramp — teal-cast grays. The gray scale is REMAPPED app-wide:
      900/800 ink · 700/600 secondary · 500 muted · 400 faint/placeholder ·
      300 disabled · 200/100 lines · 50 wash. Redefining these harmonizes every
-     existing text-gray-*/border-gray-* usage without touching components. */
+     existing text-gray and border-gray usage without touching components. */
   --color-gray-50:  #F3F7F6;
   --color-gray-100: #E9F0EF;
   --color-gray-200: #DAE5E3;
@@ -45,6 +46,8 @@
   --color-line: #DAE5E3;          /* default border */
   --color-line-soft: #E9F0EF;     /* hairline dividers */
 
+  --default-transition-duration: 300ms;
+
   --font-sans: "DM Sans Variable", "DM Sans", system-ui, sans-serif;
   --font-serif: Georgia, "Times New Roman", serif;
   --font-mono: "Geist Mono", ui-monospace, monospace;
@@ -53,20 +56,20 @@
 /* ─── Type roles (use these before reaching for ad-hoc sizes) ─────────────── */
 
 @utility text-display {
-  /* Page titles */
-  font-size: 1.5rem;
-  line-height: 1.25;
+  /* Page titles — one per page */
+  font-size: 1.75rem;
+  line-height: 1.2;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
   color: var(--color-ink);
 }
 
 @utility text-title {
   /* Card / section titles */
-  font-size: 1.0625rem;
+  font-size: 1.125rem;
   line-height: 1.35;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   color: var(--color-ink);
 }
 
@@ -95,6 +98,22 @@
   letter-spacing: -0.01em;
 }
 
+/* ─── Rhythm (8px grid) ───────────────────────────────────────────────────────
+   page top: py-8 · page-header → content: 24px (mb-6 via .page-header) ·
+   between sections: 40px (mt-10) · label → content: 12px (mt-3) ·
+   related siblings: 8px (gap-2) · card padding: p-5 */
+
+@utility page-header {
+  /* Title row at the top of a page: display + meta left, actions right. */
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--color-line-soft);
+  margin-bottom: 1.5rem;
+}
+
 /* ─── Surfaces ────────────────────────────────────────────────────────────── */
 
 @utility card {
@@ -110,7 +129,7 @@
     90deg,
     var(--color-primary) 0,
     var(--color-primary) 18%,
-    rgba(24, 158, 152, 0.25) 45%,
+    rgba(13, 172, 165, 0.25) 45%,
     transparent 80%
   );
 }
@@ -123,11 +142,67 @@ body {
     to bottom,
     transparent 0,
     transparent calc(2rem - 1px),
-    rgba(10, 58, 56, 0.032) calc(2rem - 1px),
-    rgba(10, 58, 56, 0.032) 2rem
+    rgba(10, 58, 56, 0.026) calc(2rem - 1px),
+    rgba(10, 58, 56, 0.026) 2rem
   );
   color: var(--color-ink);
   font-family: var(--font-sans);
+}
+
+/* ─── bits-ui floating surfaces: enter/exit motion (design rule #8) ────────── */
+
+[data-dropdown-menu-content],
+[data-select-content],
+[data-tooltip-content] {
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity 300ms ease,
+    transform 300ms ease;
+}
+
+[data-dropdown-menu-content][data-starting-style],
+[data-dropdown-menu-content][data-ending-style],
+[data-select-content][data-starting-style],
+[data-select-content][data-ending-style],
+[data-tooltip-content][data-starting-style],
+[data-tooltip-content][data-ending-style] {
+  opacity: 0;
+  transform: scale(0.96);
+}
+
+[data-dialog-content] {
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity 300ms ease,
+    transform 300ms ease;
+}
+
+[data-dialog-content][data-starting-style],
+[data-dialog-content][data-ending-style] {
+  opacity: 0;
+  transform: scale(0.97);
+}
+
+[data-dialog-overlay] {
+  opacity: 1;
+  transition: opacity 300ms ease;
+}
+
+[data-dialog-overlay][data-starting-style],
+[data-dialog-overlay][data-ending-style] {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-dropdown-menu-content],
+  [data-select-content],
+  [data-tooltip-content],
+  [data-dialog-content],
+  [data-dialog-overlay] {
+    transition: none;
+  }
 }
 
 /* ─── Tiptap Editor Styles ─────────────────────────────────────────────────── */

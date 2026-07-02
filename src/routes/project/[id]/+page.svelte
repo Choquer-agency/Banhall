@@ -9,7 +9,8 @@
   import Badge from "$lib/components/ui/Badge.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import IconAction from "$lib/components/ui/IconAction.svelte";
-  import BuildStamp from "$lib/components/BuildStamp.svelte";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
+  import AppNav from "$lib/components/ui/AppNav.svelte";
   import GenerationProgress from "$lib/components/generation/GenerationProgress.svelte";
   import CandidateSelection from "$lib/components/generation/CandidateSelection.svelte";
   import Editor from "$lib/components/editor/Editor.svelte";
@@ -337,7 +338,7 @@
 
 {#if auth.isLoading || !auth.isAuthenticated || project === undefined}
   <div class="flex flex-1 items-center justify-center bg-canvas">
-    <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+    <Spinner />
   </div>
 {:else if project === null}
   <div class="flex flex-1 flex-col items-center justify-center gap-2 bg-canvas">
@@ -346,37 +347,21 @@
   </div>
 {:else}
   <div class="flex h-screen flex-col overflow-hidden bg-canvas">
-    <!-- Top bar — dark main menu + white sub-menu -->
-    <div class="w-full shrink-0 px-[10%] pt-5">
-      <div class="flex items-stretch gap-3">
-        <!-- Main menu (dark) -->
-        <header class="flex min-w-0 flex-1 items-center gap-4 rounded-xl bg-navy px-5 py-4">
-          <a href="/dashboard" class="flex-shrink-0">
-            <img src="/logo.png" alt="Banhall" width="89" height="89" class="-my-5 brightness-0 invert" />
-          </a>
-          <BuildStamp class="hidden text-white/50 lg:inline-flex" />
-          <div class="ml-auto flex min-w-0 items-center gap-3">
-            <a href="/dashboard" class="text-sm text-white/60 transition-colors hover:text-white/80">
-              Dashboard
-            </a>
-            <svg class="h-3 w-3 flex-shrink-0 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
-            <span class="truncate text-sm font-medium text-white">
-              {project.title}
-            </span>
-            <Badge status={project.status} />
-            {#if saving}
-              <span class="ml-1 hidden text-xs text-white/40 sm:inline">
-                Saving…
-              </span>
-            {/if}
-          </div>
-        </header>
+    <!-- App bar — same AppNav as everywhere; home icon + report breadcrumb -->
+    <AppNav home="icon" breadcrumbs={[{ label: project.title }]}>
+      {#snippet actions()}
+        {#if saving}
+          <span class="hidden text-xs text-white/40 sm:inline">Saving…</span>
+        {/if}
+        <Badge status={project.status} />
+      {/snippet}
+    </AppNav>
 
-        <!-- Sub-menu (white) — icons that reveal their label on hover -->
-        {#if report}
-          <nav class="hidden flex-shrink-0 items-center gap-1 rounded-xl bg-white px-2 py-2 sm:flex">
+    <!-- Sub-menu (white) — icons that reveal their label on hover -->
+    {#if report}
+      <div class="mx-auto w-full max-w-7xl shrink-0 px-6 pt-4">
+        <div class="flex justify-end">
+          <nav class="hidden flex-shrink-0 items-center gap-1 rounded-xl border border-line-soft bg-white px-2 py-2 sm:flex">
             <IconAction
               label={copied ? "Copied!" : "Share"}
               title="Share"
@@ -415,9 +400,9 @@
               {/snippet}
             </IconAction>
           </nav>
-        {/if}
+        </div>
       </div>
-    </div>
+    {/if}
 
     <!-- Generation progress -->
     {#if isGenerating || (generation && generation.status === "failed" && !report)}
@@ -435,13 +420,13 @@
 
     <!-- Editor workspace + chat rail (single view, resizable — BNH-14) -->
     {#if !awaitingSelection && report}
-      <div bind:this={workspaceEl} class="flex min-h-0 flex-1 overflow-hidden">
+      <div bind:this={workspaceEl} class="mx-auto flex min-h-0 w-full max-w-7xl flex-1 overflow-hidden">
         {#if !chatFull}
           <div class="min-h-0 flex-1 overflow-y-auto">
             <div class="mx-auto max-w-[760px] px-10 py-10">
               <!-- Project info header -->
               <div class="mb-8 pb-6 border-b border-gray-200">
-                <h1 class="text-2xl font-bold text-gray-900">{project.title}</h1>
+                <h1 class="text-display">{project.title}</h1>
                 <div class="mt-3 grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                   <div>
                     <span class="text-gray-400">Internal title</span>
@@ -592,7 +577,7 @@
     <!-- BNH-30: one-by-one replace stepper — Word-style "replace & find next" -->
     {#if replaceSession}
       <div class="fixed bottom-6 left-1/2 z-[80] -translate-x-1/2">
-        <div class="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-xl">
+        <div class="card flex items-center gap-3 px-4 py-3 shadow-xl">
           <div class="flex flex-col">
             <span class="text-xs font-medium text-gray-400">
               Reviewing replacements
@@ -636,7 +621,7 @@
             <button
               onclick={endReplaceReview}
               title="Stop reviewing"
-              class="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-chrome hover:text-gray-600"
+              class="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-primary-wash hover:text-gray-600"
             >
               <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />

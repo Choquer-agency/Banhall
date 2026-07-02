@@ -41,11 +41,11 @@
 </script>
 
 {#if chronology && chronology.entries.length > 0}
-  <div class="rounded-xl border border-gray-200 bg-white">
+  <div class="card">
     <button
       type="button"
       onclick={() => (isOpen = !isOpen)}
-      class="flex w-full items-center justify-between rounded-xl px-5 py-3 text-left transition-colors hover:bg-gray-50"
+      class="flex w-full items-center justify-between rounded-xl px-5 py-3 text-left transition-colors hover:bg-primary-wash"
     >
       <div class="flex items-center gap-3">
         <div class="flex h-8 w-8 items-center justify-center rounded-full bg-navy/10 text-navy">
@@ -81,11 +81,11 @@
           <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-gray-200">
-                <th class="pb-2 pr-4 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">Phase</th>
-                <th class="pb-2 pr-4 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">Description</th>
-                <th class="pb-2 pr-4 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">Uncertainty Addressed</th>
-                <th class="pb-2 pr-4 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">Type</th>
-                <th class="pb-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">Hours</th>
+                <th class="text-label pb-2 pr-4 text-left">Phase</th>
+                <th class="text-label pb-2 pr-4 text-left">Description</th>
+                <th class="text-label pb-2 pr-4 text-left">Uncertainty Addressed</th>
+                <th class="text-label pb-2 pr-4 text-left">Type</th>
+                <th class="text-label pb-2 text-left">Hours</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">

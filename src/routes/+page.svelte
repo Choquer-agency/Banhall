@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
 
   const auth = useAuth();
 
@@ -12,5 +13,5 @@
 </script>
 
 <div class="flex flex-1 items-center justify-center">
-  <div class="h-6 w-6 animate-spin rounded-full border-2 border-navy border-t-transparent"></div>
+  <Spinner />
 </div>

@@ -5,6 +5,8 @@
   import { api } from "../../../../convex/_generated/api";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
+  import AppNav from "$lib/components/ui/AppNav.svelte";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
 
   const QUESTIONS = [
     {
@@ -134,24 +136,13 @@
 
 {#if auth.isLoading || !auth.isAuthenticated}
   <div class="flex flex-1 items-center justify-center bg-canvas">
-    <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+    <Spinner />
   </div>
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
-    <div class="sticky top-0 z-50 w-full pt-5 px-[10%] bg-canvas">
-      <header class="flex items-center bg-navy px-5 py-5 rounded-xl">
-        <a href="/dashboard" class="flex items-center gap-5 flex-shrink-0">
-          <img src="/logo.png" alt="Banhall" width="89" height="89" class="-my-5 brightness-0 invert" />
-          <span class="text-sm text-white/60 hover:text-white/80 transition-colors">Dashboard</span>
-        </a>
-        <svg class="mx-2 h-3 w-3 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-        <span class="text-sm font-medium text-white">Self-Serve Questionnaire</span>
-      </header>
-    </div>
+    <AppNav width="max-w-2xl" breadcrumbs={[{ label: "Self-serve questionnaire" }]} />
 
-    <main class="mx-auto w-full max-w-2xl flex-1 px-6 py-8">
+    <main class="mx-auto w-full max-w-2xl flex-1 px-6 pt-12 pb-8">
       <!-- Progress bar -->
       <div class="mb-8">
         <div class="flex items-center justify-between mb-2">
@@ -204,7 +195,7 @@
             <span class="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-navy">
               {step + 1}
             </span>
-            <h2 class="text-lg font-semibold text-navy">{currentQuestion.label}</h2>
+            <h2 class="text-title">{currentQuestion.label}</h2>
           </div>
           <p class="text-sm text-gray-600 mb-4">{currentQuestion.question}</p>
           <textarea
@@ -250,7 +241,7 @@
           <div class="mt-6 space-y-4">
             <div class="rounded-lg border border-gray-200 bg-white p-4">
               <div class="flex items-center justify-between">
-                <span class="text-xs font-semibold uppercase tracking-wide text-gray-400">Project</span>
+                <span class="text-label">Project</span>
                 <button type="button" onclick={() => (step = -1)} class="text-xs text-primary hover:underline">Edit</button>
               </div>
               <p class="mt-1 text-sm font-medium text-gray-900">{title}</p>
@@ -261,7 +252,7 @@
               {@const answer = answers[q.id]?.trim()}
               <div class="rounded-lg border border-gray-200 bg-white p-4">
                 <div class="flex items-center justify-between">
-                  <span class="text-xs font-semibold uppercase tracking-wide text-gray-400">{q.label}</span>
+                  <span class="text-label">{q.label}</span>
                   <button type="button" onclick={() => (step = i)} class="text-xs text-primary hover:underline">Edit</button>
                 </div>
                 {#if answer}

@@ -6,6 +6,8 @@
   import type { Id } from "../../../../convex/_generated/dataModel";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
+  import AppNav from "$lib/components/ui/AppNav.svelte";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
   import {
     parseFileToText,
     isSupportedFile,
@@ -276,24 +278,13 @@
 
 {#if auth.isLoading || !auth.isAuthenticated}
   <div class="flex flex-1 items-center justify-center bg-canvas">
-    <div class="h-6 w-6 animate-spin rounded-full border-2 border-navy border-t-transparent"></div>
+    <Spinner />
   </div>
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
-    <div class="sticky top-0 z-50 w-full px-[10%] pt-5">
-      <header class="flex items-center rounded-xl bg-navy px-5 py-5">
-        <a href="/dashboard" class="flex flex-shrink-0 items-center gap-5">
-          <img src="/logo.png" alt="Banhall" width="89" height="89" class="-my-5 brightness-0 invert" />
-          <span class="text-sm text-white/60 transition-colors hover:text-white/80">Dashboard</span>
-        </a>
-        <svg class="mx-2 h-3 w-3 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-        <span class="text-sm font-medium text-white">New Project</span>
-      </header>
-    </div>
+    <AppNav width="max-w-2xl" breadcrumbs={[{ label: "New project" }]} />
 
-    <main class="mx-auto w-full max-w-2xl flex-1 px-6 py-8">
+    <main class="mx-auto w-full max-w-2xl flex-1 px-6 pt-12 pb-8">
       <!-- Step indicator -->
       <div class="mb-8 flex items-center gap-2">
         {#each STEPS as label, i (label)}
@@ -323,7 +314,7 @@
       {#if step === 0}
         <div class="flex flex-col gap-5">
           <div>
-            <h2 class="text-xl font-semibold text-gray-900">Project details</h2>
+            <h2 class="text-display">Project details</h2>
             <p class="mt-1 text-sm text-gray-500">
               Enter the basics, then drop a transcript file or paste it below.
             </p>
@@ -385,7 +376,7 @@
             >
               {#if parsingTranscript}
                 <span class="inline-flex items-center gap-2 text-sm text-navy">
-                  <span class="h-4 w-4 animate-spin rounded-full border-2 border-navy/30 border-t-navy"></span>
+                  <Spinner size="sm" class="border-navy/30 border-t-navy" />
                   Reading {parsingTranscript}…
                 </span>
               {:else}
@@ -430,7 +421,7 @@
       {#if step === 1}
         <div class="flex flex-col gap-4">
           <div>
-            <h2 class="text-xl font-semibold text-gray-900">Context & files</h2>
+            <h2 class="text-display">Context & files</h2>
             <p class="mt-1 text-sm text-gray-500">
               Add any supporting material so the report is grounded in more than the transcript.
               Everything here is <span class="font-medium">optional</span> — add what you have.
@@ -468,12 +459,12 @@
       {#if step === 2}
         <div class="flex flex-col gap-5">
           <div>
-            <h2 class="text-xl font-semibold text-gray-900">Review & generate</h2>
+            <h2 class="text-display">Review & generate</h2>
             <p class="mt-1 text-sm text-gray-500">
               Confirm everything looks right, then generate the draft report.
             </p>
           </div>
-          <div class="rounded-xl border border-gray-200 bg-white p-4 text-sm">
+          <div class="card p-4 text-sm">
             {@render row("Project", title || "—")}
             {@render row("Client", clientName || "—")}
             {#if writerName}
@@ -486,10 +477,10 @@
             {@render row("Context items", fileCount > 0 ? `${fileCount} attached` : "None")}
           </div>
           {#if fileCount > 0}
-            <div class="rounded-xl border border-gray-200 bg-white p-4">
+            <div class="card p-4">
               {#if pyFileCount > 0 || pyNoteOnlyCount > 0}
                 <div class="mb-2">
-                  <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Previous-year reports</p>
+                  <p class="text-label">Previous-year reports</p>
                   <ul class="mt-0.5 text-sm text-gray-700">
                     {#each pyRows.filter((r) => r.files.length || r.note.trim()) as r (r.id)}
                       <li class="truncate">
@@ -509,7 +500,7 @@
               {/if}
               {#each CONTEXT_CATEGORIES.filter((c) => c.id !== "previous_pd" && (staged[c.id].files.length || staged[c.id].text.trim())) as c (c.id)}
                 <div class="mb-2 last:mb-0">
-                  <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">{c.label}</p>
+                  <p class="text-label">{c.label}</p>
                   <ul class="mt-0.5 text-sm text-gray-700">
                     {#each staged[c.id].files as f, i (i)}
                       <li class="truncate">• {f.name}</li>
@@ -524,7 +515,7 @@
           {/if}
           {#if committing && progress}
             <div class="flex items-center gap-2 rounded-lg bg-chrome px-3 py-2 text-sm text-navy">
-              <div class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-navy border-t-transparent"></div>
+              <Spinner size="sm" class="h-3.5 w-3.5 border-navy" />
               {progress}
             </div>
           {/if}
@@ -558,7 +549,7 @@
           {:else}
             <Button type="button" onclick={commit} disabled={committing}>
               {#if committing}
-                <div class="mr-2 h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                <Spinner size="sm" class="mr-2 h-3.5 w-3.5 border-white" />
                 Working…
               {:else}
                 <svg class="mr-1.5 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

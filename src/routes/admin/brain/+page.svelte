@@ -1,5 +1,6 @@
 <script lang="ts">
   import AppNav from "$lib/components/ui/AppNav.svelte";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
   import { Tabs } from "bits-ui";
   import { goto } from "$app/navigation";
   import { useQuery } from "convex-svelte";
@@ -65,20 +66,20 @@
 </script>
 
 {#snippet spinner()}
-  <div class="mt-10 flex justify-center">
-    <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+  <div class="flex min-h-[55vh] items-center justify-center">
+    <Spinner />
   </div>
 {/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}
   <div class="flex flex-1 items-center justify-center bg-canvas">
-    <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+    <Spinner />
   </div>
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav breadcrumbs={[{ label: "The Brain" }]} />
+    <AppNav width="max-w-4xl" breadcrumbs={[{ label: "The Brain" }]} />
 
-    <main class="mx-auto w-full max-w-4xl px-6 py-10">
+    <main class="mx-auto w-full max-w-4xl px-6 pt-12 pb-10">
       <h1 class="text-display">The Brain</h1>
       <p class="mt-1 text-sm text-gray-500">
         Curated knowledge behind generation. Only approved sources are ever
@@ -91,16 +92,16 @@
       {:else}
         <!-- Stats -->
         <div class="mt-6 grid grid-cols-3 gap-3">
-          <div class="rounded-xl border border-gray-200 bg-white p-4">
-            <p class="text-xs uppercase tracking-wide text-gray-400">In the Brain</p>
+          <div class="card p-4">
+            <p class="text-label">In the Brain</p>
             <p class="mt-1 text-2xl font-bold text-navy">{stats?.approved ?? "—"}</p>
           </div>
-          <div class="rounded-xl border border-gray-200 bg-white p-4">
-            <p class="text-xs uppercase tracking-wide text-gray-400">Pending review</p>
+          <div class="card p-4">
+            <p class="text-label">Pending review</p>
             <p class="mt-1 text-2xl font-bold text-navy">{stats?.pending ?? "—"}</p>
           </div>
-          <div class="rounded-xl border border-gray-200 bg-white p-4">
-            <p class="text-xs uppercase tracking-wide text-gray-400">Industries</p>
+          <div class="card p-4">
+            <p class="text-label">Industries</p>
             <p class="mt-1 truncate text-sm font-medium text-gray-700">
               {stats && Object.keys(stats.byIndustry).length > 0
                 ? Object.entries(stats.byIndustry)
@@ -113,14 +114,14 @@
 
         <!-- Tabs -->
         <Tabs.Root value={tab} onValueChange={(v) => (tab = v as Tab)} class="mt-6">
-          <Tabs.List class="flex gap-1 rounded-xl border border-gray-200 bg-white p-1">
+          <Tabs.List class="card flex gap-1 p-1">
             {#each tabs as t (t.key)}
               <Tabs.Trigger
                 value={t.key}
                 class={`flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                   tab === t.key
                     ? "bg-navy text-white"
-                    : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                    : "text-gray-500 hover:bg-primary-wash hover:text-gray-700"
                 }`}
               >
                 {t.label}{t.count != null && t.count > 0 ? ` · ${t.count}` : ""}
@@ -130,7 +131,7 @@
         </Tabs.Root>
 
         <!-- Panel -->
-        <div class="mt-4 overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <div class="card mt-4 overflow-hidden">
           {#if tab === "pending" || tab === "approved" || tab === "revoked"}
             {#if sources === undefined}
               {@render spinner()}
@@ -168,7 +169,7 @@
           {:else}
             <table class="w-full text-sm">
               <thead>
-                <tr class="border-b border-gray-100 text-left text-xs uppercase tracking-wide text-gray-400">
+                <tr class="text-label border-b border-gray-100 text-left">
                   <th class="px-4 py-2.5 font-medium">Action</th>
                   <th class="px-4 py-2.5 font-medium">Reason</th>
                   <th class="px-4 py-2.5 font-medium">Actor</th>

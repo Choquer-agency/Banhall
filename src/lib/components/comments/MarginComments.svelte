@@ -221,7 +221,7 @@
   {#if pendingHighlight && pendingY !== null}
     <div
       use:registerCard={"__pending__"}
-      class="absolute right-0 w-64 transition-all duration-150"
+      class="absolute right-0 w-64 transition-all duration-300"
       style={`top: ${layout.resolved.get("__pending__") ?? pendingY}px`}
     >
       <div class="rounded-lg border border-navy/20 bg-white p-3 shadow-sm">
@@ -244,7 +244,7 @@
     {@const y = layout.resolved.get(comment._id)}
     {#if y !== undefined}
       {@const commenter = commenterMap.get(comment.commenterId)}
-      {@const color = commenter?.color ?? "#9CA3AF"}
+      {@const color = commenter?.color ?? "var(--color-ink-faint)"}
       {@const name = commenter?.name ?? "Unknown"}
       {@const isActive = activeCommentId === comment._id}
       {@const isHovered = hoveredCommentId === comment._id}
@@ -252,7 +252,7 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         use:registerCard={comment._id}
-        class={`absolute right-0 w-64 cursor-pointer transition-all duration-150 ${
+        class={`absolute right-0 w-64 cursor-pointer transition-all duration-300 ${
           isActive || isHovered ? "z-10" : "z-0"
         }`}
         style={`top: ${y}px`}

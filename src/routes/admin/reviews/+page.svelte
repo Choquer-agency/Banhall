@@ -1,5 +1,6 @@
 <script lang="ts">
   import AppNav from "$lib/components/ui/AppNav.svelte";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goto } from "$app/navigation";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
@@ -29,13 +30,13 @@
 
 {#if auth.isLoading || !auth.isAuthenticated}
   <div class="flex flex-1 items-center justify-center bg-canvas">
-    <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+    <Spinner />
   </div>
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav breadcrumbs={[{ label: "Writer QA reviews" }]} />
+    <AppNav width="max-w-4xl" breadcrumbs={[{ label: "Writer QA reviews" }]} />
 
-    <main class="mx-auto w-full max-w-4xl px-6 py-10">
+    <main class="mx-auto w-full max-w-4xl px-6 pt-12 pb-10">
       <h1 class="text-display">Writer QA reviews</h1>
       <p class="mt-1 text-sm text-gray-500">
         Human quality scores writers gave generated reports, alongside the AI QA
@@ -43,8 +44,8 @@
       </p>
 
       {#if data === undefined}
-        <div class="mt-10 flex justify-center">
-          <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+        <div class="flex min-h-[55vh] items-center justify-center">
+          <Spinner />
         </div>
       {:else if data === null}
         <p class="mt-8 text-sm text-gray-400">Sign in to view writer reviews.</p>
@@ -53,16 +54,16 @@
       {:else}
         <!-- Summary -->
         <div class="mt-6 grid grid-cols-3 gap-3">
-          <div class="rounded-xl border border-gray-200 bg-white p-4">
-            <p class="text-xs uppercase tracking-wide text-gray-400">Reviews</p>
+          <div class="card p-4">
+            <p class="text-label">Reviews</p>
             <p class="mt-1 text-2xl font-bold text-navy">{data.total}</p>
           </div>
-          <div class="rounded-xl border border-gray-200 bg-white p-4">
-            <p class="text-xs uppercase tracking-wide text-gray-400">Avg writer score</p>
+          <div class="card p-4">
+            <p class="text-label">Avg writer score</p>
             <p class="mt-1 text-2xl font-bold text-navy">{data.avgHuman ?? "—"}</p>
           </div>
-          <div class="rounded-xl border border-gray-200 bg-white p-4">
-            <p class="text-xs uppercase tracking-wide text-gray-400">Avg gap (writer − AI)</p>
+          <div class="card p-4">
+            <p class="text-label">Avg gap (writer − AI)</p>
             <p class={`mt-1 text-2xl font-bold ${data.avgGap != null && data.avgGap < 0 ? "text-red-700" : "text-navy"}`}>
               {data.avgGap == null ? "—" : `${data.avgGap > 0 ? "+" : ""}${data.avgGap}`}
             </p>
@@ -70,10 +71,10 @@
         </div>
 
         <!-- Table -->
-        <div class="mt-6 overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <div class="card mt-6 overflow-hidden">
           <table class="w-full text-sm">
             <thead>
-              <tr class="border-b border-gray-100 text-left text-xs uppercase tracking-wide text-gray-400">
+              <tr class="text-label border-b border-gray-100 text-left">
                 <th class="px-4 py-2.5 font-medium">Project</th>
                 <th class="px-4 py-2.5 font-medium">Writer</th>
                 <th class="px-4 py-2.5 text-center font-medium">Score</th>

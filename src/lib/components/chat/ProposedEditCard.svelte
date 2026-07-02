@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Spinner from "$lib/components/ui/Spinner.svelte";
+
   interface Props {
     newText?: string;
     replacements?: { find: string; replaceWith: string }[];
@@ -40,12 +42,12 @@
   }
 </script>
 
-<div class="mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+<div class="card mt-2 overflow-hidden shadow-sm">
   <!-- The proposed change: a multi-instance find/replace list, or the new text -->
   <div class="max-h-72 overflow-y-auto px-4 py-3.5">
     {#if replacements && replacements.length > 0}
       <div class="flex flex-col gap-2">
-        <p class="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+        <p class="text-label">
           {replacements.length} replacement{replacements.length === 1 ? "" : "s"} — applied to every occurrence
         </p>
         {#each replacements as r, i (i)}
@@ -73,7 +75,7 @@
   <div class="flex items-center gap-2 border-t border-gray-100 bg-gray-50 px-3 py-2.5">
     {#if editState === "pending" && reviewing}
       <span class="inline-flex items-center gap-1.5 text-xs font-medium text-navy">
-        <div class="h-3 w-3 animate-spin rounded-full border-2 border-navy/30 border-t-navy"></div>
+        <Spinner size="sm" class="h-3 w-3 border-navy/30 border-t-navy" />
         Stepping through in the document…
       </span>
     {:else if editState === "pending"}
@@ -112,7 +114,7 @@
         <button
           onclick={() => handle(onReject)}
           disabled={busy}
-          class="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:opacity-50"
+          class="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-primary-wash hover:text-gray-700 disabled:opacity-50"
         >
           Reject
         </button>
@@ -132,7 +134,7 @@
       <button
         onclick={onShowInDoc}
         title="Scroll to and highlight this in the document"
-        class="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:bg-gray-100 hover:text-navy"
+        class="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
       >
         <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />

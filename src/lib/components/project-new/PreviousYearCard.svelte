@@ -26,7 +26,7 @@
   const minYear = $derived(Math.min(...rows.map((r) => r.year)));
 </script>
 
-<div class="rounded-xl border border-gray-200 bg-white p-4">
+<div class="card p-4">
   <div class="flex items-center gap-2">
     <span class="text-sm font-medium text-gray-900">{def.label}</span>
     <span class={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${WEIGHT_STYLES[def.weight]}`}>

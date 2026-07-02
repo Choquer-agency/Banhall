@@ -12,12 +12,13 @@ deep-fir app bar, and a single lagoon accent. Quiet everywhere, loud once.
 
 | Token | Hex | Role |
 |---|---|---|
-| `canvas` | `#F5F9F8` | App background — carries the ledger rules; never a content bg |
+| `canvas` | `#F9FCFB` | App background — carries the ledger rules; never a content bg |
 | `chrome` | `#EAF2F1` | Recessed UI: wells, hover fills, pills |
 | `navy` (fir) | `#0A3A38` | App bar, brand emphasis, focus rings |
-| `primary` (lagoon) | `#189E98` | The accent: primary actions, links, active states |
-| `primary-dark` | `#10807B` | Action hover/pressed |
-| `primary-light` | `#3DCCC5` | Accent on dark surfaces only |
+| `primary` (lagoon) | `#0DACA5` | The accent: primary actions, links, active states |
+| `primary-dark` | `#0A8A84` | Action hover/pressed |
+| `primary-light` | `#45CFC9` | Accent on dark surfaces only |
+| `primary-wash` | `#F1FAF9` | Interactive hover fill on light surfaces |
 | `gap-bg` / `gap-text` | `#FEF3C7` / `#92400E` | Report [GAP:] highlights only |
 
 **Neutral ramp** — Tailwind's `gray-*` is *remapped* to teal-cast values so
@@ -75,3 +76,11 @@ values are legacy — replace on touch.
    radius, gap-3 grids.
 6. Prefer semantic aliases (`text-ink-muted`) in new code; gray-* remains
    valid in ported code.
+7. **Expandable rows**: disclosure chevron sits at the row's RIGHT edge,
+   points DOWN closed → UP open (rotate-180), and turns `primary` when open.
+   Never left of the label.
+8. **Motion**: every transition runs ≥300ms (`--default-transition-duration:
+   300ms` makes bare `transition-*` utilities 300ms; never use duration-75/
+   100/150/200).
+9. **Hover fills** on light surfaces use `primary-wash` — never gray washes.
+   Destructive hovers stay red; dark-surface hovers stay white/alpha.

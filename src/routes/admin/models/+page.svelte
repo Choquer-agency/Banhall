@@ -1,5 +1,6 @@
 <script lang="ts">
   import AppNav from "$lib/components/ui/AppNav.svelte";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goto } from "$app/navigation";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
@@ -52,21 +53,21 @@
 
 {#if auth.isLoading || !auth.isAuthenticated}
   <div class="flex flex-1 items-center justify-center bg-canvas">
-    <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+    <Spinner />
   </div>
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav breadcrumbs={[{ label: "Model preferences" }]} />
+    <AppNav width="max-w-3xl" breadcrumbs={[{ label: "Model preferences" }]} />
 
-    <main class="mx-auto w-full max-w-3xl px-6 py-10">
+    <main class="mx-auto w-full max-w-3xl px-6 pt-12 pb-10">
       <h1 class="text-display">Model A/B preferences</h1>
       <p class="mt-1 text-sm text-gray-500">
         Which model writers keep when shown side-by-side candidate drafts.
       </p>
 
       {#if stats === undefined}
-        <div class="mt-10 flex justify-center">
-          <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+        <div class="flex min-h-[55vh] items-center justify-center">
+          <Spinner />
         </div>
       {:else if stats === null}
         <p class="mt-8 text-sm text-gray-400">Sign in to view model stats.</p>

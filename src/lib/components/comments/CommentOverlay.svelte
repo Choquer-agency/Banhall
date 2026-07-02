@@ -95,7 +95,7 @@
 </script>
 
 {#snippet commentCard(comment: Doc<"comments">, commenter: Doc<"commenters"> | undefined)}
-  {@const color = commenter?.color ?? "#9CA3AF"}
+  {@const color = commenter?.color ?? "var(--color-ink-faint)"}
   {@const name = commenter?.name ?? "Writer"}
   <div class="rounded-lg border border-gray-200 bg-white p-3 shadow-lg">
     <p class="line-clamp-1 text-xs leading-relaxed text-gray-400">

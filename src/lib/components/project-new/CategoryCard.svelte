@@ -29,7 +29,7 @@
   }
 </script>
 
-<div class="rounded-xl border border-gray-200 bg-white p-4">
+<div class="card p-4">
   <div class="flex items-start justify-between gap-3">
     <div>
       <div class="flex items-center gap-2">
@@ -43,7 +43,7 @@
     <button
       type="button"
       onclick={() => inputEl?.click()}
-      class="flex-shrink-0 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-navy transition-colors hover:bg-chrome"
+      class="flex-shrink-0 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-navy transition-colors hover:bg-primary-wash"
     >
       Add files
     </button>

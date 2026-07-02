@@ -4,6 +4,7 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Doc } from "../../../../convex/_generated/dataModel";
   import NameGate from "$lib/components/review/NameGate.svelte";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
   import ReadOnlyEditor from "$lib/components/review/ReadOnlyEditor.svelte";
   import MarginComments from "$lib/components/comments/MarginComments.svelte";
   import type { CommentRange } from "$lib/components/editor/types";
@@ -70,7 +71,7 @@
 {#if projectQ.data === undefined}
   <!-- Loading -->
   <div class="flex flex-1 items-center justify-center bg-canvas">
-    <div class="h-6 w-6 animate-spin rounded-full border-2 border-navy border-t-transparent"></div>
+    <Spinner />
   </div>
 {:else if projectQ.data === null}
   <!-- Invalid link -->
@@ -80,7 +81,7 @@
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
       </svg>
     </div>
-    <h1 class="text-lg font-semibold text-gray-900">Report Not Found</h1>
+    <h1 class="text-title">Report Not Found</h1>
     <p class="mt-1 text-sm text-gray-500">This review link may be invalid or expired.</p>
   </div>
 {:else if !commenter}
@@ -93,28 +94,29 @@
 {:else if !reportQ.data}
   <!-- Report not ready -->
   <div class="flex flex-1 flex-col items-center justify-center bg-canvas px-4">
-    <div class="h-6 w-6 animate-spin rounded-full border-2 border-navy border-t-transparent"></div>
-    <h1 class="mt-4 text-lg font-semibold text-gray-900">{projectQ.data.title}</h1>
+    <Spinner />
+    <h1 class="text-title mt-4">{projectQ.data.title}</h1>
     <p class="mt-1 text-sm text-gray-500">The report is being prepared. This page will update automatically.</p>
   </div>
 {:else}
   {@const project = projectQ.data}
   {@const report = reportQ.data}
   <div class="flex flex-1 flex-col bg-canvas">
-    <!-- Top bar — floating -->
-    <div class="sticky top-0 z-50 w-full pt-5 px-[10%] bg-canvas">
-      <header class="flex items-center justify-between bg-navy px-5 py-5 rounded-xl">
-        <div class="flex items-center gap-3 min-w-0">
-          <img src="/logo.png" alt="Banhall" width="89" height="89" class="-my-5 brightness-0 invert" />
-          <div class="min-w-0">
-            <h1 class="truncate text-sm font-semibold text-white">{project.title}</h1>
-            <p class="text-xs text-white/50">{project.clientName}</p>
+    <!-- Top bar — public client header: same fir bar + baseline rule as AppNav,
+         but no internal navigation (access is via the share token). -->
+    <header class="sticky top-0 z-50 w-full">
+      <div class="w-full bg-navy">
+        <div class="mx-auto flex h-13 w-full max-w-[1100px] items-center justify-between gap-3 px-6">
+          <div class="flex min-w-0 items-center gap-2.5">
+            <img src="/logo.png" alt="Banhall" width="84" height="84" class="-my-5 flex-shrink-0 brightness-0 invert" />
+            <div class="min-w-0">
+              <h1 class="truncate text-sm font-semibold text-white">{project.title}</h1>
+              <p class="truncate text-xs text-white/50">{project.clientName}</p>
+            </div>
           </div>
-        </div>
-        <div class="flex items-center gap-2 flex-shrink-0">
-          <div class="flex items-center gap-1.5">
+          <div class="flex flex-shrink-0 items-center gap-1.5">
             <div
-              class="h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
+              class="flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white"
               style={`background-color: ${commenter.color}`}
             >
               {commenter.name[0]?.toUpperCase()}
@@ -122,8 +124,9 @@
             <span class="hidden text-xs text-white/60 sm:inline">{commenter.name}</span>
           </div>
         </div>
-      </header>
-    </div>
+      </div>
+      <div class="nav-baseline h-0.5 w-full"></div>
+    </header>
 
     <!-- Main content with margin comments — same layout as writer page -->
     <div bind:this={scrollEl} class="flex-1 overflow-y-auto">

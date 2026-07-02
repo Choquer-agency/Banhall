@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { slide } from "svelte/transition";
   import { useQuery, useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
 
   const KIND_LABEL: Record<string, string> = {
     pd_pair: "PD pair",
@@ -69,17 +71,8 @@
 <div class="border-b border-gray-50 last:border-0">
   <button
     onclick={() => (open = !open)}
-    class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50"
+    class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-primary-wash"
   >
-    <svg
-      class={`h-3.5 w-3.5 flex-shrink-0 text-gray-300 transition-transform ${open ? "rotate-90" : ""}`}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      stroke-width="2"
-    >
-      <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-    </svg>
     <div class="min-w-0 flex-1">
       <p class="truncate text-sm font-medium text-gray-800">{row.title}</p>
       <p class="text-xs text-gray-400">
@@ -97,13 +90,22 @@
     <span class={`rounded-full border px-2 py-0.5 text-xs font-medium ${statusStyles}`}>
       {row.status}
     </span>
+    <svg
+      class={`h-3.5 w-3.5 flex-shrink-0 transition-all duration-300 ${open ? "rotate-180 text-primary" : "text-gray-300"}`}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      stroke-width="2"
+    >
+      <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+    </svg>
   </button>
 
   {#if open}
-    <div class="border-t border-gray-100 bg-gray-50/60 px-4 py-4">
+    <div class="border-t border-gray-100 bg-gray-50/60 px-4 py-4" transition:slide={{ duration: 300 }}>
       {#if fullQ.data === undefined}
         <div class="flex justify-center py-4">
-          <div class="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+          <Spinner class="h-5 w-5" />
         </div>
       {:else if fullQ.data === null}
         <p class="text-sm text-gray-400">Source not found.</p>

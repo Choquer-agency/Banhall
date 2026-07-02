@@ -168,7 +168,7 @@
       <button
         type="button"
         class={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors ${
-          index === selectedIndex ? "bg-gray-50 text-navy" : "text-gray-700 hover:bg-gray-50"
+          index === selectedIndex ? "bg-gray-50 text-navy" : "text-gray-700 hover:bg-primary-wash"
         }`}
         onclick={() => executeCommand(item)}
         onmouseenter={() => (selectedIndex = index)}

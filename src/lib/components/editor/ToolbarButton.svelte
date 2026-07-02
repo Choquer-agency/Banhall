@@ -21,7 +21,7 @@
   class={`flex h-7 w-7 items-center justify-center rounded text-xs transition-colors ${
     active
       ? "bg-navy text-white"
-      : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+      : "text-gray-600 hover:bg-primary-wash hover:text-gray-900"
   }`}
 >
   {@render children()}

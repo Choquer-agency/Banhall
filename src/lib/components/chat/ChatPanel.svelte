@@ -6,6 +6,7 @@
   import type { Id } from "../../../../convex/_generated/dataModel";
   import ProposedEditCard from "$lib/components/chat/ProposedEditCard.svelte";
   import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
   import {
     parseFileToText,
     isSupportedFile,
@@ -388,10 +389,10 @@
         onclick={() => fileInputEl?.click()}
         disabled={uploading}
         title="Attach a document"
-        class="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-chrome hover:text-gray-600 disabled:opacity-50"
+        class="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-primary-wash hover:text-gray-600 disabled:opacity-50"
       >
         {#if uploading}
-          <div class="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-500"></div>
+          <Spinner size="sm" class="border-gray-300 border-t-gray-500" />
         {:else}
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
@@ -586,7 +587,7 @@
       <button
         onclick={onToggleFull}
         title={isFull ? "Exit full screen" : "Expand to full screen"}
-        class="ml-auto flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-chrome hover:text-navy"
+        class="ml-auto flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
       >
         {#if isFull}
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

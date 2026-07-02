@@ -52,7 +52,7 @@
       <button
         type="button"
         onclick={() => inputEl?.click()}
-        class="rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-navy transition-colors hover:bg-chrome"
+        class="rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-navy transition-colors hover:bg-primary-wash"
       >
         Add files
       </button>
@@ -62,7 +62,7 @@
           onclick={onRemoveYear}
           title="Remove this year"
           aria-label="Remove this year"
-          class="rounded-md p-1 text-gray-300 transition-colors hover:bg-chrome hover:text-gray-500"
+          class="rounded-md p-1 text-gray-300 transition-colors hover:bg-primary-wash hover:text-gray-500"
         >
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />

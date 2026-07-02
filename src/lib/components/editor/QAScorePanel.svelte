@@ -131,12 +131,12 @@
 </script>
 
 {#if scorecard}
-  <div class="rounded-xl border border-gray-200 bg-white">
+  <div class="card">
     <!-- Toggle bar -->
     <button
       type="button"
       onclick={() => (isOpen = !isOpen)}
-      class="flex w-full items-center justify-between rounded-xl px-5 py-3 text-left transition-colors hover:bg-gray-50"
+      class="flex w-full items-center justify-between rounded-xl px-5 py-3 text-left transition-colors hover:bg-primary-wash"
     >
       <div class="flex items-center gap-3">
         <div
@@ -183,7 +183,7 @@
         {#if reportId}
           <div class="mb-5 rounded-lg border border-gray-200 bg-gray-50 p-3">
             <div class="flex items-center justify-between">
-              <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">
+              <p class="text-label">
                 Your review
               </p>
               <span class="text-[11px] text-gray-400">AI scored this {overall}/100</span>
@@ -281,7 +281,7 @@
 
         <!-- CRA Compliance -->
         <div class="mb-4">
-          <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+          <p class="text-label mb-2">
             CRA Compliance
           </p>
           <div class="flex flex-wrap gap-2">
@@ -309,7 +309,7 @@
         <!-- Flags -->
         {#if scorecard.ai_language_flags.length > 0 || scorecard.superlative_flags.length > 0}
           <div class="mb-4">
-            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+            <p class="text-label mb-2">
               Language Flags
             </p>
             <div class="flex flex-wrap gap-1.5">
@@ -330,7 +330,7 @@
         <!-- Gaps -->
         {#if scorecard.gaps_requiring_client_followup.length > 0}
           <div class="mb-4">
-            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+            <p class="text-label mb-2">
               Follow-up Questions for Client
             </p>
             <div class="space-y-2">
@@ -349,7 +349,7 @@
         <!-- Improvements -->
         {#if scorecard.suggested_improvements.length > 0}
           <div>
-            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+            <p class="text-label mb-2">
               Suggested Improvements
             </p>
             <ul class="space-y-1">

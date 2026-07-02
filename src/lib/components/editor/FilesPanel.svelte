@@ -193,11 +193,11 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   {/if}
 {/snippet}
 
-<div class="rounded-xl border border-gray-200 bg-white">
+<div class="card">
   <button
     type="button"
     onclick={() => (isOpen = !isOpen)}
-    class="flex w-full items-center justify-between rounded-xl px-5 py-3 text-left transition-colors hover:bg-gray-50"
+    class="flex w-full items-center justify-between rounded-xl px-5 py-3 text-left transition-colors hover:bg-primary-wash"
   >
     <div class="flex items-center gap-3">
       <div class="flex h-8 w-8 items-center justify-center rounded-full bg-navy/10 text-navy">
@@ -260,7 +260,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
             type="button"
             onclick={() => (showTranscript = true)}
             title="Preview transcript"
-            class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-navy"
+            class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
           >
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -280,7 +280,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
                 "interview-transcript.txt"
               )}
             title="Download transcript"
-            class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-navy"
+            class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
           >
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path
@@ -322,7 +322,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
                 type="button"
                 onclick={() => (preview = doc)}
                 title="Preview"
-                class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-navy"
+                class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
               >
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -337,7 +337,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
                 type="button"
                 onclick={() => download(doc)}
                 title="Download"
-                class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-navy"
+                class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
               >
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path
@@ -352,7 +352,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
                   type="button"
                   onclick={() => restore(doc)}
                   title="Restore (re-include in AI context)"
-                  class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-navy"
+                  class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
                 >
                   <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path
@@ -367,7 +367,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
                   type="button"
                   onclick={() => (removal = { doc, action: "archive" })}
                   title="Archive (exclude from AI context)"
-                  class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-navy"
+                  class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
                 >
                   <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path
@@ -382,7 +382,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
                 type="button"
                 onclick={() => (removal = { doc, action: "delete" })}
                 title="Delete"
-                class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-red-600"
+                class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-primary-wash hover:text-red-600"
               >
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path
@@ -433,7 +433,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
               type="button"
               onclick={() => (preview = null)}
               title="Close preview"
-              class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-primary-wash hover:text-gray-600"
             >
               <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -477,7 +477,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
             type="button"
             onclick={() => (showTranscript = false)}
             title="Close transcript"
-            class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-primary-wash hover:text-gray-600"
           >
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -523,7 +523,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
             type="button"
             onclick={() => (removal = null)}
             disabled={removalBusy !== null}
-            class="rounded-lg px-3 py-1.5 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 disabled:opacity-50"
+            class="rounded-lg px-3 py-1.5 text-sm font-medium text-gray-500 transition-colors hover:bg-primary-wash disabled:opacity-50"
           >
             Cancel
           </button>
@@ -531,7 +531,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
             type="button"
             onclick={() => runRemoval(false)}
             disabled={removalBusy !== null}
-            class="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-navy transition-colors hover:bg-chrome disabled:opacity-50"
+            class="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-navy transition-colors hover:bg-primary-wash disabled:opacity-50"
           >
             {removalBusy === "just" ? "Working…" : `Just ${verb.toLowerCase()}`}
           </button>

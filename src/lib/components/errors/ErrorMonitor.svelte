@@ -3,6 +3,7 @@
   import { useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import { pushBreadcrumb, getBreadcrumbs } from "./breadcrumbs";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
   import { APP_ERROR_EVENT, type AppErrorDetail } from "./PageErrorBoundary.svelte";
 
   type DetectedError = {
@@ -305,7 +306,7 @@
       role="dialog"
       aria-modal="true"
     >
-      <h2 class="text-lg font-semibold text-navy">
+      <h2 class="text-title">
         {modalMode === "manual"
           ? flagType === "feature"
             ? "Request a feature"
@@ -372,7 +373,7 @@
         <button
           onclick={closeModal}
           disabled={sending}
-          class="rounded-lg px-4 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 disabled:opacity-50"
+          class="rounded-lg px-4 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-primary-wash disabled:opacity-50"
         >
           Cancel
         </button>
@@ -382,7 +383,7 @@
           class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
         >
           {#if sending}
-            <span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
+            <Spinner size="sm" class="h-3.5 w-3.5 border-white/40 border-t-white" />
           {/if}
           {modalMode === "manual"
             ? flagType === "feature"

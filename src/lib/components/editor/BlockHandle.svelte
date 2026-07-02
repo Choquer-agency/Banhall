@@ -81,7 +81,7 @@
     <button
       type="button"
       onclick={handleAddBlock}
-      class="flex h-6 w-6 items-center justify-center rounded text-gray-300 hover:bg-gray-100 hover:text-gray-500"
+      class="flex h-6 w-6 items-center justify-center rounded text-gray-300 hover:bg-primary-wash hover:text-gray-500"
       title="Add block"
     >
       <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -90,7 +90,7 @@
     </button>
     <button
       type="button"
-      class="flex h-6 w-6 cursor-grab items-center justify-center rounded text-gray-300 hover:bg-gray-100 hover:text-gray-500"
+      class="flex h-6 w-6 cursor-grab items-center justify-center rounded text-gray-300 hover:bg-primary-wash hover:text-gray-500"
       title="Drag to reorder"
       onmousedown={() => (dragging = true)}
       onmouseup={() => (dragging = false)}

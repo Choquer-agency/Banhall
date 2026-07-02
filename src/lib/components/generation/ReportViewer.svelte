@@ -59,7 +59,7 @@
   {@const compliance = data.cra_compliance as Record<string, boolean>}
   {@const gaps = data.gaps_requiring_client_followup as Array<{ section: string; paragraph: number; question: string }>}
   {@const improvements = data.suggested_improvements as string[]}
-  <div class="mb-4 rounded-xl border border-gray-200 bg-white p-5 font-sans">
+  <div class="card mb-4 p-5 font-sans">
     <!-- Overall score -->
     <div class="flex items-center gap-3 mb-4">
       <div
@@ -117,7 +117,7 @@
     <!-- CRA Compliance -->
     {#if compliance}
       <div class="mb-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1.5">
+        <p class="text-label mb-1.5">
           CRA Compliance
         </p>
         <div class="flex flex-wrap gap-2">
@@ -137,7 +137,7 @@
     <!-- Gaps requiring follow-up -->
     {#if gaps && gaps.length > 0}
       <div class="mb-4">
-        <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1.5">
+        <p class="text-label mb-1.5">
           Follow-up Questions
         </p>
         <ul class="space-y-1.5">
@@ -153,7 +153,7 @@
     <!-- Suggested improvements -->
     {#if improvements && improvements.length > 0}
       <div>
-        <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1.5">
+        <p class="text-label mb-1.5">
           Suggested Improvements
         </p>
         <ul class="space-y-1">

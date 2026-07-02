@@ -1,5 +1,6 @@
 <script lang="ts">
   import AppNav from "$lib/components/ui/AppNav.svelte";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goto } from "$app/navigation";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
@@ -42,14 +43,14 @@
 
 {#if auth.isLoading || !auth.isAuthenticated}
   <div class="flex flex-1 items-center justify-center bg-canvas">
-    <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+    <Spinner />
   </div>
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
     <!-- Floating dark brand bar (matches dashboard) -->
-    <AppNav breadcrumbs={[{ label: "Alerts" }]} />
+    <AppNav width="max-w-3xl" breadcrumbs={[{ label: "Alerts" }]} />
 
-    <main class="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
+    <main class="mx-auto w-full max-w-3xl flex-1 px-6 pt-12 pb-8">
       <div class="flex items-center justify-between">
         <div>
           <h2 class="text-display">Alerts &amp; requests</h2>
@@ -75,7 +76,7 @@
           <button
             onclick={() => (tab = val)}
             class={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-              tab === val ? "bg-navy text-white" : "text-gray-500 hover:bg-chrome hover:text-navy"
+              tab === val ? "bg-navy text-white" : "text-gray-500 hover:bg-primary-wash hover:text-navy"
             }`}
           >
             {label}
@@ -88,8 +89,8 @@
 
       <div class="mt-6 space-y-2">
         {#if reports === undefined}
-          <div class="mt-12 flex justify-center">
-            <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+          <div class="flex min-h-[55vh] items-center justify-center">
+            <Spinner />
           </div>
         {:else if filtered.length === 0}
           <div class="mt-16 text-center">

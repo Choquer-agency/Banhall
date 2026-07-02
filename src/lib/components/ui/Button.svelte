@@ -7,9 +7,9 @@
     primary:
       "bg-primary text-white hover:bg-primary-dark focus-visible:ring-primary",
     secondary:
-      "bg-chrome text-navy border border-gray-200 hover:bg-gray-100 focus-visible:ring-primary",
+      "bg-chrome text-navy border border-gray-200 hover:bg-primary-wash focus-visible:ring-primary",
     ghost:
-      "text-gray-600 hover:text-navy hover:bg-gray-100 focus-visible:ring-primary",
+      "text-gray-600 hover:text-navy hover:bg-primary-wash focus-visible:ring-primary",
   };
 
   let {

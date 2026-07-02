@@ -57,7 +57,7 @@
     <button
       disabled={busy}
       onclick={() => decide("rejected")}
-      class="rounded-lg border border-gray-200 px-3.5 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+      class="rounded-lg border border-gray-200 px-3.5 py-1.5 text-sm font-medium text-gray-600 hover:bg-primary-wash disabled:opacity-50"
     >
       Reject
     </button>

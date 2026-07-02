@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { slide } from "svelte/transition";
   import { useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Doc } from "../../../../convex/_generated/dataModel";
@@ -53,18 +54,6 @@
     onclick={() => (open = !open)}
     class="flex w-full items-center gap-3 px-4 py-3 text-left"
   >
-    <svg
-      class={`h-3.5 w-3.5 flex-shrink-0 text-gray-400 transition-transform ${
-        open ? "rotate-90" : ""
-      }`}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      stroke-width="2"
-    >
-      <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-    </svg>
-
     <span
       class={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
         report.reportType === "feature"
@@ -91,11 +80,20 @@
     <span class="flex-shrink-0 text-xs text-gray-400">
       {timeAgo(report.createdAt)}
     </span>
+    <svg
+      class={`h-3.5 w-3.5 flex-shrink-0 transition-all duration-300 ${open ? "rotate-180 text-primary" : "text-gray-400"}`}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      stroke-width="2"
+    >
+      <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+    </svg>
   </button>
 
   <!-- Expanded detail -->
   {#if open}
-    <div class="space-y-4 border-t border-gray-100 px-4 py-4 text-sm">
+    <div class="space-y-4 border-t border-gray-100 px-4 py-4 text-sm" transition:slide={{ duration: 300 }}>
       <div class="flex flex-wrap items-center gap-2">
         <button
           onclick={copy}
@@ -122,7 +120,7 @@
               id: report._id,
               status: isResolved ? "open" : "resolved",
             })}
-          class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
+          class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-primary-wash"
         >
           {isResolved ? "Reopen" : "Mark resolved"}
         </button>
