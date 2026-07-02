@@ -30,8 +30,10 @@
     const el = sentinel;
     if (!el) return;
     const rest = el.getBoundingClientRect().top; // measured, not assumed
+    // 28px of scroll before the surface turns solid (ScrollTrigger
+    // `top+=28 top` feel), hysteresis-free since it's a hard threshold.
     const measure = () =>
-      (scrolled = el.getBoundingClientRect().top < rest - 2);
+      (scrolled = el.getBoundingClientRect().top < rest - 28);
     document.addEventListener("scroll", measure, { capture: true, passive: true });
     measure();
     return () =>
