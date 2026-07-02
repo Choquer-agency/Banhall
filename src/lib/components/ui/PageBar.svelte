@@ -19,19 +19,27 @@
     actions?: Snippet;
   } = $props();
 
-  // Transparent while at the top of the page; solid white once scrolled.
+  // Transparent while at the top; solid white once the bar is "stuck".
+  // A sentinel above the sticky wrapper leaves the (nav-offset) viewport the
+  // moment scrolling starts — works whether the window or an inner container
+  // scrolls.
   let scrolled = $state(false);
+  let sentinel: HTMLElement | null = $state(null);
   $effect(() => {
-    const onScroll = () => (scrolled = window.scrollY > 8);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-    return () => window.removeEventListener("scroll", onScroll);
+    if (!sentinel) return;
+    const io = new IntersectionObserver(
+      ([entry]) => (scrolled = !entry.isIntersecting),
+      { rootMargin: "-56px 0px 0px 0px", threshold: 0 }
+    );
+    io.observe(sentinel);
+    return () => io.disconnect();
   });
 </script>
 
+<div bind:this={sentinel} aria-hidden="true" class="h-px w-full"></div>
 <!-- top-[54px] = AppNav h-13 (52px) + 2px baseline rule; travels with the nav.
      The surface caps at the global rail width — canvas shows beyond it. -->
-<div class="sticky top-[54px] z-40 w-full">
+<div class="sticky top-[54px] z-40 -mt-px w-full">
   <div
     class={`mx-auto flex h-11 w-full items-center justify-between gap-3 rounded-b-xl border-x border-b px-6 transition-colors duration-300 ${
       scrolled ? "border-line-soft bg-white" : "border-transparent bg-transparent"
