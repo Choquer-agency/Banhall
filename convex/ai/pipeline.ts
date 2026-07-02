@@ -5,6 +5,7 @@ import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import Anthropic from "@anthropic-ai/sdk";
 import { runAnalyzerAgent, ContextDoc } from "./analyzerAgent";
+import { formatBrainExemplars } from "./brain/retrieve";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
@@ -157,13 +158,20 @@ async function runPipelineForModel(
   modelId: string,
   transcript: string,
   contextDocs: ContextDoc[],
-  title: string
+  title: string,
+  brainExemplars: string
 ): Promise<{ content: string; agentOutputs: string; qaScore: number | null }> {
-  const analysis = await runAnalyzerAgent(anthropic, transcript, contextDocs, modelId);
+  const analysis = await runAnalyzerAgent(
+    anthropic,
+    transcript,
+    contextDocs,
+    modelId,
+    brainExemplars
+  );
   const [raw242, raw244, raw246] = await Promise.all([
-    runSection242Agent(anthropic, analysis, modelId),
-    runSection244Agent(anthropic, analysis, modelId),
-    runSection246Agent(anthropic, analysis, modelId),
+    runSection242Agent(anthropic, analysis, modelId, brainExemplars),
+    runSection244Agent(anthropic, analysis, modelId, brainExemplars),
+    runSection246Agent(anthropic, analysis, modelId, brainExemplars),
   ]);
   const section242 = scrubBannedWords(raw242);
   const section244 = scrubBannedWords(raw244);
@@ -242,7 +250,7 @@ export const generateReport = internalAction({
       await log(`Read interview transcript — ${transcriptWords.toLocaleString()} words.`);
 
       // BNH-9: pull categorized contextual inputs (shared across all candidates).
-      const contextDocs = await ctx.runQuery(
+      const contextDocs: ContextDoc[] = await ctx.runQuery(
         internal.documents.getContextDocsForGeneration,
         { projectId: args.projectId }
       );
@@ -255,25 +263,60 @@ export const generateReport = internalAction({
           projectId: args.projectId,
         })) ?? "Untitled Report";
 
+      // BNH-10: pull gold-standard reference passages from The Brain once per
+      // generation (shared across all candidate models). A good PD is a good
+      // PD — retrieval runs with or without an industry; industry narrows it.
+      // Wrapped so the Brain can NEVER break generation.
+      let brainExemplars = "";
+      const industry = await ctx.runQuery(
+        internal.generations.getProjectIndustry,
+        { projectId: args.projectId }
+      );
+      try {
+        const exemplars = await ctx.runAction(
+          internal.ai.brain.retrieve.retrieveBrainContext,
+          {
+            ...(industry ? { industry } : {}),
+            query: `${title}\n\n${transcript.slice(0, 2000)}`,
+            k: 4,
+            docType: "pd",
+          }
+        );
+        brainExemplars = formatBrainExemplars(exemplars);
+        if (exemplars.length > 0) {
+          await log(
+            `Pulled ${exemplars.length} reference pattern(s) from The Brain${
+              industry ? ` (${industry})` : " (all industries)"
+            }.`
+          );
+        }
+      } catch {
+        // swallow — retrieval failures must not fail the report
+      }
+
       // BNH-21: estimate generation time up front so the UI can show a
       // countdown + progress bar. Scales with input volume (transcript +
-      // context docs) and the number of candidate models we run end-to-end.
+      // context docs); candidates now run in parallel, so wall-clock ≈ one
+      // model's pass, not the sum.
       const contextWords = contextDocs.reduce(
         (n, d) => n + (d.content?.split(/\s+/).filter(Boolean).length ?? 0),
         0
       );
       const inputWords = transcriptWords + contextWords;
       const perModelSec = 45 + inputWords / 150;
-      const estimatedMs = Math.round(
-        perModelSec * CANDIDATE_MODELS.length * 1000
-      );
+      const estimatedMs = Math.round(perModelSec * 1000 * 1.5);
       await ctx.runMutation(internal.generations.setGenerationEstimate, {
         generationId: genId,
         estimatedMs,
         totalCandidates: CANDIDATE_MODELS.length,
       });
 
-      // BNH-15: run the full pipeline once per candidate model.
+      // BNH-15: run the full pipeline once per candidate model. Each candidate
+      // is its OWN scheduled action: a sequential in-action loop breached the
+      // 10-minute action limit on long transcripts, dying mid-model and
+      // stranding the generation in "running" forever. Fan-out gives every
+      // model its own time budget (and cuts wall-clock ~3x); the LAST candidate
+      // to land finalizes the generation (generations.finalizeCandidate).
       await ctx.runMutation(internal.generations.updateGenerationStatus, {
         generationId: genId,
         status: "running",
@@ -283,48 +326,17 @@ export const generateReport = internalAction({
         `Generating ${CANDIDATE_MODELS.length} candidate drafts — ${CANDIDATE_MODELS.map((m) => m.label).join(", ")}.`
       );
 
-      let succeeded = 0;
       for (const m of CANDIDATE_MODELS) {
-        await log(`Generating with ${m.label}…`);
-        try {
-          const { content, agentOutputs, qaScore } = await runPipelineForModel(
-            anthropic,
-            m.id,
-            transcript,
-            contextDocs,
-            title
-          );
-          await ctx.runMutation(internal.generations.addCandidate, {
-            generationId: genId,
-            projectId: args.projectId,
-            model: m.id,
-            label: m.label,
-            content,
-            agentOutputs,
-          });
-          await ctx.runMutation(internal.generations.incrementCandidatesDone, {
-            generationId: genId,
-          });
-          await log(`✓ ${m.label} draft ready (QA ${qaScore ?? "—"}/100).`);
-          succeeded++;
-        } catch (e) {
-          await log(
-            `✗ ${m.label} failed: ${e instanceof Error ? e.message : "error"} — skipping.`
-          );
-        }
+        await ctx.scheduler.runAfter(0, internal.ai.pipeline.generateCandidate, {
+          generationId: genId,
+          projectId: args.projectId,
+          transcriptId: args.transcriptId,
+          model: m.id,
+          label: m.label,
+          title,
+          brainExemplars,
+        });
       }
-
-      if (succeeded === 0) {
-        throw new Error("All candidate models failed to generate.");
-      }
-
-      // Hand off to the writer to choose a draft.
-      await ctx.runMutation(internal.generations.updateGenerationStatus, {
-        generationId: genId,
-        status: "awaiting_selection",
-        currentStep: "Choose your preferred draft",
-      });
-      await log(`All ${succeeded} candidate(s) ready — choose your preferred draft.`);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unknown error occurred";
@@ -343,6 +355,70 @@ export const generateReport = internalAction({
       }).catch(() => {});
 
       throw error;
+    }
+  },
+});
+
+/**
+ * One candidate model's full pipeline pass, in its own action so it gets its
+ * own 10-minute budget (see fan-out note in generateReport). Success or
+ * failure both funnel into generations.finalizeCandidate, which flips the
+ * generation to awaiting_selection/failed when the last candidate lands.
+ */
+export const generateCandidate = internalAction({
+  args: {
+    generationId: v.id("generations"),
+    projectId: v.id("projects"),
+    transcriptId: v.id("transcripts"),
+    model: v.string(),
+    label: v.string(),
+    title: v.string(),
+    brainExemplars: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const anthropic = new Anthropic();
+    try {
+      const transcript = await ctx.runQuery(
+        internal.generations.getTranscriptContent,
+        { transcriptId: args.transcriptId }
+      );
+      if (!transcript) throw new Error("Transcript not found");
+      const contextDocs: ContextDoc[] = await ctx.runQuery(
+        internal.documents.getContextDocsForGeneration,
+        { projectId: args.projectId }
+      );
+
+      const { content, agentOutputs, qaScore } = await runPipelineForModel(
+        anthropic,
+        args.model,
+        transcript,
+        contextDocs,
+        args.title,
+        args.brainExemplars
+      );
+      await ctx.runMutation(internal.generations.addCandidate, {
+        generationId: args.generationId,
+        projectId: args.projectId,
+        model: args.model,
+        label: args.label,
+        content,
+        agentOutputs,
+      });
+      await ctx.runMutation(internal.generations.finalizeCandidate, {
+        generationId: args.generationId,
+        projectId: args.projectId,
+        label: args.label,
+        succeeded: true,
+        qaScore: qaScore ?? undefined,
+      });
+    } catch (e) {
+      await ctx.runMutation(internal.generations.finalizeCandidate, {
+        generationId: args.generationId,
+        projectId: args.projectId,
+        label: args.label,
+        succeeded: false,
+        error: e instanceof Error ? e.message : "error",
+      });
     }
   },
 });

@@ -111,7 +111,23 @@ export const processChatMessage = internalAction({
     try {
       const anthropic = new Anthropic();
 
-      const context = await ctx.runQuery(internal.chat.getChatContext, {
+      // Explicit annotation breaks api-graph type circularity (TS7006 cascade).
+      const context: {
+        projectId: string;
+        reportContent: string | null;
+        agentOutputs: string | null;
+        documents: { fileName: string; content: string }[];
+        messages: {
+          role: "writer" | "assistant";
+          content: string;
+          status: "pending" | "complete" | "error";
+          highlight: { text: string; from: number; to: number } | null;
+          proposedEdit: {
+            newText?: string;
+            state: "pending" | "applied" | "rejected";
+          } | null;
+        }[];
+      } = await ctx.runQuery(internal.chat.getChatContext, {
         threadId: args.threadId,
       });
 

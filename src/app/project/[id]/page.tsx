@@ -22,6 +22,10 @@ import { FilesPanel } from "@/components/editor/FilesPanel";
 import { LogsPanel } from "@/components/editor/LogsPanel";
 import { CommentOverlay } from "@/components/comments/CommentOverlay";
 import { ChatPanel } from "@/components/chat/ChatPanel";
+import { AgentChatPanel } from "@/components/chat/AgentChatPanel";
+
+// BNH-10 P2 parallel-run: flip chat to the streaming @convex-dev/agent backend.
+const AGENT_CHAT = process.env.NEXT_PUBLIC_AGENT_CHAT === "1";
 import { IconAction } from "@/components/ui/IconAction";
 import { VersionHistory } from "@/components/history/VersionHistory";
 import { exportToDocx } from "@/lib/exportDocx";
@@ -48,6 +52,7 @@ export default function ProjectPage() {
   const updateReport = useMutation(api.reports.updateReportContent);
   const createSnapshot = useMutation(api.snapshots.createManualSnapshot);
   const markEditApplied = useMutation(api.chat.markProposedEditApplied);
+  const markProposalApplied = useMutation(api.chatV2.markProposalApplied);
   const updateTitles = useMutation(api.projects.updateProjectTitles);
 
   const editorRef = useRef<EditorHandle>(null);
@@ -75,7 +80,8 @@ export default function ProjectPage() {
   type ReplaceMatch = { from: number; to: number; replaceWith: string; text: string };
   type ReplaceSession = {
     pairs: { find: string; replaceWith: string }[];
-    messageId: Id<"chatMessages">;
+    // chatMessages id (legacy chat) or chatProposals id (agent chat).
+    messageId: string;
     cursor: number;
     total: number;
     position: number;
@@ -89,9 +95,20 @@ export default function ProjectPage() {
     setTimeout(() => setReplaceNotice(null), 4000);
   }
 
+  // Route "mark applied" to whichever chat backend owns the id.
+  const markApplied = useCallback(
+    (id: string) => {
+      if (AGENT_CHAT) {
+        return markProposalApplied({ proposalId: id as Id<"chatProposals"> });
+      }
+      return markEditApplied({ messageId: id as Id<"chatMessages"> });
+    },
+    [markEditApplied, markProposalApplied]
+  );
+
   function startReplaceReview(
     pairs: { find: string; replaceWith: string }[],
-    messageId: Id<"chatMessages">
+    messageId: string
   ) {
     const ed = editorRef.current;
     if (!ed || !report) return;
@@ -102,7 +119,7 @@ export default function ProjectPage() {
       notifyReplace(
         `No remaining “${pairs[0]?.find ?? "matches"}” in the report — already applied.`
       );
-      markEditApplied({ messageId }).catch(() => {});
+      markApplied(messageId).catch(() => {});
       return;
     }
     // Snapshot once so the whole stepping pass can be undone.
@@ -132,7 +149,7 @@ export default function ProjectPage() {
       setReplaceSession({ ...sess, cursor, position: sess.position + 1, current: next, replaced });
     } else {
       ed.clearHighlight();
-      if (replaced > 0) markEditApplied({ messageId: sess.messageId }).catch(() => {});
+      if (replaced > 0) markApplied(sess.messageId).catch(() => {});
       setReplaceSession(null);
     }
   }
@@ -165,7 +182,7 @@ export default function ProjectPage() {
       replaced++;
     }
     ed.clearHighlight();
-    if (replaced > 0) markEditApplied({ messageId: sess.messageId }).catch(() => {});
+    if (replaced > 0) markApplied(sess.messageId).catch(() => {});
     setReplaceSession(null);
   }
 
@@ -479,6 +496,13 @@ export default function ProjectPage() {
                     fiscalYearEnd={project.fiscalYearEnd ?? null}
                   />
                 </div>
+                <div>
+                  <span className="text-gray-400">Industry</span>
+                  <IndustryField
+                    projectId={projectId}
+                    industry={project.industry ?? null}
+                  />
+                </div>
               </div>
               {/* View tracking */}
               {viewSummary && viewSummary.totalViews > 0 && (
@@ -545,15 +569,27 @@ export default function ProjectPage() {
             style={{ width: chatFull ? "100%" : `${chatRatio * 100}%` }}
           >
             <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-chrome bg-white shadow-sm">
-              <ChatPanel
-                projectId={projectId}
-                reportId={report._id}
-                pendingHighlight={pendingChatHighlight}
-                onClearHighlight={() => setPendingChatHighlight(null)}
-                onReferenceText={(texts, scrollTo) => editorRef.current?.highlightText(texts, scrollTo)}
-                onReviewReplacements={startReplaceReview}
-                reviewingMessageId={replaceSession?.messageId ?? null}
-              />
+              {AGENT_CHAT ? (
+                <AgentChatPanel
+                  projectId={projectId}
+                  reportId={report._id}
+                  pendingHighlight={pendingChatHighlight}
+                  onClearHighlight={() => setPendingChatHighlight(null)}
+                  onReferenceText={(texts, scrollTo) => editorRef.current?.highlightText(texts, scrollTo)}
+                  onReviewReplacements={startReplaceReview}
+                  reviewingId={replaceSession?.messageId ?? null}
+                />
+              ) : (
+                <ChatPanel
+                  projectId={projectId}
+                  reportId={report._id}
+                  pendingHighlight={pendingChatHighlight}
+                  onClearHighlight={() => setPendingChatHighlight(null)}
+                  onReferenceText={(texts, scrollTo) => editorRef.current?.highlightText(texts, scrollTo)}
+                  onReviewReplacements={startReplaceReview}
+                  reviewingMessageId={(replaceSession?.messageId ?? null) as Id<"chatMessages"> | null}
+                />
+              )}
             </div>
           </aside>
         )}
@@ -754,6 +790,58 @@ function toDateInput(ts: number | null): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${d.getFullYear()}-${m}-${day}`;
+}
+
+// Must match The Brain's industry namespace strings — see docs/the-brain.md.
+const INDUSTRIES = ["software", "manufacturing", "life-sciences"] as const;
+const INDUSTRY_LABELS: Record<string, string> = {
+  software: "Software",
+  manufacturing: "Manufacturing",
+  "life-sciences": "Life sciences",
+};
+
+/**
+ * BNH-10: industry scopes Brain retrieval to same-industry exemplars. Optional —
+ * the Brain still helps without it (best PDs across all industries).
+ */
+function IndustryField({
+  projectId,
+  industry,
+}: {
+  projectId: Id<"projects">;
+  industry: string | null;
+}) {
+  const update = useMutation(api.projects.updateProjectIndustry);
+  const [saving, setSaving] = useState(false);
+
+  async function save(value: string) {
+    setSaving(true);
+    try {
+      await update({ projectId, industry: value || undefined });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-0.5">
+      <select
+        value={industry ?? ""}
+        onChange={(e) => save(e.target.value)}
+        disabled={saving}
+        className={`w-full max-w-[180px] cursor-pointer rounded-md border bg-white px-2 py-1 text-sm focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy disabled:opacity-50 ${
+          industry ? "border-gray-200 text-gray-900" : "border-dashed border-gray-300 text-gray-400"
+        }`}
+      >
+        <option value="">Not set (all industries)</option>
+        {INDUSTRIES.map((i) => (
+          <option key={i} value={i}>
+            {INDUSTRY_LABELS[i]}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 }
 
 /** BNH-36: view/edit the client's fiscal year-end on the project header. */

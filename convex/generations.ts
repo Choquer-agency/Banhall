@@ -91,6 +91,109 @@ export const incrementCandidatesDone = internalMutation({
   },
 });
 
+/**
+ * Land one candidate's outcome (from ai/pipeline.generateCandidate) and, when
+ * the last one arrives, finalize the generation: any success →
+ * awaiting_selection; all failed → failed + project back to draft. Mutations
+ * serialize, so the done/failed counters can't race.
+ */
+export const finalizeCandidate = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    projectId: v.id("projects"),
+    label: v.string(),
+    succeeded: v.boolean(),
+    qaScore: v.optional(v.number()),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const gen = await ctx.db.get(args.generationId);
+    if (!gen) return;
+
+    const done = (gen.candidatesDone ?? 0) + (args.succeeded ? 1 : 0);
+    const failed = (gen.candidatesFailed ?? 0) + (args.succeeded ? 0 : 1);
+    const line = args.succeeded
+      ? `✓ ${args.label} draft ready (QA ${args.qaScore ?? "—"}/100).`
+      : `✗ ${args.label} failed: ${args.error ?? "error"} — skipping.`;
+    const progressLog = [...(gen.progressLog ?? []), line];
+    const total = gen.totalCandidates ?? 3;
+
+    if (done + failed < total) {
+      await ctx.db.patch(args.generationId, {
+        candidatesDone: done,
+        candidatesFailed: failed,
+        progressLog,
+      });
+      return;
+    }
+
+    // Last candidate landed — finalize.
+    if (done > 0) {
+      await ctx.db.patch(args.generationId, {
+        candidatesDone: done,
+        candidatesFailed: failed,
+        status: "awaiting_selection",
+        currentStep: "Choose your preferred draft",
+        progressLog: [
+          ...progressLog,
+          `All ${done} candidate(s) ready — choose your preferred draft.`,
+        ],
+      });
+    } else {
+      await ctx.db.patch(args.generationId, {
+        candidatesDone: done,
+        candidatesFailed: failed,
+        status: "failed",
+        currentStep: "Failed",
+        error: "All candidate models failed to generate.",
+        completedAt: Date.now(),
+        progressLog,
+      });
+      const project = await ctx.db.get(args.projectId);
+      if (project?.status === "generating") {
+        await ctx.db.patch(args.projectId, {
+          status: "draft",
+          updatedAt: Date.now(),
+        });
+      }
+    }
+  },
+});
+
+/**
+ * Ops utility: mark generations stranded in "running"/"pending" (e.g. by the
+ * pre-fanout 10-minute action death) as failed and free their projects.
+ * `npx convex run generations:failStaleGenerations '{"olderThanMinutes":30}'`
+ */
+export const failStaleGenerations = internalMutation({
+  args: { olderThanMinutes: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const cutoff = Date.now() - (args.olderThanMinutes ?? 30) * 60 * 1000;
+    const stale = (
+      await ctx.db.query("generations").order("desc").take(100)
+    ).filter(
+      (g) =>
+        g.status === "running" && (g.startedAt ?? g._creationTime) < cutoff
+    );
+    for (const g of stale) {
+      await ctx.db.patch(g._id, {
+        status: "failed",
+        currentStep: "Failed",
+        error: "Timed out (stranded run cleaned up by failStaleGenerations).",
+        completedAt: Date.now(),
+      });
+      const project = await ctx.db.get(g.projectId);
+      if (project?.status === "generating") {
+        await ctx.db.patch(g.projectId, {
+          status: "draft",
+          updatedAt: Date.now(),
+        });
+      }
+    }
+    return { failed: stale.length };
+  },
+});
+
 /** Append a line to the live "thinking" log shown during generation. */
 export const appendProgress = internalMutation({
   args: { generationId: v.id("generations"), line: v.string() },
@@ -116,6 +219,15 @@ export const getProjectTitle = internalQuery({
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.projectId);
     return project?.title ?? null;
+  },
+});
+
+// BNH-10: industry drives which Brain namespace report generation retrieves from.
+export const getProjectIndustry = internalQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.projectId);
+    return project?.industry ?? null;
   },
 });
 

@@ -26,6 +26,9 @@ export default defineSchema({
     // BNH-36: client's fiscal year-end (timestamp) — drives company → fiscal-year
     // grouping on the dashboard. "Fiscal 2025" = the year of this date.
     fiscalYearEnd: v.optional(v.number()),
+    // BNH-10: industry routes Brain retrieval to the matching namespace
+    // ("use the software brain for software reports"). Optional until backfilled.
+    industry: v.optional(v.string()),
     status: v.union(
       v.literal("draft"),
       v.literal("generating"),
@@ -137,6 +140,7 @@ export default defineSchema({
     estimatedMs: v.optional(v.number()),
     totalCandidates: v.optional(v.number()),
     candidatesDone: v.optional(v.number()),
+    candidatesFailed: v.optional(v.number()),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),
@@ -179,6 +183,46 @@ export default defineSchema({
   })
     .index("by_projectId", ["projectId"])
     .index("by_reportId", ["reportId"]),
+
+  // ─── Agent-based chat (BNH-10 P2 — @convex-dev/agent parallel-run) ─────────
+  // The agent component owns its own thread/message/stream tables; these map a
+  // report to its component thread and hold the app-side state the component
+  // can't: proposed report edits and their applied/rejected lifecycle.
+  agentChatThreads: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    agentThreadId: v.string(), // component thread id
+    title: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_reportId", ["reportId"])
+    .index("by_agentThreadId", ["agentThreadId"]),
+
+  // One row per tool call the assistant makes (proposeEdit / proposeReplacements
+  // / highlightPassages). Same lifecycle semantics as chatMessages.proposedEdit.
+  chatProposals: defineTable({
+    agentThreadId: v.string(),
+    messageId: v.optional(v.string()), // component message id of the tool call
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    kind: v.union(
+      v.literal("edit"), // single passage: targetText → newText
+      v.literal("replacements"), // multi-instance find/replace list
+      v.literal("references") // locate/highlight only — no state machine
+    ),
+    targetText: v.optional(v.string()),
+    newText: v.optional(v.string()),
+    replacements: v.optional(
+      v.array(v.object({ find: v.string(), replaceWith: v.string() }))
+    ),
+    references: v.optional(v.array(v.string())),
+    state: v.union(
+      v.literal("pending"),
+      v.literal("applied"),
+      v.literal("rejected")
+    ),
+    createdAt: v.number(),
+  }).index("by_agentThreadId", ["agentThreadId"]),
 
   chatMessages: defineTable({
     threadId: v.id("chatThreads"),
@@ -332,4 +376,83 @@ export default defineSchema({
     .index("by_reportId", ["reportId"])
     .index("by_user_report", ["userId", "reportId"])
     .index("by_projectId", ["projectId"]),
+
+  // ─── BNH-10: The Brain — curated, governed cross-project knowledge ──────────
+  // The RAG component holds the vectors; THESE tables are the source of truth
+  // for governance. The Brain index only ever contains APPROVED knowledge:
+  // approve → ingest (embedSource), revoke → deleteByKey. Nothing is ever
+  // auto-applied — the admin gatekeeps every entry ("treat the brain sacred").
+  brainSources: defineTable({
+    kind: v.union(
+      v.literal("pd_pair"), // a gold transcript→PD pair (the training corpus)
+      v.literal("cra_letter"), // CRA audit response (negative-signal source, BNH-18)
+      v.literal("writer_feedback") // promoted writer feedback / global rule (BNH-3/29)
+    ),
+    status: v.union(
+      v.literal("pending"), // in the queue, NOT yet in the Brain
+      v.literal("approved"), // ingested & retrievable
+      v.literal("revoked") // unlearned — deleted from the RAG
+    ),
+    title: v.string(),
+    industry: v.string(), // → RAG namespace
+    writerName: v.optional(v.string()),
+    writerTier: v.number(), // 0..1 → RAG `importance` (Tracy 1.0 / next tier ~0.7 / other ~0.4)
+    docType: v.string(), // "pd" | "transcript" | "cra_letter"
+    fiscalYear: v.optional(v.number()),
+    craOutcome: v.optional(
+      v.union(v.literal("approved"), v.literal("rejected"), v.literal("disputed"))
+    ),
+    content: v.string(), // extracted text (the retrievable knowledge)
+    ragKey: v.string(), // stable key for replace/unlearn
+    ragEntryId: v.optional(v.string()), // set by ingestOnComplete (provenance)
+    sourceHash: v.string(), // dedup (BNH-17)
+    storageId: v.optional(v.id("_storage")), // original bytes, if any
+    sourceProjectId: v.optional(v.id("projects")), // if promoted from a live project
+    createdBy: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_status", ["status"])
+    .index("by_hash", ["sourceHash"])
+    .index("by_ragKey", ["ragKey"])
+    .index("by_industry", ["industry"]),
+
+  // BNH-39: writer → admin conduit. Writers flag feedback; the admin gatekeeps
+  // what actually reaches the Brain. Never auto-applied.
+  brainFeedbackQueue: defineTable({
+    fromUserId: v.string(),
+    fromName: v.optional(v.string()),
+    reportId: v.optional(v.id("reports")),
+    projectId: v.optional(v.id("projects")),
+    body: v.string(),
+    suggestedRule: v.optional(v.string()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("rejected")
+    ),
+    reviewedBy: v.optional(v.string()),
+    reviewNote: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_status", ["status"]),
+
+  // BNH-39: full audit trail + revert log. Every approve/revoke/reweight/unlearn
+  // is recorded so the admin can see (and undo) what changed the Brain.
+  brainAuditLog: defineTable({
+    action: v.union(
+      v.literal("ingest"),
+      v.literal("approve"),
+      v.literal("reject"),
+      v.literal("revoke"),
+      v.literal("reweight"),
+      v.literal("revert")
+    ),
+    sourceId: v.optional(v.id("brainSources")),
+    feedbackId: v.optional(v.id("brainFeedbackQueue")),
+    actorId: v.string(),
+    reason: v.optional(v.string()),
+    revertOf: v.optional(v.id("brainAuditLog")),
+    at: v.number(),
+  })
+    .index("by_source", ["sourceId"])
+    .index("by_at", ["at"]),
 });

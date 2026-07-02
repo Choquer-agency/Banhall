@@ -1,0 +1,23 @@
+[
+  {
+    "title": "ACME Robotics — FY2024 PD (approved)",
+    "industry": "manufacturing",
+    "writerName": "Tracy",
+    "writerTier": 1.0,
+    "docType": "pd",
+    "kind": "pd_pair",
+    "fiscalYear": 2024,
+    "craOutcome": "approved",
+    "approve": true,
+    "content": "Paste the full extracted PD text here — Section 242 (technological uncertainties), 244 (work performed), 246 (advancements). Plain text, no markup."
+  },
+  {
+    "title": "Example Corp — FY2023 PD",
+    "industry": "software",
+    "writerName": "Jordan",
+    "writerTier": 0.7,
+    "docType": "pd",
+    "approve": true,
+    "content": "Second example. writerTier: Tracy 1.0, strong writer 0.7, other 0.4. industry becomes the retrieval namespace — keep the vocabulary consistent with projects.industry values."
+  }
+]

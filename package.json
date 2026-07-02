@@ -9,9 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.92",
     "@anthropic-ai/sdk": "^0.82.0",
     "@auth/core": "^0.37.4",
+    "@convex-dev/agent": "^0.6.4",
     "@convex-dev/auth": "^0.0.91",
+    "@convex-dev/rag": "^0.7.5",
+    "@convex-dev/workpool": "^0.4.7",
     "@gsap/react": "^2.1.2",
     "@kenjiuno/msgreader": "^1.28.0",
     "@tiptap/extension-character-count": "^3.22.2",
@@ -24,7 +28,9 @@
     "@tiptap/pm": "^3.22.2",
     "@tiptap/react": "^3.22.2",
     "@tiptap/starter-kit": "^3.22.2",
-    "convex": "^1.34.1",
+    "ai": "^6.0.218",
+    "convex": "^1.42.1",
+    "convex-helpers": "^0.1.120",
     "docx": "^9.6.1",
     "file-saver": "^2.0.5",
     "gsap": "^3.15.0",
@@ -36,7 +42,8 @@
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "tippy.js": "^6.3.7"
+    "tippy.js": "^6.3.7",
+    "voyage-ai-provider": "^4.0.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

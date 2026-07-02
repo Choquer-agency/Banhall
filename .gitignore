@@ -42,3 +42,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# The Brain seed data (real client PDs — never commit)
+data/brain-seed.json

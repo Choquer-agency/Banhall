@@ -9,7 +9,12 @@
  */
 
 import type * as ai_analyzerAgent from "../ai/analyzerAgent.js";
+import type * as ai_brain_embeddings from "../ai/brain/embeddings.js";
+import type * as ai_brain_ingest from "../ai/brain/ingest.js";
+import type * as ai_brain_rag from "../ai/brain/rag.js";
+import type * as ai_brain_retrieve from "../ai/brain/retrieve.js";
 import type * as ai_chatAgent from "../ai/chatAgent.js";
+import type * as ai_chatAgentV2 from "../ai/chatAgentV2.js";
 import type * as ai_chronologyAgent from "../ai/chronologyAgent.js";
 import type * as ai_financialAgent from "../ai/financialAgent.js";
 import type * as ai_model from "../ai/model.js";
@@ -22,7 +27,9 @@ import type * as ai_section244Agent from "../ai/section244Agent.js";
 import type * as ai_section246Agent from "../ai/section246Agent.js";
 import type * as ai_structured from "../ai/structured.js";
 import type * as auth from "../auth.js";
+import type * as brain from "../brain.js";
 import type * as chat from "../chat.js";
+import type * as chatV2 from "../chatV2.js";
 import type * as comments from "../comments.js";
 import type * as documents from "../documents.js";
 import type * as errorReports from "../errorReports.js";
@@ -30,6 +37,7 @@ import type * as financial from "../financial.js";
 import type * as generations from "../generations.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_reportEdits from "../lib/reportEdits.js";
 import type * as lib_snapshots from "../lib/snapshots.js";
 import type * as projects from "../projects.js";
 import type * as reportViews from "../reportViews.js";
@@ -48,7 +56,12 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   "ai/analyzerAgent": typeof ai_analyzerAgent;
+  "ai/brain/embeddings": typeof ai_brain_embeddings;
+  "ai/brain/ingest": typeof ai_brain_ingest;
+  "ai/brain/rag": typeof ai_brain_rag;
+  "ai/brain/retrieve": typeof ai_brain_retrieve;
   "ai/chatAgent": typeof ai_chatAgent;
+  "ai/chatAgentV2": typeof ai_chatAgentV2;
   "ai/chronologyAgent": typeof ai_chronologyAgent;
   "ai/financialAgent": typeof ai_financialAgent;
   "ai/model": typeof ai_model;
@@ -61,7 +74,9 @@ declare const fullApi: ApiFromModules<{
   "ai/section246Agent": typeof ai_section246Agent;
   "ai/structured": typeof ai_structured;
   auth: typeof auth;
+  brain: typeof brain;
   chat: typeof chat;
+  chatV2: typeof chatV2;
   comments: typeof comments;
   documents: typeof documents;
   errorReports: typeof errorReports;
@@ -69,6 +84,7 @@ declare const fullApi: ApiFromModules<{
   generations: typeof generations;
   http: typeof http;
   "lib/auth": typeof lib_auth;
+  "lib/reportEdits": typeof lib_reportEdits;
   "lib/snapshots": typeof lib_snapshots;
   projects: typeof projects;
   reportViews: typeof reportViews;
@@ -106,4 +122,8 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  rag: import("@convex-dev/rag/_generated/component.js").ComponentApi<"rag">;
+  agent: import("@convex-dev/agent/_generated/component.js").ComponentApi<"agent">;
+  embedPool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"embedPool">;
+};

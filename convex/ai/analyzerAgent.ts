@@ -78,12 +78,15 @@ export async function runAnalyzerAgent(
   client: Anthropic,
   transcript: string,
   contextDocs: ContextDoc[] = [],
-  model?: string
+  model?: string,
+  // BNH-10: gold-standard reference passages retrieved from The Brain (already
+  // formatted). Reference patterns only — the prompt forbids copying their facts.
+  brainExemplars: string = ""
 ): Promise<TranscriptAnalysis> {
   const contextBlock = buildContextBlock(contextDocs);
   return await generateStructured<TranscriptAnalysis>(client, {
     system: ANALYZER_SYSTEM_PROMPT,
-    user: `Here is the interview transcript to analyze:\n\n${transcript}${contextBlock}`,
+    user: `Here is the interview transcript to analyze:\n\n${transcript}${contextBlock}${brainExemplars}`,
     toolName: "submit_transcript_analysis",
     description:
       "Submit the structured analysis of the SR&ED interview transcript.",

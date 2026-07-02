@@ -43,6 +43,30 @@ export const updateProjectTitles = mutation({
 });
 
 /** BNH-36: set/clear the client's fiscal year-end on an existing project. */
+/**
+ * BNH-10: industry scopes Brain retrieval to same-industry exemplars. Optional —
+ * without it the Brain still retrieves best PDs across all industries. Values
+ * must match the Brain's industry strings (see docs/the-brain.md).
+ */
+export const updateProjectIndustry = mutation({
+  args: {
+    projectId: v.id("projects"),
+    industry: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.createdBy !== userId) {
+      throw new Error("Not authorized");
+    }
+    await ctx.db.patch(args.projectId, {
+      industry: args.industry,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
 export const updateProjectFiscalYear = mutation({
   args: {
     projectId: v.id("projects"),
