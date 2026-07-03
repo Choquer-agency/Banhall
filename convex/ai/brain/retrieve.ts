@@ -10,7 +10,13 @@ export type BrainExemplar = {
   entryId: string;
   title?: string;
   writerName?: string;
+  writerTier?: number;
 };
+
+/** Rerank scores below this are noise — better zero exemplars than wrong ones. */
+const RELEVANCE_FLOOR = 0.35;
+/** Max chunks from a single source PD in the final set (diversity, SIGIR-style MMR-lite). */
+const PER_ENTRY_CAP = 2;
 
 /**
  * Retrieve top-k approved exemplar passages from The Brain (BNH-10). Returns []
@@ -59,10 +65,13 @@ export async function searchBrainExemplars(
         entryId: r.entryId as unknown as string,
         title: entry?.title ?? undefined,
         writerName: meta?.writerName,
+        writerTier: meta?.writerTier,
       };
     });
 
-    // P2 quality layer: cross-encoder rerank of the wide hybrid-search net.
+    // P2 quality layer: rerank a wide slate (not just top-k), then apply a
+    // relevance floor, blend the writer tier back in (rerank is tier-blind),
+    // cap chunks per source PD for diversity, and take the top k.
     // Falls back to first-stage order — reranking must never break retrieval.
     if (candidates.length > k) {
       try {
@@ -70,18 +79,34 @@ export async function searchBrainExemplars(
           model: brainRerankModel,
           query: args.query,
           documents: candidates.map((c) => c.text),
-          topN: k,
+          topN: Math.min(12, candidates.length),
+          maxRetries: 1,
         });
-        return ranking.map((r) => ({
-          ...candidates[r.originalIndex],
-          score: r.score,
-        }));
-      } catch {
-        // fall through to vector-order top-k
+        const floored = ranking.filter((r) => r.score >= RELEVANCE_FLOOR);
+        const blended = floored
+          .map((r) => ({
+            ...candidates[r.originalIndex],
+            // Writer quality re-enters after reranking: score × (0.6 + 0.4·tier)
+            score: r.score * (0.6 + 0.4 * (candidates[r.originalIndex].writerTier ?? 0.4)),
+          }))
+          .sort((a, b) => b.score - a.score);
+        const perEntry = new Map<string, number>();
+        const picked: BrainExemplar[] = [];
+        for (const c of blended) {
+          const n = perEntry.get(c.entryId) ?? 0;
+          if (n >= PER_ENTRY_CAP) continue;
+          perEntry.set(c.entryId, n + 1);
+          picked.push(c);
+          if (picked.length >= k) break;
+        }
+        return picked; // may be < k, or [] — floor over filler
+      } catch (err) {
+        console.error("brain rerank failed; falling back to vector order", err);
       }
     }
     return candidates.slice(0, k);
-  } catch {
+  } catch (err) {
+    console.error("brain search failed; returning no exemplars", err);
     return [];
   }
 }

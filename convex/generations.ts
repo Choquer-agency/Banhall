@@ -194,6 +194,24 @@ export const failStaleGenerations = internalMutation({
   },
 });
 
+/** BNH-10 flywheel: record which Brain exemplars fed this generation. */
+export const setBrainProvenance = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    exemplars: v.array(
+      v.object({
+        entryId: v.string(),
+        score: v.number(),
+        title: v.optional(v.string()),
+        writerName: v.optional(v.string()),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.generationId, { brainProvenance: args.exemplars });
+  },
+});
+
 /** Append a line to the live "thinking" log shown during generation. */
 export const appendProgress = internalMutation({
   args: { generationId: v.id("generations"), line: v.string() },

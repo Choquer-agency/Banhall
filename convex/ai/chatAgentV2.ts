@@ -116,17 +116,23 @@ const searchBrain = createTool({
       internal.chatV2.getThreadIndustry,
       { agentThreadId: ctx.threadId }
     );
-    const exemplars = await searchBrainExemplars(ctx, {
-      ...(industry ? { industry } : {}),
-      query: input.query,
-      k: 3,
-    });
-    if (exemplars.length === 0) {
-      return industry
-        ? `The Brain has no approved knowledge matching that in the "${industry}" industry yet.`
-        : "The Brain has no approved knowledge matching that yet.";
+    try {
+      const exemplars = await searchBrainExemplars(ctx, {
+        ...(industry ? { industry } : {}),
+        query: input.query,
+        k: 3,
+        docType: "pd",
+      });
+      if (exemplars.length === 0) {
+        return industry
+          ? `The Brain has no approved knowledge matching that in the "${industry}" industry yet.`
+          : "The Brain has no approved knowledge matching that yet.";
+      }
+      return formatBrainExemplars(exemplars);
+    } catch (err) {
+      console.error("searchBrain tool failed", err);
+      return "The Brain search hit a technical error just now — this is an infrastructure issue, not missing knowledge. Tell the writer to try again shortly.";
     }
-    return formatBrainExemplars(exemplars);
   },
 });
 

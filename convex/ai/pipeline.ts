@@ -284,14 +284,26 @@ export const generateReport = internalAction({
         );
         brainExemplars = formatBrainExemplars(exemplars);
         if (exemplars.length > 0) {
+          await ctx.runMutation(internal.generations.setBrainProvenance, {
+            generationId: genId,
+            exemplars: exemplars.map((e) => ({
+              entryId: e.entryId,
+              score: e.score,
+              title: e.title,
+              writerName: e.writerName,
+            })),
+          });
+        }
+        if (exemplars.length > 0) {
           await log(
             `Pulled ${exemplars.length} reference pattern(s) from The Brain${
               industry ? ` (${industry})` : " (all industries)"
             }.`
           );
         }
-      } catch {
-        // swallow — retrieval failures must not fail the report
+      } catch (err) {
+        // Never fail the report on Brain issues — but never hide them either.
+        console.error("brain retrieval failed for generation", genId, err);
       }
 
       // BNH-21: estimate generation time up front so the UI can show a

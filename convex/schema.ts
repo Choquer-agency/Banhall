@@ -141,6 +141,18 @@ export default defineSchema({
     totalCandidates: v.optional(v.number()),
     candidatesDone: v.optional(v.number()),
     candidatesFailed: v.optional(v.number()),
+    // BNH-10 flywheel: which Brain exemplars fed this generation (provenance
+    // for usefulness analytics; entryId FKs into the RAG component).
+    brainProvenance: v.optional(
+      v.array(
+        v.object({
+          entryId: v.string(),
+          score: v.number(),
+          title: v.optional(v.string()),
+          writerName: v.optional(v.string()),
+        })
+      )
+    ),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),
