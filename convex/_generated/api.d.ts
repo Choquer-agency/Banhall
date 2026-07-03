@@ -11,6 +11,7 @@
 import type * as ai_analyzerAgent from "../ai/analyzerAgent.js";
 import type * as ai_brain_embeddings from "../ai/brain/embeddings.js";
 import type * as ai_brain_ingest from "../ai/brain/ingest.js";
+import type * as ai_brain_query from "../ai/brain/query.js";
 import type * as ai_brain_rag from "../ai/brain/rag.js";
 import type * as ai_brain_retrieve from "../ai/brain/retrieve.js";
 import type * as ai_chatAgent from "../ai/chatAgent.js";
@@ -58,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   "ai/analyzerAgent": typeof ai_analyzerAgent;
   "ai/brain/embeddings": typeof ai_brain_embeddings;
   "ai/brain/ingest": typeof ai_brain_ingest;
+  "ai/brain/query": typeof ai_brain_query;
   "ai/brain/rag": typeof ai_brain_rag;
   "ai/brain/retrieve": typeof ai_brain_retrieve;
   "ai/chatAgent": typeof ai_chatAgent;

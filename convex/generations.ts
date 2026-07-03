@@ -194,7 +194,12 @@ export const failStaleGenerations = internalMutation({
   },
 });
 
-/** BNH-10 flywheel: record which Brain exemplars fed this generation. */
+/**
+ * BNH-10 flywheel: record which Brain exemplars fed this generation — per
+ * section, with raw first-stage/rerank scores and the sourceId behind each
+ * entry (usefulness analytics + revocation forensics), plus the Haiku
+ * retrieval brief that produced the queries (eval material).
+ */
 export const setBrainProvenance = internalMutation({
   args: {
     generationId: v.id("generations"),
@@ -204,11 +209,19 @@ export const setBrainProvenance = internalMutation({
         score: v.number(),
         title: v.optional(v.string()),
         writerName: v.optional(v.string()),
+        section: v.optional(v.string()),
+        sourceId: v.optional(v.string()),
+        searchScore: v.optional(v.number()),
+        rerankScore: v.optional(v.number()),
       })
     ),
+    brief: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.generationId, { brainProvenance: args.exemplars });
+    await ctx.db.patch(args.generationId, {
+      brainProvenance: args.exemplars,
+      brainRetrievalBrief: args.brief,
+    });
   },
 });
 
@@ -406,12 +419,25 @@ export const selectReportCandidate = mutation({
       .withIndex("by_projectId", (q) => q.eq("projectId", candidate.projectId))
       .order("desc")
       .first();
-    await ctx.db.insert("reports", {
+    const reportId = await ctx.db.insert("reports", {
       projectId: candidate.projectId,
       content: candidate.content,
       version: (latest?.version ?? 0) + 1,
       generatedAt: now,
       updatedAt: now,
+    });
+    // BNH-10 flywheel: freeze the untouched AI draft as a baseline snapshot.
+    // Writer edits mutate the report row in place, so without this the draft
+    // is unrecoverable — and post-edit distance (the "is the system actually
+    // improving" metric) has nothing to diff against.
+    await ctx.db.insert("reportSnapshots", {
+      projectId: candidate.projectId,
+      reportId,
+      content: candidate.content,
+      reason: "generated",
+      label: `AI draft (${candidate.label})`,
+      createdByRole: "system",
+      createdAt: now,
     });
     await ctx.db.patch(candidate.projectId, { status: "review", updatedAt: now });
 

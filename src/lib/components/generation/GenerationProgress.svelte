@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { useQuery } from "convex-svelte";
+  import { useQuery, useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
+  import Button from "$lib/components/ui/Button.svelte";
 
   /**
    * Live generation progress card (port of src/components/generation/GenerationProgress.tsx).
@@ -35,9 +36,16 @@
     return `About ${mins} minute${mins === 1 ? "" : "s"} remaining`;
   }
 
-  // Tick once per second to animate the bar + countdown. setTimeout(…, 0) is
-  // async (not a synchronous state write in the effect body) so it paints quickly.
+  const isRunning = $derived(generation?.status === "running");
+  const isFailed = $derived(generation?.status === "failed");
+  const isComplete = $derived(generation?.status === "completed");
+
+  // Tick once per second to animate the bar + countdown — but ONLY while the
+  // run is live. A failed/completed run must freeze, not keep creeping.
+  // setTimeout(…, 0) is async (not a synchronous state write in the effect
+  // body) so it paints quickly.
   $effect(() => {
+    if (!isRunning) return;
     const tick = () => {
       now = Date.now();
     };
@@ -49,6 +57,22 @@
     };
   });
 
+  // Retry re-schedules the pipeline with the same transcript; the new
+  // generation row immediately replaces this one via the live query.
+  const retryGenerate = useMutation(api.projects.scheduleGenerateReport);
+  let retrying = $state(false);
+  async function retry() {
+    if (!generation || retrying) return;
+    retrying = true;
+    try {
+      await retryGenerate({ projectId, transcriptId: generation.transcriptId });
+    } catch (e) {
+      console.error("Retry failed to schedule:", e);
+    } finally {
+      retrying = false;
+    }
+  }
+
   // Keep the (collapsed) terminal pinned to the newest line when open.
   $effect(() => {
     void log.length;
@@ -57,14 +81,20 @@
     }
   });
 
-  const isRunning = $derived(generation?.status === "running");
-  const isFailed = $derived(generation?.status === "failed");
-  const isComplete = $derived(generation?.status === "completed");
-
   const estimatedMs = $derived(generation?.estimatedMs ?? 0);
   const totalCandidates = $derived(generation?.totalCandidates ?? 0);
   const candidatesDone = $derived(generation?.candidatesDone ?? 0);
-  const elapsed = $derived(generation && now > 0 ? Math.max(0, now - generation.startedAt) : 0);
+  // Elapsed freezes at completedAt once the run ends — a failed bar must not
+  // keep growing as wall-clock time passes.
+  const elapsed = $derived(
+    generation
+      ? Math.max(
+          0,
+          (isRunning ? (now > 0 ? now : generation.startedAt) : (generation.completedAt ?? generation.startedAt)) -
+            generation.startedAt
+        )
+      : 0
+  );
   const remainingMs = $derived(Math.max(0, estimatedMs - elapsed));
 
   // Progress = the larger of elapsed-vs-estimate and completed-drafts, capped
@@ -130,7 +160,7 @@
     {/if}
 
     <!-- Low-emphasis activity log (kept, but no longer the focal point) -->
-    {#if isRunning || isComplete}
+    {#if isRunning || isComplete || isFailed}
       <button
         onclick={() => (showLog = !showLog)}
         class="mt-3 inline-flex items-center gap-1 text-xs text-gray-400 transition-colors hover:text-gray-600"
@@ -171,9 +201,19 @@
       </div>
     {/if}
 
-    {#if isFailed && generation.error}
-      <div class="mt-3 rounded-lg bg-red-50 px-3 py-2">
-        <p class="text-sm text-red-700">{generation.error}</p>
+    {#if isFailed}
+      <div class="mt-3 rounded-lg bg-red-50 px-3 py-2.5">
+        <p class="text-sm text-red-700">
+          {generation.error ?? "The run stopped before any draft finished."}
+        </p>
+      </div>
+      <div class="mt-3 flex items-center gap-3">
+        <Button onclick={retry} disabled={retrying}>
+          {retrying ? "Restarting…" : "Try again"}
+        </Button>
+        <span class="text-xs text-gray-400">
+          Reruns all drafts from the same transcript.
+        </span>
       </div>
     {/if}
   </div>

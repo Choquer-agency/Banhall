@@ -142,7 +142,10 @@ export default defineSchema({
     candidatesDone: v.optional(v.number()),
     candidatesFailed: v.optional(v.number()),
     // BNH-10 flywheel: which Brain exemplars fed this generation (provenance
-    // for usefulness analytics; entryId FKs into the RAG component).
+    // for usefulness analytics; entryId FKs into the RAG component, sourceId
+    // into brainSources). `section` says which consumer used it (analyzer/
+    // 242/244/246); searchScore/rerankScore keep the raw signals separate
+    // from the final blended score.
     brainProvenance: v.optional(
       v.array(
         v.object({
@@ -150,9 +153,16 @@ export default defineSchema({
           score: v.number(),
           title: v.optional(v.string()),
           writerName: v.optional(v.string()),
+          section: v.optional(v.string()),
+          sourceId: v.optional(v.string()),
+          searchScore: v.optional(v.number()),
+          rerankScore: v.optional(v.number()),
         })
       )
     ),
+    // The Haiku-extracted retrieval brief (JSON) behind the section queries —
+    // kept for retrieval-quality evals.
+    brainRetrievalBrief: v.optional(v.string()),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),
@@ -363,7 +373,10 @@ export default defineSchema({
       v.literal("pre_chat_edit"),
       v.literal("manual"),
       v.literal("periodic"),
-      v.literal("pre_restore")
+      v.literal("pre_restore"),
+      // Untouched AI draft frozen at candidate selection — the post-edit
+      // distance baseline (BNH-10 flywheel).
+      v.literal("generated")
     ),
     label: v.optional(v.string()),
     createdByRole: v.union(v.literal("writer"), v.literal("system")),

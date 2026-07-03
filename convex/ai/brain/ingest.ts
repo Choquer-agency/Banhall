@@ -52,8 +52,12 @@ async function contextualizeChunks(
         .join(" ")
         .trim();
       out.push(ctx ? `${ctx}\n\n${chunk}` : chunk);
-    } catch {
-      out.push(chunk); // never fail ingestion on a contextualization hiccup
+    } catch (err) {
+      // Never fail ingestion on a contextualization hiccup — but log it: a
+      // silent run of raw chunks would quietly lose the contextual-retrieval
+      // quality gain with nothing in the dashboard to show why.
+      console.warn("brain chunk contextualization failed; using raw chunk", err);
+      out.push(chunk);
     }
   }
   return out;

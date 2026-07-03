@@ -117,12 +117,18 @@ const searchBrain = createTool({
       { agentThreadId: ctx.threadId }
     );
     try {
-      const exemplars = await searchBrainExemplars(ctx, {
+      const { exemplars, degraded } = await searchBrainExemplars(ctx, {
         ...(industry ? { industry } : {}),
         query: input.query,
         k: 3,
         docType: "pd",
       });
+      // `degraded` = the search infrastructure failed (searchBrainExemplars
+      // never throws) — saying "no knowledge" during a Voyage outage would
+      // be a lie the writer can't distinguish from an empty corpus.
+      if (degraded) {
+        return "The Brain search hit a technical error just now — this is an infrastructure issue, not missing knowledge. Tell the writer to try again shortly.";
+      }
       if (exemplars.length === 0) {
         return industry
           ? `The Brain has no approved knowledge matching that in the "${industry}" industry yet.`

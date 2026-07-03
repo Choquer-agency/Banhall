@@ -4,6 +4,7 @@
   import { useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
   import { PUBLIC_AGENT_CHAT } from "$env/static/public";
+  import { scale } from "svelte/transition";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import Badge from "$lib/components/ui/Badge.svelte";
@@ -204,18 +205,19 @@
   }
 
   function handleAskAI(selection: { from: number; to: number; text: string }) {
-    chatOpen = true; // make sure the rail is visible before the pill lands
+    chatOpen = true; // make sure the panel is visible before the pill lands
     pendingChatHighlight = selection;
   }
 
   // BNH-14: resizable, closable chat rail. Width + open state persist across
   // sessions (localStorage). Drag clamps keep both panes usable: chat never
-  // narrower than 24% nor wider than 55% of the workspace.
+  // narrower than 24% nor wider than 55% of the workspace. (2026-07-03: the
+  // rail stays right-docked and resizable; only open/close changed — the
+  // panel now pops up from the bottom instead of sliding in from the side.)
   const CHAT_MIN = 0.24;
   const CHAT_MAX = 0.55;
   let chatRatio = $state(0.42);
   let chatOpen = $state(true);
-  const chatFull = false;
   let workspaceEl: HTMLDivElement | null = $state(null);
   let dragging = $state(false);
 
@@ -257,6 +259,7 @@
     document.body.style.userSelect = "none";
     document.body.style.cursor = "col-resize";
   }
+
 
   // Build comment ranges for editor highlights (only unresolved comments)
   const commentRanges: CommentRange[] = $derived(
@@ -344,6 +347,12 @@
   const awaitingSelection = $derived(generation?.status === "awaiting_selection");
 </script>
 
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key === "Escape" && chatOpen && !replaceSession) chatOpen = false;
+  }}
+/>
+
 {#if auth.isLoading || !auth.isAuthenticated || project === undefined}
   <div class="flex flex-1 items-center justify-center bg-canvas">
     <Spinner />
@@ -427,8 +436,7 @@
     <!-- Editor workspace + chat rail (single view, resizable — BNH-14) -->
     {#if !awaitingSelection && report}
       <div bind:this={workspaceEl} class="mx-auto flex min-h-0 w-full max-w-7xl flex-1 overflow-hidden">
-        {#if !chatFull}
-          <div class="min-h-0 flex-1 overflow-y-auto">
+        <div class="min-h-0 flex-1 overflow-y-auto">
             <div class="mx-auto max-w-[920px] px-10 py-10">
               <!-- Project info header -->
               <div class="mb-8 pb-6 border-b border-gray-200">
@@ -532,10 +540,9 @@
               </div>
             </div>
           </div>
-        {/if}
 
         <!-- Draggable divider -->
-        {#if !chatFull && report && user && chatOpen}
+        {#if report && user && chatOpen}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             onmousedown={startDrag}
@@ -546,23 +553,31 @@
           </div>
         {/if}
 
-        <!-- Chat rail — resizable / full-screen -->
+        <!-- Chat rail — right-docked + resizable. Open/close is a bottom-up
+             pop (reference: 21st.dev glowing assistant): the panel rises from
+             the bottom with a slight overshoot and sinks away on close. The
+             panel stays mounted so chat state survives close/reopen. -->
         {#if report && user}
           <aside
             class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${chatOpen ? "pl-1 pr-6" : ""} ${dragging ? "" : "transition-[width] duration-300 ease-out"}`}
-            style={`width: ${!chatOpen ? "0%" : chatFull ? "100%" : `${chatRatio * 100}%`}`}
+            style={`width: ${chatOpen ? `${chatRatio * 100}%` : "0%"}`}
           >
-            <button
-              onclick={() => (chatOpen = false)}
-              title="Close assistant"
-              aria-label="Close assistant"
-              class="absolute right-8 top-8 z-10 flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-navy"
+            <div
+              class={`chat-rise relative flex h-full origin-bottom flex-col overflow-hidden rounded-2xl border border-chrome bg-white ${chatOpen ? "" : "is-closed"}`}
+              role="dialog"
+              aria-label="AI assistant"
+              inert={!chatOpen}
             >
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            <div class="flex h-full flex-col overflow-hidden rounded-2xl border border-chrome bg-white shadow-sm">
+              <button
+                onclick={() => (chatOpen = false)}
+                title="Close assistant (Esc)"
+                aria-label="Close assistant"
+                class="absolute right-3 top-3 z-10 flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-navy"
+              >
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
               {#if AGENT_CHAT}
                 <AgentChatPanel
                   {projectId}
@@ -588,12 +603,14 @@
           </aside>
         {/if}
 
-        <!-- Reopen pill when the assistant is closed -->
+        <!-- Launcher pill when the assistant is closed -->
         {#if report && user && !chatOpen}
           <button
+            in:scale={{ duration: 200, start: 0.6, delay: 240 }}
+            out:scale={{ duration: 150, start: 0.6 }}
             onclick={() => (chatOpen = true)}
             title="Open assistant"
-            class="fixed bottom-6 right-6 z-[70] flex h-11 w-11 items-center justify-center rounded-full bg-navy text-white shadow-lg transition-transform hover:scale-105"
+            class="chat-pill-glow fixed bottom-6 right-6 z-[70] flex h-11 w-11 items-center justify-center rounded-full bg-navy text-white transition-transform hover:scale-105"
           >
             <ChatIcon class="h-4.5 w-4.5" />
           </button>
@@ -720,3 +737,53 @@
     {/if}
   </div>
 {/if}
+
+<style>
+  /* Bottom-up pop for the chat panel (reference: 21st.dev glowing assistant's
+     back-out curve). Open rises with a slight overshoot; close sinks away
+     faster with no bounce. The element stays mounted — only classes flip —
+     so chat state survives close/reopen. */
+  .chat-rise {
+    transition:
+      transform 380ms cubic-bezier(0.175, 0.885, 0.32, 1.275),
+      opacity 240ms ease-out;
+  }
+  .chat-rise.is-closed {
+    transform: translateY(28px) scale(0.96);
+    opacity: 0;
+    transition:
+      transform 200ms cubic-bezier(0.4, 0, 1, 1),
+      opacity 160ms ease-in;
+  }
+
+  /* The launcher breathes gently so it reads as "alive" without shouting. */
+  .chat-pill-glow {
+    box-shadow:
+      0 8px 12px -4px color-mix(in srgb, var(--color-navy) 18%, transparent),
+      0 0 16px -6px color-mix(in srgb, var(--color-primary) 30%, transparent);
+    animation: chat-pill-breathe 3.2s ease-in-out infinite;
+  }
+  @keyframes chat-pill-breathe {
+    0%,
+    100% {
+      box-shadow:
+        0 8px 12px -4px color-mix(in srgb, var(--color-navy) 18%, transparent),
+        0 0 16px -6px color-mix(in srgb, var(--color-primary) 30%, transparent);
+    }
+    50% {
+      box-shadow:
+        0 8px 12px -4px color-mix(in srgb, var(--color-navy) 18%, transparent),
+        0 0 24px -4px color-mix(in srgb, var(--color-primary) 42%, transparent);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chat-rise,
+    .chat-rise.is-closed {
+      transition: none;
+    }
+    .chat-pill-glow {
+      animation: none;
+    }
+  }
+</style>

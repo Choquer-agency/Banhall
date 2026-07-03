@@ -6,6 +6,7 @@ import { v } from "convex/values";
 import Anthropic from "@anthropic-ai/sdk";
 import { runAnalyzerAgent, type ContextDoc } from "./analyzerAgent";
 import { formatBrainExemplars } from "./brain/retrieve";
+import { buildRetrievalBrief } from "./brain/query";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
@@ -150,6 +151,25 @@ function buildTiptapDocument(
 }
 
 /**
+ * Per-consumer Brain exemplar prompt blocks — each drafter sees exemplars of
+ * ITS OWN section, not a shared blob (uncertainty framing is useless to the
+ * work-performed narrative). Empty string = no exemplars for that consumer.
+ */
+export type BrainExemplarBlocks = {
+  analyzer: string;
+  s242: string;
+  s244: string;
+  s246: string;
+};
+
+const EMPTY_BRAIN_BLOCKS: BrainExemplarBlocks = {
+  analyzer: "",
+  s242: "",
+  s244: "",
+  s246: "",
+};
+
+/**
  * Run the full pipeline once for a single model → a complete candidate report
  * (content + agentOutputs incl. QA + chronology). Used for BNH-15 A/B testing.
  */
@@ -159,19 +179,19 @@ async function runPipelineForModel(
   transcript: string,
   contextDocs: ContextDoc[],
   title: string,
-  brainExemplars: string
+  brainExemplars: BrainExemplarBlocks
 ): Promise<{ content: string; agentOutputs: string; qaScore: number | null }> {
   const analysis = await runAnalyzerAgent(
     anthropic,
     transcript,
     contextDocs,
     modelId,
-    brainExemplars
+    brainExemplars.analyzer
   );
   const [raw242, raw244, raw246] = await Promise.all([
-    runSection242Agent(anthropic, analysis, modelId, brainExemplars),
-    runSection244Agent(anthropic, analysis, modelId, brainExemplars),
-    runSection246Agent(anthropic, analysis, modelId, brainExemplars),
+    runSection242Agent(anthropic, analysis, modelId, brainExemplars.s242),
+    runSection244Agent(anthropic, analysis, modelId, brainExemplars.s244),
+    runSection246Agent(anthropic, analysis, modelId, brainExemplars.s246),
   ]);
   const section242 = scrubBannedWords(raw242);
   const section244 = scrubBannedWords(raw244);
@@ -267,43 +287,120 @@ export const generateReport = internalAction({
       // generation (shared across all candidate models). A good PD is a good
       // PD — retrieval runs with or without an industry; industry narrows it.
       // Wrapped so the Brain can NEVER break generation.
-      let brainExemplars = "";
+      //
+      // Retrieval is section-scoped: a cheap Haiku pre-pass distills the
+      // transcript into four report-register queries (raw transcripts retrieve
+      // on greetings and client names, not the rhetorical patterns drafters
+      // need), then each T661 section gets exemplars of ITSELF — uncertainty
+      // framing for 242, work narration for 244, advancement claims for 246.
+      // Searches run sequentially on purpose: Voyage rate limits bite when
+      // embed+rerank calls burst in parallel.
+      const brainBlocks: BrainExemplarBlocks = { ...EMPTY_BRAIN_BLOCKS };
       const industry = await ctx.runQuery(
         internal.generations.getProjectIndustry,
         { projectId: args.projectId }
       );
       try {
-        const exemplars = await ctx.runAction(
-          internal.ai.brain.retrieve.retrieveBrainContext,
+        const brief = await buildRetrievalBrief(anthropic, title, transcript);
+        const fallbackQuery = `${title}\n\n${transcript.slice(0, 2000)}`;
+        const retrievals: {
+          block: keyof BrainExemplarBlocks;
+          section: string;
+          query: string;
+          k: number;
+        }[] = [
           {
-            ...(industry ? { industry } : {}),
-            query: `${title}\n\n${transcript.slice(0, 2000)}`,
+            block: "analyzer",
+            section: "analyzer",
+            query: brief?.problem ?? fallbackQuery,
             k: 4,
-            docType: "pd",
-          }
-        );
-        brainExemplars = formatBrainExemplars(exemplars);
-        if (exemplars.length > 0) {
-          await ctx.runMutation(internal.generations.setBrainProvenance, {
-            generationId: genId,
-            exemplars: exemplars.map((e) => ({
+          },
+          {
+            block: "s242",
+            section: "242",
+            query: brief ? `${brief.uncertainty}\n\n${brief.problem}` : fallbackQuery,
+            k: 3,
+          },
+          {
+            block: "s244",
+            section: "244",
+            query: brief ? `${brief.work}\n\n${brief.problem}` : fallbackQuery,
+            k: 3,
+          },
+          {
+            block: "s246",
+            section: "246",
+            query: brief ? `${brief.advancement}\n\n${brief.problem}` : fallbackQuery,
+            k: 3,
+          },
+        ];
+
+        const provenance: {
+          section: string;
+          entryId: string;
+          sourceId?: string;
+          score: number;
+          searchScore?: number;
+          rerankScore?: number;
+          title?: string;
+          writerName?: string;
+        }[] = [];
+        let anyDegraded = false;
+        for (const r of retrievals) {
+          const outcome = await ctx.runAction(
+            internal.ai.brain.retrieve.retrieveBrainContext,
+            {
+              ...(industry ? { industry } : {}),
+              query: r.query,
+              k: r.k,
+              docType: "pd",
+            }
+          );
+          anyDegraded = anyDegraded || outcome.degraded;
+          brainBlocks[r.block] = formatBrainExemplars(outcome.exemplars);
+          for (const e of outcome.exemplars) {
+            provenance.push({
+              section: r.section,
               entryId: e.entryId,
+              sourceId: e.sourceId,
               score: e.score,
+              searchScore: e.searchScore,
+              rerankScore: e.rerankScore,
               title: e.title,
               writerName: e.writerName,
-            })),
-          });
+            });
+          }
         }
-        if (exemplars.length > 0) {
+
+        if (provenance.length > 0) {
+          await ctx.runMutation(internal.generations.setBrainProvenance, {
+            generationId: genId,
+            exemplars: provenance,
+            brief: brief ? JSON.stringify(brief) : undefined,
+          });
+          const perSection = ["242", "244", "246"]
+            .map((s) => `${s}: ${provenance.filter((p) => p.section === s).length}`)
+            .join(", ");
           await log(
-            `Pulled ${exemplars.length} reference pattern(s) from The Brain${
+            `Pulled ${provenance.length} reference pattern(s) from The Brain${
               industry ? ` (${industry})` : " (all industries)"
-            }.`
+            } — ${perSection}.`
+          );
+        } else if (anyDegraded) {
+          await log(
+            "The Brain was unreachable — drafting without reference patterns."
+          );
+        } else {
+          await log(
+            "No sufficiently similar past reports in The Brain — drafting without reference patterns."
           );
         }
       } catch (err) {
         // Never fail the report on Brain issues — but never hide them either.
         console.error("brain retrieval failed for generation", genId, err);
+        await log(
+          "The Brain was unreachable — drafting without reference patterns."
+        ).catch(() => {});
       }
 
       // BNH-21: estimate generation time up front so the UI can show a
@@ -346,7 +443,7 @@ export const generateReport = internalAction({
           model: m.id,
           label: m.label,
           title,
-          brainExemplars,
+          brainExemplars: brainBlocks,
         });
       }
     } catch (error) {
@@ -385,7 +482,12 @@ export const generateCandidate = internalAction({
     model: v.string(),
     label: v.string(),
     title: v.string(),
-    brainExemplars: v.string(),
+    brainExemplars: v.object({
+      analyzer: v.string(),
+      s242: v.string(),
+      s244: v.string(),
+      s246: v.string(),
+    }),
   },
   handler: async (ctx, args) => {
     const anthropic = new Anthropic();

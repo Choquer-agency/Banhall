@@ -6,11 +6,30 @@ import { brainRerankModel } from "./embeddings";
 
 export type BrainExemplar = {
   text: string;
+  /** Final ranking score (rerank × writer-tier blend when reranked, else vector/RRF). */
   score: number;
   entryId: string;
+  /** brainSources row behind this entry — flywheel joins + revocation forensics. */
+  sourceId?: string;
   title?: string;
   writerName?: string;
   writerTier?: number;
+  /** First-stage hybrid-search score, kept raw for provenance/eval. */
+  searchScore: number;
+  /** Raw cross-encoder score (pre tier-blend); absent when rerank was skipped/failed. */
+  rerankScore?: number;
+};
+
+export type BrainSearchOutcome = {
+  exemplars: BrainExemplar[];
+  /**
+   * True when the search infrastructure itself failed — empty-because-broken,
+   * not empty-because-no-match. Callers use this to report honestly (a chat
+   * "no knowledge yet" answer would be a lie during a Voyage outage) and to
+   * log degradation. A rerank failure is NOT degraded: vector-order fallback
+   * still returns valid exemplars.
+   */
+  degraded: boolean;
 };
 
 /** Rerank scores below this are noise — better zero exemplars than wrong ones. */
@@ -18,23 +37,35 @@ const RELEVANCE_FLOOR = 0.35;
 /** Max chunks from a single source PD in the final set (diversity, SIGIR-style MMR-lite). */
 const PER_ENTRY_CAP = 2;
 
+/** Greedy per-entry cap over an already-sorted list — one PD must not fill the set. */
+function pickDiverse(sorted: BrainExemplar[], k: number): BrainExemplar[] {
+  const perEntry = new Map<string, number>();
+  const picked: BrainExemplar[] = [];
+  for (const c of sorted) {
+    const n = perEntry.get(c.entryId) ?? 0;
+    if (n >= PER_ENTRY_CAP) continue;
+    perEntry.set(c.entryId, n + 1);
+    picked.push(c);
+    if (picked.length >= k) break;
+  }
+  return picked;
+}
+
 /**
- * Retrieve top-k approved exemplar passages from The Brain (BNH-10). Returns []
- * on any error so The Brain can NEVER break report generation.
+ * Retrieve top-k approved exemplar passages from The Brain (BNH-10). Never
+ * throws — infra failure returns `{ exemplars: [], degraded: true }` so The
+ * Brain can NEVER break report generation, while callers can still tell an
+ * outage apart from an honest no-match.
  *
  * A good PD is a good PD: everything lives in ONE namespace, so retrieval works
  * with NO industry set (best exemplars across all industries — structure, voice,
  * CRA phrasing transfer). Setting an industry is the perk, not the requirement:
  * it narrows retrieval to that industry via the composite filter.
- *
- * Writer quality is already folded into ranking via each entry's `importance`
- * (set at ingest from writerTier). A Cohere/Voyage cross-encoder rerank is the
- * Phase-2 quality upgrade.
  */
 export async function searchBrainExemplars(
   ctx: ActionCtx,
   args: { industry?: string; query: string; k?: number; docType?: string }
-): Promise<BrainExemplar[]> {
+): Promise<BrainSearchOutcome> {
   const k = args.k ?? 4;
   const filters: { name: "industryApproved" | "docType"; value: unknown }[] = [];
   if (args.industry) {
@@ -62,7 +93,9 @@ export async function searchBrainExemplars(
       return {
         text: r.content.map((c) => c.text).join("\n"),
         score: r.score,
+        searchScore: r.score,
         entryId: r.entryId as unknown as string,
+        sourceId: meta?.sourceId,
         title: entry?.title ?? undefined,
         writerName: meta?.writerName,
         writerTier: meta?.writerTier,
@@ -86,28 +119,21 @@ export async function searchBrainExemplars(
         const blended = floored
           .map((r) => ({
             ...candidates[r.originalIndex],
+            rerankScore: r.score,
             // Writer quality re-enters after reranking: score × (0.6 + 0.4·tier)
             score: r.score * (0.6 + 0.4 * (candidates[r.originalIndex].writerTier ?? 0.4)),
           }))
           .sort((a, b) => b.score - a.score);
-        const perEntry = new Map<string, number>();
-        const picked: BrainExemplar[] = [];
-        for (const c of blended) {
-          const n = perEntry.get(c.entryId) ?? 0;
-          if (n >= PER_ENTRY_CAP) continue;
-          perEntry.set(c.entryId, n + 1);
-          picked.push(c);
-          if (picked.length >= k) break;
-        }
-        return picked; // may be < k, or [] — floor over filler
+        // May return < k, or none — floor over filler.
+        return { exemplars: pickDiverse(blended, k), degraded: false };
       } catch (err) {
         console.error("brain rerank failed; falling back to vector order", err);
       }
     }
-    return candidates.slice(0, k);
+    return { exemplars: pickDiverse(candidates, k), degraded: false };
   } catch (err) {
     console.error("brain search failed; returning no exemplars", err);
-    return [];
+    return { exemplars: [], degraded: true };
   }
 }
 
@@ -118,7 +144,7 @@ export const retrieveBrainContext = internalAction({
     k: v.optional(v.number()),
     docType: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<BrainExemplar[]> => {
+  handler: async (ctx, args): Promise<BrainSearchOutcome> => {
     return await searchBrainExemplars(ctx, args);
   },
 });

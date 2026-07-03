@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.92",
+    "@ai-sdk/voyage": "^1.0.12",
     "@anthropic-ai/sdk": "^0.82.0",
     "@auth/core": "^0.37.4",
     "@convex-dev/agent": "^0.6.4",
@@ -47,8 +48,7 @@
     "svelte-streamdown": "^3.1.2",
     "svelte-tiptap": "^3.0.1",
     "tailwind-merge": "^3.6.0",
-    "tippy.js": "^6.3.7",
-    "voyage-ai-provider": "^4.0.0"
+    "tippy.js": "^6.3.7"
   },
   "devDependencies": {
     "@sveltejs/adapter-vercel": "^6.3.4",

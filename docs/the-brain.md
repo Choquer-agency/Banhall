@@ -6,10 +6,13 @@ generation and the chat assistant. Ticket: **BNH-10**. Last updated 2026-07-02.
 ## Architecture (one paragraph)
 
 `@convex-dev/rag` owns the vector index (Voyage `voyage-3-large`, 1024d, hybrid
-search). Our own reactive tables own **governance**: nothing is retrievable
-until an admin approves it, revoking unlearns it (deleted from the index), and
-every change lands in an audit log. Each entry's `importance` = the writer's
-tier, so stronger writers rank higher at equal relevance.
+search; provider: first-party `@ai-sdk/voyage`). Our own reactive tables own
+**governance**: nothing is retrievable until an admin approves it, revoking
+unlearns it (deleted from the index), and every change lands in an audit log.
+Each entry's `importance` = the writer's tier (shapes the wide first-stage
+net), and the tier is blended back in after reranking
+(`rerankScore × (0.6 + 0.4·tier)`), so stronger writers rank higher at equal
+relevance end-to-end.
 
 **A good PD is a good PD.** Everything lives in ONE namespace (`brain`), so the
 Brain helps every generation — no industry required. Setting an industry on a
@@ -88,15 +91,29 @@ Status dot on approved rows: ● = embedded & retrievable, ◌ = still embedding
 
 ## Where retrieval is wired
 
-- **Generation pipeline** (`convex/ai/pipeline.ts`): fetches project industry →
-  `retrieveBrainContext` → exemplars injected into the analyzer as
-  "reference patterns" (structure/voice only, facts forbidden). Fails safe:
-  Brain errors never break generation.
-- **Chat assistant** (agent chat, `NEXT_PUBLIC_AGENT_CHAT=1`): `searchBrain`
-  tool — only fires when the writer explicitly asks to reference past
-  projects/reports. Same reference-patterns framing.
-- Phase 2 remaining: exemplars into the 242/244/246 section drafters,
-  Contextual Retrieval on by default, rerank.
+- **Generation pipeline** (`convex/ai/pipeline.ts`): a cheap Haiku pre-pass
+  distills the transcript into a 4-part **retrieval brief** (problem /
+  uncertainty / work / advancement — `convex/ai/brain/query.ts`), then FOUR
+  section-scoped retrievals run sequentially (Voyage rate limits punish
+  bursts): analyzer gets problem-matched exemplars (k=4), and each of
+  242/244/246 gets exemplars of ITS OWN section (k=3). Falls back to the old
+  `title + transcript.slice(0,2000)` query if the brief fails. Fails safe:
+  Brain errors never break generation, but they DO log honestly — the
+  progress log distinguishes "no similar reports" from "Brain unreachable".
+- **Provenance (flywheel):** every generation stores which exemplars fed it —
+  `generations.brainProvenance` (per-section entryId/sourceId + raw
+  search/rerank scores + final blended score) and `brainRetrievalBrief` (the
+  Haiku brief JSON). This is the substrate for exemplar-usefulness analytics
+  and revocation forensics.
+- **Post-edit distance (flywheel north star):** selecting a candidate freezes
+  the untouched AI draft as a `reportSnapshots` row (`reason: "generated"`);
+  `reports.postEditDistance` diffs it against the current report (word-multiset
+  similarity + unchanged-paragraph ratio). Falling PED over time = the system
+  is actually improving; sustained >40–50% = fix prompts/retrieval.
+- **Chat assistant** (agent chat): `searchBrain` tool — only fires when the
+  writer explicitly asks to reference past projects/reports. Same
+  reference-patterns framing; reports infra failures honestly instead of
+  claiming "no knowledge".
 
 ## Verification snapshot (2026-07-02)
 
@@ -111,17 +128,31 @@ Status dot on approved rows: ● = embedded & retrievable, ◌ = still embedding
 
 ## Retrieval quality stack (P2, live since 2026-07-02)
 
-1. **Contextual Retrieval** (`BRAIN_CONTEXTUAL=1`): each chunk embedded with a
+1. **Section-scoped queries** from the Haiku retrieval brief — raw transcripts
+   retrieve on greetings/client names; report-register queries retrieve the
+   rhetorical patterns drafters actually need (Skill-KNN/STORM finding).
+2. **Contextual Retrieval** (`BRAIN_CONTEXTUAL=1`): each chunk embedded with a
    Haiku-generated blurb situating it in its parent PD (cached-prefix, ~nil
    cost; cuts retrieval failures ~35–49%).
-2. **Hybrid search** casts a 30-chunk net (vector + text, writer-weighted).
-3. **Voyage `rerank-2.5` cross-encoder** re-scores query↔chunk pairs, keeps the
-   true top-k. Any rerank error falls back to vector order.
-4. Exemplars reach the **analyzer AND the 242/244/246 section drafters** as
-   reference patterns (structure/voice/CRA phrasing only — facts forbidden).
+3. **Hybrid search** casts a 30-chunk net (vector + text, writer-weighted).
+4. **Voyage `rerank-2.5` cross-encoder** re-scores a 12-wide slate
+   (`maxRetries: 1`; any rerank error falls back to vector order), then:
+   **relevance floor** 0.35 (zero exemplars beats misleading ones), **writer
+   tier blended back in** (`score × (0.6 + 0.4·tier)` — rerank alone is
+   tier-blind), **≤2 chunks per source PD** (diversity; applies on the
+   fallback path too).
+5. Exemplars reach the **analyzer AND the 242/244/246 section drafters** as
+   reference patterns (structure/voice/CRA phrasing only — facts forbidden),
+   each consumer getting exemplars matched to its section.
 
 Still open in P2: Citations API in the drafters (deep output-shape change,
-deferred to its own pass).
+deferred to its own pass — bump `@anthropic-ai/sdk` first).
+
+**⚠ Voyage billing:** the Voyage org has NO payment method on file → hard
+limit of 3 requests/min + 10K tokens/min. That caused the seed-day 429s and
+throttles rerank today. Add a payment method before any bulk import (BNH-17)
+or the 4-retrievals-per-generation flow will regularly fall back to
+vector-order.
 
 ## Generation fan-out (fixed 2026-07-02, found during Brain e2e)
 
