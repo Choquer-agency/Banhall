@@ -31,12 +31,22 @@
     const s = sentinel;
     const b = barEl;
     if (!s || !b) return;
-    const measure = () => {
+    // Two ways a page scrolls under the bar:
+    //  1. normal pages — the document scrolls, the sticky bar separates from
+    //     its in-flow sentinel (gap = scrolled distance);
+    //  2. workspace pages (h-screen) — an inner pane scrolls while the bar
+    //     stays put, so we read the scrolling element itself (capture-phase
+    //     listener hands it to us as e.target).
+    let paneTop = 0;
+    const measure = (e?: Event) => {
+      const t = e?.target;
+      if (t instanceof Element && t !== document.documentElement) {
+        paneTop = t.scrollTop;
+      }
       const gap =
         b.getBoundingClientRect().top - s.getBoundingClientRect().top;
-      // 28px of scroll before the surface turns solid (ScrollTrigger
-      // `top+=28 top` feel).
-      scrolled = gap > 28;
+      // 28px before the surface turns solid (ScrollTrigger `top+=28` feel).
+      scrolled = gap > 28 || paneTop > 28;
     };
     document.addEventListener("scroll", measure, { capture: true, passive: true });
     window.addEventListener("resize", measure, { passive: true });

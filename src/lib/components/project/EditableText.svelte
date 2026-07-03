@@ -53,7 +53,7 @@
     </button>
   </div>
 {:else}
-  <p class="group mt-1 inline-flex items-center gap-1.5 text-gray-800">
+  <p class="group mt-1 flex w-fit items-center gap-1.5 text-gray-800">
     {#if value}
       {value}
     {:else}

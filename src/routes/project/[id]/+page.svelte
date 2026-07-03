@@ -11,6 +11,7 @@
   import IconAction from "$lib/components/ui/IconAction.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import AppNav from "$lib/components/ui/AppNav.svelte";
+  import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import GenerationProgress from "$lib/components/generation/GenerationProgress.svelte";
   import CandidateSelection from "$lib/components/generation/CandidateSelection.svelte";
@@ -206,20 +207,25 @@
     pendingChatHighlight = selection;
   }
 
-  // BNH-14: resizable chat panel (default 50/50). Full-screen toggle is hidden
-  // for now — keep `chatFull` as a dormant flag so it's easy to re-enable.
-  let chatRatio = $state(0.5);
+  // BNH-14: resizable, closable chat rail. Width + open state persist across
+  // sessions (localStorage). Drag clamps keep both panes usable: chat never
+  // narrower than 24% nor wider than 55% of the workspace.
+  const CHAT_MIN = 0.24;
+  const CHAT_MAX = 0.55;
+  let chatRatio = $state(0.42);
+  let chatOpen = $state(true);
   const chatFull = false;
   let workspaceEl: HTMLDivElement | null = $state(null);
   let dragging = false;
 
   $effect(() => {
-    const r = sessionStorage.getItem("banhall_chat_ratio");
-    if (r) chatRatio = Math.min(0.8, Math.max(0.25, parseFloat(r)));
-    sessionStorage.removeItem("banhall_chat_full");
+    const r = localStorage.getItem("banhall_chat_ratio");
+    if (r) chatRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, parseFloat(r)));
+    chatOpen = localStorage.getItem("banhall_chat_open") !== "0";
   });
   $effect(() => {
-    sessionStorage.setItem("banhall_chat_ratio", String(chatRatio));
+    localStorage.setItem("banhall_chat_ratio", String(chatRatio));
+    localStorage.setItem("banhall_chat_open", chatOpen ? "1" : "0");
   });
 
   $effect(() => {
@@ -227,7 +233,7 @@
       if (!dragging || !workspaceEl) return;
       const rect = workspaceEl.getBoundingClientRect();
       const ratio = (rect.right - e.clientX) / rect.width;
-      chatRatio = Math.min(0.8, Math.max(0.25, ratio));
+      chatRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, ratio));
     }
     function onUp() {
       if (dragging) {
@@ -422,13 +428,13 @@
       <div bind:this={workspaceEl} class="mx-auto flex min-h-0 w-full max-w-7xl flex-1 overflow-hidden">
         {#if !chatFull}
           <div class="min-h-0 flex-1 overflow-y-auto">
-            <div class="mx-auto max-w-[760px] px-10 py-10">
+            <div class="mx-auto max-w-[920px] px-10 py-10">
               <!-- Project info header -->
               <div class="mb-8 pb-6 border-b border-gray-200">
                 <h1 class="text-display">{project.title}</h1>
                 <div class="mt-5 grid grid-cols-2 gap-x-10 gap-y-4 text-sm">
                   <div>
-                    <span class="text-label">Internal title</span>
+                    <span class="text-label block">Internal title</span>
                     <EditableText
                       value={project.title}
                       placeholder="Set internal title"
@@ -438,7 +444,7 @@
                     />
                   </div>
                   <div>
-                    <span class="text-label">SR&amp;ED title</span>
+                    <span class="text-label block">SR&amp;ED title</span>
                     <EditableText
                       value={project.sredTitle ?? ""}
                       placeholder="Add the formal SR&ED title (finalize at the end)"
@@ -448,32 +454,32 @@
                     />
                   </div>
                   <div>
-                    <span class="text-label">Client</span>
+                    <span class="text-label block">Client</span>
                     <p class="mt-1 text-gray-800">{project.clientName}</p>
                   </div>
                   <div>
-                    <span class="text-label">Writer</span>
+                    <span class="text-label block">Writer</span>
                     <p class="mt-1 text-gray-800">{project.writer || "Catherine Tremblay"}</p>
                   </div>
                   {#if project.interviewer}
                     <div>
-                      <span class="text-label">Interviewer</span>
+                      <span class="text-label block">Interviewer</span>
                       <p class="mt-1 text-gray-800">{project.interviewer}</p>
                     </div>
                   {/if}
                   <div>
-                    <span class="text-label">Created</span>
+                    <span class="text-label block">Created</span>
                     <p class="mt-1 text-gray-800">{new Date(project.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</p>
                   </div>
                   <div>
-                    <span class="text-label">Fiscal year-end</span>
+                    <span class="text-label block">Fiscal year-end</span>
                     <FiscalYearField
                       {projectId}
                       fiscalYearEnd={project.fiscalYearEnd ?? null}
                     />
                   </div>
                   <div>
-                    <span class="text-label">Industry</span>
+                    <span class="text-label block">Industry</span>
                     <IndustryField
                       {projectId}
                       industry={project.industry ?? null}
@@ -528,7 +534,7 @@
         {/if}
 
         <!-- Draggable divider -->
-        {#if !chatFull && report && user}
+        {#if !chatFull && report && user && chatOpen}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             onmousedown={startDrag}
@@ -540,11 +546,21 @@
         {/if}
 
         <!-- Chat rail — resizable / full-screen -->
-        {#if report && user}
+        {#if report && user && chatOpen}
           <aside
-            class="flex min-h-0 flex-none flex-col bg-canvas py-6 pl-1 pr-6"
+            class="relative flex min-h-0 flex-none flex-col bg-canvas py-6 pl-1 pr-6"
             style={`width: ${chatFull ? "100%" : `${chatRatio * 100}%`}`}
           >
+            <button
+              onclick={() => (chatOpen = false)}
+              title="Close assistant"
+              aria-label="Close assistant"
+              class="absolute right-8 top-8 z-10 flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-navy"
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
             <div class="flex h-full flex-col overflow-hidden rounded-2xl border border-chrome bg-white shadow-sm">
               {#if AGENT_CHAT}
                 <AgentChatPanel
@@ -569,6 +585,17 @@
               {/if}
             </div>
           </aside>
+        {/if}
+
+        <!-- Reopen pill when the assistant is closed -->
+        {#if report && user && !chatOpen}
+          <button
+            onclick={() => (chatOpen = true)}
+            title="Open assistant"
+            class="fixed bottom-6 right-6 z-[70] flex h-11 w-11 items-center justify-center rounded-full bg-navy text-white shadow-lg transition-transform hover:scale-105"
+          >
+            <ChatIcon class="h-4.5 w-4.5" />
+          </button>
         {/if}
       </div>
     {/if}

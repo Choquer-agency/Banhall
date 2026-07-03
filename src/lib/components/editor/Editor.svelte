@@ -485,6 +485,7 @@
       lineCount = e.state.doc.content.childCount;
       wordCount = e.storage.characterCount.words();
       charCount = e.storage.characterCount.characters();
+      updateSelectionTip(e);
     });
     return () => {
       if (saveTimeout) clearTimeout(saveTimeout);
@@ -558,6 +559,33 @@
       dom.removeEventListener("mouseout", handleMouseOut);
     };
   });
+
+  // Floating selection tooltip (shared-Tooltip styling): appears over a
+  // non-empty selection with the two selection actions.
+  let selTip = $state<{ x: number; y: number } | null>(null);
+  function updateSelectionTip(ed: Editor) {
+    if (!editable) {
+      selTip = null;
+      return;
+    }
+    const { from, to, empty } = ed.state.selection;
+    if (empty || to - from < 1) {
+      selTip = null;
+      return;
+    }
+    const text = ed.state.doc.textBetween(from, to, " ");
+    if (!text.trim()) {
+      selTip = null;
+      return;
+    }
+    try {
+      const start = ed.view.coordsAtPos(from);
+      const end = ed.view.coordsAtPos(to);
+      selTip = { x: (start.left + end.right) / 2, y: start.top };
+    } catch {
+      selTip = null;
+    }
+  }
 
   // Handle comment action from toolbar
   function handleComment() {
@@ -757,6 +785,47 @@
 
     <!-- The editor itself -->
     <EditorContent {editor} />
+
+    <!-- Selection tooltip: Ask AI / Comment at the highlighted text -->
+    {#if editable && selTip}
+      <div
+        class="fixed z-[60] flex -translate-x-1/2 -translate-y-full items-center gap-0.5 rounded-md bg-gray-900 p-0.5 text-xs text-white shadow-md"
+        style={`left: ${selTip.x}px; top: ${selTip.y - 8}px`}
+        role="toolbar"
+        aria-label="Selection actions"
+      >
+        {#if onAskAI}
+          <button
+            onmousedown={(e) => {
+              e.preventDefault();
+              handleAskAI();
+              selTip = null;
+            }}
+            class="flex items-center gap-1 rounded px-2 py-1 transition-colors hover:bg-white/15"
+          >
+            <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 99.38 99.38" aria-hidden="true">
+              <path d="M68.93,50.85l13.15,3.66c2.82.78,2.82,4.79,0,5.57l-13.15,3.66c-9.9,2.75-17.64,10.49-20.39,20.39l-3.66,13.15c-.78,2.82-4.79,2.82-5.57,0l-3.66-13.15c-2.75-9.9-10.49-17.64-20.39-20.39l-13.15-3.66c-2.82-.78-2.82-4.79,0-5.57l13.15-3.66c9.9-2.75,17.64-10.49,20.39-20.39l3.66-13.15c.78-2.82,4.79-2.82,5.57,0l3.66,13.15c2.75,9.9,10.49,17.64,20.39,20.39Z" />
+            </svg>
+            Ask AI
+          </button>
+        {/if}
+        {#if onComment}
+          <button
+            onmousedown={(e) => {
+              e.preventDefault();
+              handleComment();
+              selTip = null;
+            }}
+            class="flex items-center gap-1 rounded px-2 py-1 transition-colors hover:bg-white/15"
+          >
+            <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            Comment
+          </button>
+        {/if}
+      </div>
+    {/if}
 
     <!-- Line/word/character count -->
     {#if editable}
