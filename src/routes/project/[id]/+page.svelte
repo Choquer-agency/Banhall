@@ -204,6 +204,7 @@
   }
 
   function handleAskAI(selection: { from: number; to: number; text: string }) {
+    chatOpen = true; // make sure the rail is visible before the pill lands
     pendingChatHighlight = selection;
   }
 
@@ -216,7 +217,7 @@
   let chatOpen = $state(true);
   const chatFull = false;
   let workspaceEl: HTMLDivElement | null = $state(null);
-  let dragging = false;
+  let dragging = $state(false);
 
   $effect(() => {
     const r = localStorage.getItem("banhall_chat_ratio");
@@ -546,10 +547,10 @@
         {/if}
 
         <!-- Chat rail — resizable / full-screen -->
-        {#if report && user && chatOpen}
+        {#if report && user}
           <aside
-            class="relative flex min-h-0 flex-none flex-col bg-canvas py-6 pl-1 pr-6"
-            style={`width: ${chatFull ? "100%" : `${chatRatio * 100}%`}`}
+            class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${chatOpen ? "pl-1 pr-6" : ""} ${dragging ? "" : "transition-[width] duration-300 ease-out"}`}
+            style={`width: ${!chatOpen ? "0%" : chatFull ? "100%" : `${chatRatio * 100}%`}`}
           >
             <button
               onclick={() => (chatOpen = false)}
