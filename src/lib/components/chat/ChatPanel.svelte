@@ -480,7 +480,7 @@
       (id) => docNameById.get(id) ?? "Attachment"
     )}
     <div class="flex justify-end">
-      <div class="max-w-[85%] rounded-2xl rounded-br-sm bg-primary/10 px-4 py-2.5 font-sans text-[15px] leading-relaxed text-navy">
+      <div class="max-w-[85%] rounded-2xl rounded-br-sm bg-primary/10 px-4 py-2.5 font-sans text-sm leading-relaxed text-navy">
         {#if message.highlight}
           <p class="mb-2 italic text-navy/80">&ldquo;{message.highlight.text}&rdquo;</p>
         {/if}
@@ -518,7 +518,7 @@
         </div>
       {:else}
         <div
-          class={`chat-markdown text-[15px] leading-relaxed ${
+          class={`chat-markdown text-sm leading-relaxed ${
             message.status === "error" ? "text-red-500" : "text-gray-800"
           }`}
         >
@@ -582,7 +582,7 @@
     <span class="flex h-6 w-6 items-center justify-center rounded-full bg-navy text-white">
       <ChatIcon class="h-3 w-3" />
     </span>
-    <span class="text-[15px] font-semibold text-navy">Assistant</span>
+    <span class="text-sm font-semibold text-navy">Assistant</span>
     {#if onToggleFull}
       <button
         onclick={onToggleFull}

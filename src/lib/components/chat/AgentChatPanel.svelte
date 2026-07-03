@@ -512,7 +512,7 @@
     <MessageAvatar>
       <ChatIcon class="h-3 w-3" />
     </MessageAvatar>
-    <span class="text-[15px] font-semibold text-navy">Assistant</span>
+    <span class="text-sm font-semibold text-navy">Assistant</span>
     {#if onToggleFull}
       <button
         onclick={onToggleFull}
