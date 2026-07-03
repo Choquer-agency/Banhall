@@ -1,6 +1,5 @@
 <script lang="ts">
   import { useQuery, useMutation } from "convex-svelte";
-  import { Streamdown } from "svelte-streamdown";
   import { api } from "../../../../convex/_generated/api";
   import type { Doc, Id } from "../../../../convex/_generated/dataModel";
   import { createUIMessages } from "$lib/chat/uiMessages.svelte";
@@ -8,6 +7,17 @@
   import ProposedEditCard from "$lib/components/chat/ProposedEditCard.svelte";
   import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import {
+    ChatContainer,
+    ScrollButton,
+    Message,
+    MessageContent,
+    MessageAvatar,
+    PromptInput,
+    PromptInputTextarea,
+    PromptInputActions,
+    Loader,
+  } from "$lib/components/chat/primitives";
   import {
     parseFileToText,
     isSupportedFile,
@@ -23,7 +33,8 @@
   // Agent-based chat rail (BNH-10 P2) — streaming replacement for ChatPanel.
   // Messages come from the @convex-dev/agent component (token-streamed into
   // createUIMessages, our Svelte port of useUIMessages); edit/highlight cards
-  // come from the reactive chatProposals table.
+  // come from the reactive chatProposals table. Rendering is composed from
+  // the chat primitives in $lib/components/chat/primitives.
 
   type Proposal = Doc<"chatProposals">;
 
@@ -140,10 +151,10 @@
   let pendingFiles = $state<File[] | null>(null);
 
   let fileInputEl: HTMLInputElement | null = $state(null);
-  let viewportEl: HTMLDivElement | null = $state(null);
   let textareaEl: HTMLTextAreaElement | null = $state(null);
   let pillEl: HTMLSpanElement | null = $state(null);
   let pillWidth = $state(0);
+  let chatContainer: ChatContainer | null = $state(null);
 
   // Group proposals under the assistant message they came from; anything the
   // component ids don't line up with lands after the final message.
@@ -173,16 +184,6 @@
     }
   });
 
-  // Pin to the latest message (iMessage-style) on every update.
-  $effect(() => {
-    void messages;
-    void proposalsQ.data;
-    void sending;
-    if (viewportEl) {
-      viewportEl.scrollTop = viewportEl.scrollHeight;
-    }
-  });
-
   // BNH-25: when a NEW proposal references passages, auto scroll the document
   // to them and highlight. Seed on first load so opening a thread doesn't jump
   // to a historical edit — only fire for fresh proposals.
@@ -208,11 +209,6 @@
     if (pendingHighlight) textareaEl?.focus();
   });
 
-  function autoGrow(el: HTMLTextAreaElement) {
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 140) + "px";
-  }
-
   async function sendText(text: string) {
     const trimmed = text.trim();
     if ((!trimmed && !pendingHighlight) || sending) return;
@@ -228,7 +224,9 @@
       input = "";
       attachments = [];
       onClearHighlight?.();
-      if (textareaEl) textareaEl.style.height = "auto";
+      // Re-pin to the bottom even if the writer had scrolled up — a fresh
+      // send should always bring their message (and the reply) into view.
+      chatContainer?.scrollToBottom("instant");
     } catch (e) {
       console.error("Failed to send message", e);
     } finally {
@@ -423,8 +421,8 @@
     </div>
   {/if}
 
-  <div class="rounded-2xl border border-chrome bg-canvas px-2 py-1.5">
-    <div class="flex items-end gap-2">
+  <PromptInput bind:value={input} isLoading={sending} onSubmit={(v) => sendText(v)}>
+    <PromptInputActions>
       <button
         onclick={() => fileInputEl?.click()}
         disabled={uploading}
@@ -461,7 +459,18 @@
           target.value = "";
         }}
       />
-      <div class="relative flex-1 py-1">
+    </PromptInputActions>
+
+    <PromptInputTextarea
+      bind:ref={textareaEl}
+      textIndent={pendingHighlight ? pillWidth : undefined}
+      placeholder={pendingHighlight
+        ? "Add instructions…"
+        : isEmpty
+          ? "Ask anything about this report…"
+          : "Ask a follow-up…"}
+    >
+      {#snippet pill()}
         {#if pendingHighlight}
           <span
             bind:this={pillEl}
@@ -479,26 +488,10 @@
             </button>
           </span>
         {/if}
-        <textarea
-          bind:this={textareaEl}
-          bind:value={input}
-          oninput={(e) => autoGrow(e.currentTarget)}
-          onkeydown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              sendText(input);
-            }
-          }}
-          rows={1}
-          placeholder={pendingHighlight
-            ? "Add instructions…"
-            : isEmpty
-              ? "Ask anything about this report…"
-              : "Ask a follow-up…"}
-          style={pendingHighlight ? `text-indent: ${pillWidth}px` : undefined}
-          class="min-h-[28px] w-full resize-none bg-transparent px-1 py-0.5 text-[14px] leading-snug text-gray-800 placeholder:text-gray-400 outline-none"
-        ></textarea>
-      </div>
+      {/snippet}
+    </PromptInputTextarea>
+
+    <PromptInputActions>
       <button
         onclick={() => sendText(input)}
         disabled={sending || (!input.trim() && !pendingHighlight)}
@@ -509,16 +502,16 @@
           <path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
         </svg>
       </button>
-    </div>
-  </div>
+    </PromptInputActions>
+  </PromptInput>
 {/snippet}
 
 <div class="flex h-full flex-col bg-white">
   <!-- Header -->
   <div class="flex shrink-0 items-center gap-2 border-b border-chrome px-5 py-3.5">
-    <span class="flex h-6 w-6 items-center justify-center rounded-full bg-navy text-white">
+    <MessageAvatar>
       <ChatIcon class="h-3 w-3" />
-    </span>
+    </MessageAvatar>
     <span class="text-[15px] font-semibold text-navy">Assistant</span>
     {#if onToggleFull}
       <button
@@ -547,62 +540,58 @@
       <div class="w-full">{@render composer()}</div>
     </div>
   {:else}
-    <div
-      bind:this={viewportEl}
-      class="flex-1 overflow-y-auto overscroll-y-contain px-5 py-4"
+    <ChatContainer
+      bind:this={chatContainer}
+      class="min-h-0 flex-1"
+      viewportClass="px-5 py-4"
+      contentClass="space-y-4"
     >
-      <div class="space-y-4">
-        {#each messages as m (m.key)}
-          {@const text = messageText(m)}
-          {#if m.role === "user"}
-            {@const split = splitWriterMessage(text)}
-            <div class="flex justify-end">
-              <div class="max-w-[85%] rounded-2xl rounded-br-sm bg-primary/10 px-4 py-2.5 font-sans text-[15px] leading-relaxed text-navy">
-                {#if split.highlight}
-                  <p class="mb-2 italic text-navy/80">&ldquo;{split.highlight}&rdquo;</p>
-                {/if}
-                {#if split.content}
-                  <p class="whitespace-pre-wrap">{split.content}</p>
-                {/if}
-              </div>
-            </div>
-          {:else if m.role === "assistant"}
-            {@const own = grouped.byMessage.get(m.id) ?? []}
-            <div class="flex max-w-[95%] flex-col gap-1">
-              {#if text}
-                <div
-                  class={`chat-markdown text-[15px] leading-relaxed ${
-                    m.status === "failed" ? "text-red-500" : "text-gray-800"
-                  }`}
-                >
-                  <Streamdown content={text} />
-                </div>
+      {#each messages as m (m.key)}
+        {@const text = messageText(m)}
+        {#if m.role === "user"}
+          {@const split = splitWriterMessage(text)}
+          <Message role="user">
+            <MessageContent>
+              {#if split.highlight}
+                <p class="mb-2 italic text-navy/80">&ldquo;{split.highlight}&rdquo;</p>
               {/if}
-              {#each own as p (p._id)}
-                {@render proposalView(p)}
-              {/each}
-            </div>
-          {/if}
-        {/each}
-
-        <!-- Proposals we couldn't pin to a specific message -->
-        {#if grouped.orphans.length > 0}
-          <div class="flex max-w-[95%] flex-col gap-1">
-            {#each grouped.orphans as p (p._id)}
+              {#if split.content}
+                <p class="whitespace-pre-wrap">{split.content}</p>
+              {/if}
+            </MessageContent>
+          </Message>
+        {:else if m.role === "assistant"}
+          {@const own = grouped.byMessage.get(m.id) ?? []}
+          <Message role="assistant">
+            {#if text}
+              <MessageContent
+                markdown
+                {text}
+                class={m.status === "failed" ? "text-red-500" : undefined}
+              />
+            {/if}
+            {#each own as p (p._id)}
               {@render proposalView(p)}
             {/each}
-          </div>
+          </Message>
         {/if}
+      {/each}
 
-        {#if awaitingReply}
-          <div class="flex items-center gap-1 py-1">
-            <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.3s]"></span>
-            <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.15s]"></span>
-            <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400"></span>
-          </div>
-        {/if}
-      </div>
-    </div>
+      <!-- Proposals we couldn't pin to a specific message -->
+      {#if grouped.orphans.length > 0}
+        <Message role="assistant">
+          {#each grouped.orphans as p (p._id)}
+            {@render proposalView(p)}
+          {/each}
+        </Message>
+      {/if}
+
+      {#if awaitingReply}
+        <Loader class="py-1" />
+      {/if}
+
+      <ScrollButton />
+    </ChatContainer>
 
     <div class="shrink-0 border-t border-chrome px-4 py-3">{@render composer()}</div>
   {/if}

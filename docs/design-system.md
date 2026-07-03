@@ -85,3 +85,24 @@ values are legacy — replace on touch.
    100/150/200).
 9. **Hover fills** on light surfaces use `primary-wash` — never gray washes.
    Destructive hovers stay red; dark-surface hovers stay white/alpha.
+
+## Chat primitives
+
+`$lib/components/chat/primitives` — prompt-kit-shaped chat building blocks,
+implemented natively in Svelte 5 runes on these tokens (API-shape inspiration
+only; no React). Specimens on `/styleguide`; composed in `AgentChatPanel`.
+
+- `ChatContainer` — message viewport with stick-to-bottom: follows new content
+  while pinned, stops when the user scrolls up, resumes at the bottom.
+  `bind:this` exposes `scrollToBottom(behavior)`; `bind:isAtBottom` readable.
+- `ScrollButton` — floating "jump to latest"; auto-appears via ChatContainer
+  context when not at the bottom.
+- `Message` / `MessageContent` / `MessageAvatar` — role-based bubbles: user =
+  primary-tinted right bubble, assistant = plain left ink; `markdown` renders
+  through svelte-streamdown with the `chat-markdown` styles.
+- `PromptInput` (+ `PromptInputTextarea`, `PromptInputActions`) — composer
+  well: autogrow textarea capped at 140px, Enter = send / Shift+Enter =
+  newline, `pill` snippet + `textIndent` for the highlight chip, action slots
+  either side.
+- `Loader` — bouncing-dot typing indicator (`md`/`sm`).
+- `Suggestion` — canned-prompt pill chip (wash hover, one accent rule applies).

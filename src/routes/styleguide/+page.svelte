@@ -4,6 +4,17 @@
   import Button from "$lib/components/ui/Button.svelte";
   import Badge from "$lib/components/ui/Badge.svelte";
   import Input from "$lib/components/ui/Input.svelte";
+  import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
+  import {
+    Message,
+    MessageContent,
+    MessageAvatar,
+    PromptInput,
+    PromptInputTextarea,
+    PromptInputActions,
+    Loader,
+    Suggestion,
+  } from "$lib/components/chat/primitives";
 
   // Living styleguide — renders straight from the token system in layout.css.
   // Canonical written reference: docs/design-system.md.
@@ -33,6 +44,19 @@
     { step: "50", cls: "bg-gray-50", role: "Wash" },
   ];
   const statuses = ["draft", "generating", "review", "client_review", "final"];
+
+  // Chat primitives — static specimen data.
+  let demoPrompt = $state("");
+  const demoSuggestions = [
+    "Summarize this report",
+    "Find weak evidence",
+    "Tighten the uncertainty section",
+  ];
+  const demoReply =
+    "Here's a tighter framing for that section:\n\n" +
+    "- Lead with the **unresolved outcome**, not the process\n" +
+    "- Cite the failed baseline run as evidence\n" +
+    "- Cut the tooling recap — it reads as routine work";
 </script>
 
 <div class="flex flex-1 flex-col bg-canvas">
@@ -108,6 +132,86 @@
       </div>
       <div class="max-w-xs">
         <Input id="sg-input" label="Field label" placeholder="Placeholder text…" />
+      </div>
+    </div>
+
+    <!-- Chat primitives -->
+    <h2 class="text-label mt-12">Chat primitives</h2>
+    <div class="card mt-3 space-y-8 px-5 py-5">
+      <!-- Message roles -->
+      <div class="max-w-md space-y-4">
+        <p class="text-xs text-gray-500">
+          <code class="text-data">Message</code> / <code class="text-data">MessageContent</code>
+          — user (right, primary-tinted) vs assistant (left, markdown)
+        </p>
+        <Message role="user">
+          <MessageContent>
+            <p class="whitespace-pre-wrap">Can you tighten the uncertainty section?</p>
+          </MessageContent>
+        </Message>
+        <Message role="assistant">
+          <MessageContent markdown text={demoReply} />
+        </Message>
+        <div class="flex items-center gap-2 pt-1">
+          <MessageAvatar><ChatIcon class="h-3 w-3" /></MessageAvatar>
+          <MessageAvatar fallback="JN" />
+          <span class="text-xs text-gray-500">
+            <code class="text-data">MessageAvatar</code> — glyph / initials
+          </span>
+        </div>
+      </div>
+
+      <!-- Loader -->
+      <div class="flex items-center gap-6">
+        <Loader />
+        <Loader size="sm" />
+        <span class="text-xs text-gray-500">
+          <code class="text-data">Loader</code> — md / sm (awaiting-reply dots)
+        </span>
+      </div>
+
+      <!-- Suggestions -->
+      <div>
+        <p class="mb-2 text-xs text-gray-500">
+          <code class="text-data">Suggestion</code> — canned-prompt chips (click seeds the composer)
+        </p>
+        <div class="flex flex-wrap gap-1.5">
+          {#each demoSuggestions as s (s)}
+            <Suggestion onclick={() => (demoPrompt = s)}>{s}</Suggestion>
+          {/each}
+        </div>
+      </div>
+
+      <!-- PromptInput -->
+      <div class="max-w-md">
+        <p class="mb-2 text-xs text-gray-500">
+          <code class="text-data">PromptInput</code> — autogrow to 140px, Enter sends, Shift+Enter newline
+        </p>
+        <PromptInput bind:value={demoPrompt} onSubmit={() => (demoPrompt = "")}>
+          <PromptInputActions>
+            <button
+              aria-label="Attach a document"
+              class="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-primary-wash hover:text-gray-600"
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              </svg>
+            </button>
+          </PromptInputActions>
+          <PromptInputTextarea placeholder="Ask anything about this report…" />
+          <PromptInputActions>
+            <button
+              aria-label="Send"
+              onclick={() => (demoPrompt = "")}
+              disabled={!demoPrompt.trim()}
+              class="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy text-white transition-colors hover:bg-navy-light disabled:opacity-30"
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+              </svg>
+            </button>
+          </PromptInputActions>
+        </PromptInput>
       </div>
     </div>
 
