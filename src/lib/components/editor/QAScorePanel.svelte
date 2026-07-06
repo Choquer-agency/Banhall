@@ -140,30 +140,31 @@
 {#if scorecard}
   <div class="flex flex-col gap-6">
     <!-- Score gauge -->
-    <div class="flex items-center gap-4">
-      <div class="relative h-20 w-20 flex-none">
-        <svg viewBox="0 0 36 36" class="h-20 w-20 -rotate-90">
-          <circle cx="18" cy="18" r="15.5" fill="none" class="stroke-gray-100" stroke-width="3.5" />
+    <div class="flex items-center gap-3.5">
+      <div class="relative h-14 w-14 flex-none">
+        <svg viewBox="0 0 36 36" class="h-14 w-14 -rotate-90">
+          <circle cx="18" cy="18" r="16" fill="none" class="stroke-gray-100" stroke-width="2" />
           <circle
-            cx="18" cy="18" r="15.5" fill="none"
+            cx="18" cy="18" r="16" fill="none"
             class={`${band} transition-[stroke-dashoffset] duration-700 ease-out`}
-            stroke="currentColor" stroke-width="3.5" stroke-linecap="round"
-            stroke-dasharray={2 * Math.PI * 15.5}
-            stroke-dashoffset={2 * Math.PI * 15.5 * (1 - overall / 100)}
+            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+            stroke-dasharray={2 * Math.PI * 16}
+            stroke-dashoffset={2 * Math.PI * 16 * (1 - overall / 100)}
           />
         </svg>
         <div class="absolute inset-0 flex items-center justify-center">
-          <span class={`text-xl font-bold tabular-nums ${band}`}>{overall}</span>
+          <span class={`text-base font-semibold tabular-nums ${band}`}>{overall}</span>
         </div>
       </div>
       <div class="min-w-0">
         <p class="text-label">AI QA score</p>
         <p class="mt-0.5 text-sm text-gray-600">
-          {overall >= 80 ? "Strong draft" : overall >= 60 ? "Needs attention" : "Significant issues"} · out of 100
+          {overall >= 80 ? "Strong draft" : overall >= 60 ? "Needs attention" : "Significant issues"}
+          <span class="text-gray-400"> · /100</span>
         </p>
         {#if myReview}
-          <span class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-navy/5 px-2 py-0.5 text-xs font-medium text-navy">
-            Your score: {myReview.score}
+          <span class="mt-1 inline-flex items-center gap-1 rounded-full bg-navy/5 px-2 py-0.5 text-xs font-medium text-navy">
+            You: {myReview.score}
           </span>
         {/if}
       </div>
@@ -253,7 +254,7 @@
         <div class="space-y-2">
           {#each scorecard.gaps_requiring_client_followup as gap, i (i)}
             <div class="rounded-lg border border-amber-200 bg-gap-bg px-3 py-2">
-              <p class="text-data text-gap-text">Section {gap.section} · ¶{gap.paragraph}</p>
+              <p class="text-data text-gap-text">Section {gap.section} · Paragraph {gap.paragraph}</p>
               <p class="mt-1 text-sm leading-relaxed text-gap-text">{gap.question}</p>
             </div>
           {/each}

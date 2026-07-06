@@ -160,11 +160,6 @@
     return t?.title ?? "New chat";
   });
 
-  function startNewChat() {
-    startingNewChat = true;
-    selectedThreadId = null;
-  }
-
   const ui = createUIMessages(
     api.chatV2.listMessages,
     () => (selectedThreadId ? { threadId: selectedThreadId } : "skip"),
@@ -675,17 +670,6 @@
       <span class="block text-sm font-semibold text-navy">Assistant</span>
       <span class="block truncate text-[11px] text-gray-500">{threadTitle}</span>
     </div>
-    <button
-      onclick={startNewChat}
-      disabled={isEmpty}
-      title="New chat"
-      aria-label="Start a new chat"
-      class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy disabled:pointer-events-none disabled:opacity-40"
-    >
-      <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-      </svg>
-    </button>
     {#if onToggleFull}
       <button
         onclick={onToggleFull}

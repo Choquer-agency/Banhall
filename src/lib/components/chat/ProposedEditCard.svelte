@@ -65,7 +65,7 @@
         {/each}
       </div>
     {:else}
-      <p class="whitespace-pre-wrap font-serif text-[15px] leading-relaxed text-gray-900">
+      <p class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-900">
         {newText}
       </p>
     {/if}
