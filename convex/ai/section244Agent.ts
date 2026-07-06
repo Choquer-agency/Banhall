@@ -9,7 +9,8 @@ export async function runSection244Agent(
   client: Anthropic,
   analysis: TranscriptAnalysis,
   model: string = MODEL,
-  brainExemplars: string = ""
+  brainExemplars: string = "",
+  lengthBudget: string = ""
 ): Promise<string> {
   const response = await client.messages.create({
     model,
@@ -18,7 +19,7 @@ export async function runSection244Agent(
     messages: [
       {
         role: "user",
-        content: `Here is the structured transcript analysis. Use ONLY this information to draft Section 244.\n\n${JSON.stringify(analysis, null, 2)}${brainExemplars}`,
+        content: `Here is the structured transcript analysis. Use ONLY this information to draft Section 244.\n\n${JSON.stringify(analysis, null, 2)}${brainExemplars}${lengthBudget}`,
       },
     ],
   });

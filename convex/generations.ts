@@ -380,8 +380,11 @@ export const getCandidates = query({
       .collect();
     return candidates.map((c) => {
       let qaScore: number | null = null;
+      let metrics: unknown = null;
       try {
-        qaScore = JSON.parse(c.agentOutputs)?.qa?.overall_score ?? null;
+        const parsed = JSON.parse(c.agentOutputs);
+        qaScore = parsed?.qa?.overall_score ?? null;
+        metrics = parsed?.metrics ?? null; // BNH-45 line/word meters
       } catch {
         /* ignore */
       }
@@ -391,6 +394,7 @@ export const getCandidates = query({
         label: c.label,
         content: c.content,
         qaScore,
+        metrics,
       };
     });
   },

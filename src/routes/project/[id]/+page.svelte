@@ -299,11 +299,16 @@
     }
   }
 
+  // BNH-45: writer-tunable report length (client email — shorter for quick
+  // review, full to write right up to the CRA line limits).
+  let lengthTarget = $state<"concise" | "standard" | "full">("standard");
+
   function handleRegenerate() {
     if (!transcript) return;
     generateReport({
       projectId,
       transcriptId: transcript._id,
+      lengthTarget,
     }).catch(console.error);
   }
 
@@ -716,9 +721,20 @@
               Transcript
             </h2>
             {#if transcript}
-              <Button onclick={handleRegenerate} class="text-xs">
-                Generate Report
-              </Button>
+              <div class="flex items-center gap-2">
+                <select
+                  bind:value={lengthTarget}
+                  aria-label="Report length"
+                  class="cursor-pointer rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 focus:border-navy focus:outline-none"
+                >
+                  <option value="concise">Concise (~70% of limit)</option>
+                  <option value="standard">Standard (~90%)</option>
+                  <option value="full">Full (to the line limit)</option>
+                </select>
+                <Button onclick={handleRegenerate} class="text-xs">
+                  Generate Report
+                </Button>
+              </div>
             {/if}
           </div>
           {#if transcript}

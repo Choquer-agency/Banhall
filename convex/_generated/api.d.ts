@@ -38,6 +38,7 @@ import type * as financial from "../financial.js";
 import type * as generations from "../generations.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_lineLimits from "../lib/lineLimits.js";
 import type * as lib_reportEdits from "../lib/reportEdits.js";
 import type * as lib_snapshots from "../lib/snapshots.js";
 import type * as projects from "../projects.js";
@@ -86,6 +87,7 @@ declare const fullApi: ApiFromModules<{
   generations: typeof generations;
   http: typeof http;
   "lib/auth": typeof lib_auth;
+  "lib/lineLimits": typeof lib_lineLimits;
   "lib/reportEdits": typeof lib_reportEdits;
   "lib/snapshots": typeof lib_snapshots;
   projects: typeof projects;

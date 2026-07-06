@@ -156,6 +156,11 @@ export const scheduleGenerateReport = mutation({
   args: {
     projectId: v.id("projects"),
     transcriptId: v.id("transcripts"),
+    // BNH-45: writer's length preference — concise (quick review), standard,
+    // or full (right up to the CRA line limits, easier to trim than to grow).
+    lengthTarget: v.optional(
+      v.union(v.literal("concise"), v.literal("standard"), v.literal("full"))
+    ),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -169,6 +174,7 @@ export const scheduleGenerateReport = mutation({
     await ctx.scheduler.runAfter(0, internal.ai.pipeline.generateReport, {
       projectId: args.projectId,
       transcriptId: args.transcriptId,
+      lengthTarget: args.lengthTarget,
     });
   },
 });

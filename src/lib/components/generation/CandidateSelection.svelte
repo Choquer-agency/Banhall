@@ -1,12 +1,27 @@
 <script module lang="ts">
   import type { Id } from "../../../../convex/_generated/dataModel";
 
+  type SectionMeter = {
+    lines: number;
+    words: number;
+    limit: number;
+    wordCap: number;
+    overLimit: boolean;
+  };
+  type CandidateMetrics = {
+    s242: SectionMeter;
+    s244: SectionMeter;
+    s246: SectionMeter;
+    lengthTarget?: string;
+  } | null;
+
   type Candidate = {
     _id: Id<"reportCandidates">;
     model: string;
     label: string;
     content: string;
     qaScore: number | null;
+    metrics?: CandidateMetrics;
   };
 
   /**
@@ -111,6 +126,36 @@
           </button>
         {/each}
       </div>
+
+      <!-- BNH-45: CRA form-fit meters (78-char lines; breaks count) -->
+      {#if current.metrics}
+        {@const m = current.metrics}
+        {@const sections = [
+          { label: "242", sec: m.s242 },
+          { label: "244", sec: m.s244 },
+          { label: "246", sec: m.s246 },
+        ]}
+        <div class="mt-4 flex flex-wrap items-center gap-2">
+          {#each sections as { label, sec } (label)}
+            <span
+              class={`text-data inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 ${
+                sec.overLimit
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : "border-line-soft bg-white text-gray-600"
+              }`}
+              title={`Section ${label}: ${sec.lines} of ${sec.limit} form lines · ${sec.words} words (cap ${sec.wordCap})`}
+            >
+              <span class="font-semibold">{label}</span>
+              {sec.lines}/{sec.limit} lines · {sec.words}w
+              {#if sec.overLimit}
+                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.69-1.33-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" />
+                </svg>
+              {/if}
+            </span>
+          {/each}
+        </div>
+      {/if}
 
       <!-- Selected candidate preview -->
       <div class="mt-5 rounded-2xl border border-gray-200 bg-white p-6">

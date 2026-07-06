@@ -49,3 +49,5 @@ data/brain-seed.json
 # SvelteKit
 .svelte-kit/
 /build
+
+# Client PD examples (confidential — templates are CRA forms, fine to track)

@@ -13,6 +13,14 @@ import { runSection246Agent } from "./section246Agent";
 import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
 import { CANDIDATE_MODELS } from "./model";
+import {
+  sectionMetrics,
+  wordBudget,
+  LINE_LIMITS,
+  CHARS_PER_LINE,
+  type LengthTarget,
+  type SectionKey,
+} from "../lib/lineLimits";
 
 /**
  * Programmatic safety net: replace banned words that the LLM self-check may have missed.
@@ -169,6 +177,44 @@ const EMPTY_BRAIN_BLOCKS: BrainExemplarBlocks = {
   s246: "",
 };
 
+/** BNH-45: the length-budget instruction appended to each drafter prompt. */
+function lengthBudgetBlock(section: SectionKey, target: LengthTarget): string {
+  const words = wordBudget(section, target);
+  const lines = LINE_LIMITS[section];
+  return `
+
+# LENGTH BUDGET (CRA form constraint — hard requirement)
+The CRA form field for this section holds at most ${lines} lines of ${CHARS_PER_LINE} characters, and EVERY blank line between paragraphs also costs one full line. Write AT MOST ${words} words total. Prefer fewer, denser paragraphs (each blank line spent on a paragraph break is a line of content lost). Do NOT pad. If the material exceeds the budget, keep the most technically load-bearing content and cut the rest.`;
+}
+
+/** BNH-45: compression pass for a section that overflows the form.
+ * `squeeze` < 1 tightens the word ask on retry. */
+async function compressSection(
+  anthropic: Anthropic,
+  modelId: string,
+  section: SectionKey,
+  text: string,
+  target: LengthTarget,
+  squeeze = 1
+): Promise<string> {
+  const m = sectionMetrics(text, section);
+  const words = Math.round(wordBudget(section, target) * squeeze);
+  const response = await anthropic.messages.create({
+    model: modelId,
+    max_tokens: 4096,
+    system:
+      "You compress SR&ED report sections to fit CRA form limits. Preserve every distinct technical claim, uncertainty, iteration, and result; cut repetition, filler, and scene-setting. Never invent content. Keep the same paragraph conventions (blank line between paragraphs). Return ONLY the compressed section text.",
+    messages: [
+      {
+        role: "user",
+        content: `This section is ${m.lines} lines / ${m.words} words, but the CRA field allows only ${m.limit} lines of ${CHARS_PER_LINE} characters (blank lines between paragraphs each cost one line). Rewrite it to AT MOST ${words} words while preserving all technical substance. Merge paragraphs where natural — fewer paragraph breaks save lines.\n\n${text}`,
+      },
+    ],
+  });
+  const out = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
+  return out || text;
+}
+
 /**
  * Run the full pipeline once for a single model → a complete candidate report
  * (content + agentOutputs incl. QA + chronology). Used for BNH-15 A/B testing.
@@ -179,7 +225,8 @@ async function runPipelineForModel(
   transcript: string,
   contextDocs: ContextDoc[],
   title: string,
-  brainExemplars: BrainExemplarBlocks
+  brainExemplars: BrainExemplarBlocks,
+  lengthTarget: LengthTarget = "standard"
 ): Promise<{ content: string; agentOutputs: string; qaScore: number | null }> {
   const analysis = await runAnalyzerAgent(
     anthropic,
@@ -189,13 +236,44 @@ async function runPipelineForModel(
     brainExemplars.analyzer
   );
   const [raw242, raw244, raw246] = await Promise.all([
-    runSection242Agent(anthropic, analysis, modelId, brainExemplars.s242),
-    runSection244Agent(anthropic, analysis, modelId, brainExemplars.s244),
-    runSection246Agent(anthropic, analysis, modelId, brainExemplars.s246),
+    runSection242Agent(anthropic, analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget)),
+    runSection244Agent(anthropic, analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget)),
+    runSection246Agent(anthropic, analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget)),
   ]);
-  const section242 = scrubBannedWords(raw242);
-  const section244 = scrubBannedWords(raw244);
-  const section246 = scrubBannedWords(raw246);
+  let section242 = scrubBannedWords(raw242);
+  let section244 = scrubBannedWords(raw244);
+  let section246 = scrubBannedWords(raw246);
+
+  // BNH-45 enforcement: still over the form limit after the budgeted draft →
+  // ONE compression pass per offending section (part of generation, before
+  // the candidate ever lands).
+  const compress = async (
+    key: SectionKey,
+    text: string
+  ): Promise<string> => {
+    let out = text;
+    // Up to two passes; the second asks for 15% fewer words (models routinely
+    // land a hair over on the first squeeze — e2e saw a 51/50).
+    for (const squeeze of [1, 0.85]) {
+      if (!sectionMetrics(out, key).overLimit) return out;
+      out = scrubBannedWords(
+        await compressSection(anthropic, modelId, key, out, lengthTarget, squeeze)
+      );
+    }
+    return out;
+  };
+  [section242, section244, section246] = await Promise.all([
+    compress("s242", section242),
+    compress("s244", section244),
+    compress("s246", section246),
+  ]);
+
+  const metrics = {
+    s242: sectionMetrics(section242, "s242"),
+    s244: sectionMetrics(section244, "s244"),
+    s246: sectionMetrics(section246, "s246"),
+    lengthTarget,
+  };
   const [qaScorecard, chronology] = await Promise.all([
     runQAAgent(anthropic, analysis, section242, section244, section246, modelId),
     runChronologyAgent(anthropic, analysis, modelId),
@@ -216,6 +294,7 @@ async function runPipelineForModel(
       section246,
       qa: qaScorecard,
       chronology,
+      metrics,
     }),
     qaScore: qaScorecard?.overall_score ?? null,
   };
@@ -230,6 +309,9 @@ export const generateReport = internalAction({
   args: {
     projectId: v.id("projects"),
     transcriptId: v.id("transcripts"),
+    lengthTarget: v.optional(
+      v.union(v.literal("concise"), v.literal("standard"), v.literal("full"))
+    ),
   },
   handler: async (ctx, args) => {
     const anthropic = new Anthropic();
@@ -437,6 +519,7 @@ export const generateReport = internalAction({
 
       for (const m of CANDIDATE_MODELS) {
         await ctx.scheduler.runAfter(0, internal.ai.pipeline.generateCandidate, {
+          lengthTarget: args.lengthTarget ?? "standard",
           generationId: genId,
           projectId: args.projectId,
           transcriptId: args.transcriptId,
@@ -479,6 +562,9 @@ export const generateCandidate = internalAction({
     generationId: v.id("generations"),
     projectId: v.id("projects"),
     transcriptId: v.id("transcripts"),
+    lengthTarget: v.optional(
+      v.union(v.literal("concise"), v.literal("standard"), v.literal("full"))
+    ),
     model: v.string(),
     label: v.string(),
     title: v.string(),
@@ -508,7 +594,8 @@ export const generateCandidate = internalAction({
         transcript,
         contextDocs,
         args.title,
-        args.brainExemplars
+        args.brainExemplars,
+        args.lengthTarget ?? "standard"
       );
       await ctx.runMutation(internal.generations.addCandidate, {
         generationId: args.generationId,
