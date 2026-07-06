@@ -96,7 +96,7 @@
 
 {#if candidates && candidates.length > 0 && current}
   <div class="min-h-0 flex-1 overflow-y-auto">
-    <div class="mx-auto max-w-[820px] px-8 py-8">
+    <div class="mx-auto max-w-report px-8 py-8">
       <div class="mb-1 flex items-center gap-2">
         <span class="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-primary-dark">
           <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -165,7 +165,7 @@
 
     <!-- Sticky action bar -->
     <div class="sticky bottom-0 border-t border-gray-200 bg-white/90 px-8 py-3 backdrop-blur">
-      <div class="mx-auto flex max-w-[820px] items-center justify-between">
+      <div class="mx-auto flex max-w-report items-center justify-between">
         <span class="text-sm text-gray-500">
           Viewing <span class="font-medium text-navy">Option {pos + 1}</span>
         </span>

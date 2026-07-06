@@ -442,7 +442,7 @@
     {#if !awaitingSelection && report}
       <div bind:this={workspaceEl} class="mx-auto flex min-h-0 w-full max-w-7xl flex-1 overflow-hidden">
         <div class="min-h-0 flex-1 overflow-y-auto">
-            <div class="mx-auto max-w-[920px] px-10 py-10">
+            <div class="mx-auto max-w-report px-10 py-10">
               <!-- Project info header -->
               <div class="mb-8 pb-6 border-b border-gray-200">
                 <h1 class="text-display">{project.title}</h1>

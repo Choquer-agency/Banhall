@@ -48,6 +48,10 @@
 
   --default-transition-duration: 300ms;
 
+  /* Report column width — ONE knob for everywhere a report renders
+     (workspace editor, candidate preview, version history). max-w-report. */
+  --container-report: 57.5rem;
+
   --font-sans: "DM Sans Variable", "DM Sans", system-ui, sans-serif;
   --font-serif: Georgia, "Times New Roman", serif;
   --font-mono: "Geist Mono", ui-monospace, monospace;
@@ -289,6 +293,11 @@ body {
    exports to docx from the document JSON). */
 .tiptap-editor > h1:first-child {
   display: none;
+}
+
+/* The hidden title leaves the next heading's 3rem top margin as dead air. */
+.tiptap-editor > h1:first-child + * {
+  margin-top: 0;
 }
 
 /* Hide redundant HRs: after the title heading, and consecutive HRs */
