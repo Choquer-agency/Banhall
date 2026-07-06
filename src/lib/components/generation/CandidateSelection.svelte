@@ -54,7 +54,8 @@
 </script>
 
 <script lang="ts">
-  import QAScorePanel from "$lib/components/editor/QAScorePanel.svelte";
+  import QARailPanel from "$lib/components/qa/QARailPanel.svelte";
+  import QALauncher from "$lib/components/qa/QALauncher.svelte";
   import { useQuery, useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import ReadOnlyEditor from "$lib/components/review/ReadOnlyEditor.svelte";
@@ -161,44 +162,27 @@
         </div>
       {/if}
 
-      <!-- Selected candidate preview (+ optional QA slide-over) -->
-      <div class="mt-5 flex items-start gap-4">
+      <!-- Selected candidate preview + shared QA rail (same card as the
+           workspace — BNH-47) -->
+      <div class="mt-5 flex items-start gap-3">
         <div class="min-w-0 flex-1 rounded-2xl border border-gray-200 bg-white p-6">
           <ReadOnlyEditor content={current.content} />
         </div>
-        {#if qaOpen}
-          <div class="sticky top-24 w-80 flex-none rounded-2xl border border-chrome bg-white">
-            <div class="flex items-center gap-2 border-b border-chrome px-4 py-3">
-              <span class="text-sm font-semibold text-navy">QA — Option {pos + 1}</span>
-              <button
-                onclick={() => (qaOpen = false)}
-                aria-label="Close QA"
-                class="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-navy"
-              >
-                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div class="max-h-[70vh] overflow-y-auto px-3 py-3">
-              <QAScorePanel rawQa={current.qa} defaultOpen />
-            </div>
-          </div>
-        {/if}
+        <aside
+          class="sticky top-[118px] h-[calc(100vh-140px)] flex-none overflow-hidden transition-[width] duration-300 ease-out"
+          style={`width: ${qaOpen ? "min(24rem, 34vw)" : "0rem"}`}
+        >
+          <QARailPanel
+            open={qaOpen}
+            onClose={() => (qaOpen = false)}
+            title={`QA — Option ${pos + 1}`}
+            rawQa={current.qa}
+          />
+        </aside>
       </div>
 
-      <!-- QA launcher pill (matches the workspace pattern) -->
       {#if !qaOpen}
-        <button
-          onclick={() => (qaOpen = true)}
-          title="Open QA review"
-          aria-label="Open QA review"
-          class="fixed bottom-20 right-6 z-[70] flex h-11 w-11 items-center justify-center rounded-full border border-line bg-white text-navy shadow-lg transition-transform hover:scale-105"
-        >
-          <svg class="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-          </svg>
-        </button>
+        <QALauncher onOpen={() => (qaOpen = true)} />
       {/if}
     </div>
 

@@ -19,6 +19,8 @@
   import Editor from "$lib/components/editor/Editor.svelte";
   import type { CommentRange } from "$lib/components/editor/types";
   import QAScorePanel from "$lib/components/editor/QAScorePanel.svelte";
+  import QARailPanel from "$lib/components/qa/QARailPanel.svelte";
+  import QALauncher from "$lib/components/qa/QALauncher.svelte";
   import ChronologyTable from "$lib/components/editor/ChronologyTable.svelte";
   import FilesPanel from "$lib/components/editor/FilesPanel.svelte";
   import LogsPanel from "$lib/components/editor/LogsPanel.svelte";
@@ -221,6 +223,9 @@
   // BNH-47: QA rail panel — independent toggle; opening either closes the
   // other so the right rail hosts one passive-review surface at a time.
   let qaOpen = $state(false);
+  // Which card occupies the rail (also while both are closed, for the sink
+  // animation and so exactly one card is in flow at a time).
+  let railView = $state<"chat" | "qa">("chat");
   let workspaceEl: HTMLDivElement | null = $state(null);
   let dragging = $state(false);
 
@@ -229,7 +234,10 @@
     if (r) chatRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, parseFloat(r)));
     chatOpen = localStorage.getItem("banhall_chat_open") !== "0";
     qaOpen = localStorage.getItem("banhall_qa_open") === "1";
-    if (qaOpen) chatOpen = false;
+    if (qaOpen) {
+      chatOpen = false;
+      railView = "qa";
+    }
   });
   $effect(() => {
     localStorage.setItem("banhall_chat_ratio", String(chatRatio));
@@ -572,38 +580,19 @@
             class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${chatOpen || qaOpen ? "pl-1 pr-6" : ""} ${dragging ? "" : "transition-[width] duration-300 ease-out"}`}
             style={`width: ${chatOpen || qaOpen ? `${chatRatio * 100}%` : "0%"}`}
           >
-            <!-- BNH-47: QA review panel — same rail + same rise/fade as chat;
-                 stays mounted so its state survives close/reopen. -->
+            <!-- BNH-47: QA review — shared rail card (in flow; exactly one
+                 of chat/QA is in flow at a time via railView) -->
+            {#if railView === "qa"}
+              <QARailPanel
+                open={qaOpen}
+                onClose={() => (qaOpen = false)}
+                agentOutputs={generation?.agentOutputs}
+                reportContent={report.content}
+                reportId={report._id}
+              />
+            {/if}
             <div
-              class={`chat-rise absolute inset-x-6 inset-y-6 left-1 flex origin-bottom flex-col overflow-hidden rounded-2xl border border-chrome bg-white ${qaOpen ? "" : "is-closed"} ${chatOpen ? "hidden" : ""}`}
-              role="dialog"
-              aria-label="QA review"
-              inert={!qaOpen}
-            >
-              <div class="flex shrink-0 items-center gap-2 border-b border-chrome px-5 py-3.5">
-                <span class="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white">
-                  <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                  </svg>
-                </span>
-                <span class="text-sm font-semibold text-navy">QA review</span>
-                <button
-                  onclick={() => (qaOpen = false)}
-                  title="Close QA review"
-                  aria-label="Close QA review"
-                  class="ml-auto flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-navy"
-                >
-                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-                <QAScorePanel agentOutputs={generation?.agentOutputs} reportContent={report.content} reportId={report._id} defaultOpen />
-              </div>
-            </div>
-            <div
-              class={`chat-rise relative flex h-full origin-bottom flex-col overflow-hidden rounded-2xl border border-chrome bg-white ${chatOpen ? "" : "is-closed"} ${qaOpen ? "hidden" : ""}`}
+              class={`chat-rise relative flex h-full origin-bottom flex-col overflow-hidden rounded-2xl border border-chrome bg-white ${chatOpen ? "" : "is-closed"} ${railView !== "chat" ? "hidden" : ""}`}
               role="dialog"
               aria-label="AI assistant"
               inert={!chatOpen}
@@ -651,6 +640,7 @@
             onclick={() => {
               qaOpen = false;
               chatOpen = true;
+              railView = "chat";
             }}
             title="Open assistant"
             class="chat-pill-glow fixed bottom-6 right-6 z-[70] flex h-11 w-11 items-center justify-center rounded-full bg-navy text-white transition-transform hover:scale-105"
@@ -659,21 +649,14 @@
           </button>
         {/if}
         {#if report && user && !qaOpen}
-          <button
-            in:scale={{ duration: 200, start: 0.6, delay: 240 }}
-            out:scale={{ duration: 150, start: 0.6 }}
-            onclick={() => {
+          <QALauncher
+            right={chatOpen ? "1.5rem" : "5rem"}
+            onOpen={() => {
               chatOpen = false;
               qaOpen = true;
+              railView = "qa";
             }}
-            title="Open QA review"
-            aria-label="Open QA review"
-            class="chat-pill-glow fixed bottom-6 right-20 z-[70] flex h-11 w-11 items-center justify-center rounded-full bg-primary text-white transition-transform hover:scale-105"
-          >
-            <svg class="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-          </button>
+          />
         {/if}
       </div>
     {/if}
@@ -809,52 +792,3 @@
   </div>
 {/if}
 
-<style>
-  /* Bottom-up pop for the chat panel (reference: 21st.dev glowing assistant's
-     back-out curve). Open rises with a slight overshoot; close sinks away
-     faster with no bounce. The element stays mounted — only classes flip —
-     so chat state survives close/reopen. */
-  .chat-rise {
-    transition:
-      transform 380ms cubic-bezier(0.175, 0.885, 0.32, 1.275),
-      opacity 240ms ease-out;
-  }
-  .chat-rise.is-closed {
-    transform: translateY(28px) scale(0.96);
-    opacity: 0;
-    transition:
-      transform 200ms cubic-bezier(0.4, 0, 1, 1),
-      opacity 160ms ease-in;
-  }
-
-  /* The launcher breathes gently so it reads as "alive" without shouting. */
-  .chat-pill-glow {
-    box-shadow:
-      0 8px 12px -4px color-mix(in srgb, var(--color-navy) 18%, transparent),
-      0 0 16px -6px color-mix(in srgb, var(--color-primary) 30%, transparent);
-    animation: chat-pill-breathe 3.2s ease-in-out infinite;
-  }
-  @keyframes chat-pill-breathe {
-    0%,
-    100% {
-      box-shadow:
-        0 8px 12px -4px color-mix(in srgb, var(--color-navy) 18%, transparent),
-        0 0 16px -6px color-mix(in srgb, var(--color-primary) 30%, transparent);
-    }
-    50% {
-      box-shadow:
-        0 8px 12px -4px color-mix(in srgb, var(--color-navy) 18%, transparent),
-        0 0 24px -4px color-mix(in srgb, var(--color-primary) 42%, transparent);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .chat-rise,
-    .chat-rise.is-closed {
-      transition: none;
-    }
-    .chat-pill-glow {
-      animation: none;
-    }
-  }
-</style>
