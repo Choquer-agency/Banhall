@@ -42,8 +42,15 @@
     return { from: fromPos, to: toPos + 1 }; // +1 because to is exclusive in PM
   }
 
-  function buildDecorationSet(doc: PMNode, ranges: CommentRange[]) {
+  function buildDecorationSet(
+    doc: PMNode,
+    ranges: CommentRange[],
+    aiRanges: Array<{ from: number; to: number }> = []
+  ) {
     const decorations: Decoration[] = [];
+    for (const { from, to } of aiRanges) {
+      decorations.push(Decoration.inline(from, to, { class: "ai-ref-highlight" }));
+    }
     const docSize = doc.content.size;
 
     for (const range of ranges) {
@@ -209,13 +216,39 @@
     }
   });
 
-  // Update comment highlight decorations when ranges change
+  // Transient AI-reference flash (gap locate) — mirrors the workspace editor.
+  let aiHighlights = $state<Array<{ from: number; to: number }>>([]);
+  let aiClearTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Highlight + scroll to a passage (text-verified), fading after a beat. */
+  export function highlightText(texts: string[], scrollTo?: string) {
+    const ed = editor;
+    if (!ed) return;
+    const ranges: Array<{ from: number; to: number }> = [];
+    for (const t of texts) {
+      const trimmed = (t ?? "").trim();
+      if (!trimmed) continue;
+      const found = findTextInDoc(ed.state.doc, trimmed, 0);
+      if (found) ranges.push(found);
+    }
+    aiHighlights = ranges;
+    if (ranges.length === 0) return;
+    const target = scrollTo?.trim()
+      ? (findTextInDoc(ed.state.doc, scrollTo.trim(), 0) ?? ranges[0])
+      : ranges[0];
+    scrollToPosition(target.from, target.to);
+    if (aiClearTimer) clearTimeout(aiClearTimer);
+    aiClearTimer = setTimeout(() => (aiHighlights = []), 3200);
+  }
+
+  // Update comment + AI highlight decorations when either changes
   $effect(() => {
     const ed = editor;
     if (!ed) return;
     const ranges = commentRanges;
+    const ai = aiHighlights;
     ed.view.setProps({
-      decorations: (state) => buildDecorationSet(state.doc, ranges),
+      decorations: (state) => buildDecorationSet(state.doc, ranges, ai),
     });
   });
 

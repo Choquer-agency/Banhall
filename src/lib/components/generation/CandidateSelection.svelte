@@ -106,7 +106,7 @@
         if (!text) continue;
         count += 1;
         if (count === gap.paragraph) {
-          previewRef.scrollToPosition(1, 1 + text.length, text);
+          previewRef.highlightText([text], text);
           return;
         }
       }
