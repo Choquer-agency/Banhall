@@ -216,8 +216,8 @@
       const doc = JSON.parse(report.content);
       const nodes: Array<{ type: string; content?: Array<{ text?: string; type: string }> }> =
         doc.content ?? [];
+      const paras: string[] = [];
       let inSection = false;
-      let count = 0;
       for (const node of nodes) {
         if (node.type === "heading") {
           const t = (node.content ?? []).map((c) => c.text ?? "").join("");
@@ -226,13 +226,13 @@
         }
         if (!inSection || node.type !== "paragraph") continue;
         const text = (node.content ?? []).map((c) => c.text ?? "").join("").trim();
-        if (!text) continue;
-        count += 1;
-        if (count === gap.paragraph) {
-          editorRef.highlightText([text], text);
-          return;
-        }
+        if (text) paras.push(text);
       }
+      if (paras.length === 0) return;
+      // QA paragraph numbering can overshoot the final text (the scorer's
+      // count drifts from post-compression paragraphs) — clamp to the section.
+      const target = paras[Math.min(gap.paragraph, paras.length) - 1];
+      editorRef.highlightText([target], target);
     } catch {
       /* malformed content — nothing to jump to */
     }

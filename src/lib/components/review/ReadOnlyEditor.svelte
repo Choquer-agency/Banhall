@@ -241,6 +241,32 @@
     aiClearTimer = setTimeout(() => (aiHighlights = []), 3200);
   }
 
+  /** Locate the Nth non-empty paragraph after the heading containing
+   * `section` in the rendered doc and flash + scroll to it. Positions are
+   * captured during the walk — no text re-search, no drift. */
+  export function locateSectionParagraph(section: string, paragraph: number) {
+    const ed = editor;
+    if (!ed) return;
+    const paras: Array<{ from: number; to: number }> = [];
+    let inSection = false;
+    ed.state.doc.forEach((node, offset) => {
+      if (node.type.name === "heading") {
+        inSection = node.textContent.includes(section);
+        return;
+      }
+      if (!inSection || node.type.name !== "paragraph") return;
+      if (!node.textContent.trim()) return;
+      paras.push({ from: offset + 1, to: offset + 1 + node.content.size });
+    });
+    if (paras.length === 0) return;
+    // Clamp: QA numbering can overshoot the post-compression paragraph count.
+    const target = paras[Math.min(paragraph, paras.length) - 1];
+    aiHighlights = [target];
+    scrollToPosition(target.from, target.to);
+    if (aiClearTimer) clearTimeout(aiClearTimer);
+    aiClearTimer = setTimeout(() => (aiHighlights = []), 3200);
+  }
+
   // Update comment + AI highlight decorations when either changes
   $effect(() => {
     const ed = editor;

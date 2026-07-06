@@ -86,33 +86,10 @@
   let rootEl: HTMLDivElement | null = $state(null);
   let previewRef: ReadOnlyEditor | null = $state(null);
 
-  /** Jump the preview to a QA gap's paragraph (same locator as the workspace:
-   * Nth non-empty paragraph after the section heading). */
+  /** Jump the preview to a QA gap's paragraph (doc-native locate in the
+   * ReadOnlyEditor — clamps when QA numbering overshoots). */
   function locateGap(gap: { section: string; paragraph: number }) {
-    if (!current || !previewRef) return;
-    try {
-      const doc = JSON.parse(current.content);
-      const nodes: Array<{ type: string; content?: Array<{ text?: string }> }> = doc.content ?? [];
-      let inSection = false;
-      let count = 0;
-      for (const node of nodes) {
-        if (node.type === "heading") {
-          const t = (node.content ?? []).map((c) => c.text ?? "").join("");
-          inSection = t.includes(gap.section);
-          continue;
-        }
-        if (!inSection || node.type !== "paragraph") continue;
-        const text = (node.content ?? []).map((c) => c.text ?? "").join("").trim();
-        if (!text) continue;
-        count += 1;
-        if (count === gap.paragraph) {
-          previewRef.highlightText([text], text);
-          return;
-        }
-      }
-    } catch {
-      /* malformed candidate content */
-    }
+    previewRef?.locateSectionParagraph(gap.section, gap.paragraph);
   }
 
   $effect(() => {
