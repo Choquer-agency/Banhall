@@ -54,12 +54,15 @@
     reportContent,
     reportId,
     rawQa = null,
+    onLocateGap,
   }: {
     agentOutputs?: string | null;
     reportContent?: string | null;
     reportId?: Id<"reports">;
     /** Pre-parsed qa object (candidate option view) — skips agentOutputs parsing. */
     rawQa?: unknown;
+    /** Jump to + highlight the gap's paragraph in the report (workspace only). */
+    onLocateGap?: (gap: { section: string; paragraph: number }) => void;
   } = $props();
 
   const scorecard = $derived.by((): QAScorecard | null => {
@@ -250,13 +253,31 @@
     <!-- Client follow-ups -->
     {#if scorecard.gaps_requiring_client_followup.length > 0}
       <div>
-        <p class="text-label mb-2.5">Follow-up questions for client</p>
-        <div class="space-y-2">
+        <p class="text-label mb-2.5">Client follow-ups</p>
+        <div class="space-y-1.5">
           {#each scorecard.gaps_requiring_client_followup as gap, i (i)}
-            <div class="rounded-lg border border-amber-200 bg-gap-bg px-3 py-2">
-              <p class="text-data text-gap-text">Section {gap.section} · Paragraph {gap.paragraph}</p>
-              <p class="mt-1 text-sm leading-relaxed text-gap-text">{gap.question}</p>
-            </div>
+            {#if onLocateGap}
+              <button
+                type="button"
+                onclick={() => onLocateGap({ section: gap.section, paragraph: gap.paragraph })}
+                title="Show this paragraph in the report"
+                class="group flex w-full items-start gap-2 rounded-lg border border-amber-200/70 bg-gap-bg px-2.5 py-2 text-left transition-colors hover:border-amber-300"
+              >
+                <svg class="mt-0.5 h-3.5 w-3.5 flex-none text-gap-text/50 transition-colors group-hover:text-gap-text" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span class="min-w-0">
+                  <span class="text-data block text-gap-text/70">{gap.section} · Paragraph {gap.paragraph}</span>
+                  <span class="mt-0.5 block text-xs leading-relaxed text-gap-text">{gap.question}</span>
+                </span>
+              </button>
+            {:else}
+              <div class="rounded-lg border border-amber-200/70 bg-gap-bg px-2.5 py-2">
+                <p class="text-data text-gap-text/70">{gap.section} · Paragraph {gap.paragraph}</p>
+                <p class="mt-0.5 text-xs leading-relaxed text-gap-text">{gap.question}</p>
+              </div>
+            {/if}
           {/each}
         </div>
       </div>

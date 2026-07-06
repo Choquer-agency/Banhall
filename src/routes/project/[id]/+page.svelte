@@ -206,6 +206,37 @@
     replaceSession = null;
   }
 
+  /** BNH-47: jump from a QA gap to its paragraph — find the Nth paragraph
+   * after the section's heading in the report JSON, then reuse the AI-ref
+   * highlight (scroll + flash). */
+  function locateGap(gap: { section: string; paragraph: number }) {
+    if (!report || !editorRef) return;
+    try {
+      const doc = JSON.parse(report.content);
+      const nodes: Array<{ type: string; content?: Array<{ text?: string; type: string }> }> =
+        doc.content ?? [];
+      let inSection = false;
+      let count = 0;
+      for (const node of nodes) {
+        if (node.type === "heading") {
+          const t = (node.content ?? []).map((c) => c.text ?? "").join("");
+          inSection = t.includes(gap.section);
+          continue;
+        }
+        if (!inSection || node.type !== "paragraph") continue;
+        const text = (node.content ?? []).map((c) => c.text ?? "").join("").trim();
+        if (!text) continue;
+        count += 1;
+        if (count === gap.paragraph) {
+          editorRef.highlightText([text], text);
+          return;
+        }
+      }
+    } catch {
+      /* malformed content — nothing to jump to */
+    }
+  }
+
   function handleAskAI(selection: { from: number; to: number; text: string }) {
     chatOpen = true; // make sure the panel is visible before the pill lands
     pendingChatHighlight = selection;
@@ -589,6 +620,7 @@
                 agentOutputs={generation?.agentOutputs}
                 reportContent={report.content}
                 reportId={report._id}
+                onLocateGap={locateGap}
               />
             {/if}
             <div

@@ -17,6 +17,7 @@
     reportContent = null,
     reportId = undefined,
     rawQa = null,
+    onLocateGap = undefined,
   }: {
     open: boolean;
     onClose: () => void;
@@ -27,6 +28,7 @@
     reportContent?: string | null;
     reportId?: Id<"reports">;
     rawQa?: unknown;
+    onLocateGap?: (gap: { section: string; paragraph: number }) => void;
   } = $props();
 </script>
 
@@ -55,6 +57,6 @@
     </button>
   </div>
   <div class="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-    <QAScorePanel {agentOutputs} {reportContent} {reportId} {rawQa} />
+    <QAScorePanel {agentOutputs} {reportContent} {reportId} {rawQa} {onLocateGap} />
   </div>
 </div>
