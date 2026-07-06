@@ -11,6 +11,7 @@ import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import {
+  abortStream,
   createThread,
   listUIMessages,
   saveMessage,
@@ -111,6 +112,8 @@ export const sendMessage = mutation({
     content: v.string(),
     threadId: v.optional(v.string()),
     highlight: v.optional(highlightValidator),
+    /** Force a fresh thread even when the report already has one ("New chat"). */
+    newThread: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
@@ -130,11 +133,13 @@ export const sendMessage = mutation({
         throw new Error("Thread not found");
       }
     } else {
-      const latest = await ctx.db
-        .query("agentChatThreads")
-        .withIndex("by_reportId", (q) => q.eq("reportId", args.reportId))
-        .order("desc")
-        .first();
+      const latest = args.newThread
+        ? null
+        : await ctx.db
+            .query("agentChatThreads")
+            .withIndex("by_reportId", (q) => q.eq("reportId", args.reportId))
+            .order("desc")
+            .first();
       if (latest) {
         agentThreadId = latest.agentThreadId;
       } else {
@@ -169,6 +174,29 @@ export const sendMessage = mutation({
     });
 
     return { threadId: agentThreadId, messageId };
+  },
+});
+
+/**
+ * Stop the in-flight assistant reply (the composer's Stop button). `order` is
+ * the streaming message's order — the reply shares its prompt's order, so the
+ * client can pass the last visible message's order whether the reply has
+ * started rendering or not. Returns false when there was nothing to abort
+ * (e.g. the stream finished, or hasn't been created yet).
+ */
+export const abortStreaming = mutation({
+  args: { threadId: v.string(), order: v.number() },
+  handler: async (ctx, args) => {
+    const thread = await threadRow(ctx, args.threadId);
+    if (!thread) throw new Error("Thread not found");
+    const project = await assertProjectOwner(ctx, thread.projectId);
+    if (!project) throw new Error("Not authorized");
+
+    return await abortStream(ctx, components.agent, {
+      threadId: args.threadId,
+      order: args.order,
+      reason: "Writer pressed stop",
+    });
   },
 });
 

@@ -39,6 +39,10 @@
   let viewportEl: HTMLDivElement | null = $state(null);
   let contentEl: HTMLDivElement | null = $state(null);
 
+  /** Content grew while scrolled up — powers ScrollButton's "New messages"
+   * pill. Cleared the moment the viewport is back at the bottom. */
+  let hasUnseen = $state(false);
+
   /** True while a smooth programmatic scroll is in flight, so its
    * intermediate scroll events don't read as the user scrolling away. */
   let animating = false;
@@ -55,11 +59,13 @@
       return; // stay pinned while the programmatic scroll lands
     }
     isAtBottom = dist <= threshold;
+    if (isAtBottom) hasUnseen = false;
   }
 
   export function scrollToBottom(behavior: ScrollBehavior = "smooth"): void {
     if (!viewportEl) return;
     isAtBottom = true;
+    hasUnseen = false;
     animating = behavior === "smooth";
     viewportEl.scrollTo({ top: viewportEl.scrollHeight, behavior });
   }
@@ -67,6 +73,9 @@
   setChatContainerContext({
     get isAtBottom() {
       return isAtBottom;
+    },
+    get hasUnseen() {
+      return hasUnseen;
     },
     scrollToBottom,
   });
@@ -81,8 +90,15 @@
     const ct = contentEl;
     if (!vp || !ct) return;
     vp.scrollTop = vp.scrollHeight;
+    let lastContentHeight = ct.scrollHeight;
     const ro = new ResizeObserver(() => {
-      if (isAtBottom) vp.scrollTop = vp.scrollHeight;
+      const grown = ct.scrollHeight > lastContentHeight + 1;
+      lastContentHeight = ct.scrollHeight;
+      if (isAtBottom) {
+        vp.scrollTop = vp.scrollHeight;
+      } else if (grown) {
+        hasUnseen = true; // new content arrived below the fold
+      }
     });
     ro.observe(ct);
     ro.observe(vp);

@@ -10,6 +10,9 @@ import { getContext, setContext } from "svelte";
 export interface ChatContainerContext {
   /** True while the viewport is pinned to (within threshold of) the bottom. */
   readonly isAtBottom: boolean;
+  /** True when content grew while the user was scrolled up (unseen messages);
+   * clears as soon as the viewport returns to the bottom. */
+  readonly hasUnseen: boolean;
   scrollToBottom: (behavior?: ScrollBehavior) => void;
 }
 

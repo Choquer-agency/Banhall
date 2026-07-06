@@ -7,16 +7,19 @@
   import ProposedEditCard from "$lib/components/chat/ProposedEditCard.svelte";
   import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import { fade } from "svelte/transition";
   import {
     ChatContainer,
     ScrollButton,
     Message,
     MessageContent,
     MessageAvatar,
+    MessageActions,
     PromptInput,
     PromptInputTextarea,
     PromptInputActions,
     Loader,
+    Suggestion,
   } from "$lib/components/chat/primitives";
   import {
     parseFileToText,
@@ -113,16 +116,54 @@
     };
   }
 
+  /** SR&ED-relevant conversation starters for the empty state. */
+  const STARTERS = [
+    "Tighten section 242's uncertainty framing",
+    "Find every mention of the prototype",
+    "Check this report for banned words",
+    "Make the work-performed section more chronological",
+  ];
+
+  const HINT_KEY = "banhall.chat.hintSeen";
+
+  /** 0ms transitions when the writer prefers reduced motion. */
+  function motionDuration(ms: number): number {
+    return typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? 0
+      : ms;
+  }
+
   const threadsQ = useQuery(api.chatV2.listThreads, () => ({ reportId }));
   let selectedThreadId = $state<string | null>(null);
 
-  // Single continuous thread per report — default to the newest.
+  /** True between "New chat" and the first send — keeps the auto-select
+   * effect from snapping back to the newest existing thread. */
+  let startingNewChat = $state(false);
+
+  // Default to the newest thread (unless the writer just started a new chat).
   $effect(() => {
     const threads = threadsQ.data;
-    if (selectedThreadId === null && threads && threads.length > 0) {
+    if (
+      selectedThreadId === null &&
+      !startingNewChat &&
+      threads &&
+      threads.length > 0
+    ) {
       selectedThreadId = threads[0].agentThreadId;
     }
   });
+
+  const threadTitle = $derived.by(() => {
+    if (startingNewChat || !selectedThreadId) return "New chat";
+    const t = threadsQ.data?.find((t) => t.agentThreadId === selectedThreadId);
+    return t?.title ?? "New chat";
+  });
+
+  function startNewChat() {
+    startingNewChat = true;
+    selectedThreadId = null;
+  }
 
   const ui = createUIMessages(
     api.chatV2.listMessages,
@@ -136,6 +177,7 @@
   );
 
   const sendMessage = useMutation(api.chatV2.sendMessage);
+  const abortStreaming = useMutation(api.chatV2.abortStreaming);
   const applyProposal = useMutation(api.chatV2.applyProposal);
   const rejectProposal = useMutation(api.chatV2.rejectProposal);
   const uploadDocument = useMutation(api.documents.uploadDocument);
@@ -143,7 +185,44 @@
 
   let input = $state("");
   let sending = $state(false);
+  let stopping = $state(false);
   let uploading = $state(false);
+
+  // Copy-to-clipboard feedback (assistant hover actions).
+  let copiedId = $state<string | null>(null);
+  let copyTimer: ReturnType<typeof setTimeout> | undefined;
+
+  async function copyMessage(id: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      copiedId = id;
+      clearTimeout(copyTimer);
+      copyTimer = setTimeout(() => (copiedId = null), 1600);
+    } catch (e) {
+      console.error("Copy failed", e);
+    }
+  }
+
+  // Keyboard hint under the composer — shown until the writer's first send
+  // (persisted so it never comes back once learned).
+  let showHint = $state(false);
+  $effect(() => {
+    try {
+      showHint = localStorage.getItem(HINT_KEY) !== "1";
+    } catch {
+      showHint = false;
+    }
+  });
+
+  function dismissHint() {
+    if (!showHint) return;
+    showHint = false;
+    try {
+      localStorage.setItem(HINT_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+  }
   let uploadError = $state<string | null>(null);
   let attachments = $state<
     { documentId: Id<"projectDocuments">; fileName: string; category: ContextCategoryId }[]
@@ -211,7 +290,7 @@
 
   async function sendText(text: string) {
     const trimmed = text.trim();
-    if ((!trimmed && !pendingHighlight) || sending) return;
+    if ((!trimmed && !pendingHighlight) || sending || isStreaming) return;
     sending = true;
     try {
       const res = await sendMessage({
@@ -219,11 +298,14 @@
         content: trimmed,
         ...(selectedThreadId ? { threadId: selectedThreadId } : {}),
         ...(pendingHighlight ? { highlight: pendingHighlight } : {}),
+        ...(startingNewChat ? { newThread: true } : {}),
       });
       selectedThreadId = res.threadId;
+      startingNewChat = false;
       input = "";
       attachments = [];
       onClearHighlight?.();
+      dismissHint();
       // Re-pin to the bottom even if the writer had scrolled up — a fresh
       // send should always bring their message (and the reply) into view.
       chatContainer?.scrollToBottom("instant");
@@ -306,6 +388,59 @@
           lastMessage.status === "streaming" &&
           !messageText(lastMessage)))
   );
+
+  // A reply is in flight (queued or token-streaming) — send becomes Stop.
+  const isStreaming = $derived(
+    !!lastMessage &&
+      (awaitingReply ||
+        (lastMessage.role === "assistant" &&
+          (lastMessage.status === "streaming" ||
+            lastMessage.status === "pending")))
+  );
+
+  /** Abort the in-flight reply. The reply shares its prompt's order, so the
+   * last message's order addresses the stream whether or not tokens have
+   * started rendering. */
+  async function stopGeneration() {
+    if (!selectedThreadId || !lastMessage || stopping) return;
+    stopping = true;
+    try {
+      await abortStreaming({
+        threadId: selectedThreadId,
+        order: lastMessage.order,
+      });
+    } catch (e) {
+      console.error("Failed to stop generation", e);
+    } finally {
+      stopping = false;
+    }
+  }
+
+  // ── Day separators ──────────────────────────────────────────────────────
+  function sameDay(a: number, b: number): boolean {
+    const da = new Date(a);
+    const db = new Date(b);
+    return (
+      da.getFullYear() === db.getFullYear() &&
+      da.getMonth() === db.getMonth() &&
+      da.getDate() === db.getDate()
+    );
+  }
+
+  function dayLabel(ts: number): string {
+    const d = new Date(ts);
+    const now = new Date();
+    const startOfDay = (x: Date) =>
+      new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86400000);
+    if (diffDays === 0) return "Today";
+    if (diffDays === 1) return "Yesterday";
+    return d.toLocaleDateString("en-US", {
+      month: "long",
+      day: "numeric",
+      ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" as const } : {}),
+    });
+  }
 </script>
 
 {#snippet proposalView(p: Proposal)}
@@ -492,32 +627,70 @@
     </PromptInputTextarea>
 
     <PromptInputActions>
-      <button
-        onclick={() => sendText(input)}
-        disabled={sending || (!input.trim() && !pendingHighlight)}
-        class="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy text-white transition-colors hover:bg-navy-light disabled:opacity-30"
-        title="Send"
-      >
-        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
-        </svg>
-      </button>
+      {#if isStreaming}
+        <button
+          onclick={stopGeneration}
+          disabled={stopping || !selectedThreadId}
+          class="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy text-white transition-colors hover:bg-navy-light disabled:opacity-50"
+          title="Stop generating"
+          aria-label="Stop generating"
+        >
+          <svg class="h-3 w-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <rect x="5" y="5" width="14" height="14" rx="2" />
+          </svg>
+        </button>
+      {:else}
+        <button
+          onclick={() => sendText(input)}
+          disabled={sending || (!input.trim() && !pendingHighlight)}
+          class="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy text-white transition-colors hover:bg-navy-light disabled:opacity-30"
+          title="Send"
+          aria-label="Send message"
+        >
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+          </svg>
+        </button>
+      {/if}
     </PromptInputActions>
   </PromptInput>
+
+  {#if showHint}
+    <p
+      transition:fade={{ duration: motionDuration(300) }}
+      class="pt-1.5 text-center text-[11px] text-gray-400"
+    >
+      Enter to send&nbsp;&nbsp;·&nbsp;&nbsp;Shift+Enter for new line
+    </p>
+  {/if}
 {/snippet}
 
 <div class="flex h-full flex-col bg-white">
-  <!-- Header -->
-  <div class="flex shrink-0 items-center gap-2 border-b border-chrome px-5 py-3.5">
+  <!-- Header (pr-12 clears the workspace's overlay close button) -->
+  <div class="flex shrink-0 items-center gap-2.5 border-b border-chrome py-2.5 pl-5 pr-12">
     <MessageAvatar>
       <ChatIcon class="h-3 w-3" />
     </MessageAvatar>
-    <span class="text-sm font-semibold text-navy">Assistant</span>
+    <div class="min-w-0 flex-1 leading-tight">
+      <span class="block text-sm font-semibold text-navy">Assistant</span>
+      <span class="block truncate text-[11px] text-gray-500">{threadTitle}</span>
+    </div>
+    <button
+      onclick={startNewChat}
+      disabled={isEmpty}
+      title="New chat"
+      aria-label="Start a new chat"
+      class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy disabled:pointer-events-none disabled:opacity-40"
+    >
+      <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+      </svg>
+    </button>
     {#if onToggleFull}
       <button
         onclick={onToggleFull}
         title={isFull ? "Exit full screen" : "Expand to full screen"}
-        class="ml-auto flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
+        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
       >
         {#if isFull}
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -533,10 +706,29 @@
   </div>
 
   {#if isEmpty}
-    <div class="flex flex-1 flex-col items-center justify-center px-6">
-      <h2 class="mb-5 text-center text-[19px] font-semibold text-navy">
+    <!-- Empty state: brand mark, capability blurb, starter suggestions -->
+    <div class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-8">
+      <span class="mb-4 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-navy text-white">
+        <ChatIcon class="h-5 w-5" />
+      </span>
+      <h2 class="text-center text-[19px] font-semibold text-navy">
         How can I help with this report?
       </h2>
+      <p class="mt-1.5 max-w-[320px] text-center text-xs leading-relaxed text-ink-muted">
+        I can tighten language, find passages, check compliance, and propose
+        edits — grounded in this report and its source documents.
+      </p>
+      <div class="mb-7 mt-6 flex w-full max-w-[340px] flex-col gap-1.5">
+        {#each STARTERS as starter (starter)}
+          <Suggestion
+            class="w-full justify-start rounded-lg px-3 py-2 text-left"
+            disabled={sending}
+            onclick={() => sendText(starter)}
+          >
+            {starter}
+          </Suggestion>
+        {/each}
+      </div>
       <div class="w-full">{@render composer()}</div>
     </div>
   {:else}
@@ -546,8 +738,16 @@
       viewportClass="px-5 py-4"
       contentClass="space-y-4"
     >
-      {#each messages as m (m.key)}
+      {#each messages as m, i (m.key)}
         {@const text = messageText(m)}
+        {@const prev = i > 0 ? messages[i - 1] : undefined}
+        {#if prev && !sameDay(prev._creationTime, m._creationTime)}
+          <div class="flex items-center gap-3 py-1" role="separator" aria-label={dayLabel(m._creationTime)}>
+            <span class="h-px flex-1 bg-line-soft"></span>
+            <span class="text-label">{dayLabel(m._creationTime)}</span>
+            <span class="h-px flex-1 bg-line-soft"></span>
+          </div>
+        {/if}
         {#if m.role === "user"}
           {@const split = splitWriterMessage(text)}
           <Message role="user">
@@ -562,7 +762,7 @@
           </Message>
         {:else if m.role === "assistant"}
           {@const own = grouped.byMessage.get(m.id) ?? []}
-          <Message role="assistant">
+          <Message role="assistant" class="group">
             {#if text}
               <MessageContent
                 markdown
@@ -573,6 +773,28 @@
             {#each own as p (p._id)}
               {@render proposalView(p)}
             {/each}
+            {#if text && m.status !== "streaming" && m.status !== "pending"}
+              <MessageActions>
+                <button
+                  type="button"
+                  onclick={() => copyMessage(m.id, text)}
+                  aria-label={copiedId === m.id ? "Copied" : "Copy message"}
+                  title={copiedId === m.id ? "Copied" : "Copy"}
+                  class="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
+                >
+                  {#if copiedId === m.id}
+                    <svg class="h-3.5 w-3.5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  {:else}
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <rect x="9" y="9" width="13" height="13" rx="2" />
+                      <path stroke-linecap="round" d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                    </svg>
+                  {/if}
+                </button>
+              </MessageActions>
+            {/if}
           </Message>
         {/if}
       {/each}
