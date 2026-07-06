@@ -572,36 +572,36 @@
             class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${chatOpen || qaOpen ? "pl-1 pr-6" : ""} ${dragging ? "" : "transition-[width] duration-300 ease-out"}`}
             style={`width: ${chatOpen || qaOpen ? `${chatRatio * 100}%` : "0%"}`}
           >
-            <!-- BNH-47: QA review panel — same rail, passive alternative to chat -->
-            {#if qaOpen}
-              <div
-                class="relative flex h-full flex-col overflow-hidden rounded-2xl border border-chrome bg-white"
-                role="dialog"
-                aria-label="QA review"
-              >
-                <div class="flex shrink-0 items-center gap-2 border-b border-chrome px-5 py-3.5">
-                  <span class="flex h-6 w-6 items-center justify-center rounded-full bg-navy text-white">
-                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                    </svg>
-                  </span>
-                  <span class="text-sm font-semibold text-navy">QA review</span>
-                  <button
-                    onclick={() => (qaOpen = false)}
-                    title="Close QA review"
-                    aria-label="Close QA review"
-                    class="ml-auto flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-navy"
-                  >
-                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-                <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-                  <QAScorePanel agentOutputs={generation?.agentOutputs} reportContent={report.content} reportId={report._id} defaultOpen />
-                </div>
+            <!-- BNH-47: QA review panel — same rail + same rise/fade as chat;
+                 stays mounted so its state survives close/reopen. -->
+            <div
+              class={`chat-rise absolute inset-x-6 inset-y-6 left-1 flex origin-bottom flex-col overflow-hidden rounded-2xl border border-chrome bg-white ${qaOpen ? "" : "is-closed"} ${chatOpen ? "hidden" : ""}`}
+              role="dialog"
+              aria-label="QA review"
+              inert={!qaOpen}
+            >
+              <div class="flex shrink-0 items-center gap-2 border-b border-chrome px-5 py-3.5">
+                <span class="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white">
+                  <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                </span>
+                <span class="text-sm font-semibold text-navy">QA review</span>
+                <button
+                  onclick={() => (qaOpen = false)}
+                  title="Close QA review"
+                  aria-label="Close QA review"
+                  class="ml-auto flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-navy"
+                >
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
-            {/if}
+              <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+                <QAScorePanel agentOutputs={generation?.agentOutputs} reportContent={report.content} reportId={report._id} defaultOpen />
+              </div>
+            </div>
             <div
               class={`chat-rise relative flex h-full origin-bottom flex-col overflow-hidden rounded-2xl border border-chrome bg-white ${chatOpen ? "" : "is-closed"} ${qaOpen ? "hidden" : ""}`}
               role="dialog"
@@ -668,10 +668,10 @@
             }}
             title="Open QA review"
             aria-label="Open QA review"
-            class="fixed bottom-6 right-20 z-[70] flex h-11 w-11 items-center justify-center rounded-full border border-line bg-white text-navy shadow-lg transition-transform hover:scale-105"
+            class="chat-pill-glow fixed bottom-6 right-20 z-[70] flex h-11 w-11 items-center justify-center rounded-full bg-primary text-white transition-transform hover:scale-105"
           >
             <svg class="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
             </svg>
           </button>
         {/if}
