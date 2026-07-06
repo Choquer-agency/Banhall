@@ -50,7 +50,7 @@
 
   /* Report column width — ONE knob for everywhere a report renders
      (workspace editor, candidate preview, version history). max-w-report. */
-  --container-report: 57.5rem;
+  --container-report: 67.5rem;
 
   --font-sans: "DM Sans Variable", "DM Sans", system-ui, sans-serif;
   --font-serif: Georgia, "Times New Roman", serif;
@@ -210,6 +210,32 @@ body {
   [data-dialog-overlay] {
     transition: none;
   }
+}
+
+/* ─── Form controls (design rule: focus/hover never change border WIDTH —
+   only color, animated; Tailwind focus rings suppressed app-wide) ────────── */
+
+input,
+textarea,
+select {
+  transition:
+    border-color 300ms ease,
+    background-color 300ms ease,
+    color 300ms ease;
+}
+
+input:hover:not(:focus):not(:disabled),
+textarea:hover:not(:focus):not(:disabled),
+select:hover:not(:focus):not(:disabled) {
+  border-color: var(--color-gray-300);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: none; /* kills ring growth from focus:ring-* utilities */
 }
 
 /* ─── Tiptap Editor Styles ─────────────────────────────────────────────────── */

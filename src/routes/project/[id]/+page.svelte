@@ -21,6 +21,7 @@
   import QAScorePanel from "$lib/components/editor/QAScorePanel.svelte";
   import QARailPanel from "$lib/components/qa/QARailPanel.svelte";
   import QALauncher from "$lib/components/qa/QALauncher.svelte";
+  import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import ChronologyTable from "$lib/components/editor/ChronologyTable.svelte";
   import FilesPanel from "$lib/components/editor/FilesPanel.svelte";
   import LogsPanel from "$lib/components/editor/LogsPanel.svelte";
@@ -666,19 +667,24 @@
 
         <!-- Launcher pills when the respective panel is closed -->
         {#if report && user && !chatOpen}
-          <button
-            in:scale={{ duration: 200, start: 0.6, delay: 240 }}
-            out:scale={{ duration: 150, start: 0.6 }}
-            onclick={() => {
-              qaOpen = false;
-              chatOpen = true;
-              railView = "chat";
-            }}
-            title="Open assistant"
-            class="chat-pill-glow fixed bottom-6 right-6 z-[70] flex h-11 w-11 items-center justify-center rounded-full bg-navy text-white transition-transform hover:scale-105"
-          >
-            <ChatIcon class="h-4.5 w-4.5" />
-          </button>
+          <Tooltip text="Open AI assistant" side="left" delayDuration={300}>
+            {#snippet children({ props })}
+              <button
+                {...props}
+                in:scale={{ duration: 200, start: 0.6, delay: 240 }}
+                out:scale={{ duration: 150, start: 0.6 }}
+                onclick={() => {
+                  qaOpen = false;
+                  chatOpen = true;
+                  railView = "chat";
+                }}
+                aria-label="Open AI assistant"
+                class="chat-pill-glow fixed bottom-6 right-6 z-[70] flex h-11 w-11 items-center justify-center rounded-full bg-navy text-white transition-transform hover:scale-105"
+              >
+                <ChatIcon class="h-4.5 w-4.5" />
+              </button>
+            {/snippet}
+          </Tooltip>
         {/if}
         {#if report && user && !qaOpen}
           <QALauncher

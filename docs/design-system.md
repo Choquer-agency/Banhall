@@ -63,7 +63,7 @@ values are legacy — replace on touch.
   **baseline rule** (`.nav-baseline`, teal fading right) as the signature.
   Only the report workspace (`project/[id]`) keeps a custom dense header.
 - **Report column**: anywhere a report renders (editor, candidate preview,
-  history) uses `max-w-report` (`--container-report`, 920px) — one knob.
+  history) uses `max-w-report` (`--container-report`, 1080px) — one knob.
 - **Global rail**: AppNav + PageBar inner containers are ALWAYS `max-w-7xl`
   (never per-page). Page `<main>` may be narrower for reading width
   (`max-w-3xl/4xl`), centered inside the same gutters; `px-6 pt-12`.
@@ -87,6 +87,12 @@ values are legacy — replace on touch.
    100/150/200).
 9. **Hover fills** on light surfaces use `primary-wash` — never gray washes.
    Destructive hovers stay red; dark-surface hovers stay white/alpha.
+10. **Form controls**: focus/hover NEVER change border width — border-color
+    only, animated (global rules in layout.css kill focus rings app-wide).
+    Required fields always show a red asterisk on the label (Input component
+    does this automatically from the `required` attr).
+11. **Icon-only controls get a Tooltip** (shared ui/Tooltip) — launcher
+    bubbles, hover actions, locate pins. Never a bare `title=`.
 
 ## Chat primitives
 

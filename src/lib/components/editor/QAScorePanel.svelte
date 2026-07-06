@@ -46,6 +46,7 @@
 
 <script lang="ts">
   import { useQuery, useMutation } from "convex-svelte";
+  import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
 
@@ -257,10 +258,13 @@
         <div class="space-y-1.5">
           {#each scorecard.gaps_requiring_client_followup as gap, i (i)}
             {#if onLocateGap}
+              {@const locate = onLocateGap}
+              <Tooltip text="Jump to this paragraph in the report" side="top" delayDuration={300}>
+                {#snippet children({ props })}
               <button
+                {...props}
                 type="button"
-                onclick={() => onLocateGap({ section: gap.section, paragraph: gap.paragraph })}
-                title="Show this paragraph in the report"
+                onclick={() => locate({ section: gap.section, paragraph: gap.paragraph })}
                 class="group flex w-full items-start gap-2 rounded-lg border border-amber-200/70 bg-gap-bg px-2.5 py-2 text-left transition-colors hover:border-amber-300"
               >
                 <svg class="mt-0.5 h-3.5 w-3.5 flex-none text-gap-text/50 transition-colors group-hover:text-gap-text" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -272,6 +276,8 @@
                   <span class="mt-0.5 block text-xs leading-relaxed text-gap-text">{gap.question}</span>
                 </span>
               </button>
+                {/snippet}
+              </Tooltip>
             {:else}
               <div class="rounded-lg border border-amber-200/70 bg-gap-bg px-2.5 py-2">
                 <p class="text-data text-gap-text/70">{gap.section} · Paragraph {gap.paragraph}</p>
@@ -312,7 +318,10 @@
             </span>
           {/if}
         </div>
-        <div class="mt-2.5 flex items-center gap-2">
+        <label class="mt-2.5 block text-xs font-medium text-gray-600" for="writer-review-score">
+          Your score<span class="ml-0.5 text-red-500" aria-hidden="true">*</span>
+        </label>
+        <div class="mt-1 flex items-center gap-2">
           <input
             id="writer-review-score"
             type="number"
@@ -326,18 +335,22 @@
           />
           <span class="text-xs text-gray-400">/ 100</span>
         </div>
+        <label class="mt-3 block text-xs font-medium text-gray-600" for="writer-review-comment">
+          Feedback<span class="ml-0.5 text-red-500" aria-hidden="true">*</span>
+        </label>
         <textarea
+          id="writer-review-comment"
           value={reviewComment}
           oninput={(e) => (draft = { score: reviewScore, comment: e.currentTarget.value })}
           rows="3"
+          required
           placeholder="What worked, what to fix…"
-          aria-label="Review comment"
-          class="mt-2 w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          class="mt-1 w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400"
         ></textarea>
         <button
           type="button"
           onclick={saveReview}
-          disabled={saving || reviewScore === "" || (hasReview && !dirty)}
+          disabled={saving || reviewScore === "" || reviewComment.trim() === "" || (hasReview && !dirty)}
           class="mt-2.5 w-full rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
         >
           {saving ? "Saving…" : hasReview ? (dirty ? "Update review" : "Saved") : "Save review"}

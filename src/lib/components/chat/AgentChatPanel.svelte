@@ -6,6 +6,7 @@
   import type { UIMessage } from "@convex-dev/agent";
   import ProposedEditCard from "$lib/components/chat/ProposedEditCard.svelte";
   import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
+  import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { fade } from "svelte/transition";
   import {
@@ -759,11 +760,13 @@
             {/each}
             {#if text && m.status !== "streaming" && m.status !== "pending"}
               <MessageActions>
+                <Tooltip text={copiedId === m.id ? "Copied!" : "Copy message"} side="bottom" delayDuration={300}>
+                  {#snippet children({ props })}
                 <button
+                  {...props}
                   type="button"
                   onclick={() => copyMessage(m.id, text)}
                   aria-label={copiedId === m.id ? "Copied" : "Copy message"}
-                  title={copiedId === m.id ? "Copied" : "Copy"}
                   class="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
                 >
                   {#if copiedId === m.id}
@@ -777,6 +780,8 @@
                     </svg>
                   {/if}
                 </button>
+                {/snippet}
+                </Tooltip>
               </MessageActions>
             {/if}
           </Message>

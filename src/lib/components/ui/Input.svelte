@@ -13,7 +13,9 @@
 
 <div class="flex flex-col gap-1.5">
   {#if label}
-    <label for={id} class="text-sm font-medium text-gray-700">{label}</label>
+    <label for={id} class="text-sm font-medium text-gray-700">
+      {label}{#if rest.required}<span class="ml-0.5 text-red-500" aria-hidden="true">*</span>{/if}
+    </label>
   {/if}
   <input
     {id}
