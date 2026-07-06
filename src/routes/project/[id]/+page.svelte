@@ -230,14 +230,14 @@
   let dragging = $state(false);
 
   $effect(() => {
+    // Restore once from locals only — reading component state here would make
+    // this effect re-run on every toggle and stomp the user's click.
     const r = localStorage.getItem("banhall_chat_ratio");
     if (r) chatRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, parseFloat(r)));
-    chatOpen = localStorage.getItem("banhall_chat_open") !== "0";
-    qaOpen = localStorage.getItem("banhall_qa_open") === "1";
-    if (qaOpen) {
-      chatOpen = false;
-      railView = "qa";
-    }
+    const savedQa = localStorage.getItem("banhall_qa_open") === "1";
+    chatOpen = !savedQa && localStorage.getItem("banhall_chat_open") !== "0";
+    qaOpen = savedQa;
+    if (savedQa) railView = "qa";
   });
   $effect(() => {
     localStorage.setItem("banhall_chat_ratio", String(chatRatio));

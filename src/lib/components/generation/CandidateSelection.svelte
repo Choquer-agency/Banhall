@@ -78,6 +78,46 @@
   const order = $derived.by(() => (candidates ? blindOrder(candidates) : []));
   // BNH-47: QA snapshot — minimised by default (blind-first, confirm-bias on demand).
   let qaOpen = $state(false);
+  // Drag-resizable rail, workspace parity (persisted).
+  const QA_MIN = 0.24;
+  const QA_MAX = 0.55;
+  let qaRatio = $state(0.34);
+  let qaDragging = $state(false);
+  let rootEl: HTMLDivElement | null = $state(null);
+
+  $effect(() => {
+    const r = localStorage.getItem("banhall_qa_ratio");
+    if (r) qaRatio = Math.min(QA_MAX, Math.max(QA_MIN, parseFloat(r)));
+  });
+  $effect(() => {
+    localStorage.setItem("banhall_qa_ratio", String(qaRatio));
+  });
+  $effect(() => {
+    function onMove(e: MouseEvent) {
+      if (!qaDragging || !rootEl) return;
+      const rect = rootEl.getBoundingClientRect();
+      qaRatio = Math.min(QA_MAX, Math.max(QA_MIN, (rect.right - e.clientX) / rect.width));
+    }
+    function onUp() {
+      if (qaDragging) {
+        qaDragging = false;
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+      }
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  });
+  function startQaDrag(e: MouseEvent) {
+    e.preventDefault();
+    qaDragging = true;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+  }
   let activePos = $state(0);
   let choosing = $state(false);
 
@@ -100,6 +140,7 @@
 </script>
 
 {#if candidates && candidates.length > 0 && current}
+  <div bind:this={rootEl} class="flex min-h-0 flex-1 overflow-hidden">
   <div class="min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto max-w-report px-8 py-8">
       <div class="mb-1 flex items-center gap-2">
@@ -162,27 +203,14 @@
         </div>
       {/if}
 
-      <!-- Selected candidate preview + shared QA rail (same card as the
-           workspace — BNH-47) -->
-      <div class="mt-5 flex items-start gap-3">
-        <div class="min-w-0 flex-1 rounded-2xl border border-gray-200 bg-white p-6">
-          <ReadOnlyEditor content={current.content} />
-        </div>
-        <aside
-          class="sticky top-[118px] h-[calc(100vh-140px)] flex-none overflow-hidden transition-[width] duration-300 ease-out"
-          style={`width: ${qaOpen ? "min(24rem, 34vw)" : "0rem"}`}
-        >
-          <QARailPanel
-            open={qaOpen}
-            onClose={() => (qaOpen = false)}
-            title={`QA — Option ${pos + 1}`}
-            rawQa={current.qa}
-          />
-        </aside>
+      <!-- Selected candidate preview -->
+      <div class="mt-5 rounded-2xl border border-gray-200 bg-white p-6">
+        <ReadOnlyEditor content={current.content} />
       </div>
 
       {#if !qaOpen}
-        <QALauncher onOpen={() => (qaOpen = true)} />
+        <!-- bottom offset clears the sticky action bar -->
+        <QALauncher bottom="5.5rem" onOpen={() => (qaOpen = true)} />
       {/if}
     </div>
 
@@ -209,5 +237,31 @@
         </button>
       </div>
     </div>
+  </div>
+
+  <!-- Draggable divider (workspace parity) -->
+  {#if qaOpen}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      onmousedown={startQaDrag}
+      title="Drag to resize"
+      class="group flex w-3 flex-none cursor-col-resize items-center justify-center"
+    >
+      <div class="h-10 w-1 rounded-full bg-gray-300 transition-colors group-hover:bg-primary"></div>
+    </div>
+  {/if}
+
+  <!-- QA rail — same motion + resize behaviour as the workspace assistant -->
+  <aside
+    class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${qaOpen ? "pl-1 pr-6" : ""} ${qaDragging ? "" : "transition-[width] duration-300 ease-out"}`}
+    style={`width: ${qaOpen ? `${qaRatio * 100}%` : "0%"}`}
+  >
+    <QARailPanel
+      open={qaOpen}
+      onClose={() => (qaOpen = false)}
+      title={`QA — Option ${pos + 1}`}
+      rawQa={current.qa}
+    />
+  </aside>
   </div>
 {/if}
