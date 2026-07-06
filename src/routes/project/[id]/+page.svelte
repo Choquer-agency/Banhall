@@ -218,6 +218,9 @@
   const CHAT_MAX = 0.55;
   let chatRatio = $state(0.42);
   let chatOpen = $state(true);
+  // BNH-47: QA rail panel — independent toggle; opening either closes the
+  // other so the right rail hosts one passive-review surface at a time.
+  let qaOpen = $state(false);
   let workspaceEl: HTMLDivElement | null = $state(null);
   let dragging = $state(false);
 
@@ -225,10 +228,13 @@
     const r = localStorage.getItem("banhall_chat_ratio");
     if (r) chatRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, parseFloat(r)));
     chatOpen = localStorage.getItem("banhall_chat_open") !== "0";
+    qaOpen = localStorage.getItem("banhall_qa_open") === "1";
+    if (qaOpen) chatOpen = false;
   });
   $effect(() => {
     localStorage.setItem("banhall_chat_ratio", String(chatRatio));
     localStorage.setItem("banhall_chat_open", chatOpen ? "1" : "0");
+    localStorage.setItem("banhall_qa_open", qaOpen ? "1" : "0");
   });
 
   $effect(() => {
@@ -532,9 +538,8 @@
                 onHoverComment={(id) => (hoveredCommentId = id)}
               />
 
-              <!-- QA Score -->
+              <!-- Supporting panels (QA moved to the right rail — BNH-47) -->
               <div class="mt-8 mb-12">
-                <QAScorePanel agentOutputs={generation?.agentOutputs} reportContent={report.content} reportId={report._id} />
                 <div class="mt-4">
                   <ChronologyTable agentOutputs={generation?.agentOutputs} />
                 </div>
@@ -547,7 +552,7 @@
           </div>
 
         <!-- Draggable divider -->
-        {#if report && user && chatOpen}
+        {#if report && user && (chatOpen || qaOpen)}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             onmousedown={startDrag}
@@ -564,11 +569,41 @@
              panel stays mounted so chat state survives close/reopen. -->
         {#if report && user}
           <aside
-            class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${chatOpen ? "pl-1 pr-6" : ""} ${dragging ? "" : "transition-[width] duration-300 ease-out"}`}
-            style={`width: ${chatOpen ? `${chatRatio * 100}%` : "0%"}`}
+            class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${chatOpen || qaOpen ? "pl-1 pr-6" : ""} ${dragging ? "" : "transition-[width] duration-300 ease-out"}`}
+            style={`width: ${chatOpen || qaOpen ? `${chatRatio * 100}%` : "0%"}`}
           >
+            <!-- BNH-47: QA review panel — same rail, passive alternative to chat -->
+            {#if qaOpen}
+              <div
+                class="relative flex h-full flex-col overflow-hidden rounded-2xl border border-chrome bg-white"
+                role="dialog"
+                aria-label="QA review"
+              >
+                <div class="flex shrink-0 items-center gap-2 border-b border-chrome px-5 py-3.5">
+                  <span class="flex h-6 w-6 items-center justify-center rounded-full bg-navy text-white">
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                    </svg>
+                  </span>
+                  <span class="text-sm font-semibold text-navy">QA review</span>
+                  <button
+                    onclick={() => (qaOpen = false)}
+                    title="Close QA review"
+                    aria-label="Close QA review"
+                    class="ml-auto flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:text-navy"
+                  >
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+                  <QAScorePanel agentOutputs={generation?.agentOutputs} reportContent={report.content} reportId={report._id} defaultOpen />
+                </div>
+              </div>
+            {/if}
             <div
-              class={`chat-rise relative flex h-full origin-bottom flex-col overflow-hidden rounded-2xl border border-chrome bg-white ${chatOpen ? "" : "is-closed"}`}
+              class={`chat-rise relative flex h-full origin-bottom flex-col overflow-hidden rounded-2xl border border-chrome bg-white ${chatOpen ? "" : "is-closed"} ${qaOpen ? "hidden" : ""}`}
               role="dialog"
               aria-label="AI assistant"
               inert={!chatOpen}
@@ -608,16 +643,36 @@
           </aside>
         {/if}
 
-        <!-- Launcher pill when the assistant is closed -->
+        <!-- Launcher pills when the respective panel is closed -->
         {#if report && user && !chatOpen}
           <button
             in:scale={{ duration: 200, start: 0.6, delay: 240 }}
             out:scale={{ duration: 150, start: 0.6 }}
-            onclick={() => (chatOpen = true)}
+            onclick={() => {
+              qaOpen = false;
+              chatOpen = true;
+            }}
             title="Open assistant"
             class="chat-pill-glow fixed bottom-6 right-6 z-[70] flex h-11 w-11 items-center justify-center rounded-full bg-navy text-white transition-transform hover:scale-105"
           >
             <ChatIcon class="h-4.5 w-4.5" />
+          </button>
+        {/if}
+        {#if report && user && !qaOpen}
+          <button
+            in:scale={{ duration: 200, start: 0.6, delay: 240 }}
+            out:scale={{ duration: 150, start: 0.6 }}
+            onclick={() => {
+              chatOpen = false;
+              qaOpen = true;
+            }}
+            title="Open QA review"
+            aria-label="Open QA review"
+            class="fixed bottom-6 right-20 z-[70] flex h-11 w-11 items-center justify-center rounded-full border border-line bg-white text-navy shadow-lg transition-transform hover:scale-105"
+          >
+            <svg class="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+            </svg>
           </button>
         {/if}
       </div>

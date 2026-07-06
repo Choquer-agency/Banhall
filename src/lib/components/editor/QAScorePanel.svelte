@@ -53,15 +53,25 @@
     agentOutputs,
     reportContent,
     reportId,
+    rawQa = null,
+    defaultOpen = false,
   }: {
     agentOutputs?: string | null;
     reportContent?: string | null;
     reportId?: Id<"reports">;
+    /** Pre-parsed qa object (candidate option view) — skips agentOutputs parsing. */
+    rawQa?: unknown;
+    /** Start expanded (rail/panel contexts). */
+    defaultOpen?: boolean;
   } = $props();
 
-  let isOpen = $state(false);
+  // svelte-ignore state_referenced_locally — initial-value capture is intended
+  let isOpen = $state(defaultOpen);
 
   const scorecard = $derived.by((): QAScorecard | null => {
+    if (rawQa && typeof rawQa === "object" && "overall_score" in (rawQa as object)) {
+      return normalize(rawQa as never);
+    }
     // Try agentOutputs first (new reports)
     if (agentOutputs) {
       try {
