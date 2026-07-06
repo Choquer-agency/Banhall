@@ -40,7 +40,7 @@
       <Tooltip.Content
         {side}
         sideOffset={6}
-        class="z-50 select-none rounded-md bg-gray-900 px-2 py-1 text-xs text-white shadow-md"
+        class="z-[110] select-none rounded-md bg-gray-900 px-2 py-1 text-xs text-white shadow-md"
       >
         {text}
       </Tooltip.Content>
