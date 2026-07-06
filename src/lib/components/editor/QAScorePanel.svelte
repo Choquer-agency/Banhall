@@ -259,25 +259,26 @@
           {#each scorecard.gaps_requiring_client_followup as gap, i (i)}
             {#if onLocateGap}
               {@const locate = onLocateGap}
-              <Tooltip text="Jump to this paragraph in the report" side="top" delayDuration={300}>
-                {#snippet children({ props })}
               <button
-                {...props}
                 type="button"
                 onclick={() => locate({ section: gap.section, paragraph: gap.paragraph })}
                 class="group flex w-full items-start gap-2 rounded-lg border border-amber-200/70 bg-gap-bg px-2.5 py-2 text-left transition-colors hover:border-amber-300"
               >
-                <svg class="mt-0.5 h-3.5 w-3.5 flex-none text-gap-text/50 transition-colors group-hover:text-gap-text" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
+                <Tooltip text="Jump to this paragraph" side="top" delayDuration={300}>
+                  {#snippet children({ props })}
+                    <span {...props} class="mt-0.5 flex-none">
+                      <svg class="h-3.5 w-3.5 text-gap-text/50 transition-colors group-hover:text-gap-text" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    </span>
+                  {/snippet}
+                </Tooltip>
                 <span class="min-w-0">
                   <span class="text-data block text-gap-text/70">{gap.section} · Paragraph {gap.paragraph}</span>
                   <span class="mt-0.5 block text-xs leading-relaxed text-gap-text">{gap.question}</span>
                 </span>
               </button>
-                {/snippet}
-              </Tooltip>
             {:else}
               <div class="rounded-lg border border-amber-200/70 bg-gap-bg px-2.5 py-2">
                 <p class="text-data text-gap-text/70">{gap.section} · Paragraph {gap.paragraph}</p>

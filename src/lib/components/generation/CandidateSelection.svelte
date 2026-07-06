@@ -84,6 +84,36 @@
   let qaRatio = $state(0.34);
   let qaDragging = $state(false);
   let rootEl: HTMLDivElement | null = $state(null);
+  let previewRef: ReadOnlyEditor | null = $state(null);
+
+  /** Jump the preview to a QA gap's paragraph (same locator as the workspace:
+   * Nth non-empty paragraph after the section heading). */
+  function locateGap(gap: { section: string; paragraph: number }) {
+    if (!current || !previewRef) return;
+    try {
+      const doc = JSON.parse(current.content);
+      const nodes: Array<{ type: string; content?: Array<{ text?: string }> }> = doc.content ?? [];
+      let inSection = false;
+      let count = 0;
+      for (const node of nodes) {
+        if (node.type === "heading") {
+          const t = (node.content ?? []).map((c) => c.text ?? "").join("");
+          inSection = t.includes(gap.section);
+          continue;
+        }
+        if (!inSection || node.type !== "paragraph") continue;
+        const text = (node.content ?? []).map((c) => c.text ?? "").join("").trim();
+        if (!text) continue;
+        count += 1;
+        if (count === gap.paragraph) {
+          previewRef.scrollToPosition(1, 1 + text.length, text);
+          return;
+        }
+      }
+    } catch {
+      /* malformed candidate content */
+    }
+  }
 
   $effect(() => {
     const r = localStorage.getItem("banhall_qa_ratio");
@@ -205,7 +235,7 @@
 
       <!-- Selected candidate preview -->
       <div class="mt-5 rounded-2xl border border-gray-200 bg-white p-6">
-        <ReadOnlyEditor content={current.content} />
+        <ReadOnlyEditor bind:this={previewRef} content={current.content} />
       </div>
 
       {#if !qaOpen}
@@ -261,6 +291,7 @@
       onClose={() => (qaOpen = false)}
       title={`QA — Option ${pos + 1}`}
       rawQa={current.qa}
+      onLocateGap={locateGap}
     />
   </aside>
   </div>
