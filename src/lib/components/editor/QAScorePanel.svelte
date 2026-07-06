@@ -1,8 +1,8 @@
 <!--
-  Port of src/components/editor/QAScorePanel.tsx.
-  Collapsible QA scorecard panel: AI section scores, CRA compliance, language
-  flags, client follow-up gaps, suggested improvements — plus the writer's own
-  human QA review (BNH-29). Renders nothing when no scorecard is available.
+  QA scorecard content (BNH-47) — rail-native, no chrome of its own: the
+  hosting QARailPanel provides header/close. Score gauge → per-section
+  breakdown → compliance → flags → gaps → improvements → writer review
+  (BNH-29). Renders an empty-state note when no scorecard is available.
 -->
 <script module lang="ts">
   interface QAScorecard {
@@ -54,19 +54,13 @@
     reportContent,
     reportId,
     rawQa = null,
-    defaultOpen = false,
   }: {
     agentOutputs?: string | null;
     reportContent?: string | null;
     reportId?: Id<"reports">;
     /** Pre-parsed qa object (candidate option view) — skips agentOutputs parsing. */
     rawQa?: unknown;
-    /** Start expanded (rail/panel contexts). */
-    defaultOpen?: boolean;
   } = $props();
-
-  // svelte-ignore state_referenced_locally — initial-value capture is intended
-  let isOpen = $state(defaultOpen);
 
   const scorecard = $derived.by((): QAScorecard | null => {
     if (rawQa && typeof rawQa === "object" && "overall_score" in (rawQa as object)) {
@@ -110,6 +104,9 @@
   let saving = $state(false);
 
   const overall = $derived(scorecard?.overall_score ?? 0);
+  const band = $derived(
+    overall >= 80 ? "text-green-600" : overall >= 60 ? "text-amber-600" : "text-red-600"
+  );
 
   // Show the saved review unless the writer is mid-edit (draft).
   const reviewScore = $derived(draft ? draft.score : myReview ? String(myReview.score) : "");
@@ -141,238 +138,197 @@
 </script>
 
 {#if scorecard}
-  <div class="card">
-    <!-- Toggle bar -->
-    <button
-      type="button"
-      onclick={() => (isOpen = !isOpen)}
-      class="flex w-full items-center justify-between rounded-xl px-5 py-3 text-left transition-colors hover:bg-primary-wash"
-    >
-      <div class="flex items-center gap-3">
-        <div
-          class={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${
-            overall >= 80
-              ? "bg-green-50 text-green-700"
-              : overall >= 60
-                ? "bg-amber-50 text-amber-700"
-                : "bg-red-50 text-red-700"
-          }`}
-        >
-          {overall}
+  <div class="flex flex-col gap-6">
+    <!-- Score gauge -->
+    <div class="flex items-center gap-4">
+      <div class="relative h-20 w-20 flex-none">
+        <svg viewBox="0 0 36 36" class="h-20 w-20 -rotate-90">
+          <circle cx="18" cy="18" r="15.5" fill="none" class="stroke-gray-100" stroke-width="3.5" />
+          <circle
+            cx="18" cy="18" r="15.5" fill="none"
+            class={`${band} transition-[stroke-dashoffset] duration-700 ease-out`}
+            stroke="currentColor" stroke-width="3.5" stroke-linecap="round"
+            stroke-dasharray={2 * Math.PI * 15.5}
+            stroke-dashoffset={2 * Math.PI * 15.5 * (1 - overall / 100)}
+          />
+        </svg>
+        <div class="absolute inset-0 flex items-center justify-center">
+          <span class={`text-xl font-bold tabular-nums ${band}`}>{overall}</span>
         </div>
-        <span class="text-sm font-medium text-gray-900">QA Score</span>
+      </div>
+      <div class="min-w-0">
+        <p class="text-label">AI QA score</p>
+        <p class="mt-0.5 text-sm text-gray-600">
+          {overall >= 80 ? "Strong draft" : overall >= 60 ? "Needs attention" : "Significant issues"} · out of 100
+        </p>
         {#if myReview}
-          <span class="rounded-full bg-navy/5 px-2 py-0.5 text-xs font-medium text-navy">
-            You: {myReview.score}
-          </span>
-        {/if}
-        {#if scorecard.gaps_requiring_client_followup.length > 0}
-          <span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
-            {scorecard.gaps_requiring_client_followup.length} gap{scorecard
-              .gaps_requiring_client_followup.length !== 1
-              ? "s"
-              : ""}
+          <span class="mt-1.5 inline-flex items-center gap-1 rounded-full bg-navy/5 px-2 py-0.5 text-xs font-medium text-navy">
+            Your score: {myReview.score}
           </span>
         {/if}
       </div>
-      <svg
-        class={`h-4 w-4 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        stroke-width="2"
-      >
-        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-      </svg>
-    </button>
+    </div>
 
-    <!-- Expanded panel -->
-    {#if isOpen}
-      <div class="border-t border-gray-100 px-5 py-4">
-        <!-- BNH-29: writer's human QA review (independent of the AI score) -->
-        {#if reportId}
-          <div class="mb-5 rounded-lg border border-gray-200 bg-gray-50 p-3">
-            <div class="flex items-center justify-between">
-              <p class="text-label">
-                Your review
-              </p>
-              <span class="text-[11px] text-gray-400">AI scored this {overall}/100</span>
-            </div>
-            <div class="mt-2 flex items-center gap-2">
-              <label class="text-xs text-gray-600" for="writer-review-score">Your score</label>
-              <input
-                id="writer-review-score"
-                type="number"
-                min="0"
-                max="100"
-                value={reviewScore}
-                oninput={(e) => (draft = { score: e.currentTarget.value, comment: reviewComment })}
-                placeholder="0–100"
-                class="w-20 rounded-md border border-gray-200 bg-white px-2 py-1 text-sm font-semibold text-navy focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
-              />
-              <span class="text-xs text-gray-400">/ 100</span>
-            </div>
-            <textarea
-              value={reviewComment}
-              oninput={(e) => (draft = { score: reviewScore, comment: e.currentTarget.value })}
-              rows="2"
-              placeholder="Comments on this report's quality (what worked, what to fix)…"
-              aria-label="Review comment"
-              class="mt-2 w-full resize-none rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
-            ></textarea>
-            <div class="mt-2 flex items-center gap-3">
-              <button
-                type="button"
-                onclick={saveReview}
-                disabled={saving || reviewScore === "" || (hasReview && !dirty)}
-                class="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
-              >
-                {saving ? "Saving…" : hasReview ? (dirty ? "Update review" : "Saved") : "Save review"}
-              </button>
-              {#if hasReview && !dirty && !saving}
-                <span class="inline-flex items-center gap-1 text-xs text-green-600">
-                  <svg
-                    class="h-3.5 w-3.5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                  >
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                  Recorded
-                </span>
-              {/if}
-            </div>
-          </div>
-        {/if}
-
-        <!-- Section scores -->
-        <div class="mb-5 grid grid-cols-3 gap-3">
-          {#each Object.entries(scorecard.section_scores) as [key, section] (key)}
-            <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
-              <div class="flex items-center justify-between">
-                <p class="text-xs font-medium text-gray-500">Section {key}</p>
-                <span
-                  class={`text-sm font-bold ${
-                    section.score >= 80
-                      ? "text-green-700"
-                      : section.score >= 60
-                        ? "text-amber-700"
-                        : "text-red-700"
-                  }`}
-                >
-                  {section.score}
-                </span>
+    <!-- Per-section breakdown -->
+    <div>
+      <p class="text-label mb-2.5">Sections</p>
+      <div class="flex flex-col gap-3">
+        {#each Object.entries(scorecard.section_scores) as [key, section] (key)}
+          {@const c = section.score >= 80 ? "bg-green-500" : section.score >= 60 ? "bg-amber-500" : "bg-red-500"}
+          <div class="rounded-lg border border-line-soft px-3 py-2.5">
+            <div class="flex items-center gap-3">
+              <span class="text-data w-8 flex-none font-semibold text-gray-700">{key}</span>
+              <div class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-gray-100">
+                <div class={`h-full rounded-full ${c} transition-[width] duration-700 ease-out`} style={`width: ${section.score}%`}></div>
               </div>
-              {#if section.issues.length > 0}
-                <ul class="mt-2 space-y-1">
-                  {#each section.issues as issue, i (i)}
-                    <li class="flex items-start gap-1.5 text-xs text-red-600">
-                      <span class="mt-1 h-1 w-1 flex-shrink-0 rounded-full bg-red-400"></span>
-                      {issue}
-                    </li>
-                  {/each}
-                </ul>
+              <span class="text-data w-7 flex-none text-right font-semibold text-gray-800">{section.score}</span>
+            </div>
+            {#if section.issues.length > 0 || section.strengths.length > 0}
+              <ul class="mt-2 space-y-1">
+                {#each section.issues as issue, i (`i-${i}`)}
+                  <li class="flex items-start gap-1.5 text-xs leading-relaxed text-red-600">
+                    <span class="mt-1.5 h-1 w-1 flex-none rounded-full bg-red-400"></span>
+                    {issue}
+                  </li>
+                {/each}
+                {#each section.strengths as str, i (`s-${i}`)}
+                  <li class="flex items-start gap-1.5 text-xs leading-relaxed text-green-700">
+                    <span class="mt-1.5 h-1 w-1 flex-none rounded-full bg-green-500"></span>
+                    {str}
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </div>
+
+    <!-- CRA compliance -->
+    {#if Object.keys(scorecard.cra_compliance).length > 0}
+      <div>
+        <p class="text-label mb-2.5">CRA compliance</p>
+        <div class="flex flex-wrap gap-1.5">
+          {#each Object.entries(scorecard.cra_compliance) as [key, value] (key)}
+            <span
+              class={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
+                value ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
+              }`}
+            >
+              {#if value}
+                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              {:else}
+                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
               {/if}
-              {#if section.strengths.length > 0}
-                <ul class="mt-2 space-y-1">
-                  {#each section.strengths as str, i (i)}
-                    <li class="flex items-start gap-1.5 text-xs text-green-600">
-                      <span class="mt-1 h-1 w-1 flex-shrink-0 rounded-full bg-green-400"></span>
-                      {str}
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
+              {key.replace(/_/g, " ")}
+            </span>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
+    <!-- Language flags -->
+    {#if scorecard.ai_language_flags.length > 0 || scorecard.superlative_flags.length > 0}
+      <div>
+        <p class="text-label mb-2.5">Language flags</p>
+        <div class="flex flex-wrap gap-1.5">
+          {#each scorecard.ai_language_flags as flag, i (`ai-${i}`)}
+            <span class="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700">{flag}</span>
+          {/each}
+          {#each scorecard.superlative_flags as flag, i (`sup-${i}`)}
+            <span class="rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">{flag}</span>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
+    <!-- Client follow-ups -->
+    {#if scorecard.gaps_requiring_client_followup.length > 0}
+      <div>
+        <p class="text-label mb-2.5">Follow-up questions for client</p>
+        <div class="space-y-2">
+          {#each scorecard.gaps_requiring_client_followup as gap, i (i)}
+            <div class="rounded-lg border border-amber-200 bg-gap-bg px-3 py-2">
+              <p class="text-data text-gap-text">Section {gap.section} · ¶{gap.paragraph}</p>
+              <p class="mt-1 text-sm leading-relaxed text-gap-text">{gap.question}</p>
             </div>
           {/each}
         </div>
-
-        <!-- CRA Compliance -->
-        <div class="mb-4">
-          <p class="text-label mb-2">
-            CRA Compliance
-          </p>
-          <div class="flex flex-wrap gap-2">
-            {#each Object.entries(scorecard.cra_compliance) as [key, value] (key)}
-              <span
-                class={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                  value ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
-                }`}
-              >
-                {#if value}
-                  <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                {:else}
-                  <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                {/if}
-                {key.replace(/_/g, " ")}
-              </span>
-            {/each}
-          </div>
-        </div>
-
-        <!-- Flags -->
-        {#if scorecard.ai_language_flags.length > 0 || scorecard.superlative_flags.length > 0}
-          <div class="mb-4">
-            <p class="text-label mb-2">
-              Language Flags
-            </p>
-            <div class="flex flex-wrap gap-1.5">
-              {#each scorecard.ai_language_flags as flag, i (`ai-${i}`)}
-                <span class="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
-                  {flag}
-                </span>
-              {/each}
-              {#each scorecard.superlative_flags as flag, i (`sup-${i}`)}
-                <span class="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-700">
-                  {flag}
-                </span>
-              {/each}
-            </div>
-          </div>
-        {/if}
-
-        <!-- Gaps -->
-        {#if scorecard.gaps_requiring_client_followup.length > 0}
-          <div class="mb-4">
-            <p class="text-label mb-2">
-              Follow-up Questions for Client
-            </p>
-            <div class="space-y-2">
-              {#each scorecard.gaps_requiring_client_followup as gap, i (i)}
-                <div class="rounded-lg border border-amber-200 bg-gap-bg px-3 py-2">
-                  <p class="text-xs font-medium text-gap-text">
-                    Section {gap.section}, Paragraph {gap.paragraph}
-                  </p>
-                  <p class="mt-0.5 text-sm text-gap-text">{gap.question}</p>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/if}
-
-        <!-- Improvements -->
-        {#if scorecard.suggested_improvements.length > 0}
-          <div>
-            <p class="text-label mb-2">
-              Suggested Improvements
-            </p>
-            <ul class="space-y-1">
-              {#each scorecard.suggested_improvements as imp, i (i)}
-                <li class="flex items-start gap-1.5 text-xs text-gray-600">
-                  <span class="mt-1 h-1 w-1 flex-shrink-0 rounded-full bg-gray-400"></span>
-                  {imp}
-                </li>
-              {/each}
-            </ul>
-          </div>
-        {/if}
       </div>
     {/if}
+
+    <!-- Suggested improvements -->
+    {#if scorecard.suggested_improvements.length > 0}
+      <div>
+        <p class="text-label mb-2.5">Suggested improvements</p>
+        <ul class="space-y-1.5">
+          {#each scorecard.suggested_improvements as imp, i (i)}
+            <li class="flex items-start gap-1.5 text-xs leading-relaxed text-gray-600">
+              <span class="mt-1.5 h-1 w-1 flex-none rounded-full bg-gray-400"></span>
+              {imp}
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
+
+    <!-- BNH-29: writer's own review — after reading the AI's take -->
+    {#if reportId}
+      <div class="border-t border-line-soft pt-5">
+        <div class="flex items-baseline justify-between">
+          <p class="text-label">Your review</p>
+          {#if hasReview && !dirty && !saving}
+            <span class="inline-flex items-center gap-1 text-xs text-green-600">
+              <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              Recorded
+            </span>
+          {/if}
+        </div>
+        <div class="mt-2.5 flex items-center gap-2">
+          <input
+            id="writer-review-score"
+            type="number"
+            min="0"
+            max="100"
+            value={reviewScore}
+            oninput={(e) => (draft = { score: e.currentTarget.value, comment: reviewComment })}
+            placeholder="0–100"
+            aria-label="Your score out of 100"
+            class="w-20 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-navy focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          <span class="text-xs text-gray-400">/ 100</span>
+        </div>
+        <textarea
+          value={reviewComment}
+          oninput={(e) => (draft = { score: reviewScore, comment: e.currentTarget.value })}
+          rows="3"
+          placeholder="What worked, what to fix…"
+          aria-label="Review comment"
+          class="mt-2 w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+        ></textarea>
+        <button
+          type="button"
+          onclick={saveReview}
+          disabled={saving || reviewScore === "" || (hasReview && !dirty)}
+          class="mt-2.5 w-full rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+        >
+          {saving ? "Saving…" : hasReview ? (dirty ? "Update review" : "Saved") : "Save review"}
+        </button>
+      </div>
+    {/if}
+  </div>
+{:else}
+  <div class="flex flex-col items-center gap-2 py-10 text-center">
+    <svg class="h-8 w-8 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+    </svg>
+    <p class="text-sm text-gray-500">No QA scorecard for this report yet.</p>
+    <p class="text-xs text-gray-400">Scores appear after the next generation.</p>
   </div>
 {/if}
