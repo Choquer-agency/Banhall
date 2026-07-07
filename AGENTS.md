@@ -3,7 +3,7 @@
 The frontend was migrated off Next.js/React on 2026-07-02. Do not write JSX,
 React hooks, or Next.js APIs. **Read `docs/svelte-migration.md` before any
 frontend work** — it has the stack, React→Svelte conventions, convex-svelte
-idioms, and post-cutover gotchas (e.g. exportDocx is not SSR-safe). Routes
+idioms, and post-cutover gotchas (e.g. exportTemplateDocx is not SSR-safe). Routes
 live in `src/routes/`, components in `src/lib/components/`. Visual work
 follows the design system — tokens in `src/routes/layout.css`, rules in
 `docs/design-system.md`, live at `/styleguide`; use type roles + the

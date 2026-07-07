@@ -76,7 +76,7 @@ on disk as the porting reference until parity; SvelteKit app lives in
 - Already ported (use, don't recreate): ui/Button, ui/Badge, ui/Input, ui/ChatIcon,
   ui/IconAction, ui/MenuToggleIcon, ui/Header, BuildStamp, dashboard/ProjectCard;
   routes: `/` `/login` `/dashboard`; layout with setupConvex + setupConvexAuth.
-- Pure TS libs stayed at `$lib`: parseDocument, contextCategories, exportDocx,
+- Pure TS libs stayed at `$lib`: parseDocument, contextCategories, exportTemplateDocx,
   tiptapConfig, utils(cn).
 - Global CSS: `src/routes/layout.css` (tokens: canvas/chrome/navy/primary/gap-*;
   tiptap + chat styles already ported).
@@ -99,7 +99,7 @@ on disk as the porting reference until parity; SvelteKit app lives in
 
 ## Post-cutover notes
 
-- `$lib/exportDocx` is NOT SSR-safe — always lazy `await import(...)` in handlers.
+- `$lib/exportTemplateDocx` is NOT SSR-safe — always lazy `await import(...)` in handlers.
 - `$lib/chat/agentInternal.ts` deep-imports @convex-dev/agent dist internals —
   re-verify paths on any agent version bump.
 - Vercel dashboard (user action at deploy): framework preset → SvelteKit,
