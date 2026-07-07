@@ -516,3 +516,131 @@ export const modelStats = query({
     return { total, overall, mine, recommendation };
   },
 });
+
+// ─── BNH-48: writer's per-option scores on the selection screen ──────────────
+
+/** Upsert the writer's 1–10 score for a candidate option. Model/label/QA score
+ *  are copied onto the row because candidates are deleted after selection. */
+export const scoreCandidate = mutation({
+  args: {
+    candidateId: v.id("reportCandidates"),
+    score: v.number(),
+    optionPosition: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+    if (!Number.isInteger(args.score) || args.score < 1 || args.score > 10) {
+      throw new Error("Score must be a whole number from 1 to 10");
+    }
+
+    const candidate = await ctx.db.get(args.candidateId);
+    if (!candidate) throw new Error("Candidate not found");
+    const project = await ctx.db.get(candidate.projectId);
+    if (!project || project.createdBy !== userId) {
+      throw new Error("Not authorized");
+    }
+
+    let qaScore: number | undefined;
+    try {
+      qaScore = JSON.parse(candidate.agentOutputs)?.qa?.overall_score ?? undefined;
+    } catch {
+      /* no QA score available */
+    }
+
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("candidateScores")
+      .withIndex("by_user_and_candidateId", (q) =>
+        q.eq("userId", userId).eq("candidateId", args.candidateId)
+      )
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        score: args.score,
+        optionPosition: args.optionPosition,
+        updatedAt: now,
+      });
+      return;
+    }
+    await ctx.db.insert("candidateScores", {
+      projectId: candidate.projectId,
+      generationId: candidate.generationId,
+      candidateId: args.candidateId,
+      optionPosition: args.optionPosition,
+      model: candidate.model,
+      label: candidate.label,
+      ...(qaScore !== undefined ? { qaScore } : {}),
+      userId,
+      score: args.score,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+/** The signed-in writer's scores for the latest generation (selection UI). */
+export const getMyCandidateScores = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
+    const project = await assertProjectOwner(ctx, args.projectId);
+    if (!project) return [];
+    const gen = await ctx.db
+      .query("generations")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .first();
+    if (!gen) return [];
+    const scores = await ctx.db
+      .query("candidateScores")
+      .withIndex("by_generationId", (q) => q.eq("generationId", gen._id))
+      .collect();
+    return scores
+      .filter((s) => s.userId === userId)
+      .map((s) => ({ candidateId: s.candidateId, score: s.score }));
+  },
+});
+
+/** Post-selection comparison view: every scored option of the latest
+ *  generation with the model revealed, plus which one was chosen. */
+export const getCandidateScoreSummary = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const project = await assertProjectOwner(ctx, args.projectId);
+    if (!project) return null;
+    const gen = await ctx.db
+      .query("generations")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .first();
+    if (!gen) return null;
+
+    const scores = await ctx.db
+      .query("candidateScores")
+      .withIndex("by_generationId", (q) => q.eq("generationId", gen._id))
+      .collect();
+    if (scores.length === 0) return null;
+
+    const selections = await ctx.db
+      .query("modelSelections")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const chosenModel = selections.find((s) => s.generationId === gen._id)?.model ?? null;
+
+    return {
+      chosenModel,
+      rows: scores
+        .sort((a, b) => a.optionPosition - b.optionPosition)
+        .map((s) => ({
+          optionPosition: s.optionPosition,
+          model: s.model,
+          label: s.label,
+          score: s.score,
+          qaScore: s.qaScore ?? null,
+          chosen: s.model === chosenModel,
+        })),
+    };
+  },
+});

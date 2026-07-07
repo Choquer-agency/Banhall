@@ -7,6 +7,7 @@
   import Button from "$lib/components/ui/Button.svelte";
   import ProjectCard from "$lib/components/dashboard/ProjectCard.svelte";
   import AppNav from "$lib/components/ui/AppNav.svelte";
+  import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { slide } from "svelte/transition";
@@ -83,6 +84,59 @@
   let search = $state("");
   const expanded = new SvelteSet<string>();
 
+  // BNH-49: extra sorts + attribute filters, preserved for the session.
+  type SortBy = "client" | "created" | "updated" | "viewed";
+  const SORTS: { value: SortBy; label: string }[] = [
+    { value: "client", label: "Client name" },
+    { value: "created", label: "Recently created" },
+    { value: "updated", label: "Recently edited" },
+    { value: "viewed", label: "Recently viewed" },
+  ];
+  // string (not SortBy) so it can bind:value into SelectInput; SORTS gates values.
+  let sortBy = $state<string>("client");
+  let filterWriter = $state("all");
+  let filterInterviewer = $state("all");
+  let filterIndustry = $state("all");
+
+  const lastViewedQ = useQuery(api.reportViews.getLastViewedMap, () =>
+    auth.isAuthenticated ? {} : "skip"
+  );
+  const lastViewed = $derived(lastViewedQ.data ?? {});
+
+  const VIEW_PREFS_KEY = "banhall_dashboard_view";
+  let viewPrefsLoaded = false;
+  $effect(() => {
+    if (viewPrefsLoaded) return;
+    viewPrefsLoaded = true;
+    try {
+      const raw = sessionStorage.getItem(VIEW_PREFS_KEY);
+      if (!raw) return;
+      const v = JSON.parse(raw);
+      if (SORTS.some((s) => s.value === v.sortBy)) sortBy = v.sortBy;
+      if (typeof v.filterWriter === "string") filterWriter = v.filterWriter;
+      if (typeof v.filterInterviewer === "string") filterInterviewer = v.filterInterviewer;
+      if (typeof v.filterIndustry === "string") filterIndustry = v.filterIndustry;
+    } catch {
+      /* stale prefs are disposable */
+    }
+  });
+  $effect(() => {
+    sessionStorage.setItem(
+      VIEW_PREFS_KEY,
+      JSON.stringify({ sortBy, filterWriter, filterInterviewer, filterIndustry })
+    );
+  });
+
+  function distinct(values: (string | undefined)[]): string[] {
+    return [...new Set(values.filter((v): v is string => Boolean(v?.trim())))].sort(
+      (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })
+    );
+  }
+
+  function withAll(values: string[]): { value: string; label: string }[] {
+    return [{ value: "all", label: "All" }, ...values.map((v) => ({ value: v, label: v }))];
+  }
+
   function toggle(key: string) {
     if (expanded.has(key)) expanded.delete(key);
     else expanded.add(key);
@@ -119,7 +173,33 @@
         (p.writer ?? "").toLowerCase().includes(q)
     )
   );
-  const groups = $derived(groupByCompanyAndYear(searched));
+  // BNH-49: attribute filters apply after status + search.
+  const writers = $derived(distinct((projects ?? []).map((p) => p.writer)));
+  const interviewers = $derived(distinct((projects ?? []).map((p) => p.interviewer)));
+  const industries = $derived(distinct((projects ?? []).map((p) => p.industry)));
+  const attrFiltered = $derived(
+    searched.filter(
+      (p) =>
+        (filterWriter === "all" || (p.writer ?? "") === filterWriter) &&
+        (filterInterviewer === "all" || (p.interviewer ?? "") === filterInterviewer) &&
+        (filterIndustry === "all" || (p.industry ?? "") === filterIndustry)
+    )
+  );
+  const attrFiltersActive = $derived(
+    filterWriter !== "all" || filterInterviewer !== "all" || filterIndustry !== "all"
+  );
+
+  const groups = $derived(groupByCompanyAndYear(attrFiltered));
+  // Non-default sorts show a flat, most-recent-first grid instead of the
+  // company → fiscal-year tree (a recency ordering has no meaning inside it).
+  const flatSorted = $derived.by(() => {
+    const arr = [...attrFiltered];
+    if (sortBy === "created") arr.sort((a, b) => b.createdAt - a.createdAt);
+    else if (sortBy === "updated") arr.sort((a, b) => b.updatedAt - a.updatedAt);
+    else if (sortBy === "viewed")
+      arr.sort((a, b) => (lastViewed[b._id] ?? 0) - (lastViewed[a._id] ?? 0));
+    return arr;
+  });
   // Default collapsed; searching forces everything open so matches are visible.
   const isOpen = (key: string) => q.length > 0 || expanded.has(key);
 </script>
@@ -219,6 +299,44 @@
             {/if}
           {/each}
         </div>
+
+        <!-- BNH-49: sort + attribute filters (session-preserved) -->
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <label class="flex items-center gap-1.5 text-xs text-gray-400">
+            Sort
+            <SelectInput size="sm" bind:value={sortBy} items={SORTS} class="w-44" />
+          </label>
+          {#if writers.length > 1}
+            <label class="flex items-center gap-1.5 text-xs text-gray-400">
+              Writer
+              <SelectInput size="sm" bind:value={filterWriter} items={withAll(writers)} class="w-40" />
+            </label>
+          {/if}
+          {#if interviewers.length > 0}
+            <label class="flex items-center gap-1.5 text-xs text-gray-400">
+              Interviewer
+              <SelectInput size="sm" bind:value={filterInterviewer} items={withAll(interviewers)} class="w-40" />
+            </label>
+          {/if}
+          {#if industries.length > 0}
+            <label class="flex items-center gap-1.5 text-xs text-gray-400">
+              Industry
+              <SelectInput size="sm" bind:value={filterIndustry} items={withAll(industries)} class="w-40" />
+            </label>
+          {/if}
+          {#if attrFiltersActive}
+            <button
+              onclick={() => {
+                filterWriter = "all";
+                filterInterviewer = "all";
+                filterIndustry = "all";
+              }}
+              class="text-xs text-primary hover:underline"
+            >
+              Clear filters
+            </button>
+          {/if}
+        </div>
       {/if}
 
       <!-- Project grid -->
@@ -231,6 +349,20 @@
           <p class="text-sm text-gray-400">No {filter.replace("_", " ")} projects.</p>
           <button onclick={() => (filter = "all")} class="mt-2 text-xs text-primary hover:underline">
             Show all projects
+          </button>
+        </div>
+      {:else if attrFiltered.length === 0 && attrFiltersActive}
+        <div class="mt-12 text-center">
+          <p class="text-sm text-gray-400">No projects match the current filters.</p>
+          <button
+            onclick={() => {
+              filterWriter = "all";
+              filterInterviewer = "all";
+              filterIndustry = "all";
+            }}
+            class="mt-2 text-xs text-primary hover:underline"
+          >
+            Clear filters
           </button>
         </div>
       {:else if searched.length === 0 && q}
@@ -252,6 +384,13 @@
           <a href="/project/new" class="mt-4 inline-block">
             <Button>Create your first project</Button>
           </a>
+        </div>
+      {:else if sortBy !== "client"}
+        <!-- BNH-49: recency sorts render a flat, most-recent-first grid -->
+        <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {#each flatSorted as project (project._id)}
+            <ProjectCard {project} />
+          {/each}
         </div>
       {:else}
         <!-- BNH-36: company (A→Z) → fiscal year → report cards -->

@@ -23,6 +23,7 @@
   import QALauncher from "$lib/components/qa/QALauncher.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import ChronologyTable from "$lib/components/editor/ChronologyTable.svelte";
+  import ModelTestSummary from "$lib/components/editor/ModelTestSummary.svelte";
   import FilesPanel from "$lib/components/editor/FilesPanel.svelte";
   import LogsPanel from "$lib/components/editor/LogsPanel.svelte";
   import CommentOverlay from "$lib/components/comments/CommentOverlay.svelte";
@@ -30,6 +31,8 @@
   import AgentChatPanel from "$lib/components/chat/AgentChatPanel.svelte";
   import VersionHistory from "$lib/components/history/VersionHistory.svelte";
   import EditableText from "$lib/components/project/EditableText.svelte";
+  import PdReviewReport from "$lib/components/review-pd/PdReviewReport.svelte";
+  import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import IndustryField from "$lib/components/project/IndustryField.svelte";
   import FiscalYearField from "$lib/components/project/FiscalYearField.svelte";
 
@@ -60,8 +63,13 @@
   const viewSummaryQ = useQuery(api.reportViews.getViewSummary, () =>
     auth.isAuthenticated ? { projectId } : "skip"
   );
+  // BNH-39: review-mode projects show the AI feedback report on the written PD.
+  const pdReviewQ = useQuery(api.pdReviews.getLatestPdReview, () =>
+    auth.isAuthenticated ? { projectId } : "skip"
+  );
 
   const generateReport = useMutation(api.projects.scheduleGenerateReport);
+  const logPdReviewEvent = useMutation(api.pdReviews.logPdReviewEvent);
   const updateReport = useMutation(api.reports.updateReportContent);
   const createSnapshot = useMutation(api.snapshots.createManualSnapshot);
   const markEditApplied = useMutation(api.chat.markProposedEditApplied);
@@ -74,6 +82,7 @@
   const transcript = $derived(transcriptQ.data);
   const user = $derived(userQ.data);
   const viewSummary = $derived(viewSummaryQ.data);
+  const pdReview = $derived(pdReviewQ.data);
 
   let editorRef: Editor | null = $state(null);
   let lastSnapshotAt = 0;
@@ -347,15 +356,52 @@
 
   // BNH-45: writer-tunable report length (client email — shorter for quick
   // review, full to write right up to the CRA line limits).
-  let lengthTarget = $state<"concise" | "standard" | "full">("standard");
+  // string (not the literal union) so it can bind:value into SelectInput;
+  // the items list gates the values. Cast where the mutation needs the union.
+  let lengthTarget = $state<string>("standard");
 
-  function handleRegenerate() {
+  // BNH-52: a completed test never re-runs silently — confirm modal first,
+  // then the mutation is called with force. Prior results stay (report
+  // versions + "generated" snapshots + generation rows are never deleted).
+  let confirmRegenerate = $state<"transcript" | "review" | null>(null);
+  const hasCompletedGeneration = $derived(
+    generation?.status === "completed" || generation?.status === "awaiting_selection"
+  );
+
+  function runGenerate(source: "transcript" | "review", force: boolean) {
     if (!transcript) return;
+    confirmRegenerate = null;
+    if (source === "review") {
+      // BNH-39: comparison draft from the review report — logged, then the
+      // normal generation flow takes over.
+      logPdReviewEvent({
+        projectId,
+        ...(pdReview ? { reviewId: pdReview._id } : {}),
+        action: "generate_from_review",
+      }).catch(() => {});
+    }
     generateReport({
       projectId,
       transcriptId: transcript._id,
-      lengthTarget,
+      lengthTarget: lengthTarget as "concise" | "standard" | "full",
+      ...(force ? { force: true } : {}),
     }).catch(console.error);
+  }
+
+  function handleRegenerate() {
+    if (hasCompletedGeneration) {
+      confirmRegenerate = "transcript";
+      return;
+    }
+    runGenerate("transcript", false);
+  }
+
+  function handleGenerateFromReview() {
+    if (hasCompletedGeneration) {
+      confirmRegenerate = "review";
+      return;
+    }
+    runGenerate("review", false);
   }
 
   function handleCopyShareLink() {
@@ -391,6 +437,34 @@
       console.error("Export failed:", e);
     } finally {
       exporting = false;
+    }
+  }
+
+  // BNH-46: export straight into the client's Schedule 60 Word template.
+  let exportingTemplate = $state(false);
+  async function handleExportTemplate() {
+    if (!report || !project) return;
+    exportingTemplate = true;
+    try {
+      const year = project.fiscalYearEnd
+        ? new Date(project.fiscalYearEnd).getFullYear()
+        : new Date().getFullYear();
+      const safeClient = project.clientName
+        .replace(/[^a-zA-Z0-9\s\-]/g, "")
+        .replace(/\s+/g, "_");
+      // Lazy import: file-saver touches browser globals at module init (SSR).
+      const { exportToTemplateDocx } = await import("$lib/exportTemplateDocx");
+      await exportToTemplateDocx({
+        content: report.content,
+        clientName: project.clientName,
+        title: project.sredTitle ?? project.title,
+        fiscalYearEnd: project.fiscalYearEnd ?? null,
+        filename: `${safeClient}_Schedule60_FY${year}`,
+      });
+    } catch (e) {
+      console.error("Template export failed:", e);
+    } finally {
+      exportingTemplate = false;
     }
   }
 
@@ -456,6 +530,18 @@
               {#snippet icon()}
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+              {/snippet}
+            </IconAction>
+            <IconAction
+              label={exportingTemplate ? "Exporting…" : "Export CRA template"}
+              title="Export into the client Schedule 60 template (.docx)"
+              onclick={handleExportTemplate}
+              disabled={exportingTemplate}
+            >
+              {#snippet icon()}
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               {/snippet}
             </IconAction>
@@ -580,6 +666,8 @@
 
               <!-- Supporting panels (QA moved to the right rail — BNH-47) -->
               <div class="mt-8 mb-12">
+                <!-- BNH-48: revealed model test scores, once selection happened -->
+                <ModelTestSummary {projectId} />
                 <div class="mt-4">
                   <ChronologyTable agentOutputs={generation?.agentOutputs} />
                 </div>
@@ -777,6 +865,48 @@
       />
     {/if}
 
+    <!-- BNH-52: confirm re-running an already-generated test -->
+    {#if confirmRegenerate}
+      {@const regenSource = confirmRegenerate}
+      <div class="fixed inset-0 z-[100] flex items-center justify-center bg-navy/30 px-4" role="dialog" aria-modal="true" aria-labelledby="regen-title">
+        <div class="card w-full max-w-md p-6 shadow-xl">
+          <div class="flex items-start gap-3">
+            <span class="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-amber-100 text-amber-600">
+              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.69-1.33-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" />
+              </svg>
+            </span>
+            <div>
+              <h3 id="regen-title" class="text-base font-semibold text-gray-900">
+                This project already has a generated test
+              </h3>
+              <p class="mt-1.5 text-sm leading-relaxed text-gray-600">
+                Re-running generates three fresh candidate drafts (roughly $1 in
+                model cost) and adds a new report version on selection. Previous
+                results are preserved in version history — nothing is deleted.
+              </p>
+            </div>
+          </div>
+          <div class="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onclick={() => (confirmRegenerate = null)}
+              class="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-chrome"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onclick={() => runGenerate(regenSource, true)}
+              class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
+            >
+              Re-run generation
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
     <!-- Version history modal -->
     {#if showHistory && report}
       <VersionHistory
@@ -785,28 +915,39 @@
       />
     {/if}
 
-    <!-- No report, not generating — show transcript -->
+    <!-- No report, not generating — review-mode feedback report or transcript -->
     {#if !report && !isGenerating && !awaitingSelection}
       <main class="mx-auto w-full max-w-3xl min-h-0 flex-1 overflow-y-auto px-6 py-8">
         <h1 class="text-2xl font-bold text-gray-900">{project.title}</h1>
         <p class="mt-1 text-sm text-gray-500">{project.clientName}</p>
 
-        <div class="mt-8">
+        {#if project.mode === "review" && pdReview}
+          <div class="mt-8">
+            <PdReviewReport
+              review={pdReview}
+              hasTranscript={Boolean(transcript?.content?.trim())}
+              onGenerate={handleGenerateFromReview}
+            />
+          </div>
+        {/if}
+
+        <div class="mt-8" hidden={project.mode === "review" && !transcript?.content?.trim()}>
           <div class="flex items-center justify-between">
             <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-400">
               Transcript
             </h2>
             {#if transcript}
               <div class="flex items-center gap-2">
-                <select
+                <SelectInput
+                  size="sm"
                   bind:value={lengthTarget}
-                  aria-label="Report length"
-                  class="cursor-pointer rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 focus:border-navy focus:outline-none"
-                >
-                  <option value="concise">Concise (~70% of limit)</option>
-                  <option value="standard">Standard (~90%)</option>
-                  <option value="full">Full (to the line limit)</option>
-                </select>
+                  items={[
+                    { value: "concise", label: "Concise (~70% of limit)" },
+                    { value: "standard", label: "Standard (~90%)" },
+                    { value: "full", label: "Full (to the line limit)" },
+                  ]}
+                  class="w-52"
+                />
                 <Button onclick={handleRegenerate} class="text-xs">
                   Generate Report
                 </Button>

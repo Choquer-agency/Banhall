@@ -112,6 +112,32 @@
     overall >= 80 ? "text-green-600" : overall >= 60 ? "text-amber-600" : "text-red-600"
   );
 
+  // Issues/strengths per section collapse by default so the rail stays scannable.
+  let openSections = $state<Record<string, boolean>>({});
+
+  // T661 line numbers ("242") sort numerically; anything unexpected sinks to the end.
+  function lineOrder(s: string): number {
+    const n = parseInt(s, 10);
+    return Number.isNaN(n) ? Number.MAX_SAFE_INTEGER : n;
+  }
+
+  // Follow-ups grouped per line, lines ascending, paragraphs ascending within.
+  const gapGroups = $derived.by(() => {
+    const bySection = new Map<string, QAScorecard["gaps_requiring_client_followup"]>();
+    for (const gap of scorecard?.gaps_requiring_client_followup ?? []) {
+      const arr = bySection.get(gap.section) ?? [];
+      arr.push(gap);
+      bySection.set(gap.section, arr);
+    }
+    return [...bySection.entries()]
+      .sort((a, b) => lineOrder(a[0]) - lineOrder(b[0]) || a[0].localeCompare(b[0]))
+      .map(([section, items]) => ({
+        section,
+        items: [...items].sort((a, b) => a.paragraph - b.paragraph),
+      }));
+  });
+  let openGapGroups = $state<Record<string, boolean>>({});
+
   // Show the saved review unless the writer is mid-edit (draft).
   const reviewScore = $derived(draft ? draft.score : myReview ? String(myReview.score) : "");
   const reviewComment = $derived(draft ? draft.comment : (myReview?.comment ?? ""));
@@ -180,16 +206,44 @@
       <div class="flex flex-col gap-3">
         {#each Object.entries(scorecard.section_scores) as [key, section] (key)}
           {@const c = section.score >= 80 ? "bg-green-500" : section.score >= 60 ? "bg-amber-500" : "bg-red-500"}
-          <div class="rounded-lg border border-line-soft px-3 py-2.5">
-            <div class="flex items-center gap-3">
+          {@const noteCount = section.issues.length + section.strengths.length}
+          {@const open = openSections[key] ?? false}
+          <div class="rounded-lg border border-line-soft">
+            <button
+              type="button"
+              onclick={() => (openSections[key] = !open)}
+              disabled={noteCount === 0}
+              aria-expanded={open}
+              class="flex w-full items-center gap-3 px-3 py-2.5 text-left"
+            >
               <span class="text-data w-8 flex-none font-semibold text-gray-700">{key}</span>
               <div class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-gray-100">
                 <div class={`h-full rounded-full ${c} transition-[width] duration-700 ease-out`} style={`width: ${section.score}%`}></div>
               </div>
               <span class="text-data w-7 flex-none text-right font-semibold text-gray-800">{section.score}</span>
-            </div>
-            {#if section.issues.length > 0 || section.strengths.length > 0}
-              <ul class="mt-2 space-y-1">
+              {#if noteCount > 0}
+                <span class="flex flex-none items-center gap-1.5">
+                  {#if section.issues.length > 0}
+                    <span class="flex items-center gap-0.5 text-xs tabular-nums text-red-600">
+                      <span class="h-1.5 w-1.5 rounded-full bg-red-400"></span>{section.issues.length}
+                    </span>
+                  {/if}
+                  {#if section.strengths.length > 0}
+                    <span class="flex items-center gap-0.5 text-xs tabular-nums text-green-700">
+                      <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>{section.strengths.length}
+                    </span>
+                  {/if}
+                  <svg
+                    class={`h-3.5 w-3.5 text-gray-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </span>
+              {/if}
+            </button>
+            {#if open && noteCount > 0}
+              <ul class="space-y-1 px-3 pb-2.5">
                 {#each section.issues as issue, i (`i-${i}`)}
                   <li class="flex items-start gap-1.5 text-xs leading-relaxed text-red-600">
                     <span class="mt-1.5 h-1 w-1 flex-none rounded-full bg-red-400"></span>
@@ -236,55 +290,87 @@
       </div>
     {/if}
 
-    <!-- Language flags -->
+    <!-- Language flags: typed rows, not pills — flags are phrases and wrap badly in pills -->
     {#if scorecard.ai_language_flags.length > 0 || scorecard.superlative_flags.length > 0}
       <div>
         <p class="text-label mb-2.5">Language flags</p>
-        <div class="flex flex-wrap gap-1.5">
+        <ul class="space-y-1.5">
           {#each scorecard.ai_language_flags as flag, i (`ai-${i}`)}
-            <span class="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700">{flag}</span>
+            <li class="flex items-start gap-2">
+              <span class="mt-0.5 flex-none rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">AI</span>
+              <span class="min-w-0 text-xs leading-relaxed text-gray-700">{flag}</span>
+            </li>
           {/each}
           {#each scorecard.superlative_flags as flag, i (`sup-${i}`)}
-            <span class="rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">{flag}</span>
+            <li class="flex items-start gap-2">
+              <span class="mt-0.5 flex-none rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">Superlative</span>
+              <span class="min-w-0 text-xs leading-relaxed text-gray-700">{flag}</span>
+            </li>
           {/each}
-        </div>
+        </ul>
       </div>
     {/if}
 
-    <!-- Client follow-ups -->
-    {#if scorecard.gaps_requiring_client_followup.length > 0}
+    <!-- Client follow-ups: one collapsible group per T661 line, paragraphs ascending -->
+    {#if gapGroups.length > 0}
       <div>
         <p class="text-label mb-2.5">Client follow-ups</p>
         <div class="space-y-1.5">
-          {#each scorecard.gaps_requiring_client_followup as gap, i (i)}
-            {#if onLocateGap}
-              {@const locate = onLocateGap}
+          {#each gapGroups as group (group.section)}
+            {@const open = openGapGroups[group.section] ?? gapGroups.length === 1}
+            <div class="overflow-hidden rounded-lg border border-amber-200/70">
               <button
                 type="button"
-                onclick={() => locate({ section: gap.section, paragraph: gap.paragraph })}
-                class="group flex w-full items-start gap-2 rounded-lg border border-amber-200/70 bg-gap-bg px-2.5 py-2 text-left transition-colors hover:border-amber-300"
+                onclick={() => (openGapGroups[group.section] = !open)}
+                aria-expanded={open}
+                class="flex w-full items-center gap-2 bg-gap-bg px-2.5 py-2 text-left transition-colors hover:bg-amber-100/50"
               >
-                <Tooltip text="Jump to this paragraph" side="top" delayDuration={300}>
-                  {#snippet children({ props })}
-                    <span {...props} class="mt-0.5 flex-none">
-                      <svg class="h-3.5 w-3.5 text-gap-text/50 transition-colors group-hover:text-gap-text" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                    </span>
-                  {/snippet}
-                </Tooltip>
-                <span class="min-w-0">
-                  <span class="text-data block text-gap-text/70">{gap.section} · Paragraph {gap.paragraph}</span>
-                  <span class="mt-0.5 block text-xs leading-relaxed text-gap-text">{gap.question}</span>
+                <span class="text-data font-semibold text-gap-text">Line {group.section}</span>
+                <span class="rounded-full bg-amber-200/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-gap-text">
+                  {group.items.length}
                 </span>
+                <svg
+                  class={`ml-auto h-3.5 w-3.5 flex-none text-gap-text/50 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
               </button>
-            {:else}
-              <div class="rounded-lg border border-amber-200/70 bg-gap-bg px-2.5 py-2">
-                <p class="text-data text-gap-text/70">{gap.section} · Paragraph {gap.paragraph}</p>
-                <p class="mt-0.5 text-xs leading-relaxed text-gap-text">{gap.question}</p>
-              </div>
-            {/if}
+              {#if open}
+                <div class="divide-y divide-amber-200/40 border-t border-amber-200/50 bg-gap-bg/60">
+                  {#each group.items as gap, i (`${gap.paragraph}-${i}`)}
+                    {#if onLocateGap}
+                      {@const locate = onLocateGap}
+                      <button
+                        type="button"
+                        onclick={() => locate({ section: gap.section, paragraph: gap.paragraph })}
+                        class="group flex w-full items-start gap-2 px-2.5 py-2 text-left transition-colors hover:bg-amber-100/40"
+                      >
+                        <Tooltip text="Jump to this paragraph" side="top" delayDuration={300}>
+                          {#snippet children({ props })}
+                            <span {...props} class="mt-0.5 flex-none">
+                              <svg class="h-3.5 w-3.5 text-gap-text/50 transition-colors group-hover:text-gap-text" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                              </svg>
+                            </span>
+                          {/snippet}
+                        </Tooltip>
+                        <span class="min-w-0">
+                          <span class="text-data block text-gap-text/70">Paragraph {gap.paragraph}</span>
+                          <span class="mt-0.5 block text-xs leading-relaxed text-gap-text">{gap.question}</span>
+                        </span>
+                      </button>
+                    {:else}
+                      <div class="px-2.5 py-2">
+                        <p class="text-data text-gap-text/70">Paragraph {gap.paragraph}</p>
+                        <p class="mt-0.5 text-xs leading-relaxed text-gap-text">{gap.question}</p>
+                      </div>
+                    {/if}
+                  {/each}
+                </div>
+              {/if}
+            </div>
           {/each}
         </div>
       </div>

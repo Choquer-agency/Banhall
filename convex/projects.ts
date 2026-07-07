@@ -115,6 +115,11 @@ export const createProject = mutation({
     writer: v.optional(v.string()),
     interviewer: v.optional(v.string()),
     fiscalYearEnd: v.optional(v.number()),
+    // BNH-10: routes Brain retrieval — must match the Brain namespace strings
+    // (software / manufacturing / life-sciences, see docs/the-brain.md).
+    industry: v.optional(v.string()),
+    // BNH-39: review mode reviews an existing written PD instead of generating.
+    mode: v.optional(v.union(v.literal("generate"), v.literal("review"))),
     transcriptContent: v.string(),
   },
   handler: async (ctx, args) => {
@@ -131,6 +136,8 @@ export const createProject = mutation({
       ...(args.writer ? { writer: args.writer } : {}),
       ...(args.interviewer ? { interviewer: args.interviewer } : {}),
       ...(args.fiscalYearEnd ? { fiscalYearEnd: args.fiscalYearEnd } : {}),
+      ...(args.industry ? { industry: args.industry } : {}),
+      ...(args.mode ? { mode: args.mode } : {}),
       status: "draft",
       createdBy: userId,
       shareToken,
@@ -161,6 +168,9 @@ export const scheduleGenerateReport = mutation({
     lengthTarget: v.optional(
       v.union(v.literal("concise"), v.literal("standard"), v.literal("full"))
     ),
+    // BNH-52: a completed test must not be silently re-run (cost + result
+    // integrity). Re-running requires the explicit force from the confirm UI.
+    force: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -169,6 +179,24 @@ export const scheduleGenerateReport = mutation({
     const project = await ctx.db.get(args.projectId);
     if (!project || project.createdBy !== userId) {
       throw new Error("Not authorized");
+    }
+
+    const latestGen = await ctx.db
+      .query("generations")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .first();
+    if (latestGen?.status === "running") {
+      throw new Error("A generation is already running for this project.");
+    }
+    if (
+      (latestGen?.status === "completed" ||
+        latestGen?.status === "awaiting_selection") &&
+      !args.force
+    ) {
+      throw new Error(
+        "This project already has a generated test. Re-running requires explicit confirmation."
+      );
     }
 
     await ctx.scheduler.runAfter(0, internal.ai.pipeline.generateReport, {
@@ -268,6 +296,18 @@ export const deleteProject = mutation({
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .collect();
     for (const c of commenters) await ctx.db.delete(c._id);
+
+    const pdReviews = await ctx.db
+      .query("pdReviews")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    for (const r of pdReviews) await ctx.db.delete(r._id);
+
+    const pdReviewEvents = await ctx.db
+      .query("pdReviewEvents")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    for (const e of pdReviewEvents) await ctx.db.delete(e._id);
 
     await ctx.db.delete(args.projectId);
   },

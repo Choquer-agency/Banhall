@@ -75,6 +75,29 @@
   const candidates = $derived(candidatesQ.data as Candidate[] | undefined);
   const selectCandidate = useMutation(api.generations.selectReportCandidate);
 
+  // BNH-48: optional 1–10 writer score per option, persisted immediately.
+  const scoreCandidateMut = useMutation(api.generations.scoreCandidate);
+  const myScoresQ = useQuery(api.generations.getMyCandidateScores, () => ({ projectId }));
+  const myScores = $derived(
+    new Map((myScoresQ.data ?? []).map((s) => [s.candidateId, s.score]))
+  );
+  let scoreSaving = $state(false);
+  async function setScore(n: number) {
+    if (!current || scoreSaving) return;
+    scoreSaving = true;
+    try {
+      await scoreCandidateMut({
+        candidateId: current._id,
+        score: n,
+        optionPosition: pos + 1,
+      });
+    } catch (e) {
+      console.error("score failed", e);
+    } finally {
+      scoreSaving = false;
+    }
+  }
+
   const order = $derived.by(() => (candidates ? blindOrder(candidates) : []));
   // BNH-47: QA snapshot — minimised by default (blind-first, confirm-bias on demand).
   let qaOpen = $state(false);
@@ -147,7 +170,7 @@
 </script>
 
 {#if candidates && candidates.length > 0 && current}
-  <div bind:this={rootEl} class="flex min-h-0 flex-1 overflow-hidden">
+  <div bind:this={rootEl} class="mx-auto flex min-h-0 w-full max-w-7xl flex-1 overflow-hidden">
   <div class="min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto max-w-report px-8 py-8">
       <div class="mb-1 flex items-center gap-2">
@@ -167,15 +190,26 @@
       <!-- Anonymous option tabs -->
       <div class="flex flex-wrap gap-2">
         {#each displayed as c, i (c._id)}
+          {@const myScore = myScores.get(c._id)}
           <button
             onclick={() => (activePos = i)}
-            class={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+            class={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
               i === pos
                 ? "border-navy bg-navy text-white"
                 : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
             }`}
           >
             Option {i + 1}
+            {#if myScore != null}
+              <span
+                class={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
+                  i === pos ? "bg-white/20 text-white" : "bg-primary/10 text-primary-dark"
+                }`}
+                title={`Your score: ${myScore}/10`}
+              >
+                {myScore}
+              </span>
+            {/if}
           </button>
         {/each}
       </div>
@@ -196,10 +230,10 @@
                   ? "border-red-200 bg-red-50 text-red-700"
                   : "border-line-soft bg-white text-gray-600"
               }`}
-              title={`Section ${label}: ${sec.lines} of ${sec.limit} form lines · ${sec.words} words (cap ${sec.wordCap})`}
+              title={`Section ${label}: ${sec.lines} of ${sec.limit} form lines, ${sec.words} words (cap ${sec.wordCap})`}
             >
-              <span class="font-semibold">{label}</span>
-              {sec.lines}/{sec.limit} lines · {sec.words}w
+              <span class={`font-semibold ${sec.overLimit ? "" : "text-primary"}`}>{label}</span>
+              <span class="font-sans text-[11px]">{sec.lines}/{sec.limit} lines, {sec.words} words</span>
               {#if sec.overLimit}
                 <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.69-1.33-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" />
@@ -223,14 +257,39 @@
 
     <!-- Sticky action bar -->
     <div class="sticky bottom-0 border-t border-gray-200 bg-white/90 px-8 py-3 backdrop-blur">
-      <div class="mx-auto flex max-w-report items-center justify-between">
-        <span class="text-sm text-gray-500">
+      <div class="mx-auto flex max-w-report items-center justify-between gap-4">
+        <span class="flex-none text-sm text-gray-500">
           Viewing <span class="font-medium text-navy">Option {pos + 1}</span>
         </span>
+
+        <!-- BNH-48: optional 1–10 score for the option being viewed -->
+        <div class="flex min-w-0 items-center gap-2">
+          <span class="flex-none text-xs text-gray-400">Your score</span>
+          <div class="flex items-center gap-0.5" role="radiogroup" aria-label={`Score Option ${pos + 1} out of 10`}>
+            {#each Array.from({ length: 10 }, (_, n) => n + 1) as n (n)}
+              {@const active = current && myScores.get(current._id) === n}
+              <button
+                type="button"
+                role="radio"
+                aria-checked={active}
+                disabled={scoreSaving}
+                onclick={() => setScore(n)}
+                class={`h-6 w-6 rounded-md text-xs font-semibold tabular-nums transition-colors ${
+                  active
+                    ? "bg-primary text-white"
+                    : "bg-gray-100 text-gray-500 hover:bg-primary/25 hover:text-primary-dark"
+                }`}
+              >
+                {n}
+              </button>
+            {/each}
+          </div>
+        </div>
+
         <button
           onclick={choose}
           disabled={choosing}
-          class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+          class="inline-flex flex-none items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
         >
           {#if choosing}
             <Spinner size="sm" class="h-3.5 w-3.5 border-white" />

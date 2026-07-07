@@ -24,6 +24,7 @@
     type PyRow,
   } from "$lib/components/project-new/shared";
   import CategoryCard from "$lib/components/project-new/CategoryCard.svelte";
+  import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import PreviousYearCard from "$lib/components/project-new/PreviousYearCard.svelte";
 
   const STEPS = ["Details", "Context & files", "Review"];
@@ -31,6 +32,7 @@
   const auth = useAuth();
   const createProject = useMutation(api.projects.createProject);
   const generateReport = useMutation(api.projects.scheduleGenerateReport);
+  const startPdReview = useMutation(api.pdReviews.startPdReview);
   const uploadDocument = useMutation(api.documents.uploadDocument);
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
   const user = useQuery(api.users.getCurrentUser, () =>
@@ -41,6 +43,17 @@
   const writerName = $derived(user.data?.name ?? user.data?.email ?? "");
 
   let step = $state(0);
+  // BNH-39: generate a new PD from a transcript, or review an existing written PD.
+  let mode = $state<"generate" | "review">("generate");
+  // BNH-10: routes Brain retrieval. Values must match the Brain namespace
+  // strings exactly (docs/the-brain.md); "" = not set (all industries).
+  const INDUSTRY_OPTIONS = [
+    { value: "", label: "Not set (all industries)" },
+    { value: "software", label: "Software" },
+    { value: "manufacturing", label: "Manufacturing" },
+    { value: "life-sciences", label: "Life sciences" },
+  ];
+  let industry = $state("");
   let title = $state("");
   let sredTitle = $state(""); // BNH-23: formal SR&ED title
   let clientName = $state("");
@@ -75,6 +88,35 @@
       transcriptFileError = `Couldn't read ${file.name}. Try another file.`;
     } finally {
       parsingTranscript = null;
+    }
+  }
+
+  // BNH-39 review mode: the existing written PD to review (required).
+  let pdInput: HTMLInputElement | null = $state(null);
+  let pdDragOver = $state(false);
+  let parsingPd = $state<string | null>(null);
+  let pdFileError = $state("");
+  let pdDoc = $state<{ name: string; content: string; file: File } | null>(null);
+
+  async function handlePdFile(file: File) {
+    if (!isSupportedFile(file.name)) {
+      pdFileError = `Can't read ${file.name} — unsupported type. Supported: ${SUPPORTED_LABEL}.`;
+      return;
+    }
+    pdFileError = "";
+    parsingPd = file.name;
+    try {
+      const parsed = await parseFileToText(file);
+      const text = parsed.content.trim();
+      if (!text) {
+        pdFileError = `Couldn't extract any text from ${file.name}.`;
+      } else {
+        pdDoc = { name: file.name, content: text, file };
+      }
+    } catch {
+      pdFileError = `Couldn't read ${file.name}. Try another file.`;
+    } finally {
+      parsingPd = null;
     }
   }
 
@@ -146,7 +188,11 @@
         error = "Please set the client's fiscal year-end date.";
         return;
       }
-      if (!transcript.trim()) {
+      if (mode === "review" && !pdDoc) {
+        error = "Please upload the written PD to review.";
+        return;
+      }
+      if (mode === "generate" && !transcript.trim()) {
         error = "Please paste the interview transcript.";
         return;
       }
@@ -184,6 +230,8 @@
         ...(fiscalYearEnd
           ? { fiscalYearEnd: new Date(`${fiscalYearEnd}T00:00:00`).getTime() }
           : {}),
+        ...(industry ? { industry } : {}),
+        mode,
         transcriptContent: transcript,
       });
 
@@ -258,8 +306,26 @@
         }
       }
 
-      progress = "Starting generation…";
-      await generateReport({ projectId, transcriptId });
+      if (mode === "review" && pdDoc) {
+        // BNH-39: store the written PD (no category — it must NOT feed a later
+        // generation as context; the review agent reads it directly).
+        progress = `Uploading ${pdDoc.name}…`;
+        const storageId = await uploadOriginal(pdDoc.file);
+        const documentId = await uploadDocument({
+          projectId,
+          fileName: pdDoc.name,
+          fileType: guessFileType(pdDoc.name),
+          content: pdDoc.content,
+          source: "review_pd",
+          ...(storageId ? { storageId } : {}),
+          ...(pdDoc.file.type ? { mimeType: pdDoc.file.type } : {}),
+        });
+        progress = "Starting PD review…";
+        await startPdReview({ projectId, documentId });
+      } else {
+        progress = "Starting generation…";
+        await generateReport({ projectId, transcriptId });
+      }
       goto(`/project/${projectId}`);
     } catch (e) {
       console.error(e);
@@ -286,9 +352,9 @@
     <AppNav breadcrumbs={[{ label: "New project" }]} />
     <PageBar backHref="/dashboard" backLabel="Back" />
 
-    <main class="mx-auto w-full max-w-2xl flex-1 px-6 pt-12 pb-8">
-      <!-- Step indicator -->
-      <div class="mb-8 flex items-center gap-2">
+    <main class="mx-auto w-full max-w-4xl flex-1 px-6 pt-12 pb-8">
+      <!-- Step indicator (centered) -->
+      <div class="mx-auto mb-8 flex w-full max-w-lg items-center gap-2">
         {#each STEPS as label, i (label)}
           <div class="flex flex-1 items-center gap-2">
             <div
@@ -315,29 +381,62 @@
       <!-- Step 1 — details -->
       {#if step === 0}
         <div class="flex flex-col gap-5">
-          <div>
-            <h2 class="text-display">Project details</h2>
-            <p class="mt-1 text-sm text-gray-500">
-              Enter the basics, then drop a transcript file or paste it below.
-            </p>
+          <div class="flex items-end justify-between gap-4">
+            <div>
+              <h2 class="text-display">Project details</h2>
+              <p class="mt-1 text-sm text-gray-500">
+                {mode === "generate"
+                  ? "Enter the basics, then drop a transcript file or paste it below."
+                  : "Enter the basics, then upload the written PD you want reviewed."}
+              </p>
+            </div>
+            {#if writerName}
+              <span
+                class="inline-flex flex-none items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs text-white"
+                title="Set automatically to the signed-in user"
+              >
+                <svg class="h-3.5 w-3.5 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                Writer: <span class="font-semibold">{writerName}</span>
+              </span>
+            {/if}
           </div>
-          <div class="grid gap-5 sm:grid-cols-2">
+
+          <!-- BNH-39: Generate vs Review mode -->
+          <div class="grid grid-cols-2 gap-2 rounded-xl bg-chrome p-1" role="radiogroup" aria-label="Project mode">
+            {#each [
+              { id: "generate", label: "Generate PD", hint: "Draft a new PD from an interview transcript" },
+              { id: "review", label: "Review PD", hint: "AI feedback report on an existing written PD" },
+            ] as const as opt (opt.id)}
+              <button
+                type="button"
+                role="radio"
+                aria-checked={mode === opt.id}
+                onclick={() => (mode = opt.id)}
+                class={`flex flex-col items-start gap-0.5 rounded-lg px-3.5 py-2.5 text-left transition-colors ${
+                  mode === opt.id
+                    ? "bg-white text-navy shadow-sm ring-1 ring-gray-200"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                <span class="text-sm font-semibold">{opt.label}</span>
+                <span class="text-xs text-gray-400">{opt.hint}</span>
+              </button>
+            {/each}
+          </div>
+          <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             <Input id="title" label="Internal project title" bind:value={title} placeholder="Project Verdant F2024" required />
             <Input id="sredTitle" label="SR&ED title (optional — finalize later)" bind:value={sredTitle} placeholder="e.g. Development of a multi-home SoC estimation system" />
             <Input id="clientName" label="Client name" bind:value={clientName} placeholder="GreenStem Nurseries Inc." required />
-            <div class="flex flex-col gap-1.5">
-              <span class="text-sm font-medium text-gray-700">Writer</span>
-              <div
-                class="flex h-[42px] items-center rounded-lg border border-gray-200 bg-chrome px-3.5 text-sm text-gray-600"
-                title="Set automatically to the signed-in user"
-              >
-                {writerName || "…"}
-              </div>
-            </div>
             <Input id="interviewer" label="Interviewer" bind:value={interviewer} placeholder="John Doe" />
             <div class="flex flex-col gap-1.5">
+              <label for="industry" class="text-sm font-medium text-gray-700">Industry</label>
+              <SelectInput id="industry" bind:value={industry} items={INDUSTRY_OPTIONS} />
+            </div>
+            <div class="flex flex-col gap-1.5">
               <label for="fiscalYearEnd" class="text-sm font-medium text-gray-700">
-                Fiscal year-end <span class="text-red-500">*</span>
+                Fiscal year-end<span class="ml-0.5 text-red-500" aria-hidden="true">*</span>
               </label>
               <input
                 id="fiscalYearEnd"
@@ -350,9 +449,97 @@
               </span>
             </div>
           </div>
+          <!-- BNH-39: written PD upload (review mode only) -->
+          {#if mode === "review"}
+            <div class="flex flex-col gap-1.5">
+              <span class="text-sm font-medium text-gray-700">
+                Written PD to review<span class="ml-0.5 text-red-500" aria-hidden="true">*</span>
+              </span>
+              {#if pdDoc}
+                <div class="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3">
+                  <div class="flex min-w-0 items-center gap-2.5">
+                    <svg class="h-5 w-5 flex-none text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <div class="min-w-0">
+                      <p class="truncate text-sm font-medium text-gray-800">{pdDoc.name}</p>
+                      <p class="text-xs text-gray-400">
+                        {pdDoc.content.split(/\s+/).filter(Boolean).length.toLocaleString()} words extracted
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onclick={() => (pdDoc = null)}
+                    aria-label="Remove file"
+                    class="flex-none rounded-md p-1.5 text-gray-400 transition-colors hover:text-red-500"
+                  >
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              {:else}
+                <button
+                  type="button"
+                  onclick={() => pdInput?.click()}
+                  ondragover={(e) => { e.preventDefault(); pdDragOver = true; }}
+                  ondragleave={() => (pdDragOver = false)}
+                  ondrop={(e) => {
+                    e.preventDefault();
+                    pdDragOver = false;
+                    const file = e.dataTransfer?.files?.[0];
+                    if (file) handlePdFile(file);
+                  }}
+                  class={`flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-7 text-center transition-colors ${
+                    pdDragOver
+                      ? "border-primary bg-primary/5"
+                      : "border-gray-200 bg-canvas hover:border-gray-300"
+                  }`}
+                >
+                  {#if parsingPd}
+                    <span class="inline-flex items-center gap-2 text-sm text-navy">
+                      <Spinner size="sm" class="border-navy/30 border-t-navy" />
+                      Reading {parsingPd}…
+                    </span>
+                  {:else}
+                    <svg class="h-7 w-7 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                    </svg>
+                    <span class="text-sm font-medium text-gray-600">
+                      Drag the written PD here, or click to browse
+                    </span>
+                    <span class="text-xs text-gray-400">Word (.docx), PDF, or .txt</span>
+                  {/if}
+                </button>
+              {/if}
+              <input
+                bind:this={pdInput}
+                type="file"
+                accept={SUPPORTED_ACCEPT}
+                class="hidden"
+                onchange={(e) => {
+                  const file = e.currentTarget.files?.[0];
+                  if (file) handlePdFile(file);
+                  e.currentTarget.value = "";
+                }}
+              />
+              {#if pdFileError}
+                <p class="text-xs text-red-600">{pdFileError}</p>
+              {/if}
+            </div>
+          {/if}
+
           <div class="flex flex-col gap-1.5">
             <div class="flex items-center justify-between">
-              <label for="transcript" class="text-sm font-medium text-gray-700">Interview transcript</label>
+              <label for="transcript" class="flex flex-wrap items-baseline gap-x-1.5 text-sm font-medium text-gray-700">
+                <span>
+                  Interview transcript{#if mode === "generate"}<span class="ml-0.5 text-red-500" aria-hidden="true">*</span>{/if}
+                </span>
+                {#if mode === "review"}
+                  <span class="font-normal text-gray-400">(optional — adds context for the review)</span>
+                {/if}
+              </label>
               {#if wordCount > 0}
                 <span class="text-xs text-gray-400">{wordCount.toLocaleString()} words</span>
               {/if}
@@ -461,21 +648,30 @@
       {#if step === 2}
         <div class="flex flex-col gap-5">
           <div>
-            <h2 class="text-display">Review & generate</h2>
+            <h2 class="text-display">{mode === "generate" ? "Review & generate" : "Review & start"}</h2>
             <p class="mt-1 text-sm text-gray-500">
-              Confirm everything looks right, then generate the draft report.
+              {mode === "generate"
+                ? "Confirm everything looks right, then generate the draft report."
+                : "Confirm everything looks right, then start the AI review of the written PD."}
             </p>
           </div>
           <div class="card p-4 text-sm">
+            {@render row("Mode", mode === "generate" ? "Generate PD" : "Review PD")}
             {@render row("Project", title || "—")}
             {@render row("Client", clientName || "—")}
+            {#if industry}
+              {@render row("Industry", INDUSTRY_OPTIONS.find((o) => o.value === industry)?.label ?? industry)}
+            {/if}
             {#if writerName}
               {@render row("Writer", writerName)}
             {/if}
             {#if interviewer}
               {@render row("Interviewer", interviewer)}
             {/if}
-            {@render row("Transcript", `${wordCount.toLocaleString()} words`)}
+            {#if mode === "review"}
+              {@render row("Written PD", pdDoc?.name ?? "—")}
+            {/if}
+            {@render row("Transcript", wordCount > 0 ? `${wordCount.toLocaleString()} words` : "None")}
             {@render row("Context items", fileCount > 0 ? `${fileCount} attached` : "None")}
           </div>
           {#if fileCount > 0}
@@ -557,7 +753,7 @@
                 <svg class="mr-1.5 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
-                Generate Report
+                {mode === "generate" ? "Generate Report" : "Review PD"}
               {/if}
             </Button>
           {/if}

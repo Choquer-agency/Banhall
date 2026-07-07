@@ -72,13 +72,13 @@
     <Select.Portal>
       <Select.Content
         sideOffset={4}
-        class="z-50 max-h-60 w-[var(--bits-select-anchor-width)] overflow-y-auto rounded-md border border-gray-200 bg-white py-1 shadow-lg"
+        class="select-pop z-50 max-h-60 w-max min-w-[var(--bits-select-anchor-width)] max-w-80 overflow-y-auto overflow-x-hidden rounded-md border border-gray-200 bg-white shadow-lg"
       >
         {#each ITEMS as item (item.value)}
           <Select.Item
             value={item.value}
             label={item.label}
-            class={`cursor-pointer px-2 py-1 text-sm data-highlighted:bg-gray-100 data-selected:font-medium ${
+            class={`cursor-pointer px-2 py-1 text-sm not-data-selected:data-highlighted:bg-primary/10 not-data-selected:data-highlighted:text-primary-dark data-selected:bg-primary-dark data-selected:font-medium data-selected:text-white ${
               item.value ? "text-gray-900" : "text-gray-500"
             }`}
           >

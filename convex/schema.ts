@@ -29,6 +29,9 @@ export default defineSchema({
     // BNH-10: industry routes Brain retrieval to the matching namespace
     // ("use the software brain for software reports"). Optional until backfilled.
     industry: v.optional(v.string()),
+    // BNH-39: how the project started — generate a PD from a transcript
+    // (default, absent on older projects) or review an existing written PD.
+    mode: v.optional(v.union(v.literal("generate"), v.literal("review"))),
     status: v.union(
       v.literal("draft"),
       v.literal("generating"),
@@ -182,6 +185,27 @@ export default defineSchema({
   })
     .index("by_generationId", ["generationId"])
     .index("by_projectId", ["projectId"]),
+
+  // BNH-48: writer's 1–10 score per candidate option. Candidate rows are
+  // deleted once a draft is chosen, so model/label/position/AI-score are
+  // copied here — the row must stand alone for the post-selection comparison
+  // view and model A/B analytics.
+  candidateScores: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    candidateId: v.id("reportCandidates"),
+    optionPosition: v.number(), // 1-based blind position the writer saw
+    model: v.string(),
+    label: v.string(),
+    qaScore: v.optional(v.number()), // AI QA score at scoring time, for gap analytics
+    userId: v.string(),
+    score: v.number(), // writer's 1–10
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_generationId", ["generationId"])
+    .index("by_projectId", ["projectId"])
+    .index("by_user_and_candidateId", ["userId", "candidateId"]),
 
   // Logged model choices, for aggregate preference stats + recommendation.
   modelSelections: defineTable({
@@ -440,6 +464,44 @@ export default defineSchema({
     .index("by_hash", ["sourceHash"])
     .index("by_ragKey", ["ragKey"])
     .index("by_industry", ["industry"]),
+
+  // ─── BNH-39: PD review mode — AI review of an existing written PD ──────────
+  // One row per review run. The uploaded PD lives in projectDocuments
+  // (source "review_pd"); `result` holds the structured feedback report JSON
+  // (strengths / risks / suggested strengthening / qualitative score).
+  pdReviews: defineTable({
+    projectId: v.id("projects"),
+    documentId: v.id("projectDocuments"),
+    sourceFileName: v.string(),
+    status: v.union(
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    result: v.optional(v.string()),
+    model: v.optional(v.string()),
+    error: v.optional(v.string()),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    completedAt: v.optional(v.number()),
+  }).index("by_projectId", ["projectId"]),
+
+  // BNH-39: timestamped audit trail of the review + reviewer interactions,
+  // surfaced on the project card.
+  pdReviewEvents: defineTable({
+    projectId: v.id("projects"),
+    reviewId: v.optional(v.id("pdReviews")),
+    actor: v.string(),
+    action: v.union(
+      v.literal("review_started"),
+      v.literal("review_completed"),
+      v.literal("review_failed"),
+      v.literal("review_viewed"),
+      v.literal("generate_from_review")
+    ),
+    detail: v.optional(v.string()),
+    at: v.number(),
+  }).index("by_projectId", ["projectId"]),
 
   // BNH-39: writer → admin conduit. Writers flag feedback; the admin gatekeeps
   // what actually reaches the Brain. Never auto-applied.

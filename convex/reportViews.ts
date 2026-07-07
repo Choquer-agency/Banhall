@@ -59,3 +59,27 @@ export const getViewSummary = query({
     };
   },
 });
+
+/** BNH-49: latest view timestamp per project (for "recently viewed" sorting).
+ *  Bounded: one indexed first() per project the user owns. */
+export const getLastViewedMap = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return {};
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_createdBy", (q) => q.eq("createdBy", userId))
+      .collect();
+    const map: Record<string, number> = {};
+    for (const p of projects) {
+      const last = await ctx.db
+        .query("reportViews")
+        .withIndex("by_projectId", (q) => q.eq("projectId", p._id))
+        .order("desc")
+        .first();
+      if (last) map[p._id] = last.viewedAt;
+    }
+    return map;
+  },
+});
