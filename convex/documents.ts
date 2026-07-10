@@ -1,7 +1,11 @@
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { assertProjectOwner } from "./lib/auth";
+import {
+  getInternalProjectAccessOrNull,
+  requireCurrentUser,
+  requireInternalProjectAccess,
+} from "./lib/auth";
+import { domainError } from "./lib/contracts";
 
 const fileTypeValidator = v.union(
   v.literal("txt"),
@@ -25,8 +29,7 @@ const categoryValidator = v.union(
 export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    await requireCurrentUser(ctx);
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -44,10 +47,13 @@ export const uploadDocument = mutation({
     category: v.optional(categoryValidator),
   },
   handler: async (ctx, args) => {
-    const project = await assertProjectOwner(ctx, args.projectId);
-    if (!project) throw new Error("Not authorized");
-
-    const userId = await getAuthUserId(ctx);
+    const { project, user } = await requireInternalProjectAccess(ctx, args.projectId);
+    if (args.reportId) {
+      const report = await ctx.db.get(args.reportId);
+      if (!report || report.projectId !== project._id) {
+        domainError("INVALID_INPUT", "Report does not belong to this project");
+      }
+    }
 
     // Dedupe: same file (name + content) already in this project → reuse it.
     const existingDocs = await ctx.db
@@ -81,7 +87,7 @@ export const uploadDocument = mutation({
       ...(args.mimeType ? { mimeType: args.mimeType } : {}),
       ...(args.category ? { category: args.category } : {}),
       source: args.source ?? "chat_upload",
-      uploadedBy: userId ?? "unknown",
+      uploadedBy: user._id,
       createdAt: Date.now(),
     });
   },
@@ -90,8 +96,7 @@ export const uploadDocument = mutation({
 export const listDocuments = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const project = await assertProjectOwner(ctx, args.projectId);
-    if (!project) return [];
+    if (!(await getInternalProjectAccessOrNull(ctx, args.projectId))) return [];
 
     const docs = await ctx.db
       .query("projectDocuments")
@@ -124,8 +129,7 @@ export const setDocumentArchived = mutation({
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
-    const project = await assertProjectOwner(ctx, doc.projectId);
-    if (!project) throw new Error("Not authorized");
+    await requireInternalProjectAccess(ctx, doc.projectId);
     await ctx.db.patch(args.documentId, { archived: args.archived });
   },
 });
@@ -136,8 +140,7 @@ export const getDocumentContent = query({
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
     if (!doc) return null;
-    const project = await assertProjectOwner(ctx, doc.projectId);
-    if (!project) return null;
+    if (!(await getInternalProjectAccessOrNull(ctx, doc.projectId))) return null;
     return { fileName: doc.fileName, fileType: doc.fileType, content: doc.content };
   },
 });
@@ -147,8 +150,7 @@ export const deleteDocument = mutation({
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
-    const project = await assertProjectOwner(ctx, doc.projectId);
-    if (!project) throw new Error("Not authorized");
+    await requireInternalProjectAccess(ctx, doc.projectId);
     if (doc.storageId) await ctx.storage.delete(doc.storageId);
     await ctx.db.delete(args.documentId);
   },

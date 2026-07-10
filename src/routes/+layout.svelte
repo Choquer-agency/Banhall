@@ -7,6 +7,7 @@
   import { PUBLIC_CONVEX_URL } from "$env/static/public";
   import PageErrorBoundary from "$lib/components/errors/PageErrorBoundary.svelte";
   import ErrorMonitor from "$lib/components/errors/ErrorMonitor.svelte";
+  import { Toaster } from "svelte-sonner";
 
   let { children, data } = $props();
 
@@ -30,4 +31,5 @@
     {@render children()}
   </PageErrorBoundary>
   <ErrorMonitor />
+  <Toaster richColors closeButton position="top-right" toastOptions={{ class: "font-sans" }} />
 </div>

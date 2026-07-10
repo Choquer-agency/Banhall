@@ -9,7 +9,6 @@ import {
 import { components, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import {
   abortStream,
   createThread,
@@ -18,9 +17,15 @@ import {
   syncStreams,
   vStreamArgs,
 } from "@convex-dev/agent";
-import { assertProjectOwner } from "./lib/auth";
-import { pruneSnapshots } from "./lib/snapshots";
-import { applyReplacements } from "./lib/reportEdits";
+import {
+  getInternalProjectAccessOrNull,
+  requireInternalProjectAccess,
+} from "./lib/auth";
+import { requireAnthropicConfigured } from "./lib/providerConfig";
+import { pruneSnapshots, snapshotAuditFields } from "./lib/snapshots";
+import { applyReplacements, type PMNode } from "./lib/reportEdits";
+import { domainError, sha256 } from "./lib/contracts";
+import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 
 // ─── Agent-based chat plumbing (BNH-10 P2, parallel-run with chat.ts) ────────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -48,8 +53,7 @@ export const listThreads = query({
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
     if (!report) return [];
-    const project = await assertProjectOwner(ctx, report.projectId);
-    if (!project) return [];
+    if (!(await getInternalProjectAccessOrNull(ctx, report.projectId))) return [];
 
     return await ctx.db
       .query("agentChatThreads")
@@ -72,8 +76,7 @@ export const listMessages = query({
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.threadId);
     if (!thread) throw new Error("Thread not found");
-    const project = await assertProjectOwner(ctx, thread.projectId);
-    if (!project) throw new Error("Not authorized");
+    await requireInternalProjectAccess(ctx, thread.projectId);
 
     const paginated = await listUIMessages(ctx, components.agent, {
       threadId: args.threadId,
@@ -93,8 +96,7 @@ export const listProposals = query({
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.threadId);
     if (!thread) return [];
-    const project = await assertProjectOwner(ctx, thread.projectId);
-    if (!project) return [];
+    if (!(await getInternalProjectAccessOrNull(ctx, thread.projectId))) return [];
 
     return await ctx.db
       .query("chatProposals")
@@ -118,18 +120,22 @@ export const sendMessage = mutation({
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
     if (!report) throw new Error("Report not found");
-    const project = await assertProjectOwner(ctx, report.projectId);
-    if (!project) throw new Error("Not authorized");
+    const { user } = await requireInternalProjectAccess(ctx, report.projectId);
+    requireAnthropicConfigured("chat");
     if (!args.content.trim() && !args.highlight) {
       throw new Error("Message is empty");
     }
-    const userId = await getAuthUserId(ctx);
+    const userId = user._id;
 
     // Resolve (or create) the component thread for this report.
     let agentThreadId = args.threadId;
     if (agentThreadId) {
       const thread = await threadRow(ctx, agentThreadId);
-      if (!thread || thread.projectId !== report.projectId) {
+      if (
+        !thread ||
+        thread.projectId !== report.projectId ||
+        thread.reportId !== report._id
+      ) {
         throw new Error("Thread not found");
       }
     } else {
@@ -145,7 +151,7 @@ export const sendMessage = mutation({
       } else {
         const title = args.content.trim().slice(0, 60) || "New chat";
         agentThreadId = await createThread(ctx, components.agent, {
-          userId: userId ?? undefined,
+          userId,
           title,
         });
         await ctx.db.insert("agentChatThreads", {
@@ -163,7 +169,7 @@ export const sendMessage = mutation({
       : "";
     const { messageId } = await saveMessage(ctx, components.agent, {
       threadId: agentThreadId,
-      userId: userId ?? undefined,
+      userId,
       message: { role: "user", content: `${args.content}${excerpt}` },
     });
 
@@ -189,8 +195,7 @@ export const abortStreaming = mutation({
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.threadId);
     if (!thread) throw new Error("Thread not found");
-    const project = await assertProjectOwner(ctx, thread.projectId);
-    if (!project) throw new Error("Not authorized");
+    await requireInternalProjectAccess(ctx, thread.projectId);
 
     return await abortStream(ctx, components.agent, {
       threadId: args.threadId,
@@ -204,19 +209,15 @@ export const applyProposal = mutation({
   args: { proposalId: v.id("chatProposals") },
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
-    if (!proposal) throw new Error("Proposal not found");
+    if (!proposal) domainError("NOT_FOUND", "Proposal not found");
     if (proposal.kind === "references") {
-      throw new Error("Highlights have nothing to apply.");
+      domainError("INVALID_INPUT", "Highlights have nothing to apply.");
     }
-    const project = await assertProjectOwner(ctx, proposal.projectId);
-    if (!project) throw new Error("Not authorized");
-
-    const report = await ctx.db
-      .query("reports")
-      .withIndex("by_projectId", (q) => q.eq("projectId", proposal.projectId))
-      .order("desc")
-      .first();
-    if (!report) throw new Error("Report not found");
+    await requireInternalProjectAccess(ctx, proposal.projectId);
+    const report = await ctx.db.get(proposal.reportId);
+    if (!report || report.projectId !== proposal.projectId) {
+      domainError("NOT_FOUND", "Report not found");
+    }
 
     const pairs: { find: string; replaceWith: string }[] = (
       proposal.replacements && proposal.replacements.length
@@ -224,33 +225,49 @@ export const applyProposal = mutation({
         : proposal.targetText
           ? [{ find: proposal.targetText, replaceWith: proposal.newText ?? "" }]
           : []
-    ).filter((p) => p.find);
+    ).filter((pair) => pair.find);
     if (pairs.length === 0) {
-      throw new Error("This edit has nothing to replace.");
+      domainError("INVALID_INPUT", "This edit has nothing to replace.");
     }
 
-    const doc = JSON.parse(report.content);
-    const { doc: updated, count } = applyReplacements(doc, pairs);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(report.content);
+    } catch {
+      domainError("INVALID_INPUT", "The report content is not valid editor JSON");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      domainError("INVALID_INPUT", "The report content is not a valid editor document");
+    }
+    const { doc: updated, count } = applyReplacements(parsed as PMNode, pairs);
     if (count === 0) {
-      throw new Error(
+      domainError(
+        "STALE_REVISION",
         "Couldn't find the original passage in the report to replace — it may have already changed. Try asking again."
       );
     }
 
-    // Snapshot current state BEFORE editing so nothing is ever destroyed.
+    const content = JSON.stringify(updated);
+    const revisionNumber = report.revisionNumber ?? 0;
+    const now = Date.now();
+    const auditFields = await snapshotAuditFields(ctx, report);
     await ctx.db.insert("reportSnapshots", {
-      projectId: proposal.projectId,
+      projectId: report.projectId,
       reportId: report._id,
       content: report.content,
+      ...auditFields,
+      sourceRevisionNumber: revisionNumber,
       reason: "pre_chat_edit",
       label: "Before AI edit",
       createdByRole: "system",
-      createdAt: Date.now(),
+      createdAt: now,
     });
-
     await ctx.db.patch(report._id, {
-      content: JSON.stringify(updated),
-      updatedAt: Date.now(),
+      content,
+      contentHash: await sha256(content),
+      revisionNumber: revisionNumber + 1,
+      provenanceId: undefined,
+      updatedAt: now,
     });
     await ctx.db.patch(args.proposalId, { state: "applied" });
     await pruneSnapshots(ctx, report._id);
@@ -268,8 +285,7 @@ export const markProposalApplied = mutation({
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) return;
-    const project = await assertProjectOwner(ctx, proposal.projectId);
-    if (!project) throw new Error("Not authorized");
+    await requireInternalProjectAccess(ctx, proposal.projectId);
     await ctx.db.patch(args.proposalId, { state: "applied" });
   },
 });
@@ -279,8 +295,7 @@ export const rejectProposal = mutation({
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
-    const project = await assertProjectOwner(ctx, proposal.projectId);
-    if (!project) throw new Error("Not authorized");
+    await requireInternalProjectAccess(ctx, proposal.projectId);
     await ctx.db.patch(args.proposalId, { state: "rejected" });
   },
 });
@@ -322,14 +337,17 @@ export const saveProposal = internalMutation({
   },
 });
 
-/** Project industry for the searchBrain tool (null = tool politely declines). */
-export const getThreadIndustry = internalQuery({
+/** Project metadata for the searchBrain tool. */
+export const getThreadBrainContext = internalQuery({
   args: { agentThreadId: v.string() },
-  handler: async (ctx, args): Promise<string | null> => {
+  handler: async (ctx, args): Promise<{ industry: string | null; scienceCode: string | null }> => {
     const thread = await threadRow(ctx, args.agentThreadId);
-    if (!thread) return null;
+    if (!thread) return { industry: null, scienceCode: null };
     const project = await ctx.db.get(thread.projectId);
-    return project?.industry ?? null;
+    return {
+      industry: project?.industry ?? null,
+      scienceCode: normalizeCraScienceCode(project?.scienceCode) ?? null,
+    };
   },
 });
 

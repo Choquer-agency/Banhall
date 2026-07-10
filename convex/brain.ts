@@ -8,10 +8,13 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { Workpool } from "@convex-dev/workpool";
 import { components, internal } from "./_generated/api";
 import { brain } from "./ai/brain/rag";
+import { requireBrainConfigured } from "./lib/providerConfig";
+import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 
 // Serial embed queue with backoff — Voyage 429s on parallel bursts (the 10-PD
 // seed lost 7/10 jobs at maxParallelism ∞). Bulk imports (BNH-17's ~500) drain
@@ -25,8 +28,9 @@ const embedPool = new Workpool(components.embedPool, {
 /** Queue a source for embedding (used by import/approve/reweight). */
 async function scheduleEmbed(
   ctx: MutationCtx,
-  sourceId: import("./_generated/dataModel").Id<"brainSources">
+  sourceId: Id<"brainSources">
 ) {
+  requireBrainConfigured();
   await embedPool.enqueueAction(ctx, internal.ai.brain.ingest.embedSource, {
     sourceId,
   });
@@ -84,6 +88,7 @@ const importArgs = {
     v.union(v.literal("approved"), v.literal("rejected"), v.literal("disputed"))
   ),
   content: v.string(),
+  scienceCode: v.optional(v.string()),
   sourceProjectId: v.optional(v.id("projects")),
   approve: v.optional(v.boolean()),
 };
@@ -98,6 +103,7 @@ type ImportSourceArgs = {
   fiscalYear?: number;
   craOutcome?: "approved" | "rejected" | "disputed";
   content: string;
+  scienceCode?: string;
   sourceProjectId?: import("./_generated/dataModel").Id<"projects">;
   approve?: boolean;
 };
@@ -107,14 +113,30 @@ async function importSource(
   args: ImportSourceArgs,
   actor: string
 ) {
+  const explicitScienceCode = normalizeCraScienceCode(args.scienceCode);
+  if (args.scienceCode?.trim() && !explicitScienceCode) {
+    throw new Error("Invalid CRA field of science or technology code");
+  }
+  const sourceProject = args.sourceProjectId
+    ? await ctx.db.get(args.sourceProjectId)
+    : null;
+  const projectScienceCode = normalizeCraScienceCode(sourceProject?.scienceCode);
+  const scienceCode = projectScienceCode ?? explicitScienceCode;
   const hash = contentHash(args.content);
 
-  // Dedup by content (BNH-17): same content already imported → skip.
+  // Dedup by content (BNH-17). A later project-linked import may enrich an
+  // existing legacy row with structured science routing metadata.
   const existing = await ctx.db
     .query("brainSources")
     .withIndex("by_hash", (q) => q.eq("sourceHash", hash))
     .first();
-  if (existing) return existing._id;
+  if (existing) {
+    if (scienceCode && existing.scienceCode !== scienceCode) {
+      await ctx.db.patch(existing._id, { scienceCode });
+      if (existing.status === "approved") await scheduleEmbed(ctx, existing._id);
+    }
+    return existing._id;
+  }
 
   const kind = args.kind ?? "pd_pair";
   const status = args.approve ? "approved" : "pending";
@@ -128,6 +150,7 @@ async function importSource(
     docType: args.docType,
     fiscalYear: args.fiscalYear,
     craOutcome: args.craOutcome,
+    scienceCode,
     content: args.content,
     ragKey: `${kind}:${hash}`,
     sourceHash: hash,
@@ -236,6 +259,7 @@ export const getBrainSourceForIngest = internalQuery({
       docType: s.docType,
       fiscalYear: s.fiscalYear,
       craOutcome: s.craOutcome,
+      scienceCode: normalizeCraScienceCode(s.scienceCode),
       ragKey: s.ragKey,
       sourceHash: s.sourceHash,
     };
@@ -392,6 +416,7 @@ export const listBrainSources = query({
       writerTier: r.writerTier,
       docType: r.docType,
       craOutcome: r.craOutcome ?? null,
+      scienceCode: normalizeCraScienceCode(r.scienceCode) ?? null,
       hasEntry: !!r.ragEntryId,
       createdAt: r.createdAt,
     }));

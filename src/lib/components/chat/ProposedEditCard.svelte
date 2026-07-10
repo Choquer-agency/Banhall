@@ -1,8 +1,10 @@
 <script lang="ts">
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import { diffWords, proposedTextChanges } from "$lib/diff";
 
   interface Props {
     newText?: string;
+    targetText?: string;
     replacements?: { find: string; replaceWith: string }[];
     state: "pending" | "applied" | "rejected";
     onReplace: () => Promise<void> | void;
@@ -12,10 +14,10 @@
     reviewing?: boolean;
   }
 
-  // NB: the prop is named `state` (exact React contract); alias it locally so
-  // the identifier doesn't shadow the `$state` rune.
+  // Alias the prop so it does not shadow the `$state` rune.
   let {
     newText,
+    targetText,
     replacements,
     state: editState,
     onReplace,
@@ -27,6 +29,17 @@
 
   let busy = $state(false);
   let error = $state<string | null>(null);
+
+  // Session-local by design: remounting a proposal always returns to neutral.
+  let showChanges = $state(false);
+  const changes = $derived(
+    proposedTextChanges(targetText, newText, replacements)
+  );
+  const diffGroups = $derived(
+    showChanges
+      ? changes.map(({ before, after }) => diffWords(before, after))
+      : []
+  );
 
   async function handle(action: () => Promise<void> | void) {
     busy = true;
@@ -43,33 +56,89 @@
 </script>
 
 <div class="card mt-2 overflow-hidden shadow-sm">
-  <!-- The proposed change: a multi-instance find/replace list, or the new text -->
   <div class="max-h-72 overflow-y-auto px-4 py-3.5">
     {#if replacements && replacements.length > 0}
       <div class="flex flex-col gap-2">
         <p class="text-label">
-          {replacements.length} replacement{replacements.length === 1 ? "" : "s"} — applied to every occurrence
+          {changes.length} replacement{changes.length === 1 ? "" : "s"} — applied to every occurrence
         </p>
-        {#each replacements as r, i (i)}
-          <div class="flex items-center gap-2 text-[14px]">
-            <span class="rounded bg-red-50 px-1.5 py-0.5 font-serif text-red-700 line-through decoration-red-300">
-              {r.find}
-            </span>
-            <svg class="h-3.5 w-3.5 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-            </svg>
-            <span class="rounded bg-green-50 px-1.5 py-0.5 font-serif text-green-700">
-              {r.replaceWith}
-            </span>
+        {#each changes as change, changeIndex (changeIndex)}
+          <div class="rounded-lg bg-gray-50 px-3 py-2">
+            {#if showChanges}
+              <p
+                aria-label={`Replacement ${changeIndex + 1} changes`}
+                class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-900"
+              >
+                {#each diffGroups[changeIndex] ?? [] as part, partIndex (partIndex)}
+                  {#if part.type === "removed"}
+                    <span class="rounded-sm bg-red-50 text-red-700 line-through decoration-red-300">{part.text}</span>
+                  {:else if part.type === "added"}
+                    <span class="rounded-sm bg-green-50 text-green-700">{part.text}</span>
+                  {:else}
+                    {part.text}
+                  {/if}
+                {/each}
+              </p>
+            {:else if change.after}
+              <p class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-900">
+                {change.after}
+              </p>
+            {:else}
+              <p class="text-sm text-gray-500">Delete the matched text</p>
+            {/if}
           </div>
         {/each}
       </div>
-    {:else}
+    {:else if showChanges && changes.length === 1}
+      <p
+        aria-label="Proposed changes"
+        class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-900"
+      >
+        {#each diffGroups[0] ?? [] as part, i (i)}
+          {#if part.type === "removed"}
+            <span class="rounded-sm bg-red-50 text-red-700 line-through decoration-red-300">{part.text}</span>
+          {:else if part.type === "added"}
+            <span class="rounded-sm bg-green-50 text-green-700">{part.text}</span>
+          {:else}
+            {part.text}
+          {/if}
+        {/each}
+      </p>
+    {:else if newText}
       <p class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-900">
         {newText}
       </p>
+    {:else}
+      <p class="text-sm text-gray-500">Delete the selected passage</p>
     {/if}
   </div>
+
+  {#if changes.length > 0}
+    <div class="flex items-center justify-end border-t border-gray-100 px-3 py-1.5">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={showChanges}
+        onclick={() => (showChanges = !showChanges)}
+        class={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+          showChanges ? "bg-primary-wash text-navy" : "text-gray-400 hover:text-gray-600"
+        }`}
+      >
+        <span
+          class={`relative inline-flex h-3.5 w-6 flex-none items-center rounded-full transition-colors ${
+            showChanges ? "bg-primary" : "bg-gray-300"
+          }`}
+        >
+          <span
+            class={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${
+              showChanges ? "translate-x-3" : "translate-x-0.5"
+            }`}
+          ></span>
+        </span>
+        Show changes
+      </button>
+    </div>
+  {/if}
 
   <!-- Actions -->
   <div class="flex items-center gap-2 border-t border-gray-100 bg-gray-50 px-3 py-2.5">

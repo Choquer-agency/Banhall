@@ -84,7 +84,7 @@ on disk as the porting reference until parity; SvelteKit app lives in
 ## Verify
 
 - `bun run check` → must end `0 ERRORS` (a11y warnings: fix them, usually aria-label)
-- Dev server usually already running on :3000 (`curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/<route>`) — don't start/kill it; if down: `bun run dev`
+- Dev server usually already running on :3001 (`curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/<route>`) — don't start/kill it; if down: `bun run dev`
 - Don't touch `convex/**` (only exception: type-only import fixes if svelte-check
   flags one, keeping `npx tsc --noEmit -p convex/tsconfig.json` green)
 - Don't commit.

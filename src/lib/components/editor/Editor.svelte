@@ -6,7 +6,7 @@
   Props:
     content: string                    — report content (Tiptap JSON string; plain text falls back
                                          to a single paragraph). QA scorecard block is stripped.
-    onUpdate?: (json: string) => void  — debounced (1s) autosave callback with the doc's JSON.
+    onUpdate?: (json: string) => void | Promise<void> — debounced (1s) autosave callback.
     onComment?: (sel) => void          — selection toolbar "Comment"; sel = { from, to, text (≤200
                                          chars), x?, y? (viewport coords of selection end) }.
     onAskAI?: (sel) => void            — selection toolbar "Ask AI"; sel = { from, to, text } with
@@ -17,6 +17,7 @@
 
   Exported methods — parents `bind:this` the component instance and call these
   (implements WriterEditorHandle from ./types):
+    flushPendingSave(): Promise<void>           — flush visible JSON and await queued autosaves.
     scrollToPosition(from, to, text?)          — select + smooth-scroll to a range.
     getYForPos(pos, text?): number | null      — y offset of a doc position within the editor.
     getEditorTop(): number                     — editor DOM top (viewport coords).
@@ -30,6 +31,51 @@
   import type { Node as PMNode } from "@tiptap/pm/model";
   import { Decoration, DecorationSet } from "@tiptap/pm/view";
   import type { CommentRange, FindReplaceMatch } from "$lib/components/editor/types";
+  import {
+    reportSectionKeyForHeading,
+    reportSectionMetrics,
+    type ReportSectionKey,
+    type ReportSectionMetricMap,
+  } from "$lib/reportSections";
+
+  const REPORT_SECTION_DEFINITIONS = [
+    { key: "s242", line: "242" },
+    { key: "s244", line: "244" },
+    { key: "s246", line: "246" },
+  ] as const;
+
+  type LimitState = "ok" | "warning" | "over";
+
+  function limitState(
+    metric: ReportSectionMetricMap[ReportSectionKey]
+  ): LimitState {
+    if (metric.overLimit) return "over";
+    if (
+      metric.lines >= Math.floor(metric.limit * 0.95) ||
+      metric.words >= Math.floor(metric.wordCap * 0.95)
+    ) {
+      return "warning";
+    }
+    return "ok";
+  }
+
+  function limitWarning(
+    line: string,
+    metric: ReportSectionMetricMap[ReportSectionKey]
+  ): string {
+    const lineOverage = Math.max(0, metric.lines - metric.limit);
+    const wordOverage = Math.max(0, metric.words - metric.wordCap);
+    if (lineOverage > 0 && wordOverage > 0) {
+      return `Line ${line} is ${lineOverage} form lines and ${wordOverage} words over the CRA limits.`;
+    }
+    if (lineOverage > 0) {
+      return `Line ${line} is ${lineOverage} form line${lineOverage === 1 ? "" : "s"} over the CRA limit.`;
+    }
+    if (wordOverage > 0) {
+      return `Line ${line} is ${wordOverage} word${wordOverage === 1 ? "" : "s"} over the CRA limit.`;
+    }
+    return `Line ${line} is within 5% of a CRA limit.`;
+  }
 
   type Range = { from: number; to: number; text: string };
 
@@ -249,7 +295,70 @@
     return { from: fromPos, to: toPos + 1 }; // +1 because to is exclusive in PM
   }
 
-  function buildDecorationSet(doc: PMNode, ranges: CommentRange[], aiRanges: Range[] = []) {
+  function buildSectionLimitDecorations(
+    doc: PMNode,
+    metrics: ReportSectionMetricMap
+  ): Decoration[] {
+    const endPositions: Partial<Record<ReportSectionKey, number>> = {};
+    let currentSection: ReportSectionKey | null = null;
+
+    doc.forEach((node, offset) => {
+      const heading = reportSectionKeyForHeading(node.toJSON());
+      if (heading) {
+        currentSection = heading;
+        endPositions[heading] = offset + node.nodeSize;
+        return;
+      }
+      if (currentSection && node.type.name !== "horizontalRule") {
+        endPositions[currentSection] = offset + node.nodeSize;
+      }
+    });
+
+    const markers: Decoration[] = [];
+    for (const { key, line } of REPORT_SECTION_DEFINITIONS) {
+      const position = endPositions[key];
+      if (position === undefined) continue;
+      const metric = metrics[key];
+      const state = limitState(metric);
+      markers.push(
+        Decoration.widget(
+          Math.min(position, doc.content.size),
+          () => {
+            const marker = document.createElement("div");
+            marker.className = `cra-section-end cra-section-end--${state}`;
+            marker.contentEditable = "false";
+            marker.dataset.sectionLimitMarker = line;
+
+            const label = document.createElement("span");
+            label.className = "cra-section-end__label";
+            label.textContent = `End of Line ${line}`;
+
+            const count = document.createElement("span");
+            count.className = "cra-section-end__count";
+            count.textContent = `${metric.lines}/${metric.limit} lines · ${metric.words}/${metric.wordCap} words`;
+
+            marker.append(label, count);
+            if (state !== "ok") {
+              const warning = document.createElement("span");
+              warning.className = "cra-section-end__warning";
+              warning.textContent = state === "over" ? "Limit exceeded" : "Near limit";
+              marker.append(warning);
+            }
+            return marker;
+          },
+          { key: `cra-section-end-${key}`, side: 1 }
+        )
+      );
+    }
+    return markers;
+  }
+
+  function buildDecorationSet(
+    doc: PMNode,
+    ranges: CommentRange[],
+    aiRanges: Range[] = [],
+    sectionLimitMetrics?: ReportSectionMetricMap
+  ) {
     const decorations: Decoration[] = [];
     const docSize = doc.content.size;
 
@@ -317,7 +426,9 @@
         })
       );
     }
-
+    if (sectionLimitMetrics) {
+      decorations.push(...buildSectionLimitDecorations(doc, sectionLimitMetrics));
+    }
     return DecorationSet.create(doc, decorations);
   }
 
@@ -380,6 +491,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { createEditor, EditorContent, type Editor } from "svelte-tiptap";
+  import type { Editor as CoreEditor } from "@tiptap/core";
   import { getEditorExtensions } from "$lib/tiptapConfig";
   import EditorToolbar from "$lib/components/editor/EditorToolbar.svelte";
   import SlashCommandMenu from "$lib/components/editor/SlashCommandMenu.svelte";
@@ -395,7 +507,7 @@
     onHoverComment,
   }: {
     content: string;
-    onUpdate?: (json: string) => void;
+    onUpdate?: (json: string) => void | Promise<void>;
     onComment?: (selection: {
       from: number;
       to: number;
@@ -416,18 +528,62 @@
   }>({ isOpen: false, position: { top: 0, left: 0 } });
   let aiHighlights = $state<Range[]>([]);
 
-  // Line/word/character counts, refreshed on every transaction (the store
-  // emits the same Editor instance, so counts need their own reactive state).
+  // BNH-37: canonical Schedule 60 metrics. Recompute only when the ProseMirror
+  // document identity changes; selection-only transactions reuse the result.
+  let sectionLimitMetrics = $state<ReportSectionMetricMap>(reportSectionMetrics(""));
+  let limitOverlayVisible = $state(false);
   let lineCount = $state(0);
   let wordCount = $state(0);
   let charCount = $state(0);
+  let measuredDoc: PMNode | undefined;
+  let currentDocumentJson = "";
 
   let saveTimeout: ReturnType<typeof setTimeout> | undefined;
+  let pendingSaveChain: Promise<void> = Promise.resolve();
+  let lastQueuedContent: string | null = null;
   // Apply external content changes (AI replace, restore, regenerate). Only the
   // exact echo of our own last autosave is skipped — anything else is applied,
   // so restores/replaces always reflect even right after an edit.
   let lastContent = "";
   let lastSavedContent: string | null = null;
+
+  function refreshDocumentMetrics(ed: Editor | CoreEditor): string {
+    if (measuredDoc === ed.state.doc) return currentDocumentJson;
+    measuredDoc = ed.state.doc;
+    currentDocumentJson = JSON.stringify(ed.getJSON());
+    sectionLimitMetrics = reportSectionMetrics(currentDocumentJson);
+    lineCount = REPORT_SECTION_DEFINITIONS.reduce(
+      (total, { key }) => total + sectionLimitMetrics[key].lines,
+      0
+    );
+    wordCount = REPORT_SECTION_DEFINITIONS.reduce(
+      (total, { key }) => total + sectionLimitMetrics[key].words,
+      0
+    );
+    charCount = (
+      ed.storage as unknown as { characterCount: { characters: () => number } }
+    ).characterCount.characters();
+    return currentDocumentJson;
+  }
+
+  function enqueueSave(json: string): Promise<void> {
+    if (!onUpdate || json === lastQueuedContent) return pendingSaveChain;
+    const update = onUpdate;
+    lastQueuedContent = json;
+    lastSavedContent = json;
+    const save = pendingSaveChain.then(() => update(json));
+    pendingSaveChain = save.catch(() => {});
+    return save;
+  }
+
+  function scheduleSave(json: string) {
+    if (!onUpdate) return;
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(() => {
+      saveTimeout = undefined;
+      void enqueueSave(json).catch(() => {});
+    }, 1000);
+  }
 
   onMount(() => {
     lastContent = content;
@@ -467,27 +623,18 @@
           slashMenu.isOpen = false;
         }
 
-        if (onUpdate) {
-          if (saveTimeout) clearTimeout(saveTimeout);
-          saveTimeout = setTimeout(() => {
-            const json = JSON.stringify(ed.getJSON());
-            lastSavedContent = json;
-            onUpdate(json);
-          }, 1000);
-        }
+        scheduleSave(refreshDocumentMetrics(ed));
       },
     });
-    // Manual subscription keeps the store's editor alive for the component's
-    // lifetime; unsubscribing on unmount tears the editor down. Fires on every
-    // transaction, so the counts stay live.
+    // Keep the store's editor alive for the component lifetime. The document
+    // identity guard avoids re-parsing metrics on selection-only transactions.
     const unsubscribe = editorStore.subscribe((e) => {
       editor = e;
-      lineCount = e.state.doc.content.childCount;
-      wordCount = e.storage.characterCount.words();
-      charCount = e.storage.characterCount.characters();
+      refreshDocumentMetrics(e);
     });
     return () => {
       if (saveTimeout) clearTimeout(saveTimeout);
+      saveTimeout = undefined;
       unsubscribe();
     };
   });
@@ -503,19 +650,30 @@
       if (c === lastSavedContent) return;
       const parsed = parseContent(c);
       if (parsed) {
-        ed.commands.setContent(parsed);
+        ed.commands.setContent(parsed, { emitUpdate: false });
+        refreshDocumentMetrics(ed);
       }
     }
   });
 
-  // Update comment + AI-reference highlight decorations when ranges change
+  // Update comment, AI-reference, and optional section-limit decorations.
+  // Cache by immutable doc identity so cursor movement does not rebuild them.
   $effect(() => {
     const ed = editor;
     if (!ed) return;
     const ranges = commentRanges;
     const ai = aiHighlights;
+    const metrics = limitOverlayVisible ? sectionLimitMetrics : undefined;
+    let decoratedDoc: PMNode | null = null;
+    let decorations: DecorationSet | null = null;
     ed.view.setProps({
-      decorations: (state) => buildDecorationSet(state.doc, ranges, ai),
+      decorations: (state) => {
+        if (state.doc !== decoratedDoc || !decorations) {
+          decoratedDoc = state.doc;
+          decorations = buildDecorationSet(state.doc, ranges, ai, metrics);
+        }
+        return decorations;
+      },
     });
   });
 
@@ -593,6 +751,20 @@
     const text = editor.state.doc.textBetween(from, to, "\n");
     if (!text.trim()) return;
     onAskAI({ from, to, text: text.trim() });
+  }
+
+  /**
+   * Persist the exact document currently visible in the editor, bypassing the
+   * debounce and waiting for every previously queued save to finish.
+   */
+  export async function flushPendingSave(): Promise<void> {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = undefined;
+    if (!editor || !onUpdate) {
+      await pendingSaveChain;
+      return;
+    }
+    await enqueueSave(refreshDocumentMetrics(editor));
   }
 
   /** Scroll the surrounding `.overflow-y-auto` container to a doc position. */
@@ -758,13 +930,114 @@
     <!-- The editor itself -->
     <EditorContent {editor} />
 
-    <!-- Line/word/character count -->
     {#if editable}
-      <div class="mt-4 flex items-center gap-4 text-xs text-gray-400">
-        <span>{lineCount} lines</span>
-        <span>{wordCount} words</span>
-        <span>{charCount} characters</span>
+      <div class="mt-5 border-t border-line-soft pt-3 font-sans">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <button
+            type="button"
+            aria-controls="editor-cra-limits"
+            aria-expanded={limitOverlayVisible}
+            aria-pressed={limitOverlayVisible}
+            onclick={() => (limitOverlayVisible = !limitOverlayVisible)}
+            class={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+              limitOverlayVisible
+                ? "border-primary bg-primary-wash text-primary-dark"
+                : "border-line bg-white text-ink-secondary hover:border-primary hover:bg-primary-wash"
+            }`}
+          >
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 4v4m6 2v4m-8 2v4" />
+            </svg>
+            {limitOverlayVisible ? "Hide CRA limits" : "Show CRA limits"}
+          </button>
+          <span class="text-data text-ink-muted">
+            {lineCount} form lines · {wordCount} report words · {charCount} characters
+          </span>
+        </div>
+
+        {#if limitOverlayVisible}
+          <div id="editor-cra-limits" class="mt-3 rounded-xl bg-chrome p-3" aria-live="polite">
+            <div class="grid gap-2 sm:grid-cols-3">
+              {#each REPORT_SECTION_DEFINITIONS as { key, line } (key)}
+                {@const metric = sectionLimitMetrics[key]}
+                {@const state = limitState(metric)}
+                <div
+                  class={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
+                    state === "over"
+                      ? "border-red-200 bg-red-50 text-red-800"
+                      : state === "warning"
+                        ? "border-amber-200 bg-gap-bg text-gap-text"
+                        : "border-line bg-white text-ink-secondary"
+                  }`}
+                >
+                  <span class="text-xs font-semibold">Line {line}</span>
+                  <span class="text-data text-right">
+                    <strong>{metric.lines}/{metric.limit}</strong> lines<br />
+                    {metric.words}/{metric.wordCap} words
+                  </span>
+                </div>
+              {/each}
+            </div>
+
+            {#each REPORT_SECTION_DEFINITIONS as { key, line } (key)}
+              {@const metric = sectionLimitMetrics[key]}
+              {@const state = limitState(metric)}
+              {#if state !== "ok"}
+                <p
+                  class={`mt-2 text-xs font-medium ${state === "over" ? "text-red-700" : "text-gap-text"}`}
+                  role={state === "over" ? "alert" : "status"}
+                >
+                  {limitWarning(line, metric)}
+                </p>
+              {/if}
+            {/each}
+          </div>
+        {/if}
       </div>
     {/if}
   </div>
 {/if}
+
+<style>
+  :global(.cra-section-end) {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    margin: 0.75rem 0 1.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px dashed var(--color-line);
+    color: var(--color-ink-muted);
+    font-family: var(--font-sans);
+    font-size: 0.6875rem;
+    line-height: 1.4;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  :global(.cra-section-end__label) {
+    color: var(--color-primary-dark);
+    font-weight: 700;
+  }
+
+  :global(.cra-section-end__count) {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  :global(.cra-section-end__warning) {
+    margin-left: auto;
+    font-weight: 700;
+  }
+
+  :global(.cra-section-end--warning),
+  :global(.cra-section-end--warning .cra-section-end__label) {
+    color: var(--color-gap-text);
+  }
+
+  :global(.cra-section-end--over),
+  :global(.cra-section-end--over .cra-section-end__label) {
+    color: #b91c1c;
+    border-top-color: #fecaca;
+  }
+</style>

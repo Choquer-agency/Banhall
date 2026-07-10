@@ -1,46 +1,35 @@
 import JSZip from "jszip";
-import { saveAs } from "file-saver";
-
-/**
- * BNH-46: export the report into the client's Schedule 60 Word template.
- *
- * The template (static/templates/schedule60.docx, from data/templates/) is the
- * real CRA T661 Part 2 form: sections 242/244/246 are table boxes with a
- * 78-character Courier ruler across the top and a line-number gutter. We open
- * the .docx (a zip), splice the section text into each box's content cell as
- * Courier New 12pt paragraphs (12pt Courier = exactly 78 chars across the
- * 11264-dxa cell, matching the ruler), and re-zip. A blank paragraph is
- * emitted between paragraphs — on the form every blank line costs a full line,
- * which is the client's counting convention.
- *
- * Not SSR-safe (file-saver) — import lazily from click handlers only.
- */
-
-interface TiptapNode {
-  type: string;
-  attrs?: Record<string, unknown>;
-  content?: TiptapNode[];
-  text?: string;
-  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>;
-}
+import type {
+  CanonicalExportReport,
+} from "$lib/exportValidation";
+import type {
+  CanonicalReportSection,
+  ExportParagraphBlock,
+} from "$lib/reportSections";
+import {
+  normalizeCraScienceCode,
+  type CraScienceCode,
+} from "../../shared/craScienceCodes";
 
 const TEMPLATE_URL = "/templates/schedule60.docx";
-
 const RULER_78 =
   "123456789012345678901234567890123456789012345678901234567890123456789012345678";
-// The 60-char ruler (project-title box). The "</w:t>" suffix keeps it from
-// matching the first 60 chars of a 78-char section ruler.
 const RULER_60_RUN =
   "123456789012345678901234567890123456789012345678901234567890</w:t>";
-
 const SECTION_MARKERS: Record<"s242" | "s244" | "s246", string> = {
   s242: "242 What",
   s244: "244 What",
   s246: "246 What",
 };
+const MIME_TYPE =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const COURIER_RPR =
+  '<w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" w:cs="Courier New"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>';
+const BLANK_PARAGRAPH =
+  '<w:p><w:pPr><w:pStyle w:val="BodyText"/><w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" w:cs="Courier New"/><w:sz w:val="24"/></w:rPr></w:pPr></w:p>';
 
-function escapeXml(s: string): string {
-  return s
+function escapeXml(value: string): string {
+  return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -48,147 +37,137 @@ function escapeXml(s: string): string {
     .replace(/'/g, "&apos;");
 }
 
-const COURIER_RPR =
-  '<w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" w:cs="Courier New"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>';
-
-function courierParagraph(text: string): string {
-  return `<w:p><w:pPr><w:pStyle w:val="BodyText"/><w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" w:cs="Courier New"/><w:sz w:val="24"/></w:rPr></w:pPr><w:r>${COURIER_RPR}<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`;
+function courierParagraph(block: ExportParagraphBlock): string {
+  const lines = block.text.split("\n");
+  const runs = lines
+    .map((line, index) => {
+      const breakXml = index === 0 ? "" : "<w:br/>";
+      return `<w:r>${COURIER_RPR}${breakXml}<w:t xml:space="preserve">${escapeXml(line)}</w:t></w:r>`;
+    })
+    .join("");
+  return `<w:p><w:pPr><w:pStyle w:val="BodyText"/><w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" w:cs="Courier New"/><w:sz w:val="24"/></w:rPr></w:pPr>${runs}</w:p>`;
 }
 
-const BLANK_PARAGRAPH =
-  '<w:p><w:pPr><w:pStyle w:val="BodyText"/><w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" w:cs="Courier New"/><w:sz w:val="24"/></w:rPr></w:pPr></w:p>';
-
-/** Section text → form paragraphs with the blank-line-between convention. */
-function sectionParagraphsXml(text: string): string {
-  const paras = text
-    .split(/\n{2,}/)
-    .map((p) => p.replace(/\n/g, " ").trim())
-    .filter(Boolean);
-  return paras.map(courierParagraph).join(BLANK_PARAGRAPH);
-}
-
-/**
- * Replace the empty paragraph in a section box's content cell. Layout per box:
- * question row → ruler row → [gutter cell | content cell (empty paragraph)].
- * The content cell is the second <w:tc> after the ruler.
- */
-function fillSectionCell(xml: string, marker: string, text: string): string {
-  const mi = xml.indexOf(marker);
-  if (mi < 0) throw new Error(`Template: marker "${marker}" not found`);
-  const ri = xml.indexOf(RULER_78, mi);
-  if (ri < 0) throw new Error(`Template: ruler after "${marker}" not found`);
-  const gutterTc = xml.indexOf("<w:tc>", ri);
-  const contentTc = xml.indexOf("<w:tc>", gutterTc + 1);
-  const tcEnd = xml.indexOf("</w:tc>", contentTc);
-  const pStart = xml.indexOf("<w:p ", contentTc);
-  if (gutterTc < 0 || contentTc < 0 || tcEnd < 0 || pStart < 0 || pStart > tcEnd) {
-    throw new Error(`Template: content cell for "${marker}" not found`);
+function sectionParagraphsXml(section: CanonicalReportSection): string {
+  if (section.blocks.length === 0) {
+    throw new Error(`Line ${section.line} has no exportable paragraphs`);
   }
-  return xml.slice(0, pStart) + sectionParagraphsXml(text) + xml.slice(tcEnd);
+  return section.blocks.map(courierParagraph).join(BLANK_PARAGRAPH);
 }
 
-/** Append a paragraph under the 60-char ruler in the line-200 title box. */
-function fillTitleBox(xml: string, title: string): string {
-  const ri = xml.indexOf(RULER_60_RUN);
-  if (ri < 0) return xml; // non-fatal — the form still exports
-  const tcEnd = xml.indexOf("</w:tc>", ri);
-  if (tcEnd < 0) return xml;
+function fillSectionCell(
+  xml: string,
+  marker: string,
+  section: CanonicalReportSection
+): string {
+  const markerIndex = xml.indexOf(marker);
+  if (markerIndex < 0) throw new Error(`Template marker "${marker}" was not found`);
+  const rulerIndex = xml.indexOf(RULER_78, markerIndex);
+  if (rulerIndex < 0) throw new Error(`Template ruler after "${marker}" was not found`);
+  const gutterCell = xml.indexOf("<w:tc>", rulerIndex);
+  const contentCell = xml.indexOf("<w:tc>", gutterCell + 1);
+  const cellEnd = xml.indexOf("</w:tc>", contentCell);
+  const paragraphStart = xml.indexOf("<w:p", contentCell);
+  if (
+    gutterCell < 0 ||
+    contentCell < 0 ||
+    cellEnd < 0 ||
+    paragraphStart < 0 ||
+    paragraphStart > cellEnd
+  ) {
+    throw new Error(`Template content cell for "${marker}" was not found`);
+  }
   return (
-    xml.slice(0, tcEnd) + courierParagraph(title.slice(0, 60)) + xml.slice(tcEnd)
+    xml.slice(0, paragraphStart) +
+    sectionParagraphsXml(section) +
+    xml.slice(cellEnd)
   );
 }
 
-/** Write a value into the underlined fill-in cell after a header label. */
+function fillTitleBox(xml: string, title: string): string {
+  if (!title || title.length > 60) {
+    throw new Error("Project title must contain 1 to 60 characters");
+  }
+  const rulerIndex = xml.indexOf(RULER_60_RUN);
+  if (rulerIndex < 0) throw new Error("Template project-title ruler was not found");
+  const cellEnd = xml.indexOf("</w:tc>", rulerIndex);
+  if (cellEnd < 0) throw new Error("Template project-title cell was not found");
+  return xml.slice(0, cellEnd) + courierParagraph({ kind: "paragraph", text: title }) + xml.slice(cellEnd);
+}
+
 function fillHeaderField(xml: string, label: string, value: string): string {
-  const li = xml.indexOf(label);
-  if (li < 0) return xml;
-  const tc = xml.indexOf("<w:tc>", li);
-  const tcEnd = xml.indexOf("</w:tc>", tc);
-  const pEnd = xml.indexOf("</w:p>", tc);
-  if (tc < 0 || pEnd < 0 || pEnd > tcEnd) return xml;
+  if (!value.trim()) throw new Error(`${label} value is required`);
+  const labelIndex = xml.indexOf(label);
+  if (labelIndex < 0) throw new Error(`Template header label "${label}" was not found`);
+  const cellStart = xml.indexOf("<w:tc>", labelIndex);
+  const cellEnd = xml.indexOf("</w:tc>", cellStart);
+  const paragraphEnd = xml.indexOf("</w:p>", cellStart);
+  if (
+    cellStart < 0 ||
+    cellEnd < 0 ||
+    paragraphEnd < 0 ||
+    paragraphEnd > cellEnd
+  ) {
+    throw new Error(`Template header cell for "${label}" was not found`);
+  }
   const run = `<w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${escapeXml(value)}</w:t></w:r>`;
-  return xml.slice(0, pEnd) + run + xml.slice(pEnd);
+  return xml.slice(0, paragraphEnd) + run + xml.slice(paragraphEnd);
 }
 
-// ─── Tiptap → per-section plain text ─────────────────────────────────────────
-
-function nodePlainText(node: TiptapNode): string {
-  if (node.text) {
-    // Drop unresolved [GAP] highlights — they must not reach the CRA form.
-    if (node.marks?.some((m) => m.type === "highlight")) return "";
-    return node.text;
-  }
-  return (node.content ?? []).map(nodePlainText).join("");
+function fillScienceCode(xml: string, value: CraScienceCode): string {
+  const lineIndex = xml.indexOf("<w:t>206</w:t>");
+  if (lineIndex < 0) throw new Error("Template line 206 marker was not found");
+  const paragraphStart = xml.indexOf('<w:p w14:paraId="79466BD4"', lineIndex);
+  if (paragraphStart < 0) throw new Error("Template line 206 value cell was not found");
+  const paragraphEnd = xml.indexOf("</w:p>", paragraphStart);
+  if (paragraphEnd < 0) throw new Error("Template line 206 paragraph was not found");
+  const run = `<w:r>${COURIER_RPR}<w:t xml:space="preserve">${escapeXml(value)}</w:t></w:r>`;
+  return xml.slice(0, paragraphEnd) + run + xml.slice(paragraphEnd);
 }
 
-/** Split the report's Tiptap doc into the three T661 sections by heading. */
-export function extractSections(content: string): {
-  s242: string;
-  s244: string;
-  s246: string;
-} {
-  const doc = JSON.parse(content) as TiptapNode;
-  const out = { s242: "", s244: "", s246: "" };
-  let bucket: keyof typeof out | null = null;
-  for (const node of doc.content ?? []) {
-    if (node.type === "codeBlock") continue;
-    if (node.type === "heading") {
-      const t = nodePlainText(node);
-      bucket = t.includes("242")
-        ? "s242"
-        : t.includes("244")
-          ? "s244"
-          : t.includes("246")
-            ? "s246"
-            : null;
-      continue;
-    }
-    if (bucket && node.type === "paragraph") {
-      const t = nodePlainText(node).trim();
-      if (t) out[bucket] += (out[bucket] ? "\n\n" : "") + t;
-    }
+export async function exportToTemplateDocx(
+  report: Readonly<CanonicalExportReport>,
+  templateBytes?: ArrayBuffer
+): Promise<Blob> {
+  const scienceCode = normalizeCraScienceCode(report.scienceCode);
+  if (!scienceCode) {
+    throw new Error("A valid CRA field of science or technology code is required");
   }
-  return out;
-}
-
-export async function exportToTemplateDocx(opts: {
-  content: string; // report Tiptap JSON
-  clientName: string;
-  title: string; // SR&ED title preferred, internal title as fallback
-  fiscalYearEnd?: number | null;
-  filename: string; // without extension
-}): Promise<void> {
-  const sections = extractSections(opts.content);
-  if (!sections.s242 && !sections.s244 && !sections.s246) {
-    throw new Error("No section content found in the report");
+  if (report.body.diagnostics.length > 0) {
+    throw new Error("Report parser diagnostics must be resolved before export");
   }
-
-  const res = await fetch(TEMPLATE_URL);
-  if (!res.ok) throw new Error(`Template fetch failed (${res.status})`);
-  const zip = await JSZip.loadAsync(await res.arrayBuffer());
-  const docFile = zip.file("word/document.xml");
-  if (!docFile) throw new Error("Template is missing word/document.xml");
-  let xml = await docFile.async("string");
-
-  xml = fillSectionCell(xml, SECTION_MARKERS.s242, sections.s242 || " ");
-  xml = fillSectionCell(xml, SECTION_MARKERS.s244, sections.s244 || " ");
-  xml = fillSectionCell(xml, SECTION_MARKERS.s246, sections.s246 || " ");
-  xml = fillTitleBox(xml, opts.title);
-  xml = fillHeaderField(xml, "Name of Claimant:", ` ${opts.clientName}`);
-  if (opts.fiscalYearEnd) {
-    const d = new Date(opts.fiscalYearEnd);
-    xml = fillHeaderField(
-      xml,
-      "Taxation Year Ending",
-      ` ${d.toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" })}`
-    );
+  let bytes = templateBytes;
+  if (!bytes) {
+    const response = await fetch(TEMPLATE_URL);
+    if (!response.ok) throw new Error(`Template fetch failed (${response.status})`);
+    bytes = await response.arrayBuffer();
   }
+  const zip = await JSZip.loadAsync(bytes);
+  const documentFile = zip.file("word/document.xml");
+  if (!documentFile) throw new Error("Template is missing word/document.xml");
+  let xml = await documentFile.async("string");
+
+  xml = fillSectionCell(xml, SECTION_MARKERS.s242, report.body.sections.s242);
+  xml = fillSectionCell(xml, SECTION_MARKERS.s244, report.body.sections.s244);
+  xml = fillSectionCell(xml, SECTION_MARKERS.s246, report.body.sections.s246);
+  xml = fillTitleBox(xml, report.title);
+  xml = fillHeaderField(xml, "Name of Claimant:", ` ${report.clientName}`);
+  if (!report.fiscalYearEnd) throw new Error("Taxation year end is required");
+  const taxationYear = new Date(report.fiscalYearEnd);
+  if (Number.isNaN(taxationYear.getTime())) {
+    throw new Error("Taxation year end is invalid");
+  }
+  xml = fillHeaderField(
+    xml,
+    "Taxation Year Ending",
+    ` ${taxationYear.toLocaleDateString("en-CA", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    })}`
+  );
+  xml = fillScienceCode(xml, scienceCode);
 
   zip.file("word/document.xml", xml);
-  const blob = await zip.generateAsync({
-    type: "blob",
-    mimeType:
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  });
-  saveAs(blob, `${opts.filename}.docx`);
+  return await zip.generateAsync({ type: "blob", mimeType: MIME_TYPE });
 }

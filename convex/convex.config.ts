@@ -1,4 +1,5 @@
 import { defineApp } from "convex/server";
+import { v } from "convex/values";
 import rag from "@convex-dev/rag/convex.config";
 import agent from "@convex-dev/agent/convex.config";
 import workpool from "@convex-dev/workpool/convex.config";
@@ -11,7 +12,12 @@ import workpool from "@convex-dev/workpool/convex.config";
 //
 // After editing this file you MUST run `npx convex dev` (or `convex codegen`)
 // so `components.rag` is generated into convex/_generated/api.
-const app = defineApp();
+const app = defineApp({
+  env: {
+    ANTHROPIC_API_KEY: v.optional(v.string()),
+    VOYAGE_API_KEY: v.optional(v.string()),
+  },
+});
 app.use(rag);
 // Chat assistant threads/messages/streams (BNH-10 P2) — see convex/ai/chatAgentV2.ts.
 app.use(agent);

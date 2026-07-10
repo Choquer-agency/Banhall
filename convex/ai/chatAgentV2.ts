@@ -110,18 +110,21 @@ const searchBrain = createTool({
   }),
   execute: async (ctx, input): Promise<string> => {
     if (!ctx.threadId) throw new Error("No thread in tool context");
-    // Industry narrows the search when set; without it, retrieval spans all
-    // industries — a good PD's structure/voice transfers.
-    const industry: string | null = await ctx.runQuery(
-      internal.chatV2.getThreadIndustry,
-      { agentThreadId: ctx.threadId }
-    );
+    // The project code is normalized by getThreadBrainContext. Retrieval uses
+    // it as structured metadata routing, with cross-code/legacy fallback.
+    const brainContext: { industry: string | null; scienceCode: string | null } =
+      await ctx.runQuery(internal.chatV2.getThreadBrainContext, {
+        agentThreadId: ctx.threadId,
+      });
     try {
       const { exemplars, degraded } = await searchBrainExemplars(ctx, {
-        ...(industry ? { industry } : {}),
+        ...(brainContext.industry ? { industry: brainContext.industry } : {}),
+        ...(brainContext.scienceCode ? { scienceCode: brainContext.scienceCode } : {}),
         query: input.query,
         k: 3,
         docType: "pd",
+        agentThreadId: ctx.threadId,
+        usageLabel: "chat",
       });
       // `degraded` = the search infrastructure failed (searchBrainExemplars
       // never throws) — saying "no knowledge" during a Voyage outage would
@@ -130,8 +133,8 @@ const searchBrain = createTool({
         return "The Brain search hit a technical error just now — this is an infrastructure issue, not missing knowledge. Tell the writer to try again shortly.";
       }
       if (exemplars.length === 0) {
-        return industry
-          ? `The Brain has no approved knowledge matching that in the "${industry}" industry yet.`
+        return brainContext.industry
+          ? `The Brain has no approved knowledge matching that in the "${brainContext.industry}" industry yet.`
           : "The Brain has no approved knowledge matching that yet.";
       }
       return formatBrainExemplars(exemplars);
@@ -147,6 +150,40 @@ export const reportChatAgent = new Agent(components.agent, {
   languageModel: anthropic(MODEL),
   instructions: CHAT_SYSTEM_PROMPT_V2,
   tools: { proposeEdit, proposeReplacements, highlightPassages, searchBrain },
+  // BNH-16: durably log billed usage for every model step without turning a
+  // successful streamed response into a chat failure.
+  usageHandler: async (ctx, { threadId, userId, model, usage }) => {
+    const cacheCreationInputTokens =
+      usage.inputTokenDetails.cacheWriteTokens ?? 0;
+    const cacheReadInputTokens =
+      usage.inputTokenDetails.cacheReadTokens ?? 0;
+    const totalInputTokens = usage.inputTokens ?? 0;
+    const inputTokens =
+      usage.inputTokenDetails.noCacheTokens ??
+      Math.max(
+        0,
+        totalInputTokens -
+          cacheCreationInputTokens -
+          cacheReadInputTokens
+      );
+    try {
+      await ctx.runMutation(internal.aiUsage.queueUsage, {
+        ...(threadId ? { agentThreadId: threadId } : {}),
+        ...(userId ? { userId } : {}),
+        callSite: "chat_v2",
+        model,
+        inputTokens,
+        outputTokens: usage.outputTokens ?? 0,
+        ...(cacheCreationInputTokens
+          ? { cacheCreationInputTokens }
+          : {}),
+        ...(cacheReadInputTokens ? { cacheReadInputTokens } : {}),
+        createdAt: Date.now(),
+      });
+    } catch (error) {
+      console.error("chat usage could not be queued", error);
+    }
+  },
   // Reply → tool call → short lead-in; searchBrain adds a hop. 5 is headroom.
   stopWhen: stepCountIs(5),
 });

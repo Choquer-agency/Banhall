@@ -3,8 +3,10 @@
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
+import { instrumentedAnthropic } from "./instrument";
 import { MODEL } from "./model";
+import { normalizeProviderError } from "./providers";
 
 const TIMESHEET_EXTRACTION_PROMPT = `You are a financial analyst for an SR&ED (Scientific Research & Experimental Development) consulting firm. Your job is to reconstruct timesheets from unstructured data sources.
 
@@ -13,7 +15,7 @@ const TIMESHEET_EXTRACTION_PROMPT = `You are a financial analyst for an SR&ED (S
 Given raw data from a communication platform (Slack, WhatsApp, Git commits, etc.), extract timesheet entries for each person mentioned. For each entry, determine:
 1. Who did the work
 2. When (date or date range)
-3. How many hours (estimate if not explicit — use message timestamps and activity patterns)
+3. How many hours, and whether the number is explicit in the source or estimated. Never present an estimate as recorded time.
 4. What they did (brief description)
 5. Whether the work is SR&ED eligible
 6. Confidence level in the extraction
@@ -32,6 +34,7 @@ Respond with ONLY valid JSON:
       "personName": "string",
       "date": "YYYY-MM-DD",
       "hours": number,
+      "hoursBasis": "explicit" | "estimated",
       "description": "string (1 sentence)",
       "sredEligible": boolean,
       "sredReason": "string (why eligible or not)",
@@ -41,24 +44,24 @@ Respond with ONLY valid JSON:
   ]
 }`;
 
-const FINANCIAL_SUMMARY_PROMPT = `You are a financial analyst for an SR&ED consulting firm. Given a set of timesheet entries, generate a personnel breakdown summary.
 
-Group entries by person and summarize:
-- Total hours per person
-- SR&ED eligible hours per person
-- Primary activities per person
-
-Output format:
-{
-  "personnelBreakdown": [
-    {
-      "name": "string",
-      "totalHours": number,
-      "sredHours": number,
-      "primaryActivities": ["string"]
-    }
-  ]
-}`;
+const extractionSchema = z.object({
+  entries: z
+    .array(
+      z.object({
+        personName: z.string().trim().min(1).max(200),
+        date: z.string().trim().min(1).max(100),
+        hours: z.number().finite().min(0).max(24),
+        hoursBasis: z.enum(["explicit", "estimated"]),
+        description: z.string().trim().min(1).max(2_000),
+        sredEligible: z.boolean(),
+        sredReason: z.string().trim().max(2_000).optional(),
+        confidence: z.enum(["high", "medium", "low"]),
+        source: z.string().trim().min(1).max(1_000),
+      })
+    )
+    .max(500),
+});
 
 export const processFinancialUpload = internalAction({
   args: {
@@ -66,77 +69,54 @@ export const processFinancialUpload = internalAction({
     uploadId: v.id("financialUploads"),
   },
   handler: async (ctx, args) => {
-    const anthropic = new Anthropic();
-
-    const upload = await ctx.runQuery(internal.financial.getUploadContent, {
-      uploadId: args.uploadId,
-    });
-
-    if (!upload) throw new Error("Upload not found");
-
-    // Step 1: Extract timesheet entries from the raw data
-    const response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 8192,
-      system: TIMESHEET_EXTRACTION_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: `Extract timesheet entries from this ${upload.fileType} data:\n\n${upload.content.slice(0, 100000)}`,
-        },
-      ],
-    });
-
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("Financial agent did not return valid JSON");
-
-    const result = JSON.parse(jsonMatch[0]) as {
-      entries: Array<{
-        personName: string;
-        date: string;
-        hours: number;
-        description: string;
-        sredEligible: boolean;
-        sredReason?: string;
-        confidence: "high" | "medium" | "low";
-        source: string;
-      }>;
-    };
-
-    // Step 2: Save extracted entries
-    await ctx.runMutation(internal.financial.saveTimesheetEntries, {
+    const claimed = await ctx.runMutation(internal.financial.markUploadRunning, {
       projectId: args.projectId,
       uploadId: args.uploadId,
-      entries: result.entries,
     });
+    if (!claimed) return;
 
-    // Step 3: Generate summary
-    const totalHours = result.entries.reduce((sum, e) => sum + e.hours, 0);
-    const sredHours = result.entries.filter((e) => e.sredEligible).reduce((sum, e) => sum + e.hours, 0);
+    try {
+      const upload = await ctx.runQuery(internal.financial.getUploadContent, {
+        projectId: args.projectId,
+        uploadId: args.uploadId,
+      });
+      if (!upload) throw new Error("Financial upload project mismatch");
 
-    const summaryResponse = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 4096,
-      system: FINANCIAL_SUMMARY_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: `Generate a personnel breakdown from these timesheet entries:\n\n${JSON.stringify(result.entries, null, 2)}`,
-        },
-      ],
-    });
-
-    const summaryText = summaryResponse.content[0].type === "text" ? summaryResponse.content[0].text : "";
-    const summaryMatch = summaryText.match(/\{[\s\S]*\}/);
-    const personnelBreakdown = summaryMatch ? summaryMatch[0] : "{}";
-
-    await ctx.runMutation(internal.financial.saveFinancialSummary, {
-      projectId: args.projectId,
-      totalHours,
-      sredHours,
-      nonSredHours: totalHours - sredHours,
-      personnelBreakdown,
-    });
+      const anthropic = instrumentedAnthropic(ctx, {
+        callSite: "financial",
+        capability: "financial",
+        projectId: args.projectId,
+      });
+      const response = await anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 8192,
+        system: TIMESHEET_EXTRACTION_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: `Extract timesheet entries from this ${upload.fileType} data:\n\n${upload.content}`,
+          },
+        ],
+      });
+      const text =
+        response.content[0]?.type === "text" ? response.content[0].text : "";
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error("Financial agent did not return valid JSON");
+      }
+      const result = extractionSchema.parse(JSON.parse(jsonMatch[0]));
+      await ctx.runMutation(internal.financial.replaceTimesheetEntries, {
+        projectId: args.projectId,
+        uploadId: args.uploadId,
+        entries: result.entries,
+      });
+    } catch (error) {
+      const normalized = normalizeProviderError(error);
+      await ctx.runMutation(internal.financial.markUploadFailed, {
+        projectId: args.projectId,
+        uploadId: args.uploadId,
+        error: `${normalized.code}: ${normalized.message}`,
+      });
+    }
   },
 });

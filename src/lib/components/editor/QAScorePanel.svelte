@@ -5,6 +5,7 @@
   (BNH-29). Renders an empty-state note when no scorecard is available.
 -->
 <script module lang="ts">
+  import { z } from "zod";
   interface QAScorecard {
     overall_score: number;
     section_scores: Record<string, { score: number; issues: string[]; strengths: string[] }>;
@@ -20,28 +21,45 @@
     suggested_improvements: string[];
   }
 
-  /** Fill any missing fields with safe defaults so the panel never crashes on a
-   *  partial scorecard (the model can omit optional arrays). */
-  function normalize(raw: Partial<QAScorecard>): QAScorecard {
-    const sections: QAScorecard["section_scores"] = {};
-    for (const [k, v] of Object.entries(raw.section_scores ?? {})) {
-      sections[k] = {
-        score: v?.score ?? 0,
-        issues: v?.issues ?? [],
-        strengths: v?.strengths ?? [],
-      };
-    }
-    return {
-      overall_score: raw.overall_score ?? 0,
-      section_scores: sections,
-      cra_compliance: raw.cra_compliance ?? {},
-      hallucination_risks: raw.hallucination_risks ?? [],
-      ai_language_flags: raw.ai_language_flags ?? [],
-      superlative_flags: raw.superlative_flags ?? [],
-      gaps_requiring_client_followup: raw.gaps_requiring_client_followup ?? [],
-      suggested_improvements: raw.suggested_improvements ?? [],
-    };
+  const qaScorecardSchema = z.object({
+    overall_score: z.number().finite(),
+    section_scores: z.record(
+      z.string(),
+      z.object({
+        score: z.number().finite().default(0),
+        issues: z.array(z.string()).default([]),
+        strengths: z.array(z.string()).default([]),
+      })
+    ).default({}),
+    cra_compliance: z.record(z.string(), z.boolean()).default({}),
+    hallucination_risks: z.array(z.string()).default([]),
+    ai_language_flags: z.array(z.string()).default([]),
+    superlative_flags: z.array(z.string()).default([]),
+    gaps_requiring_client_followup: z.array(
+      z.object({
+        section: z.string(),
+        paragraph: z.number().int().nonnegative(),
+        question: z.string(),
+      })
+    ).default([]),
+    suggested_improvements: z.array(z.string()).default([]),
+  });
+
+  const reportDocumentSchema = z.object({
+    content: z.array(
+      z.object({
+        type: z.string(),
+        attrs: z.object({ language: z.string().optional() }).optional(),
+        content: z.array(z.object({ text: z.string().optional() })).optional(),
+      })
+    ).default([]),
+  });
+
+  function parseScorecard(raw: unknown): QAScorecard | null {
+    const parsed = qaScorecardSchema.safeParse(raw);
+    return parsed.success ? parsed.data : null;
   }
+
 </script>
 
 <script lang="ts">
@@ -67,32 +85,31 @@
   } = $props();
 
   const scorecard = $derived.by((): QAScorecard | null => {
-    if (rawQa && typeof rawQa === "object" && "overall_score" in (rawQa as object)) {
-      return normalize(rawQa as never);
-    }
-    // Try agentOutputs first (new reports)
+    const direct = parseScorecard(rawQa);
+    if (direct) return direct;
     if (agentOutputs) {
       try {
-        const parsed = JSON.parse(agentOutputs);
-        if (parsed.qa && "overall_score" in parsed.qa) return normalize(parsed.qa);
-      } catch {
-        /* fall through */
-      }
-    }
-    // Fallback: extract from report content codeBlock (old reports)
-    if (reportContent) {
-      try {
-        const doc = JSON.parse(reportContent);
-        const codeBlock = doc.content?.find(
-          (node: { type: string; attrs?: { language?: string } }) =>
-            node.type === "codeBlock" && node.attrs?.language === "json"
-        );
-        if (codeBlock?.content?.[0]?.text) {
-          const parsed = JSON.parse(codeBlock.content[0].text);
-          if ("overall_score" in parsed) return normalize(parsed);
+        const parsed: unknown = JSON.parse(agentOutputs);
+        if (typeof parsed === "object" && parsed !== null && "qa" in parsed) {
+          const fromAgent = parseScorecard(parsed.qa);
+          if (fromAgent) return fromAgent;
         }
       } catch {
-        /* no scorecard */
+        // Fall through to the legacy report payload.
+      }
+    }
+    if (reportContent) {
+      try {
+        const parsedDocument = reportDocumentSchema.safeParse(JSON.parse(reportContent));
+        if (parsedDocument.success) {
+          const codeBlock = parsedDocument.data.content.find(
+            (node) => node.type === "codeBlock" && node.attrs?.language === "json"
+          );
+          const rawText = codeBlock?.content?.[0]?.text;
+          if (rawText) return parseScorecard(JSON.parse(rawText));
+        }
+      } catch {
+        // No scorecard in this legacy report.
       }
     }
     return null;

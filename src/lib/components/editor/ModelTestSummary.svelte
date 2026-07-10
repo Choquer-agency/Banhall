@@ -7,10 +7,10 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
 
-  let { projectId }: { projectId: Id<"projects"> } = $props();
+  let { generationId }: { generationId: Id<"generations"> } = $props();
 
   const summaryQ = useQuery(api.generations.getCandidateScoreSummary, () => ({
-    projectId,
+    generationId,
   }));
   const summary = $derived(summaryQ.data);
 </script>

@@ -3,7 +3,7 @@
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goto } from "$app/navigation";
-  import { useQuery } from "convex-svelte";
+  import { useStableQuery } from "$lib/stableQuery.svelte";
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
   import { api } from "../../../convex/_generated/api";
   import type { Doc } from "../../../convex/_generated/dataModel";
@@ -14,7 +14,8 @@
   let includeResolved = $state(false);
   let tab = $state<"all" | "bug" | "feature">("all");
 
-  const reportsQ = useQuery(api.errorReports.listErrors, () =>
+  // Stable across the resolved-toggle so the list doesn't flash empty.
+  const reportsQ = useStableQuery(api.errorReports.listErrors, () =>
     auth.isAuthenticated ? { includeResolved } : "skip"
   );
   const reports = $derived(reportsQ.data);
@@ -52,7 +53,9 @@
     <AppNav breadcrumbs={[{ label: "Alerts" }]} />
     <PageBar backHref="/dashboard" backLabel="Back" />
 
-    <main class="mx-auto w-full max-w-3xl flex-1 px-6 pt-12 pb-8">
+    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 px-6 pt-12 pb-8">
+      <!-- Alert rows read best at a threads-list width inside the shared shell. -->
+      <div class="mx-auto w-full max-w-3xl">
       <div class="flex items-center justify-between">
         <div>
           <h2 class="text-display">Alerts &amp; requests</h2>
@@ -123,6 +126,7 @@
             <ReportRow report={r} />
           {/each}
         {/if}
+      </div>
       </div>
     </main>
   </div>

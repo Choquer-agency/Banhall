@@ -1,7 +1,7 @@
 <script lang="ts">
   import { useQuery, useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
-  import type { Doc, Id } from "../../../../convex/_generated/dataModel";
+  import type { Id } from "../../../../convex/_generated/dataModel";
   import CommentThread from "./CommentThread.svelte";
   import CommentInput from "./CommentInput.svelte";
 
@@ -48,17 +48,19 @@
     shareToken?: string;
   } = $props();
 
-  const commentsQ = useQuery(api.comments.listComments, () => ({ projectId, shareToken }));
+  const commentsQ = useQuery(api.comments.listComments, () => ({ projectId, reportId, shareToken }));
   const commentersQ = useQuery(api.comments.listCommenters, () => ({ projectId, shareToken }));
   const addComment = useMutation(api.comments.addComment);
   const resolveComment = useMutation(api.comments.resolveComment);
   const unresolveComment = useMutation(api.comments.unresolveComment);
   const acceptEdit = useMutation(api.comments.acceptEdit);
+  type Comment = NonNullable<typeof commentsQ.data>[number];
+  type Commenter = NonNullable<typeof commentersQ.data>[number];
 
   let showResolved = $state(false);
 
   const commenterMap = $derived.by(() => {
-    const map = new Map<string, Doc<"commenters">>();
+    const map = new Map<string, Commenter>();
     commentersQ.data?.forEach((c) => map.set(c._id, c));
     return map;
   });
@@ -80,7 +82,6 @@
       projectId,
       reportId,
       commenterId,
-      commenterType,
       highlightFrom: pendingHighlight.from,
       highlightTo: pendingHighlight.to,
       highlightText: pendingHighlight.text,
@@ -91,18 +92,18 @@
     onClearPending?.();
   }
 
-  function handleCommentClick(comment: Doc<"comments">) {
+  function handleCommentClick(comment: Comment) {
     onActiveCommentChange?.(comment._id);
     onCommentClick?.(comment.highlightFrom, comment.highlightTo);
   }
 </script>
 
 {#if isOpen}
-  <div class="flex h-full w-80 flex-col border-l border-gray-200 bg-white">
+  <aside class="flex h-full w-80 flex-col border-l border-gray-200 bg-white" aria-labelledby="comments-heading">
     <!-- Header -->
     <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3">
       <div class="flex items-center gap-2">
-        <h3 class="text-sm font-semibold text-gray-900">Comments</h3>
+        <h3 id="comments-heading" class="text-sm font-semibold text-gray-900">Comments</h3>
         {#if totalActive > 0}
           <span class="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-navy px-1.5 text-[10px] font-bold text-white">
             {totalActive}
@@ -110,6 +111,7 @@
         {/if}
       </div>
       <button
+        type="button"
         onclick={onClose}
         aria-label="Close comments"
         class="flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-primary-wash hover:text-gray-600"
@@ -146,8 +148,8 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
           </svg>
           <p class="mt-2 text-sm text-gray-400">No comments yet</p>
-          <p class="mt-1 text-xs text-gray-300">
-            Select text and click the comment button
+          <p class="mt-1 text-xs text-gray-400">
+            Select text, then use the Comment toolbar action or keyboard shortcut.
           </p>
         </div>
       {/if}
@@ -158,8 +160,8 @@
             {comment}
             commenter={commenterMap.get(comment.commenterId) ?? null}
             {commenterType}
-            onResolve={() => resolveComment({ commentId: comment._id, shareToken })}
-            onAcceptEdit={comment.suggestedEdit ? () => acceptEdit({ commentId: comment._id }) : undefined}
+            onResolve={commenterType === "writer" ? () => resolveComment({ commentId: comment._id }) : undefined}
+            onAcceptEdit={commenterType === "writer" && comment.suggestedEdit ? () => acceptEdit({ commentId: comment._id }) : undefined}
             onClick={() => handleCommentClick(comment)}
             isActive={activeCommentId === comment._id}
           />
@@ -170,6 +172,9 @@
       {#if resolvedComments.length > 0}
         <div class="border-t border-gray-100">
           <button
+            type="button"
+            aria-expanded={showResolved}
+            aria-controls="resolved-comments"
             onclick={() => (showResolved = !showResolved)}
             class="flex w-full items-center gap-2 px-4 py-2.5 text-xs text-gray-400 hover:text-gray-600"
           >
@@ -186,13 +191,13 @@
           </button>
 
           {#if showResolved}
-            <div class="divide-y divide-gray-50">
+            <div id="resolved-comments" class="divide-y divide-gray-50">
               {#each resolvedComments as comment (comment._id)}
                 <CommentThread
                   {comment}
                   commenter={commenterMap.get(comment.commenterId) ?? null}
                   {commenterType}
-                  onUnresolve={() => unresolveComment({ commentId: comment._id, shareToken })}
+                  onUnresolve={commenterType === "writer" ? () => unresolveComment({ commentId: comment._id }) : undefined}
                   onClick={() => handleCommentClick(comment)}
                   resolved
                   isActive={activeCommentId === comment._id}
@@ -203,5 +208,5 @@
         </div>
       {/if}
     </div>
-  </div>
+  </aside>
 {/if}

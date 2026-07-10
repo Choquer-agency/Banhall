@@ -1,8 +1,18 @@
 import { internalAction, type ActionCtx } from "../../_generated/server";
 import { v } from "convex/values";
 import { rerank } from "ai";
+import type { Id } from "../../_generated/dataModel";
 import { brain, BRAIN_NAMESPACE, type BrainEntryMetadata } from "./rag";
-import { brainRerankModel } from "./embeddings";
+import { brainEmbeddingModel, brainRerankModel } from "./embeddings";
+import { scheduleUsage } from "../instrument";
+import { voyageTokenCount } from "../providers";
+import {
+  isCraScienceCode,
+  normalizeCraScienceCode,
+  scienceCodeLabel,
+  type CraScienceCode,
+} from "../../../shared/craScienceCodes";
+import { pickScienceRouted } from "./scienceRouting";
 
 export type BrainExemplar = {
   text: string;
@@ -14,6 +24,7 @@ export type BrainExemplar = {
   title?: string;
   writerName?: string;
   writerTier?: number;
+  scienceCode?: CraScienceCode;
   /** First-stage hybrid-search score, kept raw for provenance/eval. */
   searchScore: number;
   /** Raw cross-encoder score (pre tier-blend); absent when rerank was skipped/failed. */
@@ -34,22 +45,6 @@ export type BrainSearchOutcome = {
 
 /** Rerank scores below this are noise — better zero exemplars than wrong ones. */
 const RELEVANCE_FLOOR = 0.35;
-/** Max chunks from a single source PD in the final set (diversity, SIGIR-style MMR-lite). */
-const PER_ENTRY_CAP = 2;
-
-/** Greedy per-entry cap over an already-sorted list — one PD must not fill the set. */
-function pickDiverse(sorted: BrainExemplar[], k: number): BrainExemplar[] {
-  const perEntry = new Map<string, number>();
-  const picked: BrainExemplar[] = [];
-  for (const c of sorted) {
-    const n = perEntry.get(c.entryId) ?? 0;
-    if (n >= PER_ENTRY_CAP) continue;
-    perEntry.set(c.entryId, n + 1);
-    picked.push(c);
-    if (picked.length >= k) break;
-  }
-  return picked;
-}
 
 /**
  * Retrieve top-k approved exemplar passages from The Brain (BNH-10). Never
@@ -62,11 +57,24 @@ function pickDiverse(sorted: BrainExemplar[], k: number): BrainExemplar[] {
  * CRA phrasing transfer). Setting an industry is the perk, not the requirement:
  * it narrows retrieval to that industry via the composite filter.
  */
+type BrainSearchArgs = {
+  industry?: string;
+  scienceCode?: string;
+  query: string;
+  k?: number;
+  docType?: string;
+  projectId?: Id<"projects">;
+  userId?: string;
+  agentThreadId?: string;
+  usageLabel?: string;
+};
+
 export async function searchBrainExemplars(
   ctx: ActionCtx,
-  args: { industry?: string; query: string; k?: number; docType?: string }
+  args: BrainSearchArgs
 ): Promise<BrainSearchOutcome> {
   const k = args.k ?? 4;
+  const usageSuffix = args.usageLabel ? `:${args.usageLabel}` : "";
   const filters: { name: "industryApproved" | "docType"; value: unknown }[] = [];
   if (args.industry) {
     filters.push({
@@ -77,14 +85,34 @@ export async function searchBrainExemplars(
   if (args.docType) filters.push({ name: "docType", value: args.docType });
 
   try {
-    const { results, entries } = await brain.search(ctx, {
+    const scienceCode = normalizeCraScienceCode(args.scienceCode);
+    if (args.scienceCode?.trim() && !scienceCode) {
+      throw new Error("Invalid CRA field of science or technology code");
+    }
+    const retrievalQuery = scienceCode
+      ? `${args.query}\n\nCRA T4088 line 206: ${scienceCodeLabel(scienceCode)}`
+      : args.query;
+    const { results, entries, usage } = await brain.search(ctx, {
       namespace: BRAIN_NAMESPACE,
-      query: args.query,
+      query: retrievalQuery,
       searchType: "hybrid",
       limit: 30,
       chunkContext: { before: 1, after: 1 },
       ...(filters.length ? { filters: filters as never } : {}),
     });
+    if (usage.tokens > 0) {
+      await scheduleUsage(ctx, {
+        ...(args.projectId ? { projectId: args.projectId } : {}),
+        ...(args.userId ? { userId: args.userId } : {}),
+        ...(args.agentThreadId
+          ? { agentThreadId: args.agentThreadId }
+          : {}),
+        callSite: `brain:query_embedding${usageSuffix}`,
+        model: brainEmbeddingModel.modelId,
+        inputTokens: usage.tokens,
+        outputTokens: 0,
+      });
+    }
 
     const byEntry = new Map(entries.map((e) => [e.entryId, e]));
     const candidates: BrainExemplar[] = results.map((r) => {
@@ -99,6 +127,9 @@ export async function searchBrainExemplars(
         title: entry?.title ?? undefined,
         writerName: meta?.writerName,
         writerTier: meta?.writerTier,
+        scienceCode: isCraScienceCode(meta?.scienceCode)
+          ? meta.scienceCode
+          : undefined,
       };
     });
 
@@ -108,13 +139,30 @@ export async function searchBrainExemplars(
     // Falls back to first-stage order — reranking must never break retrieval.
     if (candidates.length > k) {
       try {
-        const { ranking } = await rerank({
+        const rerankResult = await rerank({
           model: brainRerankModel,
-          query: args.query,
+          query: retrievalQuery,
           documents: candidates.map((c) => c.text),
           topN: Math.min(12, candidates.length),
           maxRetries: 1,
         });
+        const rerankTokens = voyageTokenCount(rerankResult.response.body);
+        if (rerankTokens !== null) {
+          await scheduleUsage(ctx, {
+            ...(args.projectId ? { projectId: args.projectId } : {}),
+            ...(args.userId ? { userId: args.userId } : {}),
+            ...(args.agentThreadId
+              ? { agentThreadId: args.agentThreadId }
+              : {}),
+            callSite: `brain:rerank${usageSuffix}`,
+            model: brainRerankModel.modelId,
+            inputTokens: rerankTokens,
+            outputTokens: 0,
+          });
+        } else {
+          console.error("Voyage rerank response omitted billed token usage");
+        }
+        const { ranking } = rerankResult;
         const floored = ranking.filter((r) => r.score >= RELEVANCE_FLOOR);
         const blended = floored
           .map((r) => ({
@@ -125,12 +173,18 @@ export async function searchBrainExemplars(
           }))
           .sort((a, b) => b.score - a.score);
         // May return < k, or none — floor over filler.
-        return { exemplars: pickDiverse(blended, k), degraded: false };
+        return {
+          exemplars: pickScienceRouted(blended, k, scienceCode),
+          degraded: false,
+        };
       } catch (err) {
         console.error("brain rerank failed; falling back to vector order", err);
       }
     }
-    return { exemplars: pickDiverse(candidates, k), degraded: false };
+    return {
+      exemplars: pickScienceRouted(candidates, k, scienceCode),
+      degraded: false,
+    };
   } catch (err) {
     console.error("brain search failed; returning no exemplars", err);
     return { exemplars: [], degraded: true };
@@ -140,9 +194,14 @@ export async function searchBrainExemplars(
 export const retrieveBrainContext = internalAction({
   args: {
     industry: v.optional(v.string()),
+    scienceCode: v.optional(v.string()),
     query: v.string(),
     k: v.optional(v.number()),
     docType: v.optional(v.string()),
+    projectId: v.optional(v.id("projects")),
+    userId: v.optional(v.string()),
+    agentThreadId: v.optional(v.string()),
+    usageLabel: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<BrainSearchOutcome> => {
     return await searchBrainExemplars(ctx, args);
@@ -158,7 +217,11 @@ export function formatBrainExemplars(exemplars: BrainExemplar[]): string {
   if (!exemplars.length) return "";
   const blocks = exemplars
     .map((e, i) => {
-      const label = [e.title, e.writerName ? `writer: ${e.writerName}` : null]
+      const label = [
+        e.title,
+        e.scienceCode ? `CRA ${scienceCodeLabel(e.scienceCode)}` : null,
+        e.writerName ? `writer: ${e.writerName}` : null,
+      ]
         .filter(Boolean)
         .join(" — ");
       return `--- REFERENCE PATTERN ${i + 1}${label ? ` (${label})` : ""} ---\n${e.text}`;

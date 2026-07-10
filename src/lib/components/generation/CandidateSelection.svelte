@@ -1,27 +1,10 @@
 <script module lang="ts">
   import type { Id } from "../../../../convex/_generated/dataModel";
 
-  type SectionMeter = {
-    lines: number;
-    words: number;
-    limit: number;
-    wordCap: number;
-    overLimit: boolean;
-  };
-  type CandidateMetrics = {
-    s242: SectionMeter;
-    s244: SectionMeter;
-    s246: SectionMeter;
-    lengthTarget?: string;
-  } | null;
-
   type Candidate = {
     _id: Id<"reportCandidates">;
-    model: string;
-    label: string;
     content: string;
     qaScore: number | null;
-    metrics?: CandidateMetrics;
     qa?: unknown;
   };
 
@@ -60,31 +43,40 @@
   import { api } from "../../../../convex/_generated/api";
   import ReadOnlyEditor from "$lib/components/review/ReadOnlyEditor.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import { userErrorMessage } from "$lib/errors";
+  import { reportSectionMetrics } from "$lib/reportSections";
 
   /**
    * Blind A/B candidate picker (port of src/components/generation/CandidateSelection.tsx).
    * Shows the generated drafts in a blind, randomized (but deterministic) order as
    * "Option 1, 2, 3…" tabs with a read-only preview and a sticky "Use this draft" bar.
    *
-   * Props:
-   * - projectId: project whose candidates are listed (renders nothing when none)
+   * - generationId: exact generation whose candidates are listed
    */
-  let { projectId }: { projectId: Id<"projects"> } = $props();
+  let {
+    generationId,
+    maximized = $bindable(false),
+  }: {
+    generationId: Id<"generations">;
+    maximized?: boolean;
+  } = $props();
 
-  const candidatesQ = useQuery(api.generations.getCandidates, () => ({ projectId }));
-  const candidates = $derived(candidatesQ.data as Candidate[] | undefined);
+  const candidatesQ = useQuery(api.generations.getCandidates, () => ({ generationId }));
+  const candidates = $derived(candidatesQ.data);
   const selectCandidate = useMutation(api.generations.selectReportCandidate);
 
   // BNH-48: optional 1–10 writer score per option, persisted immediately.
   const scoreCandidateMut = useMutation(api.generations.scoreCandidate);
-  const myScoresQ = useQuery(api.generations.getMyCandidateScores, () => ({ projectId }));
+  const myScoresQ = useQuery(api.generations.getMyCandidateScores, () => ({ generationId }));
   const myScores = $derived(
     new Map((myScoresQ.data ?? []).map((s) => [s.candidateId, s.score]))
   );
   let scoreSaving = $state(false);
+  let actionError = $state("");
   async function setScore(n: number) {
     if (!current || scoreSaving) return;
     scoreSaving = true;
+    actionError = "";
     try {
       await scoreCandidateMut({
         candidateId: current._id,
@@ -92,7 +84,7 @@
         optionPosition: pos + 1,
       });
     } catch (e) {
-      console.error("score failed", e);
+      actionError = userErrorMessage(e, "The score could not be saved.");
     } finally {
       scoreSaving = false;
     }
@@ -148,6 +140,9 @@
     document.body.style.userSelect = "none";
     document.body.style.cursor = "col-resize";
   }
+  function adjustQa(delta: number) {
+    qaRatio = Math.min(QA_MAX, Math.max(QA_MIN, qaRatio + delta));
+  }
   let activePos = $state(0);
   let choosing = $state(false);
 
@@ -155,24 +150,28 @@
   const displayed = $derived(candidates ? order.map((idx) => candidates[idx]) : []);
   const pos = $derived(activePos < displayed.length ? activePos : 0);
   const current = $derived(displayed[pos] as Candidate | undefined);
+  const currentMetrics = $derived(
+    current ? reportSectionMetrics(current.content) : null
+  );
 
   async function choose() {
     if (!current) return;
     choosing = true;
+    actionError = "";
     try {
-      await selectCandidate({ candidateId: current._id });
+      await selectCandidate({ generationId, candidateId: current._id });
       // Reactive queries flip the page to the report view on success.
     } catch (e) {
-      console.error("selection failed", e);
+      actionError = userErrorMessage(e, "The draft could not be selected.");
       choosing = false;
     }
   }
 </script>
 
 {#if candidates && candidates.length > 0 && current}
-  <div bind:this={rootEl} class="mx-auto flex min-h-0 w-full max-w-7xl flex-1 overflow-hidden">
+  <div bind:this={rootEl} class={`mx-auto flex min-h-0 w-full flex-1 overflow-hidden transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none ${maximized ? "max-w-full" : "max-w-[var(--container-shell)]"}`}>
   <div class="min-h-0 flex-1 overflow-y-auto">
-    <div class="mx-auto max-w-report px-8 py-8">
+    <div class={`mx-auto transition-[max-width,padding] duration-[325ms] ease-out motion-reduce:transition-none ${maximized ? "max-w-full px-4 py-6" : qaOpen ? "max-w-report px-8 py-8" : "max-w-[var(--container-shell)] px-8 py-8"}`}>
       <div class="mb-1 flex items-center gap-2">
         <span class="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-primary-dark">
           <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -192,6 +191,8 @@
         {#each displayed as c, i (c._id)}
           {@const myScore = myScores.get(c._id)}
           <button
+            type="button"
+            aria-pressed={i === pos}
             onclick={() => (activePos = i)}
             class={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
               i === pos
@@ -214,13 +215,12 @@
         {/each}
       </div>
 
-      <!-- BNH-45: CRA form-fit meters (78-char lines; breaks count) -->
-      {#if current.metrics}
-        {@const m = current.metrics}
+      <!-- BNH-37: canonical CRA form-fit meters (78-char lines; every break counts) -->
+      {#if currentMetrics}
         {@const sections = [
-          { label: "242", sec: m.s242 },
-          { label: "244", sec: m.s244 },
-          { label: "246", sec: m.s246 },
+          { label: "242", sec: currentMetrics.s242 },
+          { label: "244", sec: currentMetrics.s244 },
+          { label: "246", sec: currentMetrics.s246 },
         ]}
         <div class="mt-4 flex flex-wrap items-center gap-2">
           {#each sections as { label, sec } (label)}
@@ -233,7 +233,7 @@
               title={`Section ${label}: ${sec.lines} of ${sec.limit} form lines, ${sec.words} words (cap ${sec.wordCap})`}
             >
               <span class={`font-semibold ${sec.overLimit ? "" : "text-primary"}`}>{label}</span>
-              <span class="font-sans text-[11px]">{sec.lines}/{sec.limit} lines, {sec.words} words</span>
+              <span class="font-sans text-xs">{sec.lines}/{sec.limit} lines, {sec.words}/{sec.wordCap} words</span>
               {#if sec.overLimit}
                 <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.69-1.33-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" />
@@ -257,7 +257,12 @@
 
     <!-- Sticky action bar -->
     <div class="sticky bottom-0 border-t border-gray-200 bg-white/90 px-8 py-3 backdrop-blur">
-      <div class="mx-auto flex max-w-report items-center justify-between gap-4">
+      {#if actionError}
+        <p class="mx-auto mb-2 max-w-[var(--container-shell)] text-sm text-red-700" role="alert">
+          {actionError}
+        </p>
+      {/if}
+      <div class={`mx-auto flex items-center justify-between gap-4 transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none ${maximized ? "max-w-full" : qaOpen ? "max-w-report" : "max-w-[var(--container-shell)]"}`}>
         <span class="flex-none text-sm text-gray-500">
           Viewing <span class="font-medium text-navy">Option {pos + 1}</span>
         </span>
@@ -287,6 +292,7 @@
         </div>
 
         <button
+          type="button"
           onclick={choose}
           disabled={choosing}
           class="inline-flex flex-none items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
@@ -307,19 +313,33 @@
 
   <!-- Draggable divider (workspace parity) -->
   {#if qaOpen}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
+    <button
+      type="button"
       onmousedown={startQaDrag}
-      title="Drag to resize"
-      class="group flex w-3 flex-none cursor-col-resize items-center justify-center"
+      role="slider"
+      aria-label="Resize QA panel"
+      aria-orientation="vertical"
+      aria-valuemin={Math.round(QA_MIN * 100)}
+      aria-valuemax={Math.round(QA_MAX * 100)}
+      aria-valuenow={Math.round(qaRatio * 100)}
+      onkeydown={(event) => {
+        if (event.key === "ArrowLeft") adjustQa(0.02);
+        else if (event.key === "ArrowRight") adjustQa(-0.02);
+        else if (event.key === "Home") qaRatio = QA_MIN;
+        else if (event.key === "End") qaRatio = QA_MAX;
+        else return;
+        event.preventDefault();
+      }}
+      title="Drag or use arrow keys to resize"
+      class="group flex w-3 flex-none cursor-col-resize items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-navy"
     >
       <div class="h-10 w-1 rounded-full bg-gray-300 transition-colors group-hover:bg-primary"></div>
-    </div>
+    </button>
   {/if}
 
   <!-- QA rail — same motion + resize behaviour as the workspace assistant -->
   <aside
-    class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${qaOpen ? "pl-1 pr-6" : ""} ${qaDragging ? "" : "transition-[width] duration-300 ease-out"}`}
+    class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${qaOpen ? (maximized ? "pl-1 pr-2" : "pl-1 pr-6") : ""} ${qaDragging ? "" : "transition-all duration-[325ms] ease-out motion-reduce:transition-none"}`}
     style={`width: ${qaOpen ? `${qaRatio * 100}%` : "0%"}`}
   >
     <QARailPanel

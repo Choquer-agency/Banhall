@@ -5,6 +5,7 @@
   import { Tabs } from "bits-ui";
   import { goto } from "$app/navigation";
   import { useQuery } from "convex-svelte";
+  import { useStableQuery } from "$lib/stableQuery.svelte";
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
   import { api } from "../../../../convex/_generated/api";
   import BuildStamp from "$lib/components/BuildStamp.svelte";
@@ -33,7 +34,8 @@
   const statsQ = useQuery(api.brain.brainStats, () =>
     auth.isAuthenticated ? {} : "skip"
   );
-  const sourcesQ = useQuery(api.brain.listBrainSources, () =>
+  // Stable across tab switches so pending→approved doesn't flash a spinner.
+  const sourcesQ = useStableQuery(api.brain.listBrainSources, () =>
     auth.isAuthenticated &&
     (tab === "pending" || tab === "approved" || tab === "revoked")
       ? { status: tab }
@@ -81,7 +83,7 @@
     <AppNav breadcrumbs={[{ label: "The Brain" }]} />
     <PageBar backHref="/dashboard" backLabel="Back" />
 
-    <main class="mx-auto w-full max-w-4xl px-6 pt-12 pb-10">
+    <main class="mx-auto w-full max-w-[var(--container-shell)] px-6 pt-12 pb-10">
       <h1 class="text-display">The Brain</h1>
       <p class="mt-1 text-sm text-gray-500">
         Curated knowledge behind generation. Only approved sources are ever

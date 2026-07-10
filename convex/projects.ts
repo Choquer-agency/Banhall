@@ -1,19 +1,60 @@
-import { query, mutation } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { query, mutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import type { Id } from "./_generated/dataModel";
+import {
+  getInternalProjectAccessOrNull,
+  getFilingReadiness,
+  requireFilingReady,
+  requireInternalProjectAccess,
+  requireProjectCreator,
+  requireProjectCreatorOrAdmin,
+  requireCurrentUser,
+} from "./lib/auth";
+import {
+  getTeamRosterMemberOrNull,
+  userDisplayLabel,
+} from "./lib/teamRoster";
+import { domainError } from "./lib/contracts";
+import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+async function validateProjectTagIds(
+  ctx: MutationCtx,
+  tagIds: Id<"tags">[]
+): Promise<Id<"tags">[]> {
+  const uniqueTagIds = [...new Set(tagIds)];
+  for (const tagId of uniqueTagIds) {
+    if (!(await ctx.db.get(tagId))) {
+      domainError("NOT_FOUND", "One or more selected tags no longer exist");
+    }
+  }
+  return uniqueTagIds;
+}
+
 
 export const listProjects = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const projects = await ctx.db
-      .query("projects")
-      .withIndex("by_createdBy", (q) => q.eq("createdBy", userId))
-      .order("desc")
-      .collect();
-    return projects;
+    await requireCurrentUser(ctx);
+    return await ctx.db.query("projects").order("desc").collect();
+  },
+});
+
+/**
+ * Distinct industry strings already used on projects. Feeds the creatable
+ * industry picker so ad-hoc industries typed by one writer become options
+ * for everyone.
+ */
+export const listIndustries = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireCurrentUser(ctx);
+    const projects = await ctx.db.query("projects").collect();
+    return [
+      ...new Set(
+        projects
+          .map((p) => p.industry)
+          .filter((i): i is string => Boolean(i && i.trim()))
+      ),
+    ].sort();
   },
 });
 
@@ -25,12 +66,7 @@ export const updateProjectTitles = mutation({
     sredTitle: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.createdBy !== userId) {
-      throw new Error("Not authorized");
-    }
+    await requireInternalProjectAccess(ctx, args.projectId);
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     if (args.title !== undefined && args.title.trim()) {
       patch.title = args.title.trim();
@@ -54,14 +90,44 @@ export const updateProjectIndustry = mutation({
     industry: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.createdBy !== userId) {
-      throw new Error("Not authorized");
-    }
+    await requireInternalProjectAccess(ctx, args.projectId);
     await ctx.db.patch(args.projectId, {
       industry: args.industry,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+/** BNH-54: set/clear the CRA T4088 line 206 science/technology code. */
+export const updateProjectScienceCode = mutation({
+  args: {
+    projectId: v.id("projects"),
+    scienceCode: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireInternalProjectAccess(ctx, args.projectId);
+    const scienceCode = normalizeCraScienceCode(args.scienceCode);
+    if (args.scienceCode?.trim() && !scienceCode) {
+      domainError("INVALID_INPUT", "Select a valid CRA science code");
+    }
+    await ctx.db.patch(args.projectId, {
+      scienceCode,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+/** BNH-35: replace the project's applied tags. */
+export const updateProjectTags = mutation({
+  args: {
+    projectId: v.id("projects"),
+    tagIds: v.array(v.id("tags")),
+  },
+  handler: async (ctx, args) => {
+    await requireInternalProjectAccess(ctx, args.projectId);
+    const tagIds = await validateProjectTagIds(ctx, args.tagIds);
+    await ctx.db.patch(args.projectId, {
+      tagIds,
       updatedAt: Date.now(),
     });
   },
@@ -73,12 +139,7 @@ export const updateProjectFiscalYear = mutation({
     fiscalYearEnd: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.createdBy !== userId) {
-      throw new Error("Not authorized");
-    }
+    await requireInternalProjectAccess(ctx, args.projectId);
     await ctx.db.patch(args.projectId, {
       fiscalYearEnd: args.fiscalYearEnd,
       updatedAt: Date.now(),
@@ -89,21 +150,29 @@ export const updateProjectFiscalYear = mutation({
 export const getProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.createdBy !== userId) return null;
-    return project;
+    const access = await getInternalProjectAccessOrNull(ctx, args.projectId);
+    return access?.project ?? null;
   },
 });
 
 export const getProjectByShareToken = query({
   args: { shareToken: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const project = await ctx.db
       .query("projects")
       .withIndex("by_shareToken", (q) => q.eq("shareToken", args.shareToken))
       .unique();
+    if (!project?.sharedReportId) return null;
+    const report = await ctx.db.get(project.sharedReportId);
+    if (!report || report.projectId !== project._id) return null;
+    return {
+      _id: project._id,
+      title: project.title,
+      clientName: project.clientName,
+      sharedReportId: report._id,
+      reportVersion: report.version,
+      revisionNumber: report.revisionNumber ?? 0,
+    };
   },
 });
 
@@ -112,19 +181,37 @@ export const createProject = mutation({
     title: v.string(),
     sredTitle: v.optional(v.string()),
     clientName: v.string(),
-    writer: v.optional(v.string()),
-    interviewer: v.optional(v.string()),
+    interviewerUserId: v.optional(v.id("users")),
+    // BNH-22: client-side interview participants.
+    interviewees: v.optional(v.array(v.string())),
+    // BNH-35: initial tags applied at creation.
+    tagIds: v.optional(v.array(v.id("tags"))),
     fiscalYearEnd: v.optional(v.number()),
     // BNH-10: routes Brain retrieval — must match the Brain namespace strings
     // (software / manufacturing / life-sciences, see docs/the-brain.md).
     industry: v.optional(v.string()),
+    // BNH-54: CRA T4088 line 206 field of science or technology code.
+    scienceCode: v.optional(v.string()),
     // BNH-39: review mode reviews an existing written PD instead of generating.
     mode: v.optional(v.union(v.literal("generate"), v.literal("review"))),
     transcriptContent: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const writer = await requireCurrentUser(ctx);
+    const interviewer = args.interviewerUserId
+      ? await getTeamRosterMemberOrNull(ctx, args.interviewerUserId)
+      : null;
+    if (args.interviewerUserId && !interviewer) {
+      domainError("INVALID_INPUT", "Interviewer must be a current team member");
+    }
+    const tagIds = args.tagIds
+      ? await validateProjectTagIds(ctx, args.tagIds)
+      : [];
+    const scienceCode = normalizeCraScienceCode(args.scienceCode);
+    if (args.scienceCode?.trim() && !scienceCode) {
+      domainError("INVALID_INPUT", "Select a valid CRA science code");
+    }
+
 
     const now = Date.now();
     const shareToken = generateShareToken();
@@ -133,13 +220,21 @@ export const createProject = mutation({
       title: args.title,
       clientName: args.clientName,
       ...(args.sredTitle ? { sredTitle: args.sredTitle } : {}),
-      ...(args.writer ? { writer: args.writer } : {}),
-      ...(args.interviewer ? { interviewer: args.interviewer } : {}),
+      writer: userDisplayLabel(writer),
+      ...(interviewer
+        ? {
+            interviewerUserId: interviewer._id,
+            interviewer: userDisplayLabel(interviewer),
+          }
+        : {}),
+      ...(args.interviewees?.length ? { interviewees: args.interviewees } : {}),
+      ...(tagIds.length ? { tagIds } : {}),
       ...(args.fiscalYearEnd ? { fiscalYearEnd: args.fiscalYearEnd } : {}),
       ...(args.industry ? { industry: args.industry } : {}),
+      ...(scienceCode ? { scienceCode } : {}),
       ...(args.mode ? { mode: args.mode } : {}),
       status: "draft",
-      createdBy: userId,
+      createdBy: writer._id,
       shareToken,
       createdAt: now,
       updatedAt: now,
@@ -155,82 +250,69 @@ export const createProject = mutation({
   },
 });
 
-/**
- * Schedule report generation in the background.
- * Returns immediately — the client watches the generation record for progress.
- */
-export const scheduleGenerateReport = mutation({
+
+
+export const publishForReview = mutation({
   args: {
     projectId: v.id("projects"),
-    transcriptId: v.id("transcripts"),
-    // BNH-45: writer's length preference — concise (quick review), standard,
-    // or full (right up to the CRA line limits, easier to trim than to grow).
-    lengthTarget: v.optional(
-      v.union(v.literal("concise"), v.literal("standard"), v.literal("full"))
-    ),
-    // BNH-52: a completed test must not be silently re-run (cost + result
-    // integrity). Re-running requires the explicit force from the confirm UI.
-    force: v.optional(v.boolean()),
+    reportId: v.id("reports"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.createdBy !== userId) {
-      throw new Error("Not authorized");
+    await requireProjectCreator(ctx, args.projectId);
+    const report = await ctx.db.get(args.reportId);
+    if (!report || report.projectId !== args.projectId) {
+      domainError("NOT_AUTHORIZED", "Report does not belong to this project");
     }
-
-    const latestGen = await ctx.db
-      .query("generations")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .order("desc")
-      .first();
-    if (latestGen?.status === "running") {
-      throw new Error("A generation is already running for this project.");
-    }
-    if (
-      (latestGen?.status === "completed" ||
-        latestGen?.status === "awaiting_selection") &&
-      !args.force
-    ) {
-      throw new Error(
-        "This project already has a generated test. Re-running requires explicit confirmation."
-      );
-    }
-
-    await ctx.scheduler.runAfter(0, internal.ai.pipeline.generateReport, {
-      projectId: args.projectId,
-      transcriptId: args.transcriptId,
-      lengthTarget: args.lengthTarget,
+    await ctx.db.patch(args.projectId, {
+      sharedReportId: report._id,
+      status: "client_review",
+      updatedAt: Date.now(),
     });
   },
 });
 
-export const updateProjectStatus = mutation({
-  args: {
-    projectId: v.id("projects"),
-    status: v.union(
-      v.literal("draft"),
-      v.literal("generating"),
-      v.literal("review"),
-      v.literal("client_review"),
-      v.literal("final")
-    ),
-  },
+export const unpublishReview = mutation({
+  args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.createdBy !== userId) {
-      throw new Error("Not authorized");
-    }
-
+    const { project } = await requireProjectCreator(ctx, args.projectId);
     await ctx.db.patch(args.projectId, {
-      status: args.status,
+      sharedReportId: undefined,
+      status: project.status === "client_review" ? "review" : project.status,
       updatedAt: Date.now(),
     });
+  },
+});
+
+export const finalizeProject = mutation({
+  args: {
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+  },
+  handler: async (ctx, args) => {
+    const { project } = await requireInternalProjectAccess(ctx, args.projectId);
+    const report = await ctx.db.get(args.reportId);
+    if (!report || report.projectId !== args.projectId) {
+      domainError("NOT_AUTHORIZED", "Report does not belong to this project");
+    }
+    await requireFilingReady(ctx, project, report);
+    await ctx.db.patch(args.projectId, {
+      status: "final",
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const getProjectReadiness = query({
+  args: {
+    projectId: v.id("projects"),
+    reportId: v.optional(v.id("reports")),
+  },
+  handler: async (ctx, args) => {
+    const access = await getInternalProjectAccessOrNull(ctx, args.projectId);
+    if (!access) return null;
+    const report = args.reportId ? await ctx.db.get(args.reportId) : null;
+    if (report && report.projectId !== args.projectId) return null;
+    return await getFilingReadiness(ctx, access.project, report);
   },
 });
 
@@ -240,13 +322,7 @@ export const updateProjectTitle = mutation({
     title: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.createdBy !== userId) {
-      throw new Error("Not authorized");
-    }
+    await requireInternalProjectAccess(ctx, args.projectId);
 
     await ctx.db.patch(args.projectId, {
       title: args.title.trim(),
@@ -258,13 +334,7 @@ export const updateProjectTitle = mutation({
 export const deleteProject = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.createdBy !== userId) {
-      throw new Error("Not authorized");
-    }
+    await requireProjectCreatorOrAdmin(ctx, args.projectId);
 
     // Delete related records
     const transcripts = await ctx.db

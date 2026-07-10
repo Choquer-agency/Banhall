@@ -4,6 +4,7 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import Anthropic from "@anthropic-ai/sdk";
+import { instrumentedAnthropic } from "./instrument";
 import { runAnalyzerAgent, type ContextDoc } from "./analyzerAgent";
 import { formatBrainExemplars } from "./brain/retrieve";
 import { buildRetrievalBrief } from "./brain/query";
@@ -12,7 +13,8 @@ import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
 import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
-import { CANDIDATE_MODELS } from "./model";
+import { candidateModelsForMode } from "./model";
+import { normalizeProviderError } from "./providers";
 import {
   sectionMetrics,
   wordBudget,
@@ -21,6 +23,8 @@ import {
   type LengthTarget,
   type SectionKey,
 } from "../lib/lineLimits";
+import { sha256 } from "../lib/contracts";
+import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
 
 /**
  * Programmatic safety net: replace banned words that the LLM self-check may have missed.
@@ -75,8 +79,7 @@ function buildTiptapDocument(
   title: string,
   section242: string,
   section244: string,
-  section246: string,
-  qaScorecard: Record<string, unknown>
+  section246: string
 ) {
   const content: Array<Record<string, unknown>> = [];
 
@@ -215,30 +218,106 @@ async function compressSection(
   return out || text;
 }
 
+function toContextDocs(
+  documents: Array<{ category: string; fileName: string; content: string }>
+): ContextDoc[] {
+  return documents.map((document) => {
+    let category: ContextDoc["category"] = "other";
+    if (
+      document.category === "previous_pd" ||
+      document.category === "scoping_notes" ||
+      document.category === "writer_notes" ||
+      document.category === "background"
+    ) {
+      category = document.category;
+    }
+    return {
+      category,
+      fileName: document.fileName,
+      content: document.content,
+    };
+  });
+}
+
+type ProvenanceDraft = {
+  claimId: string;
+  section: "242" | "244" | "246";
+  claimText: string;
+  sourceQuote?: string;
+};
+
+function provenanceDrafts(
+  sections: Array<{ section: ProvenanceDraft["section"]; text: string }>,
+  transcript: string,
+  usefulQuotes: string[]
+): ProvenanceDraft[] {
+  const exactQuotes = usefulQuotes
+    .map((quote) => quote.trim().replace(/^['"]|['"]$/g, ""))
+    .filter((quote) => quote.length >= 20 && transcript.includes(quote));
+  const drafts: ProvenanceDraft[] = [];
+  for (const { section, text } of sections) {
+    const paragraphs = text
+      .split(/\n{2,}/)
+      .map((paragraph) => paragraph.trim())
+      .filter(Boolean)
+      .slice(0, 60);
+    paragraphs.forEach((claimText, index) => {
+      const claimTokens = new Set(
+        claimText.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []
+      );
+      let sourceQuote: string | undefined;
+      let bestOverlap = 1;
+      for (const quote of exactQuotes) {
+        const quoteTokens = new Set(quote.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []);
+        let overlap = 0;
+        for (const token of quoteTokens) {
+          if (claimTokens.has(token)) overlap += 1;
+        }
+        if (overlap > bestOverlap) {
+          bestOverlap = overlap;
+          sourceQuote = quote;
+        }
+      }
+      drafts.push({
+        claimId: `${section}-${index + 1}`,
+        section,
+        claimText,
+        sourceQuote,
+      });
+    });
+  }
+  return drafts;
+}
+
 /**
  * Run the full pipeline once for a single model → a complete candidate report
  * (content + agentOutputs incl. QA + chronology). Used for BNH-15 A/B testing.
  */
 async function runPipelineForModel(
-  anthropic: Anthropic,
+  anthropicFor: (callSite: string) => Anthropic,
   modelId: string,
   transcript: string,
   contextDocs: ContextDoc[],
   title: string,
   brainExemplars: BrainExemplarBlocks,
   lengthTarget: LengthTarget = "standard"
-): Promise<{ content: string; agentOutputs: string; qaScore: number | null }> {
+): Promise<{
+  content: string;
+  agentOutputs: string;
+  qaScore: number | null;
+  claimDrafts: ProvenanceDraft[];
+}> {
   const analysis = await runAnalyzerAgent(
-    anthropic,
+    anthropicFor("generation:analyzer"),
     transcript,
     contextDocs,
     modelId,
     brainExemplars.analyzer
   );
   const [raw242, raw244, raw246] = await Promise.all([
-    runSection242Agent(anthropic, analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget)),
-    runSection244Agent(anthropic, analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget)),
-    runSection246Agent(anthropic, analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget)),
+    runSection242Agent(anthropicFor("generation:section:242"), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget)),
+    runSection244Agent(anthropicFor("generation:section:244"), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget)),
+    runSection246Agent(anthropicFor("generation:section:246"), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget)),
   ]);
   let section242 = scrubBannedWords(raw242);
   let section244 = scrubBannedWords(raw244);
@@ -257,7 +336,7 @@ async function runPipelineForModel(
     for (const squeeze of [1, 0.85]) {
       if (!sectionMetrics(out, key).overLimit) return out;
       out = scrubBannedWords(
-        await compressSection(anthropic, modelId, key, out, lengthTarget, squeeze)
+        await compressSection(anthropicFor(`generation:compression:${key.slice(1)}`), modelId, key, out, lengthTarget, squeeze)
       );
     }
     return out;
@@ -275,15 +354,23 @@ async function runPipelineForModel(
     lengthTarget,
   };
   const [qaScorecard, chronology] = await Promise.all([
-    runQAAgent(anthropic, analysis, section242, section244, section246, modelId),
-    runChronologyAgent(anthropic, analysis, modelId),
+    runQAAgent(anthropicFor("generation:qa"), analysis, section242, section244, section246, modelId),
+    runChronologyAgent(anthropicFor("generation:chronology"), analysis, modelId),
   ]);
   const doc = buildTiptapDocument(
     title,
     section242,
     section244,
-    section246,
-    qaScorecard as unknown as Record<string, unknown>
+    section246
+  );
+  const claimDrafts = provenanceDrafts(
+    [
+      { section: "242", text: section242 },
+      { section: "244", text: section244 },
+      { section: "246", text: section246 },
+    ],
+    transcript,
+    analysis.useful_quotes
   );
   return {
     content: JSON.stringify(doc),
@@ -297,40 +384,45 @@ async function runPipelineForModel(
       metrics,
     }),
     qaScore: qaScorecard?.overall_score ?? null,
+    claimDrafts,
   };
 }
 
 /**
- * Main pipeline action (BNH-15). Runs the full pipeline once per candidate
- * model and stores each as a candidate report for the writer to choose from.
- * The chosen draft is promoted to the report on selection (see selectReportCandidate).
+ * Main pipeline action (BNH-15). Compare mode stores one candidate per
+ * configured model for writer selection; single mode runs the default Sonnet
+ * candidate and atomically promotes it when that run completes.
  */
 export const generateReport = internalAction({
-  args: {
-    projectId: v.id("projects"),
-    transcriptId: v.id("transcripts"),
-    lengthTarget: v.optional(
-      v.union(v.literal("concise"), v.literal("standard"), v.literal("full"))
-    ),
-  },
+  args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
-    const anthropic = new Anthropic();
-
-    // Create generation record
-    const genId = await ctx.runMutation(
-      internal.generations.createGeneration,
-      {
-        projectId: args.projectId,
-        transcriptId: args.transcriptId,
-      }
-    );
-
-    // Set project status to generating
-    await ctx.runMutation(internal.generations.setProjectGenerating, {
-      projectId: args.projectId,
+    const started = await ctx.runMutation(internal.generations.beginGeneration, {
+      generationId: args.generationId,
     });
-
-    // Live "thinking" log shown in the generation UI.
+    if (!started) return;
+    const input = await ctx.runQuery(internal.generations.getGenerationInput, {
+      generationId: args.generationId,
+    });
+    if (!input) {
+      await ctx.runMutation(internal.generations.failGeneration, {
+        generationId: args.generationId,
+        error: "The frozen generation input is unavailable.",
+      });
+      return;
+    }
+    const genId = input.generationId;
+    const projectId = input.projectId;
+    const transcript = input.transcript;
+    const title = input.title || "Untitled Report";
+    const lengthTarget: LengthTarget = input.lengthTarget;
+    const contextDocs = toContextDocs(input.contextDocs);
+    const candidateModels = candidateModelsForMode(input.candidateMode);
+    const retrievalBriefClient = instrumentedAnthropic(ctx, {
+      callSite: "generation:retrieval_brief",
+      capability: "generation",
+      projectId,
+      ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+    });
     const log = (line: string) =>
       ctx.runMutation(internal.generations.appendProgress, {
         generationId: genId,
@@ -338,32 +430,15 @@ export const generateReport = internalAction({
       });
 
     try {
-      // Step 1: Get transcript content
-      const transcript = await ctx.runQuery(
-        internal.generations.getTranscriptContent,
-        { transcriptId: args.transcriptId }
-      );
-
-      if (!transcript) {
-        throw new Error("Transcript not found");
+      const scienceCode = normalizeCraScienceCode(input.scienceCode);
+      if (input.scienceCode?.trim() && !scienceCode) {
+        throw new Error("Project science code is not a valid CRA T4088 line 206 code");
       }
-
       const transcriptWords = transcript.split(/\s+/).filter(Boolean).length;
-      await log(`Read interview transcript — ${transcriptWords.toLocaleString()} words.`);
-
-      // BNH-9: pull categorized contextual inputs (shared across all candidates).
-      const contextDocs: ContextDoc[] = await ctx.runQuery(
-        internal.documents.getContextDocsForGeneration,
-        { projectId: args.projectId }
-      );
+      await log(`Read frozen interview transcript — ${transcriptWords.toLocaleString()} words.`);
       if (contextDocs.length > 0) {
-        await log(`Pulling in ${contextDocs.length} contextual document(s) and weighting by SR&ED priority.`);
+        await log(`Using ${contextDocs.length} frozen contextual document(s), weighted by SR&ED priority.`);
       }
-
-      const title =
-        (await ctx.runQuery(internal.generations.getProjectTitle, {
-          projectId: args.projectId,
-        })) ?? "Untitled Report";
 
       // BNH-10: pull gold-standard reference passages from The Brain once per
       // generation (shared across all candidate models). A good PD is a good
@@ -378,12 +453,12 @@ export const generateReport = internalAction({
       // Searches run sequentially on purpose: Voyage rate limits bite when
       // embed+rerank calls burst in parallel.
       const brainBlocks: BrainExemplarBlocks = { ...EMPTY_BRAIN_BLOCKS };
-      const industry = await ctx.runQuery(
-        internal.generations.getProjectIndustry,
-        { projectId: args.projectId }
-      );
+      const brainContext = {
+        industry: input.industry ?? null,
+        scienceCode: scienceCode ?? null,
+      };
       try {
-        const brief = await buildRetrievalBrief(anthropic, title, transcript);
+        const brief = await buildRetrievalBrief(retrievalBriefClient, title, transcript);
         const fallbackQuery = `${title}\n\n${transcript.slice(0, 2000)}`;
         const retrievals: {
           block: keyof BrainExemplarBlocks;
@@ -394,7 +469,7 @@ export const generateReport = internalAction({
           {
             block: "analyzer",
             section: "analyzer",
-            query: brief?.problem ?? fallbackQuery,
+            query: brief ? brief.problem : fallbackQuery,
             k: 4,
           },
           {
@@ -432,10 +507,15 @@ export const generateReport = internalAction({
           const outcome = await ctx.runAction(
             internal.ai.brain.retrieve.retrieveBrainContext,
             {
-              ...(industry ? { industry } : {}),
+              ...(brainContext.industry ? { industry: brainContext.industry } : {}),
+              ...(brainContext.scienceCode
+                ? { scienceCode: brainContext.scienceCode }
+                : {}),
               query: r.query,
               k: r.k,
               docType: "pd",
+              projectId,
+              usageLabel: r.section,
             }
           );
           anyDegraded = anyDegraded || outcome.degraded;
@@ -465,7 +545,7 @@ export const generateReport = internalAction({
             .join(", ");
           await log(
             `Pulled ${provenance.length} reference pattern(s) from The Brain${
-              industry ? ` (${industry})` : " (all industries)"
+              brainContext.industry ? ` (${brainContext.industry})` : " (all industries)"
             } — ${perSection}.`
           );
         } else if (anyDegraded) {
@@ -499,75 +579,58 @@ export const generateReport = internalAction({
       await ctx.runMutation(internal.generations.setGenerationEstimate, {
         generationId: genId,
         estimatedMs,
-        totalCandidates: CANDIDATE_MODELS.length,
+        totalCandidates: candidateModels.length,
       });
 
-      // BNH-15: run the full pipeline once per candidate model. Each candidate
-      // is its OWN scheduled action: a sequential in-action loop breached the
-      // 10-minute action limit on long transcripts, dying mid-model and
-      // stranding the generation in "running" forever. Fan-out gives every
-      // model its own time budget (and cuts wall-clock ~3x); the LAST candidate
-      // to land finalizes the generation (generations.finalizeCandidate).
       await ctx.runMutation(internal.generations.updateGenerationStatus, {
         generationId: genId,
         status: "running",
         currentStep: "Generating candidate drafts...",
       });
+      const candidateLabel =
+        candidateModels.length === 1 ? "candidate draft" : "candidate drafts";
       await log(
-        `Generating ${CANDIDATE_MODELS.length} candidate drafts — ${CANDIDATE_MODELS.map((m) => m.label).join(", ")}.`
+        `Generating ${candidateModels.length} ${candidateLabel} — ${candidateModels.map((model) => model.label).join(", ")}.`
       );
-
-      for (const m of CANDIDATE_MODELS) {
-        await ctx.scheduler.runAfter(0, internal.ai.pipeline.generateCandidate, {
-          lengthTarget: args.lengthTarget ?? "standard",
-          generationId: genId,
-          projectId: args.projectId,
-          transcriptId: args.transcriptId,
-          model: m.id,
-          label: m.label,
-          title,
-          brainExemplars: brainBlocks,
+      for (const model of candidateModels) {
+        const candidateRunId = await ctx.runMutation(
+          internal.generations.createCandidateRun,
+          {
+            generationId: genId,
+            model: model.id,
+            label: model.label,
+          }
+        );
+        if (!candidateRunId) continue;
+        const scheduledJobId = await ctx.scheduler.runAfter(
+          0,
+          internal.ai.pipeline.generateCandidate,
+          {
+            candidateRunId,
+            generationId: genId,
+            brainExemplars: brainBlocks,
+          }
+        );
+        await ctx.runMutation(internal.generations.setCandidateRunJob, {
+          candidateRunId,
+          scheduledJobId,
         });
       }
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unknown error occurred";
-
-      await ctx.runMutation(internal.generations.updateGenerationStatus, {
+      const normalized = normalizeProviderError(error);
+      await ctx.runMutation(internal.generations.failGeneration, {
         generationId: genId,
-        status: "failed",
-        currentStep: "Failed",
-        error: message,
-        completedAt: Date.now(),
+        error: `${normalized.code}: ${normalized.message}`,
       });
-
-      // Reset project status back to draft
-      await ctx.runMutation(internal.generations.resetProjectToDraft, {
-        projectId: args.projectId,
-      }).catch(() => {});
-
-      throw error;
     }
   },
 });
 
-/**
- * One candidate model's full pipeline pass, in its own action so it gets its
- * own 10-minute budget (see fan-out note in generateReport). Success or
- * failure both funnel into generations.finalizeCandidate, which flips the
- * generation to awaiting_selection/failed when the last candidate lands.
- */
+/** One model pass, fenced by a durable candidate-run row. */
 export const generateCandidate = internalAction({
   args: {
+    candidateRunId: v.id("generationCandidateRuns"),
     generationId: v.id("generations"),
-    projectId: v.id("projects"),
-    transcriptId: v.id("transcripts"),
-    lengthTarget: v.optional(
-      v.union(v.literal("concise"), v.literal("standard"), v.literal("full"))
-    ),
-    model: v.string(),
-    label: v.string(),
-    title: v.string(),
     brainExemplars: v.object({
       analyzer: v.string(),
       s242: v.string(),
@@ -576,49 +639,90 @@ export const generateCandidate = internalAction({
     }),
   },
   handler: async (ctx, args) => {
-    const anthropic = new Anthropic();
+    const run = await ctx.runMutation(internal.generations.claimCandidateRun, {
+      candidateRunId: args.candidateRunId,
+    });
+    if (!run || run.generationId !== args.generationId) return;
+    const input = await ctx.runQuery(internal.generations.getGenerationInput, {
+      generationId: args.generationId,
+    });
+    if (!input) {
+      await ctx.runMutation(internal.generations.completeCandidateRun, {
+        candidateRunId: args.candidateRunId,
+        error: "Frozen generation input unavailable",
+      });
+      return;
+    }
+    const anthropicFor = (callSite: string) =>
+      instrumentedAnthropic(ctx, {
+        callSite,
+        capability: "generation",
+        projectId: run.projectId,
+        ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+      });
     try {
-      const transcript = await ctx.runQuery(
-        internal.generations.getTranscriptContent,
-        { transcriptId: args.transcriptId }
+      const { content, agentOutputs, qaScore, claimDrafts } =
+        await runPipelineForModel(
+          anthropicFor,
+          run.model,
+          input.transcript,
+          toContextDocs(input.contextDocs),
+          input.title,
+          args.brainExemplars,
+          input.lengthTarget
+        );
+      const claims = await Promise.all(
+        claimDrafts.map(async (claim) => {
+          const startOffset = claim.sourceQuote
+            ? input.transcript.indexOf(claim.sourceQuote)
+            : -1;
+          return {
+            claimId: claim.claimId,
+            section: claim.section,
+            material: true,
+            claimText: claim.claimText,
+            claimTextHash: await sha256(claim.claimText),
+            state:
+              startOffset >= 0
+                ? ("needs_review" as const)
+                : ("unsupported" as const),
+            sources:
+              claim.sourceQuote && startOffset >= 0
+                ? [
+                    {
+                      generationSourceId: input.transcriptSourceId,
+                      sourceContentHash: input.transcriptContentHash,
+                      exactExcerpt: claim.sourceQuote,
+                      startOffset,
+                      endOffset: startOffset + claim.sourceQuote.length,
+                    },
+                  ]
+                : [],
+          };
+        })
       );
-      if (!transcript) throw new Error("Transcript not found");
-      const contextDocs: ContextDoc[] = await ctx.runQuery(
-        internal.documents.getContextDocsForGeneration,
-        { projectId: args.projectId }
+      const provenanceId = await ctx.runMutation(
+        internal.reports.createProvenance,
+        {
+          projectId: run.projectId,
+          generationId: run.generationId,
+          sourceTranscriptId: input.transcriptId,
+          content,
+          claims,
+        }
       );
-
-      const { content, agentOutputs, qaScore } = await runPipelineForModel(
-        anthropic,
-        args.model,
-        transcript,
-        contextDocs,
-        args.title,
-        args.brainExemplars,
-        args.lengthTarget ?? "standard"
-      );
-      await ctx.runMutation(internal.generations.addCandidate, {
-        generationId: args.generationId,
-        projectId: args.projectId,
-        model: args.model,
-        label: args.label,
+      await ctx.runMutation(internal.generations.completeCandidateRun, {
+        candidateRunId: args.candidateRunId,
         content,
         agentOutputs,
-      });
-      await ctx.runMutation(internal.generations.finalizeCandidate, {
-        generationId: args.generationId,
-        projectId: args.projectId,
-        label: args.label,
-        succeeded: true,
         qaScore: qaScore ?? undefined,
+        provenanceId,
       });
-    } catch (e) {
-      await ctx.runMutation(internal.generations.finalizeCandidate, {
-        generationId: args.generationId,
-        projectId: args.projectId,
-        label: args.label,
-        succeeded: false,
-        error: e instanceof Error ? e.message : "error",
+    } catch (error) {
+      const normalized = normalizeProviderError(error);
+      await ctx.runMutation(internal.generations.completeCandidateRun, {
+        candidateRunId: args.candidateRunId,
+        error: `${normalized.code}: ${normalized.message}`,
       });
     }
   },

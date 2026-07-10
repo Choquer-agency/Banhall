@@ -8,7 +8,9 @@ export default defineSchema({
   users: defineTable({
     name: v.optional(v.string()),
     email: v.optional(v.string()),
-    role: v.optional(v.union(v.literal("writer"), v.literal("admin"))),
+    role: v.optional(
+      v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))
+    ),
     image: v.optional(v.string()),
     emailVerificationTime: v.optional(v.number()),
     isAnonymous: v.optional(v.boolean()),
@@ -23,12 +25,19 @@ export default defineSchema({
     clientName: v.string(),
     writer: v.optional(v.string()),
     interviewer: v.optional(v.string()),
+    interviewerUserId: v.optional(v.id("users")),
+    // BNH-22: client-side interview participants (names, free text).
+    interviewees: v.optional(v.array(v.string())),
+    // BNH-35: applied tags (admin-curated taxonomy in `tags`).
+    tagIds: v.optional(v.array(v.id("tags"))),
     // BNH-36: client's fiscal year-end (timestamp) — drives company → fiscal-year
     // grouping on the dashboard. "Fiscal 2025" = the year of this date.
     fiscalYearEnd: v.optional(v.number()),
     // BNH-10: industry routes Brain retrieval to the matching namespace
     // ("use the software brain for software reports"). Optional until backfilled.
     industry: v.optional(v.string()),
+    // BNH-54: CRA T4088 line 206 field of science or technology code.
+    scienceCode: v.optional(v.string()),
     // BNH-39: how the project started — generate a PD from a transcript
     // (default, absent on older projects) or review an existing written PD.
     mode: v.optional(v.union(v.literal("generate"), v.literal("review"))),
@@ -39,13 +48,59 @@ export default defineSchema({
       v.literal("client_review"),
       v.literal("final")
     ),
+    // Active generation fencing and an explicitly published review revision.
+    activeGenerationId: v.optional(v.id("generations")),
+    sharedReportId: v.optional(v.id("reports")),
+    // Filing approval is deliberately human-authored and becomes stale when
+    // evidence or the approved report revision changes.
+    filingAttestation: v.optional(
+      v.object({
+        status: v.union(v.literal("approved"), v.literal("blocked")),
+        reviewedBy: v.id("users"),
+        reviewedAt: v.number(),
+        evidenceCutoffAt: v.number(),
+        reportId: v.optional(v.id("reports")),
+        revisionNumber: v.optional(v.number()),
+        note: v.optional(v.string()),
+      })
+    ),
     createdBy: v.id("users"),
     shareToken: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_createdBy", ["createdBy"])
+    .index("by_status", ["status"])
     .index("by_shareToken", ["shareToken"]),
+
+  // ─── BNH-35: admin-curated project tags (nested via parentId) ──────────────
+  tags: defineTable({
+    name: v.string(),
+    parentId: v.optional(v.id("tags")),
+    // "industry" (seeded taxonomy), "writer" (assignment), or "custom".
+    kind: v.optional(
+      v.union(v.literal("industry"), v.literal("writer"), v.literal("custom"))
+    ),
+    createdAt: v.number(),
+  }).index("by_parentId", ["parentId"]),
+
+  // ─── BNH-16: per-call AI token usage + estimated cost ───────────────────────
+  aiUsage: defineTable({
+    projectId: v.optional(v.id("projects")),
+    userId: v.optional(v.string()),
+    writerName: v.optional(v.string()),
+    agentThreadId: v.optional(v.string()),
+    callSite: v.string(), // e.g. "generation:242", "chat", "financial"
+    model: v.string(),
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+    cacheCreationInputTokens: v.optional(v.number()),
+    cacheReadInputTokens: v.optional(v.number()),
+    costUsd: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_createdAt", ["createdAt"])
+    .index("by_projectId", ["projectId"]),
 
   transcripts: defineTable({
     projectId: v.id("projects"),
@@ -59,7 +114,14 @@ export default defineSchema({
     version: v.number(),
     generatedAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_projectId", ["projectId"]),
+    generationId: v.optional(v.id("generations")),
+    sourceTranscriptId: v.optional(v.id("transcripts")),
+    provenanceId: v.optional(v.id("reportProvenance")),
+    revisionNumber: v.optional(v.number()),
+    contentHash: v.optional(v.string()),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_generationId", ["generationId"]),
 
   comments: defineTable({
     projectId: v.id("projects"),
@@ -73,7 +135,9 @@ export default defineSchema({
     suggestedEdit: v.optional(v.string()),
     resolved: v.boolean(),
     createdAt: v.number(),
-  }).index("by_projectId", ["projectId"]),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_reportId", ["reportId"]),
 
   commenters: defineTable({
     projectId: v.id("projects"),
@@ -96,6 +160,17 @@ export default defineSchema({
     ),
     content: v.string(),
     createdAt: v.number(),
+    processingStatus: v.optional(
+      v.union(
+        v.literal("queued"),
+        v.literal("running"),
+        v.literal("completed"),
+        v.literal("failed")
+      )
+    ),
+    processingError: v.optional(v.string()),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
   }).index("by_projectId", ["projectId"]),
 
   timesheetEntries: defineTable({
@@ -104,12 +179,20 @@ export default defineSchema({
     personName: v.string(),
     date: v.string(),
     hours: v.number(),
+    hoursBasis: v.optional(v.union(v.literal("explicit"), v.literal("estimated"))),
     description: v.string(),
     sredEligible: v.boolean(),
     sredReason: v.optional(v.string()),
     confidence: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
     source: v.string(),
-  }).index("by_projectId", ["projectId"]),
+    reviewStatus: v.optional(
+      v.union(v.literal("pending"), v.literal("approved"), v.literal("rejected"))
+    ),
+    reviewedBy: v.optional(v.id("users")),
+    reviewedAt: v.optional(v.number()),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_uploadId", ["uploadId"]),
 
   financialSummaries: defineTable({
     projectId: v.id("projects"),
@@ -125,16 +208,41 @@ export default defineSchema({
     viewerName: v.string(),
     viewerType: v.union(v.literal("client"), v.literal("writer")),
     viewedAt: v.number(),
+    reportId: v.optional(v.id("reports")),
+    reportVersion: v.optional(v.number()),
+    revisionNumber: v.optional(v.number()),
+    snapshotId: v.optional(v.id("reportSnapshots")),
+    contentHash: v.optional(v.string()),
   }).index("by_projectId", ["projectId"]),
 
   generations: defineTable({
     projectId: v.id("projects"),
     transcriptId: v.id("transcripts"),
     status: v.union(
+      v.literal("reserved"),
       v.literal("running"),
       v.literal("awaiting_selection"),
       v.literal("completed"),
       v.literal("failed")
+    ),
+    requestedAt: v.optional(v.number()),
+    requestedBy: v.optional(v.id("users")),
+    lengthTarget: v.optional(
+      v.union(v.literal("concise"), v.literal("standard"), v.literal("full"))
+    ),
+    candidateMode: v.optional(
+      v.union(v.literal("compare"), v.literal("single"))
+    ),
+    retryOfGenerationId: v.optional(v.id("generations")),
+    scheduledJobId: v.optional(v.id("_scheduled_functions")),
+    previousProjectStatus: v.optional(
+      v.union(
+        v.literal("draft"),
+        v.literal("generating"),
+        v.literal("review"),
+        v.literal("client_review"),
+        v.literal("final")
+      )
     ),
     agentOutputs: v.optional(v.string()),
     currentStep: v.optional(v.string()),
@@ -169,7 +277,10 @@ export default defineSchema({
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),
-  }).index("by_projectId", ["projectId"]),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_and_status", ["projectId", "status"])
+    .index("by_status_and_startedAt", ["status", "startedAt"]),
 
   // ─── BNH-15: model A/B testing ─────────────────────────────────────────────
 
@@ -181,10 +292,12 @@ export default defineSchema({
     label: v.string(),
     content: v.string(),
     agentOutputs: v.string(),
+    provenanceId: v.optional(v.id("reportProvenance")),
     createdAt: v.number(),
   })
     .index("by_generationId", ["generationId"])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    .index("by_generationId_and_model", ["generationId", "model"]),
 
   // BNH-48: writer's 1–10 score per candidate option. Candidate rows are
   // deleted once a draft is chosen, so model/label/position/AI-score are
@@ -398,14 +511,173 @@ export default defineSchema({
       v.literal("manual"),
       v.literal("periodic"),
       v.literal("pre_restore"),
+      v.literal("milestone"),
       // Untouched AI draft frozen at candidate selection — the post-edit
       // distance baseline (BNH-10 flywheel).
       v.literal("generated")
     ),
+    // Stable key for workflow-labelled snapshots (e.g. R0/R1/R4/R5).
+    milestoneKey: v.optional(v.string()),
     label: v.optional(v.string()),
     createdByRole: v.union(v.literal("writer"), v.literal("system")),
     createdAt: v.number(),
-  }).index("by_reportId", ["reportId"]),
+    provenanceId: v.optional(v.id("reportProvenance")),
+    sourceRevisionNumber: v.optional(v.number()),
+    generationId: v.optional(v.id("generations")),
+    sourceTranscriptId: v.optional(v.id("transcripts")),
+    contentHash: v.optional(v.string()),
+  })
+    .index("by_reportId", ["reportId"])
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_and_milestoneKey", ["projectId", "milestoneKey"]),
+
+  // Human-verified claimant/participant identity and relationship evidence.
+  // Rows are retained and rejected/superseded rather than deleted.
+  projectIdentityEvidence: defineTable({
+    projectId: v.id("projects"),
+    subjectName: v.string(),
+    relationship: v.union(
+      v.literal("claimant"),
+      v.literal("employee"),
+      v.literal("contractor"),
+      v.literal("other")
+    ),
+    evidenceKind: v.union(
+      v.literal("corporate_registry"),
+      v.literal("contract"),
+      v.literal("invoice"),
+      v.literal("payroll"),
+      v.literal("project_document"),
+      v.literal("other")
+    ),
+    projectDocumentId: v.optional(v.id("projectDocuments")),
+    sourceDescription: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("verified"),
+      v.literal("rejected")
+    ),
+    verifiedBy: v.optional(v.id("users")),
+    verifiedAt: v.optional(v.number()),
+    rejectionReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_and_relationship", ["projectId", "relationship"]),
+
+  // One durable slot per configured model. State transitions are fenced by
+  // generationId/model instead of callback counters.
+  generationCandidateRuns: defineTable({
+    generationId: v.id("generations"),
+    projectId: v.id("projects"),
+    model: v.string(),
+    label: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("succeeded"),
+      v.literal("failed")
+    ),
+    candidateId: v.optional(v.id("reportCandidates")),
+    qaScore: v.optional(v.number()),
+    error: v.optional(v.string()),
+    scheduledJobId: v.optional(v.id("_scheduled_functions")),
+    queuedAt: v.number(),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_generationId", ["generationId"])
+    .index("by_generationId_and_model", ["generationId", "model"])
+    .index("by_status_and_startedAt", ["status", "startedAt"]),
+
+  // Immutable source text captured before candidate fan-out.
+  generationSources: defineTable({
+    generationId: v.id("generations"),
+    projectId: v.id("projects"),
+    kind: v.union(v.literal("transcript"), v.literal("project_document")),
+    transcriptId: v.optional(v.id("transcripts")),
+    projectDocumentId: v.optional(v.id("projectDocuments")),
+    label: v.string(),
+    content: v.string(),
+    contentHash: v.string(),
+    truncated: v.boolean(),
+    originalLength: v.number(),
+    capturedAt: v.number(),
+  })
+    .index("by_generationId", ["generationId"])
+    .index("by_projectId_and_generationId", ["projectId", "generationId"]),
+
+  // Immutable claim-to-source bundle for one exact report content hash.
+  reportProvenance: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.optional(v.id("generations")),
+    sourceTranscriptId: v.optional(v.id("transcripts")),
+    contentHash: v.string(),
+    status: v.union(
+      v.literal("needs_review"),
+      v.literal("approved"),
+      v.literal("rejected")
+    ),
+    claims: v.array(
+      v.object({
+        claimId: v.string(),
+        section: v.union(v.literal("242"), v.literal("244"), v.literal("246")),
+        material: v.boolean(),
+        claimText: v.string(),
+        claimTextHash: v.string(),
+        state: v.union(
+          v.literal("needs_review"),
+          v.literal("approved"),
+          v.literal("unsupported")
+        ),
+        sources: v.array(
+          v.object({
+            generationSourceId: v.id("generationSources"),
+            sourceContentHash: v.string(),
+            exactExcerpt: v.string(),
+            startOffset: v.number(),
+            endOffset: v.number(),
+            speaker: v.optional(v.string()),
+            timestampStart: v.optional(v.string()),
+            timestampEnd: v.optional(v.string()),
+          })
+        ),
+      })
+    ),
+    createdAt: v.number(),
+    createdBy: v.optional(v.id("users")),
+    reviewedAt: v.optional(v.number()),
+    reviewedBy: v.optional(v.id("users")),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_contentHash", ["contentHash"]),
+
+  // Official export authorization/completion audit for one immutable revision.
+  reportExports: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    reportVersion: v.number(),
+    revisionNumber: v.number(),
+    snapshotId: v.optional(v.id("reportSnapshots")),
+    provenanceId: v.optional(v.id("reportProvenance")),
+    contentHash: v.string(),
+    canonicalDtoHash: v.optional(v.string()),
+    templateVersion: v.string(),
+    actorId: v.id("users"),
+    status: v.union(
+      v.literal("authorized"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    authorizedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    documentHash: v.optional(v.string()),
+    failureCode: v.optional(v.string()),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_reportId", ["reportId"])
+    .index("by_status_and_authorizedAt", ["status", "authorizedAt"]),
 
   // ─── BNH-29: writer's human QA score + feedback on a generated report ───────
   // One review per writer per report version. Surfaced to the admin alongside
@@ -444,6 +716,7 @@ export default defineSchema({
     ),
     title: v.string(),
     industry: v.string(), // → RAG namespace
+    scienceCode: v.optional(v.string()),
     writerName: v.optional(v.string()),
     writerTier: v.number(), // 0..1 → RAG `importance` (Tracy 1.0 / next tier ~0.7 / other ~0.4)
     docType: v.string(), // "pd" | "transcript" | "cra_letter"
@@ -463,7 +736,8 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_hash", ["sourceHash"])
     .index("by_ragKey", ["ragKey"])
-    .index("by_industry", ["industry"]),
+    .index("by_industry", ["industry"])
+    .index("by_scienceCode", ["scienceCode"]),
 
   // ─── BNH-39: PD review mode — AI review of an existing written PD ──────────
   // One row per review run. The uploaded PD lives in projectDocuments

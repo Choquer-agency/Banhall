@@ -529,6 +529,7 @@
       {#if message.proposedEdit}
         <ProposedEditCard
           newText={message.proposedEdit.newText}
+          targetText={message.proposedEdit.targetText}
           replacements={message.proposedEdit.replacements}
           state={message.proposedEdit.state}
           onReplace={async () => {

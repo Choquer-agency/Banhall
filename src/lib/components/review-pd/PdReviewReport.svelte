@@ -7,22 +7,51 @@
 <script lang="ts">
   import { useMutation, useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
-  import type { Doc } from "../../../../convex/_generated/dataModel";
+  import type { Id } from "../../../../convex/_generated/dataModel";
+  import { z } from "zod";
+  type PdReviewSummary = {
+    _id: Id<"pdReviews">;
+    projectId: Id<"projects">;
+    documentId: Id<"projectDocuments">;
+    sourceFileName: string;
+    status: "running" | "completed" | "failed";
+    result?: string;
+    error?: string;
+    createdAt: number;
+    completedAt?: number;
+  };
+  import { toast } from "svelte-sonner";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
+  import { userErrorMessage } from "$lib/errors";
 
   let {
     review,
     hasTranscript,
     onGenerate,
   }: {
-    review: Doc<"pdReviews">;
+    review: PdReviewSummary;
     /** Transcript text exists — required to generate a comparison draft. */
     hasTranscript: boolean;
     onGenerate: () => void;
   } = $props();
 
   const logEvent = useMutation(api.pdReviews.logPdReviewEvent);
+  const retryReview = useMutation(api.pdReviews.retryPdReview);
+  let retrying = $state(false);
+
+  async function retry() {
+    if (retrying) return;
+    retrying = true;
+    try {
+      await retryReview({ reviewId: review._id });
+      toast.success("Review restarted.");
+      // Reactive getLatestPdReview flips the page to the new running review.
+    } catch (e) {
+      toast.error(userErrorMessage(e, "Couldn't restart the review."));
+      retrying = false;
+    }
+  }
   const eventsQ = useQuery(api.pdReviews.listPdReviewEvents, () => ({
     projectId: review.projectId,
   }));
@@ -37,18 +66,20 @@
     suggested_strengthening: string[];
   }
 
+  const pdReviewResultSchema = z.object({
+    summary: z.string(),
+    qualitative_score: z.number(),
+    score_rationale: z.string(),
+    strengths: z.array(z.string()),
+    risks: z.array(z.string()),
+    suggested_strengthening: z.array(z.string()),
+  });
+
   const result = $derived.by((): PdReviewResult | null => {
     if (!review.result) return null;
     try {
-      const raw = JSON.parse(review.result);
-      return {
-        summary: raw.summary ?? "",
-        qualitative_score: raw.qualitative_score ?? 0,
-        score_rationale: raw.score_rationale ?? "",
-        strengths: raw.strengths ?? [],
-        risks: raw.risks ?? [],
-        suggested_strengthening: raw.suggested_strengthening ?? [],
-      };
+      const parsed = pdReviewResultSchema.safeParse(JSON.parse(review.result));
+      return parsed.success ? parsed.data : null;
     } catch {
       return null;
     }
@@ -153,11 +184,29 @@
       </p>
     </div>
   {:else if review.status === "failed"}
-    <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-      <p class="text-sm font-medium text-red-700">The review failed.</p>
-      {#if review.error}
-        <p class="mt-1 text-xs text-red-600">{review.error}</p>
-      {/if}
+    <div class="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+      <div class="min-w-0">
+        <p class="text-sm font-medium text-red-700">The review failed.</p>
+        {#if review.error}
+          <p class="mt-1 text-xs text-red-600">{review.error}</p>
+        {/if}
+      </div>
+      <button
+        type="button"
+        onclick={retry}
+        disabled={retrying}
+        class="inline-flex flex-none items-center gap-2 rounded-lg bg-red-600 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+      >
+        {#if retrying}
+          <Spinner size="sm" class="h-3.5 w-3.5 border-white/40 border-t-white" />
+          Restarting…
+        {:else}
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Retry review
+        {/if}
+      </button>
     </div>
   {:else if result}
     <!-- Score + summary -->

@@ -3,23 +3,25 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import Button from "$lib/components/ui/Button.svelte";
+  import { userErrorMessage } from "$lib/errors";
 
   /**
    * Live generation progress card (port of src/components/generation/GenerationProgress.tsx).
-   * Subscribes to the latest generation for the project and renders a time/milestone
-   * progress bar, human "time remaining" copy, and a collapsible activity log.
+   * Subscribes to one generation and renders a time/milestone progress bar,
+   * human "time remaining" copy, and a collapsible activity log.
    *
    * Props:
-   * - projectId: project whose latest generation is shown (renders nothing when none)
+   * - generationId: exact generation to display
    */
-  let { projectId }: { projectId: Id<"projects"> } = $props();
+  let { generationId }: { generationId: Id<"generations"> } = $props();
 
-  const generationQ = useQuery(api.generations.getLatestGeneration, () => ({ projectId }));
+  const generationQ = useQuery(api.generations.getGeneration, () => ({ generationId }));
   const generation = $derived(generationQ.data);
 
   let scrollEl: HTMLDivElement | null = $state(null);
   let showLog = $state(false);
   let now = $state(0);
+  const activityId = "generation-activity";
 
   const log = $derived(generation?.progressLog ?? []);
 
@@ -36,7 +38,9 @@
     return `About ${mins} minute${mins === 1 ? "" : "s"} remaining`;
   }
 
+  const isQueued = $derived(generation?.status === "reserved");
   const isRunning = $derived(generation?.status === "running");
+  const isActive = $derived(isQueued || isRunning);
   const isFailed = $derived(generation?.status === "failed");
   const isComplete = $derived(generation?.status === "completed");
 
@@ -45,7 +49,7 @@
   // setTimeout(…, 0) is async (not a synchronous state write in the effect
   // body) so it paints quickly.
   $effect(() => {
-    if (!isRunning) return;
+    if (!isActive) return;
     const tick = () => {
       now = Date.now();
     };
@@ -57,17 +61,18 @@
     };
   });
 
-  // Retry re-schedules the pipeline with the same transcript; the new
-  // generation row immediately replaces this one via the live query.
-  const retryGenerate = useMutation(api.projects.scheduleGenerateReport);
+  // Retry re-schedules the pipeline with the same transcript.
+  const retryGenerate = useMutation(api.generations.retryGeneration);
   let retrying = $state(false);
+  let retryError = $state("");
   async function retry() {
     if (!generation || retrying) return;
     retrying = true;
+    retryError = "";
     try {
-      await retryGenerate({ projectId, transcriptId: generation.transcriptId });
+      await retryGenerate({ generationId });
     } catch (e) {
-      console.error("Retry failed to schedule:", e);
+      retryError = userErrorMessage(e, "The generation could not be restarted.");
     } finally {
       retrying = false;
     }
@@ -90,7 +95,7 @@
     generation
       ? Math.max(
           0,
-          (isRunning ? (now > 0 ? now : generation.startedAt) : (generation.completedAt ?? generation.startedAt)) -
+          (isActive ? (now > 0 ? now : generation.startedAt) : (generation.completedAt ?? generation.startedAt)) -
             generation.startedAt
         )
       : 0
@@ -102,7 +107,7 @@
   const timeFraction = $derived(estimatedMs > 0 ? clamp(elapsed / estimatedMs, 0, 0.95) : 0);
   const milestoneFraction = $derived(totalCandidates > 0 ? candidatesDone / totalCandidates : 0);
   const progress = $derived(
-    isRunning
+    isActive
       ? clamp(Math.max(timeFraction, milestoneFraction * 0.95), 0.02, 0.97)
       : isFailed
         ? Math.max(timeFraction, milestoneFraction)
@@ -121,17 +126,24 @@
     <!-- Heading -->
     <div class="flex items-baseline justify-between gap-3">
       <h3 class="text-sm font-semibold text-gray-900">
-        {isRunning ? "Generating your report" : isComplete ? "Report generated" : "Generation failed"}
+        {isQueued ? "Preparing report generation" : isRunning ? "Generating your report" : isComplete ? "Report generated" : "Generation failed"}
       </h3>
-      {#if isRunning}
+      {#if isActive}
         <span class="text-xs font-medium text-gray-400">
-          {now > 0 ? remainingLabel(remainingMs, estimatedMs) : "Estimating time…"}
+          {isQueued ? "Queued…" : now > 0 ? remainingLabel(remainingMs, estimatedMs) : "Estimating time…"}
         </span>
       {/if}
     </div>
 
     <!-- Progress bar -->
-    <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-chrome">
+    <div
+      class="mt-3 h-2 w-full overflow-hidden rounded-full bg-chrome"
+      role="progressbar"
+      aria-label="Report generation progress"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      aria-valuenow={Math.round(progress * 100)}
+    >
       <div
         class={`h-full rounded-full transition-[width] duration-700 ease-out ${
           isFailed ? "bg-red-400" : isComplete ? "bg-green-500" : "bg-primary"
@@ -143,7 +155,7 @@
     <!-- Subtle status line under the bar -->
     <div class="mt-2 flex items-center justify-between gap-3">
       <p class="min-w-0 flex-1 truncate text-xs text-gray-500">
-        {isRunning ? currentLine : isComplete ? "Done." : generation.error}
+        {isActive ? currentLine : isComplete ? "Done." : generation.error}
       </p>
       <div class="flex flex-shrink-0 items-center gap-2 text-xs text-gray-400">
         {#if isRunning && totalCandidates > 0}
@@ -155,13 +167,16 @@
     <!-- Friendly up-front estimate (set the expectation, per the transcript) -->
     {#if isRunning && estimatedMs > 0}
       <p class="mt-2 text-xs text-gray-400">
-        Estimated ~{totalMins < 1 ? "1" : totalMins} minute{totalMins === 1 ? "" : "s"} total{totalMins >= 3 ? " — grab a coffee ☕" : ""}.
+        Estimated ~{totalMins < 1 ? "1" : totalMins} minute{totalMins === 1 ? "" : "s"} total. You can keep working here while it runs.
       </p>
     {/if}
 
     <!-- Low-emphasis activity log (kept, but no longer the focal point) -->
-    {#if isRunning || isComplete || isFailed}
+    {#if isActive || isComplete || isFailed}
       <button
+        type="button"
+        aria-expanded={showLog}
+        aria-controls={activityId}
         onclick={() => (showLog = !showLog)}
         class="mt-3 inline-flex items-center gap-1 text-xs text-gray-400 transition-colors hover:text-gray-600"
       >
@@ -180,16 +195,17 @@
 
     {#if showLog}
       <div
+        id={activityId}
         bind:this={scrollEl}
         class="mt-2 h-[180px] overflow-y-auto rounded-xl bg-navy px-4 py-3 font-mono text-[12px] leading-[1.7] text-white/85"
       >
-        {#if log.length === 0 && isRunning}
+        {#if log.length === 0 && isActive}
           <div class="text-white/50">› warming up…</div>
         {/if}
         {#each log as line, i}
           <div class="flex gap-2">
             <span class="select-none text-primary-light">›</span>
-            <span class="flex-1">{line}{#if i === log.length - 1 && isRunning}<span class="ml-0.5 inline-block animate-pulse">▍</span>{/if}</span>
+            <span class="flex-1">{line}{#if i === log.length - 1 && isActive}<span class="ml-0.5 inline-block animate-pulse">▍</span>{/if}</span>
           </div>
         {/each}
         {#if isComplete}
@@ -215,6 +231,9 @@
           Reruns all drafts from the same transcript.
         </span>
       </div>
+      {#if retryError}
+        <p class="mt-2 text-sm text-red-700" role="alert">{retryError}</p>
+      {/if}
     {/if}
   </div>
 {/if}

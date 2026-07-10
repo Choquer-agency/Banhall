@@ -1,11 +1,13 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
+  import { toast } from "svelte-sonner";
   import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
+  import FiscalYearEndInput from "$lib/components/project/FiscalYearEndInput.svelte";
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
@@ -26,40 +28,85 @@
   import CategoryCard from "$lib/components/project-new/CategoryCard.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import PreviousYearCard from "$lib/components/project-new/PreviousYearCard.svelte";
+  import TagPicker from "$lib/components/project-new/TagPicker.svelte";
+  import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
+  import { industryLabel } from "$lib/industries";
+  import { CRA_SCIENCE_CODE_ITEMS, scienceCodeLabel } from "../../../../shared/craScienceCodes";
 
   const STEPS = ["Details", "Context & files", "Review"];
 
   const auth = useAuth();
   const createProject = useMutation(api.projects.createProject);
-  const generateReport = useMutation(api.projects.scheduleGenerateReport);
+  const generateReport = useMutation(api.generations.requestGeneration);
   const startPdReview = useMutation(api.pdReviews.startPdReview);
   const uploadDocument = useMutation(api.documents.uploadDocument);
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
   const user = useQuery(api.users.getCurrentUser, () =>
     auth.isAuthenticated ? {} : "skip"
   );
+  // BNH-22: team roster for the interviewer picker.
+  const teamQ = useQuery(api.users.listTeam, () =>
+    auth.isAuthenticated ? {} : "skip"
+  );
+  const interviewerOptions = $derived([
+    { value: "", label: "Not set" },
+    ...(teamQ.data ?? []).map((member) => ({
+      value: member.id,
+      label:
+        member.email && member.email !== member.name
+          ? `${member.name} (${member.email})`
+          : member.name,
+    })),
+  ]);
+  // BNH-35: available tags for the tag selector.
+  const tagsQ = useQuery(api.tags.listTags, () =>
+    auth.isAuthenticated ? {} : "skip"
+  );
+  const allTags = $derived(tagsQ.data ?? []);
 
   // Writer is always the signed-in user — not editable.
-  const writerName = $derived(user.data?.name ?? user.data?.email ?? "");
+  const writerName = $derived(
+    user.data
+      ? user.data.name?.trim() || user.data.email?.trim() || "Unknown team member"
+      : ""
+  );
 
   let step = $state(0);
   // BNH-39: generate a new PD from a transcript, or review an existing written PD.
   let mode = $state<"generate" | "review">("generate");
-  // BNH-10: routes Brain retrieval. Values must match the Brain namespace
-  // strings exactly (docs/the-brain.md); "" = not set (all industries).
-  const INDUSTRY_OPTIONS = [
-    { value: "", label: "Not set (all industries)" },
-    { value: "software", label: "Software" },
-    { value: "manufacturing", label: "Manufacturing" },
-    { value: "life-sciences", label: "Life sciences" },
-  ];
+  let candidateMode = $state<"compare" | "single">("compare");
+  // BNH-10: routes Brain retrieval — options + creatable behavior live in the
+  // shared IndustrySelect ($lib/components/ui/IndustrySelect.svelte).
   let industry = $state("");
+  let scienceCode = $state("");
   let title = $state("");
   let sredTitle = $state(""); // BNH-23: formal SR&ED title
   let clientName = $state("");
-  let interviewer = $state("");
+  let interviewerUserId = $state("");
+  const interviewerName = $derived(
+    (teamQ.data ?? []).find((member) => member.id === interviewerUserId)?.name ?? ""
+  );
+  // BNH-22: client-side interview participants (multi-entry).
+  let interviewees = $state<string[]>([]);
+  let intervieweeDraft = $state("");
+  // BNH-35: selected tag ids.
+  let selectedTagIds = $state<string[]>([]);
   let fiscalYearEnd = $state(""); // yyyy-mm-dd (BNH-36)
+
+  function addInterviewee() {
+    const name = intervieweeDraft.trim();
+    if (!name) return;
+    if (!interviewees.some((n) => n.toLowerCase() === name.toLowerCase())) {
+      interviewees = [...interviewees, name];
+    }
+    intervieweeDraft = "";
+  }
+  function removeInterviewee(idx: number) {
+    interviewees = interviewees.filter((_, i) => i !== idx);
+  }
   let transcript = $state("");
+  // BNH-31: single-tab transcript input — upload OR paste, not both at once.
+  let transcriptTab = $state<"upload" | "paste">("upload");
   let staged = $state<Staged>(emptyStaged());
 
   // BNH-31: drag-and-drop a transcript file on the Details step.
@@ -83,6 +130,9 @@
       } else {
         // Append if the writer already has text, otherwise populate.
         transcript = transcript.trim() ? `${transcript.trim()}\n\n${text}` : text;
+        // Show the extracted text so the writer can confirm what was read.
+        transcriptTab = "paste";
+        toast.success(`Imported ${file.name}`);
       }
     } catch {
       transcriptFileError = `Couldn't read ${file.name}. Try another file.`;
@@ -128,7 +178,6 @@
   let pyRows = $state<PyRow[]>([{ id: "py-0", year: baseYear, note: "", files: [] }]);
   let committing = $state(false);
   let progress = $state("");
-  let error = $state("");
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) goto("/login", { replaceState: true });
@@ -177,25 +226,25 @@
     staged = { ...staged, [id]: { ...staged[id], ...patch } };
   }
 
+  // Step 0 is complete only when every required input is filled; Next stays
+  // disabled until then (fiscal year-end is optional — BNH feedback 2026-07-09).
+  const detailsValid = $derived(
+    Boolean(
+      title.trim() &&
+        clientName.trim() &&
+        (mode === "review" ? pdDoc : transcript.trim())
+    )
+  );
+  const canGoNext = $derived(step !== 0 || detailsValid);
+
   function goNext() {
-    error = "";
-    if (step === 0) {
-      if (!title.trim() || !clientName.trim()) {
-        error = "Project title and client name are required.";
-        return;
-      }
-      if (!fiscalYearEnd) {
-        error = "Please set the client's fiscal year-end date.";
-        return;
-      }
-      if (mode === "review" && !pdDoc) {
-        error = "Please upload the written PD to review.";
-        return;
-      }
-      if (mode === "generate" && !transcript.trim()) {
-        error = "Please paste the interview transcript.";
-        return;
-      }
+    if (step === 0 && !detailsValid) {
+      if (!title.trim() || !clientName.trim())
+        toast.error("Project title and client name are required.");
+      else if (mode === "review")
+        toast.error("Upload the written PD to review.");
+      else toast.error("Add the interview transcript (upload or paste).");
+      return;
     }
     step = Math.min(step + 1, STEPS.length - 1);
   }
@@ -217,7 +266,6 @@
   }
 
   async function commit() {
-    error = "";
     committing = true;
     try {
       progress = "Creating project…";
@@ -225,12 +273,18 @@
         title: title.trim(),
         ...(sredTitle.trim() ? { sredTitle: sredTitle.trim() } : {}),
         clientName: clientName.trim(),
-        ...(writerName ? { writer: writerName } : {}),
-        ...(interviewer.trim() ? { interviewer: interviewer.trim() } : {}),
+        ...(interviewerUserId
+          ? { interviewerUserId: interviewerUserId as Id<"users"> }
+          : {}),
+        ...(interviewees.length ? { interviewees } : {}),
+        ...(selectedTagIds.length
+          ? { tagIds: selectedTagIds as Id<"tags">[] }
+          : {}),
         ...(fiscalYearEnd
           ? { fiscalYearEnd: new Date(`${fiscalYearEnd}T00:00:00`).getTime() }
           : {}),
         ...(industry ? { industry } : {}),
+        ...(scienceCode ? { scienceCode } : {}),
         mode,
         transcriptContent: transcript,
       });
@@ -324,12 +378,12 @@
         await startPdReview({ projectId, documentId });
       } else {
         progress = "Starting generation…";
-        await generateReport({ projectId, transcriptId });
+        await generateReport({ projectId, transcriptId, candidateMode });
       }
       goto(`/project/${projectId}`);
     } catch (e) {
       console.error(e);
-      error = "Something went wrong creating the project. Please try again.";
+      toast.error("Something went wrong creating the project. Please try again.");
       committing = false;
       progress = "";
     }
@@ -350,15 +404,26 @@
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
     <AppNav breadcrumbs={[{ label: "New project" }]} />
-    <PageBar backHref="/dashboard" backLabel="Back" />
+    <PageBar backHref="/dashboard" backLabel="Back">
+      {#snippet actions()}
+        {#if writerName}
+          <span
+            class="whitespace-nowrap text-sm font-medium text-navy"
+            title="Set automatically to the signed-in user"
+          >
+            Writer · {writerName}
+          </span>
+        {/if}
+      {/snippet}
+    </PageBar>
 
-    <main class="mx-auto w-full max-w-4xl flex-1 px-6 pt-12 pb-8">
+    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 px-6 pt-12 pb-8">
       <!-- Step indicator (centered) -->
       <div class="mx-auto mb-8 flex w-full max-w-lg items-center gap-2">
         {#each STEPS as label, i (label)}
           <div class="flex flex-1 items-center gap-2">
             <div
-              class={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+              class={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs font-medium ${
                 i < step
                   ? "bg-primary text-white"
                   : i === step
@@ -381,74 +446,132 @@
       <!-- Step 1 — details -->
       {#if step === 0}
         <div class="flex flex-col gap-5">
-          <div class="flex items-end justify-between gap-4">
-            <div>
-              <h2 class="text-display">Project details</h2>
-              <p class="mt-1 text-sm text-gray-500">
-                {mode === "generate"
-                  ? "Enter the basics, then drop a transcript file or paste it below."
-                  : "Enter the basics, then upload the written PD you want reviewed."}
-              </p>
-            </div>
-            {#if writerName}
-              <span
-                class="inline-flex flex-none items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs text-white"
-                title="Set automatically to the signed-in user"
-              >
-                <svg class="h-3.5 w-3.5 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                Writer: <span class="font-semibold">{writerName}</span>
-              </span>
-            {/if}
+          <div>
+            <h2 class="text-display">Project details</h2>
+            <p class="mt-1 text-sm text-gray-500">
+              {mode === "generate"
+                ? "Enter the basics, then drop a transcript file or paste it below."
+                : "Enter the basics, then upload the written PD you want reviewed."}
+            </p>
           </div>
 
-          <!-- BNH-39: Generate vs Review mode -->
-          <div class="grid grid-cols-2 gap-2 rounded-xl bg-chrome p-1" role="radiogroup" aria-label="Project mode">
-            {#each [
-              { id: "generate", label: "Generate PD", hint: "Draft a new PD from an interview transcript" },
-              { id: "review", label: "Review PD", hint: "AI feedback report on an existing written PD" },
-            ] as const as opt (opt.id)}
-              <button
-                type="button"
-                role="radio"
-                aria-checked={mode === opt.id}
-                onclick={() => (mode = opt.id)}
-                class={`flex flex-col items-start gap-0.5 rounded-lg px-3.5 py-2.5 text-left transition-colors ${
-                  mode === opt.id
-                    ? "bg-white text-navy shadow-sm ring-1 ring-gray-200"
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                <span class="text-sm font-semibold">{opt.label}</span>
-                <span class="text-xs text-gray-400">{opt.hint}</span>
-              </button>
-            {/each}
+          <!-- Mode and draft-generation controls -->
+          <div class="mt-1 flex flex-wrap items-center gap-x-5 gap-y-3">
+            <!-- BNH-39: Generate vs Review mode -->
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-medium text-gray-500">Mode</span>
+              <div class="flex gap-1 rounded-lg bg-chrome p-1" role="radiogroup" aria-label="Project mode">
+                {#each [
+                  { id: "generate", label: "Generate PD", hint: "Draft a new PD from an interview transcript" },
+                  { id: "review", label: "Review PD", hint: "AI feedback report on an existing written PD" },
+                ] as const as opt (opt.id)}
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={mode === opt.id}
+                    title={opt.hint}
+                    onclick={() => (mode = opt.id)}
+                    class={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
+                      mode === opt.id
+                        ? "bg-primary-selected text-white"
+                        : "text-gray-500 hover:bg-primary-wash hover:text-navy"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                {/each}
+              </div>
+            </div>
+            {#if mode === "generate"}
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-medium text-gray-500">Drafts</span>
+                <div class="flex gap-1 rounded-lg bg-chrome p-1" role="radiogroup" aria-label="Draft generation mode">
+                  {#each [
+                    { id: "compare", label: "Compare 3", hint: "Generate three alternatives and choose one" },
+                    { id: "single", label: "Single draft", hint: "Generate one draft and open it directly" },
+                  ] as const as opt (opt.id)}
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={candidateMode === opt.id}
+                      title={opt.hint}
+                      onclick={() => (candidateMode = opt.id)}
+                      class={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
+                        candidateMode === opt.id
+                          ? "bg-primary-selected text-white"
+                          : "text-gray-500 hover:bg-primary-wash hover:text-navy"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  {/each}
+                </div>
+              </div>
+            {/if}
           </div>
-          <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div class="mt-3 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
             <Input id="title" label="Internal project title" bind:value={title} placeholder="Project Verdant F2024" required />
             <Input id="sredTitle" label="SR&ED title (optional — finalize later)" bind:value={sredTitle} placeholder="e.g. Development of a multi-home SoC estimation system" />
             <Input id="clientName" label="Client name" bind:value={clientName} placeholder="GreenStem Nurseries Inc." required />
-            <Input id="interviewer" label="Interviewer" bind:value={interviewer} placeholder="John Doe" />
+            <!-- BNH-22: interviewer selectable from the team roster -->
+            <div class="flex flex-col gap-1.5">
+              <label for="interviewer" class="text-sm font-medium text-gray-700">Interviewer</label>
+              <SelectInput id="interviewer" bind:value={interviewerUserId} items={interviewerOptions} />
+            </div>
+            <!-- BNH-22: multiple client-side interviewees -->
+            <div class="flex flex-col gap-1.5">
+              <label for="interviewee" class="text-sm font-medium text-gray-700">Interviewees (client)</label>
+              <div class="flex gap-2">
+                <input
+                  id="interviewee"
+                  type="text"
+                  bind:value={intervieweeDraft}
+                  placeholder="Add a name, press Enter"
+                  onkeydown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addInterviewee();
+                    }
+                  }}
+                  class="h-[42px] min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                />
+                <Button type="button" variant="secondary" onclick={addInterviewee} disabled={!intervieweeDraft.trim()}>
+                  Add
+                </Button>
+              </div>
+              {#if interviewees.length}
+                <div class="flex flex-wrap gap-1.5">
+                  {#each interviewees as name, i (name)}
+                    <span class="inline-flex items-center gap-1 rounded-full bg-chrome px-2.5 py-1 text-xs text-gray-700">
+                      {name}
+                      <button
+                        type="button"
+                        aria-label={`Remove ${name}`}
+                        onclick={() => removeInterviewee(i)}
+                        class="text-gray-400 transition-colors hover:text-red-500"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  {/each}
+                </div>
+              {/if}
+            </div>
             <div class="flex flex-col gap-1.5">
               <label for="industry" class="text-sm font-medium text-gray-700">Industry</label>
-              <SelectInput id="industry" bind:value={industry} items={INDUSTRY_OPTIONS} />
+              <IndustrySelect id="industry" bind:value={industry} />
             </div>
             <div class="flex flex-col gap-1.5">
-              <label for="fiscalYearEnd" class="text-sm font-medium text-gray-700">
-                Fiscal year-end<span class="ml-0.5 text-red-500" aria-hidden="true">*</span>
-              </label>
-              <input
-                id="fiscalYearEnd"
-                type="date"
-                bind:value={fiscalYearEnd}
-                class="h-[42px] rounded-lg border border-gray-200 bg-white px-3.5 text-sm text-gray-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
-              />
-              <span class="text-xs text-gray-400">
-                Groups this report under the client's fiscal year (e.g. Dec 31, 2025 → Fiscal 2025).
-              </span>
+              <label for="scienceCode" class="text-sm font-medium text-gray-700">Science code</label>
+              <SelectInput id="scienceCode" bind:value={scienceCode} items={CRA_SCIENCE_CODE_ITEMS} class="max-w-full" />
             </div>
+            <FiscalYearEndInput bind:value={fiscalYearEnd} />
           </div>
+
+          <!-- BNH-35: project tags -->
+          {#if allTags.length > 0}
+            <TagPicker {allTags} bind:selectedTagIds />
+          {/if}
           <!-- BNH-39: written PD upload (review mode only) -->
           {#if mode === "review"}
             <div class="flex flex-col gap-1.5">
@@ -530,8 +653,9 @@
             </div>
           {/if}
 
-          <div class="flex flex-col gap-1.5">
-            <div class="flex items-center justify-between">
+          <!-- Extra top gap isolates the transcript section from the fields above. -->
+          <div class="mt-6 flex flex-col gap-1.5">
+            <div class="flex flex-wrap items-center justify-between gap-3">
               <label for="transcript" class="flex flex-wrap items-baseline gap-x-1.5 text-sm font-medium text-gray-700">
                 <span>
                   Interview transcript{#if mode === "generate"}<span class="ml-0.5 text-red-500" aria-hidden="true">*</span>{/if}
@@ -540,46 +664,79 @@
                   <span class="font-normal text-gray-400">(optional — adds context for the review)</span>
                 {/if}
               </label>
-              {#if wordCount > 0}
-                <span class="text-xs text-gray-400">{wordCount.toLocaleString()} words</span>
-              {/if}
+              <div class="flex items-center gap-3">
+                {#if wordCount > 0}
+                  <span class="text-xs text-gray-400">{wordCount.toLocaleString()} words</span>
+                {/if}
+                <!-- BNH-31: upload OR paste — one shown at a time to keep the page short -->
+                <div class="flex gap-1 rounded-lg bg-chrome p-1" role="tablist" aria-label="Transcript input method">
+                  {#each [
+                    { id: "upload", label: "Upload file" },
+                    { id: "paste", label: "Paste text" },
+                  ] as const as tab (tab.id)}
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={transcriptTab === tab.id}
+                      onclick={() => (transcriptTab = tab.id)}
+                      class={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
+                        transcriptTab === tab.id
+                          ? "bg-primary-selected text-white"
+                          : "text-gray-500 hover:bg-primary-wash hover:text-navy"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  {/each}
+                </div>
+              </div>
             </div>
 
-            <!-- BNH-31: large drag-and-drop zone to import a transcript file -->
-            <button
-              type="button"
-              onclick={() => transcriptInput?.click()}
-              ondragover={(e) => { e.preventDefault(); transcriptDragOver = true; }}
-              ondragleave={() => (transcriptDragOver = false)}
-              ondrop={(e) => {
-                e.preventDefault();
-                transcriptDragOver = false;
-                const file = e.dataTransfer?.files?.[0];
-                if (file) handleTranscriptFile(file);
-              }}
-              class={`flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-7 text-center transition-colors ${
-                transcriptDragOver
-                  ? "border-primary bg-primary/5"
-                  : "border-gray-200 bg-canvas hover:border-gray-300"
-              }`}
-            >
-              {#if parsingTranscript}
-                <span class="inline-flex items-center gap-2 text-sm text-navy">
-                  <Spinner size="sm" class="border-navy/30 border-t-navy" />
-                  Reading {parsingTranscript}…
-                </span>
-              {:else}
-                <svg class="h-7 w-7 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                </svg>
-                <span class="text-sm font-medium text-gray-600">
-                  Drag a transcript file here, or click to browse
-                </span>
-                <span class="text-xs text-gray-400">
-                  Word (.docx), PDF, .txt, email (.eml/.msg) — or just paste below
-                </span>
-              {/if}
-            </button>
+            {#if transcriptTab === "upload"}
+              <!-- BNH-31: large drag-and-drop zone to import a transcript file -->
+              <button
+                type="button"
+                onclick={() => transcriptInput?.click()}
+                ondragover={(e) => { e.preventDefault(); transcriptDragOver = true; }}
+                ondragleave={() => (transcriptDragOver = false)}
+                ondrop={(e) => {
+                  e.preventDefault();
+                  transcriptDragOver = false;
+                  const file = e.dataTransfer?.files?.[0];
+                  if (file) handleTranscriptFile(file);
+                }}
+                class={`flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-7 text-center transition-colors ${
+                  transcriptDragOver
+                    ? "border-primary bg-primary/5"
+                    : "border-gray-200 bg-canvas hover:border-gray-300"
+                }`}
+              >
+                {#if parsingTranscript}
+                  <span class="inline-flex items-center gap-2 text-sm text-navy">
+                    <Spinner size="sm" class="border-navy/30 border-t-navy" />
+                    Reading {parsingTranscript}…
+                  </span>
+                {:else}
+                  <svg class="h-7 w-7 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                  </svg>
+                  <span class="text-sm font-medium text-gray-600">
+                    Drag a transcript file here, or click to browse
+                  </span>
+                  <span class="text-xs text-gray-400">
+                    Word (.docx), PDF, .txt, email (.eml/.msg)
+                  </span>
+                {/if}
+              </button>
+            {:else}
+              <textarea
+                id="transcript"
+                rows={12}
+                bind:value={transcript}
+                placeholder="Paste the full interview transcript here"
+                class="rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 font-serif text-sm leading-relaxed text-gray-900 placeholder:font-sans placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+              ></textarea>
+            {/if}
             <input
               bind:this={transcriptInput}
               type="file"
@@ -594,14 +751,6 @@
             {#if transcriptFileError}
               <p class="text-xs text-red-600">{transcriptFileError}</p>
             {/if}
-
-            <textarea
-              id="transcript"
-              rows={14}
-              bind:value={transcript}
-              placeholder="…or paste the full interview transcript here"
-              class="rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 font-serif text-sm leading-relaxed text-gray-900 placeholder:font-sans placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
-            ></textarea>
           </div>
         </div>
       {/if}
@@ -616,31 +765,37 @@
               Everything here is <span class="font-medium">optional</span> — add what you have.
             </p>
           </div>
-          {#each CONTEXT_CATEGORIES as cat (cat.id)}
-            {#if cat.id === "previous_pd"}
-              <PreviousYearCard
-                def={cat}
-                rows={pyRows}
-                onAddFiles={addPyFiles}
-                onRemoveFile={removePyFile}
-                onUpdateYear={updatePyYear}
-                onUpdateNote={updatePyNote}
-                onRemoveYear={removePyYear}
-                onAddYear={addPyYear}
-              />
-            {:else}
-              <CategoryCard
-                def={cat}
-                value={staged[cat.id]}
-                onAddFiles={(fs) => updateCategory(cat.id, { files: [...staged[cat.id].files, ...fs] })}
-                onRemoveFile={(idx) =>
-                  updateCategory(cat.id, {
-                    files: staged[cat.id].files.filter((_, i) => i !== idx),
-                  })}
-                onText={(text) => updateCategory(cat.id, { text })}
-              />
-            {/if}
-          {/each}
+          <!-- Two-column grid keeps the step compact; the year-by-year card is
+               wider content, so it spans both columns. -->
+          <div class="grid items-start gap-4 md:grid-cols-2">
+            {#each CONTEXT_CATEGORIES as cat (cat.id)}
+              {#if cat.id === "previous_pd"}
+                <div class="md:col-span-2">
+                  <PreviousYearCard
+                    def={cat}
+                    rows={pyRows}
+                    onAddFiles={addPyFiles}
+                    onRemoveFile={removePyFile}
+                    onUpdateYear={updatePyYear}
+                    onUpdateNote={updatePyNote}
+                    onRemoveYear={removePyYear}
+                    onAddYear={addPyYear}
+                  />
+                </div>
+              {:else}
+                <CategoryCard
+                  def={cat}
+                  value={staged[cat.id]}
+                  onAddFiles={(fs) => updateCategory(cat.id, { files: [...staged[cat.id].files, ...fs] })}
+                  onRemoveFile={(idx) =>
+                    updateCategory(cat.id, {
+                      files: staged[cat.id].files.filter((_, i) => i !== idx),
+                    })}
+                  onText={(text) => updateCategory(cat.id, { text })}
+                />
+              {/if}
+            {/each}
+          </div>
         </div>
       {/if}
 
@@ -657,16 +812,37 @@
           </div>
           <div class="card p-4 text-sm">
             {@render row("Mode", mode === "generate" ? "Generate PD" : "Review PD")}
+            {#if mode === "generate"}
+              {@render row(
+                "Draft generation",
+                candidateMode === "compare" ? "Compare 3 drafts" : "Single draft"
+              )}
+            {/if}
             {@render row("Project", title || "—")}
             {@render row("Client", clientName || "—")}
             {#if industry}
-              {@render row("Industry", INDUSTRY_OPTIONS.find((o) => o.value === industry)?.label ?? industry)}
+              {@render row("Industry", industryLabel(industry))}
+            {/if}
+            {#if scienceCode}
+              {@render row("Science code", scienceCodeLabel(scienceCode))}
             {/if}
             {#if writerName}
               {@render row("Writer", writerName)}
             {/if}
-            {#if interviewer}
-              {@render row("Interviewer", interviewer)}
+            {#if interviewerName}
+              {@render row("Interviewer", interviewerName)}
+            {/if}
+            {#if interviewees.length}
+              {@render row("Interviewees", interviewees.join(", "))}
+            {/if}
+            {#if selectedTagIds.length}
+              {@render row(
+                "Tags",
+                allTags
+                  .filter((t) => selectedTagIds.includes(t._id))
+                  .map((t) => t.name)
+                  .join(", ")
+              )}
             {/if}
             {#if mode === "review"}
               {@render row("Written PD", pdDoc?.name ?? "—")}
@@ -720,17 +896,11 @@
         </div>
       {/if}
 
-      {#if error}
-        <div class="mt-5 rounded-lg bg-red-50 px-3 py-2">
-          <p class="text-sm text-red-600">{error}</p>
-        </div>
-      {/if}
-
       <!-- Nav -->
       <div class="mt-8 flex items-center justify-between">
         <div>
           {#if step > 0}
-            <Button type="button" variant="ghost" onclick={() => { error = ""; step -= 1; }} disabled={committing}>
+            <Button type="button" variant="ghost" onclick={() => (step -= 1)} disabled={committing}>
               Back
             </Button>
           {:else}
@@ -741,8 +911,8 @@
         </div>
         <div class="flex items-center gap-3">
           {#if step < STEPS.length - 1}
-            <Button type="button" onclick={goNext}>
-              {step === 1 && fileCount === 0 ? "Skip — Review" : "Next"}
+            <Button type="button" onclick={goNext} disabled={!canGoNext}>
+              {step === 0 ? "Next" : "Continue"}
             </Button>
           {:else}
             <Button type="button" onclick={commit} disabled={committing}>

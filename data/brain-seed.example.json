@@ -7,6 +7,7 @@
     "docType": "pd",
     "kind": "pd_pair",
     "fiscalYear": 2024,
+    "scienceCode": "2.02.02",
     "craOutcome": "approved",
     "approve": true,
     "content": "Paste the full extracted PD text here — Section 242 (technological uncertainties), 244 (work performed), 246 (advancements). Plain text, no markup."
@@ -17,6 +18,7 @@
     "writerName": "Jordan",
     "writerTier": 0.7,
     "docType": "pd",
+    "scienceCode": "2.02.09",
     "approve": true,
     "content": "Second example. writerTier: Tracy 1.0, strong writer 0.7, other 0.4. industry becomes the retrieval namespace — keep the vocabulary consistent with projects.industry values."
   }

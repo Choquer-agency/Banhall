@@ -1,5 +1,19 @@
 <script lang="ts">
-  import type { Doc } from "../../../../convex/_generated/dataModel";
+  import type { Id } from "../../../../convex/_generated/dataModel";
+  type CommentSummary = {
+    _id: Id<"comments">;
+    commenterId: string;
+    commenterType: "client" | "writer";
+    highlightText: string;
+    body: string;
+    suggestedEdit?: string;
+    createdAt: number;
+  };
+  type CommenterSummary = {
+    _id: Id<"commenters">;
+    name: string;
+    color: string;
+  };
 
   /**
    * One comment card in the sidebar list (port of src/components/comments/CommentThread.tsx).
@@ -23,8 +37,8 @@
     resolved = false,
     isActive = false,
   }: {
-    comment: Doc<"comments">;
-    commenter: Doc<"commenters"> | null;
+    comment: CommentSummary;
+    commenter: CommenterSummary | null;
     commenterType: "client" | "writer";
     onResolve?: () => void;
     onUnresolve?: () => void;
@@ -54,18 +68,22 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class={`cursor-pointer border-l-2 px-4 py-3 transition-all ${
+  class={`border-l-2 px-4 py-3 transition-all ${
     isActive
       ? "border-l-navy bg-blue-50/50"
       : resolved
         ? "border-l-transparent opacity-50 hover:opacity-75"
         : "border-l-transparent hover:bg-primary-wash"
   }`}
-  onclick={onClick}
 >
+  <button
+    type="button"
+    class="w-full rounded text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+    aria-pressed={isActive}
+    aria-label={`Locate comment from ${name}`}
+    onclick={onClick}
+  >
   <!-- Quoted text — prominent -->
   <div
     class={`mb-2 rounded-md border px-2.5 py-1.5 ${
@@ -102,6 +120,7 @@
   >
     {comment.body}
   </p>
+  </button>
 
   <!-- Suggested edit -->
   {#if comment.suggestedEdit && !resolved}
@@ -111,6 +130,7 @@
       {#if commenterType === "writer" && onAcceptEdit}
         <div class="mt-1.5 flex items-center gap-2">
           <button
+            type="button"
             onclick={(e) => {
               e.stopPropagation();
               onAcceptEdit();
@@ -120,6 +140,7 @@
             Accept edit
           </button>
           <button
+            type="button"
             onclick={(e) => {
               e.stopPropagation();
               onResolve?.();
@@ -137,6 +158,7 @@
   <div class="mt-2 flex items-center gap-3">
     {#if !resolved && onResolve && commenterType === "writer" && !comment.suggestedEdit}
       <button
+        type="button"
         onclick={(e) => {
           e.stopPropagation();
           onResolve();
@@ -148,6 +170,7 @@
     {/if}
     {#if resolved && onUnresolve && commenterType === "writer"}
       <button
+        type="button"
         onclick={(e) => {
           e.stopPropagation();
           onUnresolve();

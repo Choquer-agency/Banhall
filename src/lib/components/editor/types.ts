@@ -29,6 +29,8 @@ export interface FindReplaceMatch {
 
 /** Full writer editor handle (Editor.svelte's exported functions). */
 export interface WriterEditorHandle extends EditorHandle {
+  /** Flush the visible document through the autosave callback and await queued saves. */
+  flushPendingSave: () => Promise<void>;
   /**
    * BNH-25: highlight every occurrence of the given passages, and scroll to
    * `scrollTo` (one of the passages) — or the first occurrence if omitted.

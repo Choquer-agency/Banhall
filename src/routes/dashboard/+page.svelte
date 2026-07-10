@@ -6,11 +6,14 @@
   import type { Doc } from "../../../convex/_generated/dataModel";
   import Button from "$lib/components/ui/Button.svelte";
   import ProjectCard from "$lib/components/dashboard/ProjectCard.svelte";
+  import TagPicker from "$lib/components/project-new/TagPicker.svelte";
+  import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { slide } from "svelte/transition";
+  import { scienceCodeLabel } from "../../../shared/craScienceCodes";
 
   type Project = Doc<"projects">;
 
@@ -67,12 +70,35 @@
     { value: "final", label: "Final" },
   ];
 
+  const ADMIN_ROUTES = [
+    { href: "/admin/brain", label: "The Brain" },
+    { href: "/admin/tags", label: "Project tags" },
+    { href: "/admin/reviews", label: "Writer QA reviews" },
+    { href: "/admin/models", label: "Model preferences" },
+    { href: "/admin/usage", label: "AI usage & cost" },
+  ] as const;
+
   const auth = useAuth();
   const { signOut } = auth;
+  let signingOut = $state(false);
+  let manualSignOut = false;
+
+  async function handleSignOut() {
+    if (signingOut) return;
+    manualSignOut = true;
+    signingOut = true;
+    try {
+      await signOut();
+      window.location.href = "/login?manual=1";
+    } finally {
+      signingOut = false;
+    }
+  }
 
   const user = useQuery(api.users.getCurrentUser, () =>
     auth.isAuthenticated ? {} : "skip"
   );
+  const isAdmin = $derived(user.data?.role === "admin");
   const projectsQ = useQuery(api.projects.listProjects, () =>
     auth.isAuthenticated ? {} : "skip"
   );
@@ -80,7 +106,8 @@
     auth.isAuthenticated ? {} : "skip"
   );
 
-  let filter = $state<StatusFilter>("all");
+  // string (not StatusFilter) so it can bind:value into SelectInput.
+  let filter = $state<string>("all");
   let search = $state("");
   const expanded = new SvelteSet<string>();
 
@@ -95,8 +122,46 @@
   // string (not SortBy) so it can bind:value into SelectInput; SORTS gates values.
   let sortBy = $state<string>("client");
   let filterWriter = $state("all");
-  let filterInterviewer = $state("all");
+  // Interviewer has no dedicated filter — it's covered by the search box.
   let filterIndustry = $state("all");
+  let filterScienceCode = $state("all");
+
+  // BNH-35: tag chips + tag filtering (selecting a parent also matches children).
+  const tagsQ = useQuery(api.tags.listTags, () =>
+    auth.isAuthenticated ? {} : "skip"
+  );
+  const allTags = $derived(tagsQ.data ?? []);
+  const tagById = $derived(
+    new Map(allTags.map((tag) => [tag._id as string, tag]))
+  );
+  let selectedTags = $state<string[]>([]);
+  /** Selected tags expanded to include all descendants (nested-match rule). */
+  const selectedTagSet = $derived.by(() => {
+    const set = new Set(selectedTags);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const t of allTags) {
+        if (t.parentId && set.has(t.parentId as string) && !set.has(t._id as string)) {
+          set.add(t._id as string);
+          grew = true;
+        }
+      }
+    }
+    return set;
+  });
+  function projectTags(project: Project): Array<{ id: string; label: string }> {
+    const seen = new Set<string>();
+    const resolved: Array<{ id: string; label: string }> = [];
+    for (const rawId of project.tagIds ?? []) {
+      const id = rawId as string;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const tag = tagById.get(id);
+      if (tag) resolved.push({ id, label: tag.name });
+    }
+    return resolved;
+  }
 
   const lastViewedQ = useQuery(api.reportViews.getLastViewedMap, () =>
     auth.isAuthenticated ? {} : "skip"
@@ -114,8 +179,8 @@
       const v = JSON.parse(raw);
       if (SORTS.some((s) => s.value === v.sortBy)) sortBy = v.sortBy;
       if (typeof v.filterWriter === "string") filterWriter = v.filterWriter;
-      if (typeof v.filterInterviewer === "string") filterInterviewer = v.filterInterviewer;
       if (typeof v.filterIndustry === "string") filterIndustry = v.filterIndustry;
+      if (typeof v.filterScienceCode === "string") filterScienceCode = v.filterScienceCode;
     } catch {
       /* stale prefs are disposable */
     }
@@ -123,7 +188,7 @@
   $effect(() => {
     sessionStorage.setItem(
       VIEW_PREFS_KEY,
-      JSON.stringify({ sortBy, filterWriter, filterInterviewer, filterIndustry })
+      JSON.stringify({ sortBy, filterWriter, filterIndustry, filterScienceCode })
     );
   });
 
@@ -144,7 +209,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goto(manualSignOut ? "/login?manual=1" : "/login", { replaceState: true });
     }
   });
 
@@ -170,23 +235,31 @@
         !q ||
         p.title.toLowerCase().includes(q) ||
         p.clientName.toLowerCase().includes(q) ||
-        (p.writer ?? "").toLowerCase().includes(q)
+        (p.writer ?? "").toLowerCase().includes(q) ||
+        (p.interviewer ?? "").toLowerCase().includes(q) ||
+        (p.scienceCode ?? "").toLowerCase().includes(q) ||
+        scienceCodeLabel(p.scienceCode).toLowerCase().includes(q)
     )
   );
   // BNH-49: attribute filters apply after status + search.
   const writers = $derived(distinct((projects ?? []).map((p) => p.writer)));
-  const interviewers = $derived(distinct((projects ?? []).map((p) => p.interviewer)));
   const industries = $derived(distinct((projects ?? []).map((p) => p.industry)));
+  const scienceCodes = $derived(distinct((projects ?? []).map((p) => p.scienceCode)));
   const attrFiltered = $derived(
     searched.filter(
       (p) =>
         (filterWriter === "all" || (p.writer ?? "") === filterWriter) &&
-        (filterInterviewer === "all" || (p.interviewer ?? "") === filterInterviewer) &&
-        (filterIndustry === "all" || (p.industry ?? "") === filterIndustry)
+        (filterIndustry === "all" || (p.industry ?? "") === filterIndustry) &&
+        (filterScienceCode === "all" || (p.scienceCode ?? "") === filterScienceCode) &&
+        (selectedTags.length === 0 ||
+          (p.tagIds ?? []).some((id) => selectedTagSet.has(id as string)))
     )
   );
   const attrFiltersActive = $derived(
-    filterWriter !== "all" || filterInterviewer !== "all" || filterIndustry !== "all"
+    filterWriter !== "all" ||
+      filterIndustry !== "all" ||
+      filterScienceCode !== "all" ||
+      selectedTags.length > 0
   );
 
   const groups = $derived(groupByCompanyAndYear(attrFiltered));
@@ -202,6 +275,17 @@
   });
   // Default collapsed; searching forces everything open so matches are visible.
   const isOpen = (key: string) => q.length > 0 || expanded.has(key);
+
+  // Status dropdown options, counts baked into the labels.
+  const statusItems = $derived(
+    FILTERS.filter((f) => f.value === "all" || (counts?.[f.value] ?? 0) > 0).map((f) => ({
+      value: f.value,
+      label:
+        f.value === "all"
+          ? `All statuses (${projects?.length ?? 0})`
+          : `${f.label} (${counts?.[f.value] ?? 0})`,
+    }))
+  );
 </script>
 
 {#if auth.isLoading || !auth.isAuthenticated}
@@ -227,16 +311,37 @@
           {user.data?.name ?? user.data?.email}
         </span>
         <button
-          onclick={() => signOut()}
-          class="text-sm text-white/40 transition-colors hover:text-white/70"
+          onclick={handleSignOut}
+          disabled={signingOut}
+          class="text-sm text-white/40 transition-colors hover:text-white/70 disabled:opacity-50"
         >
-          Sign out
+          {signingOut ? "Signing out…" : "Sign out"}
         </button>
       {/snippet}
     </AppNav>
 
+    <!-- Admin toolbar — dashboard only; other pages keep their plain PageBar -->
+    {#if isAdmin}
+      <div class="border-b border-line-soft bg-white">
+        <nav
+          aria-label="Admin"
+          class="mx-auto flex w-full max-w-[var(--container-shell)] items-center justify-center gap-1 px-6 py-1.5"
+        >
+          <span class="text-label mr-2">Admin</span>
+          {#each ADMIN_ROUTES as route (route.href)}
+            <a
+              href={route.href}
+              class="rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-primary-wash hover:text-navy"
+            >
+              {route.label}
+            </a>
+          {/each}
+        </nav>
+      </div>
+    {/if}
+
     <!-- Content -->
-    <main class="mx-auto w-full max-w-7xl flex-1 px-6 pt-12 pb-8">
+    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 px-6 pt-12 pb-8">
       <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 class="text-display">Projects</h2>
@@ -261,7 +366,7 @@
         </div>
       </div>
 
-      <!-- Search -->
+      <!-- Search + all filters/sort on one compact toolbar row -->
       {#if projects && projects.length > 0}
         <div class="relative mt-4">
           <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -269,73 +374,60 @@
           </svg>
           <input
             bind:value={search}
-            placeholder="Search by company, project, or writer…"
-            class="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+            placeholder="Search company, project, writer, or interviewer…"
+            class="w-full rounded-md border border-gray-200 bg-white py-1.5 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
           />
         </div>
-      {/if}
 
-      <!-- Filters -->
-      {#if projects && projects.length > 0}
-        <div class="mt-3 flex items-center gap-1">
-          {#each FILTERS as f (f.value)}
-            {@const count = f.value === "all" ? projects.length : (counts?.[f.value] ?? 0)}
-            {#if f.value === "all" || count > 0}
+        <!-- Filter row: status + tags left, sort/attribute selects right -->
+        <div class="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <SelectInput size="sm" bind:value={filter} items={statusItems} class="w-36" placeholder="Status" />
+
+          <!-- BNH-35: same removable-bubble tag picker as project creation -->
+          {#if allTags.length > 0}
+            <TagPicker {allTags} bind:selectedTagIds={selectedTags} size="sm" />
+          {/if}
+
+          <div class="ml-auto flex flex-wrap items-center gap-2">
+            {#if attrFiltersActive}
               <button
-                onclick={() => (filter = f.value)}
-                class={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  filter === f.value
-                    ? "bg-navy text-white"
-                    : "text-gray-500 hover:bg-primary-wash hover:text-navy"
-                }`}
+                onclick={() => {
+                  filterWriter = "all";
+                  filterIndustry = "all";
+                  filterScienceCode = "all";
+                  selectedTags = [];
+                }}
+                class="text-xs text-primary hover:underline"
               >
-                {f.label}
-                {#if count > 0}
-                  <span class={`ml-1.5 ${filter === f.value ? "text-primary-light" : "text-gray-400"}`}>
-                    {count}
-                  </span>
-                {/if}
+                Clear filters
               </button>
             {/if}
-          {/each}
-        </div>
-
-        <!-- BNH-49: sort + attribute filters (session-preserved) -->
-        <div class="mt-3 flex flex-wrap items-center gap-2">
-          <label class="flex items-center gap-1.5 text-xs text-gray-400">
-            Sort
-            <SelectInput size="sm" bind:value={sortBy} items={SORTS} class="w-44" />
-          </label>
-          {#if writers.length > 1}
             <label class="flex items-center gap-1.5 text-xs text-gray-400">
-              Writer
-              <SelectInput size="sm" bind:value={filterWriter} items={withAll(writers)} class="w-40" />
+              Sort
+              <SelectInput size="sm" bind:value={sortBy} items={SORTS} class="w-40" />
             </label>
-          {/if}
-          {#if interviewers.length > 0}
-            <label class="flex items-center gap-1.5 text-xs text-gray-400">
-              Interviewer
-              <SelectInput size="sm" bind:value={filterInterviewer} items={withAll(interviewers)} class="w-40" />
-            </label>
-          {/if}
-          {#if industries.length > 0}
+            {#if writers.length > 1}
+              <label class="flex items-center gap-1.5 text-xs text-gray-400">
+                Writer
+                <SelectInput size="sm" bind:value={filterWriter} items={withAll(writers)} class="w-36" />
+              </label>
+            {/if}
             <label class="flex items-center gap-1.5 text-xs text-gray-400">
               Industry
-              <SelectInput size="sm" bind:value={filterIndustry} items={withAll(industries)} class="w-40" />
+              <IndustrySelect variant="filter" size="sm" bind:value={filterIndustry} class="w-44" />
             </label>
-          {/if}
-          {#if attrFiltersActive}
-            <button
-              onclick={() => {
-                filterWriter = "all";
-                filterInterviewer = "all";
-                filterIndustry = "all";
-              }}
-              class="text-xs text-primary hover:underline"
-            >
-              Clear filters
-            </button>
-          {/if}
+            {#if scienceCodes.length > 0}
+              <label class="flex items-center gap-1.5 text-xs text-gray-400">
+                Science
+                <SelectInput
+                  size="sm"
+                  bind:value={filterScienceCode}
+                  items={[{ value: "all", label: "All" }, ...scienceCodes.map((c) => ({ value: c, label: scienceCodeLabel(c) }))]}
+                  class="w-44"
+                />
+              </label>
+            {/if}
+          </div>
         </div>
       {/if}
 
@@ -357,8 +449,9 @@
           <button
             onclick={() => {
               filterWriter = "all";
-              filterInterviewer = "all";
               filterIndustry = "all";
+              filterScienceCode = "all";
+              selectedTags = [];
             }}
             class="mt-2 text-xs text-primary hover:underline"
           >
@@ -389,7 +482,7 @@
         <!-- BNH-49: recency sorts render a flat, most-recent-first grid -->
         <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {#each flatSorted as project (project._id)}
-            <ProjectCard {project} />
+            <ProjectCard {project} tags={projectTags(project)} />
           {/each}
         </div>
       {:else}
@@ -433,7 +526,7 @@
                       {#if yearOpen}
                         <div class="grid gap-3 px-4 pb-4 pl-10 pt-1 sm:grid-cols-2 lg:grid-cols-3" transition:slide={{ duration: 300 }}>
                           {#each yg.projects as project (project._id)}
-                            <ProjectCard {project} />
+                            <ProjectCard {project} tags={projectTags(project)} />
                           {/each}
                         </div>
                       {/if}

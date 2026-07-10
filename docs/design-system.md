@@ -17,6 +17,7 @@ deep-fir app bar, and a single lagoon accent. Quiet everywhere, loud once.
 | `navy` (fir) | `#0A3A38` | App bar, brand emphasis, focus rings |
 | `primary` (lagoon) | `#0DACA5` | The accent: primary actions, links, active states |
 | `primary-dark` | `#0A8A84` | Action hover/pressed |
+| `primary-selected` | `#087A75` | Selected lagoon controls — supports white text |
 | `primary-light` | `#45CFC9` | Accent on dark surfaces only |
 | `primary-wash` | `#F1FAF9` | Interactive hover fill on light surfaces |
 | `gap-bg` / `gap-text` | `#FEF3C7` / `#92400E` | Report [GAP:] highlights only |

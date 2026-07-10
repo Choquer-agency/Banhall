@@ -15,7 +15,7 @@
   let {
     breadcrumbs = [],
     actions,
-    width = "max-w-7xl",
+    width = "max-w-[var(--container-shell)]",
     home = "label",
   }: {
     /** Trail after the root. Last item renders as the current-page pill. */

@@ -38,7 +38,7 @@
     <AppNav breadcrumbs={[{ label: "Writer QA reviews" }]} />
     <PageBar backHref="/dashboard" backLabel="Back" />
 
-    <main class="mx-auto w-full max-w-4xl px-6 pt-12 pb-10">
+    <main class="mx-auto w-full max-w-[var(--container-shell)] px-6 pt-12 pb-10">
       <h1 class="text-display">Writer QA reviews</h1>
       <p class="mt-1 text-sm text-gray-500">
         Human quality scores writers gave generated reports, alongside the AI QA

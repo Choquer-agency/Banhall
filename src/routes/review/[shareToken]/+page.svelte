@@ -2,12 +2,13 @@
   import { page } from "$app/state";
   import { useQuery, useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
-  import type { Doc } from "../../../../convex/_generated/dataModel";
+  import type { Id } from "../../../../convex/_generated/dataModel";
   import NameGate from "$lib/components/review/NameGate.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import ReadOnlyEditor from "$lib/components/review/ReadOnlyEditor.svelte";
   import MarginComments from "$lib/components/comments/MarginComments.svelte";
   import type { CommentRange } from "$lib/components/editor/types";
+  type CommenterSummary = { _id: Id<"commenters">; name: string; color: string };
 
   // Public page — no auth; access is via the share token.
   const shareToken = $derived(page.params.shareToken ?? "");
@@ -19,15 +20,17 @@
     projectQ.data ? { projectId: projectQ.data._id, shareToken } : "skip"
   );
   const commentsQ = useQuery(api.comments.listComments, () =>
-    projectQ.data ? { projectId: projectQ.data._id, shareToken } : "skip"
+    projectQ.data && reportQ.data
+      ? { projectId: projectQ.data._id, reportId: reportQ.data._id, shareToken }
+      : "skip"
   );
 
   const getOrCreateCommenter = useMutation(api.comments.getOrCreateCommenter);
-  const logView = useMutation(api.reportViews.logView);
+  const logView = useMutation(api.reportViews.logClientView);
 
   let editorComponent: ReadOnlyEditor | null = $state(null);
   let scrollEl: HTMLDivElement | null = $state(null);
-  let commenter = $state<Doc<"commenters"> | null>(null);
+  let commenter = $state<CommenterSummary | null>(null);
   let pendingHighlight = $state<{ from: number; to: number; text: string } | null>(null);
   let activeCommentId = $state<string | null>(null);
   let hoveredCommentId = $state<string | null>(null);
@@ -44,8 +47,8 @@
       commenter = result;
       logView({
         projectId: project._id,
+        shareToken,
         viewerName: name,
-        viewerType: "client",
       }).catch(() => {});
     }
   }

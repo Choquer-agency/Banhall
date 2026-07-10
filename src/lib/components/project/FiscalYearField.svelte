@@ -2,6 +2,7 @@
   import { useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
+  import DatePicker from "$lib/components/ui/DatePicker.svelte";
 
   function toDateInput(ts: number | null): string {
     if (!ts) return "";
@@ -41,11 +42,9 @@
 
 {#if editing}
   <div class="mt-1 flex flex-wrap items-center gap-1.5">
-    <input
-      type="date"
-      bind:value
-      class="rounded-md border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
-    />
+    <div class="w-44">
+      <DatePicker bind:value size="sm" placeholder="Fiscal year-end" />
+    </div>
     <button
       onclick={save}
       disabled={saving}

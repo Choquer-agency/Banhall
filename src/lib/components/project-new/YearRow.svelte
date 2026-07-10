@@ -45,7 +45,7 @@
         type="number"
         value={year}
         oninput={(e) => onUpdateYear(parseInt(e.currentTarget.value, 10) || year)}
-        class="w-[5.5rem] rounded-md border border-gray-200 bg-white px-2 py-1 text-sm font-semibold text-navy focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+        class="w-[5.5rem] rounded-md border border-gray-200 bg-white px-2 py-1 text-sm font-medium text-navy focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
       />
     </label>
     <div class="flex items-center gap-2">

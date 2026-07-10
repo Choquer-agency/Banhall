@@ -1,10 +1,12 @@
 <script lang="ts">
   import { DropdownMenu } from "bits-ui";
+  import { toast } from "svelte-sonner";
   import Badge from "$lib/components/ui/Badge.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import type { Doc } from "../../../../convex/_generated/dataModel";
   import { useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
+  import { scienceCodeLabel } from "../../../../shared/craScienceCodes";
 
   const STATUS_LINE_COLORS: Record<string, string> = {
     draft: "bg-gray-200",
@@ -14,7 +16,16 @@
     final: "bg-primary",
   };
 
-  let { project }: { project: Doc<"projects"> } = $props();
+  type ProjectTag = { id: string; label: string };
+
+  // Tag IDs remain the chip identity because display labels are not unique.
+  let {
+    project,
+    tags = [],
+  }: {
+    project: Doc<"projects">;
+    tags?: ProjectTag[];
+  } = $props();
 
   let menuOpen = $state(false);
   let confirming = $state(false);
@@ -42,7 +53,12 @@
       confirming = true;
       return;
     }
-    await deleteProject({ projectId: project._id });
+    try {
+      await deleteProject({ projectId: project._id });
+      toast.success(`Deleted “${project.title}”.`);
+    } catch {
+      toast.error("Couldn't delete this project — only its creator or an admin can.");
+    }
     menuOpen = false;
     confirming = false;
   }
@@ -67,6 +83,23 @@
       </div>
       <Badge status={project.status} />
     </div>
+
+    {#if tags.length}
+      <div class="mt-2.5 flex flex-wrap gap-1 pl-2">
+        {#each tags as tag (tag.id)}
+          <span class="rounded-full bg-chrome px-2 py-0.5 text-xs text-gray-500">
+            {tag.label}
+          </span>
+        {/each}
+      </div>
+    {/if}
+    {#if project.scienceCode}
+      <div class="mt-2 pl-2">
+        <span class="inline-flex max-w-full rounded-full bg-primary-wash px-2 py-0.5 text-xs text-primary-dark">
+          <span class="truncate">{scienceCodeLabel(project.scienceCode)}</span>
+        </span>
+      </div>
+    {/if}
 
     <div class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 pl-2 text-xs text-gray-400">
       {#if project.writer}

@@ -3,11 +3,12 @@
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import Anthropic from "@anthropic-ai/sdk";
+import { instrumentedAnthropic } from "./instrument";
 import { PD_REVIEW_SYSTEM_PROMPT } from "./prompts";
 import { generateStructured } from "./structured";
 import { MODEL } from "./model";
 import type { ContextDoc } from "./analyzerAgent";
+import { normalizeProviderError } from "./providers";
 
 /** BNH-39: structured feedback report for an externally written PD. */
 export interface PdReviewResult {
@@ -93,7 +94,12 @@ export const runPdReview = internalAction({
         );
       }
 
-      const anthropic = new Anthropic();
+      const anthropic = instrumentedAnthropic(ctx, {
+        callSite: "pd_review",
+        capability: "review",
+        projectId: args.projectId,
+        ...(input.createdBy ? { userId: input.createdBy } : {}),
+      });
       const result = await generateStructured<PdReviewResult>(anthropic, {
         system: PD_REVIEW_SYSTEM_PROMPT,
         user: parts.join("\n\n"),
@@ -108,10 +114,11 @@ export const runPdReview = internalAction({
         result: JSON.stringify(result),
         model: MODEL,
       });
-    } catch (e) {
+    } catch (error) {
+      const normalized = normalizeProviderError(error);
       await ctx.runMutation(internal.pdReviews.failPdReview, {
         reviewId: args.reviewId,
-        error: e instanceof Error ? e.message : "Unknown error",
+        error: `${normalized.code}: ${normalized.message}`,
       });
     }
   },

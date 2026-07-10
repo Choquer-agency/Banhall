@@ -4,14 +4,13 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  // Keep the Next.js-era URL — muscle memory and any hardcoded localhost:3000
-  // references keep working.
-  server: { port: 3000 },
-  preview: { port: 3000 },
+  // Canonical local app URL — use this for development and production previews.
+  server: { port: 3001 },
+  preview: { port: 3001 },
   ssr: {
-    // These import SvelteKit virtual modules ($env/*) — Vite must bundle them
-    // for SSR instead of leaving them as node externals.
-    noExternal: ["@mmailaender/convex-auth-svelte"],
+    // Bundle packages that Node cannot load directly during SSR: the auth
+    // adapter imports SvelteKit virtual modules; Sonner exports .svelte files.
+    noExternal: ["@mmailaender/convex-auth-svelte", "svelte-sonner"],
   },
   plugins: [
     tailwindcss(),

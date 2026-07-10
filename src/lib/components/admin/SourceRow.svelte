@@ -3,6 +3,7 @@
   import { useQuery, useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
+  import { scienceCodeLabel } from "../../../../shared/craScienceCodes";
   import Spinner from "$lib/components/ui/Spinner.svelte";
 
   const KIND_LABEL: Record<string, string> = {
@@ -27,6 +28,7 @@
     writerTier: number;
     docType: string;
     craOutcome: string | null;
+    scienceCode: string | null;
     hasEntry: boolean;
     createdAt: number;
   };
@@ -76,7 +78,7 @@
     <div class="min-w-0 flex-1">
       <p class="truncate text-sm font-medium text-gray-800">{row.title}</p>
       <p class="text-xs text-gray-400">
-        {KIND_LABEL[row.kind] ?? row.kind} · {row.industry}{row.writerName ? ` · ${row.writerName}` : ""} · tier {row.writerTier} ({tierLabel(row.writerTier)}){row.craOutcome ? ` · CRA ${row.craOutcome}` : ""}
+        {KIND_LABEL[row.kind] ?? row.kind} · {row.industry}{row.scienceCode ? ` · ${scienceCodeLabel(row.scienceCode)}` : ""}{row.writerName ? ` · ${row.writerName}` : ""} · tier {row.writerTier} ({tierLabel(row.writerTier)}){row.craOutcome ? ` · CRA ${row.craOutcome}` : ""}
       </p>
     </div>
     {#if row.status === "approved"}

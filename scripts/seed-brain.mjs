@@ -20,6 +20,7 @@
  *     "kind": "pd_pair",         default "pd_pair"
  *     "writerName": "...",       optional
  *     "fiscalYear": 2025,        optional
+ *     "scienceCode": "2.02.09", optional — validated against CRA Appendix 1
  *     "craOutcome": "approved",  optional
  *     "approve": true            default true (curated gold → straight into the Brain)
  *   }
@@ -75,6 +76,7 @@ for (const [i, e] of entries.entries()) {
     docType: e.docType ?? "pd",
     fiscalYear: e.fiscalYear,
     craOutcome: e.craOutcome,
+    scienceCode: e.scienceCode,
     content: e.content,
     approve: forcePending ? false : e.approve ?? true,
   };

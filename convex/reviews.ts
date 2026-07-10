@@ -1,7 +1,10 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { assertProjectOwner } from "./lib/auth";
+import {
+  getInternalProjectAccessOrNull,
+  requireInternalProjectAccess,
+  requireRole,
+} from "./lib/auth";
 
 /**
  * BNH-29: the signed-in writer's own QA review for a specific report version.
@@ -10,12 +13,14 @@ import { assertProjectOwner } from "./lib/auth";
 export const getMyWriterReview = query({
   args: { reportId: v.id("reports") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
+    const report = await ctx.db.get(args.reportId);
+    if (!report) return null;
+    const access = await getInternalProjectAccessOrNull(ctx, report.projectId);
+    if (!access) return null;
     const review = await ctx.db
       .query("writerReviews")
       .withIndex("by_user_report", (q) =>
-        q.eq("userId", userId).eq("reportId", args.reportId)
+        q.eq("userId", access.user._id).eq("reportId", args.reportId)
       )
       .first();
     if (!review) return null;
@@ -35,29 +40,21 @@ export const submitWriterReview = mutation({
     aiScore: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
     const report = await ctx.db.get(args.reportId);
     if (!report) throw new Error("Report not found");
 
-    const project = await assertProjectOwner(ctx, report.projectId);
-    if (!project) throw new Error("Not authorized");
+    const { user } = await requireInternalProjectAccess(ctx, report.projectId);
 
     const score = Math.max(0, Math.min(100, Math.round(args.score)));
     const comment = args.comment?.trim() || undefined;
     const now = Date.now();
 
-    const user = await ctx.db.get(userId);
-    const writerName =
-      (user && "name" in user ? user.name : undefined) ??
-      (user && "email" in user ? user.email : undefined) ??
-      undefined;
+    const writerName = user.name ?? user.email ?? undefined;
 
     const existing = await ctx.db
       .query("writerReviews")
       .withIndex("by_user_report", (q) =>
-        q.eq("userId", userId).eq("reportId", args.reportId)
+        q.eq("userId", user._id).eq("reportId", args.reportId)
       )
       .first();
 
@@ -76,7 +73,7 @@ export const submitWriterReview = mutation({
       projectId: report.projectId,
       reportId: args.reportId,
       reportVersion: report.version,
-      userId,
+      userId: user._id,
       writerName,
       score,
       comment,
@@ -94,8 +91,7 @@ export const submitWriterReview = mutation({
 export const listWriterReviews = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
+    await requireRole(ctx, ["admin"]);
 
     const reviews = await ctx.db.query("writerReviews").order("desc").take(200);
 

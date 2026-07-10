@@ -464,6 +464,7 @@
   {:else}
     <ProposedEditCard
       newText={p.newText}
+      targetText={p.targetText}
       replacements={p.replacements}
       state={p.state}
       onReplace={async () => {

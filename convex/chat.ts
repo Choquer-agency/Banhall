@@ -6,9 +6,14 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import { assertProjectOwner } from "./lib/auth";
-import { pruneSnapshots } from "./lib/snapshots";
-import { applyReplacements } from "./lib/reportEdits";
+import {
+  getInternalProjectAccessOrNull,
+  requireInternalProjectAccess,
+} from "./lib/auth";
+import { pruneSnapshots, snapshotAuditFields } from "./lib/snapshots";
+import { applyReplacements, type PMNode } from "./lib/reportEdits";
+import { domainError, sha256 } from "./lib/contracts";
+import { requireAnthropicConfigured } from "./lib/providerConfig";
 
 const highlightValidator = v.object({
   text: v.string(),
@@ -40,8 +45,7 @@ export const listThreads = query({
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
     if (!report) return [];
-    const project = await assertProjectOwner(ctx, report.projectId);
-    if (!project) return [];
+    if (!(await getInternalProjectAccessOrNull(ctx, report.projectId))) return [];
 
     return await ctx.db
       .query("chatThreads")
@@ -56,8 +60,7 @@ export const listMessages = query({
   handler: async (ctx, args) => {
     const thread = await ctx.db.get(args.threadId);
     if (!thread) return [];
-    const project = await assertProjectOwner(ctx, thread.projectId);
-    if (!project) return [];
+    if (!(await getInternalProjectAccessOrNull(ctx, thread.projectId))) return [];
 
     return await ctx.db
       .query("chatMessages")
@@ -68,14 +71,13 @@ export const listMessages = query({
 });
 
 /**
- * Project-wide chat log (all questions + answers across every thread) for
- * review and for growing the Brain. Owner-only, chronological.
+ * Project-wide chat log for review and for growing the Brain. Authenticated
+ * organization members only, chronological.
  */
 export const listProjectLog = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const project = await assertProjectOwner(ctx, args.projectId);
-    if (!project) return [];
+    if (!(await getInternalProjectAccessOrNull(ctx, args.projectId))) return [];
 
     const msgs = await ctx.db
       .query("chatMessages")
@@ -115,8 +117,7 @@ export const createThread = mutation({
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
     if (!report) throw new Error("Report not found");
-    const project = await assertProjectOwner(ctx, report.projectId);
-    if (!project) throw new Error("Not authorized");
+    await requireInternalProjectAccess(ctx, report.projectId);
 
     return await ctx.db.insert("chatThreads", {
       projectId: report.projectId,
@@ -138,8 +139,8 @@ export const sendMessage = mutation({
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
     if (!report) throw new Error("Report not found");
-    const project = await assertProjectOwner(ctx, report.projectId);
-    if (!project) throw new Error("Not authorized");
+    await requireInternalProjectAccess(ctx, report.projectId);
+    requireAnthropicConfigured("chat");
 
     if (!args.content.trim() && !args.highlight) {
       throw new Error("Message is empty");
@@ -149,7 +150,11 @@ export const sendMessage = mutation({
     let threadId = args.threadId;
     if (threadId) {
       const thread = await ctx.db.get(threadId);
-      if (!thread || thread.projectId !== report.projectId) {
+      if (
+        !thread ||
+        thread.projectId !== report.projectId ||
+        thread.reportId !== report._id
+      ) {
         throw new Error("Thread not found");
       }
     } else {
@@ -208,65 +213,71 @@ export const applyProposedEdit = mutation({
   args: { messageId: v.id("chatMessages") },
   handler: async (ctx, args) => {
     const message = await ctx.db.get(args.messageId);
-    if (!message) throw new Error("Message not found");
-    if (!message.proposedEdit) throw new Error("No proposed edit on this message");
+    if (!message) domainError("NOT_FOUND", "Message not found");
+    if (!message.proposedEdit) {
+      domainError("INVALID_INPUT", "No proposed edit on this message");
+    }
 
-    const project = await assertProjectOwner(ctx, message.projectId);
-    if (!project) throw new Error("Not authorized");
-
-    const report = await ctx.db
-      .query("reports")
-      .withIndex("by_projectId", (q) => q.eq("projectId", message.projectId))
-      .order("desc")
-      .first();
-    if (!report) throw new Error("Report not found");
+    await requireInternalProjectAccess(ctx, message.projectId);
+    const report = await ctx.db.get(message.reportId);
+    if (!report || report.projectId !== message.projectId) {
+      domainError("NOT_FOUND", "Report not found");
+    }
 
     const { targetText, newText, replacements } = message.proposedEdit;
-
-    // Build the find/replace pairs: an explicit multi-instance list (BNH-27) or
-    // the single passage replacement. Empty/invalid pairs are dropped.
     const pairs: { find: string; replaceWith: string }[] = (
       replacements && replacements.length
         ? replacements
         : targetText
           ? [{ find: targetText, replaceWith: newText ?? "" }]
           : []
-    ).filter((p) => p.find);
-
+    ).filter((pair) => pair.find);
     if (pairs.length === 0) {
-      throw new Error("This edit has nothing to replace.");
+      domainError("INVALID_INPUT", "This edit has nothing to replace.");
     }
 
-    // Apply every pair to every occurrence in the report JSON.
-    const doc = JSON.parse(report.content);
-    const { doc: updated, count } = applyReplacements(doc, pairs);
-
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(report.content);
+    } catch {
+      domainError("INVALID_INPUT", "The report content is not valid editor JSON");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      domainError("INVALID_INPUT", "The report content is not a valid editor document");
+    }
+    const { doc: updated, count } = applyReplacements(parsed as PMNode, pairs);
     if (count === 0) {
-      throw new Error(
+      domainError(
+        "STALE_REVISION",
         "Couldn't find the original passage in the report to replace — it may have already changed. Try asking again."
       );
     }
 
-    // Snapshot current state BEFORE editing so nothing is ever destroyed.
+    const content = JSON.stringify(updated);
+    const revisionNumber = report.revisionNumber ?? 0;
+    const now = Date.now();
+    const auditFields = await snapshotAuditFields(ctx, report);
     await ctx.db.insert("reportSnapshots", {
-      projectId: message.projectId,
+      projectId: report.projectId,
       reportId: report._id,
       content: report.content,
+      ...auditFields,
+      sourceRevisionNumber: revisionNumber,
       reason: "pre_chat_edit",
       label: "Before AI edit",
       createdByRole: "system",
-      createdAt: Date.now(),
+      createdAt: now,
     });
-
     await ctx.db.patch(report._id, {
-      content: JSON.stringify(updated),
-      updatedAt: Date.now(),
+      content,
+      contentHash: await sha256(content),
+      revisionNumber: revisionNumber + 1,
+      provenanceId: undefined,
+      updatedAt: now,
     });
-
     await ctx.db.patch(args.messageId, {
       proposedEdit: { ...message.proposedEdit, state: "applied" },
     });
-
     await pruneSnapshots(ctx, report._id);
 
     return { applied: true, count };
@@ -284,8 +295,7 @@ export const markProposedEditApplied = mutation({
     const message = await ctx.db.get(args.messageId);
     if (!message) throw new Error("Message not found");
     if (!message.proposedEdit) return;
-    const project = await assertProjectOwner(ctx, message.projectId);
-    if (!project) throw new Error("Not authorized");
+    await requireInternalProjectAccess(ctx, message.projectId);
     await ctx.db.patch(args.messageId, {
       proposedEdit: { ...message.proposedEdit, state: "applied" },
     });
@@ -299,8 +309,7 @@ export const rejectProposedEdit = mutation({
     if (!message) throw new Error("Message not found");
     if (!message.proposedEdit) throw new Error("No proposed edit on this message");
 
-    const project = await assertProjectOwner(ctx, message.projectId);
-    if (!project) throw new Error("Not authorized");
+    await requireInternalProjectAccess(ctx, message.projectId);
 
     await ctx.db.patch(args.messageId, {
       proposedEdit: { ...message.proposedEdit, state: "rejected" },

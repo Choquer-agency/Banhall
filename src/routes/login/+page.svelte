@@ -1,5 +1,6 @@
 <script lang="ts">
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
+  import { page } from "$app/state";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import BuildStamp from "$lib/components/BuildStamp.svelte";
@@ -7,6 +8,7 @@
 
   const auth = useAuth();
   const { signIn } = auth;
+  const manualLogin = $derived(page.url.searchParams.get("manual") === "1");
 
   let mode = $state<"signIn" | "signUp">("signIn");
   let email = $state("");
@@ -24,7 +26,7 @@
       window.location.href = "/dashboard";
       return;
     }
-    if (autoLoginAttempted) return;
+    if (manualLogin || autoLoginAttempted) return;
     autoLoginAttempted = true;
 
     const demoEmail = "demo@banhall.ca";
@@ -82,7 +84,7 @@
   }
 </script>
 
-{#if auth.isLoading || (!auth.isAuthenticated && !autoLoginAttempted)}
+{#if auth.isLoading || (!auth.isAuthenticated && !manualLogin && !autoLoginAttempted)}
   <div class="flex flex-1 flex-col items-center justify-center bg-canvas">
     <Spinner />
     <p class="mt-3 text-sm text-gray-400">Signing you in...</p>

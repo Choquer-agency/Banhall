@@ -1,6 +1,7 @@
 <script lang="ts">
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
+  import { userErrorMessage } from "$lib/errors";
 
   let {
     projectTitle,
@@ -9,22 +10,26 @@
   }: {
     projectTitle: string;
     clientName: string;
-    onEnter: (name: string) => void;
+    onEnter: (name: string) => void | Promise<void>;
   } = $props();
 
   let name = $state("");
+  let pending = $state(false);
+  let error = $state("");
 
-  function handleSubmit(e: SubmitEvent) {
+  async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
-    if (name.trim()) {
-      onEnter(name.trim());
+    if (!name.trim() || pending) return;
+    pending = true;
+    error = "";
+    try {
+      await onEnter(name.trim());
+    } catch (submitError) {
+      error = userErrorMessage(submitError, "The review could not be opened. Try again.");
+    } finally {
+      pending = false;
     }
   }
-
-  // React's autoFocus: focus the name field on mount.
-  $effect(() => {
-    document.getElementById("name")?.focus();
-  });
 </script>
 
 <div class="flex flex-1 items-center justify-center px-4">
@@ -52,10 +57,13 @@
           label="Your name"
           bind:value={name}
           placeholder="Enter your name to continue"
+          error={error || undefined}
+          disabled={pending}
+          autofocus
           required
         />
-        <Button type="submit" disabled={!name.trim()}>
-          View Report
+        <Button type="submit" disabled={pending || !name.trim()}>
+          {pending ? "Opening..." : "View report"}
         </Button>
       </form>
 

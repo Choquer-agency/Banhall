@@ -17,6 +17,7 @@
   --color-primary: #0DACA5;       /* lagoon — actions, links, active */
   --color-primary-light: #45CFC9; /* lagoon on dark surfaces */
   --color-primary-dark: #0A8A84;  /* action hover / pressed */
+  --color-primary-selected: #087A75; /* selected lagoon control fill — white text AA */
   --color-primary-wash: #F1FAF9;  /* hover fill on light surfaces (subtle) */
 
   /* Report gap highlight (BNH editor) */
@@ -48,6 +49,10 @@
 
   --default-transition-duration: 300ms;
 
+  /* Shared app shell width: AppNav, PageBar, dashboard, project creation, and
+     non-maximized report workspaces use this same horizontal cap. */
+  --container-shell: 70rem; /* 1120px */
+
   /* Report column width — ONE knob for everywhere a report renders
      (workspace editor, candidate preview, version history). max-w-report. */
   --container-report: 67.5rem;
@@ -63,7 +68,7 @@
   /* Page titles — one per page */
   font-size: 1.75rem;
   line-height: 1.2;
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: -0.025em;
   color: var(--color-ink);
   text-wrap: balance;
@@ -73,7 +78,7 @@
   /* Card / section titles */
   font-size: 1.125rem;
   line-height: 1.35;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: -0.015em;
   color: var(--color-ink);
   text-wrap: balance;
@@ -90,7 +95,7 @@
   /* Eyebrows, column headers, form-line labels */
   font-size: 0.6875rem;
   line-height: 1.2;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--color-ink-muted);
@@ -524,10 +529,10 @@ select:focus {
   background-color: rgba(129, 140, 248, 0.2);
 }
 
-/* ─── Select dropdown motion (SelectInput / IndustryField, portal-rendered) ── */
+/* ─── Dropdown motion (SelectInput combobox, portal-rendered) ─────────────── */
 
 .select-pop {
-  transform-origin: var(--bits-select-content-transform-origin, top);
+  transform-origin: var(--bits-combobox-content-transform-origin, var(--bits-select-content-transform-origin, top));
   animation: select-pop-in 140ms ease-out;
 }
 @keyframes select-pop-in {
@@ -596,3 +601,57 @@ select:focus {
     }
   }
 
+
+/* ─── Toasts (svelte-sonner, mounted in +layout.svelte) ─────────────────────
+   One global notifier, top-right. State-colored: light state-tinted fill,
+   border + text in the state color, action button solid state color. */
+
+[data-sonner-toaster] {
+  --error-bg: #fef2f2;
+  --error-border: #dc2626;
+  --error-text: #b91c1c;
+  --success-bg: #f0fdf4;
+  --success-border: #16a34a;
+  --success-text: #15803d;
+  --warning-bg: #fffbeb;
+  --warning-border: #d97706;
+  --warning-text: #b45309;
+  --info-bg: var(--color-primary-wash);
+  --info-border: var(--color-primary);
+  --info-text: var(--color-primary-dark);
+  font-family: var(--font-sans);
+}
+
+[data-sonner-toast] {
+  border-radius: 0.75rem;
+}
+
+[data-sonner-toast] [data-button] {
+  border-radius: 0.375rem;
+  font-weight: 600;
+}
+
+/* Action buttons take the full state color with readable text on top. */
+[data-rich-colors="true"][data-sonner-toast][data-type="error"] [data-button] {
+  background: #dc2626;
+  color: #fff;
+}
+[data-rich-colors="true"][data-sonner-toast][data-type="success"] [data-button] {
+  background: #16a34a;
+  color: #fff;
+}
+[data-rich-colors="true"][data-sonner-toast][data-type="warning"] [data-button] {
+  background: #d97706;
+  color: #fff;
+}
+[data-rich-colors="true"][data-sonner-toast][data-type="info"] [data-button] {
+  background: var(--color-primary-dark);
+  color: #fff;
+}
+
+/* Close (dismiss) button inherits the toast's state colors. */
+[data-sonner-toast] [data-close-button] {
+  background: inherit;
+  color: inherit;
+  border-color: currentColor;
+}

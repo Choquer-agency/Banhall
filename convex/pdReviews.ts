@@ -3,28 +3,21 @@ import {
   mutation,
   internalQuery,
   internalMutation,
-  type MutationCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import type { Id } from "./_generated/dataModel";
-
+import {
+  getInternalProjectAccessOrNull,
+  requireInternalProjectAccess,
+} from "./lib/auth";
+import { domainError } from "./lib/contracts";
+import { requireAnthropicConfigured } from "./lib/providerConfig";
 /**
  * BNH-39: PD review mode. A review-mode project uploads an existing written PD
  * (stored in projectDocuments, source "review_pd"); these functions run the AI
  * review, expose the result, and keep the timestamped interaction log.
  */
 
-async function assertOwner(ctx: MutationCtx, projectId: Id<"projects">) {
-  const userId = await getAuthUserId(ctx);
-  if (!userId) throw new Error("Not authenticated");
-  const project = await ctx.db.get(projectId);
-  if (!project || project.createdBy !== userId) {
-    throw new Error("Not authorized");
-  }
-  return { userId, project };
-}
 
 /** Kick off an AI review of the uploaded PD. Returns immediately — the client
  *  watches the pdReviews row for progress. */
@@ -34,10 +27,16 @@ export const startPdReview = mutation({
     documentId: v.id("projectDocuments"),
   },
   handler: async (ctx, args) => {
-    const { userId } = await assertOwner(ctx, args.projectId);
+    const { user } = await requireInternalProjectAccess(ctx, args.projectId);
+    requireAnthropicConfigured("review");
     const doc = await ctx.db.get(args.documentId);
-    if (!doc || doc.projectId !== args.projectId) {
-      throw new Error("Document not found");
+    if (
+      !doc ||
+      doc.projectId !== args.projectId ||
+      doc.archived ||
+      !doc.content.trim()
+    ) {
+      domainError("INVALID_INPUT", "An active, non-empty project document is required");
     }
 
     const now = Date.now();
@@ -46,13 +45,13 @@ export const startPdReview = mutation({
       documentId: args.documentId,
       sourceFileName: doc.fileName,
       status: "running",
-      createdBy: userId,
+      createdBy: user._id,
       createdAt: now,
     });
     await ctx.db.insert("pdReviewEvents", {
       projectId: args.projectId,
       reviewId,
-      actor: userId,
+      actor: user._id,
       action: "review_started",
       detail: doc.fileName,
       at: now,
@@ -66,33 +65,95 @@ export const startPdReview = mutation({
   },
 });
 
+/** Re-run a failed review against the same uploaded PD (e.g. after a provider
+ *  outage or billing failure). Creates a fresh pdReviews row. */
+export const retryPdReview = mutation({
+  args: { reviewId: v.id("pdReviews") },
+  handler: async (ctx, args) => {
+    const failed = await ctx.db.get(args.reviewId);
+    if (!failed) domainError("NOT_FOUND", "Review not found");
+    const { user } = await requireInternalProjectAccess(ctx, failed.projectId);
+    requireAnthropicConfigured("review");
+    if (failed.status !== "failed") {
+      domainError("INVALID_INPUT", "Only a failed review can be retried");
+    }
+    const running = await ctx.db
+      .query("pdReviews")
+      .withIndex("by_projectId", (q) => q.eq("projectId", failed.projectId))
+      .order("desc")
+      .first();
+    if (running && running.status === "running") {
+      domainError("INVALID_INPUT", "A review is already running for this project");
+    }
+    const doc = await ctx.db.get(failed.documentId);
+    if (!doc || doc.archived || !doc.content.trim()) {
+      domainError("INVALID_INPUT", "The reviewed PD document is no longer available");
+    }
+
+    const now = Date.now();
+    const reviewId = await ctx.db.insert("pdReviews", {
+      projectId: failed.projectId,
+      documentId: failed.documentId,
+      sourceFileName: doc.fileName,
+      status: "running",
+      createdBy: user._id,
+      createdAt: now,
+    });
+    await ctx.db.insert("pdReviewEvents", {
+      projectId: failed.projectId,
+      reviewId,
+      actor: user._id,
+      action: "review_started",
+      detail: `Retry of failed review — ${doc.fileName}`,
+      at: now,
+    });
+    await ctx.scheduler.runAfter(0, internal.ai.reviewAgent.runPdReview, {
+      reviewId,
+      projectId: failed.projectId,
+    });
+    return reviewId;
+  },
+});
+
 export const getLatestPdReview = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.createdBy !== userId) return null;
-    return await ctx.db
+    if (!(await getInternalProjectAccessOrNull(ctx, args.projectId))) return null;
+    const review = await ctx.db
       .query("pdReviews")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .order("desc")
       .first();
+    if (!review) return null;
+    return {
+      _id: review._id,
+      projectId: review.projectId,
+      documentId: review.documentId,
+      sourceFileName: review.sourceFileName,
+      status: review.status,
+      result: review.result,
+      error: review.error,
+      createdAt: review.createdAt,
+      completedAt: review.completedAt,
+    };
   },
 });
 
 export const listPdReviewEvents = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
-    const project = await ctx.db.get(args.projectId);
-    if (!project || project.createdBy !== userId) return [];
-    return await ctx.db
+    if (!(await getInternalProjectAccessOrNull(ctx, args.projectId))) return [];
+    const events = await ctx.db
       .query("pdReviewEvents")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .order("desc")
       .take(50);
+    return events.map((event) => ({
+      _id: event._id,
+      action: event.action,
+      detail: event.detail,
+      at: event.at,
+    }));
   },
 });
 
@@ -108,13 +169,22 @@ export const logPdReviewEvent = mutation({
     detail: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { userId } = await assertOwner(ctx, args.projectId);
+    const { project, user } = await requireInternalProjectAccess(
+      ctx,
+      args.projectId
+    );
+    if (args.reviewId) {
+      const review = await ctx.db.get(args.reviewId);
+      if (!review || review.projectId !== project._id) {
+        domainError("NOT_AUTHORIZED", "Review does not belong to this project");
+      }
+    }
     await ctx.db.insert("pdReviewEvents", {
       projectId: args.projectId,
       reviewId: args.reviewId,
-      actor: userId,
+      actor: user._id,
       action: args.action,
-      detail: args.detail,
+      detail: args.detail?.slice(0, 1_000),
       at: Date.now(),
     });
   },
@@ -137,6 +207,8 @@ export const getReviewInput = internalQuery({
       .first();
     return {
       pdContent: doc?.content ?? "",
+      // Usage attribution: the user who started (or retried) this review.
+      createdBy: review.createdBy,
       fileName: review.sourceFileName,
       title: project?.title ?? "Untitled",
       clientName: project?.clientName ?? "",

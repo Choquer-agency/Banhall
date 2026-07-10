@@ -61,7 +61,9 @@
     <AppNav breadcrumbs={[{ label: "Model preferences" }]} />
     <PageBar backHref="/dashboard" backLabel="Back" />
 
-    <main class="mx-auto w-full max-w-3xl px-6 pt-12 pb-10">
+    <main class="mx-auto w-full max-w-[var(--container-shell)] px-6 pt-12 pb-10">
+      <!-- Two stat cards read best at a compact width inside the shared shell. -->
+      <div class="mx-auto w-full max-w-3xl">
       <h1 class="text-display">Model A/B preferences</h1>
       <p class="mt-1 text-sm text-gray-500">
         Which model writers keep when shown side-by-side candidate drafts.
@@ -76,8 +78,8 @@
       {:else}
         <!-- Recommendation banner -->
         <div class="mt-6 flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 px-5 py-4">
-          <span class="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary-dark">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <span class="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary-dark">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
           </span>
@@ -102,6 +104,7 @@
           </div>
         </div>
       {/if}
+      </div>
     </main>
   </div>
 {/if}

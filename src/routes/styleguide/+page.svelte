@@ -63,7 +63,7 @@
   <AppNav breadcrumbs={[{ label: "Styleguide" }]} />
   <PageBar backHref="/dashboard" backLabel="Back" />
 
-  <main class="mx-auto w-full max-w-5xl flex-1 px-6 pt-12 pb-10">
+  <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 px-6 pt-12 pb-10">
     <h1 class="text-display">Design system</h1>
     <p class="mt-1 max-w-xl text-body">
       “Ledger paper” — a pale-teal working surface with ruled lines, one deep-fir

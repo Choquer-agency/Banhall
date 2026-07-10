@@ -2,9 +2,9 @@
 //
 // The form's section fields are fixed-width: 78 characters per line, with
 // hard line caps per section. Calibrated against the client's own at-limit
-// example (Tracy/Acuity FY25 → 49/100/50 vs limits 50/100/50): lines are
-// counted with GREEDY WORD WRAP at 78 chars, and each paragraph break
-// (blank line between paragraphs) costs one full line.
+// example (Tracy/Acuity FY25 → 49/100/50 vs limits 50/100/50): each physical
+// line is wrapped greedily at 78 characters, and every explicit line break
+// (including repeated blank lines) consumes a form line.
 //
 // Shared by generation-time enforcement (convex/ai/*) and UI meters
 // (option cards, QA panel). Keep framework-free.
@@ -14,8 +14,8 @@ export const CHARS_PER_LINE = 78;
 /** Hard line caps per section (client email 2026-07; matches their example). */
 export const LINE_LIMITS = { s242: 50, s244: 100, s246: 50 } as const;
 
-/** Secondary hard word ceilings (ticket): never exceed even if lines pass. */
-export const WORD_CAPS = { s242: 500, s244: 1000, s246: 500 } as const;
+/** Current CRA T661 project-description word ceilings. */
+export const WORD_CAPS = { s242: 350, s244: 700, s246: 350 } as const;
 
 /**
  * Length preference (client email: parameterizable — shorter for quick
@@ -40,39 +40,51 @@ export type SectionMetrics = {
   overLimit: boolean;
 };
 
-/** Greedy word-wrap line count for one paragraph at the form's width. */
-function wrappedLineCount(paragraph: string, width = CHARS_PER_LINE): number {
-  const words = paragraph.trim().split(/\s+/).filter(Boolean);
+/** Greedy word-wrap line count for one non-empty physical line. */
+function wrappedLineCount(line: string, width = CHARS_PER_LINE): number {
+  const words = line.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return 0;
-  let lineLen = 0;
+
   let lines = 1;
-  for (const w of words) {
-    const need = lineLen === 0 ? w.length : lineLen + 1 + w.length;
-    if (need <= width) {
-      lineLen = need;
-    } else {
-      lines += 1;
-      lineLen = Math.min(w.length, width);
+  let lineLength = 0;
+  for (const word of words) {
+    if (lineLength > 0 && lineLength + 1 + word.length <= width) {
+      lineLength += 1 + word.length;
+      continue;
     }
+
+    if (lineLength > 0) {
+      lines += 1;
+      lineLength = 0;
+    }
+
+    // An unbroken token wider than the form still occupies every 78-character
+    // chunk; keep the final chunk available for the next word when it fits.
+    lines += Math.floor((word.length - 1) / width);
+    lineLength = ((word.length - 1) % width) + 1;
   }
   return lines;
 }
 
-/** Split section text into trimmed paragraphs (blank-line separated). */
+/** Split section text into normalized, non-empty paragraphs. */
 export function toParagraphs(text: string): string[] {
   return text
-    .split(/\n\s*\n+/)
-    .map((p) => p.replace(/\s+/g, " ").trim())
+    .replace(/\r\n?/g, "\n")
+    .split(/\n[^\S\n]*\n+/)
+    .map((paragraph) => paragraph.replace(/\s+/g, " ").trim())
     .filter(Boolean);
 }
 
 /** Form-accurate metrics for one section's text. */
 export function sectionMetrics(text: string, section: SectionKey): SectionMetrics {
-  const paras = toParagraphs(text);
-  const textLines = paras.reduce((n, p) => n + wrappedLineCount(p), 0);
-  const breaks = Math.max(0, paras.length - 1); // each blank line costs a line
-  const lines = textLines + breaks;
-  const words = paras.join(" ").split(/\s+/).filter(Boolean).length;
+  const normalized = text.replace(/\r\n?/g, "\n");
+  const paras = toParagraphs(normalized);
+  const physicalLines = normalized === "" ? [] : normalized.split("\n");
+  const lines = physicalLines.reduce(
+    (total, line) => total + (line.trim() ? wrappedLineCount(line) : 1),
+    0
+  );
+  const words = normalized.split(/\s+/).filter(Boolean).length;
   const limit = LINE_LIMITS[section];
   const wordCap = WORD_CAPS[section];
   return {

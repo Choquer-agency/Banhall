@@ -1,7 +1,7 @@
 <script lang="ts">
   import { useQuery, useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
-  import type { Doc, Id } from "../../../../convex/_generated/dataModel";
+  import type { Id } from "../../../../convex/_generated/dataModel";
   import CommentInput from "./CommentInput.svelte";
   import type { EditorHandle } from "$lib/components/editor/types";
 
@@ -35,11 +35,12 @@
     shareToken?: string;
   } = $props();
 
-  const commentsQ = useQuery(api.comments.listComments, () => ({ projectId, shareToken }));
+  const commentsQ = useQuery(api.comments.listComments, () => ({ projectId, reportId, shareToken }));
   const commentersQ = useQuery(api.comments.listCommenters, () => ({ projectId, shareToken }));
   const addComment = useMutation(api.comments.addComment);
   const resolveComment = useMutation(api.comments.resolveComment);
   const acceptEdit = useMutation(api.comments.acceptEdit);
+  type Commenter = NonNullable<typeof commentersQ.data>[number];
 
   let positions = $state(new Map<string, number>());
   let pendingY = $state<number | null>(null);
@@ -58,7 +59,7 @@
   }
 
   const commenterMap = $derived.by(() => {
-    const map = new Map<string, Doc<"commenters">>();
+    const map = new Map<string, Commenter>();
     commentersQ.data?.forEach((c) => map.set(c._id, c));
     return map;
   });
@@ -126,7 +127,6 @@
       projectId,
       reportId,
       commenterId,
-      commenterType,
       highlightFrom: pendingHighlight.from,
       highlightTo: pendingHighlight.to,
       highlightText: pendingHighlight.text,
@@ -248,22 +248,12 @@
       {@const name = commenter?.name ?? "Unknown"}
       {@const isActive = activeCommentId === comment._id}
       {@const isHovered = hoveredCommentId === comment._id}
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         use:registerCard={comment._id}
-        class={`absolute right-0 w-64 cursor-pointer transition-all duration-300 ${
+        class={`absolute right-0 w-64 transition-all duration-300 ${
           isActive || isHovered ? "z-10" : "z-0"
         }`}
         style={`top: ${y}px`}
-        onclick={() => {
-          onActiveCommentChange(comment._id);
-          editorHandle?.scrollToPosition(
-            comment.highlightFrom,
-            comment.highlightTo,
-            comment.highlightText
-          );
-        }}
       >
         <div
           class={`rounded-lg border p-3 transition-all ${
@@ -280,6 +270,20 @@
                   : "border-gray-200 bg-white shadow-sm hover:border-gray-300 hover:shadow"
           }`}
         >
+          <button
+            type="button"
+            class="w-full rounded text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+            aria-pressed={isActive}
+            aria-label={`Locate comment from ${name}`}
+            onclick={() => {
+              onActiveCommentChange(comment._id);
+              editorHandle?.scrollToPosition(
+                comment.highlightFrom,
+                comment.highlightTo,
+                comment.highlightText
+              );
+            }}
+          >
           <!-- Quoted text -->
           <p class="text-xs leading-relaxed text-gray-400 line-clamp-1">
             &ldquo;{comment.highlightText}&rdquo;
@@ -306,6 +310,7 @@
           <p class="mt-1 text-sm leading-relaxed text-gray-800">
             {comment.body}
           </p>
+          </button>
 
           <!-- Suggested edit -->
           {#if comment.suggestedEdit}
@@ -315,6 +320,7 @@
               {#if commenterType === "writer"}
                 <div class="mt-1 flex items-center gap-2">
                   <button
+                    type="button"
                     onclick={(e) => {
                       e.stopPropagation();
                       acceptEdit({ commentId: comment._id });
@@ -324,9 +330,10 @@
                     Accept
                   </button>
                   <button
+                    type="button"
                     onclick={(e) => {
                       e.stopPropagation();
-                      resolveComment({ commentId: comment._id, shareToken });
+                      resolveComment({ commentId: comment._id });
                     }}
                     class="text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
                   >
@@ -340,9 +347,10 @@
           <!-- Actions -->
           {#if commenterType === "writer" && !comment.suggestedEdit}
             <button
+              type="button"
               onclick={(e) => {
                 e.stopPropagation();
-                resolveComment({ commentId: comment._id, shareToken });
+                resolveComment({ commentId: comment._id });
               }}
               class="mt-1.5 text-xs text-gray-400 hover:text-green-600 transition-colors"
             >

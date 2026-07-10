@@ -77,7 +77,7 @@
 
   const auth = useAuth();
   const createProject = useMutation(api.projects.createProject);
-  const generateReport = useMutation(api.projects.scheduleGenerateReport);
+  const generateReport = useMutation(api.generations.requestGeneration);
 
   let step = $state(0);
   let title = $state("");
@@ -144,7 +144,10 @@
     <AppNav breadcrumbs={[{ label: "Self-serve questionnaire" }]} />
     <PageBar backHref="/dashboard" backLabel="Back" />
 
-    <main class="mx-auto w-full max-w-2xl flex-1 px-6 pt-12 pb-8">
+    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 px-6 pt-12 pb-8">
+      <!-- Focused one-question-at-a-time flow keeps a reading-width column
+           inside the shared shell. -->
+      <div class="mx-auto w-full max-w-2xl">
       <!-- Progress bar -->
       <div class="mb-8">
         <div class="flex items-center justify-between mb-2">
@@ -284,6 +287,7 @@
           </div>
         </form>
       {/if}
+      </div>
     </main>
   </div>
 {/if}

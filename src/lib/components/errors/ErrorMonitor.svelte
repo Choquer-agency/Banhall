@@ -1,8 +1,10 @@
 <script lang="ts">
   import { page } from "$app/state";
+  import { toast as sonner } from "svelte-sonner";
   import { useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import { pushBreadcrumb, getBreadcrumbs } from "./breadcrumbs";
+  import { overlayFade, modalPop } from "$lib/motion";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { APP_ERROR_EVENT, type AppErrorDetail } from "./PageErrorBoundary.svelte";
 
@@ -38,9 +40,9 @@
 
   /**
    * App-wide error monitor. Two paths into the same report flow:
-   *  1. AUTO — a thrown error / unhandled rejection / console.error pops a red
-   *     banner above everything with a "Send error" button.
-   *  2. MANUAL — a floating "Flag issue" button (bottom-right) for silent issues
+   *  1. AUTO — a thrown error / unhandled rejection / console.error pops a
+   *     global error toast (top-right sonner) with a "Send error" action.
+   *  2. MANUAL — a floating "Flag issue" button (bottom-left) for silent issues
    *     with no error message; captures the recent breadcrumb trail anyway.
    * Either way we ship the full context (message, stack, page, breadcrumbs, UA)
    * plus whatever note the user types, to the errorReports table.
@@ -48,13 +50,24 @@
   const reportError = useMutation(api.errorReports.reportError);
 
   let detected = $state<DetectedError | null>(null);
-  let bannerDismissed = $state(false);
   let modalMode = $state<ModalMode | null>(null);
   let flagType = $state<"bug" | "feature">("bug"); // BNH-38
   let note = $state("");
   let sending = $state(false);
-  let toast = $state<string | null>(null);
   let noteEl: HTMLTextAreaElement | null = $state(null);
+
+  // AUTO path: one deduped global toast (fixed id) with a "Send error" action.
+  const ERROR_TOAST_ID = "app-error";
+  function notifyError() {
+    sonner.error("We noticed an error.", {
+      id: ERROR_TOAST_ID,
+      duration: 10000,
+      action: {
+        label: "Send error",
+        onClick: () => (modalMode = "auto"),
+      },
+    });
+  }
 
   // ── Breadcrumb: route changes ────────────────────────────────────────────
   $effect(() => {
@@ -76,7 +89,7 @@
         : undefined;
       pushBreadcrumb({ type: "error", label: message, detail: source });
       detected = { message, stack: e.error?.stack, source };
-      bannerDismissed = false;
+      notifyError();
     };
 
     const onRejection = (e: PromiseRejectionEvent) => {
@@ -86,7 +99,7 @@
         (typeof reason === "string" ? reason : "Unhandled promise rejection");
       pushBreadcrumb({ type: "error", label: message });
       detected = { message, stack: reason?.stack };
-      bannerDismissed = false;
+      notifyError();
     };
 
     window.addEventListener("error", onError);
@@ -101,14 +114,14 @@
       pushBreadcrumb({ type: "console", label: message });
       if (!first.startsWith("Warning:") && message.trim()) {
         detected = detected ?? { message };
-        bannerDismissed = false;
+        notifyError();
       }
     };
 
     // Wrap fetch → record non-OK responses and network failures.
     // Bind to window so calling it bare doesn't trip "Illegal invocation".
     const origFetch = window.fetch.bind(window);
-    window.fetch = async (...args: Parameters<typeof fetch>) => {
+    window.fetch = (async (...args: Parameters<typeof fetch>) => {
       try {
         const res = await origFetch(...args);
         if (!res.ok) {
@@ -127,7 +140,7 @@
         });
         throw err;
       }
-    };
+    }) as typeof window.fetch;
 
     // Render-time crashes, relayed from PageErrorBoundary.
     const onAppError = (e: Event) => {
@@ -138,7 +151,7 @@
         stack: detail.stack,
         source: detail.source,
       };
-      bannerDismissed = false;
+      notifyError();
     };
     window.addEventListener(APP_ERROR_EVENT, onAppError);
 
@@ -201,77 +214,29 @@
         userAgent:
           typeof navigator !== "undefined" ? navigator.userAgent : undefined,
       });
-      toast = "Sent. Thanks — we've got the details.";
+      sonner.dismiss(ERROR_TOAST_ID);
+      sonner.success("Sent. Thanks — we've got the details.");
       detected = null;
-      bannerDismissed = false;
       closeModal();
-      setTimeout(() => (toast = null), 4000);
     } catch {
-      toast = "Couldn't send — please try again.";
-      setTimeout(() => (toast = null), 4000);
+      sonner.error("Couldn't send — please try again.");
     } finally {
       sending = false;
     }
   }
 
-  const showBanner = $derived(detected && !bannerDismissed && !modalMode);
   // Snapshot when the modal opens (breadcrumbs aren't reactive state; only
   // rendered inside the modal, so recomputing on open is enough).
   const crumbCount = $derived(modalMode ? getBreadcrumbs().length : 0);
 </script>
 
-<!-- ── AUTO: red alert bar above everything ──────────────────────────── -->
-{#if showBanner}
-  <div class="fixed inset-x-0 top-0 z-[100] flex items-center justify-center gap-3 bg-red-600 px-4 py-2 text-sm text-white shadow-lg">
-    <span class="flex items-center gap-2 font-medium">
-      <svg
-        class="h-4 w-4 flex-shrink-0"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        stroke-width="2"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-        />
-      </svg>
-      We noticed an error.
-    </span>
-    <button
-      onclick={() => (modalMode = "auto")}
-      class="rounded-md bg-white px-3 py-1 text-xs font-semibold text-red-700 transition-colors hover:bg-red-50"
-    >
-      Send error
-    </button>
-    <button
-      onclick={() => (bannerDismissed = true)}
-      aria-label="Dismiss"
-      class="rounded-md px-1.5 py-1 text-white/80 transition-colors hover:bg-white/20 hover:text-white"
-    >
-      <svg
-        class="h-4 w-4"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        stroke-width="2"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          d="M6 18L18 6M6 6l12 12"
-        />
-      </svg>
-    </button>
-  </div>
-{/if}
+<!-- AUTO path renders through the global sonner toaster (see notifyError). -->
 
 <!-- ── MANUAL: floating flag button, bottom-right ────────────────────── -->
 <button
   onclick={() => (modalMode = "manual")}
   title="Something off? Flag it so we can take a look."
-  class="fixed right-3 top-3 z-[90] flex items-center gap-1 rounded-full bg-navy px-2.5 py-1.5 text-xs font-medium text-white shadow-lg shadow-navy/30 transition-transform hover:scale-105 active:scale-95"
+  class="fixed bottom-3 left-3 z-[90] flex items-center gap-1 rounded-full bg-navy px-2.5 py-1.5 text-xs font-medium text-white shadow-lg shadow-navy/30 transition-transform hover:scale-105 active:scale-95"
 >
   <svg
     class="h-3 w-3"
@@ -292,6 +257,7 @@
 <!-- ── Shared report modal ───────────────────────────────────────────── -->
 {#if modalMode}
   <div
+    transition:overlayFade
     class="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4"
     role="presentation"
     onclick={(e) => {
@@ -302,6 +268,7 @@
     }}
   >
     <div
+      transition:modalPop
       class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
       role="dialog"
       aria-modal="true"
@@ -393,12 +360,5 @@
         </button>
       </div>
     </div>
-  </div>
-{/if}
-
-<!-- ── Confirmation toast ────────────────────────────────────────────── -->
-{#if toast}
-  <div class="fixed bottom-5 left-1/2 z-[120] -translate-x-1/2 rounded-full bg-navy px-4 py-2 text-sm text-white shadow-xl">
-    {toast}
   </div>
 {/if}

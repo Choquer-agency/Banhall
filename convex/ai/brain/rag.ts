@@ -10,7 +10,8 @@ import { brainEmbeddingModel, BRAIN_EMBEDDING_DIMENSION } from "./embeddings";
  * APPROVED knowledge — approve = ingest, revoke = deleteByKey (see convex/brain.ts).
  * All governance (approval, weighting, unlearn, audit) lives in our own reactive
  * tables. Killer requirements map to native features:
- *   - industry routing   → optional `industryApproved` filter (see BRAIN_NAMESPACE)
+ *   - industry routing    → optional `industryApproved` filter (see BRAIN_NAMESPACE)
+ *   - science routing     → metadata grouping with cross-code fallback
  *   - writer weighting    → `importance` (0..1, scales the vector score)
  *   - provenance          → `entryId` (foreign-keyed back to brainSources)
  *   - unlearn             → `deleteByKey`
@@ -43,6 +44,7 @@ export type BrainEntryMetadata = {
   docType: string;
   fiscalYear?: number;
   craOutcome?: string;
+  scienceCode?: string;
 };
 
 export const brain = new RAG<BrainFilters, BrainEntryMetadata>(components.rag, {

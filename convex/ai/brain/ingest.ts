@@ -1,11 +1,13 @@
 "use node";
 
 import Anthropic from "@anthropic-ai/sdk";
+import { instrumentedAnthropic, scheduleUsage } from "../instrument";
 import { defaultChunker } from "@convex-dev/rag";
 import { internalAction } from "../../_generated/server";
 import { internal } from "../../_generated/api";
 import { v } from "convex/values";
 import { brain, BRAIN_NAMESPACE } from "./rag";
+import { brainEmbeddingModel } from "./embeddings";
 
 /** Off by default so a first bring-up ingest costs nothing; flip on for prod. */
 const USE_CONTEXTUAL = process.env.BRAIN_CONTEXTUAL === "1";
@@ -79,8 +81,9 @@ export const embedSource = internalAction({
 
     const importance = Math.max(0, Math.min(1, src.writerTier));
 
-    // Every declared filterName MUST get a value on every add, so declare only
-    // filters set on 100% of entries. craOutcome stays in metadata (below).
+    // Every declared filterName gets a value on every add. Science code stays
+    // in metadata so adding it does not strand legacy entries in a new RAG
+    // namespace; retrieval applies the exact-code preference structurally.
     const filterValues: { name: "industryApproved" | "docType"; value: unknown }[] = [
       { name: "industryApproved", value: { industry: src.industry, approved: true } },
       { name: "docType", value: src.docType },
@@ -100,18 +103,36 @@ export const embedSource = internalAction({
         docType: src.docType,
         fiscalYear: src.fiscalYear,
         craOutcome: src.craOutcome,
+        scienceCode: src.scienceCode,
       },
       filterValues: filterValues as never,
       onComplete: internal.ai.brain.rag.ingestOnComplete,
     };
 
-    if (USE_CONTEXTUAL) {
-      const client = new Anthropic();
-      const rawChunks = defaultChunker(src.content);
-      const chunks = await contextualizeChunks(client, src.content, rawChunks);
-      await brain.add(ctx, { ...common, chunks });
-    } else {
-      await brain.add(ctx, { ...common, text: src.content });
+    const addResult = USE_CONTEXTUAL
+      ? await (async () => {
+          const client = instrumentedAnthropic(ctx, {
+            callSite: "brain:contextualize",
+            brainSourceId: args.sourceId,
+          });
+          const rawChunks = defaultChunker(src.content);
+          const chunks = await contextualizeChunks(
+            client,
+            src.content,
+            rawChunks
+          );
+          return await brain.add(ctx, { ...common, chunks });
+        })()
+      : await brain.add(ctx, { ...common, text: src.content });
+
+    if (addResult.usage.tokens > 0) {
+      await scheduleUsage(ctx, {
+        brainSourceId: args.sourceId,
+        callSite: "brain:corpus_embedding",
+        model: brainEmbeddingModel.modelId,
+        inputTokens: addResult.usage.tokens,
+        outputTokens: 0,
+      });
     }
   },
 });

@@ -10,7 +10,7 @@
   let {
     backHref = "/dashboard",
     backLabel = "Back",
-    width = "max-w-7xl",
+    width = "max-w-[var(--container-shell)]",
     actions,
   }: {
     backHref?: string;

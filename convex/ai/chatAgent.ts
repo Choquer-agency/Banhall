@@ -4,6 +4,8 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import Anthropic from "@anthropic-ai/sdk";
+import { instrumentedAnthropic } from "./instrument";
+import type { Id } from "../_generated/dataModel";
 import { MODEL } from "./model";
 import { CHAT_SYSTEM_PROMPT } from "./prompts";
 
@@ -109,8 +111,6 @@ export const processChatMessage = internalAction({
   },
   handler: async (ctx, args) => {
     try {
-      const anthropic = new Anthropic();
-
       // Explicit annotation breaks api-graph type circularity (TS7006 cascade).
       const context: {
         projectId: string;
@@ -129,6 +129,12 @@ export const processChatMessage = internalAction({
         }[];
       } = await ctx.runQuery(internal.chat.getChatContext, {
         threadId: args.threadId,
+      });
+
+      const anthropic = instrumentedAnthropic(ctx, {
+        callSite: "chat",
+        capability: "chat",
+        projectId: context.projectId as Id<"projects">,
       });
 
       const reportText = context.reportContent

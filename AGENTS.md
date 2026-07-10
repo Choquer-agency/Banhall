@@ -8,7 +8,7 @@ live in `src/routes/`, components in `src/lib/components/`. Visual work
 follows the design system — tokens in `src/routes/layout.css`, rules in
 `docs/design-system.md`, live at `/styleguide`; use type roles + the
 remapped gray ramp, never ad-hoc hexes. Dev server:
-`npm run dev` (or bun/pnpm) → localhost:3000.
+`npm run dev` (or bun/pnpm) → localhost:3001.
 
 <!-- convex-ai-start -->
 

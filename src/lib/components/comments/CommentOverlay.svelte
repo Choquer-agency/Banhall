@@ -1,8 +1,9 @@
 <script lang="ts">
   import { useQuery, useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
-  import type { Doc, Id } from "../../../../convex/_generated/dataModel";
+  import type { Id } from "../../../../convex/_generated/dataModel";
   import CommentInput from "./CommentInput.svelte";
+  import { popoverPop } from "$lib/motion";
 
   /**
    * Floating comment UI for the writer editor (port of src/components/comments/CommentOverlay.tsx).
@@ -43,13 +44,15 @@
     onClearPending: () => void;
   } = $props();
 
-  const commentsQ = useQuery(api.comments.listComments, () => ({ projectId }));
+  const commentsQ = useQuery(api.comments.listComments, () => ({ projectId, reportId }));
   const commentersQ = useQuery(api.comments.listCommenters, () => ({ projectId }));
   const addComment = useMutation(api.comments.addComment);
   const resolveComment = useMutation(api.comments.resolveComment);
+  type Comment = NonNullable<typeof commentsQ.data>[number];
+  type Commenter = NonNullable<typeof commentersQ.data>[number];
 
   const commenterMap = $derived.by(() => {
-    const map = new Map<string, Doc<"commenters">>();
+    const map = new Map<string, Commenter>();
     commentersQ.data?.forEach((c) => map.set(c._id, c));
     return map;
   });
@@ -79,7 +82,6 @@
       projectId,
       reportId,
       commenterId,
-      commenterType: "writer",
       highlightFrom: pendingHighlight.from,
       highlightTo: pendingHighlight.to,
       highlightText: pendingHighlight.text,
@@ -94,7 +96,7 @@
   );
 </script>
 
-{#snippet commentCard(comment: Doc<"comments">, commenter: Doc<"commenters"> | undefined)}
+{#snippet commentCard(comment: Comment, commenter: Commenter | undefined)}
   {@const color = commenter?.color ?? "var(--color-ink-faint)"}
   {@const name = commenter?.name ?? "Writer"}
   <div class="rounded-lg border border-gray-200 bg-white p-3 shadow-lg">
@@ -125,6 +127,7 @@
       </div>
     {/if}
     <button
+      type="button"
       onclick={() => {
         resolveComment({ commentId: comment._id });
         activeId = null;
@@ -139,6 +142,14 @@
 <!-- Authoring popover near the selection -->
 {#if pendingHighlight}
   <div
+    transition:popoverPop
+    role="dialog"
+    aria-modal="false"
+    aria-label="Add comment to selected text"
+    tabindex="-1"
+    onkeydown={(event) => {
+      if (event.key === "Escape") onClearPending();
+    }}
     class="fixed z-[80] w-72"
     style={`top: ${Math.min(
       (pendingHighlight.y ?? 120) + 8,
@@ -166,8 +177,11 @@
 <!-- Hover card showing an existing comment -->
 {#if activeComment && rect && !pendingHighlight}
   <div
+    transition:popoverPop
     class="fixed z-[70] w-64"
-    role="presentation"
+    role="dialog"
+    aria-label="Comment details"
+    tabindex="-1"
     style={`top: ${Math.min(
       rect.top,
       (typeof window !== "undefined" ? window.innerHeight : 800) - 200
