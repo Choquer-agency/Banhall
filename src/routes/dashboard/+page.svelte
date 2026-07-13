@@ -13,7 +13,7 @@
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { slide } from "svelte/transition";
-  import { scienceCodeLabel } from "../../../shared/craScienceCodes";
+  import { scienceCodeLabel, CRA_SCIENCE_CODES } from "../../../shared/craScienceCodes";
 
   type Project = Doc<"projects">;
 
@@ -244,7 +244,7 @@
   // BNH-49: attribute filters apply after status + search.
   const writers = $derived(distinct((projects ?? []).map((p) => p.writer)));
   const industries = $derived(distinct((projects ?? []).map((p) => p.industry)));
-  const scienceCodes = $derived(distinct((projects ?? []).map((p) => p.scienceCode)));
+
   const attrFiltered = $derived(
     searched.filter(
       (p) =>
@@ -379,29 +379,11 @@
           />
         </div>
 
-        <!-- Filter row: status + tags left, sort/attribute selects right -->
+        <!-- Filter row: status left, sort/attribute selects right -->
         <div class="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
           <SelectInput size="sm" bind:value={filter} items={statusItems} class="w-36" placeholder="Status" />
 
-          <!-- BNH-35: same removable-bubble tag picker as project creation -->
-          {#if allTags.length > 0}
-            <TagPicker {allTags} bind:selectedTagIds={selectedTags} size="sm" />
-          {/if}
-
           <div class="ml-auto flex flex-wrap items-center gap-2">
-            {#if attrFiltersActive}
-              <button
-                onclick={() => {
-                  filterWriter = "all";
-                  filterIndustry = "all";
-                  filterScienceCode = "all";
-                  selectedTags = [];
-                }}
-                class="text-xs text-primary hover:underline"
-              >
-                Clear filters
-              </button>
-            {/if}
             <label class="flex items-center gap-1.5 text-xs text-gray-400">
               Sort
               <SelectInput size="sm" bind:value={sortBy} items={SORTS} class="w-40" />
@@ -416,19 +398,39 @@
               Industry
               <IndustrySelect variant="filter" size="sm" bind:value={filterIndustry} class="w-44" />
             </label>
-            {#if scienceCodes.length > 0}
-              <label class="flex items-center gap-1.5 text-xs text-gray-400">
-                Science
-                <SelectInput
-                  size="sm"
-                  bind:value={filterScienceCode}
-                  items={[{ value: "all", label: "All" }, ...scienceCodes.map((c) => ({ value: c, label: scienceCodeLabel(c) }))]}
-                  class="w-44"
-                />
-              </label>
-            {/if}
+            <label class="flex items-center gap-1.5 text-xs text-gray-400">
+              Science
+              <SelectInput
+                size="sm"
+                bind:value={filterScienceCode}
+                items={[{ value: "all", label: "All" }, ...CRA_SCIENCE_CODES.map((c) => ({ value: c.code, label: `${c.code} — ${c.label}` }))]}
+                class="w-44"
+              />
+            </label>
           </div>
         </div>
+
+        <!-- BNH-35: tags on their own row; Clear filters lives here too -->
+        {#if allTags.length > 0 || attrFiltersActive}
+          <div class="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+            {#if allTags.length > 0}
+              <TagPicker {allTags} bind:selectedTagIds={selectedTags} size="sm" />
+            {/if}
+            {#if attrFiltersActive}
+              <button
+                onclick={() => {
+                  filterWriter = "all";
+                  filterIndustry = "all";
+                  filterScienceCode = "all";
+                  selectedTags = [];
+                }}
+                class="ml-auto text-xs text-primary hover:underline"
+              >
+                Clear filters
+              </button>
+            {/if}
+          </div>
+        {/if}
       {/if}
 
       <!-- Project grid -->
@@ -437,15 +439,17 @@
           <Spinner />
         </div>
       {:else if filtered && filtered.length === 0 && filter !== "all"}
-        <div class="mt-12 text-center">
-          <p class="text-sm text-gray-400">No {filter.replace("_", " ")} projects.</p>
-          <button onclick={() => (filter = "all")} class="mt-2 text-xs text-primary hover:underline">
+        <div class="mt-5 flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/50 px-6 py-14 text-center">
+          <p class="text-sm font-medium text-gray-600">No {filter.replace("_", " ")} projects</p>
+          <p class="mt-1 text-xs text-gray-400">Try a different status, or show everything.</p>
+          <button onclick={() => (filter = "all")} class="mt-3 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:border-primary hover:text-primary-dark">
             Show all projects
           </button>
         </div>
       {:else if attrFiltered.length === 0 && attrFiltersActive}
-        <div class="mt-12 text-center">
-          <p class="text-sm text-gray-400">No projects match the current filters.</p>
+        <div class="mt-5 flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/50 px-6 py-14 text-center">
+          <p class="text-sm font-medium text-gray-600">No projects match the current filters</p>
+          <p class="mt-1 text-xs text-gray-400">Loosen or clear the filters to see more projects.</p>
           <button
             onclick={() => {
               filterWriter = "all";
@@ -453,15 +457,16 @@
               filterScienceCode = "all";
               selectedTags = [];
             }}
-            class="mt-2 text-xs text-primary hover:underline"
+            class="mt-3 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:border-primary hover:text-primary-dark"
           >
             Clear filters
           </button>
         </div>
       {:else if searched.length === 0 && q}
-        <div class="mt-12 text-center">
-          <p class="text-sm text-gray-400">No matches for “{search}”.</p>
-          <button onclick={() => (search = "")} class="mt-2 text-xs text-primary hover:underline">
+        <div class="mt-5 flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/50 px-6 py-14 text-center">
+          <p class="text-sm font-medium text-gray-600">No matches for “{search}”</p>
+          <p class="mt-1 text-xs text-gray-400">Check the spelling or try a shorter search.</p>
+          <button onclick={() => (search = "")} class="mt-3 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:border-primary hover:text-primary-dark">
             Clear search
           </button>
         </div>

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  overflowStartOffset,
   sectionMetrics,
   toParagraphs,
   type SectionKey,
@@ -118,5 +119,57 @@ describe("Schedule 60 sectionMetrics", () => {
       "first phrase still first",
       "second phrase",
     ]);
+  });
+
+  test("locates the first word beyond the section word cap", () => {
+    const atCap = words(350);
+    const overflow = `${atCap} overflow starts here`;
+    const offset = overflowStartOffset(overflow, "s242");
+
+    expect(overflowStartOffset(atCap, "s242")).toBeNull();
+    expect(offset).not.toBeNull();
+    expect(overflow.slice(offset ?? 0)).toBe("overflow starts here");
+  });
+
+  test("locates content beginning on the first physical line beyond the cap", () => {
+    const atCap = Array.from({ length: 50 }, () => "x").join("\n");
+    const overflow = `${atCap}\nfirst excess line`;
+    const offset = overflowStartOffset(overflow, "s242");
+
+    expect(overflowStartOffset(atCap, "s242")).toBeNull();
+    expect(offset).not.toBeNull();
+    expect(overflow.slice(offset ?? 0)).toBe("first excess line");
+  });
+
+  test.each(limits)(
+    "$section overflow marker agrees with section metrics",
+    ({ section, lineLimit, wordCap }) => {
+      const samples = [
+        words(wordCap),
+        words(wordCap + 1),
+        oneWordPerLine(lineLimit),
+        oneWordPerLine(lineLimit + 1),
+        `${"x".repeat(78 * lineLimit)} overflow`,
+      ];
+
+      for (const sample of samples) {
+        const offset = overflowStartOffset(sample, section);
+        expect(offset !== null).toBe(sectionMetrics(sample, section).overLimit);
+        if (offset !== null && offset > 0 && /\w/.test(sample[offset] ?? "")) {
+          expect(/\s/.test(sample[offset - 1] ?? "")).toBe(true);
+        }
+      }
+    }
+  );
+
+  test("locates width overflow inside one unbroken token", () => {
+    const atLimit = "x".repeat(78 * 50);
+    const overflow = `${atLimit}x`;
+    const offset = overflowStartOffset(overflow, "s242");
+
+    expect(sectionMetrics(atLimit, "s242").overLimit).toBe(false);
+    expect(sectionMetrics(overflow, "s242").overLimit).toBe(true);
+    expect(offset).toBe(atLimit.length);
+    expect(overflow.slice(offset ?? 0)).toBe("x");
   });
 });

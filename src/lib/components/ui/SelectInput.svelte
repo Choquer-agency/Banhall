@@ -13,16 +13,18 @@
     id,
     size = "md",
     disabled = false,
+    openOnFocus = true,
     class: className = "",
     onValueChange,
     onCreate,
   }: {
     value?: string;
-    items: { value: string; label: string }[];
+    items: readonly { value: string; label: string }[];
     placeholder?: string;
     id?: string;
     size?: "md" | "sm";
     disabled?: boolean;
+    openOnFocus?: boolean;
     class?: string;
     onValueChange?: (value: string) => void;
     /** When set, typing a value that matches no option offers an "Add …" row. */
@@ -97,6 +99,7 @@
       aria-label={placeholder}
       disabled={disabled}
       onfocus={(e) => {
+        if (!openOnFocus) return;
         open = true;
         searchValue = "";
         e.currentTarget.select();

@@ -1,6 +1,7 @@
 <script lang="ts">
   import QAScorePanel from "$lib/components/editor/QAScorePanel.svelte";
   import type { Id } from "../../../../convex/_generated/dataModel";
+  import type { Snippet } from "svelte";
 
   /**
    * The QA review rail card (BNH-47) — ONE component for every screen that
@@ -17,7 +18,10 @@
     reportContent = null,
     reportId = undefined,
     rawQa = null,
+    candidateId = undefined,
+    modelName = null,
     onLocateGap = undefined,
+    footer = undefined,
   }: {
     open: boolean;
     onClose: () => void;
@@ -28,7 +32,11 @@
     reportContent?: string | null;
     reportId?: Id<"reports">;
     rawQa?: unknown;
-    onLocateGap?: (gap: { section: string; paragraph: number }) => void;
+    candidateId?: Id<"reportCandidates">;
+    modelName?: string | null;
+    onLocateGap?: (gap: { section: string; paragraph: number | null }) => void;
+    /** Pinned below the scorecard scroll area (e.g. the option comment box). */
+    footer?: Snippet;
   } = $props();
 </script>
 
@@ -45,6 +53,9 @@
       </svg>
     </span>
     <span class="text-sm font-semibold text-navy">{title}</span>
+    {#if modelName}
+      <span class="rounded-md bg-chrome px-2 py-1 text-xs font-medium text-gray-600">{modelName}</span>
+    {/if}
     <button
       onclick={onClose}
       title="Close QA review"
@@ -56,7 +67,14 @@
       </svg>
     </button>
   </div>
-  <div class="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-    <QAScorePanel {agentOutputs} {reportContent} {reportId} {rawQa} {onLocateGap} />
+  <div class="min-h-0 flex-1 overflow-y-auto">
+    <div class="px-5 py-5">
+      <QAScorePanel {agentOutputs} {reportContent} {reportId} {candidateId} {rawQa} {onLocateGap} />
+    </div>
+    {#if footer}
+      <div class="border-t border-primary/15 bg-primary/5 px-5 py-4">
+        {@render footer()}
+      </div>
+    {/if}
   </div>
 </div>

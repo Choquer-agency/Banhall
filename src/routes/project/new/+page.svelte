@@ -32,6 +32,7 @@
   import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
   import { industryLabel } from "$lib/industries";
   import { CRA_SCIENCE_CODE_ITEMS, scienceCodeLabel } from "../../../../shared/craScienceCodes";
+  import { SINGLE_MODEL_ITEMS, type CandidateModelId } from "../../../../shared/generationModels";
 
   const STEPS = ["Details", "Context & files", "Review"];
 
@@ -75,8 +76,8 @@
   // BNH-39: generate a new PD from a transcript, or review an existing written PD.
   let mode = $state<"generate" | "review">("generate");
   let candidateMode = $state<"compare" | "single">("compare");
-  // BNH-10: routes Brain retrieval — options + creatable behavior live in the
-  // shared IndustrySelect ($lib/components/ui/IndustrySelect.svelte).
+  let singleModelId = $state<CandidateModelId | "">("");
+  // BNH-10: routes Brain retrieval. Only admins can extend the vocabulary.
   let industry = $state("");
   let scienceCode = $state("");
   let title = $state("");
@@ -378,7 +379,14 @@
         await startPdReview({ projectId, documentId });
       } else {
         progress = "Starting generation…";
-        await generateReport({ projectId, transcriptId, candidateMode });
+        await generateReport({
+          projectId,
+          transcriptId,
+          candidateMode,
+          ...(candidateMode === "single" && singleModelId
+            ? { singleModelId }
+            : {}),
+        });
       }
       goto(`/project/${projectId}`);
     } catch (e) {
@@ -507,6 +515,15 @@
                   {/each}
                 </div>
               </div>
+              {#if candidateMode === "single"}
+                <SelectInput
+                  size="sm"
+                  bind:value={singleModelId}
+                  items={SINGLE_MODEL_ITEMS}
+                  placeholder="Generation model"
+                  class="w-48"
+                />
+              {/if}
             {/if}
           </div>
           <div class="mt-3 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
@@ -559,7 +576,10 @@
             </div>
             <div class="flex flex-col gap-1.5">
               <label for="industry" class="text-sm font-medium text-gray-700">Industry</label>
-              <IndustrySelect id="industry" bind:value={industry} />
+              <IndustrySelect id="industry" bind:value={industry} canCreate={user.data?.role === "admin"} />
+              <p class="text-xs text-gray-500">
+                {user.data?.role === "admin" ? "Admins can add industries." : "Ask an admin to add a new industry."}
+              </p>
             </div>
             <div class="flex flex-col gap-1.5">
               <label for="scienceCode" class="text-sm font-medium text-gray-700">Science code</label>
@@ -817,6 +837,12 @@
                 "Draft generation",
                 candidateMode === "compare" ? "Compare 3 drafts" : "Single draft"
               )}
+              {#if candidateMode === "single"}
+                {@render row(
+                  "Model",
+                  SINGLE_MODEL_ITEMS.find((item) => item.value === singleModelId)?.label ?? SINGLE_MODEL_ITEMS[0].label
+                )}
+              {/if}
             {/if}
             {@render row("Project", title || "—")}
             {@render row("Client", clientName || "—")}

@@ -2,11 +2,12 @@
 // match the Brain namespace strings (docs/the-brain.md); custom industries
 // saved on projects extend this base set.
 
-export const BASE_INDUSTRIES = [
-  { value: "software", label: "Software" },
-  { value: "manufacturing", label: "Manufacturing" },
-  { value: "life-sciences", label: "Life sciences" },
-] as const;
+export {
+  BASE_INDUSTRIES,
+  BASE_INDUSTRY_SLUGS,
+  industrySlug,
+} from "../../shared/industries";
+import { BASE_INDUSTRIES } from "../../shared/industries";
 
 /** Human label for an industry slug (base label or humanized slug). */
 export function industryLabel(slug: string): string {
@@ -16,11 +17,3 @@ export function industryLabel(slug: string): string {
   );
 }
 
-/** Normalize a typed industry label to its slug form. */
-export function industrySlug(label: string): string {
-  return label
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}

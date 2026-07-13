@@ -129,7 +129,7 @@ describe("parseCanonicalReport", () => {
   test("reports noncanonical and missing section headings instead of silently reassigning prose", () => {
     const parsed = parseCanonicalReport(
       documentJson([
-        heading("Line 242 — Scientific or Technological Uncertainty"),
+        heading("Line 242 — Scientific and Technological Uncertainty"),
         paragraph({ type: "text", text: "Unassigned prose." }),
         heading("Line 244 — Work Performed"),
         paragraph({ type: "text", text: "Work." }),

@@ -27,25 +27,29 @@
   // line-count and word-count overruns instead of two identical red cards.
   type IssueGroup = { label: string; messages: string[] };
   function groupByField(issues: ExportValidationIssue[]): IssueGroup[] {
-    const groups = new Map<string, string[]>();
+    // Set per group: identical messages (e.g. one per [GAP] marker in the same
+    // section) collapse to one line — and duplicates would crash the keyed each.
+    const groups = new Map<string, Set<string>>();
     for (const issue of issues) {
-      const messages = groups.get(issue.label) ?? [];
-      messages.push(issue.message);
+      const messages = groups.get(issue.label) ?? new Set<string>();
+      messages.add(issue.message);
       groups.set(issue.label, messages);
     }
-    return [...groups.entries()].map(([label, messages]) => ({ label, messages }));
+    return [...groups.entries()].map(([label, messages]) => ({
+      label,
+      messages: [...messages],
+    }));
   }
   const errorGroups = $derived(groupByField(errors));
   const warningGroups = $derived(groupByField(warnings));
 
+  // Deduped counts so the footer matches the section pills.
+  const errorCount = $derived(errorGroups.reduce((n, g) => n + g.messages.length, 0));
+  const warningCount = $derived(warningGroups.reduce((n, g) => n + g.messages.length, 0));
   const summary = $derived(
     [
-      errors.length
-        ? `${errors.length} blocking error${errors.length === 1 ? "" : "s"}`
-        : "",
-      warnings.length
-        ? `${warnings.length} warning${warnings.length === 1 ? "" : "s"}`
-        : "",
+      errorCount ? `${errorCount} blocking error${errorCount === 1 ? "" : "s"}` : "",
+      warningCount ? `${warningCount} warning${warningCount === 1 ? "" : "s"}` : "",
     ]
       .filter(Boolean)
       .join(" · ")

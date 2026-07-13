@@ -91,7 +91,7 @@ function buildTiptapDocument(
 
   function textToParagraphs(text: string) {
     return text
-      .split(/\n\n+/)
+      .split(/\n[^\S\n]*\n+/)
       .filter((p) => p.trim())
       .map((p) => {
         const parts: Array<Record<string, unknown>> = [];
@@ -300,7 +300,9 @@ async function runPipelineForModel(
   contextDocs: ContextDoc[],
   title: string,
   brainExemplars: BrainExemplarBlocks,
-  lengthTarget: LengthTarget = "standard"
+  lengthTarget: LengthTarget = "standard",
+  qaCalibration?: string,
+  draftStyle?: string
 ): Promise<{
   content: string;
   agentOutputs: string;
@@ -314,10 +316,15 @@ async function runPipelineForModel(
     modelId,
     brainExemplars.analyzer
   );
+  // Learning loop: recurring writer critiques of past drafts (see
+  // convex/ai/learning.ts). CRA structure/phrasing rules take precedence.
+  const styleBlock = draftStyle?.trim()
+    ? `\n\n## Style guidance learned from writer feedback on past drafts\nApply where it does not conflict with the required structure, CRA phrasing, or banned-word rules:\n${draftStyle.trim()}`
+    : "";
   const [raw242, raw244, raw246] = await Promise.all([
-    runSection242Agent(anthropicFor("generation:section:242"), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget)),
-    runSection244Agent(anthropicFor("generation:section:244"), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget)),
-    runSection246Agent(anthropicFor("generation:section:246"), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget)),
+    runSection242Agent(anthropicFor("generation:section:242"), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget), styleBlock),
+    runSection244Agent(anthropicFor("generation:section:244"), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget), styleBlock),
+    runSection246Agent(anthropicFor("generation:section:246"), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget), styleBlock),
   ]);
   let section242 = scrubBannedWords(raw242);
   let section244 = scrubBannedWords(raw244);
@@ -354,7 +361,7 @@ async function runPipelineForModel(
     lengthTarget,
   };
   const [qaScorecard, chronology] = await Promise.all([
-    runQAAgent(anthropicFor("generation:qa"), analysis, section242, section244, section246, modelId),
+    runQAAgent(anthropicFor("generation:qa"), analysis, section242, section244, section246, modelId, qaCalibration),
     runChronologyAgent(anthropicFor("generation:chronology"), analysis, modelId),
   ]);
   const doc = buildTiptapDocument(
@@ -416,7 +423,10 @@ export const generateReport = internalAction({
     const title = input.title || "Untitled Report";
     const lengthTarget: LengthTarget = input.lengthTarget;
     const contextDocs = toContextDocs(input.contextDocs);
-    const candidateModels = candidateModelsForMode(input.candidateMode);
+    const candidateModels = candidateModelsForMode(
+      input.candidateMode,
+      input.singleModelId
+    );
     const retrievalBriefClient = instrumentedAnthropic(ctx, {
       callSite: "generation:retrieval_brief",
       capability: "generation",
@@ -587,6 +597,36 @@ export const generateReport = internalAction({
         status: "running",
         currentStep: "Generating candidate drafts...",
       });
+      // Learning loop: fetch the active digests once per generation so every
+      // candidate drafts and scores under the same learned guidance.
+      // Wrapped so learning can NEVER break generation.
+      let qaCalibration: string | undefined;
+      let draftStyle: string | undefined;
+      try {
+        const [qaDigest, styleDigest] = await Promise.all([
+          ctx.runQuery(internal.learning.getActiveDigest, {
+            kind: "qa_calibration",
+          }),
+          ctx.runQuery(internal.learning.getActiveDigest, {
+            kind: "draft_style",
+          }),
+        ]);
+        if (qaDigest) {
+          qaCalibration = qaDigest.content;
+          await log(
+            `Applying QA calibration learned from ${qaDigest.sourceCount} writer feedback event(s).`
+          );
+        }
+        if (styleDigest) {
+          draftStyle = styleDigest.content;
+          await log(
+            `Applying drafting style learned from ${styleDigest.sourceCount} writer critique(s).`
+          );
+        }
+      } catch (err) {
+        console.error("learning digest fetch failed for generation", genId, err);
+      }
+
       const candidateLabel =
         candidateModels.length === 1 ? "candidate draft" : "candidate drafts";
       await log(
@@ -609,6 +649,8 @@ export const generateReport = internalAction({
             candidateRunId,
             generationId: genId,
             brainExemplars: brainBlocks,
+            ...(qaCalibration ? { qaCalibration } : {}),
+            ...(draftStyle ? { draftStyle } : {}),
           }
         );
         await ctx.runMutation(internal.generations.setCandidateRunJob, {
@@ -637,6 +679,8 @@ export const generateCandidate = internalAction({
       s244: v.string(),
       s246: v.string(),
     }),
+    qaCalibration: v.optional(v.string()),
+    draftStyle: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const run = await ctx.runMutation(internal.generations.claimCandidateRun, {
@@ -669,7 +713,9 @@ export const generateCandidate = internalAction({
           toContextDocs(input.contextDocs),
           input.title,
           args.brainExemplars,
-          input.lengthTarget
+          input.lengthTarget,
+          args.qaCalibration,
+          args.draftStyle
         );
       const claims = await Promise.all(
         claimDrafts.map(async (claim) => {

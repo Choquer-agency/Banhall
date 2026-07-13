@@ -244,7 +244,7 @@
   /** Locate the Nth non-empty paragraph after the heading containing
    * `section` in the rendered doc and flash + scroll to it. Positions are
    * captured during the walk — no text re-search, no drift. */
-  export function locateSectionParagraph(section: string, paragraph: number) {
+  export function locateSectionParagraph(section: string, paragraph: number | null) {
     const ed = editor;
     if (!ed) return;
     const paras: Array<{ from: number; to: number }> = [];
@@ -259,8 +259,8 @@
       paras.push({ from: offset + 1, to: offset + 1 + node.content.size });
     });
     if (paras.length === 0) return;
-    // Clamp: QA numbering can overshoot the post-compression paragraph count.
-    const target = paras[Math.min(paragraph, paras.length) - 1];
+    const index = paragraph === null ? 0 : Math.min(Math.max(paragraph, 1), paras.length) - 1;
+    const target = paras[index];
     aiHighlights = [target];
     scrollToPosition(target.from, target.to);
     if (aiClearTimer) clearTimeout(aiClearTimer);

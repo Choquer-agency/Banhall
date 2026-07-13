@@ -6,6 +6,9 @@
     content: string;
     qaScore: number | null;
     qa?: unknown;
+    // Admin-only; null keeps the A/B test blind for writers.
+    model: string | null;
+    label: string | null;
   };
 
   /**
@@ -39,6 +42,7 @@
 <script lang="ts">
   import QARailPanel from "$lib/components/qa/QARailPanel.svelte";
   import QALauncher from "$lib/components/qa/QALauncher.svelte";
+  import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { useQuery, useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import ReadOnlyEditor from "$lib/components/review/ReadOnlyEditor.svelte";
@@ -69,25 +73,62 @@
   const scoreCandidateMut = useMutation(api.generations.scoreCandidate);
   const myScoresQ = useQuery(api.generations.getMyCandidateScores, () => ({ generationId }));
   const myScores = $derived(
-    new Map((myScoresQ.data ?? []).map((s) => [s.candidateId, s.score]))
+    new Map((myScoresQ.data ?? []).map((score) => [score.candidateId, score]))
   );
   let scoreSaving = $state(false);
   let actionError = $state("");
-  async function setScore(n: number) {
+  let commentDrafts = $state<Record<string, string>>({});
+  // "saved" flashes the checkmark; "blocked" explains why nothing saved.
+  let commentStatus = $state<"idle" | "saved" | "blocked">("idle");
+
+  $effect(() => {
+    for (const score of myScoresQ.data ?? []) {
+      if (commentDrafts[score.candidateId] === undefined) {
+        commentDrafts[score.candidateId] = score.comment;
+      }
+    }
+  });
+
+  async function saveFeedback(score: number, comment: string) {
     if (!current || scoreSaving) return;
     scoreSaving = true;
     actionError = "";
     try {
       await scoreCandidateMut({
         candidateId: current._id,
-        score: n,
+        score,
+        comment,
         optionPosition: pos + 1,
       });
     } catch (e) {
-      actionError = userErrorMessage(e, "The score could not be saved.");
+      actionError = userErrorMessage(e, "The option feedback could not be saved.");
     } finally {
       scoreSaving = false;
     }
+  }
+
+  function setScore(score: number) {
+    if (!current) return;
+    if (commentStatus === "blocked") commentStatus = "idle";
+    void saveFeedback(score, commentDrafts[current._id] ?? "");
+  }
+
+  async function saveComment() {
+    if (!current) return;
+    const saved = myScores.get(current._id);
+    const draft = commentDrafts[current._id] ?? "";
+    if (draft.trim() === (saved?.comment.trim() ?? "")) return;
+    if (saved == null) {
+      if (draft.trim()) commentStatus = "blocked";
+      return;
+    }
+    await saveFeedback(saved.score, draft);
+    commentStatus = "saved";
+  }
+
+  function onCommentInput(candidateId: string, value: string) {
+    commentDrafts[candidateId] = value;
+    commentStatus = "idle";
   }
 
   const order = $derived.by(() => (candidates ? blindOrder(candidates) : []));
@@ -101,9 +142,9 @@
   let rootEl: HTMLDivElement | null = $state(null);
   let previewRef: ReadOnlyEditor | null = $state(null);
 
-  /** Jump the preview to a QA gap's paragraph (doc-native locate in the
-   * ReadOnlyEditor — clamps when QA numbering overshoots). */
-  function locateGap(gap: { section: string; paragraph: number }) {
+  /** Jump the preview to the QA issue's exact [P#] paragraph. A null target
+   * is section-wide and lands on the section's first paragraph. */
+  function locateGap(gap: { section: string; paragraph: number | null }) {
     previewRef?.locateSectionParagraph(gap.section, gap.paragraph);
   }
 
@@ -171,7 +212,7 @@
 {#if candidates && candidates.length > 0 && current}
   <div bind:this={rootEl} class={`mx-auto flex min-h-0 w-full flex-1 overflow-hidden transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none ${maximized ? "max-w-full" : "max-w-[var(--container-shell)]"}`}>
   <div class="min-h-0 flex-1 overflow-y-auto">
-    <div class={`mx-auto transition-[max-width,padding] duration-[325ms] ease-out motion-reduce:transition-none ${maximized ? "max-w-full px-4 py-6" : qaOpen ? "max-w-report px-8 py-8" : "max-w-[var(--container-shell)] px-8 py-8"}`}>
+    <div class={`mx-auto transition-[max-width,padding] duration-[325ms] ease-out motion-reduce:transition-none ${maximized ? "max-w-full px-7 py-6" : qaOpen ? "max-w-report px-8 py-8" : "max-w-[var(--container-shell)] px-8 py-8"}`}>
       <div class="mb-1 flex items-center gap-2">
         <span class="flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-primary-dark">
           <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -181,7 +222,7 @@
         <h2 class="text-xl font-semibold text-gray-900">Choose your preferred draft</h2>
       </div>
       <p class="mb-5 text-sm text-gray-500">
-        Each option is a full draft written from the same inputs by a different model — shown
+        Each option is a full draft written from the same inputs by a different model, shown
         blind and in random order. Pick the one you&apos;d keep; your choice is logged to learn
         which model works best.
       </p>
@@ -189,11 +230,14 @@
       <!-- Anonymous option tabs -->
       <div class="flex flex-wrap gap-2">
         {#each displayed as c, i (c._id)}
-          {@const myScore = myScores.get(c._id)}
+          {@const myScore = myScores.get(c._id)?.score}
           <button
             type="button"
             aria-pressed={i === pos}
-            onclick={() => (activePos = i)}
+            onclick={() => {
+              activePos = i;
+              commentStatus = "idle";
+            }}
             class={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
               i === pos
                 ? "border-navy bg-navy text-white"
@@ -255,24 +299,27 @@
       {/if}
     </div>
 
-    <!-- Sticky action bar -->
-    <div class="sticky bottom-0 border-t border-gray-200 bg-white/90 px-8 py-3 backdrop-blur">
+    <!-- Sticky action bar (@container so the score control adapts to the bar's
+         actual width, which shrinks when the QA rail opens) -->
+    <div class="@container sticky bottom-0 border-t border-gray-200 bg-white/90 px-8 py-3 backdrop-blur">
       {#if actionError}
         <p class="mx-auto mb-2 max-w-[var(--container-shell)] text-sm text-red-700" role="alert">
           {actionError}
         </p>
       {/if}
-      <div class={`mx-auto flex items-center justify-between gap-4 transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none ${maximized ? "max-w-full" : qaOpen ? "max-w-report" : "max-w-[var(--container-shell)]"}`}>
-        <span class="flex-none text-sm text-gray-500">
+      <div class={`mx-auto grid grid-cols-[1fr_auto_1fr] items-center gap-4 transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none ${maximized ? "max-w-full" : qaOpen ? "max-w-report" : "max-w-[var(--container-shell)]"}`}>
+        <span class="justify-self-start text-sm text-gray-500">
           Viewing <span class="font-medium text-navy">Option {pos + 1}</span>
         </span>
 
-        <!-- BNH-48: optional 1–10 score for the option being viewed -->
-        <div class="flex min-w-0 items-center gap-2">
-          <span class="flex-none text-xs text-gray-400">Your score</span>
-          <div class="flex items-center gap-0.5" role="radiogroup" aria-label={`Score Option ${pos + 1} out of 10`}>
+        <!-- BNH-48: optional 1–10 score for the option being viewed. Button row
+             when the bar has room; compact select when the QA rail or a small
+             screen squeezes it (container query on the bar). -->
+        <div class="flex min-w-0 items-center gap-2 justify-self-center">
+          <span class="flex-none whitespace-nowrap text-xs text-gray-400">Your score</span>
+          <div class="hidden items-center gap-0.5 @4xl:flex" role="radiogroup" aria-label={`Score Option ${pos + 1} out of 10`}>
             {#each Array.from({ length: 10 }, (_, n) => n + 1) as n (n)}
-              {@const active = current && myScores.get(current._id) === n}
+              {@const active = current && myScores.get(current._id)?.score === n}
               <button
                 type="button"
                 role="radio"
@@ -289,13 +336,26 @@
               </button>
             {/each}
           </div>
+          <SelectInput
+            value={String(myScores.get(current._id)?.score ?? "")}
+            items={Array.from({ length: 10 }, (_, n) => ({ value: String(n + 1), label: `${n + 1} / 10` }))}
+            placeholder="–"
+            size="sm"
+            disabled={scoreSaving}
+            openOnFocus={false}
+            class="w-20 @4xl:hidden"
+            onValueChange={(next) => {
+              const n = Number(next);
+              if (n >= 1) setScore(n);
+            }}
+          />
         </div>
 
         <button
           type="button"
           onclick={choose}
           disabled={choosing}
-          class="inline-flex flex-none items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+          class="inline-flex flex-none items-center gap-2 justify-self-end rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
         >
           {#if choosing}
             <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
@@ -304,7 +364,7 @@
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
             </svg>
-            Use this draft (Option {pos + 1})
+            Use this draft
           {/if}
         </button>
       </div>
@@ -339,16 +399,63 @@
 
   <!-- QA rail — same motion + resize behaviour as the workspace assistant -->
   <aside
-    class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${qaOpen ? (maximized ? "pl-1 pr-2" : "pl-1 pr-6") : ""} ${qaDragging ? "" : "transition-all duration-[325ms] ease-out motion-reduce:transition-none"}`}
+    class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${qaOpen ? (maximized ? "pl-1 pr-7" : "pl-1 pr-6") : ""} ${qaDragging ? "" : "transition-all duration-[325ms] ease-out motion-reduce:transition-none"}`}
     style={`width: ${qaOpen ? `${qaRatio * 100}%` : "0%"}`}
   >
     <QARailPanel
       open={qaOpen}
       onClose={() => (qaOpen = false)}
-      title={`QA — Option ${pos + 1}`}
+      title={`QA for Option ${pos + 1}`}
       rawQa={current.qa}
+      candidateId={current._id}
+      modelName={current.label}
       onLocateGap={locateGap}
-    />
+    >
+      {#snippet footer()}
+        <div class="flex items-center justify-between gap-2">
+          <label class="text-xs font-semibold text-navy" for="candidate-comment">
+            Comment on Option {pos + 1} <span class="font-normal text-gray-500">(optional)</span>
+          </label>
+          {#if commentStatus === "saved" && !scoreSaving}
+            <span class="inline-flex flex-none items-center gap-1 text-[10px] font-medium text-green-700">
+              <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              Saved
+            </span>
+          {/if}
+        </div>
+        <form
+          class="mt-2"
+          onsubmit={(event) => {
+            event.preventDefault();
+            void saveComment();
+          }}
+        >
+          <textarea
+            id="candidate-comment"
+            value={commentDrafts[current._id] ?? ""}
+            oninput={(event) => onCommentInput(current._id, event.currentTarget.value)}
+            rows="3"
+            placeholder="Why did you like or dislike this option?"
+            class="w-full resize-none rounded-lg border border-primary/20 bg-white px-3 py-2 text-sm text-gray-800 outline-none transition-colors placeholder:text-gray-400 focus:border-primary"
+          ></textarea>
+          <button
+            type="submit"
+            disabled={scoreSaving}
+            class="mt-1.5 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+          >
+            {#if scoreSaving}
+              <Spinner size="sm" class="h-3 w-3 border-white" />
+            {/if}
+            Save
+          </button>
+        </form>
+        {#if commentStatus === "blocked"}
+          <p class="mt-1.5 text-[11px] text-amber-700">Pick a score in the bottom bar to save your comment.</p>
+        {/if}
+      {/snippet}
+    </QARailPanel>
   </aside>
   </div>
 {/if}

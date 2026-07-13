@@ -36,6 +36,8 @@ export interface WriterEditorHandle extends EditorHandle {
    * `scrollTo` (one of the passages) — or the first occurrence if omitted.
    */
   highlightText: (texts: string[], scrollTo?: string) => void;
+  /** Locate a 1-based non-empty paragraph after the matching section heading. */
+  locateSectionParagraph: (section: string, paragraph: number | null) => void;
   clearHighlight: () => void;
   // BNH-30: one-by-one replace stepping primitives.
   findReplaceMatches: (

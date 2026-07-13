@@ -71,7 +71,8 @@ export default defineSchema({
   })
     .index("by_createdBy", ["createdBy"])
     .index("by_status", ["status"])
-    .index("by_shareToken", ["shareToken"]),
+    .index("by_shareToken", ["shareToken"])
+    .index("by_industry", ["industry"]),
 
   // ─── BNH-35: admin-curated project tags (nested via parentId) ──────────────
   tags: defineTable({
@@ -233,6 +234,7 @@ export default defineSchema({
     candidateMode: v.optional(
       v.union(v.literal("compare"), v.literal("single"))
     ),
+    singleModelId: v.optional(v.string()),
     retryOfGenerationId: v.optional(v.id("generations")),
     scheduledJobId: v.optional(v.id("_scheduled_functions")),
     previousProjectStatus: v.optional(
@@ -313,6 +315,7 @@ export default defineSchema({
     qaScore: v.optional(v.number()), // AI QA score at scoring time, for gap analytics
     userId: v.string(),
     score: v.number(), // writer's 1–10
+    comment: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -325,12 +328,14 @@ export default defineSchema({
     projectId: v.id("projects"),
     generationId: v.id("generations"),
     userId: v.string(),
+    candidateId: v.optional(v.id("reportCandidates")),
     model: v.string(),
     label: v.string(),
     createdAt: v.number(),
   })
     .index("by_userId", ["userId"])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_and_generationId", ["projectId", "generationId"]),
 
   // ─── AI Chat (document-scoped assistant) ───────────────────────────────────
 
@@ -698,6 +703,30 @@ export default defineSchema({
     .index("by_user_report", ["userId", "reportId"])
     .index("by_projectId", ["projectId"]),
 
+  // Per-writer feedback on individual generated QA observations. Target keys
+  // survive candidate deletion after selection; item text is copied for admin review.
+  qaItemFeedback: defineTable({
+    targetKey: v.string(),
+    projectId: v.id("projects"),
+    reportId: v.optional(v.id("reports")),
+    candidateId: v.optional(v.id("reportCandidates")),
+    generationId: v.optional(v.id("generations")),
+    itemKey: v.string(),
+    itemKind: v.union(v.literal("issue"), v.literal("strength")),
+    section: v.string(),
+    itemText: v.string(),
+    originalSeverity: v.optional(v.union(v.literal("deduction"), v.literal("warning"))),
+    overrideSeverity: v.optional(v.union(v.literal("deduction"), v.literal("warning"))),
+    vote: v.optional(v.union(v.literal(-1), v.literal(1))),
+    userId: v.string(),
+    writerName: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_targetKey", ["targetKey"])
+    .index("by_user_target_item", ["userId", "targetKey", "itemKey"])
+    .index("by_projectId", ["projectId"]),
+
   // ─── BNH-10: The Brain — curated, governed cross-project knowledge ──────────
   // The RAG component holds the vectors; THESE tables are the source of truth
   // for governance. The Brain index only ever contains APPROVED knowledge:
@@ -816,4 +845,17 @@ export default defineSchema({
   })
     .index("by_source", ["sourceId"])
     .index("by_at", ["at"]),
+
+  // ─── Learning loop: distilled human-feedback digests injected into agents ───
+  // Written by the scheduled summarization action (convex/ai/learning.ts). The
+  // newest row per kind is the active digest; older rows are kept as an audit
+  // trail of exactly what the system "learned" and when.
+  learningDigests: defineTable({
+    kind: v.union(v.literal("qa_calibration"), v.literal("draft_style")),
+    content: v.string(), // exact prompt block injected into the agent
+    sourceCount: v.number(), // feedback rows that informed this digest
+    feedbackCutoff: v.number(), // newest feedback updatedAt included
+    model: v.string(), // model that produced the digest
+    createdAt: v.number(),
+  }).index("by_kind", ["kind"]),
 });

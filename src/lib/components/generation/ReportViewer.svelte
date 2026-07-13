@@ -16,6 +16,12 @@
     text?: string;
     marks?: Array<{ type: string; attrs?: Record<string, unknown> }>;
   }
+  type QAIssue = string | {
+    text: string;
+    severity: "deduction" | "warning";
+    deduction?: number;
+  };
+
 
   let { content }: { content: string } = $props();
 
@@ -55,7 +61,7 @@
 <!-- ─── QA Scorecard ────────────────────────────────────────────────────────── -->
 {#snippet qaScorecard(data: Record<string, unknown>)}
   {@const overall = data.overall_score as number}
-  {@const sections = data.section_scores as Record<string, { score: number; issues: string[]; strengths: string[] }>}
+  {@const sections = data.section_scores as Record<string, { score: number; issues: QAIssue[]; strengths: string[] }>}
   {@const compliance = data.cra_compliance as Record<string, boolean>}
   {@const gaps = data.gaps_requiring_client_followup as Array<{ section: string; paragraph: number; question: string }>}
   {@const improvements = data.suggested_improvements as string[]}
@@ -105,7 +111,10 @@
             {#if section.issues.length > 0}
               <ul class="mt-1.5 space-y-0.5">
                 {#each section.issues as issue}
-                  <li class="text-xs text-red-600">{issue}</li>
+                  {@const item = typeof issue === "string" ? { text: issue, severity: "deduction" as const } : issue}
+                  <li class={`text-xs ${item.severity === "warning" ? "text-amber-700" : "text-red-600"}`}>
+                    {item.text}{item.deduction ? ` (−${item.deduction})` : ""}
+                  </li>
                 {/each}
               </ul>
             {/if}

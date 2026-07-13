@@ -52,6 +52,32 @@ function reportContent(
   return JSON.stringify({ type: "doc", content });
 }
 
+function legacyRetriedReportContent(): string {
+  const content = JSON.parse(
+    reportContent({
+      s242: "A technological uncertainty remained.",
+      s244: "A controlled experiment was performed.",
+      s246: "The experiment produced new knowledge.",
+    })
+  ).content as Array<Record<string, unknown>>;
+  const line242 = content[0] as { content: Array<{ text: string }> };
+  line242.content[0].text = "Line 242 — Scientific or Technological Uncertainty";
+  content.push(
+    { type: "horizontalRule" },
+    {
+      type: "heading",
+      attrs: { level: 2 },
+      content: [textNode("QA Scorecard")],
+    },
+    {
+      type: "codeBlock",
+      attrs: { language: "json" },
+      content: [textNode('{"overall_score":82}')],
+    }
+  );
+  return JSON.stringify({ type: "doc", content });
+}
+
 function preflightInput(
   overrides: Partial<ExportPreflightInput> = {},
   sections: Partial<Record<SectionKey, string>> = {}
@@ -298,6 +324,20 @@ describe("validateExport", () => {
       label: "Line 242 — uncertainties",
       message: "Line 242 contains an unresolved [GAP: ...] marker.",
     });
+  });
+
+  test("accepts the legacy failed-then-retried report shape without export parser errors", () => {
+    const input = preflightInput({ content: legacyRetriedReportContent() });
+    const canonical = canonicalizeExportPreflight(input);
+
+    expect(canonical.body.diagnostics).toEqual([]);
+    expect(canonical.body.sections.s242.plainText).toBe(
+      "A technological uncertainty remained."
+    );
+    expect(canonical.body.sections.s246.plainText).toBe(
+      "The experiment produced new knowledge."
+    );
+    expect(validateExport(canonical).errors).toEqual([]);
   });
 
   test("counts explicit hard-break nodes toward the fixed form line cap", () => {

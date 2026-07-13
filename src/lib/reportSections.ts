@@ -100,7 +100,9 @@ export function reportSectionKeyForHeading(node: TiptapNode): ReportSectionKey |
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
-  if (/^line 242\s*-\s*scientific\/technological uncertainty$/.test(text)) {
+  if (
+    /^line 242\s*-\s*scientific(?:\/| or )technological uncertainty$/.test(text)
+  ) {
     return "s242";
   }
   if (/^line 244\s*-\s*work performed$/.test(text)) return "s244";
@@ -164,6 +166,17 @@ export function parseCanonicalReport(content: string): CanonicalReportBody {
       highestSectionIndex = Math.max(highestSectionIndex, index);
       current = heading;
       continue;
+    }
+    // Reports generated before QA moved into the side rail stored a trailing
+    // QA Scorecard heading + code block in the editor document. It is metadata,
+    // not Schedule 60 prose, so ignore the entire legacy tail during export.
+    if (
+      current === "s246" &&
+      node.type === "heading" &&
+      /^qa scorecard$/i.test(inlineText(node).text.trim())
+    ) {
+      current = null;
+      break;
     }
     if (node.type === "heading") {
       const level = node.attrs?.level;

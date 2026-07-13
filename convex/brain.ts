@@ -15,6 +15,7 @@ import { components, internal } from "./_generated/api";
 import { brain } from "./ai/brain/rag";
 import { requireBrainConfigured } from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+import { extractPlainText } from "./lib/reportEdits";
 
 // Serial embed queue with backoff — Voyage 429s on parallel bursts (the 10-PD
 // seed lost 7/10 jobs at maxParallelism ∞). Bulk imports (BNH-17's ~500) drain
@@ -195,6 +196,47 @@ export const seedPdPair = internalMutation({
   args: importArgs,
   handler: async (ctx, args) => {
     return await importSource(ctx, args, "cli:seed");
+  },
+});
+
+/**
+ * Learning loop (auto-nomination): when a writer rates a finished report
+ * highly, nominate its text as a PENDING Brain source. The admin still
+ * gatekeeps every entry — this only feeds the existing review queue, it never
+ * ingests. Dedup by content hash makes repeat nominations no-ops.
+ */
+export const nominateFromReport = internalMutation({
+  args: {
+    reportId: v.id("reports"),
+    writerName: v.optional(v.string()),
+    score: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const report = await ctx.db.get(args.reportId);
+    if (!report) return;
+    const project = await ctx.db.get(report.projectId);
+    if (!project) return;
+    const content = extractPlainText(report.content);
+    if (!content.trim()) return;
+    await importSource(
+      ctx,
+      {
+        kind: "pd_pair",
+        title: `${project.title} (writer-rated ${args.score}/100)`,
+        industry: project.industry ?? "general",
+        writerName: args.writerName,
+        // Conservative default weight; the admin reweights on approval.
+        writerTier: 0.4,
+        docType: "pd",
+        fiscalYear: project.fiscalYearEnd
+          ? new Date(project.fiscalYearEnd).getFullYear()
+          : undefined,
+        content,
+        sourceProjectId: report.projectId,
+        // Never auto-approve: the nomination lands in the pending queue.
+      },
+      `auto-nominate:score-${args.score}`
+    );
   },
 });
 

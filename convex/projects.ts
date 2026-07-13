@@ -1,4 +1,4 @@
-import { query, mutation, type MutationCtx } from "./_generated/server";
+import { query, mutation, internalQuery, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import {
@@ -16,6 +16,24 @@ import {
 } from "./lib/teamRoster";
 import { domainError } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+import { canUseIndustry, industrySlug } from "../shared/industries";
+
+async function validatedIndustry(
+  ctx: MutationCtx,
+  value: string | undefined
+): Promise<string | undefined> {
+  const industry = value ? industrySlug(value) : "";
+  if (!industry) return undefined;
+  const existingProject = await ctx.db
+    .query("projects")
+    .withIndex("by_industry", (q) => q.eq("industry", industry))
+    .first();
+  const user = await requireCurrentUser(ctx);
+  if (!canUseIndustry(user.role, industry, Boolean(existingProject))) {
+    domainError("NOT_AUTHORIZED", "Only admins can add a new industry");
+  }
+  return industry;
+}
 async function validateProjectTagIds(
   ctx: MutationCtx,
   tagIds: Id<"tags">[]
@@ -91,8 +109,9 @@ export const updateProjectIndustry = mutation({
   },
   handler: async (ctx, args) => {
     await requireInternalProjectAccess(ctx, args.projectId);
+    const industry = await validatedIndustry(ctx, args.industry);
     await ctx.db.patch(args.projectId, {
-      industry: args.industry,
+      industry,
       updatedAt: Date.now(),
     });
   },
@@ -176,6 +195,34 @@ export const getProjectByShareToken = query({
   },
 });
 
+export const getScienceCodeSuggestionContext = internalQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const access = await getInternalProjectAccessOrNull(ctx, args.projectId);
+    if (!access) return null;
+
+    const [transcript, report] = await Promise.all([
+      ctx.db
+        .query("transcripts")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+        .first(),
+      ctx.db
+        .query("reports")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+        .order("desc")
+        .first(),
+    ]);
+
+    return {
+      title: access.project.title,
+      sredTitle: access.project.sredTitle,
+      industry: access.project.industry,
+      transcript: transcript?.content,
+      report: report?.content,
+    };
+  },
+});
+
 export const createProject = mutation({
   args: {
     title: v.string(),
@@ -211,6 +258,7 @@ export const createProject = mutation({
     if (args.scienceCode?.trim() && !scienceCode) {
       domainError("INVALID_INPUT", "Select a valid CRA science code");
     }
+    const industry = await validatedIndustry(ctx, args.industry);
 
 
     const now = Date.now();
@@ -230,7 +278,7 @@ export const createProject = mutation({
       ...(args.interviewees?.length ? { interviewees: args.interviewees } : {}),
       ...(tagIds.length ? { tagIds } : {}),
       ...(args.fiscalYearEnd ? { fiscalYearEnd: args.fiscalYearEnd } : {}),
-      ...(args.industry ? { industry: args.industry } : {}),
+      ...(industry ? { industry } : {}),
       ...(scienceCode ? { scienceCode } : {}),
       ...(args.mode ? { mode: args.mode } : {}),
       status: "draft",

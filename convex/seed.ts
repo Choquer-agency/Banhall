@@ -287,9 +287,9 @@ const ANALYSIS = {
 const QA = {
   overall_score: 88,
   section_scores: {
-    "242": { score: 86, issues: ["Active uncertainty paragraph is long — consider splitting."], strengths: ["Knowledge-gap framing is strong.", "Mandated openers present."] },
+    "242": { score: 86, issues: [{ text: "Active uncertainty paragraph is long — consider splitting.", severity: "warning" }], strengths: ["Knowledge-gap framing is strong.", "Mandated openers present."] },
     "244": { score: 90, issues: [], strengths: ["Clear experimental arc with failure-driven iteration.", "Measurable hypothesis."] },
-    "246": { score: 88, issues: ["Quantify the lighting-transition instability if data exists."], strengths: ["Knowledge-first advancement statements.", "Remaining uncertainty stated honestly."] },
+    "246": { score: 88, issues: [{ text: "Quantify the lighting-transition instability if data exists.", severity: "deduction", deduction: 2 }], strengths: ["Knowledge-first advancement statements.", "Remaining uncertainty stated honestly."] },
   },
   cra_compliance: {
     verbiage_present: true,

@@ -11,9 +11,11 @@
   let {
     projectId,
     industry,
+    canCreate = false,
   }: {
     projectId: Id<"projects">;
     industry: string | null;
+    canCreate?: boolean;
   } = $props();
 
   const update = useMutation(api.projects.updateProjectIndustry);
@@ -34,6 +36,7 @@
     value={industry ?? ""}
     size="sm"
     disabled={saving}
+    {canCreate}
     class="max-w-[220px]"
     onValueChange={save}
   />

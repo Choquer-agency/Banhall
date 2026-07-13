@@ -66,6 +66,62 @@ function wrappedLineCount(line: string, width = CHARS_PER_LINE): number {
   return lines;
 }
 
+export function overflowStartOffset(
+  text: string,
+  section: SectionKey
+): number | null {
+  const lineLimit = LINE_LIMITS[section];
+  const wordCap = WORD_CAPS[section];
+  let consumedLines = 0;
+  let words = 0;
+  let lineStart = 0;
+  const physicalLines = text.match(/.*(?:\r\n|\r|\n|$)/g) ?? [];
+
+  for (const physicalLine of physicalLines) {
+    if (!physicalLine) continue;
+    const newline = physicalLine.match(/\r\n$|\r$|\n$/)?.[0] ?? "";
+    const line = physicalLine.slice(0, physicalLine.length - newline.length);
+
+    if (!line.trim()) {
+      consumedLines += 1;
+      if (consumedLines > lineLimit) return lineStart;
+      lineStart += physicalLine.length;
+      continue;
+    }
+
+    let lineLength = 0;
+    let lineCount = 1;
+    for (const match of line.matchAll(/\S+/g)) {
+      const word = match[0];
+      const wordStart = lineStart + match.index;
+      words += 1;
+      if (words > wordCap) return wordStart;
+
+      if (lineLength > 0 && lineLength + 1 + word.length <= CHARS_PER_LINE) {
+        lineLength += 1 + word.length;
+        continue;
+      }
+      if (lineLength > 0) {
+        lineCount += 1;
+        lineLength = 0;
+        if (consumedLines + lineCount > lineLimit) return wordStart;
+      }
+
+      const extraLines = Math.floor((word.length - 1) / CHARS_PER_LINE);
+      if (consumedLines + lineCount + extraLines > lineLimit) {
+        const available = (lineLimit - consumedLines - lineCount + 1) * CHARS_PER_LINE;
+        return wordStart + Math.max(0, available);
+      }
+      lineCount += extraLines;
+      lineLength = ((word.length - 1) % CHARS_PER_LINE) + 1;
+    }
+    consumedLines += lineCount;
+    if (consumedLines > lineLimit) return lineStart;
+    lineStart += physicalLine.length;
+  }
+  return null;
+}
+
 /** Split section text into normalized, non-empty paragraphs. */
 export function toParagraphs(text: string): string[] {
   return text

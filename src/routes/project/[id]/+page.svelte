@@ -51,6 +51,7 @@
     type ExportValidationResult,
   } from "$lib/exportValidation";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
+  import { SINGLE_MODEL_ITEMS, type CandidateModelId } from "../../../../shared/generationModels";
 
   // BNH-10 P2 parallel-run: flip chat to the streaming @convex-dev/agent backend.
   const AGENT_CHAT = PUBLIC_AGENT_CHAT === "1";
@@ -266,35 +267,9 @@
     replaceSession = null;
   }
 
-  /** BNH-47: jump from a QA gap to its paragraph — find the Nth paragraph
-   * after the section's heading in the report JSON, then reuse the AI-ref
-   * highlight (scroll + flash). */
-  function locateGap(gap: { section: string; paragraph: number }) {
-    if (!report || !editorRef) return;
-    try {
-      const doc = JSON.parse(report.content);
-      const nodes: Array<{ type: string; content?: Array<{ text?: string; type: string }> }> =
-        doc.content ?? [];
-      const paras: string[] = [];
-      let inSection = false;
-      for (const node of nodes) {
-        if (node.type === "heading") {
-          const t = (node.content ?? []).map((c) => c.text ?? "").join("");
-          inSection = t.includes(gap.section);
-          continue;
-        }
-        if (!inSection || node.type !== "paragraph") continue;
-        const text = (node.content ?? []).map((c) => c.text ?? "").join("").trim();
-        if (text) paras.push(text);
-      }
-      if (paras.length === 0) return;
-      // QA paragraph numbering can overshoot the final text (the scorer's
-      // count drifts from post-compression paragraphs) — clamp to the section.
-      const target = paras[Math.min(gap.paragraph, paras.length) - 1];
-      editorRef.highlightText([target], target);
-    } catch {
-      /* malformed content — nothing to jump to */
-    }
+  /** Jump to the exact paragraph identified by the QA agent's [P#] marker. */
+  function locateGap(gap: { section: string; paragraph: number | null }) {
+    editorRef?.locateSectionParagraph(gap.section, gap.paragraph);
   }
 
   function handleAskAI(selection: { from: number; to: number; text: string }) {
@@ -457,6 +432,7 @@
   // the items list gates the values. Cast where the mutation needs the union.
   let lengthTarget = $state<string>("standard");
   let candidateMode = $state<"compare" | "single">("compare");
+  let singleModelId = $state<CandidateModelId | "">("");
 
   // BNH-52: a completed test never re-runs silently — confirm modal first,
   // then the mutation is called with force. Prior results stay (report
@@ -487,6 +463,9 @@
         transcriptId: transcript._id,
         lengthTarget: lengthTarget as "concise" | "standard" | "full",
         candidateMode,
+        ...(candidateMode === "single" && singleModelId
+          ? { singleModelId }
+          : {}),
         ...(force ? { confirmRegeneration: true } : {}),
       });
     } catch (error) {
@@ -804,6 +783,7 @@
             <IndustryField
               {projectId}
               industry={project.industry ?? null}
+              canCreate={user?.role === "admin"}
             />
           </div>
           <div>
@@ -960,7 +940,7 @@
     {#if !awaitingSelection && report}
       <div bind:this={workspaceEl} class={`mx-auto flex min-h-0 w-full flex-1 overflow-hidden transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? "max-w-full" : "max-w-[var(--container-shell)]"}`}>
         <div class="min-h-0 flex-1 overflow-y-auto">
-            <div class={`mx-auto transition-[max-width,padding] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? "max-w-full px-4 py-6" : chatOpen || qaOpen ? "max-w-report px-10 py-10" : "max-w-[var(--container-shell)] px-10 py-10"}`}>
+            <div class={`mx-auto transition-[max-width,padding] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? "max-w-full px-7 py-6" : chatOpen || qaOpen ? "max-w-report px-10 py-10" : "max-w-[var(--container-shell)] px-10 py-10"}`}>
               <!-- Project info header -->
               {@render projectMetadata()}
 
@@ -1035,7 +1015,7 @@
              panel stays mounted so chat state survives close/reopen. -->
         {#if report && user}
           <aside
-            class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${chatOpen || qaOpen ? (workspaceMaximized ? "pl-1 pr-2" : "pl-1 pr-6") : ""} ${dragging ? "" : "transition-all duration-[325ms] ease-out"}`}
+            class={`relative flex min-h-0 flex-none flex-col overflow-hidden bg-canvas py-6 ${chatOpen || qaOpen ? (workspaceMaximized ? "pl-1 pr-7" : "pl-1 pr-6") : ""} ${dragging ? "" : "transition-all duration-[325ms] ease-out"}`}
             style={`width: ${chatOpen || qaOpen ? `${chatRatio * 100}%` : "0%"}`}
           >
             <!-- BNH-47: QA review — shared rail card (in flow; exactly one
@@ -1044,6 +1024,7 @@
               <QARailPanel
                 open={qaOpen}
                 onClose={() => (qaOpen = false)}
+                modelName={generation?.selectedModelLabel ?? null}
                 agentOutputs={generation?.agentOutputs}
                 reportContent={report.content}
                 reportId={report._id}
@@ -1383,6 +1364,15 @@
                       </button>
                     {/each}
                   </div>
+                {/if}
+                {#if project.mode !== "review" && candidateMode === "single"}
+                  <SelectInput
+                    size="sm"
+                    bind:value={singleModelId}
+                    items={SINGLE_MODEL_ITEMS}
+                    placeholder="Generation model"
+                    class="w-44"
+                  />
                 {/if}
                 <SelectInput
                   size="sm"

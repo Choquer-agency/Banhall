@@ -11,7 +11,7 @@
     ghost:
       "text-gray-600 hover:text-navy hover:bg-primary-wash focus-visible:ring-primary",
     link:
-      "px-0 py-0 text-navy underline-offset-4 hover:text-primary focus-visible:ring-primary",
+      "p-0! text-primary hover:text-primary-dark focus-visible:ring-primary",
   };
 
   let {

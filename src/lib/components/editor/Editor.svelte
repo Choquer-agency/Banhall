@@ -31,6 +31,7 @@
   import type { Node as PMNode } from "@tiptap/pm/model";
   import { Decoration, DecorationSet } from "@tiptap/pm/view";
   import type { CommentRange, FindReplaceMatch } from "$lib/components/editor/types";
+  import { overflowStartOffset } from "../../../../convex/lib/lineLimits";
   import {
     reportSectionKeyForHeading,
     reportSectionMetrics,
@@ -56,6 +57,13 @@
     ) {
       return "warning";
     }
+    return "ok";
+  }
+
+  /** Per-metric fill state so each bar reports its own limit, not the card's. */
+  function meterState(value: number, cap: number): LimitState {
+    if (value > cap) return "over";
+    if (value >= Math.floor(cap * 0.95)) return "warning";
     return "ok";
   }
 
@@ -299,18 +307,87 @@
     doc: PMNode,
     metrics: ReportSectionMetricMap
   ): Decoration[] {
+    type OverflowSpan = { from: number; to: number; text: string; start: number };
+    type SectionSource = { text: string; spans: OverflowSpan[] };
     const endPositions: Partial<Record<ReportSectionKey, number>> = {};
+    const sectionSources: Partial<Record<ReportSectionKey, SectionSource>> = {};
     let currentSection: ReportSectionKey | null = null;
+    let reachedQaTail = false;
 
     doc.forEach((node, offset) => {
+      if (reachedQaTail) return;
       const heading = reportSectionKeyForHeading(node.toJSON());
       if (heading) {
         currentSection = heading;
         endPositions[heading] = offset + node.nodeSize;
+        sectionSources[heading] = { text: "", spans: [] };
+        return;
+      }
+      if (
+        currentSection === "s246" &&
+        node.type.name === "heading" &&
+        /^qa scorecard$/i.test(node.textContent.trim())
+      ) {
+        reachedQaTail = true;
+        currentSection = null;
         return;
       }
       if (currentSection && node.type.name !== "horizontalRule") {
         endPositions[currentSection] = offset + node.nodeSize;
+      }
+      if (
+        !currentSection ||
+        node.type.name === "heading" ||
+        node.type.name === "horizontalRule" ||
+        node.type.name !== "paragraph"
+      ) {
+        return;
+      }
+
+      const section = currentSection;
+      const source = sectionSources[section];
+      if (!source) return;
+      const units: Array<{ text: string; from?: number; to?: number }> = [];
+      node.descendants((child, childOffset) => {
+        if (child.isText && child.text) {
+          units.push({
+            text: child.text,
+            from: offset + 1 + childOffset,
+            to: offset + 1 + childOffset + child.text.length,
+          });
+        } else if (child.type.name === "hardBreak") {
+          units.push({ text: "\n" });
+        }
+      });
+
+      const rawText = units.map(({ text }) => text).join("");
+      const leading = rawText.match(/^[^\S\n]+/)?.[0].length ?? 0;
+      const trailing = rawText.match(/[^\S\n]+$/)?.[0].length ?? 0;
+      const contentEnd = rawText.length - trailing;
+      if (leading >= contentEnd) return;
+
+      if (source.text) source.text += "\n\n";
+      const paragraphStart = source.text.length;
+      source.text += rawText.slice(leading, contentEnd);
+      let rawOffset = 0;
+      for (const unit of units) {
+        const unitStart = rawOffset;
+        const unitEnd = rawOffset + unit.text.length;
+        const overlapStart = Math.max(unitStart, leading);
+        const overlapEnd = Math.min(unitEnd, contentEnd);
+        if (
+          unit.from !== undefined &&
+          unit.to !== undefined &&
+          overlapStart < overlapEnd
+        ) {
+          source.spans.push({
+            from: unit.from + overlapStart - unitStart,
+            to: unit.to - (unitEnd - overlapEnd),
+            text: unit.text.slice(overlapStart - unitStart, overlapEnd - unitStart),
+            start: paragraphStart + overlapStart - leading,
+          });
+        }
+        rawOffset = unitEnd;
       }
     });
 
@@ -320,6 +397,24 @@
       if (position === undefined) continue;
       const metric = metrics[key];
       const state = limitState(metric);
+      if (state === "over") {
+        const source = sectionSources[key];
+        const overflowAt = source ? overflowStartOffset(source.text, key) : null;
+        if (source && overflowAt !== null) {
+          for (const span of source.spans) {
+            const spanEnd = span.start + span.text.length;
+            if (overflowAt < spanEnd) {
+              markers.push(
+                Decoration.inline(
+                  span.from + Math.max(0, overflowAt - span.start),
+                  span.to,
+                  { class: "cra-limit-overflow" }
+                )
+              );
+            }
+          }
+        }
+      }
       markers.push(
         Decoration.widget(
           Math.min(position, doc.content.size),
@@ -329,6 +424,9 @@
             marker.contentEditable = "false";
             marker.dataset.sectionLimitMarker = line;
 
+            const chip = document.createElement("span");
+            chip.className = "cra-section-end__chip";
+
             const label = document.createElement("span");
             label.className = "cra-section-end__label";
             label.textContent = `End of Line ${line}`;
@@ -337,13 +435,14 @@
             count.className = "cra-section-end__count";
             count.textContent = `${metric.lines}/${metric.limit} lines · ${metric.words}/${metric.wordCap} words`;
 
-            marker.append(label, count);
+            chip.append(label, count);
             if (state !== "ok") {
               const warning = document.createElement("span");
               warning.className = "cra-section-end__warning";
-              warning.textContent = state === "over" ? "Limit exceeded" : "Near limit";
-              marker.append(warning);
+              warning.textContent = state === "over" ? "Over limit" : "Near limit";
+              chip.append(warning);
             }
+            marker.append(chip);
             return marker;
           },
           { key: `cra-section-end-${key}`, side: 1 }
@@ -531,7 +630,7 @@
   // BNH-37: canonical Schedule 60 metrics. Recompute only when the ProseMirror
   // document identity changes; selection-only transactions reuse the result.
   let sectionLimitMetrics = $state<ReportSectionMetricMap>(reportSectionMetrics(""));
-  let limitOverlayVisible = $state(false);
+  let limitOverlayVisible = $state(true);
   let lineCount = $state(0);
   let wordCount = $state(0);
   let charCount = $state(0);
@@ -864,6 +963,28 @@
     scrollContainerToPos(target.from, 120);
   }
 
+  /** Locate a section's paragraph using the same non-empty Tiptap paragraph
+   * nodes produced from the QA agent's blank-line-separated input. A null
+   * paragraph targets the section's first paragraph without claiming precision. */
+  export function locateSectionParagraph(section: string, paragraph: number | null) {
+    if (!editor) return;
+    const paras: Range[] = [];
+    let inSection = false;
+    editor.state.doc.forEach((node, offset) => {
+      if (node.type.name === "heading") {
+        inSection = node.textContent.includes(section);
+        return;
+      }
+      if (!inSection || node.type.name !== "paragraph" || !node.textContent.trim()) return;
+      paras.push({ from: offset + 1, to: offset + 1 + node.content.size, text: node.textContent });
+    });
+    if (paras.length === 0) return;
+    const index = paragraph === null ? 0 : Math.min(Math.max(paragraph, 1), paras.length) - 1;
+    const target = paras[index];
+    aiHighlights = [target];
+    scrollContainerToPos(target.from, 120);
+  }
+
   export function clearHighlight() {
     aiHighlights = [];
   }
@@ -931,15 +1052,15 @@
     <EditorContent {editor} />
 
     {#if editable}
-      <div class="mt-5 border-t border-line-soft pt-3 font-sans">
-        <div class="flex flex-wrap items-center justify-between gap-3">
+      <div class="mt-4 border-t border-line-soft pt-2.5 font-sans">
+        <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
           <button
             type="button"
             aria-controls="editor-cra-limits"
             aria-expanded={limitOverlayVisible}
             aria-pressed={limitOverlayVisible}
             onclick={() => (limitOverlayVisible = !limitOverlayVisible)}
-            class={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+            class={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
               limitOverlayVisible
                 ? "border-primary bg-primary-wash text-primary-dark"
                 : "border-line bg-white text-ink-secondary hover:border-primary hover:bg-primary-wash"
@@ -951,43 +1072,48 @@
             </svg>
             {limitOverlayVisible ? "Hide CRA limits" : "Show CRA limits"}
           </button>
-          <span class="text-data text-ink-muted">
-            {lineCount} form lines · {wordCount} report words · {charCount} characters
+          <span class="flex flex-wrap items-center gap-x-1.5 text-[11px] text-ink-muted">
+            <span class="whitespace-nowrap"><strong class="font-medium text-ink-secondary">{lineCount}</strong> form lines</span>
+            <span aria-hidden="true">·</span>
+            <span class="whitespace-nowrap"><strong class="font-medium text-ink-secondary">{wordCount}</strong> words</span>
+            <span aria-hidden="true">·</span>
+            <span class="whitespace-nowrap"><strong class="font-medium text-ink-secondary">{charCount}</strong> characters</span>
           </span>
         </div>
 
         {#if limitOverlayVisible}
-          <div id="editor-cra-limits" class="mt-3 rounded-xl bg-chrome p-3" aria-live="polite">
-            <div class="grid gap-2 sm:grid-cols-3">
-              {#each REPORT_SECTION_DEFINITIONS as { key, line } (key)}
-                {@const metric = sectionLimitMetrics[key]}
-                {@const state = limitState(metric)}
-                <div
-                  class={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
-                    state === "over"
-                      ? "border-red-200 bg-red-50 text-red-800"
-                      : state === "warning"
-                        ? "border-amber-200 bg-gap-bg text-gap-text"
-                        : "border-line bg-white text-ink-secondary"
-                  }`}
-                >
-                  <span class="text-xs font-semibold">Line {line}</span>
-                  <span class="text-data text-right">
-                    <strong>{metric.lines}/{metric.limit}</strong> lines<br />
-                    {metric.words}/{metric.wordCap} words
-                  </span>
-                </div>
-              {/each}
-            </div>
+          <div id="editor-cra-limits" class="mt-2.5 space-y-1.5" aria-live="polite">
+            {#each REPORT_SECTION_DEFINITIONS as { key, line } (key)}
+              {@const metric = sectionLimitMetrics[key]}
+              {@const lines = meterState(metric.lines, metric.limit)}
+              {@const words = meterState(metric.words, metric.wordCap)}
+              <div class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                <span class="w-7 flex-none text-[11px] font-medium tabular-nums text-gray-700">{line}</span>
+                {#each [
+                  { label: "lines", value: metric.lines, cap: metric.limit, s: lines },
+                  { label: "words", value: metric.words, cap: metric.wordCap, s: words },
+                ] as m (m.label)}
+                  <div class="flex min-w-0 flex-1 basis-36 items-center gap-2 not-last:mr-4">
+                    <div class="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-gray-200">
+                      <div
+                        class={`h-full rounded-full transition-[width] duration-300 ${m.s === "over" ? "bg-red-500" : m.s === "warning" ? "bg-amber-500" : "bg-primary"}`}
+                        style={`width: ${Math.min(100, (m.value / m.cap) * 100)}%`}
+                      ></div>
+                    </div>
+                    <span class={`flex-none whitespace-nowrap text-[11px] tabular-nums ${m.s === "over" ? "font-medium text-red-700" : m.s === "warning" ? "font-medium text-amber-600" : "text-ink-muted"}`}>
+                      {m.value}/{m.cap} {m.label}
+                    </span>
+                  </div>
+                {/each}
+              </div>
+            {/each}
 
+            <!-- Full sentences stay for screen readers; the cards carry the visual state -->
             {#each REPORT_SECTION_DEFINITIONS as { key, line } (key)}
               {@const metric = sectionLimitMetrics[key]}
               {@const state = limitState(metric)}
               {#if state !== "ok"}
-                <p
-                  class={`mt-2 text-xs font-medium ${state === "over" ? "text-red-700" : "text-gap-text"}`}
-                  role={state === "over" ? "alert" : "status"}
-                >
+                <p class="sr-only" role={state === "over" ? "alert" : "status"}>
                   {limitWarning(line, metric)}
                 </p>
               {/if}
@@ -1000,44 +1126,76 @@
 {/if}
 
 <style>
+  /* End-of-section marker: a centered divider caption — reads as "the form
+     field ends here", with the counts as quiet metadata inside the chip. */
   :global(.cra-section-end) {
     display: flex;
     align-items: center;
-    gap: 0.625rem;
-    margin: 0.75rem 0 1.5rem;
-    padding-top: 0.5rem;
-    border-top: 1px dashed var(--color-line);
-    color: var(--color-ink-muted);
+    gap: 0.75rem;
+    margin: 1rem 0 1.5rem;
     font-family: var(--font-sans);
     font-size: 0.6875rem;
-    line-height: 1.4;
+    line-height: 1;
     pointer-events: none;
     user-select: none;
   }
 
+  :global(.cra-section-end)::before,
+  :global(.cra-section-end)::after {
+    content: "";
+    height: 1px;
+    flex: 1;
+    background: var(--color-line);
+  }
+
+  :global(.cra-section-end__chip) {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3125rem 0.625rem;
+    border: 1px solid var(--color-line);
+    border-radius: 9999px;
+    background: var(--color-gray-50);
+    color: var(--color-ink-muted);
+    white-space: nowrap;
+  }
+
   :global(.cra-section-end__label) {
-    color: var(--color-primary-dark);
-    font-weight: 700;
+    color: var(--color-ink-secondary);
+    font-weight: 500;
   }
 
   :global(.cra-section-end__count) {
-    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
 
   :global(.cra-section-end__warning) {
-    margin-left: auto;
-    font-weight: 700;
+    font-weight: 500;
   }
 
-  :global(.cra-section-end--warning),
+  :global(.cra-section-end--warning .cra-section-end__chip) {
+    border-color: #FDE68A;
+    background: var(--color-gap-bg);
+    color: var(--color-gap-text);
+  }
   :global(.cra-section-end--warning .cra-section-end__label) {
     color: var(--color-gap-text);
   }
+  :global(.cra-section-end--warning)::before,
+  :global(.cra-section-end--warning)::after {
+    background: #FDE68A;
+  }
 
-  :global(.cra-section-end--over),
+  :global(.cra-section-end--over .cra-section-end__chip) {
+    border-color: #fecaca;
+    background: var(--color-red-50);
+    color: #b91c1c;
+  }
   :global(.cra-section-end--over .cra-section-end__label) {
     color: #b91c1c;
-    border-top-color: #fecaca;
+  }
+  :global(.cra-section-end--over)::before,
+  :global(.cra-section-end--over)::after {
+    background: #fecaca;
   }
 </style>

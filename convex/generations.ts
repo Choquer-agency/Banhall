@@ -17,13 +17,15 @@ import {
 import { domainError, sha256 } from "./lib/contracts";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+import { CANDIDATE_MODELS, type CandidateModelId } from "../shared/generationModels";
 /**
  * Requires internal project access. Strips internal agentOutputs.
  */
 export const getLatestGeneration = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    if (!(await getInternalProjectAccessOrNull(ctx, args.projectId))) return null;
+    const access = await getInternalProjectAccessOrNull(ctx, args.projectId);
+    if (!access) return null;
 
     const generation = await ctx.db
       .query("generations")
@@ -31,7 +33,20 @@ export const getLatestGeneration = query({
       .order("desc")
       .first();
     if (!generation) return null;
+    // Which model's draft the writer chose — admin-only so the A/B test stays
+    // blind for writers even after selection.
+    let selectedModelLabel: string | null = null;
+    if (access.user.role === "admin") {
+      const selection = await ctx.db
+        .query("modelSelections")
+        .withIndex("by_projectId_and_generationId", (q) =>
+          q.eq("projectId", args.projectId).eq("generationId", generation._id)
+        )
+        .first();
+      selectedModelLabel = selection?.label ?? null;
+    }
     return {
+      selectedModelLabel,
       _id: generation._id,
       projectId: generation.projectId,
       transcriptId: generation.transcriptId,
@@ -117,9 +132,27 @@ const candidateModeValidator = v.union(
   v.literal("compare"),
   v.literal("single")
 );
+const singleModelIdValidator = v.string();
 
 type CandidateMode = "compare" | "single";
-
+function validatedSingleModelId(
+  candidateMode: CandidateMode,
+  singleModelId: string | undefined
+): CandidateModelId | undefined {
+  if (candidateMode !== "single" || !singleModelId) return undefined;
+  const selected = CANDIDATE_MODELS.find((model) => model.id === singleModelId);
+  if (!selected) {
+    domainError("INVALID_INPUT", "Select a supported generation model");
+  }
+  return selected.id;
+}
+function persistedSingleModelId(
+  candidateMode: CandidateMode,
+  singleModelId: string | undefined
+): CandidateModelId | undefined {
+  if (candidateMode !== "single") return undefined;
+  return CANDIDATE_MODELS.find((model) => model.id === singleModelId)?.id;
+}
 async function reserveGeneration(
   ctx: MutationCtx,
   project: Doc<"projects">,
@@ -127,6 +160,7 @@ async function reserveGeneration(
   requestedBy: Id<"users">,
   lengthTarget: "concise" | "standard" | "full",
   candidateMode: CandidateMode,
+  singleModelId?: CandidateModelId,
   retryOfGenerationId?: Id<"generations">
 ) {
   if (transcript.projectId !== project._id) {
@@ -178,6 +212,7 @@ async function reserveGeneration(
     requestedBy,
     lengthTarget,
     candidateMode,
+    singleModelId,
     retryOfGenerationId,
     previousProjectStatus: project.status,
     currentStep: "Queued",
@@ -239,6 +274,7 @@ export const requestGeneration = mutation({
     transcriptId: v.id("transcripts"),
     lengthTarget: v.optional(lengthTargetValidator),
     candidateMode: v.optional(candidateModeValidator),
+    singleModelId: v.optional(singleModelIdValidator),
     confirmRegeneration: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -256,13 +292,15 @@ export const requestGeneration = mutation({
         "Regenerating a project with an existing report requires explicit confirmation"
       );
     }
+    const candidateMode = args.candidateMode ?? "compare";
     return await reserveGeneration(
       ctx,
       project,
       transcript,
       user._id,
       args.lengthTarget ?? "standard",
-      args.candidateMode ?? "compare"
+      candidateMode,
+      validatedSingleModelId(candidateMode, args.singleModelId)
     );
   },
 });
@@ -286,6 +324,7 @@ export const retryGeneration = mutation({
       user._id,
       failed.lengthTarget ?? "standard",
       failed.candidateMode ?? "compare",
+      persistedSingleModelId(failed.candidateMode ?? "compare", failed.singleModelId),
       failed._id
     );
   },
@@ -335,6 +374,7 @@ export const getGenerationInput = internalQuery({
       title: project.title,
       lengthTarget: generation.lengthTarget ?? "standard",
       candidateMode: generation.candidateMode ?? "compare",
+      singleModelId: generation.singleModelId as CandidateModelId | undefined,
       industry: project.industry,
       scienceCode: project.scienceCode,
       contextDocs: sources
@@ -825,14 +865,16 @@ function parseCandidateMetrics(value: unknown) {
   };
 }
 
-/** Candidate drafts for one explicitly named generation. Model identity stays
- * server-side until selection so the comparison is actually blind. */
+/** Candidate drafts for one explicitly named generation. Option tabs stay blind;
+ * model identity is returned only to admins (writers stay fully blind). */
 export const getCandidates = query({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return [];
-    if (!(await getInternalProjectAccessOrNull(ctx, generation.projectId))) return [];
+    const access = await getInternalProjectAccessOrNull(ctx, generation.projectId);
+    if (!access) return [];
+    const isAdmin = access.user.role === "admin";
     const candidates = await ctx.db
       .query("reportCandidates")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
@@ -866,6 +908,8 @@ export const getCandidates = query({
         qaScore,
         metrics,
         qa,
+        model: isAdmin ? candidate.model : null,
+        label: isAdmin ? candidate.label : null,
       };
     });
   },
@@ -925,6 +969,7 @@ export const selectReportCandidate = mutation({
       projectId: candidate.projectId,
       generationId: generation._id,
       userId: user._id,
+      candidateId: candidate._id,
       model: candidate.model,
       label: candidate.label,
       createdAt: now,
@@ -986,12 +1031,14 @@ export const scoreCandidate = mutation({
     candidateId: v.id("reportCandidates"),
     score: v.number(),
     optionPosition: v.number(),
+    comment: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireCurrentUser(ctx);
     if (!Number.isInteger(args.score) || args.score < 1 || args.score > 10) {
       throw new Error("Score must be a whole number from 1 to 10");
     }
+    const comment = args.comment?.trim();
 
     const candidate = await ctx.db.get(args.candidateId);
     if (!candidate) throw new Error("Candidate not found");
@@ -1017,6 +1064,16 @@ export const scoreCandidate = mutation({
     }
 
     const now = Date.now();
+    // Learning loop: refresh the draft style digest after scoring settles. The
+    // delay coalesces a selection session's worth of scores; the action no-ops
+    // when the active digest already covers the newest feedback.
+    if (comment) {
+      await ctx.scheduler.runAfter(
+        10 * 60 * 1000,
+        internal.ai.learning.generateDraftStyleDigest,
+        {}
+      );
+    }
     const existing = await ctx.db
       .query("candidateScores")
       .withIndex("by_user_and_candidateId", (q) =>
@@ -1027,6 +1084,7 @@ export const scoreCandidate = mutation({
       await ctx.db.patch(existing._id, {
         score: args.score,
         optionPosition: args.optionPosition,
+        comment: comment || undefined,
         updatedAt: now,
       });
       return;
@@ -1041,6 +1099,7 @@ export const scoreCandidate = mutation({
       ...(qaScore !== undefined ? { qaScore } : {}),
       userId,
       score: args.score,
+      ...(comment ? { comment } : {}),
       createdAt: now,
       updatedAt: now,
     });
@@ -1061,7 +1120,11 @@ export const getMyCandidateScores = query({
       .take(20);
     return scores
       .filter((score) => score.userId === access.user._id)
-      .map((score) => ({ candidateId: score.candidateId, score: score.score }));
+      .map((score) => ({
+        candidateId: score.candidateId,
+        score: score.score,
+        comment: score.comment ?? "",
+      }));
   },
 });
 
@@ -1096,6 +1159,7 @@ export const getCandidateScoreSummary = query({
           model: score.model,
           label: score.label,
           score: score.score,
+          comment: score.comment ?? "",
           qaScore: score.qaScore ?? null,
           chosen: score.model === chosenModel,
         })),

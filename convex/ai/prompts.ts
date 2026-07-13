@@ -123,6 +123,9 @@ BANNED WORDS AND PHRASES — never use ANY of these:
 - "leveraging", "harnessing", "revolutionizing", "spearheading", "delving into"
 - "pivotal", "seamless", "novel", "pioneering", "revolutionary"
 
+PUNCTUATION:
+- Never use em dashes (—) or spaced hyphens ( - ) as sentence connectors; they read as AI-generated. Use a comma, a period, or restructure the sentence.
+
 REPETITION CONTROL:
 - "systematic investigation" may appear a maximum of 3 times across the ENTIRE report (all sections combined). After that, use: "the experimental work", "this investigation", "the planned approach", "the company's testing", or restructure.
 - "technological uncertainty" may appear a maximum of 4 times across the entire report. After that, use: "the uncertainty regarding", "this open question", "it remained uncertain whether", "the unresolved challenge of", or restructure.
@@ -413,6 +416,12 @@ Score each section (0-100) and the overall report based on:
 - Below 70 means the draft is not useful as a starting point.
 - Be honest with scores. Do not inflate. A mediocre draft scored at 85 is more harmful than a mediocre draft scored at 65, because the writer will trust it more and miss issues.
 
+QA ITEM CATEGORIES:
+- Every section_scores issue is an object with text, severity, and optional deduction.
+- Use severity "deduction" only for a substantive defect that reduced the section score. Include the exact positive deduction amount.
+- Use severity "warning" for neutral formatting or stylistic observations worth noting but not scoring, such as two acceptable paragraphs being merged. Warnings MUST have no deduction and MUST NOT lower section or overall scores.
+- Each section in the review input is annotated with [P1], [P2], and so on. Numbering restarts at P1 for each section. These markers correspond exactly to the report editor's non-empty paragraph blocks; the section heading is excluded. For a paragraph-specific issue, copy the positive integer from that paragraph's [P#] marker. For a genuinely section-wide issue with no single affected paragraph, set paragraph to null. Never invent or infer a paragraph number that is not shown.
+
 CRITICAL — NO DOUBLE PENALIZING:
 - Each issue should be penalized ONCE. If a paragraph has a knowledge-vs-capability issue, deduct points for that issue only — do not also deduct for "CRA keyword visibility" if the paragraph otherwise uses correct CRA language.
 - If a paragraph uses a qualifying CRA opener (from the list above) but has a minor phrasing issue later in the paragraph, do NOT deduct for the opener check.
@@ -425,9 +434,9 @@ Respond with ONLY valid JSON:
 {
   "overall_score": <number 0-100>,
   "section_scores": {
-    "242": { "score": <number>, "issues": ["string"], "strengths": ["string"] },
-    "244": { "score": <number>, "issues": ["string"], "strengths": ["string"] },
-    "246": { "score": <number>, "issues": ["string"], "strengths": ["string"] }
+    "242": { "score": <number>, "issues": [{ "text": "string", "severity": "deduction|warning", "deduction": <number when deducted>, "paragraph": <1-based [P#] number or null> }], "strengths": ["string"] },
+    "244": { "score": <number>, "issues": [{ "text": "string", "severity": "deduction|warning", "deduction": <number when deducted>, "paragraph": <1-based [P#] number or null> }], "strengths": ["string"] },
+    "246": { "score": <number>, "issues": [{ "text": "string", "severity": "deduction|warning", "deduction": <number when deducted>, "paragraph": <1-based [P#] number or null> }], "strengths": ["string"] }
   },
   "cra_compliance": {
     "verbiage_present": <boolean>,

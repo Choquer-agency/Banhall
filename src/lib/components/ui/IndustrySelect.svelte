@@ -1,11 +1,11 @@
 <!--
   BNH-10 shared industry select. One source of truth for industry options
-  everywhere (project creation, project page, dashboard filter): the base Brain
-  namespaces plus every custom industry already saved on a project.
+  everywhere (project creation, project page, dashboard filter): the three base
+  industries plus legacy custom values already saved on projects.
 
-  variant "picker"  — for setting a project's industry ("" = not set); typing a
-                      new value offers an "Add …" row (creatable).
-  variant "filter"  — for filtering lists ("all" = no filter); not creatable.
+  variant "picker"  — for setting a project's industry ("" = not set).
+                      Admins may type and add a new industry; other roles select only.
+  variant "filter"  — for filtering lists ("all" = no filter); never creatable.
 
   Values are kebab-case slugs (must match the Brain namespace strings —
   docs/the-brain.md); labels are the humanized form.
@@ -15,7 +15,7 @@
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
   import { api } from "../../../../convex/_generated/api";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
-  import { BASE_INDUSTRIES, industryLabel, industrySlug } from "$lib/industries";
+  import { BASE_INDUSTRY_SLUGS, BASE_INDUSTRIES, industryLabel, industrySlug } from "$lib/industries";
 
   let {
     value = $bindable(""),
@@ -24,6 +24,7 @@
     size = "md",
     disabled = false,
     class: className = "",
+    canCreate = false,
     onValueChange,
   }: {
     value?: string;
@@ -32,12 +33,12 @@
     size?: "md" | "sm";
     disabled?: boolean;
     class?: string;
+    canCreate?: boolean;
     onValueChange?: (value: string) => void;
   } = $props();
 
   const auth = useAuth();
-  // Distinct industries already saved on projects, so ad-hoc ones typed by one
-  // writer become options for everyone.
+  // Legacy/custom industries remain selectable once an admin has saved them.
   const industriesQ = useQuery(api.projects.listIndustries, () =>
     auth.isAuthenticated ? {} : "skip"
   );
@@ -46,7 +47,7 @@
 
   const customIndustries = $derived(
     [...new Set([...(industriesQ.data ?? []), ...sessionIndustries])]
-      .filter((slug) => !BASE_INDUSTRIES.some((b) => b.value === slug))
+      .filter((slug) => !BASE_INDUSTRY_SLUGS.has(slug))
       .sort()
   );
 
@@ -79,5 +80,5 @@
   class={className}
   placeholder="Not set (all industries)"
   {onValueChange}
-  onCreate={variant === "picker" ? addIndustry : undefined}
+  onCreate={variant === "picker" && canCreate ? addIndustry : undefined}
 />

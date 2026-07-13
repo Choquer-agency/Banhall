@@ -21,6 +21,10 @@ export default defineConfig({
           filename.split(/[/\\]/).includes("node_modules") ? undefined : true,
       },
       adapter: adapter(),
+      // Detect new deployments: clients poll for a new build and beforeNavigate
+      // (root layout) turns the next client-side nav into a full reload, so old
+      // tabs never request hashed chunks Vercel has already dropped.
+      version: { pollInterval: 60_000 },
     }),
   ],
 });

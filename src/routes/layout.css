@@ -22,7 +22,7 @@
 
   /* Report gap highlight (BNH editor) */
   --color-gap-bg: #FEF3C7;
-  --color-gap-text: #92400E;
+  --color-gap-text: #A8500F;
 
   /* Neutral ramp — teal-cast grays. The gray scale is REMAPPED app-wide:
      900/800 ink · 700/600 secondary · 500 muted · 400 faint/placeholder ·
@@ -51,7 +51,7 @@
 
   /* Shared app shell width: AppNav, PageBar, dashboard, project creation, and
      non-maximized report workspaces use this same horizontal cap. */
-  --container-shell: 70rem; /* 1120px */
+  --container-shell: 72rem; /* 1152px */
 
   /* Report column width — ONE knob for everywhere a report renders
      (workspace editor, candidate preview, version history). max-w-report. */
@@ -400,7 +400,7 @@ select:focus {
 /* GAP markers rendered with highlight color */
 .tiptap-editor mark[data-color="#FEF3C7"] {
   background-color: #FEF3C7;
-  color: #92400E;
+  color: #A8500F;
   font-family: "DM Sans", system-ui, sans-serif;
   font-size: 0.8125rem;
   font-weight: 500;
@@ -460,6 +460,13 @@ select:focus {
 .comment-highlight--client.comment-highlight--active {
   background-color: #99F6E4;
   border-bottom-color: #0A3A38;
+}
+
+/* CRA limit overflow — visible only while the writer enables the limit overlay. */
+.cra-limit-overflow {
+  background-color: var(--color-red-100);
+  color: var(--color-red-800);
+  border-radius: 2px;
 }
 
 /* BNH-25: AI-referenced passage — scroll-and-highlight from the chat assistant.
