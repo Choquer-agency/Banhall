@@ -18,6 +18,7 @@ import { domainError, sha256 } from "./lib/contracts";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { CANDIDATE_MODELS, type CandidateModelId } from "../shared/generationModels";
+import { findActiveGeneration } from "./lib/activeGeneration";
 /**
  * Requires internal project access. Strips internal agentOutputs.
  */
@@ -180,27 +181,13 @@ async function reserveGeneration(
   }
   requireAnthropicConfigured("generation");
 
-  if (project.activeGenerationId) {
-    const active = await ctx.db.get(project.activeGenerationId);
-    if (
-      active &&
-      (active.status === "reserved" ||
-        active.status === "running" ||
-        active.status === "awaiting_selection")
-    ) {
-      domainError("GENERATION_ACTIVE", "A generation is already active for this project");
-    }
-  }
-  for (const status of ["reserved", "running", "awaiting_selection"] as const) {
-    const legacyActive = await ctx.db
-      .query("generations")
-      .withIndex("by_projectId_and_status", (q) =>
-        q.eq("projectId", project._id).eq("status", status)
-      )
-      .first();
-    if (legacyActive) {
-      domainError("GENERATION_ACTIVE", "A generation is already active for this project");
-    }
+  const active = await findActiveGeneration(ctx, project, [
+    "reserved",
+    "running",
+    "awaiting_selection",
+  ]);
+  if (active) {
+    domainError("GENERATION_ACTIVE", "A generation is already active for this project");
   }
 
   const now = Date.now();

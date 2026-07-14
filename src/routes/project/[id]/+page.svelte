@@ -713,7 +713,7 @@
             Share failed: {shareError}
           </span>
         {/if}
-        <Badge status={project.status} />
+        <Badge status={awaitingSelection ? "awaiting" : project.status} dot />
       {/snippet}
     </AppNav>
 

@@ -17,6 +17,7 @@ import {
 import { domainError } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { canUseIndustry, industrySlug } from "../shared/industries";
+import { findActiveGeneration } from "./lib/activeGeneration";
 
 async function validatedIndustry(
   ctx: MutationCtx,
@@ -52,7 +53,16 @@ export const listProjects = query({
   args: {},
   handler: async (ctx) => {
     await requireCurrentUser(ctx);
-    return await ctx.db.query("projects").order("desc").collect();
+    const projects = await ctx.db.query("projects").order("desc").collect();
+    // Surface "awaiting draft selection" so the dashboard can badge it —
+    // the project itself still reads "generating" until a draft is chosen.
+    return await Promise.all(
+      projects.map(async (project) => ({
+        ...project,
+        awaitingSelection:
+          (await findActiveGeneration(ctx, project, ["awaiting_selection"])) !== null,
+      }))
+    );
   },
 });
 

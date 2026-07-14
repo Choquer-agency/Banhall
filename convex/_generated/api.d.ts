@@ -45,6 +45,7 @@ import type * as financial from "../financial.js";
 import type * as generations from "../generations.js";
 import type * as http from "../http.js";
 import type * as learning from "../learning.js";
+import type * as lib_activeGeneration from "../lib/activeGeneration.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_contracts from "../lib/contracts.js";
 import type * as lib_lineLimits from "../lib/lineLimits.js";
@@ -110,6 +111,7 @@ declare const fullApi: ApiFromModules<{
   generations: typeof generations;
   http: typeof http;
   learning: typeof learning;
+  "lib/activeGeneration": typeof lib_activeGeneration;
   "lib/auth": typeof lib_auth;
   "lib/contracts": typeof lib_contracts;
   "lib/lineLimits": typeof lib_lineLimits;
