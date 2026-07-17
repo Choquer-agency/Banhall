@@ -63,14 +63,21 @@ export function createUIMessages(
   const streamMessages: StreamMessage[] = $derived.by(() => {
     const streams = streamListQ.data?.streams;
     if (!streams || streams.kind !== "list") return [];
-    return sorted(streams.messages) as StreamMessage[];
+    // Snapshot: these rows seed the AI SDK's message assembly, which
+    // structuredClone()s them — convex-svelte's deep $state proxies throw.
+    return sorted($state.snapshot(streams.messages)) as StreamMessage[];
   });
 
   // ── 3. Delta accumulation ──────────────────────────────────────────────────
+  // $state.raw: deltas/messages are replaced wholesale, never mutated in
+  // place, and their contents flow into the AI SDK's readUIMessageStream,
+  // which structuredClone()s the assembled message. Deep $state proxies are
+  // not cloneable — with plain $state every streaming update threw
+  // DataCloneError ("#<Object> could not be cloned") and chat streaming died.
   let currentThreadId: string | undefined = $state(undefined);
-  let cursors: Record<string, number> = $state({});
-  let deltasByStream: Record<string, StreamDelta[]> = $state({});
-  let streaming: UIMessage[] = $state([]);
+  let cursors: Record<string, number> = $state.raw({});
+  let deltasByStream: Record<string, StreamDelta[]> = $state.raw({});
+  let streaming: UIMessage[] = $state.raw([]);
 
   // Reset accumulated state when the thread changes.
   $effect(() => {
@@ -114,7 +121,9 @@ export function createUIMessages(
     const threadId = currentThreadId;
     if (!threadId) return;
     if (streams && streams.kind === "deltas" && streams.deltas.length) {
-      const deltas = streams.deltas as StreamDelta[];
+      // Snapshot: convex-svelte hands us deep $state proxies; the AI SDK
+      // structuredClone()s these parts downstream, and proxies don't clone.
+      const deltas = $state.snapshot(streams.deltas) as StreamDelta[];
       let changed = false;
       const nextBuckets = { ...deltasByStream };
       const nextCursors = { ...cursors };
