@@ -664,13 +664,26 @@
     }
   }
 
+  // Filing-readiness blockers surfaced BEFORE export instead of a raw server
+  // error at authorize time (alerts: EVIDENCE_REQUIRED flag, Jul 17).
+  let readinessBlockers = $state<Array<{ code: string; message: string }>>([]);
+
   async function handleExport() {
     if (!report) return;
     exporting = true;
     exportError = "";
     pendingExport = null;
     exportValidation = null;
+    readinessBlockers = [];
     try {
+      const readiness = await convex.query(api.projects.getProjectReadiness, {
+        projectId,
+        reportId: report._id,
+      });
+      if (readiness && !readiness.ready) {
+        readinessBlockers = readiness.blockers;
+        return;
+      }
       const flushedRevision = await flushEditor();
       const preflight = await convex.query(api.reports.preflightExport, {
         reportId: report._id,
@@ -1414,6 +1427,42 @@
     {#if exportError}
       <div class="fixed bottom-5 left-1/2 z-[110] -translate-x-1/2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-lg" role="alert">
         Export failed: {exportError}
+      </div>
+    {/if}
+
+    <!-- Filing-readiness blockers: caught pre-export with a path to fix -->
+    {#if readinessBlockers.length}
+      <div class="fixed inset-0 z-[110] flex items-center justify-center bg-navy/30 px-4" role="dialog" aria-modal="true" aria-labelledby="readiness-blockers-title">
+        <div class="card w-full max-w-md p-6 shadow-xl">
+          <h3 id="readiness-blockers-title" class="text-base font-semibold text-gray-900">
+            Not ready to export yet
+          </h3>
+          <p class="mt-1.5 text-sm leading-relaxed text-gray-600">
+            The official export needs filing evidence in place first:
+          </p>
+          <ul class="mt-3 flex flex-col gap-2">
+            {#each readinessBlockers as blocker (blocker.code)}
+              <li class="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                <svg class="mt-0.5 h-4 w-4 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                {blocker.message}
+              </li>
+            {/each}
+          </ul>
+          <p class="mt-3 text-xs text-gray-500">
+            Add and verify evidence in the Filing readiness panel below the report, then export again.
+          </p>
+          <div class="mt-5 flex justify-end">
+            <button
+              type="button"
+              onclick={() => (readinessBlockers = [])}
+              class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
       </div>
     {/if}
 

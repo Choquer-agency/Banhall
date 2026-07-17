@@ -326,8 +326,10 @@
         bind:this={noteEl}
         bind:value={note}
         rows="4"
-        placeholder={modalMode === "manual" && flagType === "feature"
-          ? "What would you like it to do? e.g. “add a button to…”"
+        placeholder={modalMode === "manual"
+          ? flagType === "feature"
+            ? "What would you like it to do? e.g. “add a button to…” (required)"
+            : "What went wrong? What were you trying to do? (required)"
           : "Anything else you want to add? e.g. what you were trying to do…"}
         class="mt-3 w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
       ></textarea>
@@ -346,7 +348,10 @@
         </button>
         <button
           onclick={submit}
-          disabled={sending}
+          disabled={sending || (modalMode === "manual" && !note.trim())}
+          title={modalMode === "manual" && !note.trim()
+            ? "Describe the issue first — breadcrumbs alone rarely explain what went wrong"
+            : undefined}
           class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
         >
           {#if sending}

@@ -176,7 +176,17 @@
   let choosing = $state(false);
 
   // Display candidates in stable model-registry order, labelled by model.
-  const displayed = $derived(candidates ? registryOrder(candidates) : []);
+  // Dedup by _id: a retry racing the subscription briefly delivered the same
+  // candidate row twice, crashing the keyed {#each} (alerts, Jul 10).
+  const displayed = $derived.by(() => {
+    if (!candidates) return [];
+    const seen = new Set<string>();
+    return registryOrder(candidates).filter((c) => {
+      if (seen.has(c._id)) return false;
+      seen.add(c._id);
+      return true;
+    });
+  });
   const pos = $derived(activePos < displayed.length ? activePos : 0);
   const current = $derived(displayed[pos] as Candidate | undefined);
   const currentMetrics = $derived(

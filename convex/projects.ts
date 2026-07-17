@@ -336,9 +336,12 @@ export const copyProjectDocuments = mutation({
       .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
       .collect();
     let copied = 0;
+    // Old doc id → new doc id, so copied identity evidence keeps its
+    // supporting-document link.
+    const docIdMap = new Map<Id<"projectDocuments">, Id<"projectDocuments">>();
     for (const doc of documents) {
       if (doc.archived) continue;
-      await ctx.db.insert("projectDocuments", {
+      const newDocId = await ctx.db.insert("projectDocuments", {
         projectId: args.toProjectId,
         fileName: doc.fileName,
         fileType: doc.fileType,
@@ -349,9 +352,43 @@ export const copyProjectDocuments = mutation({
         uploadedBy: userDisplayLabel(user),
         createdAt: now,
       });
+      docIdMap.set(doc._id, newDocId);
       copied += 1;
     }
-    return { copied };
+
+    // Identity evidence comes along too — it attests the claimant (same
+    // client on a duplicate), and without it every duplicate started
+    // export-blocked on EVIDENCE_REQUIRED (alerts, Jul 17). Verification
+    // status and verifier are preserved; provenance notes the copy.
+    const evidence = await ctx.db
+      .query("projectIdentityEvidence")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
+      .take(250);
+    let evidenceCopied = 0;
+    for (const row of evidence) {
+      const remappedDocId = row.projectDocumentId
+        ? docIdMap.get(row.projectDocumentId)
+        : undefined;
+      // A doc-backed evidence row whose document didn't copy (archived)
+      // can't stand on its own — skip it rather than copy a broken link.
+      if (row.projectDocumentId && !remappedDocId) continue;
+      await ctx.db.insert("projectIdentityEvidence", {
+        projectId: args.toProjectId,
+        subjectName: row.subjectName,
+        relationship: row.relationship,
+        evidenceKind: row.evidenceKind,
+        ...(remappedDocId ? { projectDocumentId: remappedDocId } : {}),
+        sourceDescription: `${row.sourceDescription} (copied from source project)`,
+        status: row.status,
+        ...(row.verifiedBy ? { verifiedBy: row.verifiedBy } : {}),
+        ...(row.verifiedAt ? { verifiedAt: row.verifiedAt } : {}),
+        ...(row.rejectionReason ? { rejectionReason: row.rejectionReason } : {}),
+        createdAt: now,
+        updatedAt: now,
+      });
+      evidenceCopied += 1;
+    }
+    return { copied, evidenceCopied };
   },
 });
 
