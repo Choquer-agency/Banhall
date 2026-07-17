@@ -223,6 +223,9 @@ export default defineSchema({
       v.literal("reserved"),
       v.literal("running"),
       v.literal("awaiting_selection"),
+      // Iterative mode: a section draft is waiting on the writer's
+      // review/approval. Writer thinking time is unbounded — never reaped.
+      v.literal("awaiting_input"),
       v.literal("completed"),
       v.literal("failed")
     ),
@@ -232,9 +235,18 @@ export default defineSchema({
       v.union(v.literal("concise"), v.literal("standard"), v.literal("full"))
     ),
     candidateMode: v.optional(
-      v.union(v.literal("compare"), v.literal("single"))
+      v.union(
+        v.literal("compare"),
+        v.literal("single"),
+        // Section-by-section drafting with writer approval between sections;
+        // a background one-shot "ghost" draft runs for comparison only.
+        v.literal("iterative")
+      )
     ),
     singleModelId: v.optional(v.string()),
+    // Compare mode's persisted model pair (exactly 2 ids). Absent on legacy
+    // rows, which fall back to the full candidate roster.
+    compareModelIds: v.optional(v.array(v.string())),
     retryOfGenerationId: v.optional(v.id("generations")),
     scheduledJobId: v.optional(v.id("_scheduled_functions")),
     previousProjectStatus: v.optional(
@@ -254,6 +266,14 @@ export default defineSchema({
     totalCandidates: v.optional(v.number()),
     candidatesDone: v.optional(v.number()),
     candidatesFailed: v.optional(v.number()),
+    // Post-assembly QA pass (iterative mode): survives panel close/reopen so
+    // the UI can't re-trigger a pass that is already running.
+    postQaStatus: v.optional(
+      v.union(v.literal("running"), v.literal("done"), v.literal("failed"))
+    ),
+    // Overall score from the post-assembly QA pass (one-shot modes carry the
+    // score inside agentOutputs.qa instead).
+    qaScore: v.optional(v.number()),
     // BNH-10 flywheel: which Brain exemplars fed this generation (provenance
     // for usefulness analytics; entryId FKs into the RAG component, sourceId
     // into brainSources). `section` says which consumer used it (analyzer/
@@ -588,6 +608,9 @@ export default defineSchema({
     qaScore: v.optional(v.number()),
     error: v.optional(v.string()),
     scheduledJobId: v.optional(v.id("_scheduled_functions")),
+    // Iterative mode's background one-shot comparison draft. Ghost candidates
+    // are peek-only: never selectable, never used as section context.
+    ghost: v.optional(v.boolean()),
     queuedAt: v.number(),
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
@@ -595,6 +618,47 @@ export default defineSchema({
     .index("by_generationId", ["generationId"])
     .index("by_generationId_and_model", ["generationId", "model"])
     .index("by_status_and_startedAt", ["status", "startedAt"]),
+
+  // ─── Iterative (section-by-section) generation ─────────────────────────────
+  // One row per T661 section per generation. The writer reviews/edits/approves
+  // each drafted section before the next is generated with the approved text
+  // as canonical context. State transitions are fenced like candidate runs.
+  generationSectionRuns: defineTable({
+    generationId: v.id("generations"),
+    projectId: v.id("projects"),
+    section: v.union(v.literal("s242"), v.literal("s244"), v.literal("s246")),
+    status: v.union(
+      v.literal("pending"), // not yet reachable (prior section unapproved)
+      v.literal("queued"), // scheduled for drafting
+      v.literal("running"), // drafting in flight
+      v.literal("awaiting_review"), // draft ready; writer reviewing
+      v.literal("approved"), // writer approved (possibly edited) text
+      v.literal("failed") // drafting failed; writer can regenerate
+    ),
+    draftText: v.optional(v.string()), // what the model produced
+    approvedText: v.optional(v.string()), // what the writer approved
+    qa: v.optional(v.string()), // deterministic QA findings (JSON)
+    metrics: v.optional(v.string()), // sectionMetrics (JSON)
+    model: v.string(),
+    label: v.string(),
+    attempt: v.number(),
+    guidance: v.optional(v.string()), // writer's regeneration guidance
+    error: v.optional(v.string()),
+    queuedAt: v.number(),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_generationId", ["generationId"])
+    .index("by_generationId_and_section", ["generationId", "section"]),
+
+  // Frozen per-generation artifacts for the iterative flow (analysis JSON,
+  // brain-block JSON). Kept out of the live-subscribed generations row so the
+  // hot document stays light.
+  generationArtifacts: defineTable({
+    generationId: v.id("generations"),
+    kind: v.union(v.literal("analysis"), v.literal("brain_blocks")),
+    content: v.string(),
+  }).index("by_generationId_and_kind", ["generationId", "kind"]),
 
   // Immutable source text captured before candidate fan-out.
   generationSources: defineTable({
@@ -850,6 +914,24 @@ export default defineSchema({
   // Written by the scheduled summarization action (convex/ai/learning.ts). The
   // newest row per kind is the active digest; older rows are kept as an audit
   // trail of exactly what the system "learned" and when.
+  // Edit-mining events from section-by-section drafting: what the model
+  // drafted vs what the writer approved (after editing), plus the one-shot
+  // ghost's take on the same section for contrast. Distilled into the
+  // draft_style digest — a continuous learning loop that needs no manual
+  // scoring: every iterative session contributes automatically.
+  sectionEditEvents: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    section: v.union(v.literal("s242"), v.literal("s244"), v.literal("s246")),
+    draftText: v.string(), // model's draft (capped)
+    approvedText: v.string(), // writer-approved text (capped)
+    ghostText: v.optional(v.string()), // one-shot ghost's same section (capped)
+    /** 0..1 — rough share of the draft the writer changed (word-level). */
+    editRatio: v.number(),
+    userId: v.optional(v.id("users")),
+    createdAt: v.number(),
+  }).index("by_generationId", ["generationId"]),
+
   learningDigests: defineTable({
     kind: v.union(v.literal("qa_calibration"), v.literal("draft_style")),
     content: v.string(), // exact prompt block injected into the agent
@@ -857,5 +939,24 @@ export default defineSchema({
     feedbackCutoff: v.number(), // newest feedback updatedAt included
     model: v.string(), // model that produced the digest
     createdAt: v.number(),
-  }).index("by_kind", ["kind"]),
+    // Per-writer flavor Phase B prep: absent = global digest (current
+    // behavior); set = digest distilled from ONE writer's feedback only.
+    // No reads use this yet.
+    userId: v.optional(v.id("users")),
+  })
+    .index("by_kind", ["kind"])
+    .index("by_kind_and_userId", ["kind", "userId"]),
+
+  // ─── Per-writer flavor (Phase A): persistent custom writing instructions ───
+  // One row per user; injected as a bounded, lowest-priority block into the
+  // section-drafting prompts (convex/ai/pipeline.ts). Never overrides CRA
+  // structure, phrasing rules, or length budgets.
+  writerProfiles: defineTable({
+    userId: v.id("users"),
+    customInstructions: v.string(),
+    enabled: v.boolean(),
+    updatedBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_userId", ["userId"]),
 });

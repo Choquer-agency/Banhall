@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { diffWords, proposedTextChanges } from "$lib/diff";
 
@@ -11,6 +12,10 @@
     onReject: () => Promise<void> | void;
     onShowInDoc?: () => void;
     onReviewOneByOne?: () => void;
+    /** Live preview: called with `true` when "Show changes" toggles on so the
+     * page can highlight the affected passages in the real editor, `false`
+     * when toggled off (clear highlights). */
+    onPreviewInDoc?: (on: boolean) => void;
     reviewing?: boolean;
   }
 
@@ -24,6 +29,7 @@
     onReject,
     onShowInDoc,
     onReviewOneByOne,
+    onPreviewInDoc,
     reviewing,
   }: Props = $props();
 
@@ -32,11 +38,34 @@
 
   // Session-local by design: remounting a proposal always returns to neutral.
   let showChanges = $state(false);
+
+  // Real-time preview: a fresh pending proposal renders its diff in the
+  // report immediately — no toggle click needed. The writer can still toggle
+  // it off; applying/rejecting or unmounting always clears the preview.
+  onMount(() => {
+    if (editState === "pending" && onPreviewInDoc) {
+      showChanges = true;
+      onPreviewInDoc(true);
+    }
+    return () => {
+      if (showChanges) onPreviewInDoc?.(false);
+    };
+  });
+  // Applied/rejected → the diff no longer reflects the document; drop it.
+  $effect(() => {
+    if (editState !== "pending" && showChanges) {
+      showChanges = false;
+      onPreviewInDoc?.(false);
+    }
+  });
   const changes = $derived(
     proposedTextChanges(targetText, newText, replacements)
   );
+  // When the preview renders in the real document (onPreviewInDoc), the card
+  // never shows its own inline diff — the report is the diff view.
+  const diffInCard = $derived(showChanges && !onPreviewInDoc);
   const diffGroups = $derived(
-    showChanges
+    diffInCard
       ? changes.map(({ before, after }) => diffWords(before, after))
       : []
   );
@@ -55,6 +84,34 @@
   }
 </script>
 
+{#snippet changesToggle(label: string)}
+  <button
+    type="button"
+    role="switch"
+    aria-checked={showChanges}
+    onclick={() => {
+      showChanges = !showChanges;
+      onPreviewInDoc?.(showChanges);
+    }}
+    class={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+      showChanges ? "bg-primary-wash text-navy" : "text-gray-400 hover:text-gray-600"
+    }`}
+  >
+    <span
+      class={`relative inline-flex h-3.5 w-6 flex-none items-center rounded-full transition-colors ${
+        showChanges ? "bg-primary" : "bg-gray-300"
+      }`}
+    >
+      <span
+        class={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${
+          showChanges ? "translate-x-3" : "translate-x-0.5"
+        }`}
+      ></span>
+    </span>
+    {label}
+  </button>
+{/snippet}
+
 <div class="card mt-2 overflow-hidden shadow-sm">
   <div class="max-h-72 overflow-y-auto px-4 py-3.5">
     {#if replacements && replacements.length > 0}
@@ -64,7 +121,7 @@
         </p>
         {#each changes as change, changeIndex (changeIndex)}
           <div class="rounded-lg bg-gray-50 px-3 py-2">
-            {#if showChanges}
+            {#if diffInCard}
               <p
                 aria-label={`Replacement ${changeIndex + 1} changes`}
                 class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-900"
@@ -89,7 +146,7 @@
           </div>
         {/each}
       </div>
-    {:else if showChanges && changes.length === 1}
+    {:else if diffInCard && changes.length === 1}
       <p
         aria-label="Proposed changes"
         class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-900"
@@ -113,30 +170,12 @@
     {/if}
   </div>
 
-  {#if changes.length > 0}
+  {#if changes.length > 0 && !onPreviewInDoc}
+    <!-- Card-local diff toggle — only when there's no live report preview
+         (e.g. share-link chat); with a preview the toggle lives in the
+         actions row instead of "Show in document". -->
     <div class="flex items-center justify-end border-t border-gray-100 px-3 py-1.5">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={showChanges}
-        onclick={() => (showChanges = !showChanges)}
-        class={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
-          showChanges ? "bg-primary-wash text-navy" : "text-gray-400 hover:text-gray-600"
-        }`}
-      >
-        <span
-          class={`relative inline-flex h-3.5 w-6 flex-none items-center rounded-full transition-colors ${
-            showChanges ? "bg-primary" : "bg-gray-300"
-          }`}
-        >
-          <span
-            class={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${
-              showChanges ? "translate-x-3" : "translate-x-0.5"
-            }`}
-          ></span>
-        </span>
-        Show changes
-      </button>
+      {@render changesToggle("Show changes")}
     </div>
   {/if}
 
@@ -199,7 +238,11 @@
       <span class="text-xs text-gray-400">Rejected</span>
     {/if}
 
-    {#if onShowInDoc}
+    {#if onPreviewInDoc && changes.length > 0}
+      <span class="ml-auto">
+        {@render changesToggle("Show changes")}
+      </span>
+    {:else if onShowInDoc}
       <button
         onclick={onShowInDoc}
         title="Scroll to and highlight this in the document"

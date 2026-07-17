@@ -57,13 +57,13 @@
   </div>
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav breadcrumbs={[{ label: "Writer QA reviews" }]} />
+    <AppNav breadcrumbs={[{ label: "Consultant QA reviews" }]} />
     <PageBar backHref="/dashboard" backLabel="Back" />
 
     <main class="mx-auto w-full max-w-[var(--container-shell)] px-6 pt-12 pb-10">
-      <h1 class="text-display">Writer QA reviews</h1>
+      <h1 class="text-display">Consultant QA reviews</h1>
       <p class="mt-1 text-sm text-gray-500">
-        Human quality scores writers gave generated reports, alongside the AI QA
+        Human quality scores consultants gave generated reports, alongside the AI QA
         score. For your review only — never auto-applied to the brain.
       </p>
 
@@ -72,9 +72,9 @@
           <Spinner />
         </div>
       {:else if data === null}
-        <p class="mt-8 text-sm text-gray-400">Sign in to view writer reviews.</p>
+        <p class="mt-8 text-sm text-gray-400">Sign in to view consultant reviews.</p>
       {:else if data.rows.length === 0 && data.itemRows.length === 0}
-        <p class="mt-8 text-sm text-gray-400">No writer reviews or QA item feedback yet.</p>
+        <p class="mt-8 text-sm text-gray-400">No consultant reviews or QA item feedback yet.</p>
       {:else}
         <!-- Summary -->
         <div class="mt-6 grid grid-cols-3 gap-3">
@@ -83,11 +83,11 @@
             <p class="mt-1 text-2xl font-bold text-navy">{data.total}</p>
           </div>
           <div class="card p-4">
-            <p class="text-label">Avg writer score</p>
+            <p class="text-label">Avg consultant score</p>
             <p class="mt-1 text-2xl font-bold text-navy">{data.avgHuman ?? "—"}</p>
           </div>
           <div class="card p-4">
-            <p class="text-label">Avg gap (writer − AI)</p>
+            <p class="text-label">Avg gap (consultant − AI)</p>
             <p class={`mt-1 text-2xl font-bold ${data.avgGap != null && data.avgGap < 0 ? "text-red-700" : "text-navy"}`}>
               {data.avgGap == null ? "—" : `${data.avgGap > 0 ? "+" : ""}${data.avgGap}`}
             </p>
@@ -101,7 +101,7 @@
             <thead>
               <tr class="text-label border-b border-gray-100 text-left">
                 <th class="px-4 py-2.5 font-medium">Project</th>
-                <th class="px-4 py-2.5 font-medium">Writer</th>
+                <th class="px-4 py-2.5 font-medium">Consultant</th>
                 <th class="px-4 py-2.5 text-center font-medium">Score</th>
                 <th class="px-4 py-2.5 text-center font-medium">AI</th>
                 <th class="px-4 py-2.5 font-medium">Comment</th>
@@ -150,7 +150,7 @@
             <div class="card mt-4 flex items-center justify-center p-8"><Spinner /></div>
           {:else if !activeDigest}
             <div class="card mt-4 p-5 text-sm text-gray-400">
-              Nothing learned yet. Calibration starts once writers have rated enough QA
+              Nothing learned yet. Calibration starts once consultants have rated enough QA
               observations (votes or severity changes).
             </div>
           {:else}
@@ -192,7 +192,7 @@
         <div class="mt-10">
           <h2 class="text-xl font-semibold text-navy">Learned drafting style</h2>
           <p class="mt-1 text-sm text-gray-500">
-            Recurring critiques distilled from writers' blind option scores and comments,
+            Recurring critiques distilled from consultants' blind option scores and comments,
             applied to the section drafting agents on every new generation. CRA structure,
             required phrasing, and banned-word rules always take precedence.
           </p>
@@ -201,7 +201,7 @@
             <div class="card mt-4 flex items-center justify-center p-8"><Spinner /></div>
           {:else if !activeStyle}
             <div class="card mt-4 p-5 text-sm text-gray-400">
-              Nothing learned yet. Style guidance starts once writers have left enough
+              Nothing learned yet. Style guidance starts once consultants have left enough
               comments on candidate drafts.
             </div>
           {:else}
@@ -210,7 +210,7 @@
                 <p class="text-sm font-medium text-gray-800">Active style guidance</p>
                 <p class="text-xs text-gray-400">
                   {digestDate(activeStyle.createdAt)} · from {activeStyle.sourceCount}
-                  writer critique(s)
+                  consultant critique(s)
                 </p>
               </div>
               <pre class="mt-3 text-sm whitespace-pre-wrap text-gray-700">{activeStyle.content}</pre>
@@ -228,7 +228,7 @@
                   {#each styleHistory as digest (digest._id)}
                     <div class="card p-5 opacity-70">
                       <p class="text-xs text-gray-400">
-                        {digestDate(digest.createdAt)} · from {digest.sourceCount} writer critique(s)
+                        {digestDate(digest.createdAt)} · from {digest.sourceCount} consultant critique(s)
                       </p>
                       <pre class="mt-2 text-sm whitespace-pre-wrap text-gray-600">{digest.content}</pre>
                     </div>
@@ -243,7 +243,7 @@
         <div class="mt-10 flex items-end justify-between gap-4">
           <div>
             <h2 class="text-xl font-semibold text-navy">QA item feedback</h2>
-            <p class="mt-1 text-sm text-gray-500">Writer votes and category corrections for individual QA observations.</p>
+            <p class="mt-1 text-sm text-gray-500">Consultant votes and category corrections for individual QA observations.</p>
           </div>
           <span class="text-data text-gray-500">{data.itemRows.length} items</span>
         </div>
@@ -255,7 +255,7 @@
               <thead>
                 <tr class="text-label border-b border-gray-100 text-left">
                   <th class="px-4 py-2.5 font-medium">Project</th>
-                  <th class="px-4 py-2.5 font-medium">Writer</th>
+                  <th class="px-4 py-2.5 font-medium">Consultant</th>
                   <th class="px-4 py-2.5 font-medium">Line</th>
                   <th class="px-4 py-2.5 font-medium">QA observation</th>
                   <th class="px-4 py-2.5 font-medium">Category</th>

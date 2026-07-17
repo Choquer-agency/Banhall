@@ -94,6 +94,32 @@ export const listSnapshots = query({
   },
 });
 
+/** The one-shot ghost draft snapshot for an iterative generation, if any. */
+export const getGhostSnapshot = query({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (
+      !generation ||
+      !(await getInternalProjectAccessOrNull(ctx, generation.projectId))
+    ) {
+      return null;
+    }
+    const snapshots = await ctx.db
+      .query("reportSnapshots")
+      .withIndex("by_projectId", (q) => q.eq("projectId", generation.projectId))
+      .order("desc")
+      .take(200);
+    return (
+      snapshots.find(
+        (s) =>
+          s.generationId === args.generationId &&
+          s.label?.startsWith("One-shot ghost draft")
+      ) ?? null
+    );
+  },
+});
+
 export const getSnapshot = query({
   args: {
     snapshotId: v.id("reportSnapshots"),

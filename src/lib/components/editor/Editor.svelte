@@ -98,7 +98,51 @@
       .replace(/[‘’′´`]/g, "'")
       .replace(/[“”″]/g, '"')
       .replace(/[–—−]/g, "-")
-      .replace(/\s/g, " ");
+      // Collapse whitespace RUNS (incl. paragraph breaks) to one space so a
+      // needle spanning "\n\n" matches doc text where blocks join on one "\n".
+      .replace(/\s+/g, " ");
+  }
+
+  /**
+   * Doc text + aligned position map for searching. Whitespace runs and block
+   * boundaries collapse to a single " " entry, matching normalizeForMatch on
+   * the needle side, so indexes in `hay` always line up with `posMap` —
+   * consecutive empty paragraphs previously desynced the two and highlights
+   * landed on shifted character spans.
+   */
+  function buildSearchIndex(doc: PMNode): { hay: string; posMap: number[] } {
+    const chars: string[] = [];
+    const posMap: number[] = [];
+    let pendingBreak = false;
+    const pushChar = (ch: string, pos: number) => {
+      if (/\s/.test(ch)) {
+        pendingBreak = chars.length > 0;
+        return;
+      }
+      if (pendingBreak) {
+        // Interior separator: matches never start/end on a space (needles are
+        // trimmed), so mapping it to the next real char's pos is safe.
+        chars.push(" ");
+        posMap.push(pos);
+        pendingBreak = false;
+      }
+      chars.push(
+        ch
+          .replace(/[‘’′´`]/, "'")
+          .replace(/[“”″]/, '"')
+          .replace(/[–—−]/, "-")
+      );
+      posMap.push(pos);
+    };
+    doc.descendants((node, pos) => {
+      if (node.isText && node.text) {
+        for (let i = 0; i < node.text.length; i++) pushChar(node.text[i], pos + i);
+      } else if (node.isTextblock && chars.length > 0) {
+        pendingBreak = true;
+      }
+      return true;
+    });
+    return { hay: chars.join(""), posMap };
   }
 
   const SIG_WORD = /[a-z0-9]{4,}/g;
@@ -115,25 +159,13 @@
     const needle = (text ?? "").trim();
     if (!needle || docSize < 2) return [];
 
-    const posMap: number[] = [];
-    doc.descendants((node, pos) => {
-      if (node.isText && node.text) {
-        for (let i = 0; i < node.text.length; i++) posMap.push(pos + i);
-      } else if (node.isBlock && posMap.length > 0) {
-        posMap.push(-1);
-      }
-      return true;
-    });
-
-    const fullText = doc.textBetween(1, docSize, "\n");
-    const normFull = normalizeForMatch(fullText);
+    const { hay, posMap } = buildSearchIndex(doc);
+    const normFull = hay;
 
     const rangeAt = (idx: number, len: number): Range | null => {
       const fromPos = posMap[idx];
       const toPos = posMap[idx + len - 1];
-      if (fromPos === undefined || toPos === undefined || fromPos === -1 || toPos === -1) {
-        return null;
-      }
+      if (fromPos === undefined || toPos === undefined) return null;
       let actual = needle;
       try {
         actual = doc.textBetween(fromPos, toPos + 1, " ");
@@ -154,12 +186,23 @@
     }
     if (out.length > 0) return out;
 
-    // 2) Leading fragment — handles a slightly-off tail on a long quote.
+    // 2) Leading fragment — a slightly-off tail on a long quote (the report
+    // was edited after the AI quoted it). Anchor on the first 60 chars, then
+    // extend the highlight across the shared prefix so the whole still-
+    // matching passage lights up, not just the opening words.
     if (search.length >= 24) {
       const frag = search.slice(0, Math.min(60, search.length));
       const fi = normFull.indexOf(frag);
       if (fi !== -1) {
-        const r = rangeAt(fi, frag.length);
+        let len = frag.length;
+        while (
+          len < search.length &&
+          fi + len < normFull.length &&
+          normFull[fi + len] === search[len]
+        ) {
+          len++;
+        }
+        const r = rangeAt(fi, len);
         if (r) return [r];
       }
     }
@@ -215,17 +258,9 @@
     const needle = (find ?? "").trim();
     if (!needle || docSize < 2) return [];
 
-    const posMap: number[] = [];
-    doc.descendants((node, pos) => {
-      if (node.isText && node.text) {
-        for (let i = 0; i < node.text.length; i++) posMap.push(pos + i);
-      } else if (node.isBlock && posMap.length > 0) {
-        posMap.push(-1);
-      }
-      return true;
-    });
-
-    const hay = normalizeForMatch(doc.textBetween(1, docSize, "\n")).toLowerCase();
+    const index = buildSearchIndex(doc);
+    const hay = index.hay.toLowerCase();
+    const posMap = index.posMap;
     const ned = normalizeForMatch(needle).toLowerCase();
     if (!ned) return [];
 
@@ -433,7 +468,13 @@
 
             const count = document.createElement("span");
             count.className = "cra-section-end__count";
-            count.textContent = `${metric.lines}/${metric.limit} lines · ${metric.words}/${metric.wordCap} words`;
+            // [GAP: …] text is excluded from the CRA counts; surface the
+            // with-gaps figure so writers know what resolving gaps costs.
+            const gapLineSuffix =
+              metric.rawLines !== metric.lines
+                ? ` (+${metric.rawLines - metric.lines} with gaps)`
+                : "";
+            count.textContent = `${metric.lines}/${metric.limit} lines${gapLineSuffix} · ${metric.words}/${metric.wordCap} words`;
 
             chip.append(label, count);
             if (state !== "ok") {
@@ -456,10 +497,53 @@
     doc: PMNode,
     ranges: CommentRange[],
     aiRanges: Range[] = [],
-    sectionLimitMetrics?: ReportSectionMetricMap
+    sectionLimitMetrics?: ReportSectionMetricMap,
+    diffs: DiffPreview[] = []
   ) {
     const decorations: Decoration[] = [];
     const docSize = doc.content.size;
+
+    // Live proposal preview: strike the text being replaced and show the
+    // proposed text inline after it (green), directly in the document.
+    for (const d of diffs) {
+      const matches = findAllOccurrencesCI(doc, d.find);
+      for (const m of matches) {
+        decorations.push(
+          Decoration.inline(m.from, m.to, { class: "proposal-removed" })
+        );
+        if (d.replaceWith.trim()) {
+          const insert = d.replaceWith;
+          // Multi-paragraph replacements render as real paragraphs below the
+          // struck text (one <p> per blank-line-separated block, mirroring
+          // the editor's own paragraph rhythm); short swaps stay inline.
+          const block = /\n/.test(insert) || insert.length > 160;
+          decorations.push(
+            Decoration.widget(
+              m.to,
+              () => {
+                if (!block) {
+                  const el = document.createElement("span");
+                  el.className = "proposal-added";
+                  el.textContent = insert;
+                  return el;
+                }
+                const wrap = document.createElement("div");
+                wrap.className = "proposal-added-paragraphs";
+                for (const para of insert.split(/\n{2,}/)) {
+                  if (!para.trim()) continue;
+                  const p = document.createElement("p");
+                  p.className = "proposal-added";
+                  p.textContent = para.trim();
+                  wrap.appendChild(p);
+                }
+                return wrap;
+              },
+              { side: 1 }
+            )
+          );
+        }
+      }
+    }
 
     // BNH-25: AI-referenced passages — re-resolve by text so they survive drift.
     for (const r of aiRanges) {
@@ -626,6 +710,9 @@
     position: { top: number; left: number };
   }>({ isOpen: false, position: { top: 0, left: 0 } });
   let aiHighlights = $state<Range[]>([]);
+  /** Live "Show changes" preview: find → strikethrough, replaceWith → inline green widget. */
+  type DiffPreview = { find: string; replaceWith: string };
+  let previewDiffs = $state<DiffPreview[]>([]);
 
   // BNH-37: canonical Schedule 60 metrics. Recompute only when the ProseMirror
   // document identity changes; selection-only transactions reuse the result.
@@ -763,13 +850,14 @@
     const ranges = commentRanges;
     const ai = aiHighlights;
     const metrics = limitOverlayVisible ? sectionLimitMetrics : undefined;
+    const diffs = previewDiffs;
     let decoratedDoc: PMNode | null = null;
     let decorations: DecorationSet | null = null;
     ed.view.setProps({
       decorations: (state) => {
         if (state.doc !== decoratedDoc || !decorations) {
           decoratedDoc = state.doc;
-          decorations = buildDecorationSet(state.doc, ranges, ai, metrics);
+          decorations = buildDecorationSet(state.doc, ranges, ai, metrics, diffs);
         }
         return decorations;
       },
@@ -1019,6 +1107,35 @@
     aiHighlights = [{ from, to, text }];
     scrollContainerToPos(from, 120);
   }
+
+  /** Live "Show changes": render a proposal as strikethrough + inline green
+   * insertions in the document itself; scrolls to the first affected match.
+   * Pass [] to clear. */
+  export function previewProposal(pairs: { find: string; replaceWith: string }[]) {
+    if (!editor) return;
+    previewDiffs = pairs.filter((p) => p.find.trim());
+    if (previewDiffs.length === 0) return;
+    const first = findAllOccurrencesCI(editor.state.doc, previewDiffs[0].find)[0];
+    if (first) scrollContainerToPos(first.from, 120);
+  }
+
+  export function clearProposalPreview() {
+    // Re-anchor on the change site before the widgets unmount, so untoggling
+    // returns the writer to the same passage instead of leaving the viewport
+    // wherever the (now shorter) document happens to land.
+    const anchor = previewDiffs[0]?.find;
+    previewDiffs = [];
+    if (editor && anchor) {
+      // Two frames: decorations unmount on the next render; measure after.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (!editor) return;
+          const first = findAllOccurrencesCI(editor.state.doc, anchor)[0];
+          if (first) scrollContainerToPos(first.from, 120);
+        })
+      );
+    }
+  }
 </script>
 
 {#if editor}
@@ -1090,8 +1207,8 @@
               <div class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                 <span class="w-7 flex-none text-[11px] font-medium tabular-nums text-gray-700">{line}</span>
                 {#each [
-                  { label: "lines", value: metric.lines, cap: metric.limit, s: lines },
-                  { label: "words", value: metric.words, cap: metric.wordCap, s: words },
+                  { label: "lines", value: metric.lines, cap: metric.limit, s: lines, raw: metric.rawLines },
+                  { label: "words", value: metric.words, cap: metric.wordCap, s: words, raw: metric.rawWords },
                 ] as m (m.label)}
                   <div class="flex min-w-0 flex-1 basis-36 items-center gap-2 not-last:mr-4">
                     <div class="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-gray-200">
@@ -1101,7 +1218,7 @@
                       ></div>
                     </div>
                     <span class={`flex-none whitespace-nowrap text-[11px] tabular-nums ${m.s === "over" ? "font-medium text-red-700" : m.s === "warning" ? "font-medium text-amber-600" : "text-ink-muted"}`}>
-                      {m.value}/{m.cap} {m.label}
+                      {m.value}/{m.cap} {m.label}{m.raw !== m.value ? ` (+${m.raw - m.value} with gaps)` : ""}
                     </span>
                   </div>
                 {/each}

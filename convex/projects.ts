@@ -61,6 +61,9 @@ export const listProjects = query({
         ...project,
         awaitingSelection:
           (await findActiveGeneration(ctx, project, ["awaiting_selection"])) !== null,
+        // Iterative mode: a section draft is waiting on the writer's review.
+        awaitingInput:
+          (await findActiveGeneration(ctx, project, ["awaiting_input"])) !== null,
       }))
     );
   },
@@ -309,6 +312,48 @@ export const createProject = mutation({
 });
 
 
+
+// Duplicate support: the dashboard "Duplicate" action opens /project/new?from=<id>
+// with the wizard prefilled; on commit the wizard calls this to bring the source
+// project's non-archived documents along. Text content only — the original file
+// bytes stay owned by the source project (sharing a storageId would break
+// downloads if either copy is deleted, since document deletion also deletes its
+// storage object).
+export const copyProjectDocuments = mutation({
+  args: {
+    fromProjectId: v.id("projects"),
+    toProjectId: v.id("projects"),
+  },
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const source = await ctx.db.get(args.fromProjectId);
+    const target = await ctx.db.get(args.toProjectId);
+    if (!source || !target) domainError("NOT_FOUND", "Project not found");
+
+    const now = Date.now();
+    const documents = await ctx.db
+      .query("projectDocuments")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
+      .collect();
+    let copied = 0;
+    for (const doc of documents) {
+      if (doc.archived) continue;
+      await ctx.db.insert("projectDocuments", {
+        projectId: args.toProjectId,
+        fileName: doc.fileName,
+        fileType: doc.fileType,
+        content: doc.content,
+        ...(doc.mimeType ? { mimeType: doc.mimeType } : {}),
+        ...(doc.category ? { category: doc.category } : {}),
+        source: doc.source,
+        uploadedBy: userDisplayLabel(user),
+        createdAt: now,
+      });
+      copied += 1;
+    }
+    return { copied };
+  },
+});
 
 export const publishForReview = mutation({
   args: {

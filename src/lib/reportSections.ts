@@ -1,8 +1,12 @@
 import { z } from "zod";
 import {
+  GAP_MARKER_RE,
   sectionMetrics,
   type SectionMetrics,
 } from "../../convex/lib/lineLimits";
+
+// Non-global copy: GAP_MARKER_RE is /g and .test() on it would be stateful.
+const HAS_GAP_RE = new RegExp(GAP_MARKER_RE.source, "i");
 
 export interface TiptapNode {
   type: string;
@@ -222,7 +226,7 @@ export function parseCanonicalReport(content: string): CanonicalReportBody {
       }
       continue;
     }
-    if (/\[GAP:\s*[^\]]+\]/i.test(text)) {
+    if (HAS_GAP_RE.test(text)) {
       diagnostics.push({
         code: "UNRESOLVED_GAP",
         section: current,

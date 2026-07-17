@@ -40,6 +40,10 @@ describe("Schedule 60 sectionMetrics", () => {
         limit: lineLimit,
         wordCap,
         overLimit: false,
+        // No [GAP: …] markers → raw counts equal the canonical counts.
+        rawLines: lineLimit,
+        rawWords: lineLimit,
+        overLimitWithGaps: false,
       });
       expect(overLimit.lines).toBe(lineLimit + 1);
       expect(overLimit.overLimit).toBe(true);

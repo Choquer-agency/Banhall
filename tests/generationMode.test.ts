@@ -19,6 +19,17 @@ describe("generation candidate mode", () => {
     expect(models[0]?.id).toBe("claude-haiku-4-5-20251001");
   });
 
+  test("iterative mode runs one model with single-mode semantics", () => {
+    expect(candidateModelsForMode("iterative")).toHaveLength(1);
+    expect(candidateModelsForMode("iterative")[0]?.id).toBe(MODEL);
+    const explicit = candidateModelsForMode(
+      "iterative",
+      "claude-haiku-4-5-20251001"
+    );
+    expect(explicit).toHaveLength(1);
+    expect(explicit[0]?.id).toBe("claude-haiku-4-5-20251001");
+  });
+
   test("compare mode schedules every distinct candidate model", () => {
     const models = candidateModelsForMode("compare");
 

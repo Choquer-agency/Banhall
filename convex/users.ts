@@ -1,7 +1,9 @@
-import { query, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { listTeamRoster, userDisplayLabel } from "./lib/teamRoster";
+import { requireRole } from "./lib/auth";
+import { domainError } from "./lib/contracts";
 
 export const getCurrentUser = query({
   args: {},
@@ -31,6 +33,56 @@ export const listTeam = query({
         });
         return byName || a.id.localeCompare(b.id);
       });
+  },
+});
+
+// Admin roster for the Users & roles page.
+export const listUsers = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("users"),
+      name: v.optional(v.string()),
+      email: v.optional(v.string()),
+      role: v.optional(
+        v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))
+      ),
+      createdAt: v.optional(v.number()),
+    })
+  ),
+  handler: async (ctx) => {
+    await requireRole(ctx, ["admin"]);
+    const users = await ctx.db.query("users").take(500);
+    return users.map((user) => ({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      createdAt: user.createdAt,
+    }));
+  },
+});
+
+// Admin-only role assignment from the Users & roles page.
+export const setUserRole = mutation({
+  args: {
+    userId: v.id("users"),
+    role: v.union(
+      v.literal("writer"),
+      v.literal("manager"),
+      v.literal("admin")
+    ),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const caller = await requireRole(ctx, ["admin"]);
+    if (caller._id === args.userId && args.role !== "admin") {
+      domainError("INVALID_INPUT", "You cannot remove your own admin role");
+    }
+    const target = await ctx.db.get(args.userId);
+    if (!target) domainError("NOT_FOUND", "User not found");
+    await ctx.db.patch(args.userId, { role: args.role });
+    return null;
   },
 });
 

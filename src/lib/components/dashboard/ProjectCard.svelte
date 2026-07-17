@@ -1,5 +1,6 @@
 <script lang="ts">
   import { DropdownMenu } from "bits-ui";
+  import { goto } from "$app/navigation";
   import { toast } from "svelte-sonner";
   import Badge from "$lib/components/ui/Badge.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
@@ -29,6 +30,13 @@
       hoverShadow: "hover:shadow-md hover:shadow-blue-100",
     },
     awaiting: {
+      border: "border-purple-200",
+      hoverBorder: "hover:border-purple-300",
+      footerBg: "bg-purple-50/70",
+      footerText: "text-purple-600",
+      hoverShadow: "hover:shadow-md hover:shadow-purple-100",
+    },
+    awaiting_input: {
       border: "border-purple-200",
       hoverBorder: "hover:border-purple-300",
       footerBg: "bg-purple-50/70",
@@ -65,7 +73,7 @@
     project,
     tags = [],
   }: {
-    project: Doc<"projects"> & { awaitingSelection?: boolean };
+    project: Doc<"projects"> & { awaitingSelection?: boolean; awaitingInput?: boolean };
     tags?: ProjectTag[];
   } = $props();
 
@@ -73,9 +81,15 @@
   let confirming = $state(false);
   const deleteProject = useMutation(api.projects.deleteProject);
 
-  // Drafts are ready and waiting on the writer's pick — surface that over
-  // the underlying "generating" status.
-  const displayStatus = $derived(project.awaitingSelection ? "awaiting" : project.status);
+  // Drafts are ready and waiting on the writer's pick (or, in iterative mode,
+  // a section review) — surface that over the underlying "generating" status.
+  const displayStatus = $derived(
+    project.awaitingSelection
+      ? "awaiting"
+      : project.awaitingInput
+        ? "awaiting_input"
+        : project.status
+  );
   const theme = $derived(STATUS_THEME[displayStatus] ?? STATUS_THEME.draft);
 
   const updatedDate = $derived(
@@ -108,6 +122,13 @@
     }
     menuOpen = false;
     confirming = false;
+  }
+
+  // Opens the new-project wizard prefilled from this project (setup,
+  // transcript, and documents come along on commit).
+  function handleDuplicate() {
+    menuOpen = false;
+    goto(`/project/new?from=${project._id}`);
   }
 </script>
 
@@ -166,7 +187,8 @@
   </a>
 
   <!-- Three-dot menu — remains outside the link and appears on hover/focus -->
-  <div class="absolute bottom-2.5 right-3">
+  <!-- Vertically centered against the single-line footer (36px row, 28px button) -->
+  <div class="absolute bottom-1 right-3">
     <DropdownMenu.Root
       bind:open={menuOpen}
       onOpenChange={(o) => {
@@ -201,6 +223,15 @@
             confirming ? "border-red-200 bg-red-50" : "border-gray-200 bg-white"
           }`}
         >
+          <DropdownMenu.Item
+            onSelect={handleDuplicate}
+            class="flex w-full items-center gap-2 whitespace-nowrap px-3 py-2.5 text-left text-sm text-ink-secondary transition-colors hover:bg-primary-wash hover:text-navy"
+          >
+            <svg class="h-3.5 w-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            Duplicate
+          </DropdownMenu.Item>
           <DropdownMenu.Item
             onSelect={handleDelete}
             class={`flex w-full items-center gap-2 whitespace-nowrap px-3 py-2.5 text-left text-sm transition-colors ${

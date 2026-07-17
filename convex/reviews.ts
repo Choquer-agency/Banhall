@@ -7,6 +7,8 @@ import {
   requireInternalProjectAccess,
   requireRole,
 } from "./lib/auth";
+import { domainError } from "./lib/contracts";
+import { canOverrideQaSeverity } from "../shared/roles";
 
 /**
  * BNH-29: the signed-in writer's own QA review for a specific report version.
@@ -188,12 +190,23 @@ export const saveQaItemFeedback = mutation({
       )
       .unique();
     const now = Date.now();
+    // Severity reclassification (deduction ↔ warning) is manager/admin only.
+    // A present key — including an explicit null (clear) — is an override
+    // attempt; a vote/comment-only call omits the key entirely.
+    const wantsOverrideChange = args.overrideSeverity !== undefined;
+    if (wantsOverrideChange && !canOverrideQaSeverity(user.role)) {
+      domainError("NOT_AUTHORIZED", "Only managers can reclassify QA severity");
+    }
     const value = {
       itemKind: args.itemKind,
       section: args.section,
       itemText: args.itemText,
       originalSeverity: args.originalSeverity,
-      overrideSeverity: args.overrideSeverity ?? undefined,
+      // When the caller isn't changing the override, preserve the stored one —
+      // a consultant vote must never erase a manager's reclassification.
+      overrideSeverity: wantsOverrideChange
+        ? (args.overrideSeverity ?? undefined)
+        : (existing?.overrideSeverity ?? undefined),
       vote: args.vote ?? undefined,
       writerName: user.name ?? user.email ?? undefined,
       updatedAt: now,
@@ -242,7 +255,7 @@ export const listWriterReviews = query({
           projectTitle: project?.title ?? "(deleted project)",
           clientName: project?.clientName ?? "",
           reportVersion: review.reportVersion ?? null,
-          writerName: review.writerName ?? "Writer",
+          writerName: review.writerName ?? "Consultant",
           score: review.score,
           aiScore: review.aiScore ?? null,
           comment: review.comment ?? "",
@@ -271,7 +284,7 @@ export const listWriterReviews = query({
         return {
           _id: item._id,
           projectTitle: project?.title ?? "(deleted project)",
-          writerName: item.writerName ?? "Writer",
+          writerName: item.writerName ?? "Consultant",
           section: item.section,
           itemText: item.itemText,
           itemKind: item.itemKind,

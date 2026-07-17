@@ -21,6 +21,8 @@
     candidateId = undefined,
     modelName = null,
     onLocateGap = undefined,
+    onRunQa = undefined,
+    postQaStatus = null,
     footer = undefined,
   }: {
     open: boolean;
@@ -35,6 +37,10 @@
     candidateId?: Id<"reportCandidates">;
     modelName?: string | null;
     onLocateGap?: (gap: { section: string; paragraph: number | null }) => void;
+    /** Iterative reports: trigger the post-assembly QA pass on demand. */
+    onRunQa?: () => Promise<void> | void;
+    /** Server-side pass state — survives closing/reopening this panel. */
+    postQaStatus?: "running" | "done" | "failed" | null;
     /** Pinned below the scorecard scroll area (e.g. the option comment box). */
     footer?: Snippet;
   } = $props();
@@ -69,7 +75,7 @@
   </div>
   <div class="min-h-0 flex-1 overflow-y-auto">
     <div class="px-5 py-5">
-      <QAScorePanel {agentOutputs} {reportContent} {reportId} {candidateId} {rawQa} {onLocateGap} />
+      <QAScorePanel {agentOutputs} {reportContent} {reportId} {candidateId} {rawQa} {onLocateGap} {onRunQa} {postQaStatus} />
     </div>
     {#if footer}
       <div class="border-t border-primary/15 bg-primary/5 px-5 py-4">

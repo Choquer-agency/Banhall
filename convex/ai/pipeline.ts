@@ -6,8 +6,6 @@ import { v } from "convex/values";
 import Anthropic from "@anthropic-ai/sdk";
 import { instrumentedAnthropic } from "./instrument";
 import { runAnalyzerAgent, type ContextDoc } from "./analyzerAgent";
-import { formatBrainExemplars } from "./brain/retrieve";
-import { buildRetrievalBrief } from "./brain/query";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
@@ -15,6 +13,11 @@ import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
 import { candidateModelsForMode } from "./model";
 import { normalizeProviderError } from "./providers";
+import { buildTiptapDocument } from "../lib/tiptapReport";
+import {
+  retrieveBrainBlocks,
+  type BrainExemplarBlocks,
+} from "./brainRetrieval";
 import {
   sectionMetrics,
   wordBudget,
@@ -25,6 +28,8 @@ import {
 } from "../lib/lineLimits";
 import { sha256 } from "../lib/contracts";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
+
+export type { BrainExemplarBlocks };
 
 /**
  * Programmatic safety net: replace banned words that the LLM self-check may have missed.
@@ -63,7 +68,7 @@ const BANNED_REPLACEMENTS: [RegExp, string][] = [
   [/\bdelving into\b/gi, "examining"],
 ];
 
-function scrubBannedWords(text: string): string {
+export function scrubBannedWords(text: string): string {
   let result = text;
   for (const [pattern, replacement] of BANNED_REPLACEMENTS) {
     result = result.replace(pattern, replacement);
@@ -72,116 +77,8 @@ function scrubBannedWords(text: string): string {
   return result.replace(/ {2,}/g, " ").trim();
 }
 
-/**
- * Build a Tiptap-compatible JSON document from the section texts and QA scorecard.
- */
-function buildTiptapDocument(
-  title: string,
-  section242: string,
-  section244: string,
-  section246: string
-) {
-  const content: Array<Record<string, unknown>> = [];
-
-  content.push({
-    type: "heading",
-    attrs: { level: 1 },
-    content: [{ type: "text", text: title }],
-  });
-
-  function textToParagraphs(text: string) {
-    return text
-      .split(/\n[^\S\n]*\n+/)
-      .filter((p) => p.trim())
-      .map((p) => {
-        const parts: Array<Record<string, unknown>> = [];
-        const gapRegex = /\[GAP:\s*([^\]]+)\]/g;
-        let lastIndex = 0;
-        let match;
-
-        while ((match = gapRegex.exec(p)) !== null) {
-          if (match.index > lastIndex) {
-            parts.push({
-              type: "text",
-              text: p.slice(lastIndex, match.index),
-            });
-          }
-          parts.push({
-            type: "text",
-            text: match[0],
-            marks: [{ type: "highlight", attrs: { color: "#FEF3C7" } }],
-          });
-          lastIndex = match.index + match[0].length;
-        }
-
-        if (lastIndex < p.length) {
-          parts.push({ type: "text", text: p.slice(lastIndex) });
-        }
-
-        return { type: "paragraph", content: parts };
-      });
-  }
-
-  // Section 242
-  content.push({
-    type: "heading",
-    attrs: { level: 2 },
-    content: [
-      {
-        type: "text",
-        text: "Line 242 — Scientific/Technological Uncertainty",
-      },
-    ],
-  });
-  content.push(...textToParagraphs(section242));
-
-  // Section 244
-  content.push({ type: "horizontalRule" });
-  content.push({
-    type: "heading",
-    attrs: { level: 2 },
-    content: [{ type: "text", text: "Line 244 — Work Performed" }],
-  });
-  content.push(...textToParagraphs(section244));
-
-  // Section 246
-  content.push({ type: "horizontalRule" });
-  content.push({
-    type: "heading",
-    attrs: { level: 2 },
-    content: [
-      {
-        type: "text",
-        text: "Line 246 — Scientific/Technological Advancement",
-      },
-    ],
-  });
-  content.push(...textToParagraphs(section246));
-
-  return { type: "doc", content };
-}
-
-/**
- * Per-consumer Brain exemplar prompt blocks — each drafter sees exemplars of
- * ITS OWN section, not a shared blob (uncertainty framing is useless to the
- * work-performed narrative). Empty string = no exemplars for that consumer.
- */
-export type BrainExemplarBlocks = {
-  analyzer: string;
-  s242: string;
-  s244: string;
-  s246: string;
-};
-
-const EMPTY_BRAIN_BLOCKS: BrainExemplarBlocks = {
-  analyzer: "",
-  s242: "",
-  s244: "",
-  s246: "",
-};
-
 /** BNH-45: the length-budget instruction appended to each drafter prompt. */
-function lengthBudgetBlock(section: SectionKey, target: LengthTarget): string {
+export function lengthBudgetBlock(section: SectionKey, target: LengthTarget): string {
   const words = wordBudget(section, target);
   const lines = LINE_LIMITS[section];
   return `
@@ -192,7 +89,7 @@ The CRA form field for this section holds at most ${lines} lines of ${CHARS_PER_
 
 /** BNH-45: compression pass for a section that overflows the form.
  * `squeeze` < 1 tightens the word ask on retry. */
-async function compressSection(
+export async function compressSection(
   anthropic: Anthropic,
   modelId: string,
   section: SectionKey,
@@ -206,7 +103,7 @@ async function compressSection(
     model: modelId,
     max_tokens: 4096,
     system:
-      "You compress SR&ED report sections to fit CRA form limits. Preserve every distinct technical claim, uncertainty, iteration, and result; cut repetition, filler, and scene-setting. Never invent content. Keep the same paragraph conventions (blank line between paragraphs). Return ONLY the compressed section text.",
+      "You compress SR&ED report sections to fit CRA form limits. Preserve every distinct technical claim, uncertainty, iteration, and result; cut repetition, filler, and scene-setting. Never invent content. [GAP: …] markers must be preserved verbatim — never remove or reword them. Keep the same paragraph conventions (blank line between paragraphs). Return ONLY the compressed section text.",
     messages: [
       {
         role: "user",
@@ -218,7 +115,61 @@ async function compressSection(
   return out || text;
 }
 
-function toContextDocs(
+/**
+ * Combined style-guidance prompt block: learned draft style (learning loop)
+ * followed by the requesting writer's personal flavor, both concatenated onto
+ * the styleGuidance param so section-agent signatures stay unchanged.
+ */
+export function buildStyleGuidance(
+  draftStyle?: string,
+  writerFlavor?: string
+): string {
+  // Learning loop: recurring writer critiques of past drafts (see
+  // convex/ai/learning.ts). CRA structure/phrasing rules take precedence.
+  const styleBlock = draftStyle?.trim()
+    ? `\n\n## Style guidance learned from writer feedback on past drafts\nApply where it does not conflict with the required structure, CRA phrasing, or banned-word rules:\n${draftStyle.trim()}`
+    : "";
+  // Per-writer flavor (Phase A): the requesting writer's personal preferences,
+  // framed as the LOWEST-priority guidance so it can never override CRA
+  // structure, phrasing rules, the length budget, or the learned style above.
+  // The headers keep the two blocks visually separate.
+  const flavorBlock = writerFlavor?.trim()
+    ? `\n\n## Writer's personal style preferences (lowest priority)\nThe requesting writer recorded these personal preferences. Apply them ONLY where\nthey do not conflict with: (1) the required CRA section structure and paragraph\nmandates, (2) CRA phrasing and banned-word rules, (3) the length budget,\n(4) the learned style guidance above. When in conflict, ignore the preference\nsilently.\n\n${writerFlavor.trim()}`
+    : "";
+  return styleBlock + flavorBlock;
+}
+
+/**
+ * BNH-45 enforcement: still over the form limit after the budgeted draft →
+ * up to two compression passes for the offending section; the second asks for
+ * 15% fewer words (models routinely land a hair over on the first squeeze —
+ * e2e saw a 51/50). Output is re-scrubbed for banned words each pass.
+ */
+export async function compressToFit(
+  anthropicFor: (callSite: string) => Anthropic,
+  modelId: string,
+  key: SectionKey,
+  text: string,
+  lengthTarget: LengthTarget
+): Promise<string> {
+  let out = text;
+  for (const squeeze of [1, 0.85]) {
+    if (!sectionMetrics(out, key).overLimit) return out;
+    out = scrubBannedWords(
+      await compressSection(
+        anthropicFor(`generation:compression:${key.slice(1)}`),
+        modelId,
+        key,
+        out,
+        lengthTarget,
+        squeeze
+      )
+    );
+  }
+  return out;
+}
+
+export function toContextDocs(
   documents: Array<{ category: string; fileName: string; content: string }>
 ): ContextDoc[] {
   return documents.map((document) => {
@@ -302,7 +253,8 @@ async function runPipelineForModel(
   brainExemplars: BrainExemplarBlocks,
   lengthTarget: LengthTarget = "standard",
   qaCalibration?: string,
-  draftStyle?: string
+  draftStyle?: string,
+  writerFlavor?: string
 ): Promise<{
   content: string;
   agentOutputs: string;
@@ -316,42 +268,23 @@ async function runPipelineForModel(
     modelId,
     brainExemplars.analyzer
   );
-  // Learning loop: recurring writer critiques of past drafts (see
-  // convex/ai/learning.ts). CRA structure/phrasing rules take precedence.
-  const styleBlock = draftStyle?.trim()
-    ? `\n\n## Style guidance learned from writer feedback on past drafts\nApply where it does not conflict with the required structure, CRA phrasing, or banned-word rules:\n${draftStyle.trim()}`
-    : "";
+  const styleGuidance = buildStyleGuidance(draftStyle, writerFlavor);
   const [raw242, raw244, raw246] = await Promise.all([
-    runSection242Agent(anthropicFor("generation:section:242"), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget), styleBlock),
-    runSection244Agent(anthropicFor("generation:section:244"), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget), styleBlock),
-    runSection246Agent(anthropicFor("generation:section:246"), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget), styleBlock),
+    runSection242Agent(anthropicFor("generation:section:242"), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget), styleGuidance),
+    runSection244Agent(anthropicFor("generation:section:244"), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget), styleGuidance),
+    runSection246Agent(anthropicFor("generation:section:246"), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget), styleGuidance),
   ]);
   let section242 = scrubBannedWords(raw242);
   let section244 = scrubBannedWords(raw244);
   let section246 = scrubBannedWords(raw246);
 
   // BNH-45 enforcement: still over the form limit after the budgeted draft →
-  // ONE compression pass per offending section (part of generation, before
+  // compression pass(es) per offending section (part of generation, before
   // the candidate ever lands).
-  const compress = async (
-    key: SectionKey,
-    text: string
-  ): Promise<string> => {
-    let out = text;
-    // Up to two passes; the second asks for 15% fewer words (models routinely
-    // land a hair over on the first squeeze — e2e saw a 51/50).
-    for (const squeeze of [1, 0.85]) {
-      if (!sectionMetrics(out, key).overLimit) return out;
-      out = scrubBannedWords(
-        await compressSection(anthropicFor(`generation:compression:${key.slice(1)}`), modelId, key, out, lengthTarget, squeeze)
-      );
-    }
-    return out;
-  };
   [section242, section244, section246] = await Promise.all([
-    compress("s242", section242),
-    compress("s244", section244),
-    compress("s246", section246),
+    compressToFit(anthropicFor, modelId, "s242", section242, lengthTarget),
+    compressToFit(anthropicFor, modelId, "s244", section244, lengthTarget),
+    compressToFit(anthropicFor, modelId, "s246", section246, lengthTarget),
   ]);
 
   const metrics = {
@@ -425,7 +358,8 @@ export const generateReport = internalAction({
     const contextDocs = toContextDocs(input.contextDocs);
     const candidateModels = candidateModelsForMode(
       input.candidateMode,
-      input.singleModelId
+      input.singleModelId,
+      input.compareModelIds
     );
     const retrievalBriefClient = instrumentedAnthropic(ctx, {
       callSite: "generation:retrieval_brief",
@@ -451,129 +385,18 @@ export const generateReport = internalAction({
       }
 
       // BNH-10: pull gold-standard reference passages from The Brain once per
-      // generation (shared across all candidate models). A good PD is a good
-      // PD — retrieval runs with or without an industry; industry narrows it.
-      // Wrapped so the Brain can NEVER break generation.
-      //
-      // Retrieval is section-scoped: a cheap Haiku pre-pass distills the
-      // transcript into four report-register queries (raw transcripts retrieve
-      // on greetings and client names, not the rhetorical patterns drafters
-      // need), then each T661 section gets exemplars of ITSELF — uncertainty
-      // framing for 242, work narration for 244, advancement claims for 246.
-      // Searches run sequentially on purpose: Voyage rate limits bite when
-      // embed+rerank calls burst in parallel.
-      const brainBlocks: BrainExemplarBlocks = { ...EMPTY_BRAIN_BLOCKS };
-      const brainContext = {
+      // generation (shared across all candidate models). Extracted to
+      // convex/ai/brainRetrieval.ts; also used by the iterative flow.
+      const brainBlocks = await retrieveBrainBlocks(ctx, {
+        generationId: genId,
+        projectId,
+        title,
+        transcript,
         industry: input.industry ?? null,
         scienceCode: scienceCode ?? null,
-      };
-      try {
-        const brief = await buildRetrievalBrief(retrievalBriefClient, title, transcript);
-        const fallbackQuery = `${title}\n\n${transcript.slice(0, 2000)}`;
-        const retrievals: {
-          block: keyof BrainExemplarBlocks;
-          section: string;
-          query: string;
-          k: number;
-        }[] = [
-          {
-            block: "analyzer",
-            section: "analyzer",
-            query: brief ? brief.problem : fallbackQuery,
-            k: 4,
-          },
-          {
-            block: "s242",
-            section: "242",
-            query: brief ? `${brief.uncertainty}\n\n${brief.problem}` : fallbackQuery,
-            k: 3,
-          },
-          {
-            block: "s244",
-            section: "244",
-            query: brief ? `${brief.work}\n\n${brief.problem}` : fallbackQuery,
-            k: 3,
-          },
-          {
-            block: "s246",
-            section: "246",
-            query: brief ? `${brief.advancement}\n\n${brief.problem}` : fallbackQuery,
-            k: 3,
-          },
-        ];
-
-        const provenance: {
-          section: string;
-          entryId: string;
-          sourceId?: string;
-          score: number;
-          searchScore?: number;
-          rerankScore?: number;
-          title?: string;
-          writerName?: string;
-        }[] = [];
-        let anyDegraded = false;
-        for (const r of retrievals) {
-          const outcome = await ctx.runAction(
-            internal.ai.brain.retrieve.retrieveBrainContext,
-            {
-              ...(brainContext.industry ? { industry: brainContext.industry } : {}),
-              ...(brainContext.scienceCode
-                ? { scienceCode: brainContext.scienceCode }
-                : {}),
-              query: r.query,
-              k: r.k,
-              docType: "pd",
-              projectId,
-              usageLabel: r.section,
-            }
-          );
-          anyDegraded = anyDegraded || outcome.degraded;
-          brainBlocks[r.block] = formatBrainExemplars(outcome.exemplars);
-          for (const e of outcome.exemplars) {
-            provenance.push({
-              section: r.section,
-              entryId: e.entryId,
-              sourceId: e.sourceId,
-              score: e.score,
-              searchScore: e.searchScore,
-              rerankScore: e.rerankScore,
-              title: e.title,
-              writerName: e.writerName,
-            });
-          }
-        }
-
-        if (provenance.length > 0) {
-          await ctx.runMutation(internal.generations.setBrainProvenance, {
-            generationId: genId,
-            exemplars: provenance,
-            brief: brief ? JSON.stringify(brief) : undefined,
-          });
-          const perSection = ["242", "244", "246"]
-            .map((s) => `${s}: ${provenance.filter((p) => p.section === s).length}`)
-            .join(", ");
-          await log(
-            `Pulled ${provenance.length} reference pattern(s) from The Brain${
-              brainContext.industry ? ` (${brainContext.industry})` : " (all industries)"
-            } — ${perSection}.`
-          );
-        } else if (anyDegraded) {
-          await log(
-            "The Brain was unreachable — drafting without reference patterns."
-          );
-        } else {
-          await log(
-            "No sufficiently similar past reports in The Brain — drafting without reference patterns."
-          );
-        }
-      } catch (err) {
-        // Never fail the report on Brain issues — but never hide them either.
-        console.error("brain retrieval failed for generation", genId, err);
-        await log(
-          "The Brain was unreachable — drafting without reference patterns."
-        ).catch(() => {});
-      }
+        retrievalBriefClient,
+        log,
+      });
 
       // BNH-21: estimate generation time up front so the UI can show a
       // countdown + progress bar. Scales with input volume (transcript +
@@ -627,6 +450,25 @@ export const generateReport = internalAction({
         console.error("learning digest fetch failed for generation", genId, err);
       }
 
+      // Per-writer flavor (Phase A): the requesting writer's saved personal
+      // preferences, injected as the lowest-priority prompt block. Wrapped so
+      // flavor can NEVER break generation.
+      let writerFlavor: string | undefined;
+      try {
+        if (input.requestedBy) {
+          const flavor = await ctx.runQuery(
+            internal.writerProfiles.getProfileForGeneration,
+            { userId: input.requestedBy }
+          );
+          if (flavor) {
+            writerFlavor = flavor;
+            await log("Applying the requesting writer's personal style preferences.");
+          }
+        }
+      } catch (err) {
+        console.error("writer flavor fetch failed for generation", genId, err);
+      }
+
       const candidateLabel =
         candidateModels.length === 1 ? "candidate draft" : "candidate drafts";
       await log(
@@ -651,6 +493,7 @@ export const generateReport = internalAction({
             brainExemplars: brainBlocks,
             ...(qaCalibration ? { qaCalibration } : {}),
             ...(draftStyle ? { draftStyle } : {}),
+            ...(writerFlavor ? { writerFlavor } : {}),
           }
         );
         await ctx.runMutation(internal.generations.setCandidateRunJob, {
@@ -681,6 +524,7 @@ export const generateCandidate = internalAction({
     }),
     qaCalibration: v.optional(v.string()),
     draftStyle: v.optional(v.string()),
+    writerFlavor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const run = await ctx.runMutation(internal.generations.claimCandidateRun, {
@@ -715,7 +559,8 @@ export const generateCandidate = internalAction({
           args.brainExemplars,
           input.lengthTarget,
           args.qaCalibration,
-          args.draftStyle
+          args.draftStyle,
+          args.writerFlavor
         );
       const claims = await Promise.all(
         claimDrafts.map(async (claim) => {

@@ -66,7 +66,7 @@
       <div class="mx-auto w-full max-w-3xl">
       <h1 class="text-display">Model A/B preferences</h1>
       <p class="mt-1 text-sm text-gray-500">
-        Which model writers keep when shown side-by-side candidate drafts.
+        Which model consultants keep when shown side-by-side candidate drafts.
       </p>
 
       {#if stats === undefined}

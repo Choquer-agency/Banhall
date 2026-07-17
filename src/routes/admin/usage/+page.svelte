@@ -97,7 +97,7 @@
 
   const TABLES: { key: "byProject" | "byWriter"; title: string; col: string }[] = [
     { key: "byProject", title: "Spend by project", col: "Project" },
-    { key: "byWriter", title: "Spend by writer", col: "Writer" },
+    { key: "byWriter", title: "Spend by consultant", col: "Consultant" },
   ];
 </script>
 

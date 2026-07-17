@@ -1,5 +1,14 @@
 "use node";
 
+// Deferred work — multi-provider support (e.g. OpenRouter): every Anthropic
+// call in the app flows through this file plus convex/ai/instrument.ts, so a
+// future provider abstraction lives here. The shape would be a provider
+// interface wrapping `messages.create` (plain text) and the structured
+// tool-use call in convex/ai/structured.ts, with per-provider error
+// normalization folded into normalizeProviderError below. Until then, keep
+// new call sites going through createAnthropicClient/instrumentedAnthropic so
+// the swap stays a one-file change.
+
 import Anthropic from "@anthropic-ai/sdk";
 import {
   requireAnthropicConfigured,

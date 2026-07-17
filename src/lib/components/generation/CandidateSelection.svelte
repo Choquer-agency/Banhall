@@ -1,41 +1,30 @@
 <script module lang="ts">
   import type { Id } from "../../../../convex/_generated/dataModel";
+  import { CANDIDATE_MODELS } from "../../../../shared/generationModels";
 
   type Candidate = {
     _id: Id<"reportCandidates">;
     content: string;
     qaScore: number | null;
     qa?: unknown;
-    // Admin-only; null keeps the A/B test blind for writers.
     model: string | null;
     label: string | null;
   };
 
   /**
-   * Deterministic shuffle seeded from the candidate ids — gives a stable order
-   * across re-renders, but a different order for each generation (so the writer
-   * can't learn "Option 1 is always Sonnet"). Keeps the test blind.
+   * Stable display order: the model registry order (CANDIDATE_MODELS).
+   * Candidates with an unknown or missing model sink to the end, keeping
+   * their original relative order.
    */
-  function blindOrder(candidates: Candidate[]): number[] {
-    let seed = 0;
-    for (const c of candidates) {
-      for (let i = 0; i < c._id.length; i++) {
-        seed = (seed * 31 + c._id.charCodeAt(i)) >>> 0;
-      }
-    }
-    const rand = () => {
-      seed = (seed + 0x6d2b79f5) >>> 0;
-      let t = seed;
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  function registryOrder(candidates: Candidate[]): Candidate[] {
+    const rank = (c: Candidate) => {
+      const idx = CANDIDATE_MODELS.findIndex((m) => m.id === c.model);
+      return idx === -1 ? CANDIDATE_MODELS.length : idx;
     };
-    const order = candidates.map((_, i) => i);
-    for (let i = order.length - 1; i > 0; i--) {
-      const j = Math.floor(rand() * (i + 1));
-      [order[i], order[j]] = [order[j], order[i]];
-    }
-    return order;
+    return candidates
+      .map((c, i) => ({ c, i }))
+      .sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i)
+      .map(({ c }) => c);
   }
 </script>
 
@@ -51,9 +40,9 @@
   import { reportSectionMetrics } from "$lib/reportSections";
 
   /**
-   * Blind A/B candidate picker (port of src/components/generation/CandidateSelection.tsx).
-   * Shows the generated drafts in a blind, randomized (but deterministic) order as
-   * "Option 1, 2, 3…" tabs with a read-only preview and a sticky "Use this draft" bar.
+   * Candidate picker (port of src/components/generation/CandidateSelection.tsx).
+   * Shows the generated drafts as labelled model tabs (registry order) with a
+   * read-only preview and a sticky "Use this draft" bar.
    *
    * - generationId: exact generation whose candidates are listed
    */
@@ -131,8 +120,7 @@
     commentStatus = "idle";
   }
 
-  const order = $derived.by(() => (candidates ? blindOrder(candidates) : []));
-  // BNH-47: QA snapshot — minimised by default (blind-first, confirm-bias on demand).
+  // BNH-47: QA snapshot — minimised by default (draft-first, confirm-bias on demand).
   let qaOpen = $state(false);
   // Drag-resizable rail, workspace parity (persisted).
   const QA_MIN = 0.24;
@@ -187,8 +175,8 @@
   let activePos = $state(0);
   let choosing = $state(false);
 
-  // Display candidates in blind, randomized order as "Option 1, 2, 3…".
-  const displayed = $derived(candidates ? order.map((idx) => candidates[idx]) : []);
+  // Display candidates in stable model-registry order, labelled by model.
+  const displayed = $derived(candidates ? registryOrder(candidates) : []);
   const pos = $derived(activePos < displayed.length ? activePos : 0);
   const current = $derived(displayed[pos] as Candidate | undefined);
   const currentMetrics = $derived(
@@ -222,12 +210,12 @@
         <h2 class="text-xl font-semibold text-gray-900">Choose your preferred draft</h2>
       </div>
       <p class="mb-5 text-sm text-gray-500">
-        Each option is a full draft written from the same inputs by a different model, shown
-        blind and in random order. Pick the one you&apos;d keep; your choice is logged to learn
+        Each option is a full draft written from the same inputs by a different model. Review
+        and score each draft, then pick the one you&apos;d keep; your choice is logged to learn
         which model works best.
       </p>
 
-      <!-- Anonymous option tabs -->
+      <!-- Model option tabs -->
       <div class="flex flex-wrap gap-2">
         {#each displayed as c, i (c._id)}
           {@const myScore = myScores.get(c._id)?.score}
@@ -240,11 +228,11 @@
             }}
             class={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
               i === pos
-                ? "border-navy bg-navy text-white"
+                ? "border-primary-selected bg-primary-selected text-white"
                 : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
             }`}
           >
-            Option {i + 1}
+            {c.label ?? `Option ${i + 1}`}
             {#if myScore != null}
               <span
                 class={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
@@ -309,7 +297,7 @@
       {/if}
       <div class={`mx-auto grid grid-cols-[1fr_auto_1fr] items-center gap-4 transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none ${maximized ? "max-w-full" : qaOpen ? "max-w-report" : "max-w-[var(--container-shell)]"}`}>
         <span class="justify-self-start text-sm text-gray-500">
-          Viewing <span class="font-medium text-navy">Option {pos + 1}</span>
+          Viewing <span class="font-medium text-navy">{current.label ?? `Option ${pos + 1}`}</span>
         </span>
 
         <!-- BNH-48: optional 1–10 score for the option being viewed. Button row
@@ -317,7 +305,7 @@
              screen squeezes it (container query on the bar). -->
         <div class="flex min-w-0 items-center gap-2 justify-self-center">
           <span class="flex-none whitespace-nowrap text-xs text-gray-400">Your score</span>
-          <div class="hidden items-center gap-0.5 @4xl:flex" role="radiogroup" aria-label={`Score Option ${pos + 1} out of 10`}>
+          <div class="hidden items-center gap-0.5 @4xl:flex" role="radiogroup" aria-label={`Score ${current.label ?? `Option ${pos + 1}`} out of 10`}>
             {#each Array.from({ length: 10 }, (_, n) => n + 1) as n (n)}
               {@const active = current && myScores.get(current._id)?.score === n}
               <button
@@ -405,7 +393,7 @@
     <QARailPanel
       open={qaOpen}
       onClose={() => (qaOpen = false)}
-      title={`QA for Option ${pos + 1}`}
+      title={`QA for ${current.label ?? `Option ${pos + 1}`}`}
       rawQa={current.qa}
       candidateId={current._id}
       modelName={current.label}
@@ -414,7 +402,7 @@
       {#snippet footer()}
         <div class="flex items-center justify-between gap-2">
           <label class="text-xs font-semibold text-navy" for="candidate-comment">
-            Comment on Option {pos + 1} <span class="font-normal text-gray-500">(optional)</span>
+            Comment on {current.label ?? `Option ${pos + 1}`} <span class="font-normal text-gray-500">(optional)</span>
           </label>
           {#if commentStatus === "saved" && !scoreSaving}
             <span class="inline-flex flex-none items-center gap-1 text-[10px] font-medium text-green-700">

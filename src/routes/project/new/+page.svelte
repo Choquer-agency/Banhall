@@ -32,7 +32,11 @@
   import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
   import { industryLabel } from "$lib/industries";
   import { CRA_SCIENCE_CODE_ITEMS, scienceCodeLabel } from "../../../../shared/craScienceCodes";
-  import { SINGLE_MODEL_ITEMS, type CandidateModelId } from "../../../../shared/generationModels";
+  import { SINGLE_MODEL_ITEMS, comparePairFromSlots, comparePairLabel, type CandidateModelId } from "../../../../shared/generationModels";
+  import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
+  import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
+  import Tooltip from "$lib/components/ui/Tooltip.svelte";
+  import { page } from "$app/state";
 
   const STEPS = ["Details", "Context & files", "Review"];
 
@@ -75,8 +79,11 @@
   let step = $state(0);
   // BNH-39: generate a new PD from a transcript, or review an existing written PD.
   let mode = $state<"generate" | "review">("generate");
-  let candidateMode = $state<"compare" | "single">("compare");
+  let candidateMode = $state<"compare" | "single" | "iterative">("compare");
   let singleModelId = $state<CandidateModelId | "">("");
+  // Compare mode runs exactly 2 models — two slots, each a model or Random.
+  let compareSlotA = $state("");
+  let compareSlotB = $state("");
   // BNH-10: routes Brain retrieval. Only admins can extend the vocabulary.
   let industry = $state("");
   let scienceCode = $state("");
@@ -108,6 +115,46 @@
   let transcript = $state("");
   // BNH-31: single-tab transcript input — upload OR paste, not both at once.
   let transcriptTab = $state<"upload" | "paste">("upload");
+
+  // Duplicate flow: /project/new?from=<projectId> prefills the wizard from an
+  // existing project (setup + transcript now; documents copied on commit).
+  const fromProjectId = page.url.searchParams.get("from");
+  const sourceProjectQ = useQuery(api.projects.getProject, () =>
+    auth.isAuthenticated && fromProjectId
+      ? { projectId: fromProjectId as Id<"projects"> }
+      : "skip"
+  );
+  const sourceTranscriptQ = useQuery(api.transcripts.getTranscript, () =>
+    auth.isAuthenticated && fromProjectId
+      ? { projectId: fromProjectId as Id<"projects"> }
+      : "skip"
+  );
+  const copyProjectDocuments = useMutation(api.projects.copyProjectDocuments);
+
+  let prefilled = $state(false);
+  $effect(() => {
+    const source = sourceProjectQ?.data;
+    if (!fromProjectId || !source || prefilled) return;
+    prefilled = true;
+    title = `${source.title} (copy)`;
+    clientName = source.clientName;
+    sredTitle = source.sredTitle ?? "";
+    industry = source.industry ?? "";
+    scienceCode = source.scienceCode ?? "";
+    mode = source.mode ?? "generate";
+    interviewerUserId = source.interviewerUserId ?? "";
+    interviewees = source.interviewees ?? [];
+    selectedTagIds = (source.tagIds ?? []) as string[];
+    if (source.fiscalYearEnd) {
+      fiscalYearEnd = new Date(source.fiscalYearEnd).toISOString().slice(0, 10);
+    }
+  });
+  $effect(() => {
+    const sourceTranscript = sourceTranscriptQ?.data;
+    if (!fromProjectId || !sourceTranscript || transcript) return;
+    transcript = sourceTranscript.content;
+    transcriptTab = "paste";
+  });
   let staged = $state<Staged>(emptyStaged());
 
   // BNH-31: drag-and-drop a transcript file on the Details step.
@@ -290,6 +337,15 @@
         transcriptContent: transcript,
       });
 
+      // Duplicate flow: bring the source project's documents along.
+      if (fromProjectId) {
+        progress = "Copying documents…";
+        await copyProjectDocuments({
+          fromProjectId: fromProjectId as Id<"projects">,
+          toProjectId: projectId,
+        });
+      }
+
       const uploadFile = async (
         file: File,
         category: ContextCategoryId,
@@ -383,8 +439,14 @@
           projectId,
           transcriptId,
           candidateMode,
-          ...(candidateMode === "single" && singleModelId
+          ...(candidateMode !== "compare" && singleModelId
             ? { singleModelId }
+            : {}),
+          ...(candidateMode === "compare"
+            ? (() => {
+                const pair = comparePairFromSlots(compareSlotA, compareSlotB);
+                return pair ? { compareModelIds: pair } : {};
+              })()
             : {}),
         });
       }
@@ -415,12 +477,13 @@
     <PageBar backHref="/dashboard" backLabel="Back">
       {#snippet actions()}
         {#if writerName}
-          <span
-            class="whitespace-nowrap text-sm font-medium text-navy"
-            title="Set automatically to the signed-in user"
-          >
-            Writer · {writerName}
-          </span>
+          <Tooltip text="Set automatically to the signed-in user">
+            {#snippet children({ props })}
+              <span {...props} class="whitespace-nowrap text-sm font-medium text-navy">
+                Consultant · {writerName}
+              </span>
+            {/snippet}
+          </Tooltip>
         {/if}
       {/snippet}
     </PageBar>
@@ -473,20 +536,24 @@
                   { id: "generate", label: "Generate PD", hint: "Draft a new PD from an interview transcript" },
                   { id: "review", label: "Review PD", hint: "AI feedback report on an existing written PD" },
                 ] as const as opt (opt.id)}
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={mode === opt.id}
-                    title={opt.hint}
-                    onclick={() => (mode = opt.id)}
-                    class={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
-                      mode === opt.id
-                        ? "bg-primary-selected text-white"
-                        : "text-gray-500 hover:bg-primary-wash hover:text-navy"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
+                  <Tooltip text={opt.hint}>
+                    {#snippet children({ props })}
+                      <button
+                        {...props}
+                        type="button"
+                        role="radio"
+                        aria-checked={mode === opt.id}
+                        onclick={() => (mode = opt.id)}
+                        class={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
+                          mode === opt.id
+                            ? "bg-primary-selected text-white"
+                            : "text-gray-500 hover:bg-primary-wash hover:text-navy"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    {/snippet}
+                  </Tooltip>
                 {/each}
               </div>
             </div>
@@ -495,35 +562,38 @@
                 <span class="text-xs font-medium text-gray-500">Drafts</span>
                 <div class="flex gap-1 rounded-lg bg-chrome p-1" role="radiogroup" aria-label="Draft generation mode">
                   {#each [
-                    { id: "compare", label: "Compare 3", hint: "Generate three alternatives and choose one" },
+                    { id: "compare", label: "Compare", hint: "Generate two alternatives and choose one" },
                     { id: "single", label: "Single draft", hint: "Generate one draft and open it directly" },
+                    { id: "iterative", label: "Section by section", hint: "Draft one section at a time — review and approve each before the next" },
                   ] as const as opt (opt.id)}
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={candidateMode === opt.id}
-                      title={opt.hint}
-                      onclick={() => (candidateMode = opt.id)}
-                      class={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
-                        candidateMode === opt.id
-                          ? "bg-primary-selected text-white"
-                          : "text-gray-500 hover:bg-primary-wash hover:text-navy"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
+                    <Tooltip text={opt.hint}>
+                      {#snippet children({ props })}
+                        <button
+                          {...props}
+                          type="button"
+                          role="radio"
+                          aria-checked={candidateMode === opt.id}
+                          onclick={() => (candidateMode = opt.id)}
+                          class={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy ${
+                            candidateMode === opt.id
+                              ? "bg-primary-selected text-white"
+                              : "text-gray-500 hover:bg-primary-wash hover:text-navy"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      {/snippet}
+                    </Tooltip>
                   {/each}
                 </div>
               </div>
-              {#if candidateMode === "single"}
-                <SelectInput
-                  size="sm"
-                  bind:value={singleModelId}
-                  items={SINGLE_MODEL_ITEMS}
-                  placeholder="Generation model"
-                  class="w-48"
-                />
-              {/if}
+              <div class="ml-auto">
+                {#if candidateMode !== "compare"}
+                  <SingleModelPicker bind:value={singleModelId} />
+                {:else}
+                  <ComparePairPicker bind:slotA={compareSlotA} bind:slotB={compareSlotB} />
+                {/if}
+              </div>
             {/if}
           </div>
           <div class="mt-3 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
@@ -835,9 +905,16 @@
             {#if mode === "generate"}
               {@render row(
                 "Draft generation",
-                candidateMode === "compare" ? "Compare 3 drafts" : "Single draft"
+                candidateMode === "compare"
+                  ? "Compare 2 drafts"
+                  : candidateMode === "iterative"
+                    ? "Section by section"
+                    : "Single draft"
               )}
-              {#if candidateMode === "single"}
+              {#if candidateMode === "compare"}
+                {@render row("Models", comparePairLabel(compareSlotA, compareSlotB))}
+              {/if}
+              {#if candidateMode !== "compare"}
                 {@render row(
                   "Model",
                   SINGLE_MODEL_ITEMS.find((item) => item.value === singleModelId)?.label ?? SINGLE_MODEL_ITEMS[0].label
@@ -853,7 +930,7 @@
               {@render row("Science code", scienceCodeLabel(scienceCode))}
             {/if}
             {#if writerName}
-              {@render row("Writer", writerName)}
+              {@render row("Consultant", writerName)}
             {/if}
             {#if interviewerName}
               {@render row("Interviewer", interviewerName)}
@@ -941,7 +1018,11 @@
               {step === 0 ? "Next" : "Continue"}
             </Button>
           {:else}
-            <Button type="button" onclick={commit} disabled={committing}>
+            <Button
+              type="button"
+              onclick={commit}
+              disabled={committing}
+            >
               {#if committing}
                 <Spinner size="sm" class="mr-2 h-3.5 w-3.5 border-white" />
                 Working…

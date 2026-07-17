@@ -5,6 +5,7 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import ReadOnlyEditor from "$lib/components/review/ReadOnlyEditor.svelte";
+  import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { buildMilestoneOptions } from "./milestones";
 
@@ -69,6 +70,16 @@
   const milestoneSnapshots = $derived(snapshots.filter((s) => s.reason === "milestone"));
   const historySnapshots = $derived(snapshots.filter((s) => s.reason !== "milestone"));
   const milestoneOptions = $derived(buildMilestoneOptions(milestoneSnapshots));
+  const milestoneItems = $derived(
+    milestoneOptions.map((label) => ({ value: label, label }))
+  );
+  // Snap the selection to the first available option whenever the current
+  // choice disappears (e.g. right after saving that milestone).
+  $effect(() => {
+    if (!milestoneOptions.includes(milestoneLabel) && milestoneOptions.length > 0) {
+      milestoneLabel = milestoneOptions[0];
+    }
+  });
 
   $effect(() => {
     const snapshots = snapshotsQ.data;
@@ -240,16 +251,14 @@
         <div class="mt-3 rounded-xl border border-gray-200 bg-canvas p-2.5">
           <label for="milestone-label" class="text-label">Save milestone</label>
           <div class="mt-2 flex gap-2">
-            <select
+            <SelectInput
               id="milestone-label"
-              name="milestoneLabel"
+              size="sm"
               bind:value={milestoneLabel}
-              class="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
-            >
-              {#each milestoneOptions as label (label)}
-                <option value={label}>{label}</option>
-              {/each}
-            </select>
+              items={milestoneItems}
+              placeholder="Milestone label"
+              class="min-w-0 flex-1"
+            />
             <button
               type="button"
               onclick={handleSaveMilestone}

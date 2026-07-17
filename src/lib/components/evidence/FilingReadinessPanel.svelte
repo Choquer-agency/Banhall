@@ -3,6 +3,7 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { userErrorMessage } from "$lib/errors";
+  import SelectInput from "$lib/components/ui/SelectInput.svelte";
 
   type UserRole = "writer" | "manager" | "admin";
   type Relationship = "claimant" | "employee" | "contractor" | "other";
@@ -54,8 +55,31 @@
   let showEvidenceForm = $state(false);
   let subjectName = $state("");
   let initializedSubject = false;
-  let relationship = $state<Relationship>("claimant");
-  let evidenceKind = $state<EvidenceKind>("project_document");
+  // strings (not the unions) so they can bind:value into SelectInput; the
+  // fixed item lists gate the values, so the casts on submit are safe.
+  let relationship = $state<string>("claimant");
+  let evidenceKind = $state<string>("project_document");
+
+  const RELATIONSHIP_ITEMS = [
+    { value: "claimant", label: "Claimant" },
+    { value: "employee", label: "Employee" },
+    { value: "contractor", label: "Contractor" },
+    { value: "other", label: "Other" },
+  ];
+  const EVIDENCE_KIND_ITEMS = [
+    { value: "project_document", label: "Project document" },
+    { value: "corporate_registry", label: "Corporate registry" },
+    { value: "contract", label: "Contract" },
+    { value: "invoice", label: "Invoice" },
+    { value: "payroll", label: "Payroll" },
+    { value: "other", label: "Other" },
+  ];
+  const documentItems = $derived(
+    documents.map((document) => ({
+      value: document._id as string,
+      label: document.fileName,
+    }))
+  );
   let projectDocumentId = $state("");
   let sourceDescription = $state("");
   let reviewNote = $state("");
@@ -83,12 +107,18 @@
 
   async function submitEvidence(event: SubmitEvent) {
     event.preventDefault();
+    // SelectInput is not a native form control, so the browser cannot enforce
+    // the previously-`required` supporting-file choice — guard it here.
+    if (evidenceKind === "project_document" && !projectDocumentId) {
+      error = "Choose the supporting project file.";
+      return;
+    }
     await perform(async () => {
       await attachEvidence({
         projectId,
         subjectName,
-        relationship,
-        evidenceKind,
+        relationship: relationship as Relationship,
+        evidenceKind: evidenceKind as EvidenceKind,
         ...(projectDocumentId
           ? { projectDocumentId: projectDocumentId as Id<"projectDocuments"> }
           : {}),
@@ -213,40 +243,37 @@
                 />
               </label>
               <div class="grid grid-cols-2 gap-3">
-                <label class="block text-xs font-medium text-gray-700">
+                <label class="block text-xs font-medium text-gray-700" for="evidence-relationship">
                   Relationship
-                  <select class="mt-1 w-full rounded-lg border border-line-soft bg-white px-3 py-2 text-sm" bind:value={relationship}>
-                    <option value="claimant">Claimant</option>
-                    <option value="employee">Employee</option>
-                    <option value="contractor">Contractor</option>
-                    <option value="other">Other</option>
-                  </select>
+                  <SelectInput
+                    id="evidence-relationship"
+                    bind:value={relationship}
+                    items={RELATIONSHIP_ITEMS}
+                    placeholder="Relationship"
+                    class="mt-1 w-full"
+                  />
                 </label>
-                <label class="block text-xs font-medium text-gray-700">
+                <label class="block text-xs font-medium text-gray-700" for="evidence-kind">
                   Evidence type
-                  <select class="mt-1 w-full rounded-lg border border-line-soft bg-white px-3 py-2 text-sm" bind:value={evidenceKind}>
-                    <option value="project_document">Project document</option>
-                    <option value="corporate_registry">Corporate registry</option>
-                    <option value="contract">Contract</option>
-                    <option value="invoice">Invoice</option>
-                    <option value="payroll">Payroll</option>
-                    <option value="other">Other</option>
-                  </select>
+                  <SelectInput
+                    id="evidence-kind"
+                    bind:value={evidenceKind}
+                    items={EVIDENCE_KIND_ITEMS}
+                    placeholder="Evidence type"
+                    class="mt-1 w-full"
+                  />
                 </label>
               </div>
               {#if evidenceKind === "project_document"}
-                <label class="block text-xs font-medium text-gray-700">
+                <label class="block text-xs font-medium text-gray-700" for="evidence-document">
                   Supporting file
-                  <select
-                    class="mt-1 w-full rounded-lg border border-line-soft bg-white px-3 py-2 text-sm"
+                  <SelectInput
+                    id="evidence-document"
                     bind:value={projectDocumentId}
-                    required
-                  >
-                    <option value="">Select a project file</option>
-                    {#each documents as document (document._id)}
-                      <option value={document._id}>{document.fileName}</option>
-                    {/each}
-                  </select>
+                    items={documentItems}
+                    placeholder="Select a project file"
+                    class="mt-1 w-full"
+                  />
                 </label>
               {/if}
               <label class="block text-xs font-medium text-gray-700">

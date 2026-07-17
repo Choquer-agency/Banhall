@@ -10,6 +10,7 @@
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { userErrorMessage } from "$lib/errors";
 
   const FILE_TYPES = [
@@ -45,7 +46,9 @@
   const deleteUpload = useMutation(api.financial.deleteUpload);
   const reviewEntry = useMutation(api.financial.reviewTimesheetEntry);
 
-  let fileType = $state<(typeof FILE_TYPES)[number]["value"]>("slack_export");
+  // string (not the FILE_TYPES value union) so it can bind:value into
+  // SelectInput; FILE_TYPES gates the options, so the cast on submit is safe.
+  let fileType = $state<string>("slack_export");
   let fileName = $state("");
   let content = $state("");
   let uploading = $state(false);
@@ -71,7 +74,7 @@
       await uploadData({
         projectId,
         fileName: fileName.trim(),
-        fileType,
+        fileType: fileType as (typeof FILE_TYPES)[number]["value"],
         content: content.trim(),
       });
       content = "";
@@ -207,15 +210,13 @@
           </div>
           <div>
             <label for="financial-file-type" class="text-xs font-medium text-gray-500">Data type</label>
-            <select
+            <SelectInput
               id="financial-file-type"
               bind:value={fileType}
-              class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-            >
-              {#each FILE_TYPES as ft (ft.value)}
-                <option value={ft.value}>{ft.label}</option>
-              {/each}
-            </select>
+              items={FILE_TYPES}
+              placeholder="Data type"
+              class="mt-1 w-full"
+            />
           </div>
         </div>
         <div class="mt-3">

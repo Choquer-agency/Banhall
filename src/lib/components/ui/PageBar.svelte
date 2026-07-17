@@ -11,11 +11,14 @@
     backHref = "/dashboard",
     backLabel = "Back",
     width = "max-w-[var(--container-shell)]",
+    center,
     actions,
   }: {
     backHref?: string;
     backLabel?: string;
     width?: string;
+    /** Optional content centered in the bar (absolute, doesn't shift sides). */
+    center?: Snippet;
     actions?: Snippet;
   } = $props();
 
@@ -63,10 +66,17 @@
      The surface caps at the global rail width — canvas shows beyond it. -->
 <div bind:this={barEl} class="sticky top-[54px] z-40 -mt-px w-full">
   <div
-    class={`mx-auto flex h-11 w-full items-center justify-between gap-3 rounded-b-xl border-x border-b px-6 transition-colors duration-300 ${
+    class={`relative mx-auto flex h-11 w-full items-center justify-between gap-3 rounded-b-xl border-x border-b px-6 transition-colors duration-300 ${
       scrolled ? "border-line-soft bg-white" : "border-transparent bg-transparent"
     } ${width}`}
   >
+    {#if center}
+      <div class="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-center">
+        <div class="pointer-events-auto">
+          {@render center()}
+        </div>
+      </div>
+    {/if}
     <a
       href={backHref}
       class="-ml-3 flex h-9 items-center gap-1.5 px-3 text-xs font-medium text-navy transition-colors hover:text-primary"

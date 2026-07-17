@@ -57,6 +57,29 @@ export const getCandidateFeedbackForDigest = internalQuery({
   },
 });
 
+/** Recent section-by-section edit events (draft vs approved vs ghost) for the
+ * draft_style digest. Skips near-untouched approvals — no critique signal. */
+export const getSectionEditsForDigest = internalQuery({
+  args: { limit: v.number() },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("sectionEditEvents")
+      .order("desc")
+      .take(args.limit);
+    return rows
+      .filter((row) => row.editRatio >= 0.05)
+      .map((row) => ({
+        section: row.section,
+        // Cap for the prompt — the stored rows keep more.
+        draftText: row.draftText.slice(0, 2000),
+        approvedText: row.approvedText.slice(0, 2000),
+        ghostText: row.ghostText?.slice(0, 1200) ?? null,
+        editRatio: Math.round(row.editRatio * 100) / 100,
+        updatedAt: row.createdAt,
+      }));
+  },
+});
+
 /** Active digest (newest row of the kind), or null when nothing learned yet. */
 export const getActiveDigest = internalQuery({
   args: { kind: digestKind },

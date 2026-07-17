@@ -564,7 +564,7 @@
           </span>
           {#each message.references as ref, i (i)}
             <button
-              onclick={() => showInDoc(ref)}
+              onclick={() => onReferenceText?.([ref], ref)}
               title={ref.length > 90 ? `${ref.slice(0, 90)}…` : ref}
               class="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-md border border-gray-200 px-2 text-xs font-semibold text-navy transition-colors hover:border-primary/50 hover:bg-primary/5"
             >

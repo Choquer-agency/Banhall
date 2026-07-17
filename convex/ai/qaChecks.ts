@@ -197,6 +197,81 @@ export function checkRepetition(
   };
 }
 
+// ─── Per-section deterministic findings (iterative mode) ────────────────────
+// No LLM — the writer is the QA during section-by-section review. Reuses the
+// per-check helpers above, scoped to the one section being reviewed.
+
+export interface SectionFinding {
+  check: "banned_word" | "because_clause" | "cra_opener" | "repetition";
+  message: string;
+}
+
+export function sectionDeterministicFindings(
+  section: "s242" | "s244" | "s246",
+  text: string
+): SectionFinding[] {
+  const findings: SectionFinding[] = [];
+  const sectionNumber = section.slice(1);
+
+  const banned =
+    section === "s242"
+      ? checkBannedWords(text, "", "")
+      : section === "s244"
+        ? checkBannedWords("", text, "")
+        : checkBannedWords("", "", text);
+  for (const f of banned.found) {
+    findings.push({
+      check: "banned_word",
+      message: `Banned word "${f.word}": ${f.context}`,
+    });
+  }
+
+  if (section === "s242") {
+    const because = checkBecauseClauses(text);
+    for (const d of because.details) {
+      if (!d.hasBecause) {
+        findings.push({
+          check: "because_clause",
+          message: `Uncertainty statement missing a BECAUSE clause: "${d.excerpt}"`,
+        });
+      }
+    }
+  }
+
+  if (section === "s246") {
+    const openers = checkCRAOpeners(text);
+    for (const r of openers.results) {
+      if (!r.passes) {
+        findings.push({
+          check: "cra_opener",
+          message: `P${r.paragraph} does not open with a CRA advancement formulation: "${r.firstSentence}"`,
+        });
+      }
+    }
+  }
+
+  // Repetition limits are report-wide (3× / 4×), but flag heavy use inside a
+  // single section early — cheaper to fix now than post-assembly.
+  const lower = text.toLowerCase();
+  const si =
+    (lower.match(/systematic\s+investigation/g) ?? []).length +
+    (lower.match(/systematic\s+experimentation/g) ?? []).length;
+  const tu = (lower.match(/technological\s+uncertaint/g) ?? []).length;
+  if (si > 2) {
+    findings.push({
+      check: "repetition",
+      message: `"systematic investigation/experimentation" appears ${si}× in section ${sectionNumber} (report-wide limit is 3).`,
+    });
+  }
+  if (tu > 3) {
+    findings.push({
+      check: "repetition",
+      message: `"technological uncertainty" appears ${tu}× in section ${sectionNumber} (report-wide limit is 4).`,
+    });
+  }
+  return findings;
+}
+
 // ─── Combine all checks into a single summary for injection ─────────────────
 
 export function runDeterministicChecks(

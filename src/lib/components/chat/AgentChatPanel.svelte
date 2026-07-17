@@ -54,6 +54,12 @@
       pairs: { find: string; replaceWith: string }[],
       proposalId: string
     ) => void;
+    /** Live "Show changes" preview: render the proposal as strikethrough +
+     * inline insertions in the real editor (on), or clear the preview (off). */
+    onPreviewProposal?: (
+      pairs: { find: string; replaceWith: string }[],
+      on: boolean
+    ) => void;
     reviewingId?: string | null;
   }
 
@@ -66,6 +72,7 @@
     onToggleFull,
     onReferenceText,
     onReviewReplacements,
+    onPreviewProposal,
     reviewingId,
   }: Props = $props();
 
@@ -452,7 +459,7 @@
         </span>
         {#each refs as ref, i (i)}
           <button
-            onclick={() => onReferenceText?.(refs, ref)}
+            onclick={() => onReferenceText?.([ref], ref)}
             title={ref.length > 90 ? `${ref.slice(0, 90)}…` : ref}
             class="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-md border border-gray-200 px-2 text-xs font-semibold text-navy transition-colors hover:border-primary/50 hover:bg-primary/5"
           >
@@ -478,6 +485,17 @@
         : undefined}
       onReviewOneByOne={p.replacements && p.replacements.length > 0 && onReviewReplacements
         ? () => onReviewReplacements(p.replacements!, p._id)
+        : undefined}
+      onPreviewInDoc={onPreviewProposal
+        ? (on) => {
+            const pairs =
+              p.replacements && p.replacements.length > 0
+                ? p.replacements
+                : p.targetText
+                  ? [{ find: p.targetText, replaceWith: p.newText ?? "" }]
+                  : [];
+            onPreviewProposal(pairs, on);
+          }
         : undefined}
       reviewing={reviewingId === p._id}
     />

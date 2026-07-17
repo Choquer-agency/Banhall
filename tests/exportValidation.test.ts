@@ -306,7 +306,7 @@ describe("validateExport", () => {
     });
   });
 
-  test("surfaces a highlighted unresolved GAP as a blocking section error", () => {
+  test("surfaces a highlighted unresolved GAP as a non-blocking warning", () => {
     const input = preflightInput();
     input.content = reportContent(
       {
@@ -318,11 +318,13 @@ describe("validateExport", () => {
     );
     const result = validateExport(canonicalizeExportPreflight(input));
 
-    expect(result.errors).toContainEqual({
-      severity: "error",
+    expect(result.errors.map((issue) => issue.field)).not.toContain("s242");
+    expect(result.warnings).toContainEqual({
+      severity: "warning",
       field: "s242",
       label: "Line 242 — uncertainties",
-      message: "Line 242 contains an unresolved [GAP: ...] marker.",
+      message:
+        "Line 242 contains an unresolved [GAP] marker; it will be exported highlighted.",
     });
   });
 

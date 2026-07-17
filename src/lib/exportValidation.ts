@@ -111,15 +111,30 @@ export function canonicalizeExportPreflight(
 export function validateExport(
   report: Readonly<CanonicalExportReport>
 ): ExportValidationResult {
-  const errors: ExportValidationIssue[] = report.body.diagnostics.map(
-    (diagnostic) => ({
+  const errors: ExportValidationIssue[] = [];
+  const warnings: ExportValidationIssue[] = [];
+  for (const diagnostic of report.body.diagnostics) {
+    // Unresolved [GAP] markers no longer block: they export highlighted so
+    // the client sees exactly what is still missing.
+    if (diagnostic.code === "UNRESOLVED_GAP") {
+      const subject = diagnostic.section
+        ? `Line ${diagnostic.section.slice(1)}`
+        : "The report";
+      warnings.push({
+        severity: "warning",
+        field: diagnostic.section ?? "content",
+        label: diagnostic.section ? LABELS[diagnostic.section] : "Report body",
+        message: `${subject} contains an unresolved [GAP] marker; it will be exported highlighted.`,
+      });
+      continue;
+    }
+    errors.push({
       severity: "error",
       field: diagnostic.section ?? "content",
       label: diagnostic.section ? LABELS[diagnostic.section] : "Report body",
       message: diagnostic.message,
-    })
-  );
-  const warnings: ExportValidationIssue[] = [];
+    });
+  }
 
   if (!report.title) {
     errors.push({
@@ -200,6 +215,19 @@ export function validateExport(
         message: `${LABELS[key]} is ${metrics.words} words; the CRA maximum is ${WORD_CAPS[key]}.`,
         actual: metrics.words,
         limit: WORD_CAPS[key],
+      });
+    }
+    if (!metrics.overLimit && metrics.overLimitWithGaps) {
+      const overOnLines = metrics.rawLines > LINE_LIMITS[key];
+      warnings.push({
+        severity: "warning",
+        field: key,
+        label: LABELS[key],
+        message: overOnLines
+          ? `${LABELS[key]} exceeds the CRA limit only because of unresolved [GAP] text (${metrics.rawLines}/${LINE_LIMITS[key]} lines with gaps). Resolve the gaps before filing.`
+          : `${LABELS[key]} exceeds the CRA word cap only because of unresolved [GAP] text (${metrics.rawWords}/${WORD_CAPS[key]} words with gaps). Resolve the gaps before filing.`,
+        actual: overOnLines ? metrics.rawLines : metrics.rawWords,
+        limit: overOnLines ? LINE_LIMITS[key] : WORD_CAPS[key],
       });
     }
     if (

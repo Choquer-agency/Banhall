@@ -36,6 +36,7 @@ export const generationStatusValidator = v.union(
   v.literal("reserved"),
   v.literal("running"),
   v.literal("awaiting_selection"),
+  v.literal("awaiting_input"),
   v.literal("completed"),
   v.literal("failed")
 );

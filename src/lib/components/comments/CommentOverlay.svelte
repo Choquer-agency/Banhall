@@ -98,7 +98,7 @@
 
 {#snippet commentCard(comment: Comment, commenter: Commenter | undefined)}
   {@const color = commenter?.color ?? "var(--color-ink-faint)"}
-  {@const name = commenter?.name ?? "Writer"}
+  {@const name = commenter?.name ?? "Consultant"}
   <div class="rounded-lg border border-gray-200 bg-white p-3 shadow-lg">
     <p class="line-clamp-1 text-xs leading-relaxed text-gray-400">
       &ldquo;{comment.highlightText}&rdquo;

@@ -3,6 +3,7 @@
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Button from "$lib/components/ui/Button.svelte";
+  import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { goto } from "$app/navigation";
   import { useQuery, useMutation } from "convex-svelte";
@@ -81,9 +82,45 @@
     custom: "bg-chrome text-gray-500",
   };
 
+  const KIND_ITEMS = [
+    { value: "custom", label: "Custom" },
+    { value: "industry", label: "Industry" },
+    { value: "writer", label: "Consultant" },
+  ];
+
+  // Indent nested tags with non-breaking spaces so hierarchy survives HTML
+  // whitespace collapsing inside the combobox list.
+  const indentLabel = (depth: number, name: string) =>
+    "  ".repeat(depth) + name;
+
+  const newParentItems = $derived([
+    { value: "", label: "Top level" },
+    ...tagRows.map((row) => ({
+      value: row.tag._id as string,
+      label: indentLabel(row.depth, row.tag.name),
+    })),
+  ]);
+
+  function moveParentItems(tag: Tag) {
+    return [
+      // Keep a legacy broken parent visible so the current value still renders.
+      ...(tag.parentId && !canUseAsParent(tag._id, tag.parentId)
+        ? [{ value: tag.parentId as string, label: "Missing or invalid parent" }]
+        : []),
+      { value: "", label: "Top level" },
+      ...tagRows
+        .filter(({ tag: candidate }) => canUseAsParent(tag._id, candidate._id))
+        .map((row) => ({
+          value: row.tag._id as string,
+          label: indentLabel(row.depth, row.tag.name),
+        })),
+    ];
+  }
+
   let newName = $state("");
   let newParent = $state<string>("");
-  let newKind = $state<TagKind>("custom");
+  // string (not TagKind) so it can bind:value into SelectInput; cast on use.
+  let newKind = $state<string>("custom");
   let error = $state("");
   let busy = $state(false);
   let confirmDeleteId = $state<string | null>(null);
@@ -125,7 +162,7 @@
     const created = await run(() =>
       createTag({
         name,
-        kind: newKind,
+        kind: newKind as TagKind,
         ...(newParent ? { parentId: newParent as Id<"tags"> } : {}),
       })
     );
@@ -246,23 +283,15 @@
       <span class="ml-auto flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
         <label class="flex items-center gap-1.5 text-xs text-gray-400">
           Nest under
-          <select
-            value={tag.parentId ?? ""}
+          <SelectInput
+            size="sm"
+            value={(tag.parentId as string) ?? ""}
+            items={moveParentItems(tag)}
             disabled={busy}
-            aria-label={`Parent for ${tag.name}`}
-            onchange={(event) => handleMove(tag._id, event.currentTarget.value)}
-            class="h-7 max-w-44 rounded-md border border-gray-200 bg-white px-1.5 text-xs text-gray-700 disabled:opacity-50"
-          >
-            {#if tag.parentId && !canUseAsParent(tag._id, tag.parentId)}
-              <option value={tag.parentId} disabled>Missing or invalid parent</option>
-            {/if}
-            <option value="">Top level</option>
-            {#each tagRows.filter(({ tag: candidate }) => canUseAsParent(tag._id, candidate._id)) as row (row.tag._id)}
-              <option value={row.tag._id}>
-                {"  ".repeat(row.depth)}{row.tag.name}
-              </option>
-            {/each}
-          </select>
+            placeholder={`Parent for ${tag.name}`}
+            class="w-44"
+            onValueChange={(next) => handleMove(tag._id, next)}
+          />
         </label>
         <button
           type="button"
@@ -351,32 +380,27 @@
                 class="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy disabled:opacity-50"
               />
             </label>
-            <label class="flex flex-col gap-1 text-xs text-gray-500">
+            <label class="flex flex-col gap-1 text-xs text-gray-500" for="new-tag-kind">
               Kind
-              <select
+              <SelectInput
+                id="new-tag-kind"
                 bind:value={newKind}
+                items={KIND_ITEMS}
                 disabled={busy}
-                class="h-10 rounded-lg border border-gray-200 bg-white px-2.5 text-sm text-gray-900 disabled:opacity-50"
-              >
-                <option value="custom">Custom</option>
-                <option value="industry">Industry</option>
-                <option value="writer">Writer</option>
-              </select>
+                placeholder="Kind"
+                class="w-full"
+              />
             </label>
-            <label class="flex flex-col gap-1 text-xs text-gray-500">
+            <label class="flex flex-col gap-1 text-xs text-gray-500" for="new-tag-parent">
               Nest under
-              <select
+              <SelectInput
+                id="new-tag-parent"
                 bind:value={newParent}
+                items={newParentItems}
                 disabled={busy}
-                class="h-10 rounded-lg border border-gray-200 bg-white px-2.5 text-sm text-gray-900 disabled:opacity-50"
-              >
-                <option value="">Top level</option>
-                {#each tagRows as row (row.tag._id)}
-                  <option value={row.tag._id}>
-                    {"  ".repeat(row.depth)}{row.tag.name}
-                  </option>
-                {/each}
-              </select>
+                placeholder="Top level"
+                class="w-full"
+              />
             </label>
             <Button onclick={handleCreate} disabled={busy || !newName.trim()}>
               Add tag

@@ -17,6 +17,7 @@
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import GenerationProgress from "$lib/components/generation/GenerationProgress.svelte";
   import CandidateSelection from "$lib/components/generation/CandidateSelection.svelte";
+  import IterativeStepper from "$lib/components/generation/IterativeStepper.svelte";
   import Editor from "$lib/components/editor/Editor.svelte";
   import type {
     CommentRange,
@@ -51,7 +52,11 @@
     type ExportValidationResult,
   } from "$lib/exportValidation";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
-  import { SINGLE_MODEL_ITEMS, type CandidateModelId } from "../../../../shared/generationModels";
+  import { toast } from "svelte-sonner";
+  import { comparePairFromSlots, type CandidateModelId } from "../../../../shared/generationModels";
+  import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
+  import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
+  import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
 
   // BNH-10 P2 parallel-run: flip chat to the streaming @convex-dev/agent backend.
   const AGENT_CHAT = PUBLIC_AGENT_CHAT === "1";
@@ -126,6 +131,34 @@
   let pendingSaves = 0;
   let saveChain: Promise<void> = Promise.resolve();
   let showHistory = $state(false);
+  // Iterative-mode cancel (button lives in the PageBar; modal below).
+  let confirmCancelIterative = $state(false);
+  let cancellingIterative = $state(false);
+  const cancelIterativeMut = useMutation(api.generations.cancelIterativeGeneration);
+  const requestReportQaMut = useMutation(api.generations.requestReportQa);
+
+  // Section-by-section vs one-shot comparison (iterative mode only).
+  let ghostCompareOpen = $state(false);
+  const ghostSnapshotQ = useQuery(api.snapshots.getGhostSnapshot, () =>
+    generationQ.data?.candidateMode === "iterative" &&
+    generationQ.data.status === "completed"
+      ? { generationId: generationQ.data._id }
+      : "skip"
+  );
+  const ghostSnapshot = $derived(ghostSnapshotQ.data ?? null);
+  async function cancelIterative() {
+    if (cancellingIterative || !generation) return;
+    cancellingIterative = true;
+    try {
+      await cancelIterativeMut({ generationId: generation._id });
+    } catch (e) {
+      console.error(e);
+      toast.error(userErrorMessage(e, "The draft could not be cancelled."));
+    } finally {
+      cancellingIterative = false;
+      confirmCancelIterative = false;
+    }
+  }
   let pendingHighlight = $state<{
     from: number;
     to: number;
@@ -431,8 +464,11 @@
   // string (not the literal union) so it can bind:value into SelectInput;
   // the items list gates the values. Cast where the mutation needs the union.
   let lengthTarget = $state<string>("standard");
-  let candidateMode = $state<"compare" | "single">("compare");
+  let candidateMode = $state<"compare" | "single" | "iterative">("compare");
   let singleModelId = $state<CandidateModelId | "">("");
+  // Compare mode runs exactly 2 models — two slots, each a model or Random.
+  let compareSlotA = $state("");
+  let compareSlotB = $state("");
 
   // BNH-52: a completed test never re-runs silently — confirm modal first,
   // then the mutation is called with force. Prior results stay (report
@@ -463,8 +499,14 @@
         transcriptId: transcript._id,
         lengthTarget: lengthTarget as "concise" | "standard" | "full",
         candidateMode,
-        ...(candidateMode === "single" && singleModelId
+        ...(candidateMode !== "compare" && singleModelId
           ? { singleModelId }
+          : {}),
+        ...(candidateMode === "compare"
+          ? (() => {
+              const pair = comparePairFromSlots(compareSlotA, compareSlotB);
+              return pair ? { compareModelIds: pair } : {};
+            })()
           : {}),
         ...(force ? { confirmRegeneration: true } : {}),
       });
@@ -669,8 +711,19 @@
     exportValidation = null;
   }
 
+  // Iterative (section-by-section) generations render the stepper for their
+  // whole active life — including "running" (a section drafting) and
+  // "awaiting_input" (writer reviewing) — instead of GenerationProgress or
+  // CandidateSelection. "reserved"/pre-fan-out still shows the progress card
+  // (the stepper has nothing to show until section runs exist).
+  const isIterative = $derived(generation?.candidateMode === "iterative");
+  const showIterativeStepper = $derived(
+    isIterative &&
+      (generation?.status === "running" || generation?.status === "awaiting_input")
+  );
   const isGenerating = $derived(
-    generation?.status === "reserved" || generation?.status === "running"
+    generation?.status === "reserved" ||
+      (generation?.status === "running" && !isIterative)
   );
   const awaitingSelection = $derived(generation?.status === "awaiting_selection");
   // A failed generation gets the progress/retry view — except in review mode,
@@ -713,7 +766,14 @@
             Share failed: {shareError}
           </span>
         {/if}
-        <Badge status={awaitingSelection ? "awaiting" : project.status} dot />
+        <Badge
+          status={awaitingSelection
+            ? "awaiting"
+            : generation?.status === "awaiting_input"
+              ? "awaiting_input"
+              : project.status}
+          dot
+        />
       {/snippet}
     </AppNav>
 
@@ -746,7 +806,7 @@
             <p class="mt-1 text-gray-800">{project.clientName}</p>
           </div>
           <div>
-            <span class="text-label block">Writer</span>
+            <span class="text-label block">Consultant</span>
             <p class="mt-1 text-gray-800">{writerLabel}</p>
           </div>
           {#if interviewerLabel}
@@ -840,8 +900,22 @@
 
     <!-- Page bar: back + report actions (hidden while picking a draft) -->
     <PageBar>
+      {#snippet center()}
+        {#if showIterativeStepper && generation?.iterativeModelLabel}
+          <span class="text-xs text-gray-400">Model: {generation.iterativeModelLabel}</span>
+        {/if}
+      {/snippet}
       {#snippet actions()}
-        {#if report && !awaitingSelection}
+        {#if showIterativeStepper}
+          <button
+            type="button"
+            onclick={() => (confirmCancelIterative = true)}
+            class="px-2 text-xs text-gray-400 transition-colors hover:text-red-600"
+          >
+            Cancel iterative draft
+          </button>
+        {/if}
+        {#if report && !awaitingSelection && !showIterativeStepper}
             <IconAction
               label={sharing ? "Publishing…" : "Share"}
               title="Publish and copy review link"
@@ -854,6 +928,19 @@
                 </svg>
               {/snippet}
             </IconAction>
+            {#if ghostSnapshot}
+              <IconAction
+                label="Compare drafts"
+                title="Compare with the one-shot draft"
+                onclick={() => (ghostCompareOpen = true)}
+              >
+                {#snippet icon()}
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 4v16m6-16v16M4 8h4m8 0h4M4 16h4m8 0h4M6 4h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2z" />
+                  </svg>
+                {/snippet}
+              </IconAction>
+            {/if}
             <IconAction label="History" onclick={() => (showHistory = true)}>
               {#snippet icon()}
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -924,6 +1011,15 @@
       </div>
     {/if}
 
+    <!-- Iterative mode: section-by-section review stepper -->
+    {#if generation && showIterativeStepper}
+      <div class="min-h-0 flex-1 overflow-y-auto">
+        <div class="mx-auto w-full max-w-[var(--container-shell)] px-6 py-8">
+          <IterativeStepper generationId={generation._id} />
+        </div>
+      </div>
+    {/if}
+
     <!-- BNH-15: choose between candidate drafts before they become the report -->
     {#if generation && awaitingSelection}
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -937,7 +1033,7 @@
     {/if}
 
     <!-- Editor workspace + chat rail (single view, resizable — BNH-14) -->
-    {#if !awaitingSelection && report}
+    {#if !awaitingSelection && !showIterativeStepper && report}
       <div bind:this={workspaceEl} class={`mx-auto flex min-h-0 w-full flex-1 overflow-hidden transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? "max-w-full" : "max-w-[var(--container-shell)]"}`}>
         <div class="min-h-0 flex-1 overflow-y-auto">
             <div class={`mx-auto transition-[max-width,padding] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? "max-w-full px-7 py-6" : chatOpen || qaOpen ? "max-w-report px-10 py-10" : "max-w-[var(--container-shell)] px-10 py-10"}`}>
@@ -1024,11 +1120,17 @@
               <QARailPanel
                 open={qaOpen}
                 onClose={() => (qaOpen = false)}
-                modelName={generation?.selectedModelLabel ?? null}
+                modelName={generation?.selectedModelLabel ?? generation?.iterativeModelLabel ?? null}
                 agentOutputs={generation?.agentOutputs}
                 reportContent={report.content}
                 reportId={report._id}
                 onLocateGap={locateGap}
+                onRunQa={generation?.candidateMode === "iterative" && generation.status === "completed"
+                  ? async () => {
+                      await requestReportQaMut({ generationId: generation._id });
+                    }
+                  : undefined}
+                postQaStatus={generation?.postQaStatus ?? null}
               />
             {/if}
             <div
@@ -1055,6 +1157,10 @@
                   onClearHighlight={() => (pendingChatHighlight = null)}
                   onReferenceText={(texts, scrollTo) => editorRef?.highlightText(texts, scrollTo)}
                   onReviewReplacements={startReplaceReview}
+                  onPreviewProposal={(pairs, on) => {
+                    if (on && pairs.length) editorRef?.previewProposal(pairs);
+                    else editorRef?.clearProposalPreview();
+                  }}
                   reviewingId={replaceSession?.messageId ?? null}
                 />
               {:else}
@@ -1172,12 +1278,12 @@
     {/if}
 
     <!-- Comment authoring + hover overlay (single view) -->
-    {#if !awaitingSelection && report && user}
+    {#if !awaitingSelection && !showIterativeStepper && report && user}
       <CommentOverlay
         {projectId}
         reportId={report._id}
         commenterId={user._id}
-        commenterName={user.name ?? user.email ?? "Writer"}
+        commenterName={user.name ?? user.email ?? "Consultant"}
         {hoveredCommentId}
         {pendingHighlight}
         onClearPending={() => (pendingHighlight = null)}
@@ -1203,8 +1309,11 @@
                 {#if candidateMode === "single"}
                   Re-running generates one fresh draft and adds it directly as a
                   new report version.
+                {:else if candidateMode === "iterative"}
+                  Re-running drafts the report section by section — you review and
+                  approve each section — and adds a new report version at the end.
                 {:else}
-                  Re-running generates three fresh candidate drafts and adds a new
+                  Re-running generates two fresh candidate drafts and adds a new
                   report version after you select one.
                 {/if}
                 Previous results are preserved in version history — nothing is deleted.
@@ -1309,7 +1418,7 @@
     {/if}
 
     <!-- No report, not generating — review-mode feedback report or transcript -->
-    {#if !report && !isGenerating && !awaitingSelection && !showFailedGeneration}
+    {#if !report && !isGenerating && !awaitingSelection && !showIterativeStepper && !showFailedGeneration}
       <main class="mx-auto w-full max-w-3xl min-h-0 flex-1 overflow-y-auto px-6 py-8">
         {@render projectMetadata()}
 
@@ -1341,13 +1450,14 @@
               <div class="flex flex-wrap items-center gap-2 sm:justify-end">
                 {#if project.mode !== "review"}
                   <div
-                    class="inline-grid grid-cols-2 gap-1 rounded-lg bg-chrome p-1"
+                    class="inline-grid grid-cols-3 gap-1 rounded-lg bg-chrome p-1"
                     role="radiogroup"
                     aria-label="Draft generation mode"
                   >
                     {#each [
-                      { id: "compare", label: "Compare 3 drafts" },
+                      { id: "compare", label: "Compare" },
                       { id: "single", label: "Single draft" },
+                      { id: "iterative", label: "Section by section" },
                     ] as const as opt (opt.id)}
                       <button
                         type="button"
@@ -1365,14 +1475,14 @@
                     {/each}
                   </div>
                 {/if}
-                {#if project.mode !== "review" && candidateMode === "single"}
-                  <SelectInput
-                    size="sm"
-                    bind:value={singleModelId}
-                    items={SINGLE_MODEL_ITEMS}
-                    placeholder="Generation model"
-                    class="w-44"
-                  />
+                {#if project.mode !== "review"}
+                  <div class="ml-auto">
+                    {#if candidateMode !== "compare"}
+                      <SingleModelPicker bind:value={singleModelId} />
+                    {:else}
+                      <ComparePairPicker bind:slotA={compareSlotA} bind:slotB={compareSlotB} />
+                    {/if}
+                  </div>
                 {/if}
                 <SelectInput
                   size="sm"
@@ -1384,7 +1494,10 @@
                   ]}
                   class="w-52"
                 />
-                <Button onclick={handleRegenerate} class="text-xs">
+                <Button
+                  onclick={handleRegenerate}
+                  class="text-xs"
+                >
                   Generate Report
                 </Button>
               </div>
@@ -1403,6 +1516,50 @@
           {/if}
         </div>
       </main>
+    {/if}
+
+    {#if ghostSnapshot && report}
+      <GhostCompareDialog
+        bind:open={ghostCompareOpen}
+        reportContent={report.content}
+        ghostContent={ghostSnapshot.content}
+        ghostLabel={ghostSnapshot.label?.replace(/^One-shot ghost draft \(comparison — (.*)\)$/, "$1") ?? "one-shot"}
+      />
+    {/if}
+
+    <!-- Iterative cancel confirmation (button lives in the PageBar) -->
+    {#if confirmCancelIterative}
+      <div class="fixed inset-0 z-[100] flex items-center justify-center bg-navy/30 px-4" role="dialog" aria-modal="true" aria-labelledby="cancel-iterative-title">
+        <div class="card w-full max-w-md p-6 shadow-xl">
+          <h3 id="cancel-iterative-title" class="text-base font-semibold text-gray-900">
+            Cancel this section-by-section draft?
+          </h3>
+          <p class="mt-1.5 text-sm leading-relaxed text-gray-600">
+            Approved sections and drafts in progress will be discarded, and the project
+            returns to its previous state. This cannot be undone.
+          </p>
+          <div class="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onclick={() => (confirmCancelIterative = false)}
+              class="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-chrome"
+            >
+              Keep drafting
+            </button>
+            <button
+              type="button"
+              onclick={cancelIterative}
+              disabled={cancellingIterative}
+              class="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+            >
+              {#if cancellingIterative}
+                <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
+              {/if}
+              Cancel draft
+            </button>
+          </div>
+        </div>
+      </div>
     {/if}
   </div>
 {/if}

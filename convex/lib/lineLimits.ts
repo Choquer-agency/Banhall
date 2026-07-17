@@ -31,13 +31,48 @@ export type LengthTarget = keyof typeof LENGTH_TARGETS;
 
 export type SectionKey = keyof typeof LINE_LIMITS;
 
+/**
+ * Inline client-info placeholders (`[GAP: what's needed]`) are prompts, not
+ * filing prose — they are excluded from the CRA line/word math. `*` (not `+`)
+ * inside so an emptied-out `[GAP:]` still matches.
+ *
+ * CAUTION: this regex is global — `.test()`/`.exec()` on it are stateful
+ * (lastIndex). Use `matchAll`/`replace` (which reset it), or build a fresh
+ * non-global copy via `new RegExp(GAP_MARKER_RE.source, "i")`.
+ */
+export const GAP_MARKER_RE = /\[GAP:\s*[^\]]*\]/gi;
+
+/** Remove gap markers; collapse the doubled spaces removal creates while
+ * PRESERVING newlines (every explicit break costs a CRA form line). */
+export function stripGapMarkers(text: string): string {
+  return text.replace(GAP_MARKER_RE, "").replace(/[^\S\n]{2,}/g, " ");
+}
+
+/** Half-open [start, end) spans of every gap marker in `text`. */
+function gapRanges(text: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  for (const match of text.matchAll(GAP_MARKER_RE)) {
+    ranges.push([match.index, match.index + match[0].length]);
+  }
+  return ranges;
+}
+
 export type SectionMetrics = {
+  /** Canonical (gap-stripped) form-line count. */
   lines: number;
+  /** Canonical (gap-stripped) word count. */
   words: number;
   paragraphs: number;
   limit: number;
   wordCap: number;
+  /** Over the CRA limits on gap-stripped text (the filing-blocking signal). */
   overLimit: boolean;
+  /** Line count including [GAP: …] marker text. */
+  rawLines: number;
+  /** Word count including [GAP: …] marker text. */
+  rawWords: number;
+  /** Over the CRA limits only once gap text is counted. */
+  overLimitWithGaps: boolean;
 };
 
 /** Greedy word-wrap line count for one non-empty physical line. */
@@ -66,12 +101,44 @@ function wrappedLineCount(line: string, width = CHARS_PER_LINE): number {
   return lines;
 }
 
+/**
+ * First character offset (in the ORIGINAL string — editor decorations map
+ * these to ProseMirror positions) where the section exceeds its CRA limits.
+ *
+ * [GAP: …] marker text does not count: tokens fully inside a gap contribute
+ * neither words nor line length; partially overlapping tokens contribute only
+ * their non-gap characters. A section that overflows only because of gap text
+ * returns null.
+ */
 export function overflowStartOffset(
   text: string,
   section: SectionKey
 ): number | null {
   const lineLimit = LINE_LIMITS[section];
   const wordCap = WORD_CAPS[section];
+  const gaps = gapRanges(text);
+  let gapIndex = 0; // gaps are in document order; tokens are visited in order
+
+  /** Non-gap character count and first non-gap offset of [start, end). */
+  const effectiveSpan = (
+    start: number,
+    end: number
+  ): { length: number; firstVisible: number } => {
+    // Skip gaps that end at or before this token.
+    while (gapIndex < gaps.length && gaps[gapIndex][1] <= start) gapIndex += 1;
+    let length = end - start;
+    let firstVisible = start;
+    for (let i = gapIndex; i < gaps.length && gaps[i][0] < end; i += 1) {
+      const overlapStart = Math.max(start, gaps[i][0]);
+      const overlapEnd = Math.min(end, gaps[i][1]);
+      length -= overlapEnd - overlapStart;
+      if (firstVisible >= overlapStart && firstVisible < overlapEnd) {
+        firstVisible = overlapEnd;
+      }
+    }
+    return { length, firstVisible: Math.min(firstVisible, end - 1) };
+  };
+
   let consumedLines = 0;
   let words = 0;
   let lineStart = 0;
@@ -94,26 +161,32 @@ export function overflowStartOffset(
     for (const match of line.matchAll(/\S+/g)) {
       const word = match[0];
       const wordStart = lineStart + match.index;
+      const span = effectiveSpan(wordStart, wordStart + word.length);
+      // Token entirely inside a [GAP: …] marker: free — no word, no width.
+      if (span.length === 0) continue;
       words += 1;
-      if (words > wordCap) return wordStart;
+      if (words > wordCap) return span.firstVisible;
 
-      if (lineLength > 0 && lineLength + 1 + word.length <= CHARS_PER_LINE) {
-        lineLength += 1 + word.length;
+      if (lineLength > 0 && lineLength + 1 + span.length <= CHARS_PER_LINE) {
+        lineLength += 1 + span.length;
         continue;
       }
       if (lineLength > 0) {
         lineCount += 1;
         lineLength = 0;
-        if (consumedLines + lineCount > lineLimit) return wordStart;
+        if (consumedLines + lineCount > lineLimit) return span.firstVisible;
       }
 
-      const extraLines = Math.floor((word.length - 1) / CHARS_PER_LINE);
+      const extraLines = Math.floor((span.length - 1) / CHARS_PER_LINE);
       if (consumedLines + lineCount + extraLines > lineLimit) {
         const available = (lineLimit - consumedLines - lineCount + 1) * CHARS_PER_LINE;
-        return wordStart + Math.max(0, available);
+        return Math.min(
+          span.firstVisible + Math.max(0, available),
+          lineStart + line.length - 1
+        );
       }
       lineCount += extraLines;
-      lineLength = ((word.length - 1) % CHARS_PER_LINE) + 1;
+      lineLength = ((span.length - 1) % CHARS_PER_LINE) + 1;
     }
     consumedLines += lineCount;
     if (consumedLines > lineLimit) return lineStart;
@@ -131,25 +204,37 @@ export function toParagraphs(text: string): string[] {
     .filter(Boolean);
 }
 
-/** Form-accurate metrics for one section's text. */
-export function sectionMetrics(text: string, section: SectionKey): SectionMetrics {
-  const normalized = text.replace(/\r\n?/g, "\n");
-  const paras = toParagraphs(normalized);
+/** Line/word counts for already-newline-normalized text. */
+function countLinesAndWords(normalized: string): { lines: number; words: number } {
   const physicalLines = normalized === "" ? [] : normalized.split("\n");
   const lines = physicalLines.reduce(
     (total, line) => total + (line.trim() ? wrappedLineCount(line) : 1),
     0
   );
   const words = normalized.split(/\s+/).filter(Boolean).length;
+  return { lines, words };
+}
+
+/** Form-accurate metrics for one section's text. The canonical `lines`/`words`
+ * exclude [GAP: …] marker text; `rawLines`/`rawWords` include it. With no gaps
+ * present the two are identical. */
+export function sectionMetrics(text: string, section: SectionKey): SectionMetrics {
+  const normalized = text.replace(/\r\n?/g, "\n");
+  const paras = toParagraphs(normalized);
+  const raw = countLinesAndWords(normalized);
+  const stripped = countLinesAndWords(stripGapMarkers(normalized));
   const limit = LINE_LIMITS[section];
   const wordCap = WORD_CAPS[section];
   return {
-    lines,
-    words,
+    lines: stripped.lines,
+    words: stripped.words,
     paragraphs: paras.length,
     limit,
     wordCap,
-    overLimit: lines > limit || words > wordCap,
+    overLimit: stripped.lines > limit || stripped.words > wordCap,
+    rawLines: raw.lines,
+    rawWords: raw.words,
+    overLimitWithGaps: raw.lines > limit || raw.words > wordCap,
   };
 }
 

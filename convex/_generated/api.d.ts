@@ -15,14 +15,17 @@ import type * as ai_brain_query from "../ai/brain/query.js";
 import type * as ai_brain_rag from "../ai/brain/rag.js";
 import type * as ai_brain_retrieve from "../ai/brain/retrieve.js";
 import type * as ai_brain_scienceRouting from "../ai/brain/scienceRouting.js";
+import type * as ai_brainRetrieval from "../ai/brainRetrieval.js";
 import type * as ai_chatAgent from "../ai/chatAgent.js";
 import type * as ai_chatAgentV2 from "../ai/chatAgentV2.js";
 import type * as ai_chronologyAgent from "../ai/chronologyAgent.js";
 import type * as ai_financialAgent from "../ai/financialAgent.js";
 import type * as ai_instrument from "../ai/instrument.js";
+import type * as ai_iterative from "../ai/iterative.js";
 import type * as ai_learning from "../ai/learning.js";
 import type * as ai_model from "../ai/model.js";
 import type * as ai_pipeline from "../ai/pipeline.js";
+import type * as ai_postQa from "../ai/postQa.js";
 import type * as ai_prompts from "../ai/prompts.js";
 import type * as ai_providers from "../ai/providers.js";
 import type * as ai_qaAgent from "../ai/qaAgent.js";
@@ -53,6 +56,7 @@ import type * as lib_providerConfig from "../lib/providerConfig.js";
 import type * as lib_reportEdits from "../lib/reportEdits.js";
 import type * as lib_snapshots from "../lib/snapshots.js";
 import type * as lib_teamRoster from "../lib/teamRoster.js";
+import type * as lib_tiptapReport from "../lib/tiptapReport.js";
 import type * as pdReviews from "../pdReviews.js";
 import type * as projectEvidence from "../projectEvidence.js";
 import type * as projects from "../projects.js";
@@ -66,6 +70,7 @@ import type * as snapshots from "../snapshots.js";
 import type * as tags from "../tags.js";
 import type * as transcripts from "../transcripts.js";
 import type * as users from "../users.js";
+import type * as writerProfiles from "../writerProfiles.js";
 
 import type {
   ApiFromModules,
@@ -81,14 +86,17 @@ declare const fullApi: ApiFromModules<{
   "ai/brain/rag": typeof ai_brain_rag;
   "ai/brain/retrieve": typeof ai_brain_retrieve;
   "ai/brain/scienceRouting": typeof ai_brain_scienceRouting;
+  "ai/brainRetrieval": typeof ai_brainRetrieval;
   "ai/chatAgent": typeof ai_chatAgent;
   "ai/chatAgentV2": typeof ai_chatAgentV2;
   "ai/chronologyAgent": typeof ai_chronologyAgent;
   "ai/financialAgent": typeof ai_financialAgent;
   "ai/instrument": typeof ai_instrument;
+  "ai/iterative": typeof ai_iterative;
   "ai/learning": typeof ai_learning;
   "ai/model": typeof ai_model;
   "ai/pipeline": typeof ai_pipeline;
+  "ai/postQa": typeof ai_postQa;
   "ai/prompts": typeof ai_prompts;
   "ai/providers": typeof ai_providers;
   "ai/qaAgent": typeof ai_qaAgent;
@@ -119,6 +127,7 @@ declare const fullApi: ApiFromModules<{
   "lib/reportEdits": typeof lib_reportEdits;
   "lib/snapshots": typeof lib_snapshots;
   "lib/teamRoster": typeof lib_teamRoster;
+  "lib/tiptapReport": typeof lib_tiptapReport;
   pdReviews: typeof pdReviews;
   projectEvidence: typeof projectEvidence;
   projects: typeof projects;
@@ -132,6 +141,7 @@ declare const fullApi: ApiFromModules<{
   tags: typeof tags;
   transcripts: typeof transcripts;
   users: typeof users;
+  writerProfiles: typeof writerProfiles;
 }>;
 
 /**

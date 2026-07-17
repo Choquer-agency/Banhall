@@ -19,7 +19,7 @@
   <div class="rounded-xl border border-gray-200 bg-white p-5">
     <div class="flex items-center justify-between">
       <h3 class="text-sm font-semibold text-gray-900">Model test — your option scores</h3>
-      <span class="text-xs text-gray-400">Models revealed after selection</span>
+      <span class="text-xs text-gray-400">Model comparison</span>
     </div>
     <div class="mt-3 overflow-x-auto">
       <table class="w-full text-sm">

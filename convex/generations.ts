@@ -4,11 +4,13 @@ import {
   internalMutation,
   internalQuery,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
+  getCurrentUserOrNull,
   getInternalProjectAccessOrNull,
   requireCurrentUser,
   requireInternalProjectAccess,
@@ -18,7 +20,10 @@ import { domainError, sha256 } from "./lib/contracts";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { CANDIDATE_MODELS, type CandidateModelId } from "../shared/generationModels";
+import { randomComparePair, resolveCompareModels } from "./ai/model";
 import { findActiveGeneration } from "./lib/activeGeneration";
+import { buildTiptapDocument } from "./lib/tiptapReport";
+import { sectionMetrics } from "./lib/lineLimits";
 /**
  * Requires internal project access. Strips internal agentOutputs.
  */
@@ -34,24 +39,35 @@ export const getLatestGeneration = query({
       .order("desc")
       .first();
     if (!generation) return null;
-    // Which model's draft the writer chose — admin-only so the A/B test stays
-    // blind for writers even after selection.
-    let selectedModelLabel: string | null = null;
-    if (access.user.role === "admin") {
-      const selection = await ctx.db
-        .query("modelSelections")
-        .withIndex("by_projectId_and_generationId", (q) =>
-          q.eq("projectId", args.projectId).eq("generationId", generation._id)
+    // Which model's draft the writer chose — visible to everyone (the blind
+    // A/B test is over; model identity is shown to all users).
+    const selection = await ctx.db
+      .query("modelSelections")
+      .withIndex("by_projectId_and_generationId", (q) =>
+        q.eq("projectId", args.projectId).eq("generationId", generation._id)
+      )
+      .first();
+    const selectedModelLabel: string | null = selection?.label ?? null;
+    // Iterative runs draft with one model — surface its label for the page bar.
+    let iterativeModelLabel: string | null = null;
+    if ((generation.candidateMode ?? "compare") === "iterative") {
+      const firstRun = await ctx.db
+        .query("generationSectionRuns")
+        .withIndex("by_generationId_and_section", (q) =>
+          q.eq("generationId", generation._id).eq("section", "s242")
         )
-        .first();
-      selectedModelLabel = selection?.label ?? null;
+        .unique();
+      iterativeModelLabel = firstRun?.label ?? null;
     }
     return {
       selectedModelLabel,
+      iterativeModelLabel,
+      postQaStatus: generation.postQaStatus,
       _id: generation._id,
       projectId: generation.projectId,
       transcriptId: generation.transcriptId,
       status: generation.status,
+      candidateMode: generation.candidateMode ?? "compare",
       currentStep: generation.currentStep,
       progressLog: generation.progressLog,
       estimatedMs: generation.estimatedMs,
@@ -82,6 +98,7 @@ export const getGeneration = query({
       projectId: generation.projectId,
       transcriptId: generation.transcriptId,
       status: generation.status,
+      candidateMode: generation.candidateMode ?? "compare",
       currentStep: generation.currentStep,
       progressLog: generation.progressLog,
       estimatedMs: generation.estimatedMs,
@@ -131,16 +148,19 @@ const lengthTargetValidator = v.union(
 
 const candidateModeValidator = v.union(
   v.literal("compare"),
-  v.literal("single")
+  v.literal("single"),
+  v.literal("iterative")
 );
 const singleModelIdValidator = v.string();
 
-type CandidateMode = "compare" | "single";
+type CandidateMode = "compare" | "single" | "iterative";
+/** Single and iterative modes both run exactly one explicitly chosen model
+ * (defaulting to Sonnet when unset). */
 function validatedSingleModelId(
   candidateMode: CandidateMode,
   singleModelId: string | undefined
 ): CandidateModelId | undefined {
-  if (candidateMode !== "single" || !singleModelId) return undefined;
+  if (candidateMode === "compare" || !singleModelId) return undefined;
   const selected = CANDIDATE_MODELS.find((model) => model.id === singleModelId);
   if (!selected) {
     domainError("INVALID_INPUT", "Select a supported generation model");
@@ -151,8 +171,21 @@ function persistedSingleModelId(
   candidateMode: CandidateMode,
   singleModelId: string | undefined
 ): CandidateModelId | undefined {
-  if (candidateMode !== "single") return undefined;
+  if (candidateMode === "compare") return undefined;
   return CANDIDATE_MODELS.find((model) => model.id === singleModelId)?.id;
+}
+/** Mirrors validatedSingleModelId: only meaningful in compare mode; when the
+ *  writer picks explicitly it must be exactly 2 distinct known model ids. */
+function validatedCompareModelIds(
+  candidateMode: CandidateMode,
+  compareModelIds: string[] | undefined
+): string[] | undefined {
+  if (candidateMode !== "compare" || !compareModelIds) return undefined;
+  const resolved = resolveCompareModels(compareModelIds);
+  if (!resolved) {
+    domainError("INVALID_INPUT", "Pick exactly two models to compare");
+  }
+  return resolved.map((model) => model.id);
 }
 async function reserveGeneration(
   ctx: MutationCtx,
@@ -162,6 +195,7 @@ async function reserveGeneration(
   lengthTarget: "concise" | "standard" | "full",
   candidateMode: CandidateMode,
   singleModelId?: CandidateModelId,
+  compareModelIds?: string[],
   retryOfGenerationId?: Id<"generations">
 ) {
   if (transcript.projectId !== project._id) {
@@ -185,10 +219,20 @@ async function reserveGeneration(
     "reserved",
     "running",
     "awaiting_selection",
+    "awaiting_input",
   ]);
   if (active) {
     domainError("GENERATION_ACTIVE", "A generation is already active for this project");
   }
+
+  // Compare mode always persists its model pair so a retry reuses the exact
+  // same pair (Math.random in a mutation is fine — the result is durable).
+  const persistedCompareModelIds =
+    candidateMode === "compare"
+      ? (resolveCompareModels(compareModelIds) ?? randomComparePair()).map(
+          (model) => model.id
+        )
+      : undefined;
 
   const now = Date.now();
   const generationId = await ctx.db.insert("generations", {
@@ -200,6 +244,7 @@ async function reserveGeneration(
     lengthTarget,
     candidateMode,
     singleModelId,
+    compareModelIds: persistedCompareModelIds,
     retryOfGenerationId,
     previousProjectStatus: project.status,
     currentStep: "Queued",
@@ -248,7 +293,9 @@ async function reserveGeneration(
   });
   const scheduledJobId = await ctx.scheduler.runAfter(
     0,
-    internal.ai.pipeline.generateReport,
+    candidateMode === "iterative"
+      ? internal.ai.iterative.startIterativeGeneration
+      : internal.ai.pipeline.generateReport,
     { generationId }
   );
   await ctx.db.patch(generationId, { scheduledJobId });
@@ -262,6 +309,7 @@ export const requestGeneration = mutation({
     lengthTarget: v.optional(lengthTargetValidator),
     candidateMode: v.optional(candidateModeValidator),
     singleModelId: v.optional(singleModelIdValidator),
+    compareModelIds: v.optional(v.array(v.string())),
     confirmRegeneration: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -287,7 +335,8 @@ export const requestGeneration = mutation({
       user._id,
       args.lengthTarget ?? "standard",
       candidateMode,
-      validatedSingleModelId(candidateMode, args.singleModelId)
+      validatedSingleModelId(candidateMode, args.singleModelId),
+      validatedCompareModelIds(candidateMode, args.compareModelIds)
     );
   },
 });
@@ -312,6 +361,7 @@ export const retryGeneration = mutation({
       failed.lengthTarget ?? "standard",
       failed.candidateMode ?? "compare",
       persistedSingleModelId(failed.candidateMode ?? "compare", failed.singleModelId),
+      failed.compareModelIds,
       failed._id
     );
   },
@@ -362,6 +412,7 @@ export const getGenerationInput = internalQuery({
       lengthTarget: generation.lengthTarget ?? "standard",
       candidateMode: generation.candidateMode ?? "compare",
       singleModelId: generation.singleModelId as CandidateModelId | undefined,
+      compareModelIds: generation.compareModelIds,
       industry: project.industry,
       scienceCode: project.scienceCode,
       contextDocs: sources
@@ -384,6 +435,8 @@ export const createCandidateRun = internalMutation({
     generationId: v.id("generations"),
     model: v.string(),
     label: v.string(),
+    // Iterative mode's background one-shot comparison draft (peek-only).
+    ghost: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
@@ -401,6 +454,7 @@ export const createCandidateRun = internalMutation({
       model: args.model,
       label: args.label,
       status: "queued",
+      ...(args.ghost ? { ghost: true } : {}),
       queuedAt: Date.now(),
     });
   },
@@ -426,9 +480,14 @@ export const claimCandidateRun = internalMutation({
     if (!run || run.status !== "queued") return null;
     const generation = await ctx.db.get(run.generationId);
     const project = await ctx.db.get(run.projectId);
+    // Ghost runs draft in parallel with the iterative section flow, whose
+    // generation oscillates running ↔ awaiting_input while the writer reviews.
+    const activeStatuses: string[] = run.ghost
+      ? ["running", "awaiting_input"]
+      : ["running"];
     if (
       !generation ||
-      generation.status !== "running" ||
+      !activeStatuses.includes(generation.status) ||
       !project ||
       project.activeGenerationId !== generation._id
     ) {
@@ -510,17 +569,63 @@ export const completeCandidateRun = internalMutation({
     if (!run || run.status !== "running") return;
     const generation = await ctx.db.get(run.generationId);
     const project = await ctx.db.get(run.projectId);
+    const succeeded = Boolean(args.content && args.agentOutputs && !args.error);
+
+    // A ghost finishing AFTER its iterative generation went terminal (writer
+    // approved the last section, or cancelled) must still terminalize its own
+    // run row — otherwise it reads "running" forever and skews run stats. If
+    // the generation completed, the comparison draft still becomes the
+    // promised version-history snapshot; on cancel/failure it is discarded.
+    if (
+      run.ghost &&
+      generation &&
+      (generation.status === "completed" || generation.status === "failed")
+    ) {
+      await ctx.db.patch(run._id, {
+        status: succeeded ? "succeeded" : "failed",
+        qaScore: args.qaScore,
+        error: args.error?.slice(0, 500),
+        completedAt: Date.now(),
+      });
+      if (succeeded && args.content && generation.status === "completed") {
+        const report = await ctx.db
+          .query("reports")
+          .withIndex("by_generationId", (q) =>
+            q.eq("generationId", generation._id)
+          )
+          .first();
+        if (report) {
+          await ctx.db.insert("reportSnapshots", {
+            projectId: generation.projectId,
+            reportId: report._id,
+            generationId: generation._id,
+            sourceTranscriptId: generation.transcriptId,
+            provenanceId: args.provenanceId,
+            sourceRevisionNumber: 0,
+            contentHash: await sha256(args.content),
+            content: args.content,
+            reason: "generated",
+            label: `One-shot ghost draft (comparison — ${run.label})`,
+            createdByRole: "system",
+            createdAt: Date.now(),
+          });
+        }
+      }
+      return;
+    }
+
+    const activeStatuses: string[] = run.ghost
+      ? ["running", "awaiting_input"]
+      : ["running"];
     if (
       !generation ||
-      generation.status !== "running" ||
+      !activeStatuses.includes(generation.status) ||
       !project ||
       project._id !== generation.projectId ||
       project.activeGenerationId !== generation._id
     ) {
       return;
     }
-
-    const succeeded = Boolean(args.content && args.agentOutputs && !args.error);
     let candidateId: Id<"reportCandidates"> | undefined;
     if (succeeded && args.content && args.agentOutputs) {
       candidateId = await ctx.db.insert("reportCandidates", {
@@ -541,6 +646,21 @@ export const completeCandidateRun = internalMutation({
       error: args.error?.slice(0, 500),
       completedAt: Date.now(),
     });
+
+    // Ghost run (iterative mode): the candidate row is a peek-only comparison
+    // draft. It never advances the generation lifecycle — section approvals
+    // drive that — so log and stop here.
+    if (run.ghost) {
+      await ctx.db.patch(generation._id, {
+        progressLog: [
+          ...(generation.progressLog ?? []),
+          succeeded
+            ? `✓ One-shot comparison draft ready (${run.label}).`
+            : `✗ One-shot comparison draft failed: ${args.error ?? "provider error"}.`,
+        ],
+      });
+      return;
+    }
 
     const runs = await ctx.db
       .query("generationCandidateRuns")
@@ -659,6 +779,818 @@ export const failGeneration = internalMutation({
 });
 
 
+// ─── Iterative (section-by-section) generation lifecycle ─────────────────────
+//
+// One generationSectionRuns row per T661 section. The writer reviews, edits,
+// and approves each drafted section before the next is generated with the
+// approved text as canonical context. The generation row oscillates
+// running (a section is drafting) ↔ awaiting_input (writer reviewing); a
+// background "ghost" one-shot draft runs through the normal candidate
+// pipeline for comparison only.
+
+const SECTION_ORDER = ["s242", "s244", "s246"] as const;
+type IterativeSection = (typeof SECTION_ORDER)[number];
+const sectionValidator = v.union(
+  v.literal("s242"),
+  v.literal("s244"),
+  v.literal("s246")
+);
+const SECTION_TITLES: Record<IterativeSection, string> = {
+  s242: "Line 242 — Uncertainty",
+  s244: "Line 244 — Work performed",
+  s246: "Line 246 — Advancement",
+};
+
+async function getSectionRun(
+  ctx: { db: QueryCtx["db"] },
+  generationId: Id<"generations">,
+  section: IterativeSection
+) {
+  return await ctx.db
+    .query("generationSectionRuns")
+    .withIndex("by_generationId_and_section", (q) =>
+      q.eq("generationId", generationId).eq("section", section)
+    )
+    .unique();
+}
+
+/** Freeze the one-time iterative artifacts (analyzer output; brain blocks +
+ * style guidance). `brainBlocks` content shape (JSON):
+ * `{ blocks: {analyzer,s242,s244,s246}, styleGuidance: string }`. */
+export const saveIterativeArtifacts = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    analysis: v.string(),
+    brainBlocks: v.string(),
+  },
+  handler: async (ctx, args) => {
+    for (const [kind, content] of [
+      ["analysis", args.analysis],
+      ["brain_blocks", args.brainBlocks],
+    ] as const) {
+      const existing = await ctx.db
+        .query("generationArtifacts")
+        .withIndex("by_generationId_and_kind", (q) =>
+          q.eq("generationId", args.generationId).eq("kind", kind)
+        )
+        .unique();
+      if (existing) {
+        await ctx.db.patch(existing._id, { content });
+      } else {
+        await ctx.db.insert("generationArtifacts", {
+          generationId: args.generationId,
+          kind,
+          content,
+        });
+      }
+    }
+  },
+});
+
+/** Create the three section-run slots: s242 queued, the rest pending. */
+export const createSectionRuns = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    model: v.string(),
+    label: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation || generation.status !== "running") return false;
+    const now = Date.now();
+    for (const section of SECTION_ORDER) {
+      const existing = await getSectionRun(ctx, args.generationId, section);
+      if (existing) continue;
+      await ctx.db.insert("generationSectionRuns", {
+        generationId: generation._id,
+        projectId: generation.projectId,
+        section,
+        status: section === "s242" ? "queued" : "pending",
+        model: args.model,
+        label: args.label,
+        attempt: 1,
+        queuedAt: now,
+      });
+    }
+    return true;
+  },
+});
+
+export const claimSectionRun = internalMutation({
+  args: { generationId: v.id("generations"), section: sectionValidator },
+  handler: async (ctx, args) => {
+    const run = await getSectionRun(ctx, args.generationId, args.section);
+    if (!run || run.status !== "queued") return null;
+    const generation = await ctx.db.get(run.generationId);
+    const project = await ctx.db.get(run.projectId);
+    if (
+      !generation ||
+      generation.status !== "running" ||
+      !project ||
+      project.activeGenerationId !== generation._id
+    ) {
+      return null;
+    }
+    await ctx.db.patch(run._id, { status: "running", startedAt: Date.now() });
+    return {
+      generationId: generation._id,
+      projectId: run.projectId,
+      model: run.model,
+      label: run.label,
+      attempt: run.attempt,
+      guidance: run.guidance ?? null,
+    };
+  },
+});
+
+/** Persist a finished section draft: run → awaiting_review, generation →
+ * awaiting_input (the writer's turn). */
+export const completeSectionRun = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    section: sectionValidator,
+    draftText: v.string(),
+    metrics: v.string(),
+    qa: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const run = await getSectionRun(ctx, args.generationId, args.section);
+    if (!run || run.status !== "running") return;
+    const generation = await ctx.db.get(run.generationId);
+    const project = await ctx.db.get(run.projectId);
+    if (
+      !generation ||
+      generation.status !== "running" ||
+      !project ||
+      project.activeGenerationId !== generation._id
+    ) {
+      return;
+    }
+    await ctx.db.patch(run._id, {
+      status: "awaiting_review",
+      draftText: args.draftText,
+      metrics: args.metrics,
+      qa: args.qa,
+      error: undefined,
+      completedAt: Date.now(),
+    });
+    await ctx.db.patch(generation._id, {
+      status: "awaiting_input",
+      currentStep: `Review the ${SECTION_TITLES[args.section]} draft`,
+      progressLog: [
+        ...(generation.progressLog ?? []),
+        `✓ ${SECTION_TITLES[args.section]} draft ready for review.`,
+      ],
+    });
+  },
+});
+
+export const failSectionRun = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    section: sectionValidator,
+    error: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const run = await getSectionRun(ctx, args.generationId, args.section);
+    if (!run || (run.status !== "running" && run.status !== "queued")) return;
+    const generation = await ctx.db.get(run.generationId);
+    if (!generation) return;
+    await ctx.db.patch(run._id, {
+      status: "failed",
+      error: args.error.slice(0, 500),
+      completedAt: Date.now(),
+    });
+    // The generation stays alive in awaiting_input: the writer regenerates
+    // the failed section (or cancels) from the stepper.
+    if (generation.status === "running") {
+      await ctx.db.patch(generation._id, {
+        status: "awaiting_input",
+        currentStep: `${SECTION_TITLES[args.section]} draft failed`,
+        progressLog: [
+          ...(generation.progressLog ?? []),
+          `✗ ${SECTION_TITLES[args.section]} draft failed: ${args.error.slice(0, 200)}.`,
+        ],
+      });
+    }
+  },
+});
+
+/** Frozen inputs for drafting one section: analyzer output, this section's
+ * Brain block, the style guidance captured at start, and every approved
+ * prior section (in order). Ghost drafts NEVER flow through here. */
+export const getIterativeSectionInput = internalQuery({
+  args: { generationId: v.id("generations"), section: sectionValidator },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) return null;
+    const project = await ctx.db.get(generation.projectId);
+    if (!project || project.activeGenerationId !== generation._id) return null;
+    const [analysisRow, brainRow] = await Promise.all([
+      ctx.db
+        .query("generationArtifacts")
+        .withIndex("by_generationId_and_kind", (q) =>
+          q.eq("generationId", generation._id).eq("kind", "analysis")
+        )
+        .unique(),
+      ctx.db
+        .query("generationArtifacts")
+        .withIndex("by_generationId_and_kind", (q) =>
+          q.eq("generationId", generation._id).eq("kind", "brain_blocks")
+        )
+        .unique(),
+    ]);
+    if (!analysisRow) return null;
+    let brainBlock = "";
+    let styleGuidance = "";
+    if (brainRow) {
+      try {
+        const parsed: unknown = JSON.parse(brainRow.content);
+        if (parsed && typeof parsed === "object") {
+          if (
+            "blocks" in parsed &&
+            parsed.blocks &&
+            typeof parsed.blocks === "object" &&
+            args.section in parsed.blocks
+          ) {
+            const block = (parsed.blocks as Record<string, unknown>)[args.section];
+            if (typeof block === "string") brainBlock = block;
+          }
+          if (
+            "styleGuidance" in parsed &&
+            typeof parsed.styleGuidance === "string"
+          ) {
+            styleGuidance = parsed.styleGuidance;
+          }
+        }
+      } catch {
+        // Malformed artifact: draft without brain/style context.
+      }
+    }
+    const priorSections: Array<{ section: IterativeSection; text: string }> = [];
+    for (const section of SECTION_ORDER) {
+      if (section === args.section) break;
+      const run = await getSectionRun(ctx, generation._id, section);
+      if (run?.status !== "approved" || !run.approvedText) return null;
+      priorSections.push({ section, text: run.approvedText });
+    }
+    return {
+      analysis: analysisRow.content,
+      brainBlock,
+      styleGuidance,
+      priorSections,
+      lengthTarget: generation.lengthTarget ?? "standard",
+      projectId: generation.projectId,
+      requestedBy: generation.requestedBy,
+    };
+  },
+});
+
+/** Input bundle for the post-assembly QA pass (iterative reports). */
+export const getPostQaInput = internalQuery({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation || (generation.candidateMode ?? "compare") !== "iterative") {
+      return null;
+    }
+    const analysisRow = await ctx.db
+      .query("generationArtifacts")
+      .withIndex("by_generationId_and_kind", (q) =>
+        q.eq("generationId", args.generationId).eq("kind", "analysis")
+      )
+      .unique();
+    if (!analysisRow) return null;
+    const sections: Record<IterativeSection, { text: string; model: string }> = {
+      s242: { text: "", model: "" },
+      s244: { text: "", model: "" },
+      s246: { text: "", model: "" },
+    };
+    for (const section of SECTION_ORDER) {
+      const run = await getSectionRun(ctx, args.generationId, section);
+      sections[section] = {
+        text: run?.approvedText ?? "",
+        model: run?.model ?? "",
+      };
+    }
+    if (!sections.s242.text && !sections.s244.text && !sections.s246.text) {
+      return null;
+    }
+    return {
+      projectId: generation.projectId,
+      requestedBy: generation.requestedBy,
+      analysis: analysisRow.content,
+      section242: sections.s242.text,
+      section244: sections.s244.text,
+      section246: sections.s246.text,
+      model: sections.s242.model || undefined,
+    };
+  },
+});
+
+/** Merge the post-assembly QA scorecard + chronology into agentOutputs. */
+export const saveReportQa = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    qa: v.optional(v.string()),
+    chronology: v.optional(v.string()),
+    qaScore: v.optional(v.number()),
+    failed: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) return;
+    if (args.failed) {
+      await ctx.db.patch(generation._id, {
+        postQaStatus: "failed",
+        progressLog: [
+          ...(generation.progressLog ?? []),
+          "Post-assembly QA pass failed — the report is unaffected.",
+        ],
+      });
+      return;
+    }
+    let outputs: Record<string, unknown> = {};
+    try {
+      const parsed: unknown = JSON.parse(generation.agentOutputs ?? "{}");
+      if (parsed && typeof parsed === "object") {
+        outputs = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Corrupt/missing agentOutputs — rebuild with just the QA keys.
+    }
+    if (args.qa) {
+      try {
+        outputs.qa = JSON.parse(args.qa);
+      } catch {
+        /* skip unparseable */
+      }
+    }
+    if (args.chronology) {
+      try {
+        outputs.chronology = JSON.parse(args.chronology);
+      } catch {
+        /* skip unparseable */
+      }
+    }
+    await ctx.db.patch(generation._id, {
+      agentOutputs: JSON.stringify(outputs),
+      postQaStatus: "done",
+      ...(args.qaScore !== undefined ? { qaScore: args.qaScore } : {}),
+      progressLog: [
+        ...(generation.progressLog ?? []),
+        `✓ QA scorecard ready${args.qaScore !== undefined ? ` (${args.qaScore}/100)` : ""}.`,
+      ],
+    });
+  },
+});
+
+/** Writer-facing retrigger: run (or re-run) the post-assembly QA pass. */
+export const requestReportQa = mutation({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) domainError("NOT_FOUND", "Generation not found");
+    await requireInternalProjectAccess(ctx, generation.projectId);
+    if ((generation.candidateMode ?? "compare") !== "iterative") {
+      domainError("INVALID_INPUT", "Only section-by-section reports use the post-assembly QA pass");
+    }
+    if (generation.status !== "completed") {
+      domainError("INVALID_INPUT", "The report must be assembled before QA can run");
+    }
+    // Idempotent: a pass already in flight keeps running across panel
+    // close/reopen — never double-spend the API call.
+    if (generation.postQaStatus === "running") return null;
+    await ctx.db.patch(generation._id, { postQaStatus: "running" });
+    await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
+      generationId: generation._id,
+    });
+    return null;
+  },
+});
+
+/** Live state for the iterative stepper UI. */
+export const getIterativeState = query({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (
+      !generation ||
+      !(await getInternalProjectAccessOrNull(ctx, generation.projectId))
+    ) {
+      return null;
+    }
+    if ((generation.candidateMode ?? "compare") !== "iterative") return null;
+
+    const runs = await ctx.db
+      .query("generationSectionRuns")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      .take(10);
+    const sectionRuns = SECTION_ORDER.flatMap((section) => {
+      const run = runs.find((row) => row.section === section);
+      if (!run) return [];
+      let metrics: ReturnType<typeof parseSectionMeter> = null;
+      let qa: unknown = null;
+      try {
+        if (run.metrics) metrics = parseSectionMeter(JSON.parse(run.metrics));
+      } catch {
+        // Legacy/malformed metrics stay null.
+      }
+      try {
+        if (run.qa) qa = JSON.parse(run.qa);
+      } catch {
+        // Malformed QA stays null.
+      }
+      return [
+        {
+          section,
+          status: run.status,
+          draftText: run.draftText ?? null,
+          approvedText: run.approvedText ?? null,
+          metrics,
+          qa,
+          attempt: run.attempt,
+          guidance: run.guidance ?? null,
+          error: run.error ?? null,
+        },
+      ];
+    });
+
+    // Background one-shot comparison draft (peek-only).
+    const candidateRuns = await ctx.db
+      .query("generationCandidateRuns")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      .take(10);
+    const ghostRun = candidateRuns.find((run) => run.ghost);
+    let ghost: {
+      status: "queued" | "running" | "succeeded" | "failed";
+      label: string;
+      content: string | null;
+    } | null = null;
+    if (ghostRun) {
+      let content: string | null = null;
+      if (ghostRun.status === "succeeded" && ghostRun.candidateId) {
+        content = (await ctx.db.get(ghostRun.candidateId))?.content ?? null;
+      }
+      ghost = { status: ghostRun.status, label: ghostRun.label, content };
+    }
+
+    const modelLabel = runs[0]?.label ?? null;
+    return {
+      status: generation.status,
+      candidateMode: "iterative" as const,
+      modelLabel,
+      error: generation.error ?? null,
+      // Narrates the pre-fan-out wait (analyzer + Brain) in the stepper.
+      progressLog: generation.progressLog ?? [],
+      currentStep: generation.currentStep ?? null,
+      sectionRuns,
+      ghost,
+    };
+  },
+});
+
+/** Shared guards for the writer-facing iterative mutations. */
+async function requireIterativeGeneration(
+  ctx: MutationCtx,
+  generationId: Id<"generations">
+) {
+  const generation = await ctx.db.get(generationId);
+  if (!generation) domainError("NOT_FOUND", "Generation not found");
+  const { project, user } = await requireInternalProjectAccess(
+    ctx,
+    generation.projectId
+  );
+  if ((generation.candidateMode ?? "compare") !== "iterative") {
+    domainError("INVALID_STATE", "This generation is not section-by-section");
+  }
+  if (project.activeGenerationId !== generation._id) {
+    domainError("STALE_REVISION", "This generation is no longer active");
+  }
+  return { generation, project, user };
+}
+
+/**
+ * Writer approves one section's (possibly edited) text. Over-limit text is
+ * allowed — the CRA meters are advisory here; the writer is the QA. Approving
+ * the last section assembles the final report.
+ */
+export const approveSectionDraft = mutation({
+  args: {
+    generationId: v.id("generations"),
+    section: sectionValidator,
+    text: v.string(),
+    // Fences the approval to the draft the writer was actually looking at: a
+    // concurrent guided regeneration (other tab/user) bumps `attempt`, and an
+    // approve carrying stale attempt-N text must not land on attempt N+1.
+    attempt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { generation, project } = await requireIterativeGeneration(
+      ctx,
+      args.generationId
+    );
+    if (generation.status !== "awaiting_input") {
+      domainError("INVALID_STATE", "No section is awaiting review right now");
+    }
+    const run = await getSectionRun(ctx, generation._id, args.section);
+    if (!run || run.status !== "awaiting_review") {
+      domainError("INVALID_STATE", "This section is not awaiting review");
+    }
+    if (args.attempt !== undefined && run.attempt !== args.attempt) {
+      domainError(
+        "STALE_REVISION",
+        "This section was redrafted since you loaded it — review the new draft"
+      );
+    }
+    for (const section of SECTION_ORDER) {
+      if (section === args.section) break;
+      const prior = await getSectionRun(ctx, generation._id, section);
+      if (prior?.status !== "approved") {
+        domainError("INVALID_STATE", "Earlier sections must be approved first");
+      }
+    }
+    const text = args.text.trim();
+    if (!text) {
+      domainError("INVALID_INPUT", "The approved section text cannot be empty");
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(run._id, {
+      status: "approved",
+      approvedText: text,
+      completedAt: now,
+    });
+
+    // Edit-mining: record draft vs approved (learning loop input). Capped so
+    // one section can't bloat the digest prompt; never blocks approval.
+    if (run.draftText) {
+      const cap = (s: string) => s.slice(0, 6000);
+      const draftWords = run.draftText.split(/\s+/).filter(Boolean);
+      const approvedWords = new Set(text.split(/\s+/).filter(Boolean));
+      const kept = draftWords.filter((w) => approvedWords.has(w)).length;
+      const editRatio =
+        draftWords.length === 0
+          ? 0
+          : Math.min(1, Math.max(0, 1 - kept / draftWords.length));
+      const caller = await getCurrentUserOrNull(ctx);
+      await ctx.db.insert("sectionEditEvents", {
+        projectId: generation.projectId,
+        generationId: generation._id,
+        section: args.section,
+        draftText: cap(run.draftText),
+        approvedText: cap(text),
+        editRatio,
+        ...(caller ? { userId: caller._id } : {}),
+        createdAt: now,
+      });
+    }
+
+    const nextSection =
+      SECTION_ORDER[SECTION_ORDER.indexOf(args.section) + 1] ?? null;
+    if (nextSection) {
+      const next = await getSectionRun(ctx, generation._id, nextSection);
+      if (!next || next.status !== "pending") {
+        domainError("INVALID_STATE", "The next section is not ready to draft");
+      }
+      await ctx.db.patch(next._id, { status: "queued", queuedAt: now });
+      await ctx.db.patch(generation._id, {
+        status: "running",
+        // startedAt marks the start of THIS drafting phase so the stale-run
+        // reaper measures drafting time, not total writer review time.
+        startedAt: now,
+        currentStep: `Drafting ${SECTION_TITLES[nextSection]}…`,
+        progressLog: [
+          ...(generation.progressLog ?? []),
+          `✓ ${SECTION_TITLES[args.section]} approved by the writer.`,
+          `Drafting ${SECTION_TITLES[nextSection]}…`,
+        ],
+      });
+      await ctx.scheduler.runAfter(0, internal.ai.iterative.generateSection, {
+        generationId: generation._id,
+        section: nextSection,
+      });
+      return null;
+    }
+
+    // Final section approved → assemble the report from the approved texts.
+    const approved: Record<IterativeSection, string> = {
+      s242: "",
+      s244: "",
+      s246: text,
+    };
+    for (const section of ["s242", "s244"] as const) {
+      const priorRun = await getSectionRun(ctx, generation._id, section);
+      approved[section] = priorRun?.approvedText ?? "";
+    }
+    const content = JSON.stringify(
+      buildTiptapDocument(
+        project.title || "Untitled Report",
+        approved.s242,
+        approved.s244,
+        approved.s246
+      )
+    );
+    const agentOutputs = JSON.stringify({
+      section242: approved.s242,
+      section244: approved.s244,
+      section246: approved.s246,
+      metrics: {
+        s242: sectionMetrics(approved.s242, "s242"),
+        s244: sectionMetrics(approved.s244, "s244"),
+        s246: sectionMetrics(approved.s246, "s246"),
+        lengthTarget: generation.lengthTarget ?? "standard",
+      },
+      iterative: true,
+    });
+    const reportId = await createGeneratedReportArtifacts(ctx, generation, {
+      projectId: generation.projectId,
+      content,
+      agentOutputs,
+      provenanceId: undefined,
+      label: `Iterative — ${run.label}`,
+    });
+
+    // The finished ghost draft is preserved as a version-history snapshot for
+    // comparison (never the report). Inserted AFTER the report's own
+    // "generated" baseline above so postEditDistance's `.first()` still finds
+    // the real baseline.
+    const candidateRuns = await ctx.db
+      .query("generationCandidateRuns")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      .take(10);
+    const ghostRun = candidateRuns.find((row) => row.ghost);
+    if (ghostRun?.status === "succeeded" && ghostRun.candidateId) {
+      const ghostCandidate = await ctx.db.get(ghostRun.candidateId);
+      if (ghostCandidate) {
+        await ctx.db.insert("reportSnapshots", {
+          projectId: generation.projectId,
+          reportId,
+          generationId: generation._id,
+          sourceTranscriptId: generation.transcriptId,
+          provenanceId: ghostCandidate.provenanceId,
+          sourceRevisionNumber: 0,
+          contentHash: await sha256(ghostCandidate.content),
+          content: ghostCandidate.content,
+          reason: "generated",
+          label: `One-shot ghost draft (comparison — ${ghostRun.label})`,
+          createdByRole: "system",
+          createdAt: Date.now(),
+        });
+      }
+      // The run row stays for stats; drop the dangling candidate pointer.
+      await ctx.db.patch(ghostRun._id, { candidateId: undefined });
+      // Edit-mining: attach the ghost's take on each section to the edit
+      // events, so the digest can contrast writer-approved vs one-shot text.
+      if (ghostCandidate) {
+        try {
+          const outputs: unknown = JSON.parse(ghostCandidate.agentOutputs);
+          if (outputs && typeof outputs === "object") {
+            const ghostSections: Record<IterativeSection, string | undefined> = {
+              s242: (outputs as Record<string, unknown>).section242 as string | undefined,
+              s244: (outputs as Record<string, unknown>).section244 as string | undefined,
+              s246: (outputs as Record<string, unknown>).section246 as string | undefined,
+            };
+            const events = await ctx.db
+              .query("sectionEditEvents")
+              .withIndex("by_generationId", (q) =>
+                q.eq("generationId", generation._id)
+              )
+              .collect();
+            for (const event of events) {
+              const ghostText = ghostSections[event.section];
+              if (typeof ghostText === "string" && ghostText.trim()) {
+                await ctx.db.patch(event._id, { ghostText: ghostText.slice(0, 6000) });
+              }
+            }
+          }
+        } catch {
+          // Ghost outputs unparseable — events simply stay ghost-less.
+        }
+      }
+    }
+    // Candidate rows (the ghost's included) never outlive the generation.
+    const candidates = await ctx.db
+      .query("reportCandidates")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      .take(10);
+    for (const row of candidates) await ctx.db.delete(row._id);
+
+    // Mirror completeCandidateRun's single-mode bookkeeping exactly.
+    const doneAt = Date.now();
+    await ctx.db.patch(project._id, {
+      activeGenerationId: undefined,
+      status: "review",
+      updatedAt: doneAt,
+    });
+    await ctx.db.patch(generation._id, {
+      status: "completed",
+      currentStep: "Complete",
+      agentOutputs,
+      completedAt: doneAt,
+      progressLog: [
+        ...(generation.progressLog ?? []),
+        `✓ ${SECTION_TITLES.s246} approved by the writer.`,
+        "✓ Report assembled from the approved sections.",
+        "Running the QA scorecard and chronology in the background…",
+      ],
+    });
+    // Every mode ends with a scorecard: run QA + chronology over the
+    // assembled sections in the background (feeds the learning loops).
+    await ctx.db.patch(generation._id, { postQaStatus: "running" });
+    await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
+      generationId: generation._id,
+    });
+    return reportId;
+  },
+});
+
+/** Redraft one section, optionally steered by writer guidance. */
+export const regenerateSectionDraft = mutation({
+  args: {
+    generationId: v.id("generations"),
+    section: sectionValidator,
+    guidance: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { generation } = await requireIterativeGeneration(
+      ctx,
+      args.generationId
+    );
+    if (generation.status !== "awaiting_input") {
+      domainError("INVALID_STATE", "No section is awaiting review right now");
+    }
+    const run = await getSectionRun(ctx, generation._id, args.section);
+    if (!run || (run.status !== "awaiting_review" && run.status !== "failed")) {
+      domainError("INVALID_STATE", "This section cannot be regenerated right now");
+    }
+    const guidance = args.guidance?.trim();
+    const now = Date.now();
+    await ctx.db.patch(run._id, {
+      status: "queued",
+      attempt: run.attempt + 1,
+      guidance: guidance || undefined,
+      error: undefined,
+      queuedAt: now,
+      startedAt: undefined,
+      completedAt: undefined,
+    });
+    await ctx.db.patch(generation._id, {
+      status: "running",
+      startedAt: now,
+      currentStep: `Redrafting ${SECTION_TITLES[args.section]}…`,
+      progressLog: [
+        ...(generation.progressLog ?? []),
+        `Redrafting ${SECTION_TITLES[args.section]}${guidance ? " with writer guidance" : ""}…`,
+      ],
+    });
+    await ctx.scheduler.runAfter(0, internal.ai.iterative.generateSection, {
+      generationId: generation._id,
+      section: args.section,
+    });
+    return null;
+  },
+});
+
+/** Abandon an in-flight iterative generation and free the project. */
+export const cancelIterativeGeneration = mutation({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const { generation, project } = await requireIterativeGeneration(
+      ctx,
+      args.generationId
+    );
+    if (
+      generation.status !== "reserved" &&
+      generation.status !== "running" &&
+      generation.status !== "awaiting_input"
+    ) {
+      domainError("INVALID_STATE", "This generation is no longer active");
+    }
+    const now = Date.now();
+    await ctx.db.patch(generation._id, {
+      status: "failed",
+      currentStep: "Cancelled",
+      error: "Cancelled by writer",
+      completedAt: now,
+    });
+    // Ghost/section jobs still scheduled become no-ops: their claim fences
+    // require an active generation + project pointer. Their rows stay
+    // (harmless) except candidate content, which never outlives a generation.
+    const candidates = await ctx.db
+      .query("reportCandidates")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      .take(10);
+    for (const row of candidates) await ctx.db.delete(row._id);
+    await ctx.db.patch(project._id, {
+      activeGenerationId: undefined,
+      status: generation.previousProjectStatus ?? "draft",
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
 /** BNH-21: store the up-front time estimate + how many candidate drafts to expect. */
 export const setGenerationEstimate = internalMutation({
   args: {
@@ -697,7 +1629,52 @@ export const failStaleGenerations = internalMutation({
       )
       .take(100);
     const stale = [...reserved, ...running];
+    let failed = 0;
     for (const generation of stale) {
+      // Iterative generations in "running" mean ONE section is drafting; a
+      // stale section run fails alone and hands control back to the writer
+      // (awaiting_input → regenerate), never killing the whole run. Note the
+      // reaper deliberately skips awaiting_input generations entirely —
+      // writer thinking time is unbounded.
+      if (
+        generation.status === "running" &&
+        (generation.candidateMode ?? "compare") === "iterative"
+      ) {
+        const sectionRuns = await ctx.db
+          .query("generationSectionRuns")
+          .withIndex("by_generationId", (q) =>
+            q.eq("generationId", generation._id)
+          )
+          .take(10);
+        // No section runs at all = the startup action died before fan-out
+        // (analyzer/brain phase); fall through to the whole-generation fail.
+        if (sectionRuns.length > 0) {
+          const staleRuns = sectionRuns.filter(
+            (run) =>
+              (run.status === "queued" || run.status === "running") &&
+              (run.startedAt ?? run.queuedAt) < cutoff
+          );
+          if (staleRuns.length === 0) continue;
+          for (const run of staleRuns) {
+            await ctx.db.patch(run._id, {
+              status: "failed",
+              error: "Timed out before the section draft completed.",
+              completedAt: Date.now(),
+            });
+          }
+          await ctx.db.patch(generation._id, {
+            status: "awaiting_input",
+            currentStep: "Section draft timed out — regenerate to retry",
+            progressLog: [
+              ...(generation.progressLog ?? []),
+              "✗ Section draft timed out. Use Regenerate to retry.",
+            ],
+          });
+          failed += 1;
+          continue;
+        }
+      }
+      failed += 1;
       await ctx.db.patch(generation._id, {
         status: "failed",
         currentStep: "Failed",
@@ -734,7 +1711,7 @@ export const failStaleGenerations = internalMutation({
         }
       }
     }
-    return { failed: stale.length };
+    return { failed };
   },
 });
 
@@ -790,6 +1767,7 @@ export const updateGenerationStatus = internalMutation({
     status: v.union(
       v.literal("running"),
       v.literal("awaiting_selection"),
+      v.literal("awaiting_input"),
       v.literal("completed"),
       v.literal("failed")
     ),
@@ -799,6 +1777,18 @@ export const updateGenerationStatus = internalMutation({
     completedAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    // Never resurrect a terminal generation: a writer cancel (→ failed) can
+    // land inside the pipeline's multi-mutation setup window, after which the
+    // action's own "running" patch would zombie the row while the project
+    // pointer is already cleared.
+    if (
+      !generation ||
+      generation.status === "failed" ||
+      generation.status === "completed"
+    ) {
+      return;
+    }
     const updates: Record<string, unknown> = { status: args.status };
     if (args.currentStep !== undefined) updates.currentStep = args.currentStep;
     if (args.agentOutputs !== undefined)
@@ -816,6 +1806,11 @@ type CandidateSectionMeter = {
   limit: number;
   wordCap: number;
   overLimit: boolean;
+  // Gap-aware fields (convex/lib/lineLimits.ts). Optional: legacy persisted
+  // candidate metrics predate them and must still parse.
+  rawLines?: number;
+  rawWords?: number;
+  overLimitWithGaps?: boolean;
 };
 
 function parseSectionMeter(value: unknown): CandidateSectionMeter | null {
@@ -833,6 +1828,15 @@ function parseSectionMeter(value: unknown): CandidateSectionMeter | null {
     limit: value.limit,
     wordCap: value.wordCap,
     overLimit: value.overLimit,
+    ...("rawLines" in value && typeof value.rawLines === "number"
+      ? { rawLines: value.rawLines }
+      : {}),
+    ...("rawWords" in value && typeof value.rawWords === "number"
+      ? { rawWords: value.rawWords }
+      : {}),
+    ...("overLimitWithGaps" in value && typeof value.overLimitWithGaps === "boolean"
+      ? { overLimitWithGaps: value.overLimitWithGaps }
+      : {}),
   };
 }
 
@@ -852,8 +1856,9 @@ function parseCandidateMetrics(value: unknown) {
   };
 }
 
-/** Candidate drafts for one explicitly named generation. Option tabs stay blind;
- * model identity is returned only to admins (writers stay fully blind). */
+/** Candidate drafts for one explicitly named generation. Model identity
+ * (model + label) is returned to every user with project access — the blind
+ * A/B test is over. */
 export const getCandidates = query({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
@@ -861,11 +1866,23 @@ export const getCandidates = query({
     if (!generation) return [];
     const access = await getInternalProjectAccessOrNull(ctx, generation.projectId);
     if (!access) return [];
-    const isAdmin = access.user.role === "admin";
-    const candidates = await ctx.db
-      .query("reportCandidates")
+    // Ghost candidates (iterative mode's background comparison draft) are
+    // peek-only — never listed for selection.
+    const runs = await ctx.db
+      .query("generationCandidateRuns")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
       .take(10);
+    const ghostCandidateIds = new Set(
+      runs
+        .filter((run) => run.ghost && run.candidateId)
+        .map((run) => run.candidateId)
+    );
+    const candidates = (
+      await ctx.db
+        .query("reportCandidates")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+        .take(10)
+    ).filter((candidate) => !ghostCandidateIds.has(candidate._id));
     return candidates.map((candidate) => {
       let qaScore: number | null = null;
       let metrics: ReturnType<typeof parseCandidateMetrics> = null;
@@ -895,8 +1912,8 @@ export const getCandidates = query({
         qaScore,
         metrics,
         qa,
-        model: isAdmin ? candidate.model : null,
-        label: isAdmin ? candidate.label : null,
+        model: candidate.model,
+        label: candidate.label,
       };
     });
   },
@@ -923,6 +1940,12 @@ export const selectReportCandidate = mutation({
       ctx,
       candidate.projectId
     );
+    if ((generation.candidateMode ?? "compare") === "iterative") {
+      domainError(
+        "INVALID_STATE",
+        "Section-by-section drafts are approved per section, not selected"
+      );
+    }
     // Generations created before the run-guard deploy never had
     // activeGenerationId stamped on the project; an unset pointer is safe to
     // accept because the run guard forbids a second active generation while

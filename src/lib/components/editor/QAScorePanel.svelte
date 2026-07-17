@@ -91,7 +91,9 @@
   import { useQuery, useMutation } from "convex-svelte";
   import { Popover } from "bits-ui";
   import * as Tooltip from "$lib/components/ui/tooltip/index.js";
+  import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { adjustedQaScores, issueDeduction } from "$lib/qaScoring";
+  import { canOverrideQaSeverity } from "../../../../shared/roles";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
 
@@ -103,6 +105,8 @@
     candidateId,
     rawQa = null,
     onLocateGap,
+    onRunQa,
+    postQaStatus = null,
   }: {
     agentOutputs?: string | null;
     reportContent?: string | null;
@@ -112,7 +116,26 @@
     rawQa?: unknown;
     /** Jump to + highlight a QA observation in the report or candidate preview. A null paragraph is section-wide. */
     onLocateGap?: (gap: { section: string; paragraph: number | null }) => void;
+    /** Iterative reports: trigger the post-assembly QA pass on demand. */
+    onRunQa?: () => Promise<void> | void;
+    /** Server-side pass state — survives closing/reopening this panel. */
+    postQaStatus?: "running" | "done" | "failed" | null;
   } = $props();
+
+  // Local flag only bridges the click → server-status round trip.
+  let runningQaLocal = $state(false);
+  const qaRunning = $derived(runningQaLocal || postQaStatus === "running");
+  async function handleRunQa() {
+    if (!onRunQa || qaRunning) return;
+    runningQaLocal = true;
+    try {
+      await onRunQa();
+    } catch {
+      runningQaLocal = false;
+    }
+    // Server status takes over; the scorecard arrives reactively via
+    // agentOutputs and replaces this empty state entirely.
+  }
 
   const scorecard = $derived.by((): QAScorecard | null => {
     const direct = parseScorecard(rawQa);
@@ -144,6 +167,10 @@
     }
     return null;
   });
+
+  // Managers/admins may reclassify QA severity; consultants only vote/comment.
+  const currentUserQ = useQuery(api.users.getCurrentUser, () => ({}));
+  const canOverride = $derived(canOverrideQaSeverity(currentUserQ.data?.role));
 
   // BNH-29: the writer's own QA review for this report version.
   const myReviewQ = useQuery(api.reviews.getMyWriterReview, () =>
@@ -224,13 +251,18 @@
   }) {
     if (!feedbackTarget) return;
     const current = itemFeedback.get(args.itemKey);
+    // Only send overrideSeverity when this call is actually changing it AND
+    // the user is allowed to (manager/admin). When the key is absent the
+    // server preserves any stored override, so a consultant vote can never
+    // erase a manager's reclassification.
+    const { overrideSeverity, vote, ...rest } = args;
     feedbackSaving[args.itemKey] = true;
     try {
       await saveItemFeedback({
         target: feedbackTarget,
-        ...args,
-        overrideSeverity: "overrideSeverity" in args ? args.overrideSeverity : (current?.overrideSeverity ?? undefined),
-        vote: "vote" in args ? args.vote : (current?.vote ?? undefined),
+        ...rest,
+        ...("overrideSeverity" in args && canOverride ? { overrideSeverity } : {}),
+        vote: "vote" in args ? vote : (current?.vote ?? undefined),
       });
     } finally {
       feedbackSaving[args.itemKey] = false;
@@ -489,16 +521,25 @@
                           <Popover.Content id={`qa-feedback-${itemKey}`} tabindex={-1} onOpenAutoFocus={(event) => focusFeedbackContainer(itemKey, event)} onCloseAutoFocus={(event) => restoreFeedbackTrigger(itemKey, event)} side="bottom" align="end" sideOffset={6} class="z-50 w-64 rounded-lg border border-line-soft bg-white p-3 shadow-lg outline-none">
                             <div class="block text-[10px] font-medium text-gray-500">
                               <label for={`qa-category-${itemKey}`} class="block">Category</label>
-                              <select
+                              <SelectInput
                                 id={`qa-category-${itemKey}`}
-                                aria-label={`Category for ${issue.text}`}
+                                size="sm"
                                 value={severity}
-                                disabled={feedbackSaving[itemKey] || issueDeduction(issue) === 0}
-                                class="mt-1 w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs font-normal text-gray-900 transition-colors hover:border-gray-300 focus:outline-none focus-visible:border-navy focus-visible:ring-1 focus-visible:ring-navy disabled:opacity-50"
-                                onchange={(event) => {
+                                items={[
+                                  { value: "deduction", label: "Deduction" },
+                                  { value: "warning", label: "Warning" },
+                                ]}
+                                placeholder={`Category for ${issue.text}`}
+                                disabled={feedbackSaving[itemKey] || issueDeduction(issue) === 0 || !canOverride}
+                                class="mt-1 w-full"
+                                onValueChange={(next) => {
+                                  // Guard the deselect-to-empty case and no-op re-selects so
+                                  // only a real reclassification hits the mutation.
+                                  if (next !== "deduction" && next !== "warning") return;
+                                  if (next === severity) return;
+                                  const overrideSeverity = next as "deduction" | "warning";
                                   // Close first: the severity change moves the card to another
                                   // group, which would drag the open popover around with it.
-                                  const overrideSeverity = event.currentTarget.value as "deduction" | "warning";
                                   setFeedbackMenuOpen(itemKey, false);
                                   updateItemFeedback({
                                     itemKey,
@@ -509,13 +550,12 @@
                                     overrideSeverity,
                                   });
                                 }}
-                              >
-                                <option value="deduction">Deduction</option>
-                                <option value="warning">Warning</option>
-                              </select>
+                              />
                             </div>
                             {#if issueDeduction(issue) === 0}
                               <p class="mt-1.5 text-[10px] leading-relaxed text-gray-500">No deduction amount is available, so this item remains a warning.</p>
+                            {:else if !canOverride}
+                              <p class="mt-1.5 text-[10px] leading-relaxed text-gray-500">Only managers can reclassify severity.</p>
                             {/if}
                             <div class="mt-3 flex items-center gap-1.5 border-t border-line-soft pt-2.5" aria-label="Rate this QA item">
                               <span class="mr-auto text-[10px] font-medium text-gray-500">Was this useful?</span>
@@ -785,6 +825,28 @@
       <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
     </svg>
     <p class="text-sm text-gray-500">No QA scorecard for this report yet.</p>
-    <p class="text-xs text-gray-400">Scores appear after the next generation.</p>
+    {#if onRunQa}
+      {#if qaRunning}
+        <p class="inline-flex items-center gap-2 text-xs text-gray-400">
+          <span class="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary"></span>
+          Scoring the report — it keeps running even if you close this panel.
+        </p>
+      {:else}
+        <p class="text-xs text-gray-400">
+          {postQaStatus === "failed"
+            ? "The last QA pass failed — you can run it again."
+            : "Score the assembled report with the same QA agent other modes use."}
+        </p>
+        <button
+          type="button"
+          onclick={handleRunQa}
+          class="mt-1 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-dark"
+        >
+          Run QA scorecard
+        </button>
+      {/if}
+    {:else}
+      <p class="text-xs text-gray-400">Scores appear after the next generation.</p>
+    {/if}
   </div>
 {/if}

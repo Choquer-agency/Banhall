@@ -73,7 +73,8 @@
   const ADMIN_ROUTES = [
     { href: "/admin/brain", label: "The Brain" },
     { href: "/admin/tags", label: "Project tags" },
-    { href: "/admin/reviews", label: "Writer QA reviews" },
+    { href: "/admin/reviews", label: "Consultant QA reviews" },
+    { href: "/admin/users", label: "Users & roles" },
     { href: "/admin/models", label: "Model preferences" },
     { href: "/admin/usage", label: "AI usage & cost" },
   ] as const;
@@ -307,6 +308,12 @@
             </span>
           {/if}
         </a>
+        <a
+          href="/settings"
+          class="text-sm text-white/60 transition-colors hover:text-white/90"
+        >
+          Settings
+        </a>
         <span class="hidden text-sm text-white/60 sm:inline">
           {user.data?.name ?? user.data?.email}
         </span>
@@ -390,7 +397,7 @@
             </label>
             {#if writers.length > 1}
               <label class="flex items-center gap-1.5 text-xs text-gray-400">
-                Writer
+                Consultant
                 <SelectInput size="sm" bind:value={filterWriter} items={withAll(writers)} class="w-36" />
               </label>
             {/if}

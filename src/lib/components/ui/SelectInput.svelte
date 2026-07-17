@@ -85,6 +85,7 @@
   value={value}
   bind:open
   {disabled}
+  allowDeselect={false}
   onValueChange={handleValueChange}
   onOpenChangeComplete={(nextOpen) => {
     if (!nextOpen) searchValue = "";
@@ -133,7 +134,7 @@
   <Combobox.Portal>
     <Combobox.Content
       sideOffset={4}
-      class="select-pop z-50 max-h-72 w-[var(--bits-combobox-anchor-width)] min-w-[var(--bits-combobox-anchor-width)] max-w-[32rem] overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg"
+      class="select-pop z-[120] max-h-72 w-[var(--bits-combobox-anchor-width)] min-w-[var(--bits-combobox-anchor-width)] max-w-[32rem] overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg"
     >
       <Combobox.Viewport class="max-h-72 overflow-y-auto">
         {#each filteredItems as item (item.value)}

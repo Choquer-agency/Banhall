@@ -1,7 +1,11 @@
 import type { Doc } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 
-type ActiveStatus = "reserved" | "running" | "awaiting_selection";
+type ActiveStatus =
+  | "reserved"
+  | "running"
+  | "awaiting_selection"
+  | "awaiting_input";
 
 /**
  * Find a generation in one of the given active states for a project.

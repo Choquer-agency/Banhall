@@ -162,43 +162,69 @@ Distill the comments into at most ${MAX_RULES} short style rules for the draftin
 - Never contradict CRA requirements: required paragraph structures, required CRA phrasing, if/then hypothesis format, and banned-word rules all take precedence over these style rules.
 - Be plain text, one sentence each, no numbering, no em dashes.`;
 
+const EDIT_MINING_PROMPT_SUFFIX = `
+
+You may also receive section edit events from the section-by-section drafting mode. Each has:
+- draftText: what the drafting agent produced for one T661 section
+- approvedText: what the professional writer actually approved after editing it directly
+- ghostText: what a one-shot full-report draft wrote for the same section (context for contrast), when available
+- editRatio: roughly how much of the draft the writer changed (0-1)
+
+The DIFFERENCE between draftText and approvedText is the writer's implicit critique — treat recurring kinds of edits (cutting filler, tightening openings, replacing vague claims with specifics, restructuring) exactly like recurring written comments. Ignore edits that only fix section-specific facts.`;
+
 export const generateDraftStyleDigest = internalAction({
   args: {},
   handler: async (ctx) => {
-    const feedback = await ctx.runQuery(
-      internal.learning.getCandidateFeedbackForDigest,
-      { limit: FEEDBACK_WINDOW }
-    );
+    const [feedback, sectionEdits] = await Promise.all([
+      ctx.runQuery(internal.learning.getCandidateFeedbackForDigest, {
+        limit: FEEDBACK_WINDOW,
+      }),
+      ctx.runQuery(internal.learning.getSectionEditsForDigest, {
+        limit: FEEDBACK_WINDOW,
+      }),
+    ]);
     // Comments carry the actionable critique; bare 1-10 scores don't say WHAT
     // to change, so they only ride along as context on commented rows.
+    // Section edit events are critiques in action: draft vs approved.
     const signal = feedback.filter((row) => row.comment);
-    if (signal.length < MIN_FEEDBACK_ROWS) return;
+    const totalSignal = signal.length + sectionEdits.length;
+    if (totalSignal < MIN_FEEDBACK_ROWS) return;
 
     const active = await ctx.runQuery(internal.learning.getActiveDigest, {
       kind: "draft_style",
     });
-    const newestFeedbackAt = Math.max(...signal.map((row) => row.updatedAt));
+    const newestFeedbackAt = Math.max(
+      ...signal.map((row) => row.updatedAt),
+      ...sectionEdits.map((row) => row.updatedAt)
+    );
     if (active && newestFeedbackAt <= active.feedbackCutoff) return;
 
     const client = instrumentedAnthropic(ctx, {
       callSite: "learning:draft-style",
       capability: "generation",
     });
+    const sectionEditsBlock = sectionEdits.length
+      ? `\n\nSection edit events (draft vs writer-approved), newest first:\n\n${JSON.stringify(
+          sectionEdits.map(({ updatedAt: _u, ...row }) => row),
+          null,
+          2
+        )}`
+      : "";
     const rules = await distillRules(
       client,
-      STYLE_DIGEST_SYSTEM_PROMPT,
+      STYLE_DIGEST_SYSTEM_PROMPT + (sectionEdits.length ? EDIT_MINING_PROMPT_SUFFIX : ""),
       `Scoring events, newest first:\n\n${JSON.stringify(
         signal.map(({ updatedAt: _updatedAt, ...row }) => row),
         null,
         2
-      )}`
+      )}${sectionEditsBlock}`
     );
     if (!rules) return;
 
     await ctx.runMutation(internal.learning.saveDigest, {
       kind: "draft_style",
-      content: formatDigestBlock(rules, signal.length),
-      sourceCount: signal.length,
+      content: formatDigestBlock(rules, totalSignal),
+      sourceCount: totalSignal,
       feedbackCutoff: newestFeedbackAt,
       model: MODEL,
     });

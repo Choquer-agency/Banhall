@@ -11,6 +11,11 @@
       className: "bg-purple-50 text-purple-600",
       dotColor: "bg-purple-500",
     },
+    awaiting_input: {
+      label: "Awaiting Review",
+      className: "bg-purple-50 text-purple-600",
+      dotColor: "bg-purple-500",
+    },
     review: { label: "Review", className: "bg-amber-50 text-amber-700", dotColor: "bg-amber-500" },
     client_review: {
       label: "Client Review",
