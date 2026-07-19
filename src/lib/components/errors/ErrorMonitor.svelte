@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from "$app/state";
   import { toast as sonner } from "svelte-sonner";
-  import { useMutation } from "convex-svelte";
+  import { useMutation, useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import { pushBreadcrumb, getBreadcrumbs } from "./breadcrumbs";
   import { overlayFade, modalPop } from "$lib/motion";
@@ -48,6 +48,12 @@
    * plus whatever note the user types, to the errorReports table.
    */
   const reportError = useMutation(api.errorReports.reportError);
+  // Jul 17: show existing requests inside the feature flow so duplicates
+  // surface before submission. Only fetched while the feature tab is open.
+  let showExisting = $state(false);
+  const existingRequestsQ = useQuery(api.errorReports.listFeatureRequests, () =>
+    showExisting ? {} : "skip"
+  );
 
   let detected = $state<DetectedError | null>(null);
   let modalMode = $state<ModalMode | null>(null);
@@ -302,7 +308,10 @@
             🐞 Bug
           </button>
           <button
-            onclick={() => (flagType = "feature")}
+            onclick={() => {
+              flagType = "feature";
+              showExisting = true;
+            }}
             class={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
               flagType === "feature"
                 ? "bg-primary text-white"
@@ -311,6 +320,23 @@
           >
             ✨ Feature request
           </button>
+        </div>
+      {/if}
+
+      <!-- Jul 17: existing requests — +1 instead of duplicating -->
+      {#if modalMode === "manual" && flagType === "feature" && (existingRequestsQ.data?.length ?? 0) > 0}
+        <div class="mt-3 max-h-36 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
+          <p class="mb-1.5 text-xs font-medium text-gray-500">
+            Already suggested — <a href="/requests" class="text-primary-dark underline">+1 on the board</a> instead of re-submitting:
+          </p>
+          <ul class="flex flex-col gap-1">
+            {#each (existingRequestsQ.data ?? []).slice(0, 6) as r (r._id)}
+              <li class="truncate text-xs text-gray-600">
+                <span class="text-data text-gray-400">+{r.upvotes}</span>
+                · {r.note}
+              </li>
+            {/each}
+          </ul>
         </div>
       {/if}
 

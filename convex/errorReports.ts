@@ -95,3 +95,47 @@ export const deleteError = mutation({
     await ctx.db.delete(args.id);
   },
 });
+
+// ─── Jul 17: public feature-request board (extends BNH-38) ───────────────────
+// Feature requests are visible to every signed-in writer so ideas aren't
+// silo'd and duplicates surface before submission. Bugs stay dev/admin-facing.
+
+/** All feature requests, newest first, with the caller's +1 state. */
+export const listFeatureRequests = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
+    const reports = await ctx.db.query("errorReports").order("desc").take(300);
+    return reports
+      .filter((r) => r.reportType === "feature")
+      .map((r) => ({
+        _id: r._id,
+        note: r.userNote ?? r.message,
+        submittedBy: r.userEmail ?? "Someone",
+        status: r.status,
+        createdAt: r.createdAt,
+        upvotes: r.upvoterIds?.length ?? 0,
+        upvotedByMe: r.upvoterIds?.includes(userId) ?? false,
+        mine: r.userId === userId,
+      }));
+  },
+});
+
+/** Toggle the caller's +1 on a feature request. */
+export const toggleUpvote = mutation({
+  args: { id: v.id("errorReports") },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+    const report = await ctx.db.get(args.id);
+    if (!report || report.reportType !== "feature") {
+      throw new Error("Feature request not found");
+    }
+    const current = report.upvoterIds ?? [];
+    const upvoterIds = current.includes(userId)
+      ? current.filter((id) => id !== userId)
+      : [...current, userId];
+    await ctx.db.patch(args.id, { upvoterIds });
+  },
+});

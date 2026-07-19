@@ -526,6 +526,9 @@ export default defineSchema({
     userEmail: v.optional(v.string()),
     status: v.union(v.literal("open"), v.literal("resolved")),
     createdAt: v.number(),
+    // Jul 17: feature requests are visible to all writers; +1s are stored
+    // inline (tiny volume — a handful of writers).
+    upvoterIds: v.optional(v.array(v.id("users"))),
   }).index("by_status", ["status"]),
 
   // Non-destructive version history of the report (Google-Docs-style restore).

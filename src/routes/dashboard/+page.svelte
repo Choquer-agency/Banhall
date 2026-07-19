@@ -313,6 +313,12 @@
           {/if}
         </a>
         <a
+          href="/requests"
+          class="text-sm text-white/60 transition-colors hover:text-white/90"
+        >
+          Requests
+        </a>
+        <a
           href="/changelog"
           class="relative flex items-center gap-1.5 text-sm text-white/60 transition-colors hover:text-white/90"
         >
