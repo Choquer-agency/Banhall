@@ -1064,40 +1064,75 @@ export const getPostQaInput = internalQuery({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
-    if (!generation || (generation.candidateMode ?? "compare") !== "iterative") {
-      return null;
-    }
-    const analysisRow = await ctx.db
-      .query("generationArtifacts")
-      .withIndex("by_generationId_and_kind", (q) =>
-        q.eq("generationId", args.generationId).eq("kind", "analysis")
-      )
-      .unique();
-    if (!analysisRow) return null;
-    const sections: Record<IterativeSection, { text: string; model: string }> = {
-      s242: { text: "", model: "" },
-      s244: { text: "", model: "" },
-      s246: { text: "", model: "" },
-    };
-    for (const section of SECTION_ORDER) {
-      const run = await getSectionRun(ctx, args.generationId, section);
-      sections[section] = {
-        text: run?.approvedText ?? "",
-        model: run?.model ?? "",
+    if (!generation) return null;
+    if ((generation.candidateMode ?? "compare") === "iterative") {
+      const analysisRow = await ctx.db
+        .query("generationArtifacts")
+        .withIndex("by_generationId_and_kind", (q) =>
+          q.eq("generationId", args.generationId).eq("kind", "analysis")
+        )
+        .unique();
+      if (!analysisRow) return null;
+      const sections: Record<IterativeSection, { text: string; model: string }> = {
+        s242: { text: "", model: "" },
+        s244: { text: "", model: "" },
+        s246: { text: "", model: "" },
+      };
+      for (const section of SECTION_ORDER) {
+        const run = await getSectionRun(ctx, args.generationId, section);
+        sections[section] = {
+          text: run?.approvedText ?? "",
+          model: run?.model ?? "",
+        };
+      }
+      if (!sections.s242.text && !sections.s244.text && !sections.s246.text) {
+        return null;
+      }
+      return {
+        projectId: generation.projectId,
+        requestedBy: generation.requestedBy,
+        analysis: analysisRow.content,
+        section242: sections.s242.text,
+        section244: sections.s244.text,
+        section246: sections.s246.text,
+        model: sections.s242.model || undefined,
       };
     }
-    if (!sections.s242.text && !sections.s244.text && !sections.s246.text) {
+    // One-shot / compare generations (Jul 17: "regenerate QA panel"): the
+    // analyzer output and section texts were persisted inside agentOutputs at
+    // generation time — rebuild the QA input from there.
+    if (!generation.agentOutputs) return null;
+    try {
+      const outputs = JSON.parse(generation.agentOutputs) as {
+        analyzer?: unknown;
+        section242?: string;
+        section244?: string;
+        section246?: string;
+      };
+      if (
+        !outputs.analyzer ||
+        (!outputs.section242 && !outputs.section244 && !outputs.section246)
+      ) {
+        return null;
+      }
+      const selection = await ctx.db
+        .query("modelSelections")
+        .withIndex("by_projectId_and_generationId", (q) =>
+          q.eq("projectId", generation.projectId).eq("generationId", generation._id)
+        )
+        .first();
+      return {
+        projectId: generation.projectId,
+        requestedBy: generation.requestedBy,
+        analysis: JSON.stringify(outputs.analyzer),
+        section242: outputs.section242 ?? "",
+        section244: outputs.section244 ?? "",
+        section246: outputs.section246 ?? "",
+        model: selection?.model ?? undefined,
+      };
+    } catch {
       return null;
     }
-    return {
-      projectId: generation.projectId,
-      requestedBy: generation.requestedBy,
-      analysis: analysisRow.content,
-      section242: sections.s242.text,
-      section244: sections.s244.text,
-      section246: sections.s246.text,
-      model: sections.s242.model || undefined,
-    };
   },
 });
 
@@ -1165,11 +1200,10 @@ export const requestReportQa = mutation({
     const generation = await ctx.db.get(args.generationId);
     if (!generation) domainError("NOT_FOUND", "Generation not found");
     await requireInternalProjectAccess(ctx, generation.projectId);
-    if ((generation.candidateMode ?? "compare") !== "iterative") {
-      domainError("INVALID_INPUT", "Only section-by-section reports use the post-assembly QA pass");
-    }
+    // Jul 17 meeting: any completed generation can (re)run its QA scorecard —
+    // some projects lost the panel to an error or predate the feature.
     if (generation.status !== "completed") {
-      domainError("INVALID_INPUT", "The report must be assembled before QA can run");
+      domainError("INVALID_INPUT", "The report must be completed before QA can run");
     }
     // Idempotent: a pass already in flight keeps running across panel
     // close/reopen — never double-spend the API call.

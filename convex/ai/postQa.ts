@@ -22,7 +22,15 @@ export const runReportQa = internalAction({
     const input = await ctx.runQuery(internal.generations.getPostQaInput, {
       generationId: args.generationId,
     });
-    if (!input) return;
+    if (!input) {
+      // requestReportQa already flipped postQaStatus to "running" — leave it
+      // stuck and the panel spins forever. Mark the pass failed instead.
+      await ctx.runMutation(internal.generations.saveReportQa, {
+        generationId: args.generationId,
+        failed: true,
+      });
+      return;
+    }
 
     const anthropicFor = (callSite: string) =>
       instrumentedAnthropic(ctx, {

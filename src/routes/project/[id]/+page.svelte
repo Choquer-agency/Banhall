@@ -1138,7 +1138,7 @@
                 reportContent={report.content}
                 reportId={report._id}
                 onLocateGap={locateGap}
-                onRunQa={generation?.candidateMode === "iterative" && generation.status === "completed"
+                onRunQa={generation?.status === "completed"
                   ? async () => {
                       await requestReportQaMut({ generationId: generation._id });
                     }
