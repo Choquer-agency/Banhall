@@ -40,7 +40,10 @@
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import { page } from "$app/state";
 
-  const STEPS = ["Details", "Context & files", "Review"];
+  // Jul 17 meeting: transcript + context inputs merged onto one page so
+  // writers see every upload slot at once (no more drawings in the
+  // transcript field because the doc slots were hidden on a later step).
+  const STEPS = ["Details & files", "Review"];
 
   const auth = useAuth();
   const createProject = useMutation(api.projects.createProject);
@@ -899,14 +902,9 @@
               <p class="text-xs text-red-600">{transcriptFileError}</p>
             {/if}
           </div>
-        </div>
-      {/if}
-
-      <!-- Step 2 — context & files -->
-      {#if step === 1}
-        <div class="flex flex-col gap-4">
-          <div>
-            <h2 class="text-display">Context & files</h2>
+          <!-- Context & files — same page as the transcript (Jul 17). -->
+          <div class="mt-6">
+            <h2 class="text-title">Context & files</h2>
             <p class="mt-1 text-sm text-gray-500">
               Add any supporting material so the report is grounded in more than the transcript.
               Everything here is <span class="font-medium">optional</span> — add what you have.
@@ -946,8 +944,8 @@
         </div>
       {/if}
 
-      <!-- Step 3 — review -->
-      {#if step === 2}
+      <!-- Step 2 — review -->
+      {#if step === 1}
         <div class="flex flex-col gap-5">
           <div>
             <h2 class="text-display">{mode === "generate" ? "Review & generate" : "Review & start"}</h2>
