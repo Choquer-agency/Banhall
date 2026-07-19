@@ -22,7 +22,9 @@ import { domainError } from "./lib/contracts";
  *   past phrasing.
  */
 
-const MAX_INSTRUCTIONS_CHARS = 4000;
+// Jul 17 meeting: the visible 4k limit was removed so writers can paste their
+// full ChatGPT prompt docs. This is only a backstop against runaway payloads.
+const MAX_INSTRUCTIONS_CHARS = 40_000;
 
 const profileValidator = v.object({
   _id: v.id("writerProfiles"),

@@ -35,7 +35,6 @@
     new Map((profilesQ.data ?? []).map((p) => [p.userId as string, p]))
   );
 
-  const FLAVOR_MAX_CHARS = 4000;
   let expandedUserId = $state<string | null>(null);
   let flavorText = $state("");
   let flavorEnabled = $state(true);
@@ -229,13 +228,12 @@
                           </p>
                           <textarea
                             rows={6}
-                            maxlength={FLAVOR_MAX_CHARS}
                             bind:value={flavorText}
                             placeholder="e.g. Prefer short declarative sentences. Avoid the passive voice."
                             class="mt-2 block w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
                           ></textarea>
                           <span class="mt-1 block text-right text-xs text-gray-400">
-                            {flavorText.length.toLocaleString()} / {FLAVOR_MAX_CHARS.toLocaleString()}
+                            {flavorText.length.toLocaleString()} characters
                           </span>
                           <div class="mt-2 flex items-center justify-between gap-4">
                             <label class="flex items-center gap-2 text-sm text-gray-600">

@@ -9,7 +9,6 @@
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
   import { api } from "../../../convex/_generated/api";
 
-  const MAX_CHARS = 4000;
 
   const auth = useAuth();
   const profileQ = useQuery(api.writerProfiles.getMyProfile, () =>
@@ -85,13 +84,12 @@
               <span class="text-label">Your personal style instructions</span>
               <textarea
                 rows={10}
-                maxlength={MAX_CHARS}
                 bind:value={customInstructions}
                 placeholder={"e.g. Prefer short declarative sentences. Lead each iteration with the hypothesis tested. Avoid the passive voice in the work narrative."}
                 class="mt-2 block w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
               ></textarea>
               <span class="mt-1 block text-right text-xs text-gray-400">
-                {customInstructions.length.toLocaleString()} / {MAX_CHARS.toLocaleString()}
+                {customInstructions.length.toLocaleString()} characters
               </span>
             </label>
 
