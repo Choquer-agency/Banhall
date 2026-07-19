@@ -168,9 +168,16 @@
   let parsingTranscript = $state<string | null>(null);
   let transcriptFileError = $state("");
 
+  // Jul 17 meeting: transcripts are Teams exports — .docx only. Anything else
+  // belongs in the supporting-document slots below; the copy-paste tab stays
+  // as the fallback for the rare non-Teams interview (Google Meet etc.).
+  // The uploaded file stays visible as a chip; the extracted text is kept
+  // behind the scenes instead of being dumped into the textarea.
+  let transcriptFileName = $state<string | null>(null);
+
   async function handleTranscriptFile(file: File) {
-    if (!isSupportedFile(file.name)) {
-      transcriptFileError = `Can't read ${file.name} — unsupported type. Supported: ${SUPPORTED_LABEL}.`;
+    if (!file.name.toLowerCase().endsWith(".docx")) {
+      transcriptFileError = `Transcripts must be Word (.docx) files — Teams exports are. Put other documents in the context slots below, or paste the transcript text instead.`;
       return;
     }
     transcriptFileError = "";
@@ -181,10 +188,8 @@
       if (!text) {
         transcriptFileError = `Couldn't extract any text from ${file.name}.`;
       } else {
-        // Append if the writer already has text, otherwise populate.
-        transcript = transcript.trim() ? `${transcript.trim()}\n\n${text}` : text;
-        // Show the extracted text so the writer can confirm what was read.
-        transcriptTab = "paste";
+        transcript = text;
+        transcriptFileName = file.name;
         toast.success(`Imported ${file.name}`);
       }
     } catch {
@@ -192,6 +197,11 @@
     } finally {
       parsingTranscript = null;
     }
+  }
+
+  function removeTranscriptFile() {
+    transcriptFileName = null;
+    transcript = "";
   }
 
   // BNH-39 review mode: the existing written PD to review (required).
@@ -843,6 +853,30 @@
             </div>
 
             {#if transcriptTab === "upload"}
+              {#if transcriptFileName}
+                <!-- Imported transcript stays as a file chip — nobody reads the
+                     extracted text log (Jul 17). -->
+                <div class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
+                  <span class="flex min-w-0 items-center gap-2.5">
+                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-500">
+                      <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                      </svg>
+                    </span>
+                    <span class="min-w-0">
+                      <span class="block truncate text-sm font-medium text-gray-800">{transcriptFileName}</span>
+                      <span class="block text-xs text-gray-400">{wordCount.toLocaleString()} words extracted</span>
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onclick={removeTranscriptFile}
+                    class="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                  >
+                    Remove
+                  </button>
+                </div>
+              {:else}
               <!-- BNH-31: large drag-and-drop zone to import a transcript file -->
               <button
                 type="button"
@@ -874,10 +908,11 @@
                     Drag a transcript file here, or click to browse
                   </span>
                   <span class="text-xs text-gray-400">
-                    Word (.docx), PDF, .txt, email (.eml/.msg)
+                    Word (.docx) — the Teams transcript export
                   </span>
                 {/if}
               </button>
+              {/if}
             {:else}
               <textarea
                 id="transcript"
@@ -890,7 +925,7 @@
             <input
               bind:this={transcriptInput}
               type="file"
-              accept={SUPPORTED_ACCEPT}
+              accept=".docx"
               class="hidden"
               onchange={(e) => {
                 const file = e.currentTarget.files?.[0];
