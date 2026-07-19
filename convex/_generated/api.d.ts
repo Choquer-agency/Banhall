@@ -39,6 +39,7 @@ import type * as ai_structured from "../ai/structured.js";
 import type * as aiUsage from "../aiUsage.js";
 import type * as auth from "../auth.js";
 import type * as brain from "../brain.js";
+import type * as changelog from "../changelog.js";
 import type * as chat from "../chat.js";
 import type * as chatV2 from "../chatV2.js";
 import type * as comments from "../comments.js";
@@ -111,6 +112,7 @@ declare const fullApi: ApiFromModules<{
   aiUsage: typeof aiUsage;
   auth: typeof auth;
   brain: typeof brain;
+  changelog: typeof changelog;
   chat: typeof chat;
   chatV2: typeof chatV2;
   comments: typeof comments;

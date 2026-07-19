@@ -961,4 +961,23 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_userId", ["userId"]),
+
+  // ─── Jul 17: in-app changelog ──────────────────────────────────────────────
+  // Dated entries so non-early-adopter writers can see what changed since they
+  // last looked. Authored by admins (AI-drafted from commits is fine —
+  // authorship happens outside the app; this is just storage + display).
+  changelogEntries: defineTable({
+    title: v.string(),
+    // Markdown body: features + fixes for the release.
+    body: v.string(),
+    kind: v.union(v.literal("feature"), v.literal("fix"), v.literal("mixed")),
+    publishedAt: v.number(),
+    createdBy: v.id("users"),
+  }).index("by_publishedAt", ["publishedAt"]),
+
+  // Per-user read watermark for the changelog badge.
+  changelogReads: defineTable({
+    userId: v.id("users"),
+    lastSeenAt: v.number(),
+  }).index("by_userId", ["userId"]),
 });

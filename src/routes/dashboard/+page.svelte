@@ -106,6 +106,9 @@
   const openAlertsQ = useQuery(api.errorReports.openCount, () =>
     auth.isAuthenticated ? {} : "skip"
   );
+  const unseenChangelogQ = useQuery(api.changelog.unseenCount, () =>
+    auth.isAuthenticated ? {} : "skip"
+  );
 
   // string (not StatusFilter) so it can bind:value into SelectInput.
   let filter = $state<string>("all");
@@ -216,6 +219,7 @@
 
   const projects = $derived(projectsQ.data);
   const openAlerts = $derived(openAlertsQ.data);
+  const unseenChangelog = $derived(unseenChangelogQ.data);
 
   const filtered = $derived(
     filter === "all" ? projects : projects?.filter((p) => p.status === filter)
@@ -305,6 +309,17 @@
           {#if openAlerts}
             <span class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">
               {openAlerts}
+            </span>
+          {/if}
+        </a>
+        <a
+          href="/changelog"
+          class="relative flex items-center gap-1.5 text-sm text-white/60 transition-colors hover:text-white/90"
+        >
+          What's new
+          {#if unseenChangelog}
+            <span class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold text-white">
+              {unseenChangelog}
             </span>
           {/if}
         </a>
