@@ -15,6 +15,7 @@ const fileTypeValidator = v.union(
   v.literal("msg"),
   v.literal("eml"),
   v.literal("xlsx"),
+  v.literal("image"),
   v.literal("other")
 );
 

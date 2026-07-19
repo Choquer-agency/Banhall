@@ -473,6 +473,7 @@ export default defineSchema({
       v.literal("msg"),
       v.literal("eml"),
       v.literal("xlsx"),
+      v.literal("image"),
       v.literal("other")
     ),
     content: v.string(),

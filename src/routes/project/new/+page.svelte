@@ -13,6 +13,7 @@
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import {
     parseFileToText,
+    isImageFile,
     isSupportedFile,
     SUPPORTED_ACCEPT,
     SUPPORTED_LABEL,
@@ -277,14 +278,36 @@
 
   // Step 0 is complete only when every required input is filled; Next stays
   // disabled until then (fiscal year-end is optional — BNH feedback 2026-07-09).
+  // Jul 17 meeting: the transcript is no longer required up front — some
+  // engagements only have a spreadsheet/drawings/an email. Generation still
+  // needs at least one source (transcript OR context docs), checked at commit.
   const detailsValid = $derived(
-    Boolean(
-      title.trim() &&
-        clientName.trim() &&
-        (mode === "review" ? pdDoc : transcript.trim())
-    )
+    Boolean(title.trim() && clientName.trim() && (mode === "review" ? pdDoc : true))
   );
   const canGoNext = $derived(step !== 0 || detailsValid);
+
+  // At least one generation source: a transcript, or any staged context item
+  // that yields text. Images are reference-only (no extraction), so an
+  // image-only project would fail the backend's readable-source check.
+  const textualFileCount = $derived(
+    CONTEXT_CATEGORIES.reduce(
+      (n, c) =>
+        c.id === "previous_pd"
+          ? n
+          : n +
+            staged[c.id].files.filter((f) => !isImageFile(f.name)).length +
+            (staged[c.id].text.trim() ? 1 : 0),
+      0
+    ) +
+      pyRows.reduce(
+        (n, r) => n + r.files.filter((f) => !isImageFile(f.name)).length,
+        0
+      ) +
+      pyNoteOnlyCount
+  );
+  const hasAnySource = $derived(
+    mode === "review" || Boolean(transcript.trim()) || textualFileCount > 0
+  );
 
   function goNext() {
     if (step === 0 && !detailsValid) {
@@ -292,7 +315,6 @@
         toast.error("Project title and client name are required.");
       else if (mode === "review")
         toast.error("Upload the written PD to review.");
-      else toast.error("Add the interview transcript (upload or paste).");
       return;
     }
     step = Math.min(step + 1, STEPS.length - 1);
@@ -315,6 +337,12 @@
   }
 
   async function commit() {
+    if (!hasAnySource) {
+      toast.error(
+        "Add an interview transcript or at least one context document before generating."
+      );
+      return;
+    }
     committing = true;
     let createdProjectId: Id<"projects"> | null = null;
     try {
@@ -776,11 +804,11 @@
           <div class="mt-6 flex flex-col gap-1.5">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <label for="transcript" class="flex flex-wrap items-baseline gap-x-1.5 text-sm font-medium text-gray-700">
-                <span>
-                  Interview transcript{#if mode === "generate"}<span class="ml-0.5 text-red-500" aria-hidden="true">*</span>{/if}
-                </span>
+                <span>Interview transcript</span>
                 {#if mode === "review"}
                   <span class="font-normal text-gray-400">(optional — adds context for the review)</span>
+                {:else}
+                  <span class="font-normal text-gray-400">(optional if you add context documents on the next step)</span>
                 {/if}
               </label>
               <div class="flex items-center gap-3">
@@ -1047,10 +1075,15 @@
               {step === 0 ? "Next" : "Continue"}
             </Button>
           {:else}
+            {#if !hasAnySource}
+              <span class="text-xs text-amber-600">
+                Add a transcript or at least one context document first.
+              </span>
+            {/if}
             <Button
               type="button"
               onclick={commit}
-              disabled={committing}
+              disabled={committing || !hasAnySource}
             >
               {#if committing}
                 <Spinner size="sm" class="mr-2 h-3.5 w-3.5 border-white" />

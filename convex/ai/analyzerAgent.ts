@@ -84,9 +84,15 @@ export async function runAnalyzerAgent(
   brainExemplars: string = ""
 ): Promise<TranscriptAnalysis> {
   const contextBlock = buildContextBlock(contextDocs);
+  // Transcript-less projects (spreadsheet-only, drawings, a lone email) analyze
+  // the context documents directly instead of presenting an empty interview —
+  // an empty "transcript" section would prime the model to hallucinate one.
+  const user = transcript.trim()
+    ? `Here is the interview transcript to analyze:\n\n${transcript}${contextBlock}${brainExemplars}`
+    : `There is NO interview transcript for this project. Analyze the attached contextual materials below as the sole source. Anything the documents do not support must be flagged as a gap — never invent interview content.${contextBlock}${brainExemplars}`;
   return await generateStructured<TranscriptAnalysis>(client, {
     system: ANALYZER_SYSTEM_PROMPT,
-    user: `Here is the interview transcript to analyze:\n\n${transcript}${contextBlock}${brainExemplars}`,
+    user,
     toolName: "submit_transcript_analysis",
     description:
       "Submit the structured analysis of the SR&ED interview transcript.",

@@ -92,7 +92,7 @@
 
   function guessFileType(
     name: string
-  ): "txt" | "md" | "pdf" | "docx" | "msg" | "eml" | "xlsx" | "other" {
+  ): "txt" | "md" | "pdf" | "docx" | "msg" | "eml" | "xlsx" | "image" | "other" {
     const l = name.toLowerCase();
     if (l.endsWith(".pdf")) return "pdf";
     if (l.endsWith(".docx")) return "docx";

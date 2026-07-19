@@ -8,6 +8,7 @@ export type ParsedFileType =
   | "msg"
   | "eml"
   | "xlsx"
+  | "image"
   | "other";
 
 export interface ParsedDocument {
@@ -35,15 +36,23 @@ export const SUPPORTED_EXTENSIONS = [
   "xlsx",
   "xls",
   "csv",
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "gif",
 ] as const;
+
+/** Extensions stored as reference files only — no text extraction (yet). */
+export const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif"] as const;
 
 /** Human-friendly list for `accept` attributes and warning copy. */
 export const SUPPORTED_ACCEPT =
-  ".txt,.md,.markdown,.pdf,.docx,.msg,.eml,.mbox,.xlsx,.xls,.csv";
+  ".txt,.md,.markdown,.pdf,.docx,.msg,.eml,.mbox,.xlsx,.xls,.csv,.png,.jpg,.jpeg,.webp,.gif";
 
 /** For warning copy — keep in sync with SUPPORTED_EXTENSIONS. */
 export const SUPPORTED_LABEL =
-  "PDF, Word (.docx), Excel (.xlsx/.xls/.csv), email (.eml/.msg/.mbox), .txt, .md";
+  "PDF, Word (.docx), Excel (.xlsx/.xls/.csv), email (.eml/.msg/.mbox), images (.png/.jpg/.webp/.gif), .txt, .md";
 
 /**
  * Hard ceiling on extracted text per document. Convex documents max out at
@@ -92,6 +101,10 @@ export function isSupportedFile(name: string): boolean {
   return (SUPPORTED_EXTENSIONS as readonly string[]).includes(
     getFileExtension(name)
   );
+}
+
+export function isImageFile(name: string): boolean {
+  return (IMAGE_EXTENSIONS as readonly string[]).includes(getFileExtension(name));
 }
 
 // ─── Email helpers (shared by .msg, .eml, .mbox) ────────────────────────────
@@ -251,6 +264,16 @@ export async function parseFileToText(file: File): Promise<ParsedDocument> {
 
   if (lower.endsWith(".csv")) {
     return { fileName: name, fileType: "xlsx", content: capContent(await file.text()) };
+  }
+
+  if (isImageFile(name)) {
+    // Reference-only: the original bytes are stored for preview/download, but
+    // no text is extracted (drawings/photos). Generation ignores empty docs.
+    return {
+      fileName: name,
+      fileType: "image",
+      content: "",
+    };
   }
 
   if (lower.endsWith(".msg")) {

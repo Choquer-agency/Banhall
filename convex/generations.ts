@@ -201,8 +201,21 @@ async function reserveGeneration(
   if (transcript.projectId !== project._id) {
     domainError("TRANSCRIPT_PROJECT_MISMATCH", "Transcript does not belong to this project");
   }
+  // Jul 17 meeting: some engagements have no interview at all (spreadsheet
+  // only, drawings, a single email). A transcript-less generation is allowed
+  // as long as there's at least one readable context document to work from.
   if (!transcript.content.trim()) {
-    domainError("INVALID_INPUT", "A non-empty project transcript is required");
+    const docs = await ctx.db
+      .query("projectDocuments")
+      .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+      .collect();
+    const usable = docs.some((d) => !d.archived && d.content.trim());
+    if (!usable) {
+      domainError(
+        "INVALID_INPUT",
+        "Add an interview transcript or at least one context document with readable text"
+      );
+    }
   }
   if (
     project.scienceCode?.trim() &&

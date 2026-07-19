@@ -379,7 +379,11 @@ export const generateReport = internalAction({
         throw new Error("Project science code is not a valid CRA T4088 line 206 code");
       }
       const transcriptWords = transcript.split(/\s+/).filter(Boolean).length;
-      await log(`Read frozen interview transcript — ${transcriptWords.toLocaleString()} words.`);
+      if (transcriptWords > 0) {
+        await log(`Read frozen interview transcript — ${transcriptWords.toLocaleString()} words.`);
+      } else {
+        await log("No interview transcript — drafting from context documents only.");
+      }
       if (contextDocs.length > 0) {
         await log(`Using ${contextDocs.length} frozen contextual document(s), weighted by SR&ED priority.`);
       }
