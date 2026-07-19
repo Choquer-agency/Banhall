@@ -2104,7 +2104,48 @@ export const modelStats = query({
         ? `Across ${total} selections, ${top.label} is preferred ${top.pct}% of the time.`
         : `Not enough data yet — ${total} selection(s) logged. Keep choosing to surface a recommendation.`;
 
-    return { total, overall, mine, recommendation };
+    // Jul 17 meeting: per-model score stats + writer comments so the team can
+    // converge on a model (avg 1–10 score, and the raw one-liners feeding the
+    // AI feedback summary below).
+    const scores = await ctx.db.query("candidateScores").collect();
+    const byModel = new Map<
+      string,
+      { label: string; scores: number[]; comments: Array<{ comment: string; score: number; at: number }> }
+    >();
+    for (const s of scores) {
+      const cur =
+        byModel.get(s.model) ?? { label: s.label, scores: [], comments: [] };
+      cur.scores.push(s.score);
+      if (s.comment) {
+        cur.comments.push({ comment: s.comment, score: s.score, at: s.updatedAt });
+      }
+      byModel.set(s.model, cur);
+    }
+    const scoreStats = [...byModel.entries()]
+      .map(([model, { label, scores: ss, comments }]) => ({
+        model,
+        label,
+        scoreCount: ss.length,
+        avgScore: ss.length
+          ? Math.round((ss.reduce((a, b) => a + b, 0) / ss.length) * 10) / 10
+          : null,
+        comments: comments.sort((a, b) => b.at - a.at).slice(0, 10),
+      }))
+      .sort((a, b) => b.scoreCount - a.scoreCount);
+
+    return { total, overall, mine, recommendation, scoreStats };
+  },
+});
+
+export const getModelComments = internalQuery({
+  args: { model: v.string() },
+  handler: async (ctx, args) => {
+    const scores = await ctx.db.query("candidateScores").collect();
+    return scores
+      .filter((s) => s.model === args.model && s.comment)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 50)
+      .map((s) => ({ comment: s.comment as string, score: s.score }));
   },
 });
 

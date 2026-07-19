@@ -3,7 +3,7 @@
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goto } from "$app/navigation";
-  import { useQuery } from "convex-svelte";
+  import { useQuery, useConvexClient } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
   import { api } from "../../../../convex/_generated/api";
   import BuildStamp from "$lib/components/BuildStamp.svelte";
@@ -11,6 +11,7 @@
   type Stat = { model: string; label: string; count: number; pct: number };
 
   const auth = useAuth();
+  const client = useConvexClient();
 
   const statsQ = useQuery(api.generations.modelStats, () =>
     auth.isAuthenticated ? {} : "skip"
@@ -23,6 +24,25 @@
   });
 
   const stats = $derived(statsQ.data);
+
+  // Jul 17: on-demand AI digest of writer comments per model.
+  let summaries = $state<Record<string, string>>({});
+  let summarizing = $state<string | null>(null);
+
+  async function summarize(model: string) {
+    if (summarizing) return;
+    summarizing = model;
+    try {
+      summaries[model] = await client.action(
+        api.ai.modelFeedback.summarizeModelFeedback,
+        { model }
+      );
+    } catch {
+      summaries[model] = "Couldn't generate the summary — try again.";
+    } finally {
+      summarizing = null;
+    }
+  }
 </script>
 
 {#snippet statBars(rows: Stat[], empty: string)}
@@ -102,6 +122,72 @@
             </h2>
             {@render statBars(stats.mine, "You haven't picked a draft yet.")}
           </div>
+        </div>
+
+        <!-- Jul 17: per-model score averages + writer feedback digest -->
+        <div class="mt-8">
+          <h2 class="text-title">Writer scores & feedback</h2>
+          <p class="mt-1 text-sm text-gray-500">
+            Average 1–10 score per model from the option-selection screen, with
+            writers' one-line comments and an AI digest of the sentiment.
+          </p>
+          {#if stats.scoreStats.length === 0}
+            <p class="mt-4 text-sm text-gray-400">No scores logged yet.</p>
+          {:else}
+            <div class="mt-4 flex flex-col gap-4">
+              {#each stats.scoreStats as m (m.model)}
+                <div class="rounded-2xl border border-gray-200 bg-white p-5">
+                  <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex items-baseline gap-3">
+                      <span class="text-sm font-semibold text-gray-900">{m.label}</span>
+                      <span class="text-xs text-gray-400">
+                        {m.scoreCount} score{m.scoreCount !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    {#if m.avgScore !== null}
+                      <span class={`text-data text-lg font-semibold ${m.avgScore >= 7 ? "text-green-600" : m.avgScore >= 5 ? "text-amber-600" : "text-red-600"}`}>
+                        {m.avgScore}<span class="text-xs font-normal text-gray-400"> /10 avg</span>
+                      </span>
+                    {/if}
+                  </div>
+                  {#if m.comments.length > 0}
+                    <ul class="mt-3 flex flex-col gap-1.5">
+                      {#each m.comments as c, i (i)}
+                        <li class="text-sm text-gray-600">
+                          <span class="text-data text-xs text-gray-400">{c.score}/10</span>
+                          — “{c.comment}”
+                        </li>
+                      {/each}
+                    </ul>
+                    <div class="mt-3">
+                      {#if summaries[m.model]}
+                        <div class="rounded-lg bg-primary/5 px-3.5 py-2.5 text-sm text-gray-700">
+                          <span class="mb-0.5 block text-xs font-semibold text-primary-dark">AI summary</span>
+                          {summaries[m.model]}
+                        </div>
+                      {:else}
+                        <button
+                          type="button"
+                          onclick={() => summarize(m.model)}
+                          disabled={summarizing !== null}
+                          class="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-primary-dark transition-colors hover:bg-primary-wash disabled:opacity-60"
+                        >
+                          {#if summarizing === m.model}
+                            <span class="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary"></span>
+                            Summarizing…
+                          {:else}
+                            Summarize feedback with AI
+                          {/if}
+                        </button>
+                      {/if}
+                    </div>
+                  {:else}
+                    <p class="mt-2 text-xs text-gray-400">No written comments yet.</p>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
         </div>
       {/if}
       </div>
