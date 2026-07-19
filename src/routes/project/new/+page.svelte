@@ -18,6 +18,7 @@
     SUPPORTED_LABEL,
   } from "$lib/parseDocument";
   import { CONTEXT_CATEGORIES, type ContextCategoryId } from "$lib/contextCategories";
+  import { userErrorMessage } from "$lib/errors";
   import {
     emptyStaged,
     guessFileType,
@@ -315,6 +316,7 @@
 
   async function commit() {
     committing = true;
+    let createdProjectId: Id<"projects"> | null = null;
     try {
       progress = "Creating project…";
       const { projectId, transcriptId } = await createProject({
@@ -336,6 +338,7 @@
         mode,
         transcriptContent: transcript,
       });
+      createdProjectId = projectId;
 
       // Duplicate flow: bring the source project's documents along.
       if (fromProjectId) {
@@ -346,33 +349,41 @@
         });
       }
 
+      // One unreadable/oversized doc must never sink the whole project —
+      // skip it, tell the writer which ones were skipped, and keep going.
+      const skippedFiles: string[] = [];
       const uploadFile = async (
         file: File,
         category: ContextCategoryId,
         prefix = ""
       ) => {
         progress = `Uploading ${file.name}…`;
-        const storageId = await uploadOriginal(file);
-        let parsed;
         try {
-          parsed = await parseFileToText(file);
-        } catch {
-          parsed = {
+          const storageId = await uploadOriginal(file);
+          let parsed;
+          try {
+            parsed = await parseFileToText(file);
+          } catch {
+            parsed = {
+              fileName: file.name,
+              fileType: guessFileType(file.name),
+              content: "",
+            };
+          }
+          await uploadDocument({
+            projectId,
             fileName: file.name,
-            fileType: guessFileType(file.name),
-            content: "",
-          };
+            fileType: parsed.fileType,
+            content: prefix + parsed.content,
+            source: "context_input",
+            category,
+            ...(storageId ? { storageId } : {}),
+            ...(file.type ? { mimeType: file.type } : {}),
+          });
+        } catch (e) {
+          console.error(`upload failed for ${file.name}`, e);
+          skippedFiles.push(file.name);
         }
-        await uploadDocument({
-          projectId,
-          fileName: file.name,
-          fileType: parsed.fileType,
-          content: prefix + parsed.content,
-          source: "context_input",
-          category,
-          ...(storageId ? { storageId } : {}),
-          ...(file.type ? { mimeType: file.type } : {}),
-        });
       };
 
       // Previous-year reports — tagged with their fiscal year + optional note.
@@ -450,12 +461,30 @@
             : {}),
         });
       }
+      if (skippedFiles.length) {
+        toast.error(
+          `${skippedFiles.length} document(s) could not be uploaded and were skipped: ${skippedFiles.join(", ")}`
+        );
+      }
       goto(`/project/${projectId}`);
     } catch (e) {
       console.error(e);
-      toast.error("Something went wrong creating the project. Please try again.");
+      // The project may already exist at this point (createProject succeeded,
+      // a later step failed). Land the writer on it rather than stranding them
+      // on the wizard with work they can't see.
+      const message = userErrorMessage(
+        e,
+        "Something went wrong creating the project. Please try again."
+      );
+      toast.error(message);
       committing = false;
       progress = "";
+      if (createdProjectId) {
+        toast.error(
+          "The project was created but generation did not start — open it and use Generate to retry."
+        );
+        goto(`/project/${createdProjectId}`);
+      }
     }
   }
 </script>

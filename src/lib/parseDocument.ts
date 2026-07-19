@@ -39,6 +39,44 @@ export const SUPPORTED_ACCEPT = ".txt,.md,.markdown,.pdf,.docx,.msg,.eml,.mbox";
 /** For warning copy — keep in sync with SUPPORTED_EXTENSIONS. */
 export const SUPPORTED_LABEL = "PDF, Word (.docx), email (.eml/.msg/.mbox), .txt, .md";
 
+/**
+ * Hard ceiling on extracted text per document. Convex documents max out at
+ * 1 MiB; CAD-exported drawing PDFs can emit megabytes of coordinate-label
+ * junk that would make uploadDocument throw. ~400k chars stays safely under
+ * the limit and is far more text than any real supporting doc carries.
+ */
+const MAX_CONTENT_CHARS = 400_000;
+
+/** Whole-file budget for PDF text extraction — engineering-drawing PDFs
+ * (huge vector pages) can stall pdf.js indefinitely; partial text beats a
+ * hung upload that leaves the wizard spinning forever. */
+const PDF_PARSE_TIMEOUT_MS = 60_000;
+
+class ParseTimeout extends Error {
+  constructor() {
+    super("parse timeout");
+  }
+}
+
+function withDeadline<T>(promise: Promise<T>, deadline: number): Promise<T> {
+  const ms = deadline - Date.now();
+  if (ms <= 0) return Promise.reject(new ParseTimeout());
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new ParseTimeout()), ms);
+    }),
+  ]);
+}
+
+function capContent(content: string): string {
+  if (content.length <= MAX_CONTENT_CHARS) return content;
+  return (
+    content.slice(0, MAX_CONTENT_CHARS) +
+    "\n\n[Document truncated — text exceeded the size limit]"
+  );
+}
+
 export function getFileExtension(name: string): string {
   const m = name.toLowerCase().match(/\.([a-z0-9]+)$/);
   return m ? m[1] : "";
@@ -126,17 +164,17 @@ export async function parseFileToText(file: File): Promise<ParsedDocument> {
   const lower = name.toLowerCase();
 
   if (lower.endsWith(".txt")) {
-    return { fileName: name, fileType: "txt", content: await file.text() };
+    return { fileName: name, fileType: "txt", content: capContent(await file.text()) };
   }
   if (lower.endsWith(".md") || lower.endsWith(".markdown")) {
-    return { fileName: name, fileType: "md", content: await file.text() };
+    return { fileName: name, fileType: "md", content: capContent(await file.text()) };
   }
 
   if (lower.endsWith(".docx")) {
     const mammoth = await import("mammoth");
     const arrayBuffer = await file.arrayBuffer();
     const result = await mammoth.extractRawText({ arrayBuffer });
-    return { fileName: name, fileType: "docx", content: result.value.trim() };
+    return { fileName: name, fileType: "docx", content: capContent(result.value.trim()) };
   }
 
   if (lower.endsWith(".pdf")) {
@@ -144,20 +182,43 @@ export async function parseFileToText(file: File): Promise<ParsedDocument> {
     // Same-origin worker (copied into /public) — reliable, no CDN/CORS.
     pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjs.getDocument({
+    const deadline = Date.now() + PDF_PARSE_TIMEOUT_MS;
+    const loadingTask = pdfjs.getDocument({
       data: arrayBuffer,
       useSystemFonts: true,
-    }).promise;
+    });
     let text = "";
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      const strings = content.items
-        .map((item) => ("str" in item ? item.str : ""))
-        .join(" ");
-      text += strings + "\n\n";
+    let truncatedAtPage = 0;
+    try {
+      const pdf = await withDeadline(loadingTask.promise, deadline);
+      for (let i = 1; i <= pdf.numPages; i++) {
+        try {
+          const page = await withDeadline(pdf.getPage(i), deadline);
+          const content = await withDeadline(page.getTextContent(), deadline);
+          const strings = content.items
+            .map((item) => ("str" in item ? item.str : ""))
+            .join(" ");
+          text += strings + "\n\n";
+        } catch (e) {
+          if (!(e instanceof ParseTimeout)) throw e;
+          truncatedAtPage = i;
+          break;
+        }
+        if (text.length > MAX_CONTENT_CHARS) {
+          truncatedAtPage = i + 1;
+          break;
+        }
+      }
+    } catch (e) {
+      if (!(e instanceof ParseTimeout)) throw e;
+      // Whole document timed out before any page was read.
+    } finally {
+      void loadingTask.destroy().catch(() => {});
     }
-    return { fileName: name, fileType: "pdf", content: text.trim() };
+    if (truncatedAtPage > 0) {
+      text += `\n[Stopped reading at page ${truncatedAtPage} — document too large or slow to parse (likely drawings/scans with little extractable text)]`;
+    }
+    return { fileName: name, fileType: "pdf", content: capContent(text.trim()) };
   }
 
   if (lower.endsWith(".msg")) {
@@ -189,7 +250,7 @@ export async function parseFileToText(file: File): Promise<ParsedDocument> {
   if (lower.endsWith(".eml")) {
     // RFC822 / MIME email export (Apple Mail, Thunderbird, Gmail, Outlook).
     const content = await emlToText(await file.text());
-    return { fileName: name, fileType: "eml", content };
+    return { fileName: name, fileType: "eml", content: capContent(content) };
   }
 
   if (lower.endsWith(".mbox")) {
@@ -213,12 +274,12 @@ export async function parseFileToText(file: File): Promise<ParsedDocument> {
     if (chunks.length > MAX) {
       content += `\n\n[${chunks.length - MAX} more message(s) in this mailbox were not included]`;
     }
-    return { fileName: name, fileType: "eml", content };
+    return { fileName: name, fileType: "eml", content: capContent(content) };
   }
 
   // Fallback — try to read as text.
   try {
-    return { fileName: name, fileType: "other", content: await file.text() };
+    return { fileName: name, fileType: "other", content: capContent(await file.text()) };
   } catch {
     return { fileName: name, fileType: "other", content: "" };
   }

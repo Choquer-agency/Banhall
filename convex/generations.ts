@@ -1711,7 +1711,36 @@ export const failStaleGenerations = internalMutation({
         }
       }
     }
-    return { failed };
+
+    // Also free projects orphaned in "generating" with no live generation —
+    // e.g. the client dies between createProject and requestGeneration, or a
+    // legacy failure predates the activeGenerationId cleanup. Without this the
+    // project stays locked on a generation that never existed.
+    const projects = await ctx.db.query("projects").take(500);
+    let freed = 0;
+    for (const project of projects) {
+      if (project.status !== "generating") continue;
+      if (project.updatedAt > cutoff) continue;
+      const active = await findActiveGeneration(ctx, project, [
+        "reserved",
+        "running",
+        "awaiting_selection",
+        "awaiting_input",
+      ]);
+      if (active) continue;
+      const lastGeneration = await ctx.db
+        .query("generations")
+        .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+        .order("desc")
+        .first();
+      await ctx.db.patch(project._id, {
+        activeGenerationId: undefined,
+        status: lastGeneration?.previousProjectStatus ?? "draft",
+        updatedAt: Date.now(),
+      });
+      freed += 1;
+    }
+    return { failed, freed };
   },
 });
 
