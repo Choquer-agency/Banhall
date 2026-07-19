@@ -7,6 +7,7 @@ export type ParsedFileType =
   | "docx"
   | "msg"
   | "eml"
+  | "xlsx"
   | "other";
 
 export interface ParsedDocument {
@@ -31,13 +32,18 @@ export const SUPPORTED_EXTENSIONS = [
   "msg",
   "eml",
   "mbox",
+  "xlsx",
+  "xls",
+  "csv",
 ] as const;
 
 /** Human-friendly list for `accept` attributes and warning copy. */
-export const SUPPORTED_ACCEPT = ".txt,.md,.markdown,.pdf,.docx,.msg,.eml,.mbox";
+export const SUPPORTED_ACCEPT =
+  ".txt,.md,.markdown,.pdf,.docx,.msg,.eml,.mbox,.xlsx,.xls,.csv";
 
 /** For warning copy — keep in sync with SUPPORTED_EXTENSIONS. */
-export const SUPPORTED_LABEL = "PDF, Word (.docx), email (.eml/.msg/.mbox), .txt, .md";
+export const SUPPORTED_LABEL =
+  "PDF, Word (.docx), Excel (.xlsx/.xls/.csv), email (.eml/.msg/.mbox), .txt, .md";
 
 /**
  * Hard ceiling on extracted text per document. Convex documents max out at
@@ -219,6 +225,32 @@ export async function parseFileToText(file: File): Promise<ParsedDocument> {
       text += `\n[Stopped reading at page ${truncatedAtPage} — document too large or slow to parse (likely drawings/scans with little extractable text)]`;
     }
     return { fileName: name, fileType: "pdf", content: capContent(text.trim()) };
+  }
+
+  if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
+    // Spreadsheets flatten to CSV per sheet — keeps rows/columns readable for
+    // the model without carrying formatting. Client cost/data workbooks are
+    // the common case (e.g. hours breakdowns when there's no interview).
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const parts: string[] = [];
+    for (const sheetName of workbook.SheetNames) {
+      const csv = XLSX.utils
+        .sheet_to_csv(workbook.Sheets[sheetName], { blankrows: false })
+        .trim();
+      if (!csv) continue;
+      parts.push(`## Sheet: ${sheetName}\n${csv}`);
+      if (parts.join("\n\n").length > MAX_CONTENT_CHARS) break;
+    }
+    return {
+      fileName: name,
+      fileType: "xlsx",
+      content: capContent(parts.join("\n\n")),
+    };
+  }
+
+  if (lower.endsWith(".csv")) {
+    return { fileName: name, fileType: "xlsx", content: capContent(await file.text()) };
   }
 
   if (lower.endsWith(".msg")) {

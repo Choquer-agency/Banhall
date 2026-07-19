@@ -10,7 +10,7 @@
   export type DocRow = {
     _id: Id<"projectDocuments">;
     fileName: string;
-    fileType: "txt" | "md" | "pdf" | "docx" | "msg" | "eml" | "other";
+    fileType: "txt" | "md" | "pdf" | "docx" | "msg" | "eml" | "xlsx" | "other";
     source: string;
     category: string | null;
     createdAt: number;
@@ -44,6 +44,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
     docx: "bg-blue-50 text-blue-500",
     msg: "bg-amber-50 text-amber-500",
     eml: "bg-amber-50 text-amber-500",
+    xlsx: "bg-green-50 text-green-600",
     txt: "bg-gray-100 text-gray-500",
     md: "bg-gray-100 text-gray-500",
     other: "bg-gray-100 text-gray-500",
