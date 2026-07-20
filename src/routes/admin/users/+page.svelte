@@ -38,6 +38,15 @@
   let inviteLast = $state("");
   let inviteEmail = $state("");
   let inviteRole = $state<string>("writer");
+  // Same shape the browser's type="email" accepts — one non-space local part,
+  // @, domain with a dot.
+  const inviteValid = $derived(
+    Boolean(
+      inviteFirst.trim() &&
+        inviteLast.trim() &&
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail.trim())
+    )
+  );
   let inviteSending = $state(false);
   let inviteError = $state("");
   let lastInviteLink = $state("");
@@ -255,8 +264,9 @@
             </div>
             <button
               type="submit"
-              disabled={inviteSending}
-              class="inline-flex h-[42px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50 sm:col-span-2 lg:col-span-1"
+              disabled={inviteSending || !inviteValid}
+              title={inviteValid ? undefined : "Fill in first name, last name, and a valid email"}
+              class="inline-flex h-[42px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-2 lg:col-span-1"
             >
               {#if inviteSending}
                 <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
