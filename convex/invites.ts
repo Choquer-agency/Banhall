@@ -132,31 +132,23 @@ export const getInviteByToken = query({
   },
 });
 
-/** Signup gate (Layer A): live invite token for the email, OR a legacy
- * pre-migration account relinking (users doc without authId). */
+/** Signup gate (Layer A): a live invite token for the email is the only
+ * door — the legacy pre-migration relink window is closed (all original
+ * accounts re-created 2026-07-20). */
 export const signupAllowed = internalQuery({
   args: { email: v.string(), token: v.string() },
   handler: async (ctx, args) => {
     const email = args.email.trim().toLowerCase();
-    if (!email) return false;
-    if (args.token) {
-      const invite = await ctx.db
-        .query("invites")
-        .withIndex("by_token", (q) => q.eq("token", args.token))
-        .unique();
-      if (
-        invite &&
+    if (!email || !args.token) return false;
+    const invite = await ctx.db
+      .query("invites")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .unique();
+    return Boolean(
+      invite &&
         invite.status === "pending" &&
         invite.expiresAt > Date.now() &&
         invite.email === email
-      ) {
-        return true;
-      }
-    }
-    const existing = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .unique();
-    return Boolean(existing && !existing.authId);
+    );
   },
 });

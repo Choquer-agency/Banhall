@@ -16,11 +16,6 @@
     const { error } = await authClient.signIn.email({ email, password });
     if (error) throw new Error(error.message ?? "Sign-in failed");
   }
-  async function signUpEmail(email: string, password: string, name: string) {
-    const { error } = await authClient.signUp.email({ email, password, name });
-    if (error) throw new Error(error.message ?? "Sign-up failed");
-  }
-
   let email = $state("");
   let password = $state("");
   let error = $state("");
@@ -39,21 +34,16 @@
     autoLoginAttempted = true;
 
     const demoEmail = "demo@banhall.ca";
-    const demoPassword = "BanhallDemo2026!";
+    const demoPassword = "Test12345";
 
+    // demo@ is a permanent account (recreated post-Better-Auth migration);
+    // no signUp fallback — signups are invite-only.
     signInEmail(demoEmail, demoPassword)
       .then(() => {
         setTimeout(() => { window.location.href = "/dashboard"; }, 800);
       })
       .catch(() => {
-        // First time: account doesn't exist yet, so create it
-        signUpEmail(demoEmail, demoPassword, "Banhall Team")
-          .then(() => {
-            setTimeout(() => { window.location.href = "/dashboard"; }, 800);
-          })
-          .catch(() => {
-            // Auto-login failed — show the normal login form as fallback
-          });
+        // Auto-login failed — show the normal login form as fallback
       });
   });
 
@@ -124,9 +114,6 @@
           </Button>
         </form>
 
-        <p class="mt-4 text-center text-xs text-gray-400">
-          Accounts are invite-only — ask an admin for an invite link.
-        </p>
       </div>
 
       <p class="mt-6 text-center text-xs text-gray-400">Banhall SR&amp;ED Consulting</p>

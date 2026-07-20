@@ -26,8 +26,8 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
         const now = Date.now();
         // Invite-only (Layer B, transactional backstop to the hooks.before
         // gate): a fresh signup must carry a pending unexpired invite for
-        // this email. Legacy relink (pre-migration doc without authId)
-        // remains allowed so the original accounts can re-create themselves.
+        // this email. (The legacy pre-migration relink window closed
+        // 2026-07-20 — all original accounts re-created.)
         const invites = email
           ? await ctx.db
               .query("invites")
@@ -43,8 +43,7 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
               .withIndex("by_email", (q) => q.eq("email", email))
               .unique()
           : null;
-        const legacyRelink = Boolean(existing && !existing.authId);
-        if (!invite && !legacyRelink) {
+        if (!invite) {
           // Aborts the component's user insert — signup fails.
           throw new ConvexError("Signups are invite-only. Ask an admin for an invite.");
         }
