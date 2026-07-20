@@ -30,6 +30,7 @@ import {
 } from "../shared/generationModels";
 import { randomComparePair, resolveCompareModels } from "./ai/model";
 import { findActiveGeneration } from "./lib/activeGeneration";
+import { defaultModelId } from "./appSettings";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { sectionMetrics } from "./lib/lineLimits";
 /**
@@ -202,10 +203,18 @@ async function reserveGeneration(
   requestedBy: Id<"users">,
   lengthTarget: "concise" | "standard" | "full",
   candidateMode: CandidateMode,
-  singleModelId?: CandidateModelId,
+  explicitSingleModelId?: CandidateModelId,
   compareModelIds?: string[],
   retryOfGenerationId?: Id<"generations">
 ) {
+  // "Default" in single/iterative modes resolves to the admin-set default
+  // model (appSettings), persisted here so retries reuse the same model even
+  // if the admin changes the setting later.
+  const singleModelId =
+    candidateMode === "compare"
+      ? undefined
+      : (explicitSingleModelId ??
+        ((await defaultModelId(ctx)) as CandidateModelId));
   if (transcript.projectId !== project._id) {
     domainError("TRANSCRIPT_PROJECT_MISMATCH", "Transcript does not belong to this project");
   }
@@ -261,7 +270,7 @@ async function reserveGeneration(
   const requestedModelIds =
     candidateMode === "compare"
       ? (persistedCompareModelIds ?? [])
-      : [singleModelId ?? MODEL];
+      : [singleModelId ?? MODEL]; // singleModelId is always resolved here; ?? is a type guard
   if (requestedModelIds.some((id) => gatewayForModel(id) === "openrouter")) {
     requireOpenRouterConfigured();
   }

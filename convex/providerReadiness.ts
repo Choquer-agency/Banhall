@@ -6,6 +6,7 @@ import {
   brainConfiguration,
   openRouterConfiguration,
 } from "./lib/providerConfig";
+import { defaultModelId } from "./appSettings";
 
 export const getCapabilities = query({
   args: {},
@@ -32,6 +33,9 @@ export const getCapabilities = query({
         (model) =>
           model.gateway === "anthropic" || openrouter.state === "configured"
       ).map((model) => model.id),
+      // Admin-set default generation model (appSettings), registry default
+      // when unset. Pickers label their "Default" option with this.
+      defaultModel: await defaultModelId(ctx),
     };
   },
 });

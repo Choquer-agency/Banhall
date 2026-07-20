@@ -983,4 +983,13 @@ export default defineSchema({
     userId: v.id("users"),
     lastSeenAt: v.number(),
   }).index("by_userId", ["userId"]),
+
+  // Admin-tunable app settings, one row per key. Currently: "defaultModel" —
+  // the generation model used when a writer doesn't pick one explicitly.
+  appSettings: defineTable({
+    key: v.string(),
+    value: v.string(),
+    updatedBy: v.id("users"),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
 });

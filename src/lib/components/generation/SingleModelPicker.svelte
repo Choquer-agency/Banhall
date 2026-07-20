@@ -9,6 +9,8 @@
   import ModelLogo from "./ModelLogo.svelte";
   import ModelSelectPanel from "./ModelSelectPanel.svelte";
   import { CANDIDATE_MODELS } from "../../../../shared/generationModels";
+  import { useQuery } from "convex-svelte";
+  import { api } from "../../../../convex/_generated/api";
 
   let {
     value = $bindable(""),
@@ -18,7 +20,11 @@
   } = $props();
 
   let open = $state(false);
-  const effectiveId = $derived(value || CANDIDATE_MODELS[0].id);
+  // "" resolves to the admin-set default model (falls back to registry first).
+  const capabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
+  const effectiveId = $derived(
+    value || capabilitiesQ.data?.defaultModel || CANDIDATE_MODELS[0].id
+  );
   const selected = $derived(
     CANDIDATE_MODELS.find((m) => m.id === effectiveId) ?? CANDIDATE_MODELS[0]
   );

@@ -15,6 +15,15 @@ type ModelPricing = {
 // 1.25× base input and cache reads cost 0.1×. Voyage bills total processed
 // tokens as input and has no output/cache charge.
 const PRICING: Record<string, ModelPricing> = {
+  // Sticker price ($3/$15); the intro discount through 2026-08-31 ($2/$10)
+  // is ignored so estimates stay valid after it lapses.
+  "claude-sonnet-5": {
+    input: 3,
+    output: 15,
+    cacheCreationMultiplier: 1.25,
+    cacheReadMultiplier: 0.1,
+  },
+  // Historical rows only — no longer in the picker.
   "claude-sonnet-4-6": {
     input: 3,
     output: 15,

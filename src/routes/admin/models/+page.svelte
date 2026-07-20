@@ -3,7 +3,7 @@
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goto } from "$app/navigation";
-  import { useQuery, useConvexClient } from "convex-svelte";
+  import { useQuery, useMutation, useConvexClient } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
   import { api } from "../../../../convex/_generated/api";
   import BuildStamp from "$lib/components/BuildStamp.svelte";
@@ -16,6 +16,9 @@
   const statsQ = useQuery(api.generations.modelStats, () =>
     auth.isAuthenticated ? {} : "skip"
   );
+  const capabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () =>
+    auth.isAuthenticated ? {} : "skip"
+  );
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
@@ -24,6 +27,26 @@
   });
 
   const stats = $derived(statsQ.data);
+
+  // Admin-set default generation model (used when a writer doesn't pick one).
+  import { CANDIDATE_MODELS } from "../../../../shared/generationModels";
+  import SelectInput from "$lib/components/ui/SelectInput.svelte";
+  const setDefaultModel = useMutation(api.appSettings.setDefaultModel);
+  let savingDefault = $state(false);
+  const defaultModel = $derived(capabilitiesQ.data?.defaultModel ?? CANDIDATE_MODELS[0].id);
+  const availableModels = $derived(
+    new Set(capabilitiesQ.data?.availableCandidateModels ?? CANDIDATE_MODELS.map((m) => m.id as string))
+  );
+
+  async function handleDefaultChange(modelId: string) {
+    if (savingDefault || modelId === defaultModel) return;
+    savingDefault = true;
+    try {
+      await setDefaultModel({ modelId });
+    } finally {
+      savingDefault = false;
+    }
+  }
 
   // Jul 17: on-demand AI digest of writer comments per model.
   let summaries = $state<Record<string, string>>({});
@@ -96,6 +119,32 @@
       {:else if stats === null}
         <p class="mt-8 text-sm text-gray-400">Sign in to view model stats.</p>
       {:else}
+        <!-- Default generation model (admin-set; writers get it when they don't pick) -->
+        <div class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-5 py-4">
+          <div>
+            <p class="text-sm font-semibold text-gray-900">Default model</p>
+            <p class="text-sm text-gray-600">
+              Used for every generation where the writer doesn't pick a model explicitly.
+            </p>
+          </div>
+          <span class="flex items-center gap-2">
+            {#if savingDefault}
+              <span class="text-xs text-gray-400">Saving…</span>
+            {/if}
+            <SelectInput
+              size="sm"
+              value={defaultModel}
+              items={CANDIDATE_MODELS.map((m) => ({
+                value: m.id,
+                label: availableModels.has(m.id) ? m.label : `${m.label} (needs OpenRouter key)`,
+              }))}
+              disabled={savingDefault}
+              class="w-56"
+              onValueChange={handleDefaultChange}
+            />
+          </span>
+        </div>
+
         <!-- Recommendation banner -->
         <div class="mt-6 flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 px-5 py-4">
           <span class="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary-dark">

@@ -1,4 +1,4 @@
-export const MODEL = "claude-sonnet-4-6";
+export const MODEL = "claude-sonnet-5";
 
 // Provider logomarks served from static/ (no external favicon dependency).
 export const PROVIDER_LOGOS = {
@@ -21,10 +21,10 @@ export const PROVIDER_LOGO_URL = PROVIDER_LOGOS.Anthropic;
 export const CANDIDATE_MODELS = [
   {
     id: MODEL,
-    label: "Sonnet 4.6",
+    label: "Sonnet 5",
     provider: "Anthropic",
     gateway: "anthropic",
-    description: "Balanced default — strong technical writing at a mid price point.",
+    description: "Balanced default — near-Opus quality writing at a mid price point.",
   },
   {
     id: "claude-opus-4-8",

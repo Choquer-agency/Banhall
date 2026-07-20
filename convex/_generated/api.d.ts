@@ -39,6 +39,7 @@ import type * as ai_section244Agent from "../ai/section244Agent.js";
 import type * as ai_section246Agent from "../ai/section246Agent.js";
 import type * as ai_structured from "../ai/structured.js";
 import type * as aiUsage from "../aiUsage.js";
+import type * as appSettings from "../appSettings.js";
 import type * as auth from "../auth.js";
 import type * as brain from "../brain.js";
 import type * as changelog from "../changelog.js";
@@ -114,6 +115,7 @@ declare const fullApi: ApiFromModules<{
   "ai/section246Agent": typeof ai_section246Agent;
   "ai/structured": typeof ai_structured;
   aiUsage: typeof aiUsage;
+  appSettings: typeof appSettings;
   auth: typeof auth;
   brain: typeof brain;
   changelog: typeof changelog;

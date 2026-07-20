@@ -355,7 +355,6 @@
           aria-label="Admin"
           class="mx-auto flex w-full max-w-[var(--container-shell)] items-center justify-center gap-1 px-6 py-1.5"
         >
-          <span class="text-label mr-2">Admin</span>
           {#each ADMIN_ROUTES as route (route.href)}
             <a
               href={route.href}
