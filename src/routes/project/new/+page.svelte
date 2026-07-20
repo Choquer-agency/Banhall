@@ -602,7 +602,7 @@
           </div>
 
           <!-- Mode and draft-generation controls -->
-          <div class="flex flex-wrap items-center gap-x-5 gap-y-3">
+          <div class="mb-2 mt-1 flex flex-wrap items-center gap-x-8 gap-y-4">
             <!-- BNH-39: Generate vs Review mode -->
             <div class="flex items-center gap-2">
               <span class="text-xs font-medium text-gray-500">Mode</span>
@@ -671,7 +671,7 @@
               </div>
             {/if}
           </div>
-          <div class="mt-1 grid gap-x-4 gap-y-3.5 sm:grid-cols-2 xl:grid-cols-4">
+          <div class="grid gap-x-5 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
             <Input id="title" label="Internal project title" bind:value={title} placeholder="Project Verdant F2024" required />
             <Input id="sredTitle" label="SR&ED title (optional — finalize later)" bind:value={sredTitle} placeholder="e.g. Development of a multi-home SoC estimation system" />
             <Input id="clientName" label="Client name" bind:value={clientName} placeholder="GreenStem Nurseries Inc." required />

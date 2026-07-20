@@ -66,17 +66,27 @@
       {def.weight}
     </span>
     <span class="ml-auto flex items-center gap-1.5">
+      <!-- Disclosure toggle: pressed state + chevron make open/close obvious;
+           closing with text kept shows "Hide", not a dead-end. -->
       <button
         type="button"
         onclick={() => (pasteOpen = !pasteOpen)}
         aria-expanded={pasteOpen}
-        class={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
-          pasteOpen || value.text.trim()
-            ? "text-primary-dark hover:bg-primary-wash"
-            : "text-gray-400 hover:bg-primary-wash hover:text-navy"
+        class={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+          pasteOpen
+            ? "bg-primary-wash text-primary-dark"
+            : value.text.trim()
+              ? "text-primary-dark hover:bg-primary-wash"
+              : "text-gray-400 hover:bg-primary-wash hover:text-navy"
         }`}
       >
-        {value.text.trim() ? "Notes ✓" : "Paste text"}
+        {pasteOpen ? "Hide notes" : value.text.trim() ? "Notes ✓" : "Paste text"}
+        <svg
+          class={`h-3 w-3 transition-transform ${pasteOpen ? "rotate-180 text-primary" : ""}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
       </button>
       <button
         type="button"
@@ -143,13 +153,27 @@
     <UnsupportedWarning names={rejected} />
 
     {#if pasteOpen}
-      <textarea
-        value={value.text}
-        oninput={(e) => onText(e.currentTarget.value)}
-        rows={3}
-        placeholder="Paste text, notes, or links"
-        class="mt-2.5 w-full resize-none rounded-lg border border-gray-200 bg-canvas px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
-      ></textarea>
+      <div class="mt-2.5">
+        <textarea
+          value={value.text}
+          oninput={(e) => onText(e.currentTarget.value)}
+          rows={3}
+          placeholder="Paste text, notes, or links"
+          class="w-full resize-none rounded-lg border border-gray-200 bg-canvas px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+        ></textarea>
+        {#if value.text.trim()}
+          <button
+            type="button"
+            onclick={() => {
+              onText("");
+              pasteOpen = false;
+            }}
+            class="mt-1 text-xs font-medium text-gray-400 transition-colors hover:text-red-600"
+          >
+            Clear notes
+          </button>
+        {/if}
+      </div>
     {/if}
   </div>
 
