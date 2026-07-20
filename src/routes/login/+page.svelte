@@ -1,24 +1,21 @@
 <script lang="ts">
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { authClient } from "$lib/authClient";
-  import { page } from "$app/state";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import BuildStamp from "$lib/components/BuildStamp.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
 
+  import { goto } from "$app/navigation";
+
   const auth = useAuth();
-  // Suppress the demo auto-login after an explicit sign-out: either via the
-  // ?manual=1 flag, or the sessionStorage marker UserMenu sets (covers the
-  // case where another page's auth $effect redirected to a bare /login
-  // before the flagged navigation landed).
-  const manualLogin = $derived.by(() => {
-    if (page.url.searchParams.get("manual") === "1") return true;
-    if (typeof sessionStorage !== "undefined") {
-      return sessionStorage.getItem("banhall:manual-signout") === "1";
-    }
-    return false;
-  });
+  // Suppress the demo auto-login after an explicit sign-out. sessionStorage
+  // marker only — no URL param, so /login stays clean in the address bar.
+  // svelte-ignore state_referenced_locally
+  const manualLogin = $state(
+    typeof sessionStorage !== "undefined" &&
+      sessionStorage.getItem("banhall:manual-signout") === "1"
+  );
 
   async function signInEmail(email: string, password: string) {
     const { error } = await authClient.signIn.email({ email, password });
@@ -30,30 +27,34 @@
   let error = $state("");
   let submitting = $state(false);
 
-  // Auto-login: sign in as shared demo user so testers skip the login form
+  // One state machine for the whole page: no flashes, no window.location
+  // reload cascades. "entering" covers auto-login AND post-sign-in token
+  // propagation; the reactive auth watcher below performs a single
+  // client-side goto once Convex auth is actually live.
+  let entering = $state(false);
   let autoLoginAttempted = $state(false);
 
   $effect(() => {
     if (auth.isLoading) return;
     if (auth.isAuthenticated) {
-      window.location.href = "/dashboard";
+      // Client-side navigation — no full reload, no login re-render.
+      goto("/dashboard", { replaceState: true });
       return;
     }
     if (manualLogin || autoLoginAttempted) return;
     autoLoginAttempted = true;
+    entering = true;
 
     const demoEmail = "demo@banhall.ca";
     const demoPassword = "Test12345";
 
     // demo@ is a permanent account (recreated post-Better-Auth migration);
-    // no signUp fallback — signups are invite-only.
-    signInEmail(demoEmail, demoPassword)
-      .then(() => {
-        setTimeout(() => { window.location.href = "/dashboard"; }, 800);
-      })
-      .catch(() => {
-        // Auto-login failed — show the normal login form as fallback
-      });
+    // no signUp fallback — signups are invite-only. Redirect happens via the
+    // auth watcher above the moment isAuthenticated flips.
+    signInEmail(demoEmail, demoPassword).catch(() => {
+      // Auto-login failed — show the normal login form as fallback.
+      entering = false;
+    });
   });
 
   async function handleSubmit(e: SubmitEvent) {
@@ -65,14 +66,12 @@
       await signInEmail(email, password);
       // Fresh session — future sign-outs start clean.
       sessionStorage.removeItem("banhall:manual-signout");
-      // Wait for auth state to propagate, then redirect
-      setTimeout(() => {
-        window.location.href = "/dashboard";
-      }, 1000);
+      // Hold the entering screen; the auth watcher redirects when the
+      // Convex token is live (no arbitrary setTimeout, no reload).
+      entering = true;
     } catch (err) {
       console.error("Auth error:", err);
       error = "Invalid email or password.";
-    } finally {
       submitting = false;
     }
   }
@@ -82,10 +81,12 @@
   <title>Sign in — Banhall</title>
 </svelte:head>
 
-{#if auth.isLoading || (!auth.isAuthenticated && !manualLogin && !autoLoginAttempted)}
+{#if auth.isLoading || auth.isAuthenticated || entering}
+  <!-- One uninterrupted holding screen from "checking session" through
+       "signed in, navigating" — the form never flashes in between. -->
   <div class="flex flex-1 flex-col items-center justify-center bg-canvas">
     <Spinner />
-    <p class="mt-3 text-sm text-gray-500">Signing you in...</p>
+    <p class="mt-3 text-sm text-gray-500">Signing you in…</p>
   </div>
 {:else}
   <!-- Full-bleed split: fir brand field · ledger-paper form column -->
