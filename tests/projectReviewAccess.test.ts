@@ -43,10 +43,12 @@ function contextFor(
   user: UserFixture | null,
   storedProject: ProjectFixture | null = project
 ): AccessCtx {
+  // Better Auth: identity.subject is the component user id, resolved to the
+  // app users doc via the by_authId index (convex/lib/auth.ts).
+  const authId = user ? `auth-${user._id}` : null;
   return {
     auth: {
-      getUserIdentity: async () =>
-        user ? { subject: `${user._id}|test-session` } : null,
+      getUserIdentity: async () => (authId ? { subject: authId } : null),
     },
     db: {
       get: async (id: string) => {
@@ -54,6 +56,12 @@ function contextFor(
         if (user && id === user._id) return user;
         return null;
       },
+      query: (table: string) => ({
+        withIndex: (_index: string, _range: unknown) => ({
+          unique: async () =>
+            table === "users" && user ? { ...user, authId } : null,
+        }),
+      }),
     },
   } as unknown as AccessCtx;
 }

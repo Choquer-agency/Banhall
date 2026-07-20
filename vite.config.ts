@@ -10,7 +10,7 @@ export default defineConfig({
   ssr: {
     // Bundle packages that Node cannot load directly during SSR: the auth
     // adapter imports SvelteKit virtual modules; Sonner exports .svelte files.
-    noExternal: ["@mmailaender/convex-auth-svelte", "svelte-sonner"],
+    noExternal: ["@mmailaender/convex-better-auth-svelte", "svelte-sonner"],
   },
   plugins: [
     tailwindcss(),

@@ -21,6 +21,8 @@ interface BaseRow {
 
 interface UserRow extends BaseRow {
   role: Role;
+  /** Better Auth component user id (identity.subject → by_authId lookup). */
+  authId?: string;
 }
 
 interface ProjectRow extends BaseRow {
@@ -345,7 +347,12 @@ async function createFixture(role: Role, userId = "reviewer"): Promise<Fixture> 
     state: "pending",
     createdAt: 30,
   };
-  const user: UserRow = { _id: userId, _creationTime: 1, role };
+  const user: UserRow = {
+    _id: userId,
+    _creationTime: 1,
+    role,
+    authId: `auth-${userId}`,
+  };
   const tables: TestTables = {
     users: [user],
     projects: [{ _id: projectId, _creationTime: 1, createdBy: ownerId }],
@@ -386,7 +393,7 @@ async function createFixture(role: Role, userId = "reviewer"): Promise<Fixture> 
   const db = new FakeDb(tables);
   const ctx: TestContext = {
     auth: {
-      getUserIdentity: async () => ({ subject: `${userId}|test-session` }),
+      getUserIdentity: async () => ({ subject: `auth-${userId}` }),
     },
     db,
   };
