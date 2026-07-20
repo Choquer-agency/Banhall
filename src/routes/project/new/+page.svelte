@@ -724,9 +724,6 @@
             <div class="flex flex-col gap-1.5">
               <label for="industry" class="text-sm font-medium text-gray-700">Industry</label>
               <IndustrySelect id="industry" bind:value={industry} canCreate={user.data?.role === "admin"} />
-              <p class="text-xs text-gray-500">
-                {user.data?.role === "admin" ? "Admins can add industries." : "Ask an admin to add a new industry."}
-              </p>
             </div>
             <div class="flex flex-col gap-1.5">
               <label for="scienceCode" class="text-sm font-medium text-gray-700">Science code</label>
