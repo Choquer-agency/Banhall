@@ -8,7 +8,17 @@
   import Spinner from "$lib/components/ui/Spinner.svelte";
 
   const auth = useAuth();
-  const manualLogin = $derived(page.url.searchParams.get("manual") === "1");
+  // Suppress the demo auto-login after an explicit sign-out: either via the
+  // ?manual=1 flag, or the sessionStorage marker UserMenu sets (covers the
+  // case where another page's auth $effect redirected to a bare /login
+  // before the flagged navigation landed).
+  const manualLogin = $derived.by(() => {
+    if (page.url.searchParams.get("manual") === "1") return true;
+    if (typeof sessionStorage !== "undefined") {
+      return sessionStorage.getItem("banhall:manual-signout") === "1";
+    }
+    return false;
+  });
 
   async function signInEmail(email: string, password: string) {
     const { error } = await authClient.signIn.email({ email, password });
@@ -53,6 +63,8 @@
 
     try {
       await signInEmail(email, password);
+      // Fresh session — future sign-outs start clean.
+      sessionStorage.removeItem("banhall:manual-signout");
       // Wait for auth state to propagate, then redirect
       setTimeout(() => {
         window.location.href = "/dashboard";

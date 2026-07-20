@@ -57,8 +57,13 @@
     if (signingOut) return;
     signingOut = true;
     try {
+      // Explicit sign-out must land on the login FORM — not bounce back in
+      // via the demo auto-login. The sessionStorage marker survives even if
+      // a page-level auth $effect wins the redirect race with a bare /login.
+      sessionStorage.setItem("banhall:manual-signout", "1");
       await authClient.signOut();
-      goto("/login", { replaceState: true });
+      // Full navigation (not goto) so all auth state is torn down.
+      window.location.href = "/login?manual=1";
     } finally {
       signingOut = false;
     }
