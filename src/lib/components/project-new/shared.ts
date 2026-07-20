@@ -41,9 +41,12 @@ export function partitionSupported(files: File[]): { ok: File[]; rejected: strin
   return { ok, rejected };
 }
 
+// Ordinal hot→cool ramp so each SR&ED weight level reads distinctly:
+// Highest = amber (authoritative), High = lagoon, Medium = blue, Supporting
+// = neutral. All pairs ≥ AA at chip sizes.
 export const WEIGHT_STYLES: Record<ContextCategoryDef["weight"], string> = {
-  Highest: "bg-primary/10 text-primary-dark",
-  High: "bg-primary/10 text-primary-dark",
-  Medium: "bg-chrome text-gray-500",
-  Supporting: "bg-chrome text-gray-400",
+  Highest: "bg-amber-100 text-amber-800",
+  High: "bg-primary/15 text-primary-dark",
+  Medium: "bg-blue-100 text-blue-700",
+  Supporting: "bg-gray-100 text-gray-600",
 };
