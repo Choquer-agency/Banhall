@@ -39,14 +39,11 @@
   // Session-local by design: remounting a proposal always returns to neutral.
   let showChanges = $state(false);
 
-  // Real-time preview: a fresh pending proposal renders its diff in the
-  // report immediately — no toggle click needed. The writer can still toggle
-  // it off; applying/rejecting or unmounting always clears the preview.
+  // Preview is OPT-IN (Jul 20): the old auto-enable re-fired on every mount —
+  // reopening the project re-lit the diff and scrolled the editor to the
+  // section even after the writer toggled it off. Now only the toggle click
+  // starts a preview; unmounting still clears any active one.
   onMount(() => {
-    if (editState === "pending" && onPreviewInDoc) {
-      showChanges = true;
-      onPreviewInDoc(true);
-    }
     return () => {
       if (showChanges) onPreviewInDoc?.(false);
     };

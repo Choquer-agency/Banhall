@@ -234,7 +234,9 @@
     </Dialog.Overlay>
     <!-- Centering wrapper: clicks here are outside Dialog.Content, so they close -->
     <div class="fixed inset-0 z-[100] flex items-center justify-center p-6">
-      <Dialog.Content forceMount>
+      <!-- Don't auto-focus the first focusable (the milestone combobox) —
+           it popped its dropdown open every time History was opened. -->
+      <Dialog.Content forceMount onOpenAutoFocus={(e) => e.preventDefault()}>
         {#snippet child({ props, open })}
         {#if open}
         <div
