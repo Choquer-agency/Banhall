@@ -43,15 +43,23 @@ export const markSeen = mutation({
   args: {},
   handler: async (ctx) => {
     const user = await requireCurrentUser(ctx);
-    const now = Date.now();
+    // Watermark must cover the newest entry, not just "now": pipeline entries
+    // are stamped 23:59 UTC of their work day, which can be in the future —
+    // a now-only watermark left today's entry unread and the badge stuck.
+    const newest = await ctx.db
+      .query("changelogEntries")
+      .withIndex("by_publishedAt")
+      .order("desc")
+      .first();
+    const lastSeenAt = Math.max(Date.now(), newest?.publishedAt ?? 0);
     const read = await ctx.db
       .query("changelogReads")
       .withIndex("by_userId", (q) => q.eq("userId", user._id))
       .unique();
     if (read) {
-      await ctx.db.patch(read._id, { lastSeenAt: now });
+      await ctx.db.patch(read._id, { lastSeenAt });
     } else {
-      await ctx.db.insert("changelogReads", { userId: user._id, lastSeenAt: now });
+      await ctx.db.insert("changelogReads", { userId: user._id, lastSeenAt });
     }
   },
 });

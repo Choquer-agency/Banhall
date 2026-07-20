@@ -124,8 +124,13 @@ export const publishDay = internalAction({
         ? parsed.kind
         : "mixed";
 
-    const publishedAt =
-      args.publishedAt ?? Date.parse(`${args.workDay}T23:59:00Z`);
+    // End of the work day, clamped to now — an entry must never be stamped in
+    // the future (it would out-run readers' markSeen watermarks and pin the
+    // unseen badge until the timestamp passes).
+    const publishedAt = Math.min(
+      args.publishedAt ?? Date.parse(`${args.workDay}T23:59:00Z`),
+      Date.now()
+    );
 
     await ctx.runMutation(internal.changelog.upsertPipelineEntry, {
       workDay: args.workDay,
