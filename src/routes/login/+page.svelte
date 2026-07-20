@@ -76,94 +76,139 @@
     <p class="mt-3 text-sm text-gray-500">Signing you in...</p>
   </div>
 {:else}
-  <div class="flex min-h-screen flex-1 flex-col items-center justify-center px-4 py-10">
-    <!-- Card: logo on the fir brand tile, centered header, form -->
-    <div class="login-card card w-full max-w-sm p-8 shadow-sm">
-      <div class="flex flex-col items-center text-center">
-        <!-- Logo tile: the mark ships white via the same invert AppNav uses,
-             seated on the brand fir so it reads on the white card. -->
-        <div class="flex h-16 w-16 items-center justify-center rounded-xl bg-navy">
-          <img
-            src="/logo.png"
-            alt="Banhall"
-            width="112"
-            height="50"
-            class="w-12 brightness-0 invert"
-          />
-        </div>
-        <h1 class="mt-5 text-2xl font-semibold tracking-tight text-gray-900">
-          Welcome back
-        </h1>
-        <p class="mt-1.5 text-sm text-gray-600">
-          Enter your credentials to access your account.
+  <!-- Full-bleed split: fir brand field · ledger-paper form column -->
+  <div class="grid min-h-screen flex-1 lg:grid-cols-[minmax(0,11fr)_minmax(0,9fr)]">
+    <!-- Brand field: the app bar's material at page scale. Wordmark floats
+         free on the fir — no container. -->
+    <div class="brand-field relative hidden flex-col justify-between overflow-hidden bg-navy px-12 py-12 lg:flex xl:px-16">
+      <img
+        src="/logo.png"
+        alt="Banhall"
+        width="308"
+        height="138"
+        class="brand-mark -ml-3 w-40 self-start brightness-0 invert"
+      />
+
+      <div class="brand-copy max-w-md">
+        <p class="text-3xl font-semibold leading-tight tracking-tight text-white xl:text-4xl" style="text-wrap: balance">
+          The interview is the evidence. The report writes to the form.
+        </p>
+        <p class="mt-4 text-base leading-relaxed text-white/60">
+          Transcripts in — disciplined, CRA-ready project descriptions out.
         </p>
       </div>
 
-      <form onsubmit={handleSubmit} class="mt-7 flex flex-col gap-4">
-        <Input
-          id="email"
-          label="Email"
-          type="email"
-          bind:value={email}
-          placeholder="you@banhall.ca"
-          autocomplete="email"
-          required
-        />
-        <Input
-          id="password"
-          label="Password"
-          type="password"
-          bind:value={password}
-          placeholder="Enter your password"
-          autocomplete="current-password"
-          required
-          minlength={8}
-        />
+      <p class="text-sm text-white/40">Banhall SR&amp;ED Consulting</p>
 
-        {#if error}
-          <p role="alert" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-            {error}
-          </p>
-        {/if}
-
-        <Button type="submit" disabled={submitting} class="mt-1 gap-2">
-          {#if submitting}
-            <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
-          {/if}
-          {submitting ? "Signing in…" : "Sign in"}
-        </Button>
-      </form>
+      <!-- The nav's signature baseline rule, closing the panel -->
+      <div aria-hidden="true" class="nav-baseline absolute inset-x-0 bottom-0 h-0.5"></div>
     </div>
 
-    <!-- Footer below the card, delayed entrance -->
-    <div class="login-footer mt-6 flex w-full max-w-sm flex-col items-center gap-1.5 text-center">
-      <p class="text-sm text-gray-500">Banhall SR&amp;ED Consulting</p>
-      <BuildStamp class="text-gray-400" />
+    <!-- Form column on ledger paper -->
+    <div class="flex flex-col justify-center px-6 py-12 sm:px-12 xl:px-20">
+      <div class="form-col mx-auto w-full max-w-sm">
+        <!-- Mobile: wordmark inline, tinted to fir on paper — no container -->
+        <img
+          src="/logo.png"
+          alt="Banhall"
+          width="308"
+          height="138"
+          class="logo-fir -ml-2 mb-8 w-32 lg:hidden"
+        />
+
+        <h1 class="text-2xl font-semibold tracking-tight text-gray-900">Welcome back</h1>
+        <p class="mt-1.5 text-sm text-gray-600">Sign in to your account to continue.</p>
+
+        <form onsubmit={handleSubmit} class="mt-8 flex flex-col gap-4">
+          <Input
+            id="email"
+            label="Email"
+            type="email"
+            bind:value={email}
+            placeholder="you@banhall.ca"
+            autocomplete="email"
+            required
+          />
+          <Input
+            id="password"
+            label="Password"
+            type="password"
+            bind:value={password}
+            placeholder="Enter your password"
+            autocomplete="current-password"
+            required
+            minlength={8}
+          />
+
+          {#if error}
+            <p role="alert" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+              {error}
+            </p>
+          {/if}
+
+          <Button type="submit" disabled={submitting} class="mt-2 gap-2">
+            {#if submitting}
+              <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
+            {/if}
+            {submitting ? "Signing in…" : "Sign in"}
+          </Button>
+        </form>
+
+        <div class="mt-10 flex items-center gap-2 text-xs text-gray-500 lg:hidden">
+          <span>Banhall SR&amp;ED Consulting</span>
+          <span aria-hidden="true" class="text-gray-300">·</span>
+          <BuildStamp class="text-gray-400" />
+        </div>
+        <div class="mt-10 hidden lg:block">
+          <BuildStamp class="text-gray-300" />
+        </div>
+      </div>
     </div>
   </div>
 {/if}
 
 <style>
-  /* Entrance: fade + slight zoom + rise, footer trails the card. */
-  .login-card {
-    animation: login-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  /* Entrances: brand elements rise on the fir; the form follows a beat later. */
+  .brand-mark {
+    animation: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
-  .login-footer {
-    animation: login-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both;
+  .brand-copy {
+    animation: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both;
   }
-  @keyframes login-in {
+  .form-col {
+    animation: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both;
+  }
+  @keyframes rise {
     from {
       opacity: 0;
-      transform: translateY(16px) scale(0.97);
+      transform: translateY(14px);
     }
     to {
       opacity: 1;
-      transform: translateY(0) scale(1);
+      transform: translateY(0);
     }
   }
+  /* Ledger ruling carries into the brand field at whisper contrast — the
+     same material, lit dark. */
+  .brand-field {
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(2rem - 1px),
+      rgba(255, 255, 255, 0.045) calc(2rem - 1px),
+      rgba(255, 255, 255, 0.045) 2rem
+    );
+  }
+  /* Recolor the light wordmark artwork to brand fir for light surfaces:
+     flatten to black, then invert toward the fir hue. */
+  .logo-fir {
+    filter: brightness(0) saturate(100%) invert(17%) sepia(21%) saturate(1900%)
+      hue-rotate(140deg) brightness(93%) contrast(101%);
+  }
   @media (prefers-reduced-motion: reduce) {
-    .login-card,
-    .login-footer {
+    .brand-mark,
+    .brand-copy,
+    .form-col {
       animation: none;
     }
   }
