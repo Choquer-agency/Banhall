@@ -2,6 +2,7 @@
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import Input from "$lib/components/ui/Input.svelte";
+  import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { userErrorMessage } from "$lib/errors";
@@ -385,14 +386,7 @@
                             {flavorText.length.toLocaleString()} characters
                           </span>
                           <div class="mt-2 flex items-center justify-between gap-4">
-                            <label class="flex items-center gap-2 text-sm text-gray-600">
-                              <input
-                                type="checkbox"
-                                bind:checked={flavorEnabled}
-                                class="h-3.5 w-3.5 accent-primary"
-                              />
-                              Apply to this user's generations
-                            </label>
+                            <Checkbox bind:checked={flavorEnabled} labelText="Apply to this user's generations" />
                             <span class="flex items-center gap-3">
                               {#if flavorSaved}
                                 <span class="text-xs text-primary">Saved</span>

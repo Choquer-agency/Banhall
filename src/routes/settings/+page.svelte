@@ -1,6 +1,8 @@
 <script lang="ts">
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
+  import PageContainer from "$lib/components/ui/PageContainer.svelte";
+  import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
@@ -109,7 +111,7 @@
     <AppNav breadcrumbs={[{ label: "Settings" }]} />
     <PageBar backHref="/dashboard" backLabel="Back" />
 
-    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 px-6 pt-12 pb-8">
+    <PageContainer>
       <div class="mx-auto w-full max-w-3xl">
         <h1 class="text-display">Settings</h1>
 
@@ -163,14 +165,7 @@
             </label>
 
             <div class="mt-3 flex items-center justify-between gap-4">
-              <label class="flex items-center gap-2 text-sm text-gray-600">
-                <input
-                  type="checkbox"
-                  bind:checked={enabled}
-                  class="h-3.5 w-3.5 accent-primary"
-                />
-                Apply my preferences to new generations
-              </label>
+              <Checkbox bind:checked={enabled} labelText="Apply my preferences to new generations" />
               <span class="flex items-center gap-3">
                 {#if saved}
                   <span class="text-xs text-primary">Saved</span>
@@ -189,6 +184,6 @@
           </section>
         {/if}
       </div>
-    </main>
+    </PageContainer>
   </div>
 {/if}

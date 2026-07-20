@@ -2,6 +2,7 @@
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import { goto } from "$app/navigation";
   import { useStableQuery } from "$lib/stableQuery.svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -64,14 +65,7 @@
             copy it straight into Claude Code.
           </p>
         </div>
-        <label class="flex flex-shrink-0 items-center gap-2 text-xs text-gray-500">
-          <input
-            type="checkbox"
-            bind:checked={includeResolved}
-            class="h-3.5 w-3.5 accent-primary"
-          />
-          Show resolved
-        </label>
+        <Checkbox bind:checked={includeResolved} labelText="Show resolved" />
       </div>
 
       <!-- BNH-38: bug vs feature tabs -->
