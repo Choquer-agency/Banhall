@@ -3,6 +3,7 @@
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Button from "$lib/components/ui/Button.svelte";
+  import Input from "$lib/components/ui/Input.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { goto } from "$app/navigation";
   import { useQuery, useMutation } from "convex-svelte";
@@ -15,6 +16,48 @@
     auth.isAuthenticated ? {} : "skip"
   );
   const saveMyProfile = useMutation(api.writerProfiles.saveMyProfile);
+  const meQ = useQuery(api.users.getCurrentUser, () =>
+    auth.isAuthenticated ? {} : "skip"
+  );
+  const updateMyProfile = useMutation(api.users.updateMyProfile);
+
+  // "Your name" card — first/last shown everywhere your work is labeled.
+  let firstName = $state("");
+  let lastName = $state("");
+  let nameHydrated = false;
+  $effect(() => {
+    if (nameHydrated || meQ.data === undefined) return;
+    nameHydrated = true;
+    if (meQ.data) {
+      firstName = meQ.data.firstName ?? "";
+      lastName = meQ.data.lastName ?? "";
+      // Legacy single-field name: prefill a best-effort split for review.
+      if (!firstName && !lastName && meQ.data.name) {
+        const parts = meQ.data.name.trim().split(/\s+/);
+        firstName = parts[0] ?? "";
+        lastName = parts.slice(1).join(" ");
+      }
+    }
+  });
+
+  let nameSaving = $state(false);
+  let nameSaved = $state(false);
+  let nameError = $state("");
+  async function handleNameSave() {
+    if (nameSaving) return;
+    nameError = "";
+    nameSaved = false;
+    nameSaving = true;
+    try {
+      await updateMyProfile({ firstName, lastName });
+      nameSaved = true;
+      setTimeout(() => (nameSaved = false), 2500);
+    } catch (cause) {
+      nameError = userErrorMessage(cause, "Could not save your name.");
+    } finally {
+      nameSaving = false;
+    }
+  }
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
@@ -73,6 +116,32 @@
         {#if profileQ.data === undefined}
           <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
         {:else}
+          <!-- Your name -->
+          <section class="card mt-6 p-5">
+            <h2 class="text-title">Your name</h2>
+            <p class="mt-1 text-sm text-gray-500">
+              Shown wherever your work is labeled — reports, the team roster,
+              and review history.
+            </p>
+            <div class="mt-4 flex flex-wrap items-end gap-3">
+              <Input id="firstName" label="First name" bind:value={firstName} class="w-44" />
+              <Input id="lastName" label="Last name" bind:value={lastName} class="w-44" />
+              <span class="flex items-center gap-3 pb-0.5">
+                {#if nameSaved}
+                  <span class="text-xs text-primary">Saved</span>
+                {/if}
+                <Button onclick={handleNameSave} disabled={nameSaving}>
+                  {nameSaving ? "Saving…" : "Save"}
+                </Button>
+              </span>
+            </div>
+            {#if nameError}
+              <p role="alert" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+                {nameError}
+              </p>
+            {/if}
+          </section>
+
           <section class="card mt-6 p-5">
             <h2 class="text-title">Writing preferences</h2>
             <p class="mt-1 text-sm text-gray-500">

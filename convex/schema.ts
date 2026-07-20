@@ -7,6 +7,10 @@ export default defineSchema({
   users: defineTable({
     // Better Auth component user._id; optional while legacy docs relink.
     authId: v.optional(v.string()),
+    // Proper name fields (from the invite or /settings). Legacy single-field
+    // `name` kept as display fallback — no migration.
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
     name: v.optional(v.string()),
     email: v.optional(v.string()),
     role: v.optional(
@@ -19,6 +23,28 @@ export default defineSchema({
   })
     .index("by_email", ["email"])
     .index("by_authId", ["authId"]),
+
+  // ─── Invite-only membership: admin-issued signup tokens ────────────────────
+  invites: defineTable({
+    email: v.string(), // lowercased at write
+    firstName: v.string(),
+    lastName: v.string(),
+    role: v.union(v.literal("writer"), v.literal("manager"), v.literal("admin")),
+    token: v.string(), // unguessable base64url; the /signup/<token> link
+    invitedBy: v.id("users"),
+    createdAt: v.number(),
+    expiresAt: v.number(), // createdAt + 7 days
+    status: v.union(
+      v.literal("pending"),
+      v.literal("accepted"),
+      v.literal("revoked")
+    ),
+    acceptedAt: v.optional(v.number()),
+    acceptedUserId: v.optional(v.id("users")),
+  })
+    .index("by_token", ["token"])
+    .index("by_email", ["email"])
+    .index("by_status", ["status"]),
 
   projects: defineTable({
     // Plain-language internal title (set at the start; shown in lists).

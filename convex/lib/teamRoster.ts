@@ -2,7 +2,10 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
 type Ctx = QueryCtx | MutationCtx;
-type UserLabelSource = Pick<Doc<"users">, "name" | "email">;
+type UserLabelSource = Pick<
+  Doc<"users">,
+  "name" | "email" | "firstName" | "lastName"
+>;
 
 const TEAM_ROSTER_LIMIT = 200;
 
@@ -13,9 +16,13 @@ export function isTeamRosterMember(
   return user !== null && user.isAnonymous !== true;
 }
 
-/** Stable label snapshotted onto project records at creation time. */
+/** Stable label snapshotted onto project records at creation time.
+ * Precedence: "First Last" → legacy single-field name → email. */
 export function userDisplayLabel(user: UserLabelSource): string {
-  return user.name?.trim() || user.email?.trim() || "Unknown team member";
+  const full = [user.firstName?.trim(), user.lastName?.trim()]
+    .filter(Boolean)
+    .join(" ");
+  return full || user.name?.trim() || user.email?.trim() || "Unknown team member";
 }
 
 export async function listTeamRoster(ctx: Ctx): Promise<Doc<"users">[]> {

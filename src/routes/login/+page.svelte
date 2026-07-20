@@ -21,10 +21,8 @@
     if (error) throw new Error(error.message ?? "Sign-up failed");
   }
 
-  let mode = $state<"signIn" | "signUp">("signIn");
   let email = $state("");
   let password = $state("");
-  let name = $state("");
   let error = $state("");
   let submitting = $state(false);
 
@@ -65,18 +63,14 @@
     submitting = true;
 
     try {
-      if (mode === "signUp") await signUpEmail(email, password, name);
-      else await signInEmail(email, password);
+      await signInEmail(email, password);
       // Wait for auth state to propagate, then redirect
       setTimeout(() => {
         window.location.href = "/dashboard";
       }, 1000);
     } catch (err) {
       console.error("Auth error:", err);
-      error =
-        mode === "signIn"
-          ? "Invalid email or password."
-          : `Could not create account: ${err instanceof Error ? err.message : "Unknown error"}`;
+      error = "Invalid email or password.";
     } finally {
       submitting = false;
     }
@@ -97,26 +91,10 @@
       </div>
 
       <div class="card p-6 shadow-sm">
-        <h2 class="text-title">
-          {mode === "signIn" ? "Welcome back" : "Create account"}
-        </h2>
-        <p class="mt-1 text-sm text-gray-500">
-          {mode === "signIn"
-            ? "Sign in to your account to continue."
-            : "Set up your writer account."}
-        </p>
+        <h2 class="text-title">Welcome back</h2>
+        <p class="mt-1 text-sm text-gray-500">Sign in to your account to continue.</p>
 
         <form onsubmit={handleSubmit} class="mt-5 flex flex-col gap-4">
-          {#if mode === "signUp"}
-            <Input
-              id="name"
-              label="Full name"
-              type="text"
-              bind:value={name}
-              placeholder="Jane Smith"
-              required
-            />
-          {/if}
           <Input
             id="email"
             label="Email"
@@ -130,7 +108,7 @@
             label="Password"
             type="password"
             bind:value={password}
-            placeholder={mode === "signIn" ? "Enter your password" : "At least 8 characters"}
+            placeholder="Enter your password"
             required
             minlength={8}
           />
@@ -142,24 +120,13 @@
           {/if}
 
           <Button type="submit" disabled={submitting} class="mt-1">
-            {submitting ? "Please wait..." : mode === "signIn" ? "Sign in" : "Create account"}
+            {submitting ? "Please wait..." : "Sign in"}
           </Button>
         </form>
 
-        <div class="mt-4 text-center">
-          <button
-            type="button"
-            onclick={() => {
-              mode = mode === "signIn" ? "signUp" : "signIn";
-              error = "";
-            }}
-            class="text-sm text-gray-500 transition-colors hover:text-navy"
-          >
-            {mode === "signIn"
-              ? "Need an account? Sign up"
-              : "Already have an account? Sign in"}
-          </button>
-        </div>
+        <p class="mt-4 text-center text-xs text-gray-400">
+          Accounts are invite-only — ask an admin for an invite link.
+        </p>
       </div>
 
       <p class="mt-6 text-center text-xs text-gray-400">Banhall SR&amp;ED Consulting</p>

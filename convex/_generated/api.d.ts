@@ -52,6 +52,7 @@ import type * as errorReports from "../errorReports.js";
 import type * as financial from "../financial.js";
 import type * as generations from "../generations.js";
 import type * as http from "../http.js";
+import type * as invites from "../invites.js";
 import type * as learning from "../learning.js";
 import type * as lib_activeGeneration from "../lib/activeGeneration.js";
 import type * as lib_auth from "../lib/auth.js";
@@ -128,6 +129,7 @@ declare const fullApi: ApiFromModules<{
   financial: typeof financial;
   generations: typeof generations;
   http: typeof http;
+  invites: typeof invites;
   learning: typeof learning;
   "lib/activeGeneration": typeof lib_activeGeneration;
   "lib/auth": typeof lib_auth;

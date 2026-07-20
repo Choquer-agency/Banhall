@@ -1,7 +1,7 @@
 import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { listTeamRoster, userDisplayLabel } from "./lib/teamRoster";
-import { getCurrentUserOrNull, requireRole } from "./lib/auth";
+import { getCurrentUserOrNull, requireCurrentUser, requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 
 export const getCurrentUser = query({
@@ -40,6 +40,9 @@ export const listUsers = query({
     v.object({
       _id: v.id("users"),
       name: v.optional(v.string()),
+      firstName: v.optional(v.string()),
+      lastName: v.optional(v.string()),
+      displayName: v.string(),
       email: v.optional(v.string()),
       role: v.optional(
         v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))
@@ -53,10 +56,30 @@ export const listUsers = query({
     return users.map((user) => ({
       _id: user._id,
       name: user.name,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      displayName: userDisplayLabel(user),
       email: user.email,
       role: user.role,
       createdAt: user.createdAt,
     }));
+  },
+});
+
+/** Self-service name editing (/settings). */
+export const updateMyProfile = mutation({
+  args: {
+    firstName: v.string(),
+    lastName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await requireCurrentUser(ctx);
+    const firstName = args.firstName.trim();
+    const lastName = args.lastName.trim();
+    if (!firstName || !lastName) {
+      domainError("INVALID_INPUT", "First and last name are required");
+    }
+    await ctx.db.patch(user._id, { firstName, lastName });
   },
 });
 
