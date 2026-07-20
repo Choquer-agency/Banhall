@@ -47,6 +47,7 @@ import type * as chat from "../chat.js";
 import type * as chatV2 from "../chatV2.js";
 import type * as comments from "../comments.js";
 import type * as crons from "../crons.js";
+import type * as debugTools from "../debugTools.js";
 import type * as documents from "../documents.js";
 import type * as errorReports from "../errorReports.js";
 import type * as financial from "../financial.js";
@@ -124,6 +125,7 @@ declare const fullApi: ApiFromModules<{
   chatV2: typeof chatV2;
   comments: typeof comments;
   crons: typeof crons;
+  debugTools: typeof debugTools;
   documents: typeof documents;
   errorReports: typeof errorReports;
   financial: typeof financial;

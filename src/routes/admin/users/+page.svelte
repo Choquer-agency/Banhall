@@ -98,19 +98,47 @@
   let flavorSaving = $state(false);
   let flavorSaved = $state(false);
   let flavorError = $state("");
+  // Snapshot of the server values the form was seeded from — lets us tell
+  // "user typed" apart from "server changed underneath us".
+  let flavorSeed = $state<{ text: string; enabled: boolean } | null>(null);
+
+  function seedFlavor(userId: Id<"users">) {
+    const profile = profileByUserId.get(userId);
+    flavorText = profile?.customInstructions ?? "";
+    flavorEnabled = profile?.enabled ?? true;
+    flavorSeed = { text: flavorText, enabled: flavorEnabled };
+  }
 
   function toggleFlavor(userId: Id<"users">) {
     if (expandedUserId === userId) {
       expandedUserId = null;
       return;
     }
-    const profile = profileByUserId.get(userId);
-    flavorText = profile?.customInstructions ?? "";
-    flavorEnabled = profile?.enabled ?? true;
+    seedFlavor(userId);
     flavorSaved = false;
     flavorError = "";
     expandedUserId = userId;
   }
+
+  // Realtime: while the row is open and the admin hasn't typed, follow
+  // server changes (e.g. the user saving their own /settings). Once the
+  // admin edits, their draft wins until save (last-write-wins).
+  $effect(() => {
+    const userId = expandedUserId;
+    if (!userId || !flavorSeed) return;
+    const profile = profileByUserId.get(userId);
+    const serverText = profile?.customInstructions ?? "";
+    const serverEnabled = profile?.enabled ?? true;
+    const dirty =
+      flavorText !== flavorSeed.text || flavorEnabled !== flavorSeed.enabled;
+    const serverChanged =
+      serverText !== flavorSeed.text || serverEnabled !== flavorSeed.enabled;
+    if (serverChanged && !dirty) {
+      flavorText = serverText;
+      flavorEnabled = serverEnabled;
+      flavorSeed = { text: serverText, enabled: serverEnabled };
+    }
+  });
 
   async function handleFlavorSave(userId: Id<"users">) {
     if (flavorSaving) return;
@@ -123,6 +151,8 @@
         customInstructions: flavorText,
         enabled: flavorEnabled,
       });
+      // Saved values are the new baseline — future server changes flow in.
+      flavorSeed = { text: flavorText, enabled: flavorEnabled };
       flavorSaved = true;
       setTimeout(() => (flavorSaved = false), 2500);
     } catch (cause) {
@@ -154,6 +184,10 @@
     roleOverrides[userId] = role;
     try {
       await setUserRole({ userId, role });
+      // Drop the optimistic override once the server confirms — the live
+      // listUsers row takes back over, so changes from other admins/tabs
+      // keep showing through in realtime.
+      delete roleOverrides[userId];
     } catch (cause) {
       error = userErrorMessage(cause, "Could not update the role.");
       roleOverrides[userId] = previousRole;

@@ -24,21 +24,32 @@
   const updateMyProfile = useMutation(api.users.updateMyProfile);
 
   // "Your name" card — first/last shown everywhere your work is labeled.
+  // Non-dirty re-seed: follows server changes (other tab, admin edit) until
+  // the user starts typing; their draft then wins until save.
   let firstName = $state("");
   let lastName = $state("");
-  let nameHydrated = false;
+  let nameSeed = $state<{ first: string; last: string } | null>(null);
   $effect(() => {
-    if (nameHydrated || meQ.data === undefined) return;
-    nameHydrated = true;
-    if (meQ.data) {
-      firstName = meQ.data.firstName ?? "";
-      lastName = meQ.data.lastName ?? "";
-      // Legacy single-field name: prefill a best-effort split for review.
-      if (!firstName && !lastName && meQ.data.name) {
-        const parts = meQ.data.name.trim().split(/\s+/);
-        firstName = parts[0] ?? "";
-        lastName = parts.slice(1).join(" ");
-      }
+    if (meQ.data === undefined) return;
+    let serverFirst = meQ.data?.firstName ?? "";
+    let serverLast = meQ.data?.lastName ?? "";
+    // Legacy single-field name: prefill a best-effort split for review.
+    if (!serverFirst && !serverLast && meQ.data?.name) {
+      const parts = meQ.data.name.trim().split(/\s+/);
+      serverFirst = parts[0] ?? "";
+      serverLast = parts.slice(1).join(" ");
+    }
+    const dirty =
+      nameSeed !== null &&
+      (firstName !== nameSeed.first || lastName !== nameSeed.last);
+    const serverChanged =
+      nameSeed === null ||
+      serverFirst !== nameSeed.first ||
+      serverLast !== nameSeed.last;
+    if (serverChanged && !dirty) {
+      firstName = serverFirst;
+      lastName = serverLast;
+      nameSeed = { first: serverFirst, last: serverLast };
     }
   });
 
@@ -52,6 +63,7 @@
     nameSaving = true;
     try {
       await updateMyProfile({ firstName, lastName });
+      nameSeed = { first: firstName, last: lastName };
       nameSaved = true;
       setTimeout(() => (nameSaved = false), 2500);
     } catch (cause) {
@@ -67,17 +79,27 @@
     }
   });
 
+  // Writing preferences — same non-dirty re-seed: an admin editing this
+  // user's flavor from /admin/users shows up here live unless the user is
+  // mid-edit (their draft wins until save).
   let customInstructions = $state("");
   let enabled = $state(true);
-  let hydrated = false;
-  // Seed the form once from the stored profile (don't clobber in-flight edits
-  // on later reactive updates).
+  let prefSeed = $state<{ text: string; enabled: boolean } | null>(null);
   $effect(() => {
-    if (hydrated || profileQ.data === undefined) return;
-    hydrated = true;
-    if (profileQ.data) {
-      customInstructions = profileQ.data.customInstructions;
-      enabled = profileQ.data.enabled;
+    if (profileQ.data === undefined) return;
+    const serverText = profileQ.data?.customInstructions ?? "";
+    const serverEnabled = profileQ.data?.enabled ?? true;
+    const dirty =
+      prefSeed !== null &&
+      (customInstructions !== prefSeed.text || enabled !== prefSeed.enabled);
+    const serverChanged =
+      prefSeed === null ||
+      serverText !== prefSeed.text ||
+      serverEnabled !== prefSeed.enabled;
+    if (serverChanged && !dirty) {
+      customInstructions = serverText;
+      enabled = serverEnabled;
+      prefSeed = { text: serverText, enabled: serverEnabled };
     }
   });
 
@@ -92,6 +114,7 @@
     saving = true;
     try {
       await saveMyProfile({ customInstructions, enabled });
+      prefSeed = { text: customInstructions, enabled };
       saved = true;
       setTimeout(() => (saved = false), 2500);
     } catch (cause) {
