@@ -33,9 +33,15 @@ export function resolveCompareModels(
   return valid.length === 2 ? valid : undefined;
 }
 
-/** Two distinct random entries from CANDIDATE_MODELS. */
+/**
+ * Two distinct random entries — Anthropic models only. A random draw must
+ * never silently require the OpenRouter key or pick up a different cost
+ * profile; OpenAI/Google models are always an explicit writer choice.
+ */
 export function randomComparePair(): CandidateModel[] {
-  const shuffled = [...CANDIDATE_MODELS];
+  const shuffled = CANDIDATE_MODELS.filter(
+    (model) => model.gateway === "anthropic"
+  );
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
@@ -49,9 +55,14 @@ export function candidateModelsForMode(
   compareModelIds?: string[]
 ) {
   if (mode === "compare") {
-    // Legacy in-flight generations (no persisted pair) still run the full
-    // 3-model roster; new requests always persist exactly 2 ids.
-    return resolveCompareModels(compareModelIds) ?? CANDIDATE_MODELS;
+    // Legacy in-flight generations (no persisted pair) still run the original
+    // 3 Anthropic models — NOT the full roster, which now includes OpenRouter
+    // models that would 7x the run and require a second key. New requests
+    // always persist exactly 2 ids.
+    return (
+      resolveCompareModels(compareModelIds) ??
+      CANDIDATE_MODELS.filter((model) => model.gateway === "anthropic")
+    );
   }
   // "single" and "iterative" both run exactly one model.
   const selected = singleModelId

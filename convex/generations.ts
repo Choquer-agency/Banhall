@@ -17,9 +17,17 @@ import {
   requireRole,
 } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
-import { requireAnthropicConfigured } from "./lib/providerConfig";
+import {
+  requireAnthropicConfigured,
+  requireOpenRouterConfigured,
+} from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
-import { CANDIDATE_MODELS, type CandidateModelId } from "../shared/generationModels";
+import {
+  CANDIDATE_MODELS,
+  MODEL,
+  gatewayForModel,
+  type CandidateModelId,
+} from "../shared/generationModels";
 import { randomComparePair, resolveCompareModels } from "./ai/model";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import { buildTiptapDocument } from "./lib/tiptapReport";
@@ -226,6 +234,7 @@ async function reserveGeneration(
       "Project science code is not a valid CRA T4088 line 206 code"
     );
   }
+  // Anthropic is always required (retrieval brief + ghost draft run on it).
   requireAnthropicConfigured("generation");
 
   const active = await findActiveGeneration(ctx, project, [
@@ -246,6 +255,16 @@ async function reserveGeneration(
           (model) => model.id
         )
       : undefined;
+
+  // OpenRouter key is only required when a selected model routes through it —
+  // fail here with a clear error instead of mid-generation.
+  const requestedModelIds =
+    candidateMode === "compare"
+      ? (persistedCompareModelIds ?? [])
+      : [singleModelId ?? MODEL];
+  if (requestedModelIds.some((id) => gatewayForModel(id) === "openrouter")) {
+    requireOpenRouterConfigured();
+  }
 
   const now = Date.now();
   const generationId = await ctx.db.insert("generations", {

@@ -30,10 +30,12 @@ describe("generation candidate mode", () => {
     expect(explicit[0]?.id).toBe("claude-haiku-4-5-20251001");
   });
 
-  test("compare mode schedules every distinct candidate model", () => {
+  test("compare mode legacy fallback runs the Anthropic roster only", () => {
     const models = candidateModelsForMode("compare");
 
-    expect(models).toEqual(CANDIDATE_MODELS);
+    expect(models).toEqual(
+      CANDIDATE_MODELS.filter((model) => model.gateway === "anthropic")
+    );
     expect(new Set(models.map((model) => model.id)).size).toBe(models.length);
     expect(models.length).toBeGreaterThan(1);
   });

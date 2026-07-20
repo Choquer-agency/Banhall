@@ -9,6 +9,8 @@
   import { overlayFade, modalPop } from "$lib/motion";
   import ModelLogo from "./ModelLogo.svelte";
   import { CANDIDATE_MODELS } from "../../../../shared/generationModels";
+  import { useQuery } from "convex-svelte";
+  import { api } from "../../../../convex/_generated/api";
 
   let {
     open = $bindable(false),
@@ -28,11 +30,22 @@
   let search = $state("");
   let highlighted = $state("");
 
+  // Grey out models whose gateway key isn't configured.
+  const capabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
+  const available = $derived(
+    new Set(
+      capabilitiesQ.data?.availableCandidateModels ??
+        CANDIDATE_MODELS.map((m) => m.id as string)
+    )
+  );
+
   const rows = $derived(
     CANDIDATE_MODELS.filter((m) => m.id !== excludeId).map((m) => ({
       id: m.id as string,
       label: m.label,
+      provider: m.provider,
       description: m.description,
+      disabled: !available.has(m.id),
     }))
   );
   const filtered = $derived(
@@ -98,15 +111,22 @@
                       type="button"
                       role="option"
                       aria-selected={value === row.id}
+                      disabled={row.disabled}
                       onclick={() => pick(row.id)}
                       onmouseenter={() => (highlighted = row.id)}
                       onfocus={() => (highlighted = row.id)}
+                      title={row.disabled ? `${row.label} needs the OpenRouter API key configured` : undefined}
                       class={`flex h-10 w-full items-center gap-2.5 border-b border-gray-50 px-4 text-left text-sm transition-colors ${
-                        value === row.id ? "bg-primary-wash text-navy" : "text-gray-700 hover:bg-gray-50"
+                        row.disabled
+                          ? "cursor-not-allowed opacity-40"
+                          : value === row.id
+                            ? "bg-primary-wash text-navy"
+                            : "text-gray-700 hover:bg-gray-50"
                       }`}
                     >
-                      <ModelLogo size="sm" />
+                      <ModelLogo size="sm" provider={row.provider} />
                       <span class="min-w-0 flex-1 truncate text-xs font-medium">{row.label}</span>
+                      <span class="shrink-0 text-[10px] uppercase tracking-wide text-gray-300">{row.provider}</span>
                       {#if value === row.id}
                         <svg class="h-4 w-4 shrink-0 text-primary" fill="currentColor" viewBox="0 0 24 24">
                           <path fill-rule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.74a.75.75 0 011.04-.207z" clip-rule="evenodd" />
@@ -121,7 +141,7 @@
                 {#if detail}
                   <div class="hidden w-52 flex-col gap-2 border-l border-gray-100 bg-gray-50/50 p-4 sm:flex">
                     <span class="flex items-center gap-2">
-                      <ModelLogo size="sm" />
+                      <ModelLogo size="sm" provider={detail.provider} />
                       <span class="text-sm font-medium text-gray-800">{detail.label}</span>
                     </span>
                     <p class="text-xs leading-relaxed text-gray-500">{detail.description}</p>

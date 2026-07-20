@@ -1,13 +1,18 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { MODEL } from "./model";
+import type { GenerationClient } from "./openrouterCore";
 
 /**
- * Get structured JSON from the model via tool-use. The Anthropic API returns
- * the tool input already parsed and schema-valid, so there is no fragile
- * `JSON.parse` of free text (which was throwing on large/edge-case outputs).
+ * Get structured JSON from the model via tool-use. On Anthropic the API
+ * returns the tool input already parsed and schema-valid. On OpenRouter the
+ * adapter parses function-call arguments and throws a clean provider error on
+ * malformed/truncated JSON (surfaces as a failed candidate run).
  */
 export async function generateStructured<T>(
-  client: Anthropic,
+  // Anthropic's client matches GenerationClient on everything we use, but its
+  // response type carries extra block variants (thinking etc.) that break
+  // strict structural assignability — accept both and narrow at runtime.
+  rawClient: GenerationClient | Anthropic,
   opts: {
     system: string;
     user: string;
@@ -18,6 +23,7 @@ export async function generateStructured<T>(
     model?: string;
   }
 ): Promise<T> {
+  const client = rawClient as GenerationClient;
   const res = await client.messages.create({
     model: opts.model ?? MODEL,
     max_tokens: opts.maxTokens ?? 8192,

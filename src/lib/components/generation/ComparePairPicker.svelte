@@ -34,6 +34,8 @@
 
   const labelFor = (id: string) =>
     CANDIDATE_MODELS.find((m) => m.id === id)?.label ?? "";
+  const providerFor = (id: string) =>
+    CANDIDATE_MODELS.find((m) => m.id === id)?.provider ?? "Anthropic";
 </script>
 
 {#snippet slotCard(id: string, which: "a" | "b")}
@@ -48,7 +50,7 @@
           aria-label={`Change model: ${labelFor(id)}`}
           class="flex h-full w-full min-w-0 cursor-pointer items-center gap-2 px-2.5 pr-9 text-left"
         >
-          <ModelLogo />
+          <ModelLogo provider={providerFor(id)} />
           <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight" title={labelFor(id)}>
             {labelFor(id)}
           </span>

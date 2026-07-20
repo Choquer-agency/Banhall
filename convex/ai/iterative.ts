@@ -14,6 +14,7 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { instrumentedAnthropic } from "./instrument";
+import { clientForModel } from "./providers";
 import { runAnalyzerAgent, type TranscriptAnalysis } from "./analyzerAgent";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
@@ -70,13 +71,21 @@ export const startIterativeGeneration = internalAction({
     // Iterative mode uses single-model semantics: the explicitly selected
     // model, defaulting to Sonnet.
     const model = candidateModelsForMode("single", input.singleModelId)[0];
-    const anthropicFor = (callSite: string) =>
-      instrumentedAnthropic(ctx, {
+    // Routed by the selected model's gateway (Anthropic direct / OpenRouter).
+    const clientFor = (callSite: string) =>
+      clientForModel(ctx, model.id, {
         callSite,
-        capability: "generation",
         projectId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
       });
+    // The Brain's retrieval brief always runs on Anthropic Haiku — never the
+    // candidate model.
+    const briefClient = instrumentedAnthropic(ctx, {
+      callSite: "generation:retrieval_brief",
+      capability: "generation",
+      projectId,
+      ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+    });
     const log = (line: string) =>
       ctx.runMutation(internal.generations.appendProgress, {
         generationId: genId,
@@ -107,7 +116,7 @@ export const startIterativeGeneration = internalAction({
         transcript,
         industry: input.industry ?? null,
         scienceCode: scienceCode ?? null,
-        retrievalBriefClient: anthropicFor("generation:retrieval_brief"),
+        retrievalBriefClient: briefClient,
         log,
       });
 
@@ -156,7 +165,7 @@ export const startIterativeGeneration = internalAction({
       // Frozen once: analyzer output shared by every section draft.
       await log("Analyzing the transcript (runs once — shared by all sections)…");
       const analysis = await runAnalyzerAgent(
-        anthropicFor("generation:analyzer"),
+        clientFor("generation:analyzer"),
         transcript,
         contextDocs,
         model.id,
@@ -258,10 +267,10 @@ export const generateSection = internalAction({
       await fail("The frozen section inputs are unavailable.");
       return;
     }
-    const anthropicFor = (callSite: string) =>
-      instrumentedAnthropic(ctx, {
+    // Routed by the section run's model gateway.
+    const clientFor = (callSite: string) =>
+      clientForModel(ctx, run.model, {
         callSite,
-        capability: "generation",
         projectId: input.projectId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
       });
@@ -291,7 +300,7 @@ export const generateSection = internalAction({
             ? runSection244Agent
             : runSection246Agent;
       const raw = await runAgent(
-        anthropicFor(`generation:section:${args.section.slice(1)}`),
+        clientFor(`generation:section:${args.section.slice(1)}`),
         analysis,
         run.model,
         input.brainBlock,
@@ -300,7 +309,7 @@ export const generateSection = internalAction({
       );
       let text = scrubBannedWords(raw);
       text = await compressToFit(
-        anthropicFor,
+        clientFor,
         run.model,
         sectionKey,
         text,

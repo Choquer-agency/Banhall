@@ -26,6 +26,7 @@ import type { DataModel } from "./dataModel.js";
  */
 type Env = {
   readonly ANTHROPIC_API_KEY: string | undefined;
+  readonly OPENROUTER_API_KEY: string | undefined;
   readonly VOYAGE_API_KEY: string | undefined;
 };
 

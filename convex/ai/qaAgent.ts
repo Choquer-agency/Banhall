@@ -1,6 +1,7 @@
 "use node";
 
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
+import type { GenerationClient } from "./openrouterCore";
 import { QA_SYSTEM_PROMPT } from "./prompts";
 import type { TranscriptAnalysis } from "./analyzerAgent";
 import { runDeterministicChecks } from "./qaChecks";
@@ -47,7 +48,7 @@ export interface QAScorecard {
 }
 
 export async function runQAAgent(
-  client: Anthropic,
+  client: GenerationClient,
   analysis: TranscriptAnalysis,
   section242: string,
   section244: string,

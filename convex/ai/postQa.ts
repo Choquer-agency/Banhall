@@ -11,7 +11,7 @@
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import { instrumentedAnthropic } from "./instrument";
+import { clientForModel } from "./providers";
 import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
 import type { TranscriptAnalysis } from "./analyzerAgent";
@@ -32,10 +32,11 @@ export const runReportQa = internalAction({
       return;
     }
 
-    const anthropicFor = (callSite: string) =>
-      instrumentedAnthropic(ctx, {
+    // Routed by the report's model gateway (may be an OpenRouter model;
+    // undefined model → Anthropic default via gatewayForModel fallback).
+    const clientFor = (callSite: string) =>
+      clientForModel(ctx, input.model ?? "", {
         callSite,
-        capability: "generation",
         projectId: input.projectId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
       });
@@ -55,7 +56,7 @@ export const runReportQa = internalAction({
       const analysis = JSON.parse(input.analysis) as TranscriptAnalysis;
       const [qa, chronology] = await Promise.all([
         runQAAgent(
-          anthropicFor("generation:post_qa"),
+          clientFor("generation:post_qa"),
           analysis,
           input.section242,
           input.section244,
@@ -64,7 +65,7 @@ export const runReportQa = internalAction({
           qaCalibration
         ),
         runChronologyAgent(
-          anthropicFor("generation:post_chronology"),
+          clientFor("generation:post_chronology"),
           analysis,
           input.model
         ),

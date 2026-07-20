@@ -16,6 +16,8 @@ const app = defineApp({
   env: {
     ANTHROPIC_API_KEY: v.optional(v.string()),
     VOYAGE_API_KEY: v.optional(v.string()),
+    // OpenRouter gateway for OpenAI + Google generation models.
+    OPENROUTER_API_KEY: v.optional(v.string()),
   },
 });
 app.use(rag);

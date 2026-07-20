@@ -51,6 +51,34 @@ const PRICING: Record<string, ModelPricing> = {
     cacheCreationMultiplier: 0,
     cacheReadMultiplier: 0,
   },
+  // OpenRouter models (OpenAI/Google). FALLBACKS ONLY: OpenRouter responses
+  // carry a native usage.cost we prefer (exact billing incl. >200k-context
+  // price tiers); these entries cover rows where cost was absent. No explicit
+  // cache-write billing on this path; cache reads ≈ 0.25× input for both.
+  "openai/gpt-5.6-sol": {
+    input: 5,
+    output: 30,
+    cacheCreationMultiplier: 0,
+    cacheReadMultiplier: 0.25,
+  },
+  "openai/gpt-5.6-luna": {
+    input: 1,
+    output: 6,
+    cacheCreationMultiplier: 0,
+    cacheReadMultiplier: 0.25,
+  },
+  "google/gemini-3.1-pro-preview": {
+    input: 2,
+    output: 12,
+    cacheCreationMultiplier: 0,
+    cacheReadMultiplier: 0.25,
+  },
+  "google/gemini-3.5-flash": {
+    input: 1.5,
+    output: 9,
+    cacheCreationMultiplier: 0,
+    cacheReadMultiplier: 0.25,
+  },
 };
 const FALLBACK_PRICING: ModelPricing = {
   input: 3,
@@ -111,6 +139,9 @@ const usageArgs = {
   outputTokens: v.number(),
   cacheCreationInputTokens: v.optional(v.number()),
   cacheReadInputTokens: v.optional(v.number()),
+  // Provider-reported exact cost (OpenRouter usage.cost). When present and
+  // valid it wins over the PRICING estimate.
+  costUsd: v.optional(v.number()),
   createdAt: v.optional(v.number()),
 };
 
@@ -169,13 +200,18 @@ export const logUsage = internalMutation({
         ? { cacheCreationInputTokens }
         : {}),
       ...(cacheReadInputTokens ? { cacheReadInputTokens } : {}),
-      costUsd: estimateCostUsd(
-        args.model,
-        inputTokens,
-        outputTokens,
-        cacheCreationInputTokens,
-        cacheReadInputTokens
-      ),
+      costUsd:
+        args.costUsd !== undefined &&
+        Number.isFinite(args.costUsd) &&
+        args.costUsd >= 0
+          ? args.costUsd
+          : estimateCostUsd(
+              args.model,
+              inputTokens,
+              outputTokens,
+              cacheCreationInputTokens,
+              cacheReadInputTokens
+            ),
       createdAt: args.createdAt ?? Date.now(),
     });
     return null;

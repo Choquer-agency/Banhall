@@ -19,9 +19,10 @@
 
   let open = $state(false);
   const effectiveId = $derived(value || CANDIDATE_MODELS[0].id);
-  const label = $derived(
-    CANDIDATE_MODELS.find((m) => m.id === effectiveId)?.label ?? CANDIDATE_MODELS[0].label
+  const selected = $derived(
+    CANDIDATE_MODELS.find((m) => m.id === effectiveId) ?? CANDIDATE_MODELS[0]
   );
+  const label = $derived(selected.label);
 </script>
 
 <div
@@ -32,7 +33,7 @@
       aria-label={`Change model: ${label}`}
       class="flex h-full w-full min-w-0 cursor-pointer items-center gap-2 px-2.5 text-left"
     >
-      <ModelLogo />
+      <ModelLogo provider={selected.provider} />
       <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight" title={label}>{label}</span>
     </Popover.Trigger>
     <Popover.Portal>

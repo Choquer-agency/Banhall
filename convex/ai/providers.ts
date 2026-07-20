@@ -1,25 +1,54 @@
 "use node";
 
-// Deferred work — multi-provider support (e.g. OpenRouter): every Anthropic
-// call in the app flows through this file plus convex/ai/instrument.ts, so a
-// future provider abstraction lives here. The shape would be a provider
-// interface wrapping `messages.create` (plain text) and the structured
-// tool-use call in convex/ai/structured.ts, with per-provider error
-// normalization folded into normalizeProviderError below. Until then, keep
-// new call sites going through createAnthropicClient/instrumentedAnthropic so
-// the swap stays a one-file change.
+// Multi-provider routing (Jul 20): Anthropic models call the direct SDK
+// (native prompt caching + existing instrumentation); OpenAI/Google models
+// route through OpenRouter (convex/ai/openrouter.ts). Both gateways log into
+// the same aiUsage table. clientForModel below is the single routing point —
+// candidate-path call sites pick their client through it; auxiliary call
+// sites (brain, learning, financial, review) stay on instrumentedAnthropic.
 
 import Anthropic from "@anthropic-ai/sdk";
+import type { ActionCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
 import {
   requireAnthropicConfigured,
   type AnthropicCapability,
 } from "../lib/providerConfig";
+import { gatewayForModel } from "../../shared/generationModels";
+import { instrumentedAnthropic } from "./instrument";
+import { instrumentedOpenRouter } from "./openrouter";
+import type { GenerationClient } from "./openrouterCore";
 
 
 export function createAnthropicClient(
   capability: AnthropicCapability
 ): Anthropic {
   return new Anthropic({ apiKey: requireAnthropicConfigured(capability) });
+}
+
+/**
+ * The client for a candidate model, routed by its gateway. Anthropic's SDK
+ * client satisfies GenerationClient structurally, so agents typed against it
+ * accept both.
+ */
+export function clientForModel(
+  ctx: ActionCtx,
+  modelId: string,
+  meta: {
+    callSite: string;
+    projectId?: Id<"projects">;
+    userId?: string;
+  }
+): GenerationClient {
+  if (gatewayForModel(modelId) === "openrouter") {
+    return instrumentedOpenRouter(ctx, meta);
+  }
+  // Anthropic's response is a superset of GenerationResponse (extra block
+  // variants like thinking) — safe to narrow: agents only read text/tool_use.
+  return instrumentedAnthropic(ctx, {
+    ...meta,
+    capability: "generation",
+  }) as unknown as GenerationClient;
 }
 
 /** Exact billed token count returned by Voyage embedding/rerank responses. */
@@ -54,10 +83,22 @@ export function normalizeProviderError(error: unknown): {
     status = typeof error.status === "number" ? error.status : undefined;
   }
   const message = rawMessage.toLowerCase();
-  if (message.includes("credit balance") || message.includes("billing")) {
+  // 402 = OpenRouter insufficient credits; message checks cover both gateways.
+  if (
+    status === 402 ||
+    message.includes("credit balance") ||
+    message.includes("insufficient credits") ||
+    message.includes("billing")
+  ) {
     return {
       code: "billing",
-      message: "The Anthropic account cannot accept this request because billing or credits need attention.",
+      message: "The AI provider account cannot accept this request because billing or credits need attention.",
+    };
+  }
+  if (message.includes("moderation") || message.includes("flagged")) {
+    return {
+      code: "model_access",
+      message: "The AI provider declined this request (content moderation). Try again or use a different model.",
     };
   }
   if (status === 429 || message.includes("rate limit")) {

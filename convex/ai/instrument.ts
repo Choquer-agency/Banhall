@@ -16,6 +16,8 @@ export type UsageEvent = {
   outputTokens: number;
   cacheCreationInputTokens?: number;
   cacheReadInputTokens?: number;
+  /** Provider-reported exact cost (OpenRouter). Anthropic path never sets it. */
+  costUsd?: number;
   createdAt?: number;
 };
 

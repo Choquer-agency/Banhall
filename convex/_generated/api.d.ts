@@ -25,6 +25,8 @@ import type * as ai_iterative from "../ai/iterative.js";
 import type * as ai_learning from "../ai/learning.js";
 import type * as ai_model from "../ai/model.js";
 import type * as ai_modelFeedback from "../ai/modelFeedback.js";
+import type * as ai_openrouter from "../ai/openrouter.js";
+import type * as ai_openrouterCore from "../ai/openrouterCore.js";
 import type * as ai_pipeline from "../ai/pipeline.js";
 import type * as ai_postQa from "../ai/postQa.js";
 import type * as ai_prompts from "../ai/prompts.js";
@@ -98,6 +100,8 @@ declare const fullApi: ApiFromModules<{
   "ai/learning": typeof ai_learning;
   "ai/model": typeof ai_model;
   "ai/modelFeedback": typeof ai_modelFeedback;
+  "ai/openrouter": typeof ai_openrouter;
+  "ai/openrouterCore": typeof ai_openrouterCore;
   "ai/pipeline": typeof ai_pipeline;
   "ai/postQa": typeof ai_postQa;
   "ai/prompts": typeof ai_prompts;

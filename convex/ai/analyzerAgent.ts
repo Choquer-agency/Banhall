@@ -1,6 +1,7 @@
 "use node";
 
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
+import type { GenerationClient } from "./openrouterCore";
 import { ANALYZER_SYSTEM_PROMPT, CONTEXT_INPUTS_GUIDANCE } from "./prompts";
 import { generateStructured } from "./structured";
 
@@ -75,7 +76,7 @@ export interface TranscriptAnalysis {
 }
 
 export async function runAnalyzerAgent(
-  client: Anthropic,
+  client: GenerationClient,
   transcript: string,
   contextDocs: ContextDoc[] = [],
   model?: string,

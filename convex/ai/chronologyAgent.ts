@@ -1,6 +1,7 @@
 "use node";
 
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
+import type { GenerationClient } from "./openrouterCore";
 import type { TranscriptAnalysis } from "./analyzerAgent";
 import { generateStructured } from "./structured";
 
@@ -51,7 +52,7 @@ Respond with ONLY valid JSON:
 }`;
 
 export async function runChronologyAgent(
-  client: Anthropic,
+  client: GenerationClient,
   analysis: TranscriptAnalysis,
   model?: string
 ): Promise<ChronologyTable> {

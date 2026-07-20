@@ -3,8 +3,9 @@
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
-import Anthropic from "@anthropic-ai/sdk";
 import { instrumentedAnthropic } from "./instrument";
+import { clientForModel } from "./providers";
+import type { GenerationClient } from "./openrouterCore";
 import { runAnalyzerAgent, type ContextDoc } from "./analyzerAgent";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
@@ -90,7 +91,7 @@ The CRA form field for this section holds at most ${lines} lines of ${CHARS_PER_
 /** BNH-45: compression pass for a section that overflows the form.
  * `squeeze` < 1 tightens the word ask on retry. */
 export async function compressSection(
-  anthropic: Anthropic,
+  anthropic: GenerationClient,
   modelId: string,
   section: SectionKey,
   text: string,
@@ -146,7 +147,7 @@ export function buildStyleGuidance(
  * e2e saw a 51/50). Output is re-scrubbed for banned words each pass.
  */
 export async function compressToFit(
-  anthropicFor: (callSite: string) => Anthropic,
+  anthropicFor: (callSite: string) => GenerationClient,
   modelId: string,
   key: SectionKey,
   text: string,
@@ -245,7 +246,7 @@ function provenanceDrafts(
  * (content + agentOutputs incl. QA + chronology). Used for BNH-15 A/B testing.
  */
 async function runPipelineForModel(
-  anthropicFor: (callSite: string) => Anthropic,
+  anthropicFor: (callSite: string) => GenerationClient,
   modelId: string,
   transcript: string,
   contextDocs: ContextDoc[],
@@ -545,17 +546,19 @@ export const generateCandidate = internalAction({
       });
       return;
     }
-    const anthropicFor = (callSite: string) =>
-      instrumentedAnthropic(ctx, {
+    // Routed by the candidate model's gateway: Anthropic models use the
+    // direct SDK, OpenAI/Google models go through OpenRouter. Usage from both
+    // lands in the same aiUsage table.
+    const clientFor = (callSite: string) =>
+      clientForModel(ctx, run.model, {
         callSite,
-        capability: "generation",
         projectId: run.projectId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
       });
     try {
       const { content, agentOutputs, qaScore, claimDrafts } =
         await runPipelineForModel(
-          anthropicFor,
+          clientFor,
           run.model,
           input.transcript,
           toContextDocs(input.contextDocs),

@@ -7,6 +7,8 @@
 <script lang="ts">
   import ModelLogo from "./ModelLogo.svelte";
   import { CANDIDATE_MODELS } from "../../../../shared/generationModels";
+  import { useQuery } from "convex-svelte";
+  import { api } from "../../../../convex/_generated/api";
 
   let {
     value = "",
@@ -21,11 +23,23 @@
 
   let search = $state("");
 
+  // Grey out models whose gateway key isn't configured (e.g. OpenAI/Google
+  // without OPENROUTER_API_KEY). While loading, assume everything available.
+  const capabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () => ({}));
+  const available = $derived(
+    new Set(
+      capabilitiesQ.data?.availableCandidateModels ??
+        CANDIDATE_MODELS.map((m) => m.id as string)
+    )
+  );
+
   const rows = $derived(
     CANDIDATE_MODELS.filter((m) => m.id !== excludeId).map((m) => ({
       id: m.id as string,
       label: m.label,
+      provider: m.provider,
       description: m.description,
+      disabled: !available.has(m.id),
     }))
   );
   const filtered = $derived(
@@ -60,14 +74,22 @@
         type="button"
         role="option"
         aria-selected={value === row.id}
+        disabled={row.disabled}
         onclick={() => onSelect(row.id)}
-        title={row.description}
+        title={row.disabled
+          ? `${row.label} needs the OpenRouter API key configured`
+          : row.description}
         class={`flex h-10 w-full items-center gap-2 px-2.5 text-left transition-colors ${
-          value === row.id ? "bg-primary-wash text-navy" : "text-gray-700 hover:bg-gray-50"
+          row.disabled
+            ? "cursor-not-allowed opacity-40"
+            : value === row.id
+              ? "bg-primary-wash text-navy"
+              : "text-gray-700 hover:bg-gray-50"
         }`}
       >
-        <ModelLogo size="sm" />
+        <ModelLogo size="sm" provider={row.provider} />
         <span class="min-w-0 truncate text-xs font-medium">{row.label}</span>
+        <span class="ml-1 shrink-0 text-[10px] uppercase tracking-wide text-gray-300">{row.provider}</span>
         <svg
           class={`ml-auto h-4 w-4 shrink-0 text-primary ${value === row.id ? "opacity-100" : "opacity-0"}`}
           fill="currentColor" viewBox="0 0 24 24"
