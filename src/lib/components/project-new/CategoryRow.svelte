@@ -105,7 +105,7 @@
         class={`mt-2.5 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-3.5 text-xs font-medium transition-colors ${
           dragOver
             ? "border-primary bg-primary/10 text-primary-dark"
-            : `${def.zone} hover:brightness-[0.97]`
+            : `${def.zone}`
         }`}
       >
         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">

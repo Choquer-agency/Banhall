@@ -38,7 +38,7 @@ export const CONTEXT_CATEGORIES: ContextCategoryDef[] = [
     help: "Your interview notes / “unreliable narrator” guidance — what to ignore, and the true uncertainties to center on.",
     weight: "Highest",
     pill: "bg-amber-100 text-amber-700",
-    zone: "border-amber-300/70 bg-amber-50/60 text-amber-700",
+    zone: "border-amber-300/70 bg-amber-50/60 text-amber-700 hover:border-amber-400 hover:bg-amber-100/80 hover:text-amber-800",
   },
   {
     id: "previous_pd",
@@ -46,7 +46,7 @@ export const CONTEXT_CATEGORIES: ContextCategoryDef[] = [
     help: "Last year's PD(s) — for continuation projects and prior-year status.",
     weight: "High",
     pill: "bg-primary/15 text-primary-dark",
-    zone: "border-primary/40 bg-primary-wash text-primary-dark",
+    zone: "border-primary/40 bg-primary-wash text-primary-dark hover:border-primary hover:bg-primary/10",
   },
   {
     id: "scoping_notes",
@@ -54,7 +54,7 @@ export const CONTEXT_CATEGORIES: ContextCategoryDef[] = [
     help: "Pre-interview scoping meeting notes or a project summary.",
     weight: "Medium",
     pill: "bg-blue-100 text-blue-700",
-    zone: "border-blue-300/70 bg-blue-50/60 text-blue-700",
+    zone: "border-blue-300/70 bg-blue-50/60 text-blue-700 hover:border-blue-400 hover:bg-blue-100/80 hover:text-blue-800",
   },
   {
     id: "background",
@@ -62,7 +62,7 @@ export const CONTEXT_CATEGORIES: ContextCategoryDef[] = [
     help: "Company summaries, online research, links, generally-available info.",
     weight: "Supporting",
     pill: "bg-violet-100 text-violet-700",
-    zone: "border-violet-300/70 bg-violet-50/60 text-violet-700",
+    zone: "border-violet-300/70 bg-violet-50/60 text-violet-700 hover:border-violet-400 hover:bg-violet-100/80 hover:text-violet-800",
   },
   {
     id: "other",
@@ -70,6 +70,6 @@ export const CONTEXT_CATEGORIES: ContextCategoryDef[] = [
     help: "Anything else relevant to the report.",
     weight: "Supporting",
     pill: "bg-gray-100 text-gray-600",
-    zone: "border-gray-300 bg-gray-50 text-gray-500",
+    zone: "border-gray-300 bg-gray-50 text-gray-500 hover:border-gray-400 hover:bg-gray-100 hover:text-gray-700",
   },
 ];

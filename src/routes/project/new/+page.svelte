@@ -899,7 +899,7 @@
                 class={`flex cursor-pointer items-center justify-center gap-2.5 rounded-xl border border-dashed px-4 py-4 text-center transition-colors ${
                   transcriptDragOver
                     ? "border-primary bg-primary/10"
-                    : "border-primary/40 bg-primary-wash hover:brightness-[0.97]"
+                    : "border-primary/40 bg-primary-wash hover:border-primary hover:bg-primary/10"
                 }`}
               >
                 {#if parsingTranscript}
