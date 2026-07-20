@@ -13,6 +13,9 @@ export interface ContextCategoryDef {
   weight: "Highest" | "High" | "Medium" | "Supporting";
   /** Tailwind classes for the color-coded category pill. */
   pill: string;
+  /** Idle drop-zone classes — the category's own tint so each zone is
+   *  visibly a target (gray-on-white was invisible). Border + bg + text. */
+  zone: string;
 }
 
 /** Look up a category's label + pill color by id (e.g. for the Files panel). */
@@ -35,6 +38,7 @@ export const CONTEXT_CATEGORIES: ContextCategoryDef[] = [
     help: "Your interview notes / “unreliable narrator” guidance — what to ignore, and the true uncertainties to center on.",
     weight: "Highest",
     pill: "bg-amber-100 text-amber-700",
+    zone: "border-amber-300/70 bg-amber-50/60 text-amber-700",
   },
   {
     id: "previous_pd",
@@ -42,6 +46,7 @@ export const CONTEXT_CATEGORIES: ContextCategoryDef[] = [
     help: "Last year's PD(s) — for continuation projects and prior-year status.",
     weight: "High",
     pill: "bg-primary/15 text-primary-dark",
+    zone: "border-primary/40 bg-primary-wash text-primary-dark",
   },
   {
     id: "scoping_notes",
@@ -49,6 +54,7 @@ export const CONTEXT_CATEGORIES: ContextCategoryDef[] = [
     help: "Pre-interview scoping meeting notes or a project summary.",
     weight: "Medium",
     pill: "bg-blue-100 text-blue-700",
+    zone: "border-blue-300/70 bg-blue-50/60 text-blue-700",
   },
   {
     id: "background",
@@ -56,6 +62,7 @@ export const CONTEXT_CATEGORIES: ContextCategoryDef[] = [
     help: "Company summaries, online research, links, generally-available info.",
     weight: "Supporting",
     pill: "bg-violet-100 text-violet-700",
+    zone: "border-violet-300/70 bg-violet-50/60 text-violet-700",
   },
   {
     id: "other",
@@ -63,5 +70,6 @@ export const CONTEXT_CATEGORIES: ContextCategoryDef[] = [
     help: "Anything else relevant to the report.",
     weight: "Supporting",
     pill: "bg-gray-100 text-gray-600",
+    zone: "border-gray-300 bg-gray-50 text-gray-500",
   },
 ];

@@ -896,8 +896,8 @@
                 }}
                 class={`flex cursor-pointer items-center justify-center gap-2.5 rounded-xl border border-dashed px-4 py-4 text-center transition-colors ${
                   transcriptDragOver
-                    ? "border-primary bg-primary/5"
-                    : "border-gray-200 bg-canvas hover:border-gray-300"
+                    ? "border-primary bg-primary/10"
+                    : "border-primary/40 bg-primary-wash hover:brightness-[0.97]"
                 }`}
               >
                 {#if parsingTranscript}
@@ -906,13 +906,13 @@
                     Reading {parsingTranscript}…
                   </span>
                 {:else}
-                  <svg class="h-5 w-5 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <svg class="h-5 w-5 text-primary/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                   </svg>
-                  <span class="text-xs font-medium text-gray-600">
+                  <span class="text-xs font-medium text-primary-dark">
                     Drag the transcript here, or click to browse
                   </span>
-                  <span class="text-[11px] text-gray-400">
+                  <span class="text-[11px] text-primary-dark/60">
                     Word (.docx) — the Teams export
                   </span>
                 {/if}
