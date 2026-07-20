@@ -16,6 +16,7 @@ import type * as ai_brain_rag from "../ai/brain/rag.js";
 import type * as ai_brain_retrieve from "../ai/brain/retrieve.js";
 import type * as ai_brain_scienceRouting from "../ai/brain/scienceRouting.js";
 import type * as ai_brainRetrieval from "../ai/brainRetrieval.js";
+import type * as ai_changelogPipeline from "../ai/changelogPipeline.js";
 import type * as ai_chatAgent from "../ai/chatAgent.js";
 import type * as ai_chatAgentV2 from "../ai/chatAgentV2.js";
 import type * as ai_chronologyAgent from "../ai/chronologyAgent.js";
@@ -94,6 +95,7 @@ declare const fullApi: ApiFromModules<{
   "ai/brain/retrieve": typeof ai_brain_retrieve;
   "ai/brain/scienceRouting": typeof ai_brain_scienceRouting;
   "ai/brainRetrieval": typeof ai_brainRetrieval;
+  "ai/changelogPipeline": typeof ai_changelogPipeline;
   "ai/chatAgent": typeof ai_chatAgent;
   "ai/chatAgentV2": typeof ai_chatAgentV2;
   "ai/chronologyAgent": typeof ai_chronologyAgent;

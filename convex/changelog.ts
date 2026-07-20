@@ -4,7 +4,7 @@
  * Admins publish dated entries; every signed-in user can read them, and an
  * unseen-entries badge nudges non-early-adopters to look.
  */
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCurrentUser, requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
@@ -86,5 +86,56 @@ export const deleteEntry = mutation({
     const entry = await ctx.db.get(args.id);
     if (!entry) domainError("NOT_FOUND", "Changelog entry not found");
     await ctx.db.delete(args.id);
+  },
+});
+
+/** Pipeline upsert: one auto entry per work day, keyed by workDay so re-runs
+ *  replace instead of duplicating. Internal — called by changelogPipeline. */
+export const upsertPipelineEntry = internalMutation({
+  args: {
+    workDay: v.string(),
+    title: v.string(),
+    body: v.string(),
+    kind: v.union(v.literal("feature"), v.literal("fix"), v.literal("mixed")),
+    publishedAt: v.number(),
+    commitHashes: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("changelogEntries")
+      .withIndex("by_workDay", (q) => q.eq("workDay", args.workDay))
+      .unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        title: args.title,
+        body: args.body,
+        kind: args.kind,
+        publishedAt: args.publishedAt,
+        commitHashes: args.commitHashes,
+      });
+      return existing._id;
+    }
+    return await ctx.db.insert("changelogEntries", {
+      workDay: args.workDay,
+      title: args.title,
+      body: args.body,
+      kind: args.kind,
+      publishedAt: args.publishedAt,
+      commitHashes: args.commitHashes,
+    });
+  },
+});
+
+/** Newest commit hash the pipeline has already covered — the publish script's
+ *  watermark, so every commit is summarized exactly once. */
+export const lastProcessedCommits = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const entries = await ctx.db
+      .query("changelogEntries")
+      .withIndex("by_publishedAt")
+      .order("desc")
+      .take(30);
+    return entries.flatMap((e) => e.commitHashes ?? []);
   },
 });

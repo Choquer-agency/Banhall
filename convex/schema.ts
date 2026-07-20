@@ -1004,8 +1004,16 @@ export default defineSchema({
     body: v.string(),
     kind: v.union(v.literal("feature"), v.literal("fix"), v.literal("mixed")),
     publishedAt: v.number(),
-    createdBy: v.id("users"),
-  }).index("by_publishedAt", ["publishedAt"]),
+    // Admin-authored entries carry the author; pipeline entries don't.
+    createdBy: v.optional(v.id("users")),
+    // Jul 20 pipeline: one auto entry per work day ("2026-07-19"). Re-running
+    // the pipeline for a day replaces its entry instead of duplicating, and
+    // commitHashes records exactly which commits the summary covers.
+    workDay: v.optional(v.string()),
+    commitHashes: v.optional(v.array(v.string())),
+  })
+    .index("by_publishedAt", ["publishedAt"])
+    .index("by_workDay", ["workDay"]),
 
   // Per-user read watermark for the changelog badge.
   changelogReads: defineTable({
