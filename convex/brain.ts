@@ -9,13 +9,13 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { Workpool } from "@convex-dev/workpool";
 import { components, internal } from "./_generated/api";
 import { brain } from "./ai/brain/rag";
 import { requireBrainConfigured } from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { extractPlainText } from "./lib/reportEdits";
+import { getCurrentUserOrNull } from "./lib/auth";
 
 // Serial embed queue with backoff — Voyage 429s on parallel bursts (the 10-PD
 // seed lost 7/10 jobs at maxParallelism ∞). Bulk imports (BNH-17's ~500) drain
@@ -44,19 +44,16 @@ async function scheduleEmbed(
 
 /** Admin-only guard (the Brain is sacred — only the admin curates it). */
 async function assertAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
-  const userId = await getAuthUserId(ctx);
-  if (!userId) throw new Error("Not authenticated");
-  const user = await ctx.db.get(userId);
-  if (user?.role !== "admin") throw new Error("Admin only");
-  return userId;
+  const user = await getCurrentUserOrNull(ctx);
+  if (!user) throw new Error("Not authenticated");
+  if (user.role !== "admin") throw new Error("Admin only");
+  return user._id;
 }
 
 /** Non-throwing variant for dashboard queries: null → render "sign in" state. */
 async function adminOrNull(ctx: QueryCtx): Promise<string | null> {
-  const userId = await getAuthUserId(ctx);
-  if (!userId) return null;
-  const user = await ctx.db.get(userId);
-  return user?.role === "admin" ? userId : null;
+  const user = await getCurrentUserOrNull(ctx);
+  return user?.role === "admin" ? user._id : null;
 }
 
 /** Stable content fingerprint for dedup (FNV-1a, V8-safe — no node crypto). */
@@ -391,11 +388,10 @@ export const submitBrainFeedback = mutation({
     projectId: v.optional(v.id("projects")),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-    const user = await ctx.db.get(userId);
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) throw new Error("Not authenticated");
     return await ctx.db.insert("brainFeedbackQueue", {
-      fromUserId: userId,
+      fromUserId: user._id,
       fromName: user?.name,
       reportId: args.reportId,
       projectId: args.projectId,

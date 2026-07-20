@@ -7,7 +7,7 @@
   import { userErrorMessage } from "$lib/errors";
   import { goto } from "$app/navigation";
   import { useQuery, useMutation } from "convex-svelte";
-  import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
+  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { Streamdown } from "svelte-streamdown";
   import { api } from "../../../convex/_generated/api";
 

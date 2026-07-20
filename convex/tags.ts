@@ -5,9 +5,9 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { domainError } from "./lib/contracts";
+import { getCurrentUserOrNull } from "./lib/auth";
 
 // BNH-35: admin-curated project tag taxonomy (nested via parentId).
 type DefaultTagGroup = {
@@ -38,21 +38,20 @@ function normalizedName(name: string): string {
 }
 
 async function assertAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
-  const userId = await getAuthUserId(ctx);
-  if (!userId) domainError("NOT_AUTHENTICATED", "Authentication required");
-  const user = await ctx.db.get(userId);
-  if (user?.role !== "admin") {
+  const user = await getCurrentUserOrNull(ctx);
+  if (!user) domainError("NOT_AUTHENTICATED", "Authentication required");
+  if (user.role !== "admin") {
     domainError("NOT_AUTHORIZED", "Tag management requires an admin");
   }
-  return userId;
+  return user._id;
 }
 
 /** All tags (small curated list) — any signed-in user can read them. */
 export const listTags = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) return [];
     return await ctx.db.query("tags").take(500);
   },
 });

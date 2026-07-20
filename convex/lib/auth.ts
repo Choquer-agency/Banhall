@@ -1,6 +1,5 @@
 import type { QueryCtx, MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import {
   domainError,
   type FilingReadiness,
@@ -14,9 +13,14 @@ type ProjectAccess =
   | { kind: "denied" };
 
 export async function getCurrentUserOrNull(ctx: Ctx) {
-  const userId = await getAuthUserId(ctx);
-  if (!userId) return null;
-  return await ctx.db.get(userId);
+  // Better Auth: the Convex JWT's subject is the component user _id, synced
+  // onto our app users docs as `authId` by the trigger in convex/auth.ts.
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) return null;
+  return await ctx.db
+    .query("users")
+    .withIndex("by_authId", (q) => q.eq("authId", identity.subject))
+    .unique();
 }
 
 export async function requireCurrentUser(ctx: Ctx) {

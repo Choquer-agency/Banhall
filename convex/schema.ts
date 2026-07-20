@@ -1,11 +1,12 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { authTables } from "@convex-dev/auth/server";
 
 export default defineSchema({
-  ...authTables,
-
+  // Auth lives in the Better Auth component (see convex/auth.ts). This app
+  // users table stays authoritative for role/profile; synced via triggers.
   users: defineTable({
+    // Better Auth component user._id; optional while legacy docs relink.
+    authId: v.optional(v.string()),
     name: v.optional(v.string()),
     email: v.optional(v.string()),
     role: v.optional(
@@ -15,7 +16,9 @@ export default defineSchema({
     emailVerificationTime: v.optional(v.number()),
     isAnonymous: v.optional(v.boolean()),
     createdAt: v.optional(v.number()),
-  }).index("by_email", ["email"]),
+  })
+    .index("by_email", ["email"])
+    .index("by_authId", ["authId"]),
 
   projects: defineTable({
     // Plain-language internal title (set at the start; shown in lists).

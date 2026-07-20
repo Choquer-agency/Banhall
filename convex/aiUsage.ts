@@ -1,8 +1,8 @@
 import { query, internalMutation, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { getCurrentUserOrNull } from "./lib/auth";
 
 type ModelPricing = {
   input: number;
@@ -125,10 +125,8 @@ export function estimateCostUsd(
 const USAGE_REPORT_ROLES: Record<string, true> = { admin: true };
 
 async function usageViewerOrNull(ctx: QueryCtx): Promise<Id<"users"> | null> {
-  const userId = await getAuthUserId(ctx);
-  if (!userId) return null;
-  const user = await ctx.db.get(userId);
-  return user?.role && USAGE_REPORT_ROLES[user.role] ? userId : null;
+  const user = await getCurrentUserOrNull(ctx);
+  return user?.role && USAGE_REPORT_ROLES[user.role] ? user._id : null;
 }
 
 export const usageReportAccess = query({

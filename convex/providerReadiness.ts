@@ -1,5 +1,4 @@
 import { query } from "./_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { CANDIDATE_MODELS } from "./ai/model";
 import {
   anthropicConfiguration,
@@ -7,12 +6,13 @@ import {
   openRouterConfiguration,
 } from "./lib/providerConfig";
 import { defaultModelId } from "./appSettings";
+import { getCurrentUserOrNull } from "./lib/auth";
 
 export const getCapabilities = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) return null;
     const anthropic = anthropicConfiguration();
     const brain = brainConfiguration();
     const openrouter = openRouterConfiguration();

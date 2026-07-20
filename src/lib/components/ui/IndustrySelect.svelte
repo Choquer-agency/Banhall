@@ -12,7 +12,7 @@
 -->
 <script lang="ts">
   import { useQuery } from "convex-svelte";
-  import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
+  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { BASE_INDUSTRY_SLUGS, BASE_INDUSTRIES, industryLabel, industrySlug } from "$lib/industries";

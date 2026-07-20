@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import rag from "@convex-dev/rag/convex.config";
 import agent from "@convex-dev/agent/convex.config";
 import workpool from "@convex-dev/workpool/convex.config";
+import betterAuth from "@convex-dev/better-auth/convex.config";
 
 // ─── The Brain (BNH-10) ──────────────────────────────────────────────────────
 // First Convex component installed in this project. `@convex-dev/rag` owns the
@@ -26,5 +27,9 @@ app.use(agent);
 // Serializes Brain embedding jobs — Voyage rate-limits burst ingests (10
 // parallel embedSource jobs 429'd on the seed import). See brain.ts.
 app.use(workpool, { name: "embedPool" });
+// Better Auth component: owns auth users/sessions/accounts; our app users
+// table stays authoritative for role/profile and is synced via triggers in
+// convex/auth.ts.
+app.use(betterAuth);
 
 export default app;

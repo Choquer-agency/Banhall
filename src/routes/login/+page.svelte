@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
+  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
+  import { authClient } from "$lib/authClient";
   import { page } from "$app/state";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
@@ -7,8 +8,18 @@
   import Spinner from "$lib/components/ui/Spinner.svelte";
 
   const auth = useAuth();
-  const { signIn } = auth;
   const manualLogin = $derived(page.url.searchParams.get("manual") === "1");
+
+  // Better Auth email/password. Shapes the old convex-auth "signIn('password',
+  // {flow})" calls onto authClient.signIn.email / signUp.email.
+  async function signInEmail(email: string, password: string) {
+    const { error } = await authClient.signIn.email({ email, password });
+    if (error) throw new Error(error.message ?? "Sign-in failed");
+  }
+  async function signUpEmail(email: string, password: string, name: string) {
+    const { error } = await authClient.signUp.email({ email, password, name });
+    if (error) throw new Error(error.message ?? "Sign-up failed");
+  }
 
   let mode = $state<"signIn" | "signUp">("signIn");
   let email = $state("");
@@ -32,24 +43,15 @@
     const demoEmail = "demo@banhall.ca";
     const demoPassword = "BanhallDemo2026!";
 
-    signIn("password", { email: demoEmail, password: demoPassword, flow: "signIn" })
-      .then((result) => {
-        if (result.signingIn) {
-          setTimeout(() => { window.location.href = "/dashboard"; }, 800);
-        }
+    signInEmail(demoEmail, demoPassword)
+      .then(() => {
+        setTimeout(() => { window.location.href = "/dashboard"; }, 800);
       })
       .catch(() => {
         // First time: account doesn't exist yet, so create it
-        signIn("password", {
-          email: demoEmail,
-          password: demoPassword,
-          name: "Banhall Team",
-          flow: "signUp",
-        })
-          .then((result) => {
-            if (result.signingIn) {
-              setTimeout(() => { window.location.href = "/dashboard"; }, 800);
-            }
+        signUpEmail(demoEmail, demoPassword, "Banhall Team")
+          .then(() => {
+            setTimeout(() => { window.location.href = "/dashboard"; }, 800);
           })
           .catch(() => {
             // Auto-login failed — show the normal login form as fallback
@@ -63,15 +65,12 @@
     submitting = true;
 
     try {
-      const params: Record<string, string> = { email, password, flow: mode };
-      if (mode === "signUp") params.name = name;
-      const result = await signIn("password", params);
-      if (result.signingIn) {
-        // Wait for auth state to propagate, then redirect
-        setTimeout(() => {
-          window.location.href = "/dashboard";
-        }, 1000);
-      }
+      if (mode === "signUp") await signUpEmail(email, password, name);
+      else await signInEmail(email, password);
+      // Wait for auth state to propagate, then redirect
+      setTimeout(() => {
+        window.location.href = "/dashboard";
+      }, 1000);
     } catch (err) {
       console.error("Auth error:", err);
       error =

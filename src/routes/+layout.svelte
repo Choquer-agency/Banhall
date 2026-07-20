@@ -3,7 +3,8 @@
   import "./layout.css";
   import favicon from "$lib/assets/favicon.svg";
   import { setupConvex } from "convex-svelte";
-  import { setupConvexAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
+  import { createSvelteAuthClient } from "@mmailaender/convex-better-auth-svelte/svelte";
+  import { authClient } from "$lib/authClient";
   import { updated } from "$app/state";
   import { beforeNavigate } from "$app/navigation";
   import { PUBLIC_CONVEX_URL } from "$env/static/public";
@@ -17,7 +18,11 @@
   // One shared ConvexClient: convex-svelte owns queries/mutations, the auth
   // adapter drives setAuth/clearAuth on the same instance.
   const client = setupConvex(PUBLIC_CONVEX_URL);
-  setupConvexAuth({ client, getServerState: () => data.authState });
+  createSvelteAuthClient({
+    authClient,
+    convexClient: client,
+    getServerState: () => data.authState,
+  });
 
   // Deploy skew: after a new Vercel deployment the old build's hashed chunks
   // 404. When a new app version is detected, turn the next client-side

@@ -184,4 +184,5 @@ export declare const components: {
   rag: import("@convex-dev/rag/_generated/component.js").ComponentApi<"rag">;
   agent: import("@convex-dev/agent/_generated/component.js").ComponentApi<"agent">;
   embedPool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"embedPool">;
+  betterAuth: import("@convex-dev/better-auth/_generated/component.js").ComponentApi<"betterAuth">;
 };

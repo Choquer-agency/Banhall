@@ -9,7 +9,7 @@
   import { goto } from "$app/navigation";
   import { useQuery } from "convex-svelte";
   import { useStableQuery } from "$lib/stableQuery.svelte";
-  import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
+  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
 
   // BNH-16: admin-only AI token & cost usage report.

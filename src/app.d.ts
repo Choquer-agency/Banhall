@@ -3,7 +3,10 @@
 declare global {
 	namespace App {
 		// interface Error {}
-		// interface Locals {}
+		interface Locals {
+			/** Better Auth Convex JWT from cookies (hooks.server.ts). */
+			token: string | undefined;
+		}
 		// interface PageData {}
 		// interface PageState {}
 		// interface Platform {}

@@ -1,16 +1,13 @@
 import { query, mutation, internalMutation } from "./_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { listTeamRoster, userDisplayLabel } from "./lib/teamRoster";
-import { requireRole } from "./lib/auth";
+import { getCurrentUserOrNull, requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 
 export const getCurrentUser = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
-    return await ctx.db.get(userId);
+    return await getCurrentUserOrNull(ctx);
   },
 });
 
@@ -18,8 +15,8 @@ export const getCurrentUser = query({
 export const listTeam = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+    const viewer = await getCurrentUserOrNull(ctx);
+    if (!viewer) return [];
     const users = await listTeamRoster(ctx);
     return users
       .map((user) => ({

@@ -1,8 +1,13 @@
-import { sequence } from "@sveltejs/kit/hooks";
-import { createConvexAuthHooks } from "@mmailaender/convex-auth-svelte/sveltekit/server";
+import type { Handle } from "@sveltejs/kit";
+import { getToken } from "@mmailaender/convex-better-auth-svelte/sveltekit";
+import { withServerConvexToken } from "convex-svelte/sveltekit/server";
 
-// Handles all POST requests to /api/auth (sign-in, token refresh, sign-out)
-// by proxying to the Convex deployment. convexUrl comes from PUBLIC_CONVEX_URL.
-const { handleAuth } = createConvexAuthHooks();
-
-export const handle = sequence(handleAuth);
+// Auth routes themselves are served by src/routes/api/auth/[...all]/+server.ts
+// (proxied to the Convex HTTP router). This hook only extracts the Better Auth
+// Convex JWT from cookies — cookie-only overload, never constructs createAuth
+// in the SvelteKit runtime — and scopes it for SSR loads.
+export const handle: Handle = async ({ event, resolve }) => {
+  const token = getToken(event.cookies);
+  event.locals.token = token;
+  return withServerConvexToken(token, () => resolve(event));
+};

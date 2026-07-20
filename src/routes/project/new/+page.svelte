@@ -2,7 +2,7 @@
   import { goto } from "$app/navigation";
   import { toast } from "svelte-sonner";
   import { useMutation, useQuery } from "convex-svelte";
-  import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
+  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import Button from "$lib/components/ui/Button.svelte";

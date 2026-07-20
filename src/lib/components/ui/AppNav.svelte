@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import BuildStamp from "$lib/components/BuildStamp.svelte";
+  import NavActions from "$lib/components/ui/NavActions.svelte";
 
   /**
    * The app bar (design system: docs/design-system.md). One nav for every
@@ -8,7 +9,11 @@
    * page's content width, and the teal baseline rule as the single accent.
    *
    * Layout: logo alone on the left · a tight [root → chevron → … → current
-   * page pill] trail CENTERED in the bar · actions on the right.
+   * page pill] trail CENTERED in the bar · on the right, page-contextual
+   * `actions` (save state, workspace controls) then the app cluster
+   * (alerts / requests / what's new icons + avatar account menu). Account,
+   * settings, and admin navigation live ONLY in the avatar menu — pages
+   * must not add their own links for those.
    * home="label" renders the root as "Dashboard" text; home="icon"
    * (workspaces) renders it as a home glyph.
    */
@@ -17,15 +22,18 @@
     actions,
     width = "max-w-[var(--container-shell)]",
     home = "label",
+    appCluster = true,
   }: {
     /** Trail after the root. Last item renders as the current-page pill. */
     breadcrumbs?: { label: string; href?: string }[];
-    /** Right side: page actions, user, sign out. */
+    /** Right side, before the app cluster: page-contextual actions only. */
     actions?: Snippet;
     /** Tailwind max-width class — pass the SAME one the page's <main> uses. */
     width?: string;
     /** Root rendering: "label" = Dashboard text · "icon" = home glyph. */
     home?: "label" | "icon";
+    /** Icon shortcuts + avatar menu. Off only for unauthenticated shells. */
+    appCluster?: boolean;
   } = $props();
 </script>
 
@@ -75,6 +83,9 @@
       <div class="ml-auto flex flex-shrink-0 items-center gap-4">
         <BuildStamp class="hidden text-white/40 xl:inline-flex" />
         {@render actions?.()}
+        {#if appCluster}
+          <NavActions />
+        {/if}
       </div>
     </div>
   </nav>

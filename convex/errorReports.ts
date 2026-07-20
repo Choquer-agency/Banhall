@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { getCurrentUserOrNull } from "./lib/auth";
 
 const breadcrumbValidator = v.object({
   type: v.string(),
@@ -28,12 +28,9 @@ export const reportError = mutation({
     userAgent: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    let userEmail: string | undefined;
-    if (userId) {
-      const user = await ctx.db.get(userId);
-      userEmail = user?.email;
-    }
+    const user = await getCurrentUserOrNull(ctx);
+    const userId = user?._id ?? null;
+    const userEmail = user?.email ?? undefined;
 
     return await ctx.db.insert("errorReports", {
       ...args,
@@ -51,8 +48,8 @@ export const reportError = mutation({
 export const listErrors = query({
   args: { includeResolved: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) return [];
 
     const reports = await ctx.db.query("errorReports").order("desc").take(300);
     return args.includeResolved
@@ -65,8 +62,8 @@ export const listErrors = query({
 export const openCount = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return 0;
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) return 0;
     const open = await ctx.db
       .query("errorReports")
       .withIndex("by_status", (q) => q.eq("status", "open"))
@@ -81,8 +78,8 @@ export const setStatus = mutation({
     status: v.union(v.literal("open"), v.literal("resolved")),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) throw new Error("Not authenticated");
     await ctx.db.patch(args.id, { status: args.status });
   },
 });
@@ -90,8 +87,8 @@ export const setStatus = mutation({
 export const deleteError = mutation({
   args: { id: v.id("errorReports") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) throw new Error("Not authenticated");
     await ctx.db.delete(args.id);
   },
 });
@@ -104,8 +101,8 @@ export const deleteError = mutation({
 export const listFeatureRequests = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return [];
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) return [];
     const reports = await ctx.db.query("errorReports").order("desc").take(300);
     return reports
       .filter((r) => r.reportType === "feature")
@@ -116,8 +113,8 @@ export const listFeatureRequests = query({
         status: r.status,
         createdAt: r.createdAt,
         upvotes: r.upvoterIds?.length ?? 0,
-        upvotedByMe: r.upvoterIds?.includes(userId) ?? false,
-        mine: r.userId === userId,
+        upvotedByMe: r.upvoterIds?.includes(user._id) ?? false,
+        mine: r.userId === user._id,
       }));
   },
 });
@@ -126,16 +123,16 @@ export const listFeatureRequests = query({
 export const toggleUpvote = mutation({
   args: { id: v.id("errorReports") },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) throw new Error("Not authenticated");
     const report = await ctx.db.get(args.id);
     if (!report || report.reportType !== "feature") {
       throw new Error("Feature request not found");
     }
     const current = report.upvoterIds ?? [];
-    const upvoterIds = current.includes(userId)
-      ? current.filter((id) => id !== userId)
-      : [...current, userId];
+    const upvoterIds = current.includes(user._id)
+      ? current.filter((id) => id !== user._id)
+      : [...current, user._id];
     await ctx.db.patch(args.id, { upvoterIds });
   },
 });

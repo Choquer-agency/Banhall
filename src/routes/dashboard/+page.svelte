@@ -1,7 +1,7 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { useQuery } from "convex-svelte";
-  import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
+  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../convex/_generated/api";
   import type { Doc } from "../../../convex/_generated/dataModel";
   import Button from "$lib/components/ui/Button.svelte";
@@ -80,33 +80,12 @@
   ] as const;
 
   const auth = useAuth();
-  const { signOut } = auth;
-  let signingOut = $state(false);
-  let manualSignOut = false;
-
-  async function handleSignOut() {
-    if (signingOut) return;
-    manualSignOut = true;
-    signingOut = true;
-    try {
-      await signOut();
-      window.location.href = "/login?manual=1";
-    } finally {
-      signingOut = false;
-    }
-  }
 
   const user = useQuery(api.users.getCurrentUser, () =>
     auth.isAuthenticated ? {} : "skip"
   );
   const isAdmin = $derived(user.data?.role === "admin");
   const projectsQ = useQuery(api.projects.listProjects, () =>
-    auth.isAuthenticated ? {} : "skip"
-  );
-  const openAlertsQ = useQuery(api.errorReports.openCount, () =>
-    auth.isAuthenticated ? {} : "skip"
-  );
-  const unseenChangelogQ = useQuery(api.changelog.unseenCount, () =>
     auth.isAuthenticated ? {} : "skip"
   );
 
@@ -213,13 +192,11 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto(manualSignOut ? "/login?manual=1" : "/login", { replaceState: true });
+      goto("/login", { replaceState: true });
     }
   });
 
   const projects = $derived(projectsQ.data);
-  const openAlerts = $derived(openAlertsQ.data);
-  const unseenChangelog = $derived(unseenChangelogQ.data);
 
   const filtered = $derived(
     filter === "all" ? projects : projects?.filter((p) => p.status === filter)
@@ -299,54 +276,7 @@
   </div>
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav>
-      {#snippet actions()}
-        <a
-          href="/alerts"
-          class="relative flex items-center gap-1.5 text-sm text-white/60 transition-colors hover:text-white/90"
-        >
-          Alerts
-          {#if openAlerts}
-            <span class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">
-              {openAlerts}
-            </span>
-          {/if}
-        </a>
-        <a
-          href="/requests"
-          class="text-sm text-white/60 transition-colors hover:text-white/90"
-        >
-          Requests
-        </a>
-        <a
-          href="/changelog"
-          class="relative flex items-center gap-1.5 text-sm text-white/60 transition-colors hover:text-white/90"
-        >
-          What's new
-          {#if unseenChangelog}
-            <span class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold text-white">
-              {unseenChangelog}
-            </span>
-          {/if}
-        </a>
-        <a
-          href="/settings"
-          class="text-sm text-white/60 transition-colors hover:text-white/90"
-        >
-          Settings
-        </a>
-        <span class="hidden text-sm text-white/60 sm:inline">
-          {user.data?.name ?? user.data?.email}
-        </span>
-        <button
-          onclick={handleSignOut}
-          disabled={signingOut}
-          class="text-sm text-white/40 transition-colors hover:text-white/70 disabled:opacity-50"
-        >
-          {signingOut ? "Signing out…" : "Sign out"}
-        </button>
-      {/snippet}
-    </AppNav>
+    <AppNav />
 
     <!-- Admin toolbar — dashboard only; other pages keep their plain PageBar -->
     {#if isAdmin}

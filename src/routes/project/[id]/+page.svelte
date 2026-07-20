@@ -2,7 +2,7 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { useConvexClient, useQuery, useMutation } from "convex-svelte";
-  import { useAuth } from "@mmailaender/convex-auth-svelte/sveltekit";
+  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { PUBLIC_AGENT_CHAT } from "$env/static/public";
   import { scale } from "svelte/transition";
   import { overlayFade, modalPop } from "$lib/motion";
