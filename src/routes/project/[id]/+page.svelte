@@ -57,6 +57,7 @@
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
+  import { displayName } from "$lib/displayName";
 
   // BNH-10 P2 parallel-run: flip chat to the streaming @convex-dev/agent backend.
   const AGENT_CHAT = PUBLIC_AGENT_CHAT === "1";
@@ -1296,7 +1297,7 @@
         {projectId}
         reportId={report._id}
         commenterId={user._id}
-        commenterName={user.name ?? user.email ?? "Consultant"}
+        commenterName={displayName(user, "Consultant")}
         {hoveredCommentId}
         {pendingHighlight}
         onClearPending={() => (pendingHighlight = null)}

@@ -38,6 +38,7 @@
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
+  import { displayName } from "$lib/displayName";
   import { page } from "$app/state";
 
   // Jul 17 meeting: transcript + context inputs merged onto one page so
@@ -75,11 +76,7 @@
   const allTags = $derived(tagsQ.data ?? []);
 
   // Writer is always the signed-in user — not editable.
-  const writerName = $derived(
-    user.data
-      ? user.data.name?.trim() || user.data.email?.trim() || "Unknown team member"
-      : ""
-  );
+  const writerName = $derived(user.data ? displayName(user.data, "Unknown team member") : "");
 
   let step = $state(0);
   // BNH-39: generate a new PD from a transcript, or review an existing written PD.

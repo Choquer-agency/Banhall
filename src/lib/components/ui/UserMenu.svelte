@@ -11,6 +11,7 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { authClient } from "$lib/authClient";
   import { api } from "../../../../convex/_generated/api";
+  import { displayName } from "$lib/displayName";
 
   const auth = useAuth();
   const userQ = useQuery(api.users.getCurrentUser, () =>
@@ -34,7 +35,13 @@
     { href: "/admin/usage", label: "AI usage & cost" },
   ] as const;
 
+  const label = $derived(displayName(user, ""));
   const initials = $derived.by(() => {
+    if (user?.firstName || user?.lastName) {
+      return (
+        ((user.firstName?.[0] ?? "") + (user.lastName?.[0] ?? "")).toUpperCase() || "?"
+      );
+    }
     const name = user?.name?.trim();
     if (name) {
       const parts = name.split(/\s+/);
@@ -58,7 +65,7 @@
   }
 
   const itemClass =
-    "flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-sm text-ink-secondary transition-colors hover:bg-primary-wash hover:text-navy focus-visible:bg-primary-wash focus-visible:outline-none";
+    "flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-sm text-ink-secondary transition-colors hover:bg-primary-wash hover:text-navy focus-visible:bg-primary-wash focus-visible:outline-none";
 </script>
 
 <DropdownMenu.Root bind:open>
@@ -80,7 +87,7 @@
     >
       <!-- Identity header -->
       <div class="border-b border-gray-100 px-3.5 py-3">
-        <p class="truncate text-sm font-semibold text-ink">{user?.name ?? "—"}</p>
+        <p class="truncate text-sm font-semibold text-ink">{label || "—"}</p>
         <p class="mt-0.5 flex items-center gap-2">
           <span class="min-w-0 truncate text-xs text-ink-muted">{user?.email ?? ""}</span>
           {#if user?.role}
@@ -116,7 +123,7 @@
         <DropdownMenu.Item
           onSelect={handleSignOut}
           disabled={signingOut}
-          class="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-sm text-ink-muted transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:bg-red-50 focus-visible:text-red-600 focus-visible:outline-none data-[disabled]:opacity-50"
+          class="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-sm text-ink-muted transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:bg-red-50 focus-visible:text-red-600 focus-visible:outline-none data-[disabled]:opacity-50"
         >
           <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-7.5A2.25 2.25 0 003.75 5.25v13.5A2.25 2.25 0 006 21h7.5a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
