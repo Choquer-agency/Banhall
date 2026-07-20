@@ -602,7 +602,9 @@
           </div>
 
           <!-- Mode and draft-generation controls -->
-          <div class="mb-2 mt-1 flex flex-wrap items-center gap-x-8 gap-y-4">
+          <!-- Generation controls — separated from the field grid below by a
+               hairline so the row reads as its own band. -->
+          <div class="mb-6 mt-2 flex flex-wrap items-center gap-x-10 gap-y-5 border-b border-gray-100 pb-6">
             <!-- BNH-39: Generate vs Review mode -->
             <div class="flex items-center gap-2">
               <span class="text-xs font-medium text-gray-500">Mode</span>
