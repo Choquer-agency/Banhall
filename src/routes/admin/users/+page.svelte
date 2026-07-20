@@ -236,24 +236,27 @@
             Creates a one-time signup link (valid 7 days) — copy it and send it
             to them yourself.
           </p>
+          <!-- Full-width responsive grid: 1 col on phones, 2 on small, all
+               five cells on one row from lg up (email gets the widest track,
+               button hugs its content aligned to the field baseline). -->
           <form
-            class="mt-4 flex flex-wrap items-end gap-3"
+            class="mt-4 grid w-full grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1.6fr_1fr_auto]"
             onsubmit={(e) => {
               e.preventDefault();
               handleCreateInvite();
             }}
           >
-            <Input id="invite-first" label="First name" bind:value={inviteFirst} required class="w-36" />
-            <Input id="invite-last" label="Last name" bind:value={inviteLast} required class="w-36" />
-            <Input id="invite-email" label="Email" type="email" bind:value={inviteEmail} required class="w-56" />
+            <Input id="invite-first" label="First name" bind:value={inviteFirst} required class="w-full" />
+            <Input id="invite-last" label="Last name" bind:value={inviteLast} required class="w-full" />
+            <Input id="invite-email" label="Email" type="email" bind:value={inviteEmail} required class="w-full" />
             <div class="flex flex-col gap-1.5">
               <label for="invite-role" class="text-sm font-medium text-gray-700">Role</label>
-              <SelectInput id="invite-role" bind:value={inviteRole} items={ROLE_ITEMS} class="w-36" />
+              <SelectInput id="invite-role" bind:value={inviteRole} items={ROLE_ITEMS} class="w-full" />
             </div>
             <button
               type="submit"
               disabled={inviteSending}
-              class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+              class="inline-flex h-[42px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50 sm:col-span-2 lg:col-span-1"
             >
               {#if inviteSending}
                 <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
