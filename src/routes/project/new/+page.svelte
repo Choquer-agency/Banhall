@@ -27,9 +27,9 @@
     type StagedCategory,
     type PyRow,
   } from "$lib/components/project-new/shared";
-  import CategoryCard from "$lib/components/project-new/CategoryCard.svelte";
+  import CategoryRow from "$lib/components/project-new/CategoryRow.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
-  import PreviousYearCard from "$lib/components/project-new/PreviousYearCard.svelte";
+  import PreviousYearRow from "$lib/components/project-new/PreviousYearRow.svelte";
   import TagPicker from "$lib/components/project-new/TagPicker.svelte";
   import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
   import { industryLabel } from "$lib/industries";
@@ -555,38 +555,46 @@
       {/snippet}
     </PageBar>
 
-    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 px-6 pt-12 pb-8">
-      <!-- Step indicator (centered) -->
-      <div class="mx-auto mb-8 flex w-full max-w-lg items-center gap-2">
-        {#each STEPS as label, i (label)}
-          <div class="flex flex-1 items-center gap-2">
-            <div
-              class={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs font-medium ${
-                i < step
-                  ? "bg-primary text-white"
-                  : i === step
-                    ? "bg-navy text-white"
-                    : "bg-chrome text-gray-400"
-              }`}
+    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 px-6 pt-8 pb-8">
+      <!-- Step indicator — segment bar: two labeled progress segments, the
+           ledger idiom (a rule that fills) instead of numbered circles. -->
+      <div class="mx-auto mb-6 w-full max-w-sm">
+        <div class="flex gap-1.5" aria-label="Setup steps">
+          {#each STEPS as label, i (label)}
+            <button
+              type="button"
+              aria-current={i === step ? "step" : undefined}
+              onclick={() => { if (i < step) step = i; }}
+              disabled={i > step}
+              class={`group flex-1 pb-1.5 text-left ${i < step ? "cursor-pointer" : "cursor-default"}`}
             >
-              {i < step ? "✓" : i + 1}
-            </div>
-            <span class={`text-xs ${i === step ? "font-medium text-navy" : "text-gray-400"}`}>
-              {label}
-            </span>
-            {#if i < STEPS.length - 1}
-              <div class="h-px flex-1 bg-gray-200"></div>
-            {/if}
-          </div>
-        {/each}
+              <span
+                class={`text-[11px] font-medium tracking-wide transition-colors ${
+                  i === step
+                    ? "text-navy"
+                    : i < step
+                      ? "text-primary-dark group-hover:text-navy"
+                      : "text-gray-300"
+                }`}
+              >
+                {i < step ? "✓ " : ""}{label}
+              </span>
+              <span
+                class={`mt-1 block h-0.5 rounded-full transition-colors ${
+                  i <= step ? "bg-primary" : "bg-gray-200"
+                }`}
+              ></span>
+            </button>
+          {/each}
+        </div>
       </div>
 
       <!-- Step 1 — details -->
       {#if step === 0}
-        <div class="flex flex-col gap-5">
+        <div class="flex flex-col gap-4">
           <div>
-            <h2 class="text-display">Project details</h2>
-            <p class="mt-1 text-sm text-gray-500">
+            <h2 class="text-title">Project details</h2>
+            <p class="mt-0.5 text-xs text-gray-500">
               {mode === "generate"
                 ? "Enter the basics, then drop a transcript file or paste it below."
                 : "Enter the basics, then upload the written PD you want reviewed."}
@@ -594,7 +602,7 @@
           </div>
 
           <!-- Mode and draft-generation controls -->
-          <div class="mt-1 flex flex-wrap items-center gap-x-5 gap-y-3">
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-3">
             <!-- BNH-39: Generate vs Review mode -->
             <div class="flex items-center gap-2">
               <span class="text-xs font-medium text-gray-500">Mode</span>
@@ -656,14 +664,14 @@
               </div>
               <div class="ml-auto">
                 {#if candidateMode !== "compare"}
-                  <SingleModelPicker bind:value={singleModelId} />
+                  <SingleModelPicker bind:value={singleModelId} size="md" />
                 {:else}
-                  <ComparePairPicker bind:slotA={compareSlotA} bind:slotB={compareSlotB} />
+                  <ComparePairPicker bind:slotA={compareSlotA} bind:slotB={compareSlotB} size="md" />
                 {/if}
               </div>
             {/if}
           </div>
-          <div class="mt-3 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          <div class="mt-1 grid gap-x-4 gap-y-3.5 sm:grid-cols-2 xl:grid-cols-4">
             <Input id="title" label="Internal project title" bind:value={title} placeholder="Project Verdant F2024" required />
             <Input id="sredTitle" label="SR&ED title (optional — finalize later)" bind:value={sredTitle} placeholder="e.g. Development of a multi-home SoC estimation system" />
             <Input id="clientName" label="Client name" bind:value={clientName} placeholder="GreenStem Nurseries Inc." required />
@@ -811,9 +819,9 @@
           {/if}
 
           <!-- Extra top gap isolates the transcript section from the fields above. -->
-          <div class="mt-6 flex flex-col gap-1.5">
+          <div class="mt-4 flex flex-col gap-1.5">
             <div class="flex flex-wrap items-center justify-between gap-3">
-              <label for="transcript" class="flex flex-wrap items-baseline gap-x-1.5 text-sm font-medium text-gray-700">
+              <label for="transcript" class="flex flex-wrap items-baseline gap-x-1.5 text-xs font-medium text-gray-700">
                 <span>Interview transcript</span>
                 {#if mode === "review"}
                   <span class="font-normal text-gray-400">(optional — adds context for the review)</span>
@@ -886,7 +894,7 @@
                   const file = e.dataTransfer?.files?.[0];
                   if (file) handleTranscriptFile(file);
                 }}
-                class={`flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-7 text-center transition-colors ${
+                class={`flex cursor-pointer items-center justify-center gap-2.5 rounded-xl border border-dashed px-4 py-4 text-center transition-colors ${
                   transcriptDragOver
                     ? "border-primary bg-primary/5"
                     : "border-gray-200 bg-canvas hover:border-gray-300"
@@ -898,14 +906,14 @@
                     Reading {parsingTranscript}…
                   </span>
                 {:else}
-                  <svg class="h-7 w-7 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <svg class="h-5 w-5 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                   </svg>
-                  <span class="text-sm font-medium text-gray-600">
-                    Drag a transcript file here, or click to browse
+                  <span class="text-xs font-medium text-gray-600">
+                    Drag the transcript here, or click to browse
                   </span>
-                  <span class="text-xs text-gray-400">
-                    Word (.docx) — the Teams transcript export
+                  <span class="text-[11px] text-gray-400">
+                    Word (.docx) — the Teams export
                   </span>
                 {/if}
               </button>
@@ -934,21 +942,22 @@
               <p class="text-xs text-red-600">{transcriptFileError}</p>
             {/if}
           </div>
-          <!-- Context & files — same page as the transcript (Jul 17). -->
-          <div class="mt-6">
-            <h2 class="text-title">Context & files</h2>
-            <p class="mt-1 text-sm text-gray-500">
-              Add any supporting material so the report is grounded in more than the transcript.
-              Everything here is <span class="font-medium">optional</span> — add what you have.
-            </p>
-          </div>
-          <!-- Two-column grid keeps the step compact; the year-by-year card is
-               wider content, so it spans both columns. -->
-          <div class="grid items-start gap-4 md:grid-cols-2">
-            {#each CONTEXT_CATEGORIES as cat (cat.id)}
-              {#if cat.id === "previous_pd"}
-                <div class="md:col-span-2">
-                  <PreviousYearCard
+          <!-- Context & files — one ledger card of divided rows (Jul 20).
+               Each category is a row: label ledger-style on the left, staged
+               chips in the middle, actions right; the whole row is a drop
+               target. Ordered by SR&ED weight, so the card reads as the
+               weighting table it actually is. -->
+          <div class="mt-5">
+            <div class="flex items-baseline justify-between gap-3">
+              <h2 class="text-title">Context & files</h2>
+              <p class="text-xs text-gray-400">
+                All optional · {fileCount} item{fileCount === 1 ? "" : "s"} attached
+              </p>
+            </div>
+            <div class="card mt-2.5 divide-y divide-gray-100 overflow-hidden">
+              {#each CONTEXT_CATEGORIES as cat (cat.id)}
+                {#if cat.id === "previous_pd"}
+                  <PreviousYearRow
                     def={cat}
                     rows={pyRows}
                     onAddFiles={addPyFiles}
@@ -958,30 +967,30 @@
                     onRemoveYear={removePyYear}
                     onAddYear={addPyYear}
                   />
-                </div>
-              {:else}
-                <CategoryCard
-                  def={cat}
-                  value={staged[cat.id]}
-                  onAddFiles={(fs) => updateCategory(cat.id, { files: [...staged[cat.id].files, ...fs] })}
-                  onRemoveFile={(idx) =>
-                    updateCategory(cat.id, {
-                      files: staged[cat.id].files.filter((_, i) => i !== idx),
-                    })}
-                  onText={(text) => updateCategory(cat.id, { text })}
-                />
-              {/if}
-            {/each}
+                {:else}
+                  <CategoryRow
+                    def={cat}
+                    value={staged[cat.id]}
+                    onAddFiles={(fs) => updateCategory(cat.id, { files: [...staged[cat.id].files, ...fs] })}
+                    onRemoveFile={(idx) =>
+                      updateCategory(cat.id, {
+                        files: staged[cat.id].files.filter((_, i) => i !== idx),
+                      })}
+                    onText={(text) => updateCategory(cat.id, { text })}
+                  />
+                {/if}
+              {/each}
+            </div>
           </div>
         </div>
       {/if}
 
       <!-- Step 2 — review -->
       {#if step === 1}
-        <div class="flex flex-col gap-5">
+        <div class="flex flex-col gap-4">
           <div>
-            <h2 class="text-display">{mode === "generate" ? "Review & generate" : "Review & start"}</h2>
-            <p class="mt-1 text-sm text-gray-500">
+            <h2 class="text-title">{mode === "generate" ? "Review & generate" : "Review & start"}</h2>
+            <p class="mt-0.5 text-xs text-gray-500">
               {mode === "generate"
                 ? "Confirm everything looks right, then generate the draft report."
                 : "Confirm everything looks right, then start the AI review of the written PD."}

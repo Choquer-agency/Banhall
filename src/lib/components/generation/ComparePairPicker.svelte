@@ -15,11 +15,18 @@
   let {
     slotA = $bindable(""),
     slotB = $bindable(""),
+    size = "lg",
   }: {
     /** Model id, or "" for Random. */
     slotA?: string;
     slotB?: string;
+    /** lg = 44px slot cards (selection screens) · md = 36px inline control. */
+    size?: "lg" | "md";
   } = $props();
+
+  const slotClass = $derived(size === "md" ? "h-9 w-40" : "h-11 w-44");
+  const slotText = $derived(size === "md" ? "text-xs" : "text-sm");
+  const logoSize = $derived(size === "md" ? ("sm" as const) : ("md" as const));
 
   // Centered dialog for empty slots; anchored popovers for filled ones.
   let dialogOpen = $state(false);
@@ -41,7 +48,7 @@
 {#snippet slotCard(id: string, which: "a" | "b")}
   {#if id}
     <!-- Filled: logo + name, X to clear; click card → anchored popover -->
-    <div class="group/card relative h-11 w-44 overflow-hidden rounded-lg border border-gray-200 bg-white text-sm transition-colors hover:border-gray-300 hover:bg-gray-50/60">
+    <div class={`group/card relative ${slotClass} overflow-hidden rounded-lg border border-gray-200 bg-white transition-colors hover:border-gray-300 hover:bg-gray-50/60`}>
       <Popover.Root
         open={which === "a" ? openA : openB}
         onOpenChange={(o) => (which === "a" ? (openA = o) : (openB = o))}
@@ -50,8 +57,8 @@
           aria-label={`Change model: ${labelFor(id)}`}
           class="flex h-full w-full min-w-0 cursor-pointer items-center gap-2 px-2.5 pr-9 text-left"
         >
-          <ModelLogo provider={providerFor(id)} />
-          <span class="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight" title={labelFor(id)}>
+          <ModelLogo provider={providerFor(id)} size={logoSize} />
+          <span class={`min-w-0 flex-1 truncate ${slotText} font-semibold tracking-tight`} title={labelFor(id)}>
             {labelFor(id)}
           </span>
         </Popover.Trigger>
@@ -94,7 +101,7 @@
         dialogSlot = which;
         dialogOpen = true;
       }}
-      class="group/slot flex h-11 w-44 cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 bg-chrome/40 text-sm font-medium text-gray-500 transition-colors hover:border-primary hover:bg-primary-wash hover:text-navy"
+      class={`group/slot flex ${slotClass} cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 bg-chrome/40 ${slotText} font-medium text-gray-500 transition-colors hover:border-primary hover:bg-primary-wash hover:text-navy`}
     >
       <span class="flex size-5 shrink-0 items-center justify-center rounded-full bg-white ring-1 ring-gray-200 transition-colors group-hover/slot:ring-primary/40">
         <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 24 24">
