@@ -171,3 +171,110 @@ export const usageWindow = internalQuery({
     };
   },
 });
+
+/** Rows whose parent project no longer exists — fingerprint of a deleted
+ *  project (e.g. cleaned up after a stuck run). */
+export const orphanTrace = internalQuery({
+  args: { sinceIso: v.string() },
+  handler: async (ctx, args) => {
+    const since = Date.parse(args.sinceIso);
+    const usage = await ctx.db
+      .query("aiUsage")
+      .withIndex("by_createdAt", (q) => q.gte("createdAt", since))
+      .collect();
+    const orphanUsage = [];
+    for (const row of usage) {
+      if (!row.projectId) continue;
+      const p = await ctx.db.get(row.projectId);
+      if (!p) {
+        orphanUsage.push({
+          at: new Date(row.createdAt).toISOString(),
+          callSite: row.callSite,
+          model: row.model,
+          inputTokens: row.inputTokens,
+          outputTokens: row.outputTokens,
+          writerName: row.writerName ?? null,
+          projectId: row.projectId,
+        });
+      }
+    }
+    const transcripts = await ctx.db.query("transcripts").collect();
+    const orphanTranscripts = [];
+    for (const t of transcripts) {
+      const p = await ctx.db.get(t.projectId);
+      if (!p && t.createdAt >= since) {
+        orphanTranscripts.push({
+          at: new Date(t.createdAt).toISOString(),
+          chars: t.content.length,
+          head: t.content.slice(0, 120),
+        });
+      }
+    }
+    const docs = await ctx.db.query("projectDocuments").collect();
+    const orphanDocsByProject = new Map<string, { count: number; chars: number; names: string[] }>();
+    for (const d of docs) {
+      const p = await ctx.db.get(d.projectId);
+      if (!p) {
+        const cur = orphanDocsByProject.get(d.projectId) ?? { count: 0, chars: 0, names: [] };
+        cur.count += 1;
+        cur.chars += d.content.length;
+        if (cur.names.length < 40) cur.names.push(`${d.fileName} (${d.fileType}, ${d.content.length}ch)`);
+        orphanDocsByProject.set(d.projectId, cur);
+      }
+    }
+    return {
+      orphanUsage,
+      orphanTranscripts,
+      orphanDocGroups: Object.fromEntries(orphanDocsByProject),
+    };
+  },
+});
+
+export const maxUsageRows = internalQuery({
+  args: { fromIso: v.string(), toIso: v.string() },
+  handler: async (ctx, args) => {
+    const from = Date.parse(args.fromIso);
+    const to = Date.parse(args.toIso);
+    const rows = await ctx.db
+      .query("aiUsage")
+      .withIndex("by_createdAt", (q) => q.gte("createdAt", from).lt("createdAt", to))
+      .collect();
+    return rows
+      .sort((a, b) => b.inputTokens - a.inputTokens)
+      .slice(0, 8)
+      .map((r) => ({
+        at: new Date(r.createdAt).toISOString(),
+        callSite: r.callSite,
+        inputTokens: r.inputTokens,
+        outputTokens: r.outputTokens,
+        writerName: r.writerName ?? null,
+      }));
+  },
+});
+
+export const orphanGenerationSources = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const sources = await ctx.db.query("generationSources").collect();
+    const byProject = new Map<string, number>();
+    for (const s of sources) {
+      const p = await ctx.db.get(s.projectId);
+      if (!p) byProject.set(s.projectId, (byProject.get(s.projectId) ?? 0) + 1);
+    }
+    return Object.fromEntries(byProject);
+  },
+});
+
+export const flagNoteFull = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const reports = await ctx.db.query("errorReports").order("desc").take(50);
+    return reports
+      .filter((r) => r.userNote?.toLowerCase().includes("29"))
+      .map((r) => ({
+        at: new Date(r.createdAt).toISOString(),
+        note: r.userNote,
+        breadcrumbs: r.breadcrumbs.map((b) => `${b.type}:${b.label}${b.detail ? " " + b.detail.slice(0, 80) : ""}`),
+      }));
+  },
+});
