@@ -6,7 +6,6 @@ import {
   getFilingReadiness,
   requireFilingReady,
   requireInternalProjectAccess,
-  requireProjectCreator,
   requireProjectCreatorOrAdmin,
   requireCurrentUser,
 } from "./lib/auth";
@@ -398,7 +397,7 @@ export const publishForReview = mutation({
     reportId: v.id("reports"),
   },
   handler: async (ctx, args) => {
-    await requireProjectCreator(ctx, args.projectId);
+    await requireProjectCreatorOrAdmin(ctx, args.projectId);
     const report = await ctx.db.get(args.reportId);
     if (!report || report.projectId !== args.projectId) {
       domainError("NOT_AUTHORIZED", "Report does not belong to this project");
@@ -414,7 +413,7 @@ export const publishForReview = mutation({
 export const unpublishReview = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const { project } = await requireProjectCreator(ctx, args.projectId);
+    const { project } = await requireProjectCreatorOrAdmin(ctx, args.projectId);
     await ctx.db.patch(args.projectId, {
       sharedReportId: undefined,
       status: project.status === "client_review" ? "review" : project.status,
