@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { getCurrentUserOrNull } from "./lib/auth";
 
@@ -81,6 +81,26 @@ export const setStatus = mutation({
     const user = await getCurrentUserOrNull(ctx);
     if (!user) throw new Error("Not authenticated");
     await ctx.db.patch(args.id, { status: args.status });
+  },
+});
+
+/**
+ * Ops utility (mirrors generations.failStaleGenerations): batch-resolve alert
+ * rows verified fixed, from the CLI where there is no signed-in user.
+ * `npx convex run errorReports:adminResolve '{"ids":["..."]}'`
+ */
+export const adminResolve = internalMutation({
+  args: { ids: v.array(v.id("errorReports")) },
+  returns: v.number(),
+  handler: async (ctx, args): Promise<number> => {
+    let resolved = 0;
+    for (const id of args.ids) {
+      const report = await ctx.db.get(id);
+      if (!report || report.status === "resolved") continue;
+      await ctx.db.patch(id, { status: "resolved" });
+      resolved += 1;
+    }
+    return resolved;
   },
 });
 

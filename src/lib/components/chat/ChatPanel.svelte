@@ -7,6 +7,8 @@
   import ProposedEditCard from "$lib/components/chat/ProposedEditCard.svelte";
   import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
+  import type { ResearchSelection } from "$lib/components/editor/types";
   import {
     parseFileToText,
     isSupportedFile,
@@ -24,11 +26,17 @@
     reportId: Id<"reports">;
     pendingHighlight?: { from: number; to: number; text: string } | null;
     onClearHighlight?: () => void;
+    pendingResearch?: ResearchSelection | null;
+    onClearResearch?: () => void;
     isFull?: boolean;
     onToggleFull?: () => void;
     // BNH-25: highlight the given passages in the document panel, scrolling to
     // `scrollTo` (one of them) or the first if omitted.
     onReferenceText?: (texts: string[], scrollTo?: string) => void;
+    onPreviewProposal?: (
+      pairs: { find: string; replaceWith: string }[],
+      on: boolean
+    ) => void;
     // BNH-30: start the one-by-one replace-and-scan-next review in the document.
     onReviewReplacements?: (
       pairs: { find: string; replaceWith: string }[],
@@ -43,9 +51,12 @@
     reportId,
     pendingHighlight,
     onClearHighlight,
+    pendingResearch,
+    onClearResearch,
     isFull,
     onToggleFull,
     onReferenceText,
+    onPreviewProposal,
     onReviewReplacements,
     reviewingMessageId,
   }: Props = $props();
@@ -128,6 +139,9 @@
   const messagesQ = useQuery(api.chat.listMessages, () =>
     selectedThreadId ? { threadId: selectedThreadId } : "skip"
   );
+  const researchSessionsQ = useQuery(api.research.listSessions, () => ({ reportId }));
+  const hasResearch = $derived((researchSessionsQ.data?.length ?? 0) > 0);
+
 
   const documentsQ = useQuery(api.documents.listDocuments, () => ({ projectId }));
   const docNameById = $derived.by(() => {
@@ -141,9 +155,13 @@
   const rejectProposedEdit = useMutation(api.chat.rejectProposedEdit);
   const uploadDocument = useMutation(api.documents.uploadDocument);
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
+  const startResearch = useMutation(api.research.startResearch);
+
 
   let input = $state("");
   let sending = $state(false);
+  let researchStarting = $state(false);
+  let researchError = $state<string | null>(null);
   let uploading = $state(false);
   let uploadError = $state<string | null>(null);
   let attachments = $state<
@@ -158,10 +176,12 @@
   let pillEl: HTMLSpanElement | null = $state(null);
   let pillWidth = $state(0);
 
-  // Measure the pasted-text pill so the textarea's first line starts beside it.
+  const composerSelection = $derived(pendingResearch ?? pendingHighlight);
+
+  // Measure the selected-text pill so the textarea's first line starts beside it.
   $effect(() => {
-    void pendingHighlight?.text; // re-measure when the highlighted text changes
-    if (pendingHighlight && pillEl) {
+    void composerSelection?.text;
+    if (composerSelection && pillEl) {
       pillWidth = pillEl.offsetWidth + 10;
     } else {
       pillWidth = 0;
@@ -209,9 +229,9 @@
     if (refs.length) onReferenceText?.(refs);
   });
 
-  // Focus the input when a highlight is piped in from the editor.
+  // Selecting editor text for chat or research moves focus into the composer.
   $effect(() => {
-    if (pendingHighlight) textareaEl?.focus();
+    if (composerSelection) textareaEl?.focus();
   });
 
   // Auto-grow the textarea like Orbi.
@@ -222,7 +242,36 @@
 
   async function sendText(text: string) {
     const trimmed = text.trim();
-    if ((!trimmed && !pendingHighlight) || sending) return;
+    if (
+      (!trimmed && !pendingHighlight && !pendingResearch) ||
+      sending ||
+      researchStarting
+    ) return;
+
+    if (pendingResearch) {
+      researchStarting = true;
+      researchError = null;
+      try {
+        await startResearch({
+          reportId,
+          selectedText: pendingResearch.text,
+          selectionFrom: pendingResearch.from,
+          selectionTo: pendingResearch.to,
+          surroundingContext: pendingResearch.context,
+          instruction: trimmed,
+        });
+        input = "";
+        onClearResearch?.();
+        if (textareaEl) textareaEl.style.height = "auto";
+      } catch (e) {
+        researchError =
+          e instanceof Error ? e.message : "Research could not be started.";
+      } finally {
+        researchStarting = false;
+      }
+      return;
+    }
+
     sending = true;
     try {
       const res = await sendMessage({
@@ -306,10 +355,11 @@
   }
 
   const highlightLineCount = $derived(
-    pendingHighlight ? pendingHighlight.text.split("\n").length : 0
+    composerSelection ? composerSelection.text.split("\n").length : 0
   );
 
   const isEmpty = $derived(!messagesQ.data || messagesQ.data.length === 0);
+  const isConversationEmpty = $derived(isEmpty && !hasResearch && !pendingResearch);
 </script>
 
 {#snippet composer()}
@@ -384,6 +434,22 @@
     </div>
   {/if}
 
+  {#if researchError}
+    <div class="mb-2 flex items-start justify-between gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600" role="alert">
+      <span>{researchError}</span>
+      <button
+        type="button"
+        aria-label="Dismiss research error"
+        onclick={() => (researchError = null)}
+        class="shrink-0 text-red-400 transition-colors hover:text-red-600"
+      >
+        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path stroke-linecap="round" d="M6 18 18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  {/if}
+
   <div class="rounded-2xl border border-chrome bg-canvas px-2 py-1.5">
     <div class="flex items-end gap-2">
       <button
@@ -422,21 +488,38 @@
           target.value = "";
         }}
       />
-      <!-- Pasted-text pill sits inline; text starts beside it (terminal-style) -->
+      <!-- Selected report text stays in the same composer used by chat. -->
       <div class="relative flex-1 py-1">
-        {#if pendingHighlight}
+        {#if composerSelection}
           <span
             bind:this={pillEl}
-            class="absolute left-1 top-1 z-10 inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-xs font-medium text-navy shadow-sm"
+            title={composerSelection.text}
+            class={`absolute left-1 top-1 z-10 inline-flex max-w-[70%] items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium shadow-sm ${
+              pendingResearch ? "bg-primary-wash text-primary-selected" : "bg-white text-navy"
+            }`}
           >
-            <svg class="h-3 w-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7" />
+            <svg class="h-3 w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              {#if pendingResearch}
+                <circle cx="11" cy="11" r="7" />
+                <path stroke-linecap="round" d="m20 20-3.4-3.4" />
+              {:else}
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7" />
+              {/if}
             </svg>
-            Pasted text #1
-            {highlightLineCount > 1 ? ` +${highlightLineCount} lines` : ""}
-            <button onclick={onClearHighlight} class="text-navy/40 hover:text-navy" title="Remove">
-              <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            <span class="truncate">
+              {pendingResearch ? `Research: ${composerSelection.text.replace(/\s+/g, " ").trim()}` : "Pasted text #1"}
+            </span>
+            {#if highlightLineCount > 1}
+              <span class="shrink-0">+{highlightLineCount} lines</span>
+            {/if}
+            <button
+              type="button"
+              onclick={pendingResearch ? onClearResearch : onClearHighlight}
+              class="shrink-0 opacity-50 transition-opacity hover:opacity-100"
+              aria-label={pendingResearch ? "Remove research selection" : "Remove pasted text"}
+            >
+              <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" d="M6 18 18 6M6 6l12 12" />
               </svg>
             </button>
           </span>
@@ -452,20 +535,22 @@
             }
           }}
           rows={1}
-          placeholder={pendingHighlight
-            ? "Add instructions…"
-            : isEmpty
-              ? "Ask anything about this report…"
-              : "Ask a follow-up…"}
-          style={pendingHighlight ? `text-indent: ${pillWidth}px` : undefined}
+          placeholder={pendingResearch
+            ? "What should the research verify?"
+            : pendingHighlight
+              ? "Add instructions…"
+              : isEmpty
+                ? "Ask anything about this report…"
+                : "Ask a follow-up…"}
+          style={composerSelection ? `text-indent: ${pillWidth}px` : undefined}
           class="min-h-[28px] w-full resize-none bg-transparent px-1 py-0.5 text-[14px] leading-snug text-gray-800 placeholder:text-gray-400 outline-none"
         ></textarea>
       </div>
       <button
         onclick={() => sendText(input)}
-        disabled={sending || (!input.trim() && !pendingHighlight)}
+        disabled={sending || researchStarting || (!input.trim() && !pendingHighlight && !pendingResearch)}
         class="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy text-white transition-colors hover:bg-navy-light disabled:opacity-30"
-        title="Send"
+        title={pendingResearch ? "Start research" : "Send"}
       >
         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
@@ -604,7 +689,8 @@
     {/if}
   </div>
 
-  {#if isEmpty}
+
+  {#if isConversationEmpty}
     <!-- Intro state — greeting + composer centered (Orbi-style) -->
     <div class="flex flex-1 flex-col items-center justify-center px-6">
       <h2 class="mb-5 text-center text-[19px] font-semibold text-navy">
@@ -622,6 +708,15 @@
         {#each messagesQ.data ?? [] as m (m._id)}
           {@render messageBubble(m)}
         {/each}
+        <ResearchFeed
+          {reportId}
+          {onReferenceText}
+          {onPreviewProposal}
+          onCopyToComposer={(text) => {
+            input = text;
+            textareaEl?.focus();
+          }}
+        />
       </div>
     </div>
 

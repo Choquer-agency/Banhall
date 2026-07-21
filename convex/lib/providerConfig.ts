@@ -27,15 +27,16 @@ export function brainConfiguration() {
   };
 }
 
-// OpenRouter carries the non-Anthropic generation models (OpenAI, Google).
-// Anthropic models never route through it — see shared/generationModels.ts.
+// OpenRouter carries the non-Anthropic report-generation models and the
+// provider-diverse Contextual Research pipeline. Direct report-generation
+// Anthropic models still use ANTHROPIC_API_KEY — see shared/generationModels.ts.
 export function openRouterConfiguration() {
   const configured = Boolean(env.OPENROUTER_API_KEY?.trim());
   return {
     state: configured ? ("configured" as const) : ("unconfigured" as const),
     message: configured
       ? "Configured; credits and model availability are verified only by a live request."
-      : "OpenRouter is not configured; OpenAI and Google models are unavailable.",
+      : "OpenRouter is not configured; OpenRouter-backed models are unavailable.",
   };
 }
 
@@ -44,7 +45,7 @@ export function requireOpenRouterConfigured(): string {
   if (!key) {
     domainError(
       "PROVIDER_NOT_CONFIGURED",
-      "OpenRouter is not configured — OpenAI and Google models need OPENROUTER_API_KEY"
+      "OpenRouter is not configured — OpenRouter-backed models need OPENROUTER_API_KEY"
     );
   }
   return key;

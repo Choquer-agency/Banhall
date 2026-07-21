@@ -27,6 +27,14 @@ export interface FindReplaceMatch {
   text: string;
 }
 
+/** Passage and bounded local context sent into Contextual Research. */
+export interface ResearchSelection {
+  from: number;
+  to: number;
+  text: string;
+  context: string;
+}
+
 /** Full writer editor handle (Editor.svelte's exported functions). */
 export interface WriterEditorHandle extends EditorHandle {
   /** Flush the visible document through the autosave callback and await queued saves. */

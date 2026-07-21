@@ -21,6 +21,7 @@
     "@convex-dev/agent": "^0.6.4",
     "@convex-dev/better-auth": "^0.12.5",
     "@convex-dev/rag": "^0.7.5",
+    "@convex-dev/workflow": "^0.4.4",
     "@convex-dev/workpool": "^0.4.7",
     "@fontsource-variable/dm-sans": "^5.2.8",
     "@internationalized/date": "^3.12.0",

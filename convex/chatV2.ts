@@ -246,11 +246,29 @@ export const applyProposal = mutation({
         "Couldn't find the original passage in the report to replace — it may have already changed. Try asking again."
       );
     }
+    if (proposal.researchSessionId && count !== 1) {
+      domainError(
+        "STALE_REVISION",
+        "The researched passage is no longer unique in this report. Review and apply this edit manually to avoid changing another occurrence."
+      );
+    }
 
     const content = JSON.stringify(updated);
     const revisionNumber = report.revisionNumber ?? 0;
     const now = Date.now();
     const auditFields = await snapshotAuditFields(ctx, report);
+    // Brain patterns guide voice only — they are never evidence, so they don't
+    // count toward the checkpoint's source trail.
+    const researchSourceCount = proposal.researchSessionId
+      ? (
+          await ctx.db
+            .query("researchSources")
+            .withIndex("by_sessionId", (q) =>
+              q.eq("sessionId", proposal.researchSessionId!)
+            )
+            .take(80)
+        ).filter((source) => source.kind !== "brain_pattern").length
+      : 0;
     await ctx.db.insert("reportSnapshots", {
       projectId: report.projectId,
       reportId: report._id,
@@ -258,9 +276,15 @@ export const applyProposal = mutation({
       ...auditFields,
       sourceRevisionNumber: revisionNumber,
       reason: "pre_chat_edit",
-      label: "Before AI edit",
+      label: proposal.researchSessionId ? "Before researched edit" : "Before AI edit",
       createdByRole: "system",
       createdAt: now,
+      ...(proposal.researchSessionId
+        ? {
+            researchSessionId: proposal.researchSessionId,
+            researchSourceCount,
+          }
+        : {}),
     });
     await ctx.db.patch(report._id, {
       content,

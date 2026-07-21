@@ -115,3 +115,16 @@ only; no React). Specimens on `/styleguide`; composed in `AgentChatPanel`.
   either side.
 - `Loader` — bouncing-dot typing indicator (`md`/`sm`).
 - `Suggestion` — canned-prompt pill chip (wash hover, one accent rule applies).
+
+- `ChainOfThought` with `ChainOfThoughtStep`, `ChainOfThoughtTrigger`,
+  `ChainOfThoughtContent`, and `ChainOfThoughtItem` — prompt-kit-compatible
+  compound API for collapsible public progress. Stage icons inherit `primary`;
+  live research status adjusts icon opacity/colour. It never exposes provider
+  names or hidden model reasoning.
+- `Source` with `SourceTrigger` and `SourceContent` — linked domain chip with
+  favicon plus title/excerpt detail on hover or keyboard focus. Only external
+  citations render here; private project documents and Brain writing patterns
+  stay out of the web-source row.
+- `FeedbackBar` — helpful/not-helpful response feedback. Research responses send
+  this signal through the existing admin-reviewed Brain feedback queue; feedback
+  is never learned automatically.

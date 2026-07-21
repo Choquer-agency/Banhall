@@ -321,6 +321,11 @@
                   Report v{s.reportVersion}{s.isCurrentReport ? " · current" : ""}
                   · {s.label ?? REASON_LABELS[s.reason] ?? s.reason}
                 </p>
+                {#if s.researchSessionId}
+                  <p class="mt-1 text-[11px] font-medium text-primary">
+                    Research-backed · {s.researchSourceCount} source{s.researchSourceCount === 1 ? "" : "s"}
+                  </p>
+                {/if}
               </button>
             {/each}
           {/if}

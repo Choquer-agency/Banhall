@@ -8,6 +8,8 @@
   import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
+  import type { ResearchSelection } from "$lib/components/editor/types";
   import { fade } from "svelte/transition";
   import {
     ChatContainer,
@@ -47,6 +49,8 @@
     reportId: Id<"reports">;
     pendingHighlight?: { from: number; to: number; text: string } | null;
     onClearHighlight?: () => void;
+    pendingResearch?: ResearchSelection | null;
+    onClearResearch?: () => void;
     isFull?: boolean;
     onToggleFull?: () => void;
     onReferenceText?: (texts: string[], scrollTo?: string) => void;
@@ -68,6 +72,8 @@
     reportId,
     pendingHighlight,
     onClearHighlight,
+    pendingResearch,
+    onClearResearch,
     isFull,
     onToggleFull,
     onReferenceText,
@@ -180,15 +186,22 @@
     selectedThreadId ? { threadId: selectedThreadId } : "skip"
   );
 
+  const researchSessionsQ = useQuery(api.research.listSessions, () => ({ reportId }));
+  const hasResearch = $derived((researchSessionsQ.data?.length ?? 0) > 0);
+
   const sendMessage = useMutation(api.chatV2.sendMessage);
   const abortStreaming = useMutation(api.chatV2.abortStreaming);
   const applyProposal = useMutation(api.chatV2.applyProposal);
   const rejectProposal = useMutation(api.chatV2.rejectProposal);
   const uploadDocument = useMutation(api.documents.uploadDocument);
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
+  const startResearch = useMutation(api.research.startResearch);
+
 
   let input = $state("");
   let sending = $state(false);
+  let researchStarting = $state(false);
+  let researchError = $state<string | null>(null);
   let stopping = $state(false);
   let uploading = $state(false);
 
@@ -257,10 +270,12 @@
     return { byMessage, orphans };
   });
 
-  // Measure the pasted-text pill so the textarea's first line starts beside it.
+  const composerSelection = $derived(pendingResearch ?? pendingHighlight);
+
+  // Measure the selected-text pill so the textarea's first line starts beside it.
   $effect(() => {
-    void pendingHighlight?.text; // re-measure when the highlighted text changes
-    if (pendingHighlight && pillEl) {
+    void composerSelection?.text;
+    if (composerSelection && pillEl) {
       pillWidth = pillEl.offsetWidth + 10;
     } else {
       pillWidth = 0;
@@ -287,14 +302,45 @@
     if (refs.length) onReferenceText?.(refs);
   });
 
-  // Focus the input when a highlight is piped in from the editor.
+  // Selecting editor text for chat or research moves focus into the shared composer.
   $effect(() => {
-    if (pendingHighlight) textareaEl?.focus();
+    if (composerSelection) textareaEl?.focus();
   });
 
   async function sendText(text: string) {
     const trimmed = text.trim();
-    if ((!trimmed && !pendingHighlight) || sending || isStreaming) return;
+    if (
+      (!trimmed && !pendingHighlight && !pendingResearch) ||
+      sending ||
+      researchStarting ||
+      isStreaming
+    ) return;
+
+    if (pendingResearch) {
+      researchStarting = true;
+      researchError = null;
+      try {
+        await startResearch({
+          reportId,
+          selectedText: pendingResearch.text,
+          selectionFrom: pendingResearch.from,
+          selectionTo: pendingResearch.to,
+          surroundingContext: pendingResearch.context,
+          instruction: trimmed,
+        });
+        input = "";
+        onClearResearch?.();
+        dismissHint();
+        chatContainer?.scrollToBottom("instant");
+      } catch (e) {
+        researchError =
+          e instanceof Error ? e.message : "Research could not be started.";
+      } finally {
+        researchStarting = false;
+      }
+      return;
+    }
+
     sending = true;
     try {
       const res = await sendMessage({
@@ -376,10 +422,11 @@
   }
 
   const highlightLineCount = $derived(
-    pendingHighlight ? pendingHighlight.text.split("\n").length : 0
+    composerSelection ? composerSelection.text.split("\n").length : 0
   );
 
   const isEmpty = $derived(!messages || messages.length === 0);
+  const isConversationEmpty = $derived(isEmpty && !hasResearch && !pendingResearch);
 
   // Typing dots while the reply hasn't started streaming text yet.
   const lastMessage = $derived(
@@ -572,7 +619,23 @@
     </div>
   {/if}
 
-  <PromptInput bind:value={input} isLoading={sending} onSubmit={(v) => sendText(v)}>
+  {#if researchError}
+    <div class="mb-2 flex items-start justify-between gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600" role="alert">
+      <span>{researchError}</span>
+      <button
+        type="button"
+        aria-label="Dismiss research error"
+        onclick={() => (researchError = null)}
+        class="shrink-0 text-red-400 transition-colors hover:text-red-600"
+      >
+        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path stroke-linecap="round" d="M6 18 18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  {/if}
+
+  <PromptInput bind:value={input} isLoading={sending || researchStarting} onSubmit={(v) => sendText(v)}>
     <PromptInputActions>
       <button
         onclick={() => fileInputEl?.click()}
@@ -614,27 +677,46 @@
 
     <PromptInputTextarea
       bind:ref={textareaEl}
-      textIndent={pendingHighlight ? pillWidth : undefined}
-      placeholder={pendingHighlight
-        ? "Add instructions…"
-        : isEmpty
-          ? "Ask anything about this report…"
-          : "Ask a follow-up…"}
+      textIndent={composerSelection ? pillWidth : undefined}
+      placeholder={pendingResearch
+        ? "What should the research verify?"
+        : pendingHighlight
+          ? "Add instructions…"
+          : isEmpty
+            ? "Ask anything about this report…"
+            : "Ask a follow-up…"}
     >
       {#snippet pill()}
-        {#if pendingHighlight}
+        {#if composerSelection}
           <span
             bind:this={pillEl}
-            class="absolute left-1 top-1 z-10 inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-xs font-medium text-navy shadow-sm"
+            title={composerSelection.text}
+            class={`absolute left-1 top-1 z-10 inline-flex max-w-[70%] items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium shadow-sm ${
+              pendingResearch ? "bg-primary-wash text-primary-selected" : "bg-white text-navy"
+            }`}
           >
-            <svg class="h-3 w-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7" />
+            <svg class="h-3 w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              {#if pendingResearch}
+                <circle cx="11" cy="11" r="7" />
+                <path stroke-linecap="round" d="m20 20-3.4-3.4" />
+              {:else}
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7" />
+              {/if}
             </svg>
-            Pasted text #1
-            {highlightLineCount > 1 ? ` +${highlightLineCount} lines` : ""}
-            <button onclick={onClearHighlight} class="text-navy/40 hover:text-navy" title="Remove">
-              <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            <span class="truncate">
+              {pendingResearch ? `Research: ${composerSelection.text.replace(/\s+/g, " ").trim()}` : "Pasted text #1"}
+            </span>
+            {#if highlightLineCount > 1}
+              <span class="shrink-0">+{highlightLineCount} lines</span>
+            {/if}
+            <button
+              type="button"
+              onclick={pendingResearch ? onClearResearch : onClearHighlight}
+              class="shrink-0 opacity-50 transition-opacity hover:opacity-100"
+              aria-label={pendingResearch ? "Remove research selection" : "Remove pasted text"}
+            >
+              <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" d="M6 18 18 6M6 6l12 12" />
               </svg>
             </button>
           </span>
@@ -658,9 +740,9 @@
       {:else}
         <button
           onclick={() => sendText(input)}
-          disabled={sending || (!input.trim() && !pendingHighlight)}
+          disabled={sending || researchStarting || (!input.trim() && !pendingHighlight && !pendingResearch)}
           class="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy text-white transition-colors hover:bg-navy-light disabled:opacity-30"
-          title="Send"
+          title={pendingResearch ? "Start research" : "Send"}
           aria-label="Send message"
         >
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -710,7 +792,8 @@
     {/if}
   </div>
 
-  {#if isEmpty}
+
+  {#if isConversationEmpty}
     <!-- Empty state: brand mark, capability blurb, starter suggestions -->
     <div class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-8">
       <span class="mb-4 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-navy text-white">
@@ -816,6 +899,17 @@
           {/each}
         </Message>
       {/if}
+
+      <ResearchFeed
+        {reportId}
+        {onReferenceText}
+        {onPreviewProposal}
+        onCopyToComposer={(text) => {
+          input = text;
+          textareaEl?.focus();
+          chatContainer?.scrollToBottom("smooth");
+        }}
+      />
 
       {#if awaitingReply}
         <Loader class="py-1" />

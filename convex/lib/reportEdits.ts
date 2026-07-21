@@ -22,13 +22,22 @@ export function normalizeForMatch(s: string): string {
 /** Capitalize the replacement's first letter when the matched text was capitalized. */
 function smartCaseReplace(matched: string, replaceWith: string): string {
   const mi = matched.search(/[A-Za-z]/);
-  const ri = replaceWith.search(/[a-z]/);
+  // First LETTER of the replacement, not first lowercase letter: searching for
+  // /[a-z]/ skipped an already-capitalized first word and uppercased its
+  // second letter instead ("Acuity …" → "ACuity …").
+  const ri = replaceWith.search(/[A-Za-z]/);
   if (mi >= 0 && ri >= 0) {
     const ch = matched[mi];
-    if (ch === ch.toUpperCase() && ch !== ch.toLowerCase()) {
+    const rch = replaceWith[ri];
+    if (
+      ch === ch.toUpperCase() &&
+      ch !== ch.toLowerCase() &&
+      rch === rch.toLowerCase() &&
+      rch !== rch.toUpperCase()
+    ) {
       return (
         replaceWith.slice(0, ri) +
-        replaceWith[ri].toUpperCase() +
+        rch.toUpperCase() +
         replaceWith.slice(ri + 1)
       );
     }

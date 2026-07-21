@@ -60,7 +60,7 @@ const PRICING: Record<string, ModelPricing> = {
     cacheCreationMultiplier: 0,
     cacheReadMultiplier: 0,
   },
-  // OpenRouter models (OpenAI/Google). FALLBACKS ONLY: OpenRouter responses
+  // OpenRouter models. FALLBACKS ONLY: OpenRouter responses
   // carry a native usage.cost we prefer (exact billing incl. >200k-context
   // price tiers); these entries cover rows where cost was absent. No explicit
   // cache-write billing on this path; cache reads ≈ 0.25× input for both.
@@ -75,6 +75,20 @@ const PRICING: Record<string, ModelPricing> = {
     output: 6,
     cacheCreationMultiplier: 0,
     cacheReadMultiplier: 0.25,
+  },
+  "perplexity/sonar-deep-research": {
+    input: 2,
+    output: 8,
+    cacheCreationMultiplier: 0,
+    cacheReadMultiplier: 0,
+  },
+  // Contextual Research routes its final reviewer through OpenRouter. Native
+  // usage.cost normally wins; this matches the direct Sonnet fallback above.
+  "anthropic/claude-sonnet-5": {
+    input: 3,
+    output: 15,
+    cacheCreationMultiplier: 0,
+    cacheReadMultiplier: 0.1,
   },
   "google/gemini-3.1-pro-preview": {
     input: 2,

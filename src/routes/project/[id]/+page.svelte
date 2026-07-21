@@ -21,6 +21,7 @@
   import Editor from "$lib/components/editor/Editor.svelte";
   import type {
     CommentRange,
+    ResearchSelection,
     WriterEditorHandle,
   } from "$lib/components/editor/types";
   import QAScorePanel from "$lib/components/editor/QAScorePanel.svelte";
@@ -185,6 +186,7 @@
     to: number;
     text: string;
   } | null>(null);
+  let pendingResearch = $state<ResearchSelection | null>(null);
   let exportValidation = $state<ExportValidationResult | null>(null);
   let exportError = $state("");
   let pendingExport = $state<Readonly<CanonicalExportReport> | null>(null);
@@ -316,6 +318,14 @@
   function handleAskAI(selection: { from: number; to: number; text: string }) {
     chatOpen = true; // make sure the panel is visible before the pill lands
     pendingChatHighlight = selection;
+  }
+
+  function handleResearch(selection: ResearchSelection) {
+    chatOpen = true;
+    qaOpen = false;
+    railView = "chat";
+    pendingChatHighlight = null;
+    pendingResearch = selection;
   }
 
   // BNH-14: resizable, closable chat rail. Width + open state persist across
@@ -1070,6 +1080,7 @@
                 onUpdate={handleEditorUpdate}
                 onComment={handleComment}
                 onAskAI={handleAskAI}
+                onResearch={handleResearch}
                 editable={true}
                 {commentRanges}
                 onHoverComment={(id) => (hoveredCommentId = id)}
@@ -1178,6 +1189,8 @@
                   reportId={report._id}
                   pendingHighlight={pendingChatHighlight}
                   onClearHighlight={() => (pendingChatHighlight = null)}
+                  {pendingResearch}
+                  onClearResearch={() => (pendingResearch = null)}
                   onReferenceText={(texts, scrollTo) => editorRef?.highlightText(texts, scrollTo)}
                   onReviewReplacements={startReplaceReview}
                   onPreviewProposal={(pairs, on) => {
@@ -1192,7 +1205,13 @@
                   reportId={report._id}
                   pendingHighlight={pendingChatHighlight}
                   onClearHighlight={() => (pendingChatHighlight = null)}
+                  {pendingResearch}
+                  onClearResearch={() => (pendingResearch = null)}
                   onReferenceText={(texts, scrollTo) => editorRef?.highlightText(texts, scrollTo)}
+                  onPreviewProposal={(pairs, on) => {
+                    if (on && pairs.length) editorRef?.previewProposal(pairs);
+                    else editorRef?.clearProposalPreview();
+                  }}
                   onReviewReplacements={startReplaceReview}
                   reviewingMessageId={(replaceSession?.messageId ?? null) as Id<"chatMessages"> | null}
                 />
@@ -1622,4 +1641,3 @@
     {/if}
   </div>
 {/if}
-

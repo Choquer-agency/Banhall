@@ -66,6 +66,7 @@ interface ProposalRow extends BaseRow {
   targetText?: string;
   newText?: string;
   replacements?: Array<{ find: string; replaceWith: string }>;
+  researchSessionId?: string;
   state: ProposalState;
   createdAt: number;
 }
@@ -94,8 +95,15 @@ interface SnapshotRow extends BaseRow {
   sourceRevisionNumber: number;
   reason: string;
   label?: string;
+  researchSessionId?: string;
+  researchSourceCount?: number;
   createdByRole: string;
   createdAt: number;
+}
+
+interface ResearchSourceRow extends BaseRow {
+  sessionId: string;
+  kind: "external" | "project_document" | "brain_pattern";
 }
 
 interface TestTables {
@@ -107,6 +115,7 @@ interface TestTables {
   chatMessages: MessageRow[];
   chatProposals: ProposalRow[];
   reportSnapshots: SnapshotRow[];
+  researchSources: ResearchSourceRow[];
   reportProvenance: AuditRow[];
   generations: AuditRow[];
   transcripts: AuditRow[];
@@ -170,6 +179,7 @@ class FakeDb {
       tables.chatMessages,
       tables.chatProposals,
       tables.reportSnapshots,
+      tables.researchSources,
       tables.reportProvenance,
       tables.generations,
       tables.transcripts,
@@ -377,6 +387,7 @@ async function createFixture(role: Role, userId = "reviewer"): Promise<Fixture> 
     chatMessages: [message],
     chatProposals: [proposal],
     reportSnapshots: [],
+    researchSources: [],
     reportProvenance: [
       {
         _id: provenanceId,
@@ -499,6 +510,46 @@ describe("proposal apply integrity", () => {
 
   test("V2 apply updates the pinned report and complete audit tuple", async () => {
     await applyAndAssert("v2");
+  });
+
+  test("a researched V2 edit keeps its evidence session on the version checkpoint", async () => {
+    const fixture = await createFixture("manager");
+    fixture.proposal.researchSessionId = "research-session";
+    // Brain patterns guide voice only; the checkpoint counts evidence sources.
+    fixture.db.tables.researchSources.push(
+      { _id: "source-1", _creationTime: 1, sessionId: "research-session", kind: "external" },
+      { _id: "source-2", _creationTime: 2, sessionId: "research-session", kind: "project_document" },
+      { _id: "source-3", _creationTime: 3, sessionId: "research-session", kind: "brain_pattern" }
+    );
+
+    await v2Apply(fixture.ctx, { proposalId: fixture.proposal._id });
+
+    expect(fixture.db.tables.reportSnapshots[0]).toMatchObject({
+      label: "Before researched edit",
+      researchSessionId: "research-session",
+      researchSourceCount: 2,
+    });
+  });
+
+  test("a researched edit never replaces an ambiguous repeated passage", async () => {
+    const fixture = await createFixture("manager");
+    fixture.proposal.researchSessionId = "research-session";
+    const parsed = JSON.parse(fixture.pinnedReport.content) as {
+      content: Array<Record<string, unknown>>;
+    };
+    parsed.content.push({
+      type: "paragraph",
+      content: [{ type: "text", text: "A second exact target appears here." }],
+    });
+    fixture.pinnedReport.content = JSON.stringify(parsed);
+
+    await expect(
+      v2Apply(fixture.ctx, { proposalId: fixture.proposal._id })
+    ).rejects.toMatchObject({ data: { code: "STALE_REVISION" } });
+
+    expect(fixture.pinnedReport.content).toContain("exact target");
+    expect(fixture.db.tables.reportSnapshots).toEqual([]);
+    expect(fixture.proposal.state).toBe("pending");
   });
 
   test.each(["legacy", "v2"] as const)(

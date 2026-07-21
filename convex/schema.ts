@@ -429,6 +429,9 @@ export default defineSchema({
       v.array(v.object({ find: v.string(), replaceWith: v.string() }))
     ),
     references: v.optional(v.array(v.string())),
+    // Set when the proposal came from Contextual Research. This survives the
+    // proposal lifecycle and links an accepted edit back to its evidence.
+    researchSessionId: v.optional(v.id("researchSessions")),
     state: v.union(
       v.literal("pending"),
       v.literal("applied"),
@@ -525,7 +528,139 @@ export default defineSchema({
     source: v.string(),
     uploadedBy: v.string(),
     createdAt: v.number(),
-  }).index("by_projectId", ["projectId"]),
+  })
+    .index("by_projectId", ["projectId"])
+    .searchIndex("search_content", {
+      searchField: "content",
+      filterFields: ["projectId"],
+    }),
+
+  // ─── Contextual Research: selected text → two researchers → review ──────
+  // Large/unbounded evidence is split into child tables so the session remains
+  // a small, reactive status document throughout a long-running workflow.
+  researchSessions: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    requestedBy: v.id("users"),
+    selectedText: v.string(),
+    selectionFrom: v.number(),
+    selectionTo: v.number(),
+    surroundingContext: v.string(),
+    instruction: v.string(),
+    // Redacted prompt shared with external research providers. Private project
+    // documents are only supplied to the final reviewer.
+    externalBrief: v.string(),
+    reportRevisionNumber: v.number(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("researching"),
+      v.literal("reviewing"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("canceled")
+    ),
+    workflowId: v.optional(v.string()),
+    brainStatus: v.optional(
+      v.union(v.literal("complete"), v.literal("empty"), v.literal("degraded"))
+    ),
+    answer: v.optional(v.string()),
+    evidenceBoundary: v.optional(v.string()),
+    confidence: v.optional(
+      v.union(v.literal("high"), v.literal("medium"), v.literal("low"))
+    ),
+    warnings: v.optional(v.array(v.string())),
+    proposalId: v.optional(v.id("chatProposals")),
+    // One writer rating per session, persisted so a remounted panel can't
+    // queue duplicate Brain feedback rows.
+    feedback: v.optional(
+      v.object({
+        rating: v.union(v.literal("helpful"), v.literal("not_helpful")),
+        submittedBy: v.id("users"),
+        submittedAt: v.number(),
+      })
+    ),
+    errorMessage: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_reportId", ["reportId"])
+    .index("by_reportId_and_requestedBy", ["reportId", "requestedBy"])
+    .index("by_projectId", ["projectId"])
+    .index("by_workflowId", ["workflowId"]),
+
+  researchRuns: defineTable({
+    sessionId: v.id("researchSessions"),
+    projectId: v.id("projects"),
+    provider: v.union(
+      v.literal("gpt"),
+      v.literal("perplexity"),
+      v.literal("reviewer")
+    ),
+    model: v.string(),
+    status: v.union(
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    responseText: v.optional(v.string()),
+    providerResponseId: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+    inputTokens: v.optional(v.number()),
+    outputTokens: v.optional(v.number()),
+    costUsd: v.optional(v.number()),
+    webSearchRequests: v.optional(v.number()),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_sessionId", ["sessionId"])
+    .index("by_sessionId_and_provider", ["sessionId", "provider"]),
+
+  researchSources: defineTable({
+    sessionId: v.id("researchSessions"),
+    projectId: v.id("projects"),
+    kind: v.union(
+      v.literal("external"),
+      v.literal("project_document"),
+      v.literal("brain_pattern")
+    ),
+    title: v.string(),
+    canonicalUrl: v.optional(v.string()),
+    domain: v.optional(v.string()),
+    excerpt: v.optional(v.string()),
+    projectDocumentId: v.optional(v.id("projectDocuments")),
+    brainSourceId: v.optional(v.id("brainSources")),
+    citedByGpt: v.optional(v.boolean()),
+    citedByPerplexity: v.optional(v.boolean()),
+    verification: v.union(
+      v.literal("provider_cited"),
+      v.literal("cross_provider"),
+      v.literal("project_evidence"),
+      v.literal("brain_pattern")
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_sessionId", ["sessionId"])
+    .index("by_sessionId_and_canonicalUrl", ["sessionId", "canonicalUrl"]),
+
+  researchClaims: defineTable({
+    sessionId: v.id("researchSessions"),
+    projectId: v.id("projects"),
+    text: v.string(),
+    evidenceKind: v.union(
+      v.literal("external"),
+      v.literal("project"),
+      v.literal("mixed")
+    ),
+    support: v.union(
+      v.literal("supported"),
+      v.literal("qualified"),
+      v.literal("conflicting"),
+      v.literal("unsupported")
+    ),
+    sourceIds: v.array(v.id("researchSources")),
+    createdAt: v.number(),
+  }).index("by_sessionId", ["sessionId"]),
 
   // ─── Error reporting (in-app "we noticed an error" + manual flag) ──────────
   // One row per reported issue. Captures everything Claude Code needs to debug:
@@ -585,6 +720,10 @@ export default defineSchema({
     generationId: v.optional(v.id("generations")),
     sourceTranscriptId: v.optional(v.id("transcripts")),
     contentHash: v.optional(v.string()),
+    // Present on the checkpoint captured before a research-backed edit, keeping
+    // the source trail attached to version history.
+    researchSessionId: v.optional(v.id("researchSessions")),
+    researchSourceCount: v.optional(v.number()),
   })
     .index("by_reportId", ["reportId"])
     .index("by_projectId", ["projectId"])

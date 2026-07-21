@@ -679,12 +679,14 @@
   import EditorToolbar from "$lib/components/editor/EditorToolbar.svelte";
   import SlashCommandMenu from "$lib/components/editor/SlashCommandMenu.svelte";
   import BlockHandle from "$lib/components/editor/BlockHandle.svelte";
+  import type { ResearchSelection } from "$lib/components/editor/types";
 
   let {
     content,
     onUpdate,
     onComment,
     onAskAI,
+    onResearch,
     editable = true,
     commentRanges = [],
     onHoverComment,
@@ -699,6 +701,7 @@
       y?: number;
     }) => void;
     onAskAI?: (selection: { from: number; to: number; text: string }) => void;
+    onResearch?: (selection: ResearchSelection) => void;
     editable?: boolean;
     commentRanges?: CommentRange[];
     onHoverComment?: (commentId: string | null) => void;
@@ -940,6 +943,32 @@
     onAskAI({ from, to, text: text.trim() });
   }
 
+  function handleResearch() {
+    if (!editor || !onResearch) return;
+    const { from, to } = editor.state.selection;
+    if (from === to) return;
+    const text = editor.state.doc.textBetween(from, to, "\n").trim();
+    if (!text) return;
+    const contextRadius = 1_500;
+    const before = editor.state.doc
+      .textBetween(Math.max(0, from - contextRadius), from, "\n")
+      .trim();
+    const after = editor.state.doc
+      .textBetween(to, Math.min(editor.state.doc.content.size, to + contextRadius), "\n")
+      .trim();
+    onResearch({
+      from,
+      to,
+      text,
+      context: [
+        before ? `Before selection:\n${before}` : "",
+        after ? `After selection:\n${after}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+    });
+  }
+
   /**
    * Persist the exact document currently visible in the editor, bypassing the
    * debounce and waiting for every previously queued save to finish.
@@ -1147,7 +1176,12 @@
 
     <!-- Floating toolbar on text selection -->
     {#if editable}
-      <EditorToolbar {editor} onComment={handleComment} onAskAI={onAskAI ? handleAskAI : undefined} />
+      <EditorToolbar
+        {editor}
+        onComment={handleComment}
+        onAskAI={onAskAI ? handleAskAI : undefined}
+        onResearch={onResearch ? handleResearch : undefined}
+      />
     {/if}
 
     <!-- Comment-only bubble for read-only mode -->

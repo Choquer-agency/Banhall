@@ -67,7 +67,6 @@ export const listSnapshots = query({
         reportVersions.set(report._id, report.version);
       }
     }
-
     const rows = await Promise.all(
       snapshots.map(async (snapshot) => {
         const reportVersion = reportVersions.get(snapshot.reportId);
@@ -87,6 +86,8 @@ export const listSnapshots = query({
           createdAt: snapshot.createdAt,
           sourceRevisionNumber: snapshot.sourceRevisionNumber,
           provenanceStatus: provenance?.status ?? "unavailable_legacy",
+          researchSessionId: snapshot.researchSessionId ?? null,
+          researchSourceCount: snapshot.researchSourceCount ?? 0,
         };
       })
     );

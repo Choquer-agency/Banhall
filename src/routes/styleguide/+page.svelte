@@ -14,6 +14,15 @@
     PromptInputActions,
     Loader,
     Suggestion,
+    ChainOfThought,
+    ChainOfThoughtContent,
+    ChainOfThoughtItem,
+    ChainOfThoughtStep,
+    ChainOfThoughtTrigger,
+    FeedbackBar,
+    Source,
+    SourceContent,
+    SourceTrigger,
   } from "$lib/components/chat/primitives";
 
   // Living styleguide — renders straight from the token system in layout.css.
@@ -57,7 +66,29 @@
     "- Lead with the **unresolved outcome**, not the process\n" +
     "- Cite the failed baseline run as evidence\n" +
     "- Cut the tooling recap — it reads as routine work";
+  let demoFeedback = $state<1 | -1 | null>(null);
 </script>
+{#snippet searchIcon()}
+  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+    <circle cx="11" cy="11" r="8" />
+    <path stroke-linecap="round" d="m21 21-4.3-4.3" />
+  </svg>
+{/snippet}
+
+{#snippet lightbulbIcon()}
+  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M15 14c.2-1 .7-1.7 1.5-2.5A5 5 0 1 0 8 11.5c.7.7 1.3 1.5 1.5 2.5M9 18h6M10 22h4" />
+  </svg>
+{/snippet}
+
+{#snippet targetIcon()}
+  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+    <circle cx="12" cy="12" r="10" />
+    <circle cx="12" cy="12" r="6" />
+    <circle cx="12" cy="12" r="2" />
+  </svg>
+{/snippet}
+
 
 <div class="flex flex-1 flex-col bg-canvas">
   <AppNav breadcrumbs={[{ label: "Styleguide" }]} />
@@ -168,6 +199,78 @@
         <span class="text-xs text-gray-500">
           <code class="text-data">Loader</code> — md / sm (awaiting-reply dots)
         </span>
+      </div>
+
+      <!-- Research response primitives -->
+      <div class="max-w-md space-y-4">
+        <p class="text-xs text-gray-500">
+          <code class="text-data">ChainOfThought</code> / <code class="text-data">Source</code> /
+          <code class="text-data">FeedbackBar</code> — research progress, citations, and learning signal
+        </p>
+        <ChainOfThought>
+          <ChainOfThoughtStep>
+            <ChainOfThoughtTrigger leftIcon={searchIcon}>
+              Research phase: Understanding the problem space
+            </ChainOfThoughtTrigger>
+            <ChainOfThoughtContent>
+              <ChainOfThoughtItem>The writer asked us to verify a technical claim.</ChainOfThoughtItem>
+              <ChainOfThoughtItem>The passage needs current, attributable evidence.</ChainOfThoughtItem>
+              <ChainOfThoughtItem>Private project context stays separate from public citations.</ChainOfThoughtItem>
+            </ChainOfThoughtContent>
+          </ChainOfThoughtStep>
+          <ChainOfThoughtStep>
+            <ChainOfThoughtTrigger leftIcon={lightbulbIcon}>
+              Analysis: Identifying the strongest evidence
+            </ChainOfThoughtTrigger>
+            <ChainOfThoughtContent>
+              <ChainOfThoughtItem>Compare independent public sources.</ChainOfThoughtItem>
+              <ChainOfThoughtItem>Check that excerpts directly support each claim.</ChainOfThoughtItem>
+              <ChainOfThoughtItem>Qualify conflicts and unsupported statements.</ChainOfThoughtItem>
+            </ChainOfThoughtContent>
+          </ChainOfThoughtStep>
+          <ChainOfThoughtStep>
+            <ChainOfThoughtTrigger leftIcon={targetIcon}>
+              Solution: Drafting a supported revision
+            </ChainOfThoughtTrigger>
+            <ChainOfThoughtContent>
+              <ChainOfThoughtItem>Use only claims supported by the cited excerpts.</ChainOfThoughtItem>
+              <ChainOfThoughtItem>Keep the report wording concise and compliant.</ChainOfThoughtItem>
+              <ChainOfThoughtItem>Copy the suggestion into chat for review.</ChainOfThoughtItem>
+            </ChainOfThoughtContent>
+          </ChainOfThoughtStep>
+        </ChainOfThought>
+        <div class="flex flex-wrap gap-2">
+          <Source href="https://www.canada.ca/en/revenue-agency/services/scientific-research-experimental-development-tax-incentive-program.html">
+            <SourceTrigger showFavicon />
+            <SourceContent
+              title="Scientific Research and Experimental Development"
+              description="Official CRA program guidance used to support the response."
+            />
+          </Source>
+          <Source href="https://www.google.com">
+            <SourceTrigger showFavicon />
+            <SourceContent
+              title="Google"
+              description="Search the world's information, including webpages, images, videos and more."
+            />
+          </Source>
+          <Source href="https://github.com/ibelick/prompt-kit">
+            <SourceTrigger showFavicon />
+            <SourceContent
+              title="Core building blocks for AI apps"
+              description="Customizable, high-quality components for AI applications."
+            />
+          </Source>
+        </div>
+        <FeedbackBar
+          value={demoFeedback}
+          onHelpful={() => {
+            demoFeedback = 1;
+          }}
+          onNotHelpful={() => {
+            demoFeedback = -1;
+          }}
+        />
       </div>
 
       <!-- Suggestions -->

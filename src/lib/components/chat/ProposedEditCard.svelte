@@ -10,6 +10,8 @@
     state: "pending" | "applied" | "rejected";
     onReplace: () => Promise<void> | void;
     onReject: () => Promise<void> | void;
+    /** Put the suggestion in the shared composer for refinement instead of applying it. */
+    onCopyToComposer?: () => Promise<void> | void;
     onShowInDoc?: () => void;
     onReviewOneByOne?: () => void;
     /** Live preview: called with `true` when "Show changes" toggles on so the
@@ -27,6 +29,7 @@
     state: editState,
     onReplace,
     onReject,
+    onCopyToComposer,
     onShowInDoc,
     onReviewOneByOne,
     onPreviewInDoc,
@@ -109,6 +112,14 @@
   </button>
 {/snippet}
 
+{#if editState === "rejected"}
+  <div class="mt-2 flex items-center gap-1.5 py-1 text-xs text-ink-muted">
+    <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <path stroke-linecap="round" d="M6 18 18 6M6 6l12 12" />
+    </svg>
+    <span>Suggested edit rejected</span>
+  </div>
+{:else}
 <div class="card mt-2 overflow-hidden shadow-sm">
   <div class="max-h-72 overflow-y-auto px-4 py-3.5">
     {#if replacements && replacements.length > 0}
@@ -186,7 +197,29 @@
     {:else if editState === "pending"}
       <!-- BNH-30: multi-instance edits — step through (green), bulk (orange),
            or reject (red). -->
-      {#if onReviewOneByOne}
+      {#if onCopyToComposer}
+        <button
+          onclick={() => handle(onReplace)}
+          disabled={busy}
+          class="rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+        >
+          {busy ? "Replacing…" : "Replace"}
+        </button>
+        <button
+          onclick={() => handle(onCopyToComposer)}
+          disabled={busy}
+          class="rounded-lg px-3 py-1.5 text-xs font-medium text-navy transition-colors hover:bg-primary-wash disabled:opacity-50"
+        >
+          Add to chat
+        </button>
+        <button
+          onclick={() => handle(onReject)}
+          disabled={busy}
+          class="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-primary-wash hover:text-gray-700 disabled:opacity-50"
+        >
+          Reject
+        </button>
+      {:else if onReviewOneByOne}
         <button
           onclick={onReviewOneByOne}
           disabled={busy}
@@ -259,3 +292,4 @@
     </p>
   {/if}
 </div>
+{/if}
