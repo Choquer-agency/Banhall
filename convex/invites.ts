@@ -28,7 +28,11 @@ export const createInvite = mutation({
     email: v.string(),
     firstName: v.string(),
     lastName: v.string(),
-    role: v.union(v.literal("writer"), v.literal("manager"), v.literal("admin")),
+    role: v.union(
+      v.literal("writer"),
+      v.literal("manager"),
+      v.literal("admin"),
+    ),
   },
   handler: async (ctx, args) => {
     const admin = await requireRole(ctx, ["admin"]);
@@ -54,10 +58,11 @@ export const createInvite = mutation({
       .query("invites")
       .withIndex("by_email", (q) => q.eq("email", email))
       .collect();
-    if (
-      pending.some((i) => i.status === "pending" && i.expiresAt > now)
-    ) {
-      domainError("INVALID_INPUT", "A pending invite for that email already exists");
+    if (pending.some((i) => i.status === "pending" && i.expiresAt > now)) {
+      domainError(
+        "INVALID_INPUT",
+        "A pending invite for that email already exists",
+      );
     }
 
     const token = generateInviteToken();
@@ -94,7 +99,24 @@ export const listInvites = query({
   handler: async (ctx) => {
     const viewer = await getCurrentUserOrNull(ctx);
     if (viewer?.role !== "admin") return [];
-    const invites = await ctx.db.query("invites").order("desc").take(100);
+    // Accepted invites disappear from the admin surface immediately, while
+    // their records remain available as an audit trail. Query only the two
+    // visible states so consumed invite tokens are never returned to clients.
+    const [pending, revoked] = await Promise.all([
+      ctx.db
+        .query("invites")
+        .withIndex("by_status", (q) => q.eq("status", "pending"))
+        .order("desc")
+        .take(100),
+      ctx.db
+        .query("invites")
+        .withIndex("by_status", (q) => q.eq("status", "revoked"))
+        .order("desc")
+        .take(100),
+    ]);
+    const invites = [...pending, ...revoked]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 100);
     const now = Date.now();
     return invites.map((i) => ({
       _id: i._id,
@@ -105,7 +127,9 @@ export const listInvites = query({
       // Token returned so the admin can re-copy the link (admin-only surface).
       token: i.token,
       status:
-        i.status === "pending" && i.expiresAt <= now ? ("expired" as const) : i.status,
+        i.status === "pending" && i.expiresAt <= now
+          ? ("expired" as const)
+          : i.status,
       createdAt: i.createdAt,
       expiresAt: i.expiresAt,
     }));
@@ -121,7 +145,11 @@ export const getInviteByToken = query({
       .query("invites")
       .withIndex("by_token", (q) => q.eq("token", args.token))
       .unique();
-    if (!invite || invite.status !== "pending" || invite.expiresAt <= Date.now()) {
+    if (
+      !invite ||
+      invite.status !== "pending" ||
+      invite.expiresAt <= Date.now()
+    ) {
       return null;
     }
     return {
@@ -146,9 +174,9 @@ export const signupAllowed = internalQuery({
       .unique();
     return Boolean(
       invite &&
-        invite.status === "pending" &&
-        invite.expiresAt > Date.now() &&
-        invite.email === email
+      invite.status === "pending" &&
+      invite.expiresAt > Date.now() &&
+      invite.email === email,
     );
   },
 });

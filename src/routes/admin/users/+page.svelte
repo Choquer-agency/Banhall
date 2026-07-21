@@ -1,6 +1,8 @@
 <script lang="ts">
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
+  import PageContainer from "$lib/components/ui/PageContainer.svelte";
+  import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
@@ -26,6 +28,7 @@
     auth.isAuthenticated && isAdmin ? {} : "skip"
   );
   const setUserRole = useMutation(api.users.setUserRole);
+  const setTemporaryPassword = useMutation(api.users.setTemporaryPassword);
 
   // Invite-only membership: create/list/revoke invites (admin only).
   const invitesQ = useQuery(api.invites.listInvites, () =>
@@ -107,6 +110,11 @@
   let flavorSaving = $state(false);
   let flavorSaved = $state(false);
   let flavorError = $state("");
+  let temporaryPassword = $state("");
+  let passwordSaving = $state(false);
+  let passwordSaved = $state(false);
+  let passwordCopied = $state(false);
+  let passwordError = $state("");
   // Snapshot of the server values the form was seeded from — lets us tell
   // "user typed" apart from "server changed underneath us".
   let flavorSeed = $state<{ text: string; enabled: boolean } | null>(null);
@@ -126,7 +134,55 @@
     seedFlavor(userId);
     flavorSaved = false;
     flavorError = "";
+    temporaryPassword = "";
+    passwordSaved = false;
+    passwordCopied = false;
+    passwordError = "";
     expandedUserId = userId;
+  }
+
+  function generateTemporaryPassword() {
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+    const random = new Uint8Array(18);
+    crypto.getRandomValues(random);
+    temporaryPassword = Array.from(
+      random,
+      (byte) => alphabet[byte % alphabet.length],
+    ).join("");
+    passwordSaved = false;
+    passwordCopied = false;
+    passwordError = "";
+  }
+
+  async function copyTemporaryPassword() {
+    if (!temporaryPassword) return;
+    try {
+      await navigator.clipboard.writeText(temporaryPassword);
+      passwordCopied = true;
+      setTimeout(() => (passwordCopied = false), 2000);
+    } catch {
+      passwordCopied = false;
+    }
+  }
+
+  async function handleTemporaryPassword(userId: Id<"users">) {
+    if (passwordSaving) return;
+    passwordError = "";
+    passwordSaved = false;
+    if (temporaryPassword.length < 8) {
+      passwordError = "Temporary password must be at least 8 characters.";
+      return;
+    }
+    passwordSaving = true;
+    try {
+      await setTemporaryPassword({ userId, temporaryPassword });
+      passwordSaved = true;
+      await copyTemporaryPassword();
+    } catch (cause) {
+      passwordError = userErrorMessage(cause, "Could not set the temporary password.");
+    } finally {
+      passwordSaving = false;
+    }
   }
 
   // Realtime: while the row is open and the admin hasn't typed, follow
@@ -178,6 +234,9 @@
   });
 
   const users = $derived(usersQ.data ?? []);
+  const expandedUser = $derived(
+    users.find((user) => user._id === expandedUserId) ?? null
+  );
 
   let savingId = $state<string | null>(null);
   let error = $state("");
@@ -223,7 +282,7 @@
     <AppNav breadcrumbs={[{ label: "Users & roles" }]} />
     <PageBar backHref="/dashboard" backLabel="Back" />
 
-    <main class="mx-auto w-full max-w-[var(--container-shell)] px-6 pt-12 pb-10">
+    <PageContainer class="pb-10">
       {#if currentUserQ.data === undefined}
         <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
       {:else if !isAdmin}
@@ -239,8 +298,8 @@
         </p>
 
         <!-- Invite a team member: accounts are invite-only -->
-        <section class="card mt-6 p-5">
-          <h2 class="text-sm font-semibold text-gray-900">Invite a team member</h2>
+        <section class="card mt-8 p-6">
+          <h2 class="text-title">Invite a team member</h2>
           <p class="mt-0.5 text-xs text-gray-500">
             Creates a one-time signup link (valid 7 days) — copy it and send it
             to them yourself.
@@ -346,15 +405,25 @@
         {:else if users.length === 0}
           <p class="mt-8 text-sm text-gray-400">No users yet.</p>
         {:else}
-          <div class="card mt-6 overflow-hidden">
-            <table class="w-full text-sm">
+          <div class="mt-8 flex items-end justify-between gap-4">
+            <div>
+              <h2 class="text-title">Team members</h2>
+              <p class="mt-1 text-sm text-gray-500">
+                Manage roles, writing preferences, and account recovery.
+              </p>
+            </div>
+            <span class="text-data text-gray-400">{users.length} total</span>
+          </div>
+          <div class="card mt-3 overflow-hidden">
+            <div class="overflow-x-auto">
+            <table class="w-full min-w-4xl text-sm">
               <thead>
                 <tr class="text-label border-b border-gray-100 text-left">
                   <th class="px-4 py-2.5 font-medium">Name</th>
                   <th class="px-4 py-2.5 font-medium">Email</th>
                   <th class="px-4 py-2.5 font-medium">Joined</th>
                   <th class="px-4 py-2.5 font-medium">Role</th>
-                  <th class="px-4 py-2.5 font-medium">Flavor</th>
+                  <th class="px-4 py-2.5 font-medium">Manage</th>
                 </tr>
               </thead>
               <tbody>
@@ -394,11 +463,7 @@
                         aria-expanded={expandedUserId === row._id}
                         class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-primary-wash {expandedUserId === row._id ? 'text-navy' : 'text-gray-500 hover:text-navy'}"
                       >
-                        {#if profileByUserId.get(row._id)?.customInstructions.trim()}
-                          {profileByUserId.get(row._id)?.enabled ? "Set" : "Off"}
-                        {:else}
-                          None
-                        {/if}
+                        Manage
                         <svg
                           class="h-3.5 w-3.5 flex-shrink-0 transition-transform {expandedUserId === row._id ? 'rotate-180 text-primary' : ''}"
                           fill="none"
@@ -411,58 +476,116 @@
                       </button>
                     </td>
                   </tr>
-                  {#if expandedUserId === row._id}
-                    <tr class="border-b border-gray-50 last:border-0">
-                      <td colspan="5" class="bg-gray-50/50 px-4 py-4">
-                        <div>
-                          <p class="text-label">
-                            Writing preferences for {row.displayName ?? row.email ?? "this user"}
-                          </p>
-                          <p class="mt-1 text-xs text-gray-500">
-                            Injected into every generation this user requests. Never
-                            overrides CRA structural requirements, banned-word rules,
-                            or length limits.
-                          </p>
-                          <textarea
-                            rows={6}
-                            bind:value={flavorText}
-                            placeholder="e.g. Prefer short declarative sentences. Avoid the passive voice."
-                            class="mt-2 block w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
-                          ></textarea>
-                          <span class="mt-1 block text-right text-xs text-gray-400">
-                            {flavorText.length.toLocaleString()} characters
-                          </span>
-                          <div class="mt-2 flex items-center justify-between gap-4">
-                            <Checkbox bind:checked={flavorEnabled} labelText="Apply to this user's generations" />
-                            <span class="flex items-center gap-3">
-                              {#if flavorSaved}
-                                <span class="text-xs text-primary">Saved</span>
-                              {/if}
-                              <button
-                                type="button"
-                                onclick={() => handleFlavorSave(row._id)}
-                                disabled={flavorSaving}
-                                class="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
-                              >
-                                {flavorSaving ? "Saving…" : "Save"}
-                              </button>
-                            </span>
-                          </div>
-                          {#if flavorError}
-                            <p role="alert" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-                              {flavorError}
-                            </p>
-                          {/if}
-                        </div>
-                      </td>
-                    </tr>
-                  {/if}
                 {/each}
               </tbody>
             </table>
+            </div>
+            {#if expandedUser}
+              <div class="border-t border-gray-100 bg-gray-50/50 px-4 py-5">
+                <div class="grid gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
+                  <div>
+                    <p class="text-title">Writing preferences</p>
+                    <p class="mt-1 text-xs text-gray-500">
+                      Applied to every generation {expandedUser.displayName ?? expandedUser.email ?? "this user"} requests.
+                    </p>
+                    <textarea
+                      rows={6}
+                      bind:value={flavorText}
+                      placeholder="e.g. Prefer short declarative sentences. Avoid the passive voice."
+                      class="mt-2 block w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                    ></textarea>
+                    <span class="mt-1 block text-right text-xs text-gray-400">
+                      {flavorText.length.toLocaleString()} characters
+                    </span>
+                    <div class="mt-2 flex items-center justify-between gap-4">
+                      <Checkbox bind:checked={flavorEnabled} labelText="Apply to this user's generations" />
+                      <span class="flex items-center gap-3">
+                        {#if flavorSaved}
+                          <span class="text-xs text-primary">Saved</span>
+                        {/if}
+                        <button
+                          type="button"
+                          onclick={() => handleFlavorSave(expandedUser._id)}
+                          disabled={flavorSaving}
+                          class="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+                        >
+                          {flavorSaving ? "Saving…" : "Save"}
+                        </button>
+                      </span>
+                    </div>
+                    {#if flavorError}
+                      <p role="alert" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+                        {flavorError}
+                      </p>
+                    {/if}
+                  </div>
+
+                  <div class="border-t border-gray-200 pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+                    <h3 class="text-title">Account access</h3>
+                    {#if expandedUser._id === currentUserQ.data?._id}
+                      <p class="mt-1 text-sm text-gray-500">
+                        Change your own password from
+                        <a class="font-medium text-primary hover:text-primary-dark" href="/settings#security">Settings</a>.
+                      </p>
+                    {:else if !expandedUser.hasAuthAccount}
+                      <p class="mt-1 text-sm text-gray-500">
+                        This user has not activated their account yet. Send or recreate their invite instead.
+                      </p>
+                    {:else}
+                      <p class="mt-1 text-sm text-gray-500">
+                        Set a temporary password and share it through a secure channel. Existing sessions will be revoked.
+                      </p>
+                      <div class="mt-4">
+                        <Input
+                          id={`temporary-password-${expandedUser._id}`}
+                          label="Temporary password"
+                          type="text"
+                          bind:value={temporaryPassword}
+                          autocomplete="off"
+                          minlength={8}
+                          required
+                        />
+                      </div>
+                      <div class="mt-3 flex flex-wrap items-center justify-end gap-2">
+                        <Button type="button" variant="secondary" size="sm" onclick={generateTemporaryPassword}>
+                          Generate
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onclick={copyTemporaryPassword}
+                          disabled={!temporaryPassword}
+                        >
+                          {passwordCopied ? "Copied" : "Copy"}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onclick={() => handleTemporaryPassword(expandedUser._id)}
+                          disabled={passwordSaving || temporaryPassword.length < 8}
+                        >
+                          {passwordSaving ? "Setting…" : "Set password"}
+                        </Button>
+                      </div>
+                      {#if passwordSaved}
+                        <p role="status" class="mt-3 rounded-lg bg-primary-wash px-3 py-2 text-sm text-primary-dark">
+                          Temporary password set{passwordCopied ? " and copied" : ""}. All existing sessions were signed out.
+                        </p>
+                      {/if}
+                      {#if passwordError}
+                        <p role="alert" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+                          {passwordError}
+                        </p>
+                      {/if}
+                    {/if}
+                  </div>
+                </div>
+              </div>
+            {/if}
           </div>
         {/if}
       {/if}
-    </main>
+    </PageContainer>
   </div>
 {/if}

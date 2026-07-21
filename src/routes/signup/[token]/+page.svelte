@@ -18,6 +18,7 @@
   let lastName = $state("");
   let password = $state("");
   let submitting = $state(false);
+  let redirecting = $state(false);
   let error = $state("");
   let hydrated = $state(false);
 
@@ -65,9 +66,17 @@
         error = signUpError.message ?? "The invite could not be accepted.";
         return;
       }
-      window.location.href = "/dashboard";
+      // Keep the completion state mounted while the accepted invite drops out
+      // of the live query. Replacing history also prevents Back from returning
+      // to a link that has now been consumed.
+      redirecting = true;
+      window.location.replace("/dashboard");
+    } catch {
+      error = "The invite could not be accepted. Please try again.";
     } finally {
-      submitting = false;
+      // A successful navigation unloads this page. Until it does, leave the
+      // loader in place so the consumed invite cannot flash as invalid.
+      if (!redirecting) submitting = false;
     }
   }
 </script>
@@ -80,6 +89,16 @@
   <div class="card w-full max-w-md p-8">
     {#if inviteQ.isLoading}
       <div class="flex justify-center py-8"><Spinner /></div>
+    {:else if submitting}
+      <div class="flex flex-col items-center py-8 text-center" role="status" aria-live="polite">
+        <Spinner />
+        <h1 class="mt-4 text-title">
+          {redirecting ? "Account created" : "Creating your account…"}
+        </h1>
+        <p class="mt-2 text-sm text-gray-500">
+          {redirecting ? "Opening your dashboard…" : "This should only take a moment."}
+        </p>
+      </div>
     {:else if !invite}
       <!-- Dead link: invalid, expired, revoked, or already used -->
       <div class="text-center">

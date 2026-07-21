@@ -13,6 +13,18 @@ import authConfig from "./auth.config";
 
 const authFunctions: AuthFunctions = internal.auth;
 
+// Auth is proxied through the SvelteKit app, so requests carry the app's
+// origin rather than the Convex deployment origin. Keep the canonical hosted
+// app and local development explicit; BETTER_AUTH_TRUSTED_ORIGINS can append
+// any additional deployment-specific origins as a comma-separated list.
+const trustedOrigins = [
+  "https://banhall.vercel.app",
+  "http://localhost:3001",
+  ...(process.env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",") ?? []),
+]
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 export const authComponent = createClient<DataModel>(components.betterAuth, {
   authFunctions,
   triggers: {
@@ -45,7 +57,9 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
           : null;
         if (!invite) {
           // Aborts the component's user insert — signup fails.
-          throw new ConvexError("Signups are invite-only. Ask an admin for an invite.");
+          throw new ConvexError(
+            "Signups are invite-only. Ask an admin for an invite.",
+          );
         }
         let userId;
         if (existing) {
@@ -96,6 +110,7 @@ export const { onCreate, onUpdate, onDelete } = authComponent.triggersApi();
 export const createAuth = (ctx: GenericCtx<DataModel>) =>
   betterAuth({
     baseURL: process.env.SITE_URL,
+    trustedOrigins,
     database: authComponent.adapter(ctx),
     emailAndPassword: {
       enabled: true,
@@ -109,7 +124,9 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
       before: createAuthMiddleware(async (hookCtx) => {
         if (hookCtx.path !== "/sign-up/email") return;
         const body = (hookCtx.body ?? {}) as Record<string, unknown>;
-        const email = String(body.email ?? "").trim().toLowerCase();
+        const email = String(body.email ?? "")
+          .trim()
+          .toLowerCase();
         const inviteToken = String(body.inviteToken ?? "");
         // Legacy relink escape hatch: pre-migration accounts (users doc
         // without authId) may re-sign-up without a token. Checked in the
@@ -118,7 +135,10 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
           ctx as unknown as {
             runQuery: (ref: unknown, args: unknown) => Promise<boolean>;
           }
-        ).runQuery(internal.invites.signupAllowed, { email, token: inviteToken });
+        ).runQuery(internal.invites.signupAllowed, {
+          email,
+          token: inviteToken,
+        });
         if (!allowed) {
           throw new APIError("FORBIDDEN", {
             message: "Signups are invite-only. Ask an admin for an invite.",

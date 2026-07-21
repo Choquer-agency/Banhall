@@ -22,6 +22,7 @@
     auth.isAuthenticated ? {} : "skip"
   );
   const updateMyProfile = useMutation(api.users.updateMyProfile);
+  const changeMyPassword = useMutation(api.users.changeMyPassword);
 
   // "Your name" card — first/last shown everywhere your work is labeled.
   // Non-dirty re-seed: follows server changes (other tab, admin edit) until
@@ -70,6 +71,41 @@
       nameError = userErrorMessage(cause, "Could not save your name.");
     } finally {
       nameSaving = false;
+    }
+  }
+
+  let currentPassword = $state("");
+  let newPassword = $state("");
+  let confirmPassword = $state("");
+  let passwordSaving = $state(false);
+  let passwordSaved = $state(false);
+  let passwordError = $state("");
+
+  async function handlePasswordChange(e: SubmitEvent) {
+    e.preventDefault();
+    if (passwordSaving) return;
+    passwordError = "";
+    passwordSaved = false;
+    if (newPassword !== confirmPassword) {
+      passwordError = "New passwords do not match.";
+      return;
+    }
+    if (newPassword.length < 8) {
+      passwordError = "New password must be at least 8 characters.";
+      return;
+    }
+    passwordSaving = true;
+    try {
+      await changeMyPassword({ currentPassword, newPassword });
+      currentPassword = "";
+      newPassword = "";
+      confirmPassword = "";
+      passwordSaved = true;
+      setTimeout(() => (passwordSaved = false), 3000);
+    } catch (cause) {
+      passwordError = userErrorMessage(cause, "Could not change your password.");
+    } finally {
+      passwordSaving = false;
     }
   }
 
@@ -135,49 +171,102 @@
     <PageBar backHref="/dashboard" backLabel="Back" />
 
     <PageContainer>
-      <div class="mx-auto w-full max-w-3xl">
-        <h1 class="text-display">Settings</h1>
+      <h1 class="text-display">Settings</h1>
+      <p class="mt-1 max-w-2xl text-sm text-gray-500">
+        Manage your account details, sign-in security, and report-writing preferences.
+      </p>
 
-        {#if profileQ.data === undefined}
-          <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
-        {:else}
-          <!-- Your name -->
-          <section class="card mt-6 p-5">
-            <h2 class="text-title">Your name</h2>
-            <p class="mt-1 text-sm text-gray-500">
-              Shown wherever your work is labeled — reports, the team roster,
-              and review history.
-            </p>
-            <div class="mt-4 flex flex-wrap items-end gap-3">
-              <Input id="firstName" label="First name" bind:value={firstName} class="w-44" />
-              <Input id="lastName" label="Last name" bind:value={lastName} class="w-44" />
-              <span class="flex items-center gap-3 pb-0.5">
+      {#if profileQ.data === undefined || meQ.data === undefined}
+        <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
+      {:else}
+        <div class="mt-8 grid items-start gap-8 lg:grid-cols-[minmax(20rem,0.85fr)_minmax(0,1.35fr)]">
+          <div class="flex flex-col gap-8">
+            <section class="card p-6">
+              <h2 class="text-title">Your name</h2>
+              <p class="mt-1 text-sm text-gray-500">
+                Shown on reports, the team roster, and review history.
+              </p>
+              <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                <Input id="firstName" label="First name" bind:value={firstName} class="w-full" />
+                <Input id="lastName" label="Last name" bind:value={lastName} class="w-full" />
+              </div>
+              <div class="mt-4 flex min-h-10 items-center justify-end gap-3">
                 {#if nameSaved}
-                  <span class="text-xs text-primary">Saved</span>
+                  <span role="status" class="text-xs text-primary">Saved</span>
                 {/if}
                 <Button onclick={handleNameSave} disabled={nameSaving}>
-                  {nameSaving ? "Saving…" : "Save"}
+                  {nameSaving ? "Saving…" : "Save name"}
                 </Button>
-              </span>
-            </div>
-            {#if nameError}
-              <p role="alert" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-                {nameError}
-              </p>
-            {/if}
-          </section>
+              </div>
+              {#if nameError}
+                <p role="alert" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+                  {nameError}
+                </p>
+              {/if}
+            </section>
 
-          <section class="card mt-6 p-5">
+            <section id="security" class="card p-6">
+              <h2 class="text-title">Password</h2>
+              <p class="mt-1 text-sm text-gray-500">
+                Changing your password signs out your other active sessions.
+              </p>
+              <form class="mt-4 flex flex-col gap-4" onsubmit={handlePasswordChange}>
+                <Input
+                  id="current-password"
+                  label="Current password"
+                  type="password"
+                  bind:value={currentPassword}
+                  autocomplete="current-password"
+                  required
+                />
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <Input
+                    id="new-password"
+                    label="New password"
+                    type="password"
+                    bind:value={newPassword}
+                    autocomplete="new-password"
+                    minlength={8}
+                    required
+                  />
+                  <Input
+                    id="confirm-password"
+                    label="Confirm new password"
+                    type="password"
+                    bind:value={confirmPassword}
+                    autocomplete="new-password"
+                    minlength={8}
+                    required
+                  />
+                </div>
+                <div class="flex min-h-10 items-center justify-end gap-3">
+                  {#if passwordSaved}
+                    <span role="status" class="text-xs text-primary">Password changed</span>
+                  {/if}
+                  <Button type="submit" disabled={passwordSaving}>
+                    {passwordSaving ? "Changing…" : "Change password"}
+                  </Button>
+                </div>
+              </form>
+              {#if passwordError}
+                <p role="alert" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+                  {passwordError}
+                </p>
+              {/if}
+            </section>
+          </div>
+
+          <section class="card p-6">
             <h2 class="text-title">Writing preferences</h2>
-            <p class="mt-1 text-sm text-gray-500">
-              Applied to every report you generate. Never overrides CRA
-              structural requirements, banned-word rules, or length limits.
+            <p class="mt-1 max-w-2xl text-sm text-gray-500">
+              Applied to every report you generate. Never overrides CRA structural
+              requirements, banned-word rules, or length limits.
             </p>
 
             <label class="mt-4 block">
               <span class="text-label">Your personal style instructions</span>
               <textarea
-                rows={10}
+                rows={14}
                 bind:value={customInstructions}
                 placeholder={"e.g. Prefer short declarative sentences. Lead each iteration with the hypothesis tested. Avoid the passive voice in the work narrative."}
                 class="mt-2 block w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
@@ -187,14 +276,14 @@
               </span>
             </label>
 
-            <div class="mt-3 flex items-center justify-between gap-4">
+            <div class="mt-4 flex flex-wrap items-center justify-between gap-4">
               <Checkbox bind:checked={enabled} labelText="Apply my preferences to new generations" />
               <span class="flex items-center gap-3">
                 {#if saved}
-                  <span class="text-xs text-primary">Saved</span>
+                  <span role="status" class="text-xs text-primary">Saved</span>
                 {/if}
                 <Button onclick={handleSave} disabled={saving}>
-                  {saving ? "Saving…" : "Save"}
+                  {saving ? "Saving…" : "Save preferences"}
                 </Button>
               </span>
             </div>
@@ -205,8 +294,8 @@
               </p>
             {/if}
           </section>
-        {/if}
-      </div>
+        </div>
+      {/if}
     </PageContainer>
   </div>
 {/if}
