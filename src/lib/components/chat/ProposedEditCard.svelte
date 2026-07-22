@@ -197,29 +197,7 @@
     {:else if editState === "pending"}
       <!-- BNH-30: multi-instance edits — step through (green), bulk (orange),
            or reject (red). -->
-      {#if onCopyToComposer}
-        <button
-          onclick={() => handle(onReplace)}
-          disabled={busy}
-          class="rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
-        >
-          {busy ? "Replacing…" : "Replace"}
-        </button>
-        <button
-          onclick={() => handle(onCopyToComposer)}
-          disabled={busy}
-          class="rounded-lg px-3 py-1.5 text-xs font-medium text-navy transition-colors hover:bg-primary-wash disabled:opacity-50"
-        >
-          Add to chat
-        </button>
-        <button
-          onclick={() => handle(onReject)}
-          disabled={busy}
-          class="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-primary-wash hover:text-gray-700 disabled:opacity-50"
-        >
-          Reject
-        </button>
-      {:else if onReviewOneByOne}
+      {#if onReviewOneByOne}
         <button
           onclick={onReviewOneByOne}
           disabled={busy}
@@ -249,6 +227,15 @@
         >
           {busy ? "Replacing…" : "Replace"}
         </button>
+        {#if onCopyToComposer}
+          <button
+            onclick={() => handle(onCopyToComposer)}
+            disabled={busy}
+            class="rounded-lg px-3 py-1.5 text-xs font-medium text-navy transition-colors hover:bg-primary-wash disabled:opacity-50"
+          >
+            Add to chat
+          </button>
+        {/if}
         <button
           onclick={() => handle(onReject)}
           disabled={busy}

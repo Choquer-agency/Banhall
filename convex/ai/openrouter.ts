@@ -28,12 +28,71 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 /** Error shaped like the Anthropic SDK's (status + message) so
  *  normalizeProviderError classifies both gateways the same way. */
-class OpenRouterError extends Error {
+export class OpenRouterError extends Error {
   status?: number;
   constructor(message: string, status?: number) {
     super(message);
+    this.name = "OpenRouterError";
     this.status = status;
   }
+}
+
+/**
+ * Single OpenRouter transport: auth headers, error shaping, and the usage
+ * guarantee, for ANY prebuilt chat-completions body. Callers that speak the
+ * Anthropic request shape should use instrumentedOpenRouter instead; callers
+ * with gateway-specific bodies (e.g. Contextual Research's web-search tools)
+ * build the body themselves and post it here.
+ */
+export async function openRouterChatCompletion(
+  ctx: ActionCtx,
+  input: {
+    body: Record<string, unknown>;
+    /** Model for the usage row (the body's `model` field, passed explicitly). */
+    model: string;
+    callSite: string;
+    projectId?: Id<"projects">;
+    userId?: string;
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+  }
+): Promise<ChatCompletionsResponse> {
+  const apiKey = requireOpenRouterConfigured();
+  const response = await fetch(OPENROUTER_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://banhall.app",
+      "X-Title": "Banhall",
+      ...(input.headers ?? {}),
+    },
+    body: JSON.stringify(input.body),
+    ...(input.timeoutMs ? { signal: AbortSignal.timeout(input.timeoutMs) } : {}),
+  });
+  const raw: unknown = await response.json().catch(() => null);
+  const body = (raw ?? {}) as ChatCompletionsResponse;
+  if (!response.ok) {
+    throw new OpenRouterError(
+      body.error?.message ??
+        `OpenRouter request failed with status ${response.status}`,
+      response.status
+    );
+  }
+  // Mirrors instrumentedAnthropic: a successful response is never turned into
+  // an app failure by usage logging.
+  const usage = openRouterUsage(body);
+  await scheduleUsage(ctx, {
+    ...(input.projectId ? { projectId: input.projectId } : {}),
+    ...(input.userId ? { userId: input.userId } : {}),
+    callSite: input.callSite,
+    model: input.model,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cacheReadInputTokens: usage.cacheReadInputTokens,
+    ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
+  });
+  return body;
 }
 
 export function instrumentedOpenRouter(
@@ -44,41 +103,13 @@ export function instrumentedOpenRouter(
     userId?: string;
   }
 ): GenerationClient {
-  const apiKey = requireOpenRouterConfigured();
   return {
     messages: {
       create: async (params) => {
-        const response = await fetch(OPENROUTER_URL, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://banhall.app",
-            "X-Title": "Banhall",
-          },
-          body: JSON.stringify(toChatCompletions(params)),
-        });
-        const raw: unknown = await response.json().catch(() => null);
-        const body = (raw ?? {}) as ChatCompletionsResponse;
-        if (!response.ok) {
-          throw new OpenRouterError(
-            body.error?.message ??
-              `OpenRouter request failed with status ${response.status}`,
-            response.status
-          );
-        }
-        // Mirrors instrumentedAnthropic: a successful response is never
-        // turned into an app failure by usage logging.
-        const usage = openRouterUsage(body);
-        await scheduleUsage(ctx, {
-          ...(meta.projectId ? { projectId: meta.projectId } : {}),
-          ...(meta.userId ? { userId: meta.userId } : {}),
-          callSite: meta.callSite,
+        const body = await openRouterChatCompletion(ctx, {
+          body: toChatCompletions(params),
           model: params.model,
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          cacheReadInputTokens: usage.cacheReadInputTokens,
-          ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
+          ...meta,
         });
         return fromChatCompletions(body);
       },

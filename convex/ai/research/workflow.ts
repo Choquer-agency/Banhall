@@ -19,10 +19,15 @@ export const runResearch = researchWorkflowManager.define({
     if (!active) return null;
 
     await Promise.all([
+      step.runMutation(
+        internal.research.collectProjectEvidence,
+        { sessionId: args.sessionId },
+        { name: "retrieve project documents" }
+      ),
       step.runAction(
         internal.ai.research.actions.runExternalResearch,
         { sessionId: args.sessionId, provider: "gpt" },
-        { name: "GPT native web research", retry: false }
+        { name: "GPT web research", retry: false }
       ),
       step.runAction(
         internal.ai.research.actions.runExternalResearch,

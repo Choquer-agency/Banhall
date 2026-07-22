@@ -19,15 +19,15 @@ import { requireOpenRouterConfigured } from "./lib/providerConfig";
 import { scrubBannedWords } from "./lib/reportEdits";
 import { researchWorkflowManager } from "./ai/research/manager";
 import {
+  MAX_CONTEXT_TEXT,
+  MAX_INSTRUCTION,
+  MAX_SELECTED_TEXT,
   buildExternalBrief,
   canonicalizeSourceUrl,
   projectEvidenceSearchQuery,
   selectProjectEvidence,
 } from "./ai/research/core";
 
-const MAX_SELECTED_TEXT = 12_000;
-const MAX_CONTEXT_TEXT = 12_000;
-const MAX_INSTRUCTION = 2_000;
 const ACTIVE_STATUSES = new Set(["queued", "researching", "reviewing"]);
 
 const runProviderValidator = v.union(
@@ -148,47 +148,6 @@ export const startResearch = mutation({
       updatedAt: now,
     });
 
-    // Retrieve private project evidence locally and deterministically. It never
-    // enters either external research prompt.
-    const evidenceQuery = projectEvidenceSearchQuery(`${instruction}\n${selectedText}`);
-    const documents = evidenceQuery
-      ? await ctx.db
-          .query("projectDocuments")
-          .withSearchIndex("search_content", (q) =>
-            q.search("content", evidenceQuery).eq("projectId", project._id)
-          )
-          .take(12)
-      : await ctx.db
-          .query("projectDocuments")
-          .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
-          .order("desc")
-          .take(8);
-    const evidence = selectProjectEvidence(
-      documents
-        .filter((document) => !document.archived && document.content.trim())
-        .map((document) => ({
-          id: document._id,
-          title: document.fileName,
-          content: document.content,
-        })),
-      `${instruction}\n${selectedText}`,
-      6
-    );
-    for (const item of evidence) {
-      const documentId = ctx.db.normalizeId("projectDocuments", item.documentId);
-      if (!documentId) continue;
-      await ctx.db.insert("researchSources", {
-        sessionId,
-        projectId: project._id,
-        kind: "project_document",
-        title: item.title,
-        excerpt: item.excerpt,
-        projectDocumentId: documentId,
-        verification: "project_evidence",
-        createdAt: now,
-      });
-    }
-
     const workflowId: WorkflowId = await researchWorkflowManager.start(
       ctx,
       internal.ai.research.workflow.runResearch,
@@ -214,18 +173,18 @@ export const listSessions = query({
       .withIndex("by_reportId", (q) => q.eq("reportId", args.reportId))
       .order("desc")
       .take(20);
+    // Summary projection: the feed renders at most ~220 chars of the selection
+    // and reads the answer/details from getSessionDetails, so don't re-ship
+    // 12KB selections × 20 sessions on every workflow status patch.
     return sessions.map((session) => ({
       _id: session._id,
-      selectedText: session.selectedText,
+      selectedText:
+        session.selectedText.length > 240
+          ? `${session.selectedText.slice(0, 239)}…`
+          : session.selectedText,
       instruction: session.instruction,
       status: session.status,
-      confidence: session.confidence ?? null,
-      answer: session.answer ?? null,
-      errorMessage: session.errorMessage ?? null,
-      proposalId: session.proposalId ?? null,
       createdAt: session.createdAt,
-      updatedAt: session.updatedAt,
-      completedAt: session.completedAt ?? null,
     }));
   },
 });
@@ -245,7 +204,7 @@ export const getSessionDetails = query({
         .query("researchClaims")
         .withIndex("by_sessionId", (q) => q.eq("sessionId", session._id))
         .order("asc")
-        .take(50),
+        .take(20),
       ctx.db
         .query("researchRuns")
         .withIndex("by_sessionId", (q) => q.eq("sessionId", session._id))
@@ -253,19 +212,31 @@ export const getSessionDetails = query({
         .take(10),
       session.proposalId ? ctx.db.get(session.proposalId) : Promise.resolve(null),
     ]);
+    // Projections match what ResearchFeed renders. This query re-runs on every
+    // workflow status patch, so don't ship the 30KB brief, 12KB selection, or
+    // 100KB researcher memos the panel never reads.
     return {
-      session,
+      session: {
+        _id: session._id,
+        status: session.status,
+        answer: session.answer ?? null,
+        evidenceBoundary: session.evidenceBoundary ?? null,
+        warnings: session.warnings ?? [],
+        errorMessage: session.errorMessage ?? null,
+        feedback: session.feedback ?? null,
+      },
       sources,
-      claims,
+      claims: claims.map((claim) => ({
+        _id: claim._id,
+        text: claim.text,
+        evidenceKind: claim.evidenceKind,
+        support: claim.support,
+        sourceIds: claim.sourceIds,
+      })),
       proposal,
       runs: runs.map((run) => ({
         provider: run.provider,
-        model: run.model,
         status: run.status,
-        responseText: run.provider === "reviewer" ? null : (run.responseText ?? null),
-        errorMessage: run.errorMessage ?? null,
-        webSearchRequests: run.webSearchRequests ?? 0,
-        completedAt: run.completedAt ?? null,
       })),
     };
   },
@@ -339,6 +310,61 @@ export const cancelResearch = mutation({
 
 // ── Internal workflow support ───────────────────────────────────────────────
 
+/**
+ * Deterministic private-document retrieval, run as a workflow step so the
+ * writer's click returns without scanning the project corpus. The excerpts
+ * never enter either external research prompt.
+ */
+export const collectProjectEvidence = internalMutation({
+  args: { sessionId: v.id("researchSessions") },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session || session.status === "canceled") return null;
+    const query = `${session.instruction}\n${session.selectedText}`;
+    const evidenceQuery = projectEvidenceSearchQuery(query);
+    const documents = evidenceQuery
+      ? await ctx.db
+          .query("projectDocuments")
+          .withSearchIndex("search_content", (q) =>
+            q.search("content", evidenceQuery).eq("projectId", session.projectId)
+          )
+          .take(12)
+      : await ctx.db
+          .query("projectDocuments")
+          .withIndex("by_projectId", (q) => q.eq("projectId", session.projectId))
+          .order("desc")
+          .take(8);
+    const evidence = selectProjectEvidence(
+      documents
+        .filter((document) => !document.archived && document.content.trim())
+        .map((document) => ({
+          id: document._id,
+          title: document.fileName,
+          content: document.content,
+        })),
+      query,
+      6
+    );
+    const now = Date.now();
+    for (const item of evidence) {
+      const documentId = ctx.db.normalizeId("projectDocuments", item.documentId);
+      if (!documentId) continue;
+      await ctx.db.insert("researchSources", {
+        sessionId: session._id,
+        projectId: session.projectId,
+        kind: "project_document",
+        title: item.title,
+        excerpt: item.excerpt,
+        projectDocumentId: documentId,
+        verification: "project_evidence",
+        createdAt: now,
+      });
+    }
+    return null;
+  },
+});
+
 export const markResearchStarted = internalMutation({
   args: { sessionId: v.id("researchSessions") },
   returns: v.boolean(),
@@ -360,6 +386,30 @@ export const markResearchReviewing = internalMutation({
     if (!session || session.status === "canceled") return false;
     await ctx.db.patch(session._id, { status: "reviewing", updatedAt: Date.now() });
     return true;
+  },
+});
+
+/**
+ * Slim context for the researcher/Brain steps: they need only the session and
+ * a few project/user fields. The full getActionContext (sources + runs) is
+ * reserved for the reviewer, which actually consolidates them.
+ */
+export const getSessionForRun = internalQuery({
+  args: { sessionId: v.id("researchSessions") },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) throw new Error("Research session not found");
+    const project = await ctx.db.get(session.projectId);
+    if (!project) throw new Error("Research context is incomplete");
+    return {
+      session,
+      project: {
+        _id: project._id,
+        industry: project.industry,
+        scienceCode: project.scienceCode,
+      },
+      userId: session.requestedBy,
+    };
   },
 });
 
@@ -454,15 +504,21 @@ export const completeResearcherRun = internalMutation({
       errorMessage: undefined,
     });
 
+    // One indexed read for the session's sources, then upsert from a map —
+    // instead of a serialized .unique() lookup per citation (up to 40).
+    const existingSources = await ctx.db
+      .query("researchSources")
+      .withIndex("by_sessionId", (q) => q.eq("sessionId", run.sessionId))
+      .take(80);
+    const byCanonicalUrl = new Map(
+      existingSources
+        .filter((source) => source.canonicalUrl)
+        .map((source) => [source.canonicalUrl!, source])
+    );
     for (const citation of args.citations.slice(0, 40)) {
       const canonicalUrl = canonicalizeSourceUrl(citation.url);
       if (!canonicalUrl) continue;
-      const existing = await ctx.db
-        .query("researchSources")
-        .withIndex("by_sessionId_and_canonicalUrl", (q) =>
-          q.eq("sessionId", run.sessionId).eq("canonicalUrl", canonicalUrl)
-        )
-        .unique();
+      const existing = byCanonicalUrl.get(canonicalUrl);
       const gpt = args.provider === "gpt" || existing?.citedByGpt === true;
       const perplexity = args.provider === "perplexity" || existing?.citedByPerplexity === true;
       let domain: string | undefined;
@@ -472,18 +528,24 @@ export const completeResearcherRun = internalMutation({
         /* canonicalizeSourceUrl already validated this */
       }
       if (existing) {
+        const title =
+          existing.title.length < citation.title.length
+            ? citation.title.slice(0, 300)
+            : existing.title;
+        const excerpt =
+          (citation.content?.length ?? 0) > (existing.excerpt?.length ?? 0)
+            ? citation.content!.slice(0, 5_000)
+            : existing.excerpt;
         await ctx.db.patch(existing._id, {
           citedByGpt: gpt,
           citedByPerplexity: perplexity,
           verification: gpt && perplexity ? "cross_provider" : "provider_cited",
-          ...(existing.title.length < citation.title.length
-            ? { title: citation.title.slice(0, 300) }
-            : {}),
-          ...((citation.content?.length ?? 0) > (existing.excerpt?.length ?? 0)
-            ? { excerpt: citation.content!.slice(0, 5_000) }
-            : {}),
+          title,
+          ...(excerpt !== undefined ? { excerpt } : {}),
         });
       } else {
+        // Citations are already URL-deduped per response in
+        // parseOpenRouterResearchResponse, so no map update is needed here.
         await ctx.db.insert("researchSources", {
           sessionId: run.sessionId,
           projectId: run.projectId,
@@ -604,6 +666,15 @@ export const saveReviewResult = internalMutation({
     const session = await ctx.db.get(args.sessionId);
     if (!session || session.status === "canceled") return null;
     const now = Date.now();
+    // Snapshot provenance for an applied edit. Brain patterns guide voice
+    // only — never evidence — so they don't count; chatV2.applyProposal copies
+    // this number instead of re-deriving the policy.
+    const evidenceSourceCount = (
+      await ctx.db
+        .query("researchSources")
+        .withIndex("by_sessionId", (q) => q.eq("sessionId", session._id))
+        .take(80)
+    ).filter((source) => source.kind !== "brain_pattern").length;
     const oldClaims = await ctx.db
       .query("researchClaims")
       .withIndex("by_sessionId", (q) => q.eq("sessionId", session._id))
@@ -638,6 +709,7 @@ export const saveReviewResult = internalMutation({
           targetText: session.selectedText,
           newText: proposedText.slice(0, 12_000),
           researchSessionId: session._id,
+          requireUniqueTarget: true,
           state: "pending",
           createdAt: now,
         });
@@ -647,6 +719,7 @@ export const saveReviewResult = internalMutation({
       status: "completed",
       answer: args.answer.slice(0, 16_000),
       evidenceBoundary: args.evidenceBoundary.slice(0, 4_000),
+      evidenceSourceCount,
       confidence: args.confidence,
       // Dedupe: the UI keys its warning list by text, and a duplicate string
       // (reviewer output + our appended cross-provider note) would crash the

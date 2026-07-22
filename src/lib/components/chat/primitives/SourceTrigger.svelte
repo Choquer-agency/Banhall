@@ -15,7 +15,7 @@
   }: Props = $props();
 
   const { href, domain, faviconUrl } = getSourceContext();
-  const labelToShow = $derived(label ?? domain.replace(/^www\./, ""));
+  const labelToShow = $derived(label ?? domain);
 </script>
 
 <a

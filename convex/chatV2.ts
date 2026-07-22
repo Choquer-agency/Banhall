@@ -27,7 +27,7 @@ import { applyReplacements, type PMNode } from "./lib/reportEdits";
 import { domainError, sha256 } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 
-// ─── Agent-based chat plumbing (BNH-10 P2, parallel-run with chat.ts) ────────
+// ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
 // agentChatThreads maps a report to its component thread; chatProposals holds
 // the app-side edit lifecycle the component can't (pending/applied/rejected).
@@ -246,10 +246,14 @@ export const applyProposal = mutation({
         "Couldn't find the original passage in the report to replace — it may have already changed. Try asking again."
       );
     }
-    if (proposal.researchSessionId && count !== 1) {
+    // Producer-declared single-target proposals (older research proposals
+    // predate the flag, hence the researchSessionId fallback).
+    const requireUniqueTarget =
+      proposal.requireUniqueTarget ?? proposal.researchSessionId !== undefined;
+    if (requireUniqueTarget && count !== 1) {
       domainError(
         "STALE_REVISION",
-        "The researched passage is no longer unique in this report. Review and apply this edit manually to avoid changing another occurrence."
+        "The target passage is no longer unique in this report. Review and apply this edit manually to avoid changing another occurrence."
       );
     }
 
@@ -257,17 +261,10 @@ export const applyProposal = mutation({
     const revisionNumber = report.revisionNumber ?? 0;
     const now = Date.now();
     const auditFields = await snapshotAuditFields(ctx, report);
-    // Brain patterns guide voice only — they are never evidence, so they don't
-    // count toward the checkpoint's source trail.
+    // Provenance for version history. The research layer owns the evidence
+    // policy (brain patterns never count) and stored the number at review time.
     const researchSourceCount = proposal.researchSessionId
-      ? (
-          await ctx.db
-            .query("researchSources")
-            .withIndex("by_sessionId", (q) =>
-              q.eq("sessionId", proposal.researchSessionId!)
-            )
-            .take(80)
-        ).filter((source) => source.kind !== "brain_pattern").length
+      ? ((await ctx.db.get(proposal.researchSessionId))?.evidenceSourceCount ?? 0)
       : 0;
     await ctx.db.insert("reportSnapshots", {
       projectId: report.projectId,

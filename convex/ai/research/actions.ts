@@ -8,8 +8,9 @@ import { normalizeProviderError } from "../providers";
 import { searchBrainExemplars } from "../brain/retrieve";
 import {
   RESEARCH_MODELS,
+  RESEARCH_PROVIDER_LABELS,
+  cap,
   parseReviewerResult,
-  type ExternalResearchProvider,
 } from "./core";
 import { callOpenRouterResearch } from "./openrouter";
 
@@ -40,7 +41,7 @@ export const runExternalResearch = internalAction({
   handler: async (ctx, args): Promise<null> => {
     let runId: Id<"researchRuns"> | null = null;
     try {
-      const context = await ctx.runQuery(internal.research.getActionContext, {
+      const context = await ctx.runQuery(internal.research.getSessionForRun, {
         sessionId: args.sessionId,
       });
       if (context.session.status === "canceled") return null;
@@ -59,12 +60,12 @@ export const runExternalResearch = internalAction({
         system: RESEARCHER_SYSTEM,
         prompt: [
           `Current date: ${new Date().toISOString().slice(0, 10)}`,
-          `Independent analyst: ${args.provider === "gpt" ? "GPT web research" : "Perplexity deep research"}`,
+          `Independent analyst: ${RESEARCH_PROVIDER_LABELS[args.provider]}`,
           context.session.externalBrief,
         ].join("\n\n"),
         sessionId: context.session._id,
         projectId: context.project._id,
-        userId: context.user._id,
+        userId: context.userId,
       });
       await ctx.runMutation(internal.research.completeResearcherRun, {
         runId,
@@ -101,7 +102,7 @@ export const collectBrainEvidence = internalAction({
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     try {
-      const context = await ctx.runQuery(internal.research.getActionContext, {
+      const context = await ctx.runQuery(internal.research.getSessionForRun, {
         sessionId: args.sessionId,
       });
       if (context.session.status === "canceled") return null;
@@ -112,7 +113,7 @@ export const collectBrainEvidence = internalAction({
         k: 3,
         docType: "pd",
         projectId: context.project._id,
-        userId: context.user._id,
+        userId: context.userId,
         usageLabel: "contextual_research",
       });
       await ctx.runMutation(internal.research.saveBrainEvidence, {
@@ -145,11 +146,6 @@ type SourceForReview = {
   excerpt?: string;
   verification: "provider_cited" | "cross_provider" | "project_evidence" | "brain_pattern";
 };
-
-function cap(value: string, maximum: number): string {
-  const trimmed = value.trim();
-  return trimmed.length <= maximum ? trimmed : `${trimmed.slice(0, maximum - 1)}…`;
-}
 
 function sourceCatalog(sources: SourceForReview[]): {
   text: string;
@@ -235,7 +231,7 @@ export const reviewResearch = internalAction({
       const providerReports = completedResearchers
         .map(
           (run) =>
-            `## ${run.provider === "gpt" ? "GPT web research" : "Perplexity deep research"}\n${cap(run.responseText ?? "", 38_000)}`
+            `## ${run.provider === "gpt" ? RESEARCH_PROVIDER_LABELS.gpt : RESEARCH_PROVIDER_LABELS.perplexity}\n${cap(run.responseText ?? "", 38_000)}`
         )
         .join("\n\n");
       const result = await callOpenRouterResearch(ctx, {

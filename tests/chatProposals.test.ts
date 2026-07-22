@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  applyProposedEdit,
-  listMessages,
-  rejectProposedEdit,
-} from "../convex/chat";
-import {
   applyProposal,
   listProposals,
   rejectProposal,
@@ -67,6 +62,7 @@ interface ProposalRow extends BaseRow {
   newText?: string;
   replacements?: Array<{ find: string; replaceWith: string }>;
   researchSessionId?: string;
+  requireUniqueTarget?: boolean;
   state: ProposalState;
   createdAt: number;
 }
@@ -101,9 +97,8 @@ interface SnapshotRow extends BaseRow {
   createdAt: number;
 }
 
-interface ResearchSourceRow extends BaseRow {
-  sessionId: string;
-  kind: "external" | "project_document" | "brain_pattern";
+interface ResearchSessionRow extends BaseRow {
+  evidenceSourceCount?: number;
 }
 
 interface TestTables {
@@ -115,7 +110,7 @@ interface TestTables {
   chatMessages: MessageRow[];
   chatProposals: ProposalRow[];
   reportSnapshots: SnapshotRow[];
-  researchSources: ResearchSourceRow[];
+  researchSessions: ResearchSessionRow[];
   reportProvenance: AuditRow[];
   generations: AuditRow[];
   transcripts: AuditRow[];
@@ -179,7 +174,7 @@ class FakeDb {
       tables.chatMessages,
       tables.chatProposals,
       tables.reportSnapshots,
-      tables.researchSources,
+      tables.researchSessions,
       tables.reportProvenance,
       tables.generations,
       tables.transcripts,
@@ -244,18 +239,6 @@ interface RegisteredHandler<TArgs, TResult> {
 
 // Convex registrations expose `_handler` at runtime specifically for focused
 // function tests, but the generated public function type intentionally hides it.
-const legacyApplyRegistration = applyProposedEdit as unknown as RegisteredHandler<
-  { messageId: string },
-  { applied: true; count: number }
->;
-const legacyListRegistration = listMessages as unknown as RegisteredHandler<
-  { threadId: string },
-  TestRow[]
->;
-const legacyRejectRegistration = rejectProposedEdit as unknown as RegisteredHandler<
-  { messageId: string },
-  void
->;
 const v2ApplyRegistration = applyProposal as unknown as RegisteredHandler<
   { proposalId: string },
   { applied: true; count: number }
@@ -269,9 +252,6 @@ const v2RejectRegistration = rejectProposal as unknown as RegisteredHandler<
   void
 >;
 
-const legacyApply = legacyApplyRegistration._handler;
-const legacyList = legacyListRegistration._handler;
-const legacyReject = legacyRejectRegistration._handler;
 const v2Apply = v2ApplyRegistration._handler;
 const v2List = v2ListRegistration._handler;
 const v2Reject = v2RejectRegistration._handler;
@@ -387,7 +367,7 @@ async function createFixture(role: Role, userId = "reviewer"): Promise<Fixture> 
     chatMessages: [message],
     chatProposals: [proposal],
     reportSnapshots: [],
-    researchSources: [],
+    researchSessions: [],
     reportProvenance: [
       {
         _id: provenanceId,
@@ -423,16 +403,9 @@ async function createFixture(role: Role, userId = "reviewer"): Promise<Fixture> 
   };
 }
 
-async function applyAndAssert(
-  kind: "legacy" | "v2",
-  role: Role = "manager",
-  userId = "reviewer"
-) {
+async function applyAndAssert(role: Role = "manager", userId = "reviewer") {
   const fixture = await createFixture(role, userId);
-  const result =
-    kind === "legacy"
-      ? await legacyApply(fixture.ctx, { messageId: fixture.message._id })
-      : await v2Apply(fixture.ctx, { proposalId: fixture.proposal._id });
+  const result = await v2Apply(fixture.ctx, { proposalId: fixture.proposal._id });
 
   expect(result).toEqual({ applied: true, count: 1 });
   expect(fixture.pinnedReport.content).toContain("approved replacement");
@@ -444,10 +417,7 @@ async function applyAndAssert(
   expect(fixture.pinnedReport.provenanceId).toBeUndefined();
   expect(fixture.latestReport.content).toBe("LATEST REPORT MUST REMAIN UNCHANGED");
   expect(fixture.latestReport.revisionNumber).toBe(2);
-  expect(fixture.message.proposedEdit?.state).toBe(
-    kind === "legacy" ? "applied" : "pending"
-  );
-  expect(fixture.proposal.state).toBe(kind === "v2" ? "applied" : "pending");
+  expect(fixture.proposal.state).toBe("applied");
   expect(fixture.db.tables.reportSnapshots).toHaveLength(1);
   expect(fixture.db.tables.reportSnapshots[0]).toMatchObject({
     projectId: fixture.pinnedReport.projectId,
@@ -466,37 +436,28 @@ async function applyAndAssert(
 
 describe("proposal access", () => {
   test.each(["manager", "admin"] as const)(
-    "allows an internal %s to query both proposal pipelines",
+    "allows an internal %s to query proposals",
     async (role) => {
       const fixture = await createFixture(role);
 
-      await expect(
-        legacyList(fixture.ctx, { threadId: "legacy-thread" })
-      ).resolves.toHaveLength(1);
       await expect(
         v2List(fixture.ctx, { threadId: "agent-thread" })
       ).resolves.toHaveLength(1);
     }
   );
 
-  test("allows an unrelated authenticated writer to query both proposal pipelines", async () => {
+  test("allows an unrelated authenticated writer to query proposals", async () => {
     const fixture = await createFixture("writer", "unrelated-writer");
 
-    await expect(
-      legacyList(fixture.ctx, { threadId: "legacy-thread" })
-    ).resolves.toHaveLength(1);
     await expect(
       v2List(fixture.ctx, { threadId: "agent-thread" })
     ).resolves.toHaveLength(1);
   });
 
-  test("hides both proposal pipelines from an anonymous caller", async () => {
+  test("hides proposals from an anonymous caller", async () => {
     const fixture = await createFixture("writer");
     fixture.ctx.auth.getUserIdentity = async () => null;
 
-    await expect(
-      legacyList(fixture.ctx, { threadId: "legacy-thread" })
-    ).resolves.toEqual([]);
     await expect(
       v2List(fixture.ctx, { threadId: "agent-thread" })
     ).resolves.toEqual([]);
@@ -504,23 +465,20 @@ describe("proposal access", () => {
 });
 
 describe("proposal apply integrity", () => {
-  test("legacy apply updates the pinned report and complete audit tuple", async () => {
-    await applyAndAssert("legacy");
-  });
-
-  test("V2 apply updates the pinned report and complete audit tuple", async () => {
-    await applyAndAssert("v2");
+  test("apply updates the pinned report and complete audit tuple", async () => {
+    await applyAndAssert();
   });
 
   test("a researched V2 edit keeps its evidence session on the version checkpoint", async () => {
     const fixture = await createFixture("manager");
     fixture.proposal.researchSessionId = "research-session";
-    // Brain patterns guide voice only; the checkpoint counts evidence sources.
-    fixture.db.tables.researchSources.push(
-      { _id: "source-1", _creationTime: 1, sessionId: "research-session", kind: "external" },
-      { _id: "source-2", _creationTime: 2, sessionId: "research-session", kind: "project_document" },
-      { _id: "source-3", _creationTime: 3, sessionId: "research-session", kind: "brain_pattern" }
-    );
+    // The research layer computed the brain-excluded evidence count at review
+    // time; apply just copies it onto the checkpoint.
+    fixture.db.tables.researchSessions.push({
+      _id: "research-session",
+      _creationTime: 1,
+      evidenceSourceCount: 2,
+    });
 
     await v2Apply(fixture.ctx, { proposalId: fixture.proposal._id });
 
@@ -531,90 +489,70 @@ describe("proposal apply integrity", () => {
     });
   });
 
-  test("a researched edit never replaces an ambiguous repeated passage", async () => {
+  test.each([
+    ["requireUniqueTarget flag", { requireUniqueTarget: true }],
+    // Research proposals created before the flag existed still gate on origin.
+    ["legacy researchSessionId fallback", { researchSessionId: "research-session" }],
+  ] as const)(
+    "a single-target proposal (%s) never replaces an ambiguous repeated passage",
+    async (_label, fields) => {
+      const fixture = await createFixture("manager");
+      Object.assign(fixture.proposal, fields);
+      const parsed = JSON.parse(fixture.pinnedReport.content) as {
+        content: Array<Record<string, unknown>>;
+      };
+      parsed.content.push({
+        type: "paragraph",
+        content: [{ type: "text", text: "A second exact target appears here." }],
+      });
+      fixture.pinnedReport.content = JSON.stringify(parsed);
+
+      await expect(
+        v2Apply(fixture.ctx, { proposalId: fixture.proposal._id })
+      ).rejects.toMatchObject({ data: { code: "STALE_REVISION" } });
+
+      expect(fixture.pinnedReport.content).toContain("exact target");
+      expect(fixture.db.tables.reportSnapshots).toEqual([]);
+      expect(fixture.proposal.state).toBe("pending");
+    }
+  );
+
+  test("apply preserves deletion-only replacement behavior", async () => {
     const fixture = await createFixture("manager");
-    fixture.proposal.researchSessionId = "research-session";
-    const parsed = JSON.parse(fixture.pinnedReport.content) as {
-      content: Array<Record<string, unknown>>;
-    };
-    parsed.content.push({
-      type: "paragraph",
-      content: [{ type: "text", text: "A second exact target appears here." }],
-    });
-    fixture.pinnedReport.content = JSON.stringify(parsed);
+    fixture.proposal.newText = "";
 
-    await expect(
-      v2Apply(fixture.ctx, { proposalId: fixture.proposal._id })
-    ).rejects.toMatchObject({ data: { code: "STALE_REVISION" } });
+    const result = await v2Apply(fixture.ctx, { proposalId: fixture.proposal._id });
 
-    expect(fixture.pinnedReport.content).toContain("exact target");
-    expect(fixture.db.tables.reportSnapshots).toEqual([]);
-    expect(fixture.proposal.state).toBe("pending");
+    expect(result.count).toBe(1);
+    expect(fixture.pinnedReport.content).not.toContain("exact target");
+    expect(fixture.pinnedReport.revisionNumber).toBe(8);
   });
 
-  test.each(["legacy", "v2"] as const)(
-    "%s apply preserves deletion-only replacement behavior",
-    async (kind) => {
-      const fixture = await createFixture("manager");
-      if (!fixture.message.proposedEdit) {
-        throw new Error("Legacy proposal fixture is missing its edit");
-      }
-      fixture.message.proposedEdit.newText = "";
-      fixture.proposal.newText = "";
+  test("apply preserves ordered replacement-list behavior", async () => {
+    const fixture = await createFixture("manager");
+    fixture.proposal.kind = "replacements";
+    fixture.proposal.replacements = [
+      { find: "Replace the", replaceWith: "update this" },
+      { find: "exact target", replaceWith: "approved replacement" },
+    ];
 
-      const result =
-        kind === "legacy"
-          ? await legacyApply(fixture.ctx, { messageId: fixture.message._id })
-          : await v2Apply(fixture.ctx, { proposalId: fixture.proposal._id });
+    const result = await v2Apply(fixture.ctx, { proposalId: fixture.proposal._id });
 
-      expect(result.count).toBe(1);
-      expect(fixture.pinnedReport.content).not.toContain("exact target");
-      expect(fixture.pinnedReport.revisionNumber).toBe(8);
-    }
-  );
+    expect(result.count).toBe(2);
+    expect(fixture.pinnedReport.content).toContain(
+      "Update this approved replacement."
+    );
+    expect(fixture.pinnedReport.revisionNumber).toBe(8);
+  });
 
-  test.each(["legacy", "v2"] as const)(
-    "%s apply preserves ordered replacement-list behavior",
-    async (kind) => {
-      const fixture = await createFixture("manager");
-      const replacements = [
-        { find: "Replace the", replaceWith: "update this" },
-        { find: "exact target", replaceWith: "approved replacement" },
-      ];
-      if (!fixture.message.proposedEdit) {
-        throw new Error("Legacy proposal fixture is missing its edit");
-      }
-      fixture.message.proposedEdit.replacements = replacements;
-      fixture.proposal.kind = "replacements";
-      fixture.proposal.replacements = replacements;
+  test("apply allows an unrelated authenticated writer and preserves revision audit integrity", async () => {
+    await applyAndAssert("writer", "unrelated-writer");
+  });
 
-      const result =
-        kind === "legacy"
-          ? await legacyApply(fixture.ctx, { messageId: fixture.message._id })
-          : await v2Apply(fixture.ctx, { proposalId: fixture.proposal._id });
-
-      expect(result.count).toBe(2);
-      expect(fixture.pinnedReport.content).toContain(
-        "Update this approved replacement."
-      );
-      expect(fixture.pinnedReport.revisionNumber).toBe(8);
-    }
-  );
-
-  test.each(["legacy", "v2"] as const)(
-    "%s apply allows an unrelated authenticated writer and preserves revision audit integrity",
-    async (kind) => {
-      await applyAndAssert(kind, "writer", "unrelated-writer");
-    }
-  );
-
-  test("an anonymous caller cannot apply either proposal shape", async () => {
+  test("an anonymous caller cannot apply a proposal", async () => {
     const fixture = await createFixture("writer");
     fixture.ctx.auth.getUserIdentity = async () => null;
 
-    await expect(
-      legacyApply(fixture.ctx, { messageId: fixture.message._id })
-    ).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
     await expect(
       v2Apply(fixture.ctx, { proposalId: fixture.proposal._id })
     ).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
@@ -626,43 +564,29 @@ describe("proposal apply integrity", () => {
 });
 
 describe("proposal rejection", () => {
-  test("an internal manager can reject through both existing callback paths", async () => {
-    const legacyFixture = await createFixture("manager");
-    const v2Fixture = await createFixture("manager");
+  test("an internal manager can reject a proposal", async () => {
+    const fixture = await createFixture("manager");
 
-    await legacyReject(legacyFixture.ctx, { messageId: legacyFixture.message._id });
-    await v2Reject(v2Fixture.ctx, { proposalId: v2Fixture.proposal._id });
+    await v2Reject(fixture.ctx, { proposalId: fixture.proposal._id });
 
-    expect(legacyFixture.message.proposedEdit?.state).toBe("rejected");
-    expect(legacyFixture.db.tables.chatMessages).toHaveLength(2);
-    expect(v2Fixture.proposal.state).toBe("rejected");
-    expect(v2Fixture.db.tables.chatMessages).toHaveLength(1);
+    expect(fixture.proposal.state).toBe("rejected");
   });
 
-  test("an unrelated authenticated writer can reject through both pipelines", async () => {
-    const legacyFixture = await createFixture("writer", "unrelated-writer");
-    const v2Fixture = await createFixture("writer", "unrelated-writer");
+  test("an unrelated authenticated writer can reject a proposal", async () => {
+    const fixture = await createFixture("writer", "unrelated-writer");
 
-    await legacyReject(legacyFixture.ctx, { messageId: legacyFixture.message._id });
-    await v2Reject(v2Fixture.ctx, { proposalId: v2Fixture.proposal._id });
+    await v2Reject(fixture.ctx, { proposalId: fixture.proposal._id });
 
-    expect(legacyFixture.message.proposedEdit?.state).toBe("rejected");
-    expect(legacyFixture.db.tables.chatMessages).toHaveLength(2);
-    expect(v2Fixture.proposal.state).toBe("rejected");
-    expect(v2Fixture.db.tables.chatMessages).toHaveLength(1);
+    expect(fixture.proposal.state).toBe("rejected");
   });
 
-  test("an anonymous caller cannot reject through either pipeline", async () => {
+  test("an anonymous caller cannot reject a proposal", async () => {
     const fixture = await createFixture("writer");
     fixture.ctx.auth.getUserIdentity = async () => null;
 
     await expect(
-      legacyReject(fixture.ctx, { messageId: fixture.message._id })
-    ).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
-    await expect(
       v2Reject(fixture.ctx, { proposalId: fixture.proposal._id })
     ).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
-    expect(fixture.message.proposedEdit?.state).toBe("pending");
     expect(fixture.proposal.state).toBe("pending");
   });
 });

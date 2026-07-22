@@ -49,9 +49,10 @@
   let selectedId = $state<Id<"researchSessions"> | null>(null);
   let showHistory = $state(false);
   let feedbackBusy = $state(false);
-  let feedbackHidden = $state(false);
-  let feedbackError = $state<string | null>(null);
-  let feedbackSessionId = $state<Id<"researchSessions"> | null>(null);
+  // Keyed by session so switching sessions naturally resets both — no
+  // synchronization effect needed.
+  let feedbackHiddenFor = $state<Id<"researchSessions"> | null>(null);
+  let feedbackErrorFor = $state<Id<"researchSessions"> | null>(null);
 
   const sessions = $derived(sessionsQ.data ?? []);
   const selectedSummary = $derived(
@@ -73,24 +74,28 @@
         : (-1 as const)
       : null
   );
+  const feedbackHidden = $derived(feedbackHiddenFor === selectedSessionId);
+  let claimsOpenFor = $state<Id<"researchSessions"> | null>(null);
+  const claimsOpen = $derived(claimsOpenFor === selectedSessionId);
+  const sourcesById = $derived(
+    new Map((details?.sources ?? []).map((source) => [source._id as string, source]))
+  );
 
-  $effect(() => {
-    if (sessions.length === 0) {
-      selectedId = null;
-      return;
-    }
-    if (!selectedId || !sessions.some((session) => session._id === selectedId)) {
-      selectedId = sessions[0]._id;
-    }
-  });
-
-  $effect(() => {
-    if (selectedSessionId !== feedbackSessionId) {
-      feedbackSessionId = selectedSessionId;
-      feedbackHidden = false;
-      feedbackError = null;
-    }
-  });
+  // Support verdicts from the reviewer, worst-news-first colors.
+  const SUPPORT_BADGES: Record<
+    string,
+    { label: string; class: string }
+  > = {
+    supported: { label: "Supported", class: "bg-green-50 text-green-700" },
+    qualified: { label: "Qualified", class: "bg-amber-50 text-amber-800" },
+    conflicting: { label: "Conflicting", class: "bg-red-50 text-red-700" },
+    unsupported: { label: "Unsupported", class: "bg-gray-100 text-gray-600" },
+  };
+  const feedbackError = $derived(
+    feedbackErrorFor === selectedSessionId
+      ? "Your feedback didn't send. Try again."
+      : null
+  );
 
   function formatTimestamp(timestamp: number): string {
     return new Date(timestamp).toLocaleString("en-CA", {
@@ -111,10 +116,13 @@
   }
 
   function researchSteps(): ResearchStep[] {
+    // Progress is driven by the backend's own phase transitions (session
+    // status); runs only refine the failure detail. No assumptions here about
+    // how many researchers the workflow fans out to.
     const status = details?.session.status ?? selectedSummary?.status ?? "queued";
     const searchRuns = details?.runs.filter((run) => run.provider !== "reviewer") ?? [];
-    const searchesSettled = searchRuns.length >= 2 && searchRuns.every((run) => run.status !== "running");
     const failedSearches = searchRuns.filter((run) => run.status === "failed").length;
+    const allSearchesFailed = searchRuns.length > 0 && failedSearches === searchRuns.length;
 
     return [
       {
@@ -130,9 +138,9 @@
         status:
           status === "queued"
             ? "pending"
-            : status === "researching" && !searchesSettled
+            : status === "researching"
               ? "active"
-              : failedSearches === searchRuns.length && searchRuns.length > 0
+              : allSearchesFailed
                 ? "failed"
                 : "complete",
       },
@@ -172,11 +180,11 @@
   async function submitFeedback(rating: "helpful" | "not_helpful") {
     if (!details || feedbackBusy || feedbackValue !== null) return;
     feedbackBusy = true;
-    feedbackError = null;
+    feedbackErrorFor = null;
     try {
       await submitResearchFeedback({ sessionId: details.session._id, rating });
     } catch {
-      feedbackError = "Your feedback didn't send. Try again.";
+      feedbackErrorFor = details.session._id;
     } finally {
       feedbackBusy = false;
     }
@@ -327,6 +335,60 @@
               </ul>
             {/if}
 
+            {#if details.claims.length > 0}
+              <div>
+                <button
+                  type="button"
+                  aria-expanded={claimsOpen}
+                  onclick={() => (claimsOpenFor = claimsOpen ? null : selectedSessionId)}
+                  class="text-[11px] font-medium text-ink-muted transition-colors hover:text-navy"
+                >
+                  {claimsOpen
+                    ? "Hide claim support"
+                    : `How ${details.claims.length} claim${details.claims.length === 1 ? " was" : "s were"} checked against sources`}
+                </button>
+                {#if claimsOpen}
+                  <ul class="mt-2 space-y-2">
+                    {#each details.claims as claim (claim._id)}
+                      {@const badge = SUPPORT_BADGES[claim.support] ?? SUPPORT_BADGES.unsupported}
+                      <li class="rounded-lg bg-gray-50 px-3 py-2">
+                        <div class="flex items-start gap-2">
+                          <span class={`mt-0.5 inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.class}`}>
+                            {badge.label}
+                          </span>
+                          <p class="min-w-0 text-xs leading-relaxed text-ink-secondary">{claim.text}</p>
+                        </div>
+                        {#if claim.sourceIds.length}
+                          <div class="mt-1.5 flex flex-wrap gap-1.5 pl-0.5">
+                            {#each claim.sourceIds as sourceId (sourceId)}
+                              {@const source = sourcesById.get(sourceId)}
+                              {#if source?.canonicalUrl}
+                                <a
+                                  href={source.canonicalUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  class="max-w-44 truncate rounded-md bg-white px-1.5 py-0.5 text-[10px] text-ink-muted ring-1 ring-line-soft transition-colors hover:text-navy"
+                                >
+                                  {source.domain ?? source.title}
+                                </a>
+                              {:else if source}
+                                <span
+                                  title="Private project document"
+                                  class="max-w-44 truncate rounded-md bg-white px-1.5 py-0.5 text-[10px] text-ink-muted ring-1 ring-line-soft"
+                                >
+                                  {source.title}
+                                </span>
+                              {/if}
+                            {/each}
+                          </div>
+                        {/if}
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
+              </div>
+            {/if}
+
             {#if externalSources.some((source) => source.canonicalUrl)}
               <div>
                 <p class="mb-2 text-xs font-semibold text-navy">Sources</p>
@@ -382,7 +444,7 @@
                 disabled={feedbackBusy}
                 onHelpful={() => submitFeedback("helpful")}
                 onNotHelpful={() => submitFeedback("not_helpful")}
-                onClose={() => (feedbackHidden = true)}
+                onClose={() => (feedbackHiddenFor = selectedSessionId)}
               />
               {#if feedbackError}
                 <p class="text-xs text-red-600" role="alert">{feedbackError}</p>

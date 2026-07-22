@@ -3,7 +3,6 @@
   import { page } from "$app/state";
   import { useConvexClient, useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import { PUBLIC_AGENT_CHAT } from "$env/static/public";
   import { scale } from "svelte/transition";
   import { overlayFade, modalPop } from "$lib/motion";
   import { api } from "../../../../convex/_generated/api";
@@ -34,7 +33,6 @@
   import FilingReadinessPanel from "$lib/components/evidence/FilingReadinessPanel.svelte";
   import LogsPanel from "$lib/components/editor/LogsPanel.svelte";
   import CommentOverlay from "$lib/components/comments/CommentOverlay.svelte";
-  import ChatPanel from "$lib/components/chat/ChatPanel.svelte";
   import AgentChatPanel from "$lib/components/chat/AgentChatPanel.svelte";
   import VersionHistory from "$lib/components/history/VersionHistory.svelte";
   import EditableText from "$lib/components/project/EditableText.svelte";
@@ -59,9 +57,6 @@
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
   import { displayName } from "$lib/displayName";
-
-  // BNH-10 P2 parallel-run: flip chat to the streaming @convex-dev/agent backend.
-  const AGENT_CHAT = PUBLIC_AGENT_CHAT === "1";
 
   const auth = useAuth();
   const convex = useConvexClient();
@@ -102,7 +97,6 @@
   const logPdReviewEvent = useMutation(api.pdReviews.logPdReviewEvent);
   const updateReport = useMutation(api.reports.updateReportContent);
   const createSnapshot = useMutation(api.snapshots.createManualSnapshot);
-  const markEditApplied = useMutation(api.chat.markProposedEditApplied);
   const markProposalApplied = useMutation(api.chatV2.markProposalApplied);
   const updateTitles = useMutation(api.projects.updateProjectTitles);
   const updateProjectTags = useMutation(api.projects.updateProjectTags);
@@ -217,12 +211,8 @@
     setTimeout(() => (replaceNotice = null), 4000);
   }
 
-  // Route "mark applied" to whichever chat backend owns the id.
   function markApplied(id: string) {
-    if (AGENT_CHAT) {
-      return markProposalApplied({ proposalId: id as Id<"chatProposals"> });
-    }
-    return markEditApplied({ messageId: id as Id<"chatMessages"> });
+    return markProposalApplied({ proposalId: id as Id<"chatProposals"> });
   }
 
   function startReplaceReview(
@@ -1183,8 +1173,7 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
-              {#if AGENT_CHAT}
-                <AgentChatPanel
+              <AgentChatPanel
                   {projectId}
                   reportId={report._id}
                   pendingHighlight={pendingChatHighlight}
@@ -1199,23 +1188,6 @@
                   }}
                   reviewingId={replaceSession?.messageId ?? null}
                 />
-              {:else}
-                <ChatPanel
-                  {projectId}
-                  reportId={report._id}
-                  pendingHighlight={pendingChatHighlight}
-                  onClearHighlight={() => (pendingChatHighlight = null)}
-                  {pendingResearch}
-                  onClearResearch={() => (pendingResearch = null)}
-                  onReferenceText={(texts, scrollTo) => editorRef?.highlightText(texts, scrollTo)}
-                  onPreviewProposal={(pairs, on) => {
-                    if (on && pairs.length) editorRef?.previewProposal(pairs);
-                    else editorRef?.clearProposalPreview();
-                  }}
-                  onReviewReplacements={startReplaceReview}
-                  reviewingMessageId={(replaceSession?.messageId ?? null) as Id<"chatMessages"> | null}
-                />
-              {/if}
             </div>
           </aside>
         {/if}

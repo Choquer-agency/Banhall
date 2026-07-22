@@ -90,6 +90,7 @@ describe("Contextual Research core", () => {
         prompt_tokens: 12,
         completion_tokens: 34,
         cost: 0.12,
+        prompt_tokens_details: { cached_tokens: 5 },
         server_tool_use: { web_search_requests: 2 },
       },
     });
@@ -101,9 +102,12 @@ describe("Contextual Research core", () => {
       title: "Example research",
       content: "A much longer supporting excerpt.",
     });
+    // Cached tokens are split out of inputTokens (same semantics as every
+    // other OpenRouter call — see openRouterUsage).
     expect(result.usage).toEqual({
-      inputTokens: 12,
+      inputTokens: 7,
       outputTokens: 34,
+      cacheReadInputTokens: 5,
       costUsd: 0.12,
       webSearchRequests: 2,
     });

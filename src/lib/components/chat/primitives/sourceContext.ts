@@ -12,7 +12,7 @@ export function setSourceContext(getHref: () => string): SourceContext {
   function domain(): string {
     const href = getHref();
     try {
-      return new URL(href).hostname;
+      return new URL(href).hostname.replace(/^www\./, "");
     } catch {
       return href.split("/").pop() || href;
     }

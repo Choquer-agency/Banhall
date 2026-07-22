@@ -432,6 +432,11 @@ export default defineSchema({
     // Set when the proposal came from Contextual Research. This survives the
     // proposal lifecycle and links an accepted edit back to its evidence.
     researchSessionId: v.optional(v.id("researchSessions")),
+    // Producer-declared safety property: this proposal targets exactly one
+    // occurrence, so apply must refuse when the passage is no longer unique.
+    // Any single-target producer (research today, QA/review agents later)
+    // sets this instead of applyProposal special-casing its origin.
+    requireUniqueTarget: v.optional(v.boolean()),
     state: v.union(
       v.literal("pending"),
       v.literal("applied"),
@@ -565,6 +570,9 @@ export default defineSchema({
     ),
     answer: v.optional(v.string()),
     evidenceBoundary: v.optional(v.string()),
+    // Non-brain source count, computed once at review time; copied onto the
+    // version-history checkpoint when the proposal is applied.
+    evidenceSourceCount: v.optional(v.number()),
     confidence: v.optional(
       v.union(v.literal("high"), v.literal("medium"), v.literal("low"))
     ),
@@ -585,9 +593,7 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_reportId", ["reportId"])
-    .index("by_reportId_and_requestedBy", ["reportId", "requestedBy"])
-    .index("by_projectId", ["projectId"])
-    .index("by_workflowId", ["workflowId"]),
+    .index("by_reportId_and_requestedBy", ["reportId", "requestedBy"]),
 
   researchRuns: defineTable({
     sessionId: v.id("researchSessions"),
@@ -639,9 +645,7 @@ export default defineSchema({
       v.literal("brain_pattern")
     ),
     createdAt: v.number(),
-  })
-    .index("by_sessionId", ["sessionId"])
-    .index("by_sessionId_and_canonicalUrl", ["sessionId", "canonicalUrl"]),
+  }).index("by_sessionId", ["sessionId"]),
 
   researchClaims: defineTable({
     sessionId: v.id("researchSessions"),

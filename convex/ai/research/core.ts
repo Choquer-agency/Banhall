@@ -4,6 +4,11 @@
  * validation can be unit tested without a deployment.
  */
 
+import {
+  openRouterUsage,
+  type ChatCompletionsResponse,
+} from "../openrouterCore";
+
 export const RESEARCH_MODELS = {
   gpt: "openai/gpt-5.6-sol",
   perplexity: "perplexity/sonar-deep-research",
@@ -13,12 +18,20 @@ export const RESEARCH_MODELS = {
 export type ExternalResearchProvider = "gpt" | "perplexity";
 export type ResearchRunProvider = ExternalResearchProvider | "reviewer";
 
-const MAX_SELECTED_TEXT = 12_000;
-const MAX_CONTEXT_TEXT = 12_000;
-const MAX_INSTRUCTION = 2_000;
+/** Display names for the external researchers (prompts, memos, step labels). */
+export const RESEARCH_PROVIDER_LABELS: Record<ExternalResearchProvider, string> = {
+  gpt: "GPT web research",
+  perplexity: "Perplexity deep research",
+};
+
+// Input bounds. startResearch validates against these and buildExternalBrief
+// truncates with them — single source so the two can't drift.
+export const MAX_SELECTED_TEXT = 12_000;
+export const MAX_CONTEXT_TEXT = 12_000;
+export const MAX_INSTRUCTION = 2_000;
 const MAX_SOURCE_EXCERPT = 5_000;
 
-function cap(value: string, max: number): string {
+export function cap(value: string, max: number): string {
   const normalized = value.replace(/\u0000/g, "").trim();
   return normalized.length <= max ? normalized : `${normalized.slice(0, max - 1)}…`;
 }
@@ -230,6 +243,7 @@ export type OpenRouterResearchResult = {
   usage: {
     inputTokens: number;
     outputTokens: number;
+    cacheReadInputTokens: number;
     costUsd?: number;
     webSearchRequests: number;
   };
@@ -350,16 +364,18 @@ export function parseOpenRouterResearchResponse(body: unknown): OpenRouterResear
     usage.server_tool_use && typeof usage.server_tool_use === "object"
       ? (usage.server_tool_use as Record<string, unknown>)
       : {};
+  // Shared extractor: subtracts cached tokens from prompt_tokens so research
+  // rows report inputTokens consistently with every other OpenRouter call.
+  const shared = openRouterUsage(body as ChatCompletionsResponse);
   return {
     ...(typeof record.id === "string" ? { responseId: record.id } : {}),
     text: cap(message.content, 100_000),
     citations: Array.from(byUrl.values()).slice(0, 40),
     usage: {
-      inputTokens: finiteCount(usage.prompt_tokens ?? usage.input_tokens),
-      outputTokens: finiteCount(usage.completion_tokens ?? usage.output_tokens),
-      ...(typeof usage.cost === "number" && Number.isFinite(usage.cost) && usage.cost >= 0
-        ? { costUsd: usage.cost }
-        : {}),
+      inputTokens: shared.inputTokens,
+      outputTokens: shared.outputTokens,
+      cacheReadInputTokens: shared.cacheReadInputTokens,
+      ...(shared.costUsd !== undefined ? { costUsd: shared.costUsd } : {}),
       webSearchRequests: finiteCount(serverToolUse.web_search_requests),
     },
   };

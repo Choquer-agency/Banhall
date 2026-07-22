@@ -95,7 +95,8 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   const client = useConvexClient();
   const setArchived = useMutation(api.documents.setDocumentArchived);
   const deleteDoc = useMutation(api.documents.deleteDocument);
-  const sendMessage = useMutation(api.chat.sendMessage);
+  // Agent chat pipeline (legacy chat.ts panel retired Jul 22).
+  const sendMessage = useMutation(api.chatV2.sendMessage);
 
   const documents = $derived(documentsQ.data as DocRow[] | undefined);
   const transcript = $derived(transcriptQ.data);

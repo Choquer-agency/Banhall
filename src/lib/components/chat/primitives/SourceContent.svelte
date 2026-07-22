@@ -28,7 +28,7 @@
   >
     <span class="flex items-center gap-1.5">
       <img src={faviconUrl} alt="" width="16" height="16" class="h-4 w-4 rounded-full" />
-      <span class="truncate text-xs font-medium text-primary-selected">{domain.replace(/^www\./, "")}</span>
+      <span class="truncate text-xs font-medium text-primary-selected">{domain}</span>
     </span>
     <span class="line-clamp-2 text-xs font-semibold leading-snug text-ink">{title}</span>
     <span class="line-clamp-3 text-[11px] leading-relaxed text-ink-muted">{description}</span>
