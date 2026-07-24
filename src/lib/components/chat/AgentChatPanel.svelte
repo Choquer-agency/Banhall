@@ -4,12 +4,14 @@
   import type { Doc, Id } from "../../../../convex/_generated/dataModel";
   import { createUIMessages } from "$lib/chat/uiMessages.svelte";
   import type { UIMessage } from "@convex-dev/agent";
-  import ProposedEditCard from "$lib/components/chat/ProposedEditCard.svelte";
+  import ProposalCard from "$lib/components/chat/ProposalCard.svelte";
   import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
   import type { ResearchSelection } from "$lib/components/editor/types";
+  import { DropdownMenu } from "bits-ui";
+  import { SvelteMap } from "svelte/reactivity";
   import { fade } from "svelte/transition";
   import {
     ChatContainer,
@@ -18,6 +20,7 @@
     MessageContent,
     MessageAvatar,
     MessageActions,
+    ActionButton,
     PromptInput,
     PromptInputTextarea,
     PromptInputActions,
@@ -65,6 +68,7 @@
       on: boolean
     ) => void;
     reviewingId?: string | null;
+    onBeforeApply?: () => Promise<unknown>;
   }
 
   let {
@@ -80,6 +84,7 @@
     onReviewReplacements,
     onPreviewProposal,
     reviewingId,
+    onBeforeApply,
   }: Props = $props();
 
   /** The source passages a proposal references — for scroll-and-highlight. */
@@ -131,6 +136,13 @@
     };
   }
 
+  /** Hide structured proposal-refinement context appended to saved messages. */
+  function visibleWriterMessage(text: string) {
+    const marker = "\n\n[Writer is refining suggestion ";
+    const index = text.indexOf(marker);
+    return index === -1 ? text : text.slice(0, index);
+  }
+
   /** SR&ED-relevant conversation starters for the empty state. */
   const STARTERS = [
     "Tighten section 242's uncertainty framing",
@@ -175,6 +187,23 @@
     return t?.title ?? "New chat";
   });
 
+  function startNewThread() {
+    startingNewChat = true;
+    selectedThreadId = null;
+    input = "";
+    refiningProposal = null;
+    onClearHighlight?.();
+    onClearResearch?.();
+    textareaEl?.focus();
+  }
+
+  function selectThread(threadId: string) {
+    startingNewChat = false;
+    selectedThreadId = threadId;
+    input = "";
+    refiningProposal = null;
+  }
+
   const ui = createUIMessages(
     api.chatV2.listMessages,
     () => (selectedThreadId ? { threadId: selectedThreadId } : "skip"),
@@ -191,8 +220,6 @@
 
   const sendMessage = useMutation(api.chatV2.sendMessage);
   const abortStreaming = useMutation(api.chatV2.abortStreaming);
-  const applyProposal = useMutation(api.chatV2.applyProposal);
-  const rejectProposal = useMutation(api.chatV2.rejectProposal);
   const uploadDocument = useMutation(api.documents.uploadDocument);
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
   const startResearch = useMutation(api.research.startResearch);
@@ -202,6 +229,9 @@
   let sending = $state(false);
   let researchStarting = $state(false);
   let researchError = $state<string | null>(null);
+  let sendError = $state<string | null>(null);
+  let retryText = $state<string | null>(null);
+  let refiningProposal = $state<Proposal | null>(null);
   let stopping = $state(false);
   let uploading = $state(false);
 
@@ -252,30 +282,84 @@
   let pillWidth = $state(0);
   let chatContainer: ChatContainer | null = $state(null);
 
-  // Group proposals under the assistant message they came from; anything the
-  // component ids don't line up with lands after the final message.
+  function messageToolCallIds(message: UIMessage) {
+    return new Set(
+      message.parts.flatMap((part) =>
+        "toolCallId" in part && typeof part.toolCallId === "string"
+          ? [part.toolCallId]
+          : []
+      )
+    );
+  }
+
+  // Associate proposal cards with their exact assistant tool call. Older rows
+  // fall back to the reply sharing their prompt's order, then nearby creation
+  // time, instead of accumulating in a detached stack at the bottom.
   const grouped = $derived.by(() => {
-    const byMessage = new Map<string, Proposal[]>();
+    const byMessage = new SvelteMap<string, Proposal[]>();
     const orphans: Proposal[] = [];
-    const messageIds = new Set((messages ?? []).map((m) => m.id));
-    for (const p of proposalsQ.data ?? []) {
-      if (p.messageId && messageIds.has(p.messageId)) {
-        const list = byMessage.get(p.messageId) ?? [];
-        list.push(p);
-        byMessage.set(p.messageId, list);
-      } else {
-        orphans.push(p);
+    const allMessages = messages ?? [];
+    const assistantMessages = allMessages.filter((m) => m.role === "assistant");
+    const toolOwners = new SvelteMap<string, UIMessage>();
+    for (const message of assistantMessages) {
+      for (const toolCallId of messageToolCallIds(message)) {
+        toolOwners.set(toolCallId, message);
       }
+    }
+    const messageById = new SvelteMap(allMessages.map((message) => [message.id, message]));
+
+    const proposals = proposalsQ.data ?? [];
+    const latestPendingIndexByPrompt = new SvelteMap<string, number>();
+    proposals.forEach((proposal, index) => {
+      if (proposal.state === "pending" && proposal.promptMessageId) {
+        latestPendingIndexByPrompt.set(proposal.promptMessageId, index);
+      }
+    });
+
+    for (const [proposalIndex, proposal] of proposals.entries()) {
+      // A refinement turn supersedes the previous pending card from that prompt.
+      // Keep the latest actionable wording in the timeline instead of stacking
+      // every intermediate iteration in the narrow chat rail.
+      if (
+        proposal.state === "pending" &&
+        proposal.promptMessageId &&
+        latestPendingIndexByPrompt.get(proposal.promptMessageId) !== proposalIndex
+      ) {
+        continue;
+      }
+      let owner = proposal.toolCallId ? toolOwners.get(proposal.toolCallId) : undefined;
+      if (!owner && proposal.promptMessageId) {
+        const prompt = messageById.get(proposal.promptMessageId);
+        if (prompt) {
+          owner = assistantMessages.find((message) => message.order === prompt.order);
+        }
+      }
+      if (!owner && proposal.messageId) owner = messageById.get(proposal.messageId);
+      if (!owner) {
+        owner = [...assistantMessages]
+          .reverse()
+          .find((message) => message._creationTime <= proposal.createdAt);
+      }
+      if (!owner) {
+        orphans.push(proposal);
+        continue;
+      }
+      const list = byMessage.get(owner.id) ?? [];
+      list.push(proposal);
+      byMessage.set(owner.id, list);
     }
     return { byMessage, orphans };
   });
 
   const composerSelection = $derived(pendingResearch ?? pendingHighlight);
+  const composerContextActive = $derived(refiningProposal !== null || composerSelection !== null);
+  const canLoadOlder = $derived(ui.status === "CanLoadMore" || ui.status === "LoadingMore");
 
   // Measure the selected-text pill so the textarea's first line starts beside it.
   $effect(() => {
     void composerSelection?.text;
-    if (composerSelection && pillEl) {
+    void refiningProposal?._id;
+    if (composerContextActive && pillEl) {
       pillWidth = pillEl.offsetWidth + 10;
     } else {
       pillWidth = 0;
@@ -342,18 +426,20 @@
     }
 
     sending = true;
+    sendError = null;
     try {
       const res = await sendMessage({
         reportId,
         content: trimmed,
         ...(selectedThreadId ? { threadId: selectedThreadId } : {}),
         ...(pendingHighlight ? { highlight: pendingHighlight } : {}),
+        ...(refiningProposal ? { refineProposalId: refiningProposal._id } : {}),
         ...(startingNewChat ? { newThread: true } : {}),
       });
       selectedThreadId = res.threadId;
       startingNewChat = false;
       input = "";
-      attachments = [];
+      refiningProposal = null;
       onClearHighlight?.();
       dismissHint();
       // Re-pin to the bottom even if the writer had scrolled up — a fresh
@@ -361,6 +447,8 @@
       chatContainer?.scrollToBottom("instant");
     } catch (e) {
       console.error("Failed to send message", e);
+      retryText = trimmed;
+      sendError = e instanceof Error ? e.message : "Your message could not be sent.";
     } finally {
       sending = false;
     }
@@ -517,40 +605,57 @@
       </div>
     {/if}
   {:else}
-    <ProposedEditCard
-      newText={p.newText}
-      targetText={p.targetText}
-      replacements={p.replacements}
-      state={p.state}
-      onReplace={async () => {
-        await applyProposal({ proposalId: p._id });
+    <ProposalCard
+      proposal={p}
+      {onBeforeApply}
+      {onReferenceText}
+      {onReviewReplacements}
+      {onPreviewProposal}
+      onRefine={(proposal) => {
+        refiningProposal = proposal;
+        input = "";
+        retryText = null;
+        textareaEl?.focus();
+        chatContainer?.scrollToBottom("smooth");
       }}
-      onReject={async () => {
-        await rejectProposal({ proposalId: p._id });
-      }}
-      onShowInDoc={proposalRefs(p).length > 0
-        ? () => onReferenceText?.(proposalRefs(p))
-        : undefined}
-      onReviewOneByOne={p.replacements && p.replacements.length > 0 && onReviewReplacements
-        ? () => onReviewReplacements(p.replacements!, p._id)
-        : undefined}
-      onPreviewInDoc={onPreviewProposal
-        ? (on) => {
-            const pairs =
-              p.replacements && p.replacements.length > 0
-                ? p.replacements
-                : p.targetText
-                  ? [{ find: p.targetText, replaceWith: p.newText ?? "" }]
-                  : [];
-            onPreviewProposal(pairs, on);
-          }
-        : undefined}
       reviewing={reviewingId === p._id}
     />
   {/if}
 {/snippet}
 
 {#snippet composer()}
+  {#if sendError}
+    <div class="mb-2 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" role="alert">
+      <span class="min-w-0 flex-1">{sendError}</span>
+      <div class="flex shrink-0 items-center gap-1">
+        {#if retryText}
+          <ActionButton
+            variant="danger"
+            class="min-h-7 px-2"
+            onclick={() => sendText(retryText ?? "")}
+            disabled={sending || isStreaming}
+          >
+            Retry
+          </ActionButton>
+        {/if}
+        <ActionButton
+          variant="icon"
+          class="h-7 w-7 text-red-500 hover:bg-red-100 hover:text-red-700"
+          tooltip="Dismiss error"
+          aria-label="Dismiss send error"
+          onclick={() => {
+            sendError = null;
+            retryText = null;
+          }}
+        >
+          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" d="M6 18 18 6M6 6l12 12" />
+          </svg>
+        </ActionButton>
+      </div>
+    </div>
+  {/if}
+
   {#if uploadError}
     <div class="mb-2 flex items-start justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-600">
       <span>{uploadError}</span>
@@ -605,15 +710,7 @@
               {meta.label}
             </span>
           {/if}
-          <button
-            aria-label="Remove attachment"
-            onclick={() => (attachments = attachments.filter((_, idx) => idx !== i))}
-            class="ml-0.5 text-gray-400 hover:text-gray-600"
-          >
-            <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <span class="ml-1 text-[10px] text-ink-muted">Project context</span>
         </span>
       {/each}
     </div>
@@ -637,11 +734,13 @@
 
   <PromptInput bind:value={input} isLoading={sending || researchStarting} onSubmit={(v) => sendText(v)}>
     <PromptInputActions>
-      <button
+      <ActionButton
+        variant="icon"
+        class="mb-0.5 h-9 w-9 rounded-full"
         onclick={() => fileInputEl?.click()}
         disabled={uploading}
-        title="Attach a document"
-        class="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-primary-wash hover:text-gray-600 disabled:opacity-50"
+        tooltip="Add a document to project context"
+        aria-label="Add a document to project context"
       >
         {#if uploading}
           <Spinner size="sm" class="border-gray-300 border-t-gray-500" />
@@ -650,7 +749,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
           </svg>
         {/if}
-      </button>
+      </ActionButton>
       <input
         bind:this={fileInputEl}
         type="file"
@@ -677,17 +776,40 @@
 
     <PromptInputTextarea
       bind:ref={textareaEl}
-      textIndent={composerSelection ? pillWidth : undefined}
+      aria-label="Message the report assistant"
+      textIndent={composerContextActive ? pillWidth : undefined}
       placeholder={pendingResearch
         ? "What should the research verify?"
-        : pendingHighlight
-          ? "Add instructions…"
-          : isEmpty
-            ? "Ask anything about this report…"
-            : "Ask a follow-up…"}
+        : refiningProposal
+          ? "How should I revise this suggestion?"
+          : pendingHighlight
+            ? "Add instructions…"
+            : isEmpty
+              ? "Ask anything about this report…"
+              : "Ask a follow-up…"}
     >
       {#snippet pill()}
-        {#if composerSelection}
+        {#if refiningProposal}
+          <span
+            bind:this={pillEl}
+            class="absolute left-1 top-1 z-10 inline-flex max-w-[70%] items-center gap-1.5 rounded-full bg-primary-wash px-2.5 py-1 text-xs font-medium text-primary-selected shadow-sm"
+          >
+            <svg class="h-3 w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+            </svg>
+            <span class="truncate">Refining suggestion</span>
+            <button
+              type="button"
+              onclick={() => (refiningProposal = null)}
+              class="shrink-0 opacity-60 transition-opacity hover:opacity-100"
+              aria-label="Stop refining suggestion"
+            >
+              <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </span>
+        {:else if composerSelection}
           <span
             bind:this={pillEl}
             title={composerSelection.text}
@@ -773,6 +895,48 @@
       <span class="block text-sm font-semibold text-navy">Assistant</span>
       <span class="block truncate text-[11px] text-gray-500">{threadTitle}</span>
     </div>
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger
+        aria-label="Conversation menu"
+        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+      >
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+        </svg>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          side="bottom"
+          align="end"
+          sideOffset={8}
+          class="z-[100] max-h-80 w-72 overflow-y-auto rounded-xl border border-line bg-white p-1 shadow-lg"
+        >
+          <DropdownMenu.Item
+            onSelect={startNewThread}
+            class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-navy outline-none hover:bg-primary-wash focus:bg-primary-wash"
+          >
+            <svg class="h-4 w-4 text-primary-selected" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path stroke-linecap="round" d="M12 5v14M5 12h14" />
+            </svg>
+            New conversation
+          </DropdownMenu.Item>
+          {#if (threadsQ.data?.length ?? 0) > 0}
+            <div class="my-1 border-t border-line-soft"></div>
+            {#each threadsQ.data ?? [] as thread (thread._id)}
+              <DropdownMenu.Item
+                onSelect={() => selectThread(thread.agentThreadId)}
+                class={`block w-full rounded-lg px-3 py-2 text-left outline-none hover:bg-primary-wash focus:bg-primary-wash ${thread.agentThreadId === selectedThreadId ? "bg-primary-wash text-navy" : "text-ink-secondary"}`}
+              >
+                <span class="block truncate text-sm font-medium">{thread.title}</span>
+                <span class="text-data mt-0.5 block text-ink-muted">
+                  {new Date(thread.createdAt).toLocaleDateString()}
+                </span>
+              </DropdownMenu.Item>
+            {/each}
+          {/if}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
     {#if onToggleFull}
       <button
         onclick={onToggleFull}
@@ -824,8 +988,21 @@
       bind:this={chatContainer}
       class="min-h-0 flex-1"
       viewportClass="px-5 py-4"
-      contentClass="space-y-4"
+      contentClass="space-y-3"
     >
+      {#if canLoadOlder}
+        <div class="flex justify-center pb-1">
+          <ActionButton
+            variant="ghost"
+            onclick={() => ui.loadMore(40)}
+            loading={ui.status === "LoadingMore"}
+            loadingLabel="Loading…"
+          >
+            Load earlier messages
+          </ActionButton>
+        </div>
+      {/if}
+
       {#each messages as m, i (m.key)}
         {@const text = messageText(m)}
         {@const prev = i > 0 ? messages[i - 1] : undefined}
@@ -837,7 +1014,7 @@
           </div>
         {/if}
         {#if m.role === "user"}
-          {@const split = splitWriterMessage(text)}
+          {@const split = splitWriterMessage(visibleWriterMessage(text))}
           <Message role="user">
             <MessageContent>
               {#if split.highlight}
@@ -904,8 +1081,10 @@
         {reportId}
         {onReferenceText}
         {onPreviewProposal}
-        onCopyToComposer={(text) => {
-          input = text;
+        {onBeforeApply}
+        onRefineProposal={(proposal) => {
+          refiningProposal = proposal;
+          input = "";
           textareaEl?.focus();
           chatContainer?.scrollToBottom("smooth");
         }}

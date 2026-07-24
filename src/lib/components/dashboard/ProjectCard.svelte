@@ -3,6 +3,7 @@
   import { goto } from "$app/navigation";
   import { toast } from "svelte-sonner";
   import Badge from "$lib/components/ui/Badge.svelte";
+  import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import type { Doc } from "../../../../convex/_generated/dataModel";
   import { useMutation } from "convex-svelte";
@@ -72,9 +73,18 @@
   let {
     project,
     tags = [],
+    selected = false,
+    selectionMode = false,
+    onToggleSelect,
   }: {
     project: Doc<"projects"> & { awaitingSelection?: boolean; awaitingInput?: boolean };
     tags?: ProjectTag[];
+    /** Bulk edit: card is in the current selection. */
+    selected?: boolean;
+    /** Bulk edit: any selection is active — checkboxes persist and card click toggles. */
+    selectionMode?: boolean;
+    /** Presence enables the selection checkbox overlay. */
+    onToggleSelect?: () => void;
   } = $props();
 
   let menuOpen = $state(false);
@@ -135,7 +145,17 @@
 <div class="group relative h-full">
   <a
     href={`/project/${project._id}`}
-    class={`card flex h-full flex-col overflow-hidden transition-[border-color,box-shadow] duration-300 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas motion-reduce:transition-none ${theme.border} ${theme.hoverBorder} ${theme.hoverShadow}`}
+    onclick={(e) => {
+      if (selectionMode && onToggleSelect) {
+        e.preventDefault();
+        onToggleSelect();
+      }
+    }}
+    class={`card flex h-full flex-col overflow-hidden transition-[border-color,box-shadow] duration-300 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas motion-reduce:transition-none ${
+      selected
+        ? "border-primary-selected bg-primary-wash ring-1 ring-primary-selected/40"
+        : `${theme.border} ${theme.hoverBorder} ${theme.hoverShadow}`
+    }`}
   >
     <!-- Header zone -->
     <div class="flex items-start justify-between gap-3 px-4 pb-3 pt-4">
@@ -185,6 +205,25 @@
       <span class="whitespace-nowrap">Updated {updatedDate}</span>
     </div>
   </a>
+
+  <!-- Selection checkbox — sibling of the link, like the three-dot menu -->
+  {#if onToggleSelect}
+    <div
+      class={`absolute left-2.5 top-2.5 transition-opacity duration-300 motion-reduce:transition-none ${
+        selectionMode || selected
+          ? "opacity-100"
+          : "opacity-0 focus-within:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+      }`}
+    >
+      <span class="flex rounded-[7px] bg-white shadow-sm">
+        <Checkbox
+          checked={selected}
+          aria-label={`Select “${project.title}”`}
+          onCheckedChange={() => onToggleSelect?.()}
+        />
+      </span>
+    </div>
+  {/if}
 
   <!-- Three-dot menu — remains outside the link and appears on hover/focus -->
   <!-- Vertically centered against the single-line footer (36px row, 28px button) -->

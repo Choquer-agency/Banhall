@@ -18,7 +18,7 @@
 
 <div
   class={cn(
-    "-ml-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 has-focus-visible:opacity-100 motion-reduce:transition-none",
+    "-ml-1 flex items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:has-focus-visible:opacity-100 motion-reduce:transition-none",
     className
   )}
 >

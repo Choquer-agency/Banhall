@@ -70,7 +70,7 @@
       side="bottom"
       align="start"
       sideOffset={6}
-      class="z-50 rounded-xl border border-gray-200 bg-white p-3 shadow-lg"
+      class="z-[120] rounded-xl border border-gray-200 bg-white p-3 shadow-lg"
     >
       <Calendar.Root
         type="single"

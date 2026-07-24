@@ -119,6 +119,10 @@
   <div
     bind:this={viewportEl}
     onscroll={handleScroll}
+    role="log"
+    aria-label="Conversation"
+    aria-live="polite"
+    aria-relevant="additions text"
     class={cn(
       "h-full w-full overflow-y-auto overscroll-y-contain [overflow-anchor:none]",
       viewportClass

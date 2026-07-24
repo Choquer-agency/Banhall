@@ -92,6 +92,129 @@ async function getProject(
   return await t.run(async (ctx) => await ctx.db.get(projectId));
 }
 
+describe("project duplication", () => {
+  test("copies all project documents, archived state, evidence, and PD reviews", async () => {
+    const { t, projectId, reportId } = await setup();
+    const { destinationProjectId, destinationTranscriptId } = await t.run(async (ctx) => {
+      const owner = await ctx.db
+        .query("users")
+        .withIndex("by_authId", (q) => q.eq("authId", authIds.owner))
+        .unique();
+      if (!owner) throw new Error("owner missing");
+      const now = Date.now();
+      await ctx.db.patch(reportId, {
+        content: JSON.stringify({ type: "doc", content: [] }),
+        revisionNumber: 4,
+      });
+      const destination = await ctx.db.insert("projects", {
+        title: "Copy",
+        clientName: "Client",
+        status: "draft",
+        createdBy: owner._id,
+        shareToken: "copy-token",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const transcriptId = await ctx.db.insert("transcripts", {
+        projectId: destination,
+        content: "source transcript",
+        createdAt: now,
+      });
+      const supportDoc = await ctx.db.insert("projectDocuments", {
+        projectId,
+        fileName: "Support.pdf",
+        fileType: "pdf",
+        content: "supporting evidence",
+        archived: true,
+        category: "background",
+        source: "context_input",
+        uploadedBy: "Owner",
+        createdAt: now,
+      });
+      const reviewDoc = await ctx.db.insert("projectDocuments", {
+        projectId,
+        fileName: "Existing PD.docx",
+        fileType: "docx",
+        content: "existing PD",
+        source: "review_pd",
+        uploadedBy: "Owner",
+        createdAt: now,
+      });
+      await ctx.db.insert("projectIdentityEvidence", {
+        projectId,
+        subjectName: "Client",
+        relationship: "claimant",
+        evidenceKind: "project_document",
+        projectDocumentId: supportDoc,
+        sourceDescription: "Support.pdf",
+        status: "verified",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("pdReviews", {
+        projectId,
+        documentId: reviewDoc,
+        sourceFileName: "Existing PD.docx",
+        status: "completed",
+        result: "review output",
+        createdBy: "Owner",
+        createdAt: now,
+        completedAt: now,
+      });
+      return {
+        destinationProjectId: destination,
+        destinationTranscriptId: transcriptId,
+      };
+    });
+
+    const result = await asActor(t, "owner").mutation(
+      api.projects.prepareProjectContentCopy,
+      {
+        fromProjectId: projectId,
+        toProjectId: destinationProjectId,
+        targetTranscriptId: destinationTranscriptId,
+      }
+    );
+
+    expect(result.documents).toHaveLength(2);
+    expect(result.evidenceCopied).toBe(1);
+    expect(result.pdReviewsCopied).toBe(1);
+    expect(result.reportId).toBeTruthy();
+    const copied = await t.run(async (ctx) => ({
+      documents: await ctx.db
+        .query("projectDocuments")
+        .withIndex("by_projectId", (q) => q.eq("projectId", destinationProjectId))
+        .collect(),
+      evidence: await ctx.db
+        .query("projectIdentityEvidence")
+        .withIndex("by_projectId", (q) => q.eq("projectId", destinationProjectId))
+        .collect(),
+      reviews: await ctx.db
+        .query("pdReviews")
+        .withIndex("by_projectId", (q) => q.eq("projectId", destinationProjectId))
+        .collect(),
+      reports: await ctx.db
+        .query("reports")
+        .withIndex("by_projectId", (q) => q.eq("projectId", destinationProjectId))
+        .collect(),
+    }));
+    expect(copied.documents).toHaveLength(2);
+    expect(copied.documents.find((doc) => doc.fileName === "Support.pdf")).toMatchObject({
+      archived: true,
+      category: "background",
+    });
+    expect(copied.evidence[0]?.projectDocumentId).toBeTruthy();
+    expect(copied.reviews[0]).toMatchObject({
+      sourceFileName: "Existing PD.docx",
+      result: "review output",
+    });
+    expect(copied.reports[0]).toMatchObject({
+      sourceTranscriptId: destinationTranscriptId,
+      revisionNumber: 4,
+    });
+  });
+});
+
 describe("project review publishing", () => {
   test.each([
     ["creator", "owner"],
@@ -167,6 +290,119 @@ describe("project review publishing", () => {
     const project = await getProject(t, projectId);
     expect(project).toMatchObject({ status: "review" });
     expect(project).not.toHaveProperty("sharedReportId");
+  });
+});
+
+describe("bulk project edits", () => {
+  const fyEnd = Date.parse("2025-03-31T00:00:00Z");
+
+  test("sets company name and fiscal year-end across projects", async () => {
+    const { t, projectId, otherProjectId } = await setup();
+
+    const result = await asActor(t, "writer").mutation(
+      api.projects.bulkUpdateProjects,
+      {
+        projectIds: [projectId, otherProjectId],
+        clientName: "  Acme Manufacturing  ",
+        fiscalYearEnd: fyEnd,
+      }
+    );
+
+    expect(result).toEqual({ updated: 2, skipped: 0 });
+    await expect(getProject(t, projectId)).resolves.toMatchObject({
+      clientName: "Acme Manufacturing",
+      fiscalYearEnd: fyEnd,
+    });
+    await expect(getProject(t, otherProjectId)).resolves.toMatchObject({
+      clientName: "Acme Manufacturing",
+      fiscalYearEnd: fyEnd,
+    });
+  });
+
+  test("leaves omitted fields untouched", async () => {
+    const { t, projectId } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(projectId, { fiscalYearEnd: fyEnd });
+    });
+
+    await asActor(t, "owner").mutation(api.projects.bulkUpdateProjects, {
+      projectIds: [projectId],
+      clientName: "Renamed Co",
+    });
+
+    await expect(getProject(t, projectId)).resolves.toMatchObject({
+      clientName: "Renamed Co",
+      fiscalYearEnd: fyEnd,
+    });
+  });
+
+  test("null clears the fiscal year-end without touching the company", async () => {
+    const { t, projectId } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(projectId, { fiscalYearEnd: fyEnd });
+    });
+
+    await asActor(t, "owner").mutation(api.projects.bulkUpdateProjects, {
+      projectIds: [projectId],
+      fiscalYearEnd: null,
+    });
+
+    const project = await getProject(t, projectId);
+    expect(project).toMatchObject({ clientName: "Client" });
+    expect(project).not.toHaveProperty("fiscalYearEnd");
+  });
+
+  test("skips projects that no longer exist", async () => {
+    const { t, projectId, otherProjectId } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.delete(otherProjectId);
+    });
+
+    const result = await asActor(t, "owner").mutation(
+      api.projects.bulkUpdateProjects,
+      {
+        projectIds: [projectId, otherProjectId],
+        clientName: "Survivor Co",
+      }
+    );
+
+    expect(result).toEqual({ updated: 1, skipped: 1 });
+    await expect(getProject(t, projectId)).resolves.toMatchObject({
+      clientName: "Survivor Co",
+    });
+  });
+
+  test("rejects a blank company name and no-op edits", async () => {
+    const { t, projectId } = await setup();
+
+    await expect(
+      asActor(t, "owner").mutation(api.projects.bulkUpdateProjects, {
+        projectIds: [projectId],
+        clientName: "   ",
+      })
+    ).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+    await expect(
+      asActor(t, "owner").mutation(api.projects.bulkUpdateProjects, {
+        projectIds: [projectId],
+      })
+    ).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+    await expect(getProject(t, projectId)).resolves.toMatchObject({
+      clientName: "Client",
+    });
+  });
+
+  test("denies unauthenticated callers", async () => {
+    const { t, projectId } = await setup();
+
+    await expect(
+      t.mutation(api.projects.bulkUpdateProjects, {
+        projectIds: [projectId],
+        clientName: "Nope",
+      })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
+    await expect(getProject(t, projectId)).resolves.toMatchObject({
+      clientName: "Client",
+    });
   });
 });
 

@@ -70,6 +70,7 @@ import type * as lib_snapshots from "../lib/snapshots.js";
 import type * as lib_teamRoster from "../lib/teamRoster.js";
 import type * as lib_tiptapReport from "../lib/tiptapReport.js";
 import type * as pdReviews from "../pdReviews.js";
+import type * as projectDuplication from "../projectDuplication.js";
 import type * as projectEvidence from "../projectEvidence.js";
 import type * as projects from "../projects.js";
 import type * as providerReadiness from "../providerReadiness.js";
@@ -154,6 +155,7 @@ declare const fullApi: ApiFromModules<{
   "lib/teamRoster": typeof lib_teamRoster;
   "lib/tiptapReport": typeof lib_tiptapReport;
   pdReviews: typeof pdReviews;
+  projectDuplication: typeof projectDuplication;
   projectEvidence: typeof projectEvidence;
   projects: typeof projects;
   providerReadiness: typeof providerReadiness;

@@ -2,7 +2,7 @@
   import { useMutation, useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Doc, Id } from "../../../../convex/_generated/dataModel";
-  import ProposedEditCard from "$lib/components/chat/ProposedEditCard.svelte";
+  import ProposalCard from "$lib/components/chat/ProposalCard.svelte";
   import {
     ChainOfThought,
     ChainOfThoughtContent,
@@ -25,7 +25,8 @@
       pairs: { find: string; replaceWith: string }[],
       on: boolean
     ) => void;
-    onCopyToComposer?: (text: string) => void;
+    onRefineProposal?: (proposal: Doc<"chatProposals">) => void;
+    onBeforeApply?: () => Promise<unknown>;
   }
   type ResearchStep = {
     title: string;
@@ -37,13 +38,12 @@
     reportId,
     onReferenceText,
     onPreviewProposal,
-    onCopyToComposer,
+    onRefineProposal,
+    onBeforeApply,
   }: Props = $props();
 
   const sessionsQ = useQuery(api.research.listSessions, () => ({ reportId }));
   const cancelResearch = useMutation(api.research.cancelResearch);
-  const rejectProposal = useMutation(api.chatV2.rejectProposal);
-  const applyProposal = useMutation(api.chatV2.applyProposal);
   const submitResearchFeedback = useMutation(api.research.submitFeedback);
 
   let selectedId = $state<Id<"researchSessions"> | null>(null);
@@ -167,14 +167,6 @@
               : "pending",
       },
     ];
-  }
-
-  function proposalPairs(proposal: Doc<"chatProposals">) {
-    return proposal.replacements?.length
-      ? proposal.replacements
-      : proposal.targetText
-        ? [{ find: proposal.targetText, replaceWith: proposal.newText ?? "" }]
-        : [];
   }
 
   async function submitFeedback(rating: "helpful" | "not_helpful") {
@@ -409,31 +401,13 @@
             {/if}
 
             {#if details.proposal}
-              <div class="border-t border-line-soft pt-3">
-                <p class="text-xs font-semibold text-navy">Suggested revision</p>
-                <p class="mt-0.5 text-[11px] leading-relaxed text-ink-muted">
-                  Replace the passage directly, or add it to chat to refine first.
-                </p>
-                <ProposedEditCard
-                  newText={details.proposal.newText}
-                  targetText={details.proposal.targetText}
-                  replacements={details.proposal.replacements}
-                  state={details.proposal.state}
-                  onReplace={async () => {
-                    await applyProposal({ proposalId: details.proposal!._id });
-                  }}
-                  onCopyToComposer={details.proposal.newText
-                    ? () => onCopyToComposer?.(details.proposal!.newText!)
-                    : undefined}
-                  onReject={async () => {
-                    await rejectProposal({ proposalId: details.proposal!._id });
-                  }}
-                  onShowInDoc={details.proposal.targetText
-                    ? () => onReferenceText?.([details.proposal!.targetText!])
-                    : undefined}
-                  onPreviewInDoc={onPreviewProposal
-                    ? (on) => onPreviewProposal(proposalPairs(details.proposal!), on)
-                    : undefined}
+              <div class="border-t border-line-soft pt-2">
+                <ProposalCard
+                  proposal={details.proposal}
+                  {onBeforeApply}
+                  {onReferenceText}
+                  {onPreviewProposal}
+                  onRefine={onRefineProposal ? () => onRefineProposal(details.proposal!) : undefined}
                 />
               </div>
             {/if}

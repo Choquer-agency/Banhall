@@ -164,22 +164,31 @@ Distill the comments into at most ${MAX_RULES} short style rules for the draftin
 
 const EDIT_MINING_PROMPT_SUFFIX = `
 
-You may also receive section edit events from the section-by-section drafting mode. Each has:
+You may also receive section edit events from section-by-section drafting and proposal wording edit events from AI assistant chat.
+
+Section edit events have:
 - draftText: what the drafting agent produced for one T661 section
 - approvedText: what the professional writer actually approved after editing it directly
-- ghostText: what a one-shot full-report draft wrote for the same section (context for contrast), when available
+- ghostText: what a one-shot full-report draft wrote for the same section, when available
 - editRatio: roughly how much of the draft the writer changed (0-1)
 
-The DIFFERENCE between draftText and approvedText is the writer's implicit critique — treat recurring kinds of edits (cutting filler, tightening openings, replacing vague claims with specifics, restructuring) exactly like recurring written comments. Ignore edits that only fix section-specific facts.`;
+Proposal wording edit events have:
+- originalText: the assistant's proposed wording
+- editedText: the wording the professional writer manually changed it to
+
+The DIFFERENCE between generated and writer-edited text is implicit critique. Treat recurring kinds of edits (cutting filler, tightening openings, replacing vague claims with specifics, restructuring) exactly like recurring written comments. Ignore edits that only fix project-specific facts.`;
 
 export const generateDraftStyleDigest = internalAction({
   args: {},
   handler: async (ctx) => {
-    const [feedback, sectionEdits] = await Promise.all([
+    const [feedback, sectionEdits, proposalEdits] = await Promise.all([
       ctx.runQuery(internal.learning.getCandidateFeedbackForDigest, {
         limit: FEEDBACK_WINDOW,
       }),
       ctx.runQuery(internal.learning.getSectionEditsForDigest, {
+        limit: FEEDBACK_WINDOW,
+      }),
+      ctx.runQuery(internal.learning.getProposalWordingEditsForDigest, {
         limit: FEEDBACK_WINDOW,
       }),
     ]);
@@ -187,7 +196,7 @@ export const generateDraftStyleDigest = internalAction({
     // to change, so they only ride along as context on commented rows.
     // Section edit events are critiques in action: draft vs approved.
     const signal = feedback.filter((row) => row.comment);
-    const totalSignal = signal.length + sectionEdits.length;
+    const totalSignal = signal.length + sectionEdits.length + proposalEdits.length;
     if (totalSignal < MIN_FEEDBACK_ROWS) return;
 
     const active = await ctx.runQuery(internal.learning.getActiveDigest, {
@@ -195,7 +204,8 @@ export const generateDraftStyleDigest = internalAction({
     });
     const newestFeedbackAt = Math.max(
       ...signal.map((row) => row.updatedAt),
-      ...sectionEdits.map((row) => row.updatedAt)
+      ...sectionEdits.map((row) => row.updatedAt),
+      ...proposalEdits.map((row) => row.updatedAt)
     );
     if (active && newestFeedbackAt <= active.feedbackCutoff) return;
 
@@ -210,14 +220,22 @@ export const generateDraftStyleDigest = internalAction({
           2
         )}`
       : "";
+    const proposalEditsBlock = proposalEdits.length
+      ? `\n\nProposal wording edit events (assistant vs writer-edited), newest first:\n\n${JSON.stringify(
+          proposalEdits.map(({ updatedAt: _u, ...row }) => row),
+          null,
+          2
+        )}`
+      : "";
     const rules = await distillRules(
       client,
-      STYLE_DIGEST_SYSTEM_PROMPT + (sectionEdits.length ? EDIT_MINING_PROMPT_SUFFIX : ""),
+      STYLE_DIGEST_SYSTEM_PROMPT +
+        (sectionEdits.length || proposalEdits.length ? EDIT_MINING_PROMPT_SUFFIX : ""),
       `Scoring events, newest first:\n\n${JSON.stringify(
         signal.map(({ updatedAt: _updatedAt, ...row }) => row),
         null,
         2
-      )}${sectionEditsBlock}`
+      )}${sectionEditsBlock}${proposalEditsBlock}`
     );
     if (!rules) return;
 

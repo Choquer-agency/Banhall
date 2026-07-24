@@ -1,17 +1,21 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import { ActionButton } from "$lib/components/chat/primitives";
   import { diffWords, proposedTextChanges } from "$lib/diff";
+  import { userErrorMessage } from "$lib/errors";
 
   interface Props {
     newText?: string;
     targetText?: string;
     replacements?: { find: string; replaceWith: string }[];
-    state: "pending" | "applied" | "rejected";
+    state: "pending" | "applied" | "rejected" | "stale";
     onReplace: () => Promise<void> | void;
     onReject: () => Promise<void> | void;
-    /** Put the suggestion in the shared composer for refinement instead of applying it. */
-    onCopyToComposer?: () => Promise<void> | void;
+    /** Save writer-authored wording while preserving canonical report targets. */
+    onEditWording?: (wording: string[]) => Promise<void> | void;
+    /** Continue discussing this suggestion in the shared composer. */
+    onRefine?: () => Promise<void> | void;
     onShowInDoc?: () => void;
     onReviewOneByOne?: () => void;
     /** Live preview: called with `true` when "Show changes" toggles on so the
@@ -29,7 +33,8 @@
     state: editState,
     onReplace,
     onReject,
-    onCopyToComposer,
+    onEditWording,
+    onRefine,
     onShowInDoc,
     onReviewOneByOne,
     onPreviewInDoc,
@@ -38,6 +43,8 @@
 
   let busy = $state(false);
   let error = $state<string | null>(null);
+  let editing = $state(false);
+  let editedWording = $state<string[]>([]);
 
   // Session-local by design: remounting a proposal always returns to neutral.
   let showChanges = $state(false);
@@ -76,11 +83,30 @@
     try {
       await action();
     } catch (e) {
-      error =
-        e instanceof Error ? e.message : "Something went wrong applying this edit.";
+      error = userErrorMessage(e, "Something went wrong applying this edit.");
     } finally {
       busy = false;
     }
+  }
+
+  function startEditing() {
+    editedWording = changes.map((change) => change.after);
+    editing = true;
+    error = null;
+  }
+
+  function cancelEditing() {
+    editing = false;
+    editedWording = [];
+  }
+
+  async function saveWording() {
+    if (!onEditWording) return;
+    await handle(async () => {
+      await onEditWording(editedWording);
+      editing = false;
+      editedWording = [];
+    });
   }
 </script>
 
@@ -112,23 +138,73 @@
   </button>
 {/snippet}
 
-{#if editState === "rejected"}
-  <div class="mt-2 flex items-center gap-1.5 py-1 text-xs text-ink-muted">
-    <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-      <path stroke-linecap="round" d="M6 18 18 6M6 6l12 12" />
-    </svg>
-    <span>Suggested edit rejected</span>
+{#if editState !== "pending"}
+  <div class={`mt-2 flex items-center gap-1.5 py-1 text-xs ${editState === "stale" ? "text-amber-700" : editState === "applied" ? "text-green-600" : "text-ink-muted"}`}>
+    {#if editState === "stale"}
+      <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.8 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8L13.7 3.8a2 2 0 0 0-3.4 0Z" />
+      </svg>
+      <span>Suggestion no longer matches the report</span>
+      {#if onRefine}
+        <ActionButton
+          variant="ghost"
+          class="ml-1 min-h-7 px-2 py-0.5"
+          onclick={() => handle(onRefine)}
+          disabled={busy}
+        >
+          Refine
+        </ActionButton>
+      {/if}
+    {:else if editState === "applied"}
+      <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+      </svg>
+      <span>Replaced in report</span>
+    {:else}
+      <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path stroke-linecap="round" d="M6 18 18 6M6 6l12 12" />
+      </svg>
+      <span>Suggested edit rejected</span>
+    {/if}
   </div>
 {:else}
-<div class="card mt-2 overflow-hidden shadow-sm">
-  <div class="max-h-72 overflow-y-auto px-4 py-3.5">
+<div class="mt-2 overflow-hidden rounded-lg border border-line bg-white">
+  <div class="flex items-center gap-2 border-b border-line-soft px-3 py-2">
+    <span class="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true"></span>
+    <p class="text-[11px] font-semibold text-ink-secondary">
+      {editing ? "Edit suggestion" : replacements && replacements.length > 0 ? `${changes.length} suggested replacements` : "Suggested replacement"}
+    </p>
+  </div>
+
+  <div class="max-h-56 overflow-y-auto px-3 py-2.5">
+    {#if editing}
+      <div class="flex flex-col gap-3">
+        {#each editedWording as wording, index (index)}
+          <label class="block">
+            {#if editedWording.length > 1}
+              <span class="text-label mb-1.5 block">Replacement {index + 1}</span>
+            {/if}
+            <textarea
+              value={wording}
+              oninput={(event) => {
+                editedWording[index] = event.currentTarget.value;
+              }}
+              aria-label={`Edit replacement wording ${index + 1}`}
+              rows={Math.min(7, Math.max(3, wording.split("\n").length + 1))}
+              class="w-full resize-y rounded-md border border-line bg-white px-2.5 py-2 font-serif text-sm leading-relaxed text-ink outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
+            ></textarea>
+          </label>
+        {/each}
+      </div>
+    {:else}
+    <div>
     {#if replacements && replacements.length > 0}
       <div class="flex flex-col gap-2">
         <p class="text-label">
           {changes.length} replacement{changes.length === 1 ? "" : "s"} — applied to every occurrence
         </p>
         {#each changes as change, changeIndex (changeIndex)}
-          <div class="rounded-lg bg-gray-50 px-3 py-2">
+          <div class="border-l-2 border-primary/20 pl-2.5">
             {#if diffInCard}
               <p
                 aria-label={`Replacement ${changeIndex + 1} changes`}
@@ -176,74 +252,81 @@
     {:else}
       <p class="text-sm text-gray-500">Delete the selected passage</p>
     {/if}
+    </div>
+    {/if}
   </div>
 
-  {#if changes.length > 0 && !onPreviewInDoc}
+  {#if editing}
+    <div class="flex items-center justify-end gap-1.5 border-t border-line-soft bg-canvas-subtle px-3 py-2">
+      <ActionButton variant="ghost" class="min-h-8 px-2.5" onclick={cancelEditing} disabled={busy}>Cancel</ActionButton>
+      <ActionButton
+        variant="primary"
+        class="min-h-8 px-2.5"
+        onclick={saveWording}
+        disabled={busy}
+        loading={busy}
+        loadingLabel="Applying…"
+      >
+        Save & apply
+      </ActionButton>
+    </div>
+  {:else if changes.length > 0 && !onPreviewInDoc}
     <!-- Card-local diff toggle — only when there's no live report preview
          (e.g. share-link chat); with a preview the toggle lives in the
          actions row instead of "Show in document". -->
-    <div class="flex items-center justify-end border-t border-gray-100 px-3 py-1.5">
+    <div class="flex items-center justify-end border-t border-line-soft px-3 py-1">
       {@render changesToggle("Show changes")}
     </div>
   {/if}
 
   <!-- Actions -->
-  <div class="flex items-center gap-2 border-t border-gray-100 bg-gray-50 px-3 py-2.5">
+  {#if !editing}
+  <div class="flex flex-wrap items-center gap-1 border-t border-line-soft bg-canvas-subtle px-3 py-2">
     {#if editState === "pending" && reviewing}
       <span class="inline-flex items-center gap-1.5 text-xs font-medium text-navy">
         <Spinner size="sm" class="h-3 w-3 border-navy/30 border-t-navy" />
         Stepping through in the document…
       </span>
     {:else if editState === "pending"}
-      <!-- BNH-30: multi-instance edits — step through (green), bulk (orange),
-           or reject (red). -->
       {#if onReviewOneByOne}
-        <button
-          onclick={onReviewOneByOne}
-          disabled={busy}
-          class="inline-flex items-center gap-1 rounded-lg bg-green-500 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-green-600 disabled:opacity-50"
-        >
-          Replace One By One
-        </button>
-        <button
+        <ActionButton variant="secondary" class="min-h-8 px-2.5" onclick={onReviewOneByOne} disabled={busy}>
+          Review individually
+        </ActionButton>
+        <ActionButton
+          variant="primary"
+          class="min-h-8 px-2.5"
           onclick={() => handle(onReplace)}
           disabled={busy}
-          class="rounded-lg bg-orange-500 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-orange-600 disabled:opacity-50"
+          loading={busy}
+          loadingLabel="Applying…"
         >
-          {busy ? "Replacing…" : "Replace All"}
-        </button>
-        <button
-          onclick={() => handle(onReject)}
-          disabled={busy}
-          class="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-600 disabled:opacity-50"
-        >
-          Reject
-        </button>
+          Apply all
+        </ActionButton>
       {:else}
-        <button
+        <ActionButton
+          variant="primary"
+          class="min-h-8 px-2.5"
           onclick={() => handle(onReplace)}
           disabled={busy}
-          class="rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+          loading={busy}
+          loadingLabel="Applying…"
         >
-          {busy ? "Replacing…" : "Replace"}
-        </button>
-        {#if onCopyToComposer}
-          <button
-            onclick={() => handle(onCopyToComposer)}
-            disabled={busy}
-            class="rounded-lg px-3 py-1.5 text-xs font-medium text-navy transition-colors hover:bg-primary-wash disabled:opacity-50"
-          >
-            Add to chat
-          </button>
-        {/if}
-        <button
-          onclick={() => handle(onReject)}
-          disabled={busy}
-          class="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-primary-wash hover:text-gray-700 disabled:opacity-50"
-        >
-          Reject
-        </button>
+          Apply
+        </ActionButton>
       {/if}
+      {#if onEditWording}
+        <ActionButton variant="secondary" class="min-h-8 px-2.5" onclick={startEditing} disabled={busy}>
+          Edit wording
+        </ActionButton>
+      {/if}
+      {#if onRefine}
+        <ActionButton variant="ghost" class="min-h-8 px-2.5" onclick={() => handle(onRefine)} disabled={busy}>
+          Refine with AI
+        </ActionButton>
+      {/if}
+      <ActionButton variant="danger" class="min-h-8 px-2.5" onclick={() => handle(onReject)} disabled={busy}>
+        Reject
+      </ActionButton>
     {:else if editState === "applied"}
       <span class="inline-flex items-center gap-1 text-xs font-medium text-green-600">
         <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -260,18 +343,19 @@
         {@render changesToggle("Show changes")}
       </span>
     {:else if onShowInDoc}
-      <button
+      <ActionButton
+        variant="ghost"
         onclick={onShowInDoc}
-        title="Scroll to and highlight this in the document"
-        class="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
+        class="ml-auto"
       >
         <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
         </svg>
         Show in document
-      </button>
+      </ActionButton>
     {/if}
   </div>
+  {/if}
 
   {#if error}
     <p class="border-t border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">

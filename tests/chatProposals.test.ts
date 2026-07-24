@@ -3,11 +3,13 @@ import {
   applyProposal,
   listProposals,
   rejectProposal,
+  saveProposal,
+  updateProposalWording,
 } from "../convex/chatV2";
 import { sha256 } from "../convex/lib/contracts";
 
 type Role = "writer" | "manager" | "admin";
-type ProposalState = "pending" | "applied" | "rejected";
+type ProposalState = "pending" | "applied" | "rejected" | "stale";
 
 interface BaseRow {
   _id: string;
@@ -55,6 +57,9 @@ interface MessageRow extends BaseRow {
 
 interface ProposalRow extends BaseRow {
   agentThreadId: string;
+  toolCallId?: string;
+  promptMessageId?: string;
+  messageId?: string;
   projectId: string;
   reportId: string;
   kind: "edit" | "replacements" | "references";
@@ -63,6 +68,9 @@ interface ProposalRow extends BaseRow {
   replacements?: Array<{ find: string; replaceWith: string }>;
   researchSessionId?: string;
   requireUniqueTarget?: boolean;
+  wordingEditedBy?: string;
+  wordingEditedAt?: number;
+  wordingEditCount?: number;
   state: ProposalState;
   createdAt: number;
 }
@@ -101,6 +109,16 @@ interface ResearchSessionRow extends BaseRow {
   evidenceSourceCount?: number;
 }
 
+interface ProposalWordingEditEventRow extends BaseRow {
+  projectId: string;
+  reportId: string;
+  proposalId: string;
+  userId: string;
+  originalText: string;
+  editedText: string;
+  createdAt: number;
+}
+
 interface TestTables {
   users: UserRow[];
   projects: ProjectRow[];
@@ -111,24 +129,31 @@ interface TestTables {
   chatProposals: ProposalRow[];
   reportSnapshots: SnapshotRow[];
   researchSessions: ResearchSessionRow[];
+  proposalWordingEditEvents: ProposalWordingEditEventRow[];
   reportProvenance: AuditRow[];
   generations: AuditRow[];
   transcripts: AuditRow[];
 }
 
 type TestRow = TestTables[keyof TestTables][number];
-type IndexClause = { field: string; value: unknown };
+type IndexQuery = {
+  eq: (field: string, value: unknown) => IndexQuery;
+};
 
 class QueryBuilder {
   constructor(private rows: TestRow[]) {}
 
-  withIndex(
-    _indexName: string,
-    build: (query: { eq: (field: string, value: unknown) => IndexClause }) => IndexClause
-  ) {
-    const clause = build({ eq: (field, value) => ({ field, value }) });
-    this.rows = this.rows.filter(
-      (row) => Reflect.get(row, clause.field) === clause.value
+  withIndex(_indexName: string, build: (query: IndexQuery) => IndexQuery) {
+    const clauses: Array<{ field: string; value: unknown }> = [];
+    const query: IndexQuery = {
+      eq: (field, value) => {
+        clauses.push({ field, value });
+        return query;
+      },
+    };
+    build(query);
+    this.rows = this.rows.filter((row) =>
+      clauses.every((clause) => Reflect.get(row, clause.field) === clause.value)
     );
     return this;
   }
@@ -175,6 +200,7 @@ class FakeDb {
       tables.chatProposals,
       tables.reportSnapshots,
       tables.researchSessions,
+      tables.proposalWordingEditEvents,
       tables.reportProvenance,
       tables.generations,
       tables.transcripts,
@@ -204,6 +230,20 @@ class FakeDb {
     if (table === "chatMessages") {
       const message = { _id, _creationTime, ...value } as unknown as MessageRow;
       this.tables.chatMessages.push(message);
+      return _id;
+    }
+    if (table === "chatProposals") {
+      const proposal = { _id, _creationTime, ...value } as unknown as ProposalRow;
+      this.tables.chatProposals.push(proposal);
+      return _id;
+    }
+    if (table === "proposalWordingEditEvents") {
+      const event = {
+        _id,
+        _creationTime,
+        ...value,
+      } as unknown as ProposalWordingEditEventRow;
+      this.tables.proposalWordingEditEvents.push(event);
       return _id;
     }
     throw new Error(`Unexpected insert into ${table}`);
@@ -241,7 +281,8 @@ interface RegisteredHandler<TArgs, TResult> {
 // function tests, but the generated public function type intentionally hides it.
 const v2ApplyRegistration = applyProposal as unknown as RegisteredHandler<
   { proposalId: string },
-  { applied: true; count: number }
+  | { applied: true; count: number; alreadyApplied?: true }
+  | { applied: false; count: 0; reason: string }
 >;
 const v2ListRegistration = listProposals as unknown as RegisteredHandler<
   { threadId: string },
@@ -251,10 +292,34 @@ const v2RejectRegistration = rejectProposal as unknown as RegisteredHandler<
   { proposalId: string },
   void
 >;
+const v2UpdateWordingRegistration = updateProposalWording as unknown as RegisteredHandler<
+  {
+    proposalId: string;
+    newText?: string;
+    replacements?: Array<{ find: string; replaceWith: string }>;
+  },
+  { updated: boolean }
+>;
+const v2SaveRegistration = saveProposal as unknown as RegisteredHandler<
+  {
+    agentThreadId: string;
+    toolCallId?: string;
+    promptMessageId?: string;
+    messageId?: string;
+    kind: "edit" | "replacements" | "references";
+    targetText?: string;
+    newText?: string;
+    replacements?: Array<{ find: string; replaceWith: string }>;
+    references?: string[];
+  },
+  { ok: true; proposalId: string } | { ok: false; reason: string }
+>;
 
 const v2Apply = v2ApplyRegistration._handler;
 const v2List = v2ListRegistration._handler;
 const v2Reject = v2RejectRegistration._handler;
+const v2UpdateWording = v2UpdateWordingRegistration._handler;
+const v2Save = v2SaveRegistration._handler;
 
 interface Fixture {
   ctx: TestContext;
@@ -368,6 +433,7 @@ async function createFixture(role: Role, userId = "reviewer"): Promise<Fixture> 
     chatProposals: [proposal],
     reportSnapshots: [],
     researchSessions: [],
+    proposalWordingEditEvents: [],
     reportProvenance: [
       {
         _id: provenanceId,
@@ -464,6 +530,104 @@ describe("proposal access", () => {
   });
 });
 
+describe("proposal creation integrity", () => {
+  test("rejects a target copied from an unapplied candidate", async () => {
+    const fixture = await createFixture("manager");
+
+    const result = await v2Save(fixture.ctx, {
+      agentThreadId: "agent-thread",
+      toolCallId: "tool-invalid",
+      kind: "edit",
+      targetText: "This wording existed only in a rejected suggestion.",
+      newText: "A refined version of rejected wording.",
+    });
+
+    expect(result).toMatchObject({ ok: false });
+    expect(fixture.db.tables.chatProposals).toHaveLength(1);
+  });
+
+  test("stores tool association and enforces uniqueness for a valid edit", async () => {
+    const fixture = await createFixture("manager");
+
+    const result = await v2Save(fixture.ctx, {
+      agentThreadId: "agent-thread",
+      toolCallId: "tool-valid",
+      promptMessageId: "prompt-message",
+      kind: "edit",
+      targetText: "exact target",
+      newText: "approved replacement",
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(fixture.db.tables.chatProposals.at(-1)).toMatchObject({
+      toolCallId: "tool-valid",
+      promptMessageId: "prompt-message",
+      requireUniqueTarget: true,
+      state: "pending",
+    });
+  });
+
+  test("deduplicates repeated tool execution", async () => {
+    const fixture = await createFixture("manager");
+    const args = {
+      agentThreadId: "agent-thread",
+      toolCallId: "tool-repeat",
+      kind: "edit" as const,
+      targetText: "exact target",
+      newText: "approved replacement",
+    };
+
+    const first = await v2Save(fixture.ctx, args);
+    const second = await v2Save(fixture.ctx, args);
+
+    expect(second).toEqual(first);
+    expect(
+      fixture.db.tables.chatProposals.filter((row) => row.toolCallId === "tool-repeat")
+    ).toHaveLength(1);
+  });
+});
+
+describe("proposal wording edits", () => {
+  test("updates candidate wording without changing the canonical target", async () => {
+    const fixture = await createFixture("manager");
+
+    await expect(
+      v2UpdateWording(fixture.ctx, {
+        proposalId: fixture.proposal._id,
+        newText: "writer-polished replacement",
+      })
+    ).resolves.toEqual({ updated: true });
+
+    expect(fixture.proposal.targetText).toBe("exact target");
+    expect(fixture.proposal.newText).toBe("writer-polished replacement");
+    expect(fixture.db.tables.proposalWordingEditEvents).toHaveLength(1);
+    expect(fixture.db.tables.proposalWordingEditEvents[0]).toMatchObject({
+      proposalId: fixture.proposal._id,
+      originalText: "approved replacement",
+      editedText: "writer-polished replacement",
+    });
+  });
+
+  test("refuses to change replacement targets", async () => {
+    const fixture = await createFixture("manager");
+    fixture.proposal.kind = "replacements";
+    fixture.proposal.targetText = undefined;
+    fixture.proposal.newText = undefined;
+    fixture.proposal.replacements = [
+      { find: "exact target", replaceWith: "approved replacement" },
+    ];
+
+    await expect(
+      v2UpdateWording(fixture.ctx, {
+        proposalId: fixture.proposal._id,
+        replacements: [
+          { find: "different target", replaceWith: "writer wording" },
+        ],
+      })
+    ).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+  });
+});
+
 describe("proposal apply integrity", () => {
   test("apply updates the pinned report and complete audit tuple", async () => {
     await applyAndAssert();
@@ -516,6 +680,33 @@ describe("proposal apply integrity", () => {
       expect(fixture.proposal.state).toBe("pending");
     }
   );
+
+  test("a missing target becomes stale and cannot be retried", async () => {
+    const fixture = await createFixture("manager");
+    fixture.proposal.targetText = "wording that is absent";
+
+    const result = await v2Apply(fixture.ctx, { proposalId: fixture.proposal._id });
+
+    expect(result).toMatchObject({ applied: false, count: 0 });
+    expect(fixture.proposal.state).toBe("stale");
+    expect(fixture.db.tables.reportSnapshots).toEqual([]);
+    await expect(
+      v2Apply(fixture.ctx, { proposalId: fixture.proposal._id })
+    ).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+  });
+
+  test("applying an already-applied proposal is idempotent", async () => {
+    const fixture = await createFixture("manager");
+    await v2Apply(fixture.ctx, { proposalId: fixture.proposal._id });
+    const revision = fixture.pinnedReport.revisionNumber;
+    const snapshots = fixture.db.tables.reportSnapshots.length;
+
+    const retry = await v2Apply(fixture.ctx, { proposalId: fixture.proposal._id });
+
+    expect(retry).toMatchObject({ applied: true, alreadyApplied: true, count: 0 });
+    expect(fixture.pinnedReport.revisionNumber).toBe(revision);
+    expect(fixture.db.tables.reportSnapshots).toHaveLength(snapshots);
+  });
 
   test("apply preserves deletion-only replacement behavior", async () => {
     const fixture = await createFixture("manager");

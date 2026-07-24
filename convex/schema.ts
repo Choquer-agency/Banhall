@@ -415,7 +415,11 @@ export default defineSchema({
   // / highlightPassages). Same lifecycle semantics as chatMessages.proposedEdit.
   chatProposals: defineTable({
     agentThreadId: v.string(),
-    messageId: v.optional(v.string()), // component message id of the tool call
+    // Stable association with the assistant tool part. `messageId` is retained
+    // for legacy rows created before tool-call grouping was available.
+    toolCallId: v.optional(v.string()),
+    promptMessageId: v.optional(v.string()),
+    messageId: v.optional(v.string()),
     projectId: v.id("projects"),
     reportId: v.id("reports"),
     kind: v.union(
@@ -437,13 +441,22 @@ export default defineSchema({
     // Any single-target producer (research today, QA/review agents later)
     // sets this instead of applyProposal special-casing its origin.
     requireUniqueTarget: v.optional(v.boolean()),
+    // Writer-authored wording revisions made directly in the proposal card.
+    // The canonical target never changes; these fields make the learning event
+    // auditable without conflating it with model-generated candidates.
+    wordingEditedBy: v.optional(v.id("users")),
+    wordingEditedAt: v.optional(v.number()),
+    wordingEditCount: v.optional(v.number()),
     state: v.union(
       v.literal("pending"),
       v.literal("applied"),
-      v.literal("rejected")
+      v.literal("rejected"),
+      v.literal("stale")
     ),
     createdAt: v.number(),
-  }).index("by_agentThreadId", ["agentThreadId"]),
+  })
+    .index("by_agentThreadId", ["agentThreadId"])
+    .index("by_agentThreadId_and_toolCallId", ["agentThreadId", "toolCallId"]),
 
   chatMessages: defineTable({
     threadId: v.id("chatThreads"),
@@ -1096,6 +1109,18 @@ export default defineSchema({
   // ghost's take on the same section for contrast. Distilled into the
   // draft_style digest — a continuous learning loop that needs no manual
   // scoring: every iterative session contributes automatically.
+  proposalWordingEditEvents: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    proposalId: v.id("chatProposals"),
+    userId: v.id("users"),
+    originalText: v.string(),
+    editedText: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_userId", ["userId"]),
+
   sectionEditEvents: defineTable({
     projectId: v.id("projects"),
     generationId: v.id("generations"),

@@ -13,7 +13,7 @@ import {
   getTeamRosterMemberOrNull,
   userDisplayLabel,
 } from "./lib/teamRoster";
-import { domainError } from "./lib/contracts";
+import { domainError, sha256 } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { canUseIndustry, industrySlug } from "../shared/industries";
 import { findActiveGeneration } from "./lib/activeGeneration";
@@ -178,6 +178,55 @@ export const updateProjectFiscalYear = mutation({
   },
 });
 
+/**
+ * Bulk edit from the dashboard selection: set the company name and/or
+ * set/clear the fiscal year-end across many projects at once.
+ */
+export const bulkUpdateProjects = mutation({
+  args: {
+    projectIds: v.array(v.id("projects")),
+    clientName: v.optional(v.string()),
+    // Omitted = leave untouched; null = clear the fiscal year-end.
+    fiscalYearEnd: v.optional(v.union(v.number(), v.null())),
+  },
+  returns: v.object({ updated: v.number(), skipped: v.number() }),
+  handler: async (ctx, args) => {
+    await requireCurrentUser(ctx);
+    const clientName = args.clientName?.trim();
+    if (args.clientName !== undefined && !clientName) {
+      domainError("INVALID_INPUT", "Company name cannot be empty");
+    }
+    if (clientName === undefined && args.fiscalYearEnd === undefined) {
+      domainError("INVALID_INPUT", "Nothing to update");
+    }
+    const projectIds = [...new Set(args.projectIds)];
+    if (projectIds.length === 0) {
+      domainError("INVALID_INPUT", "No projects selected");
+    }
+    if (projectIds.length > 200) {
+      domainError("INVALID_INPUT", "Too many projects selected — 200 max per edit");
+    }
+    const now = Date.now();
+    let updated = 0;
+    let skipped = 0;
+    for (const projectId of projectIds) {
+      const project = await ctx.db.get(projectId);
+      if (!project) {
+        skipped++;
+        continue;
+      }
+      const patch: Record<string, unknown> = { updatedAt: now };
+      if (clientName !== undefined) patch.clientName = clientName;
+      if (args.fiscalYearEnd !== undefined) {
+        patch.fiscalYearEnd = args.fiscalYearEnd ?? undefined;
+      }
+      await ctx.db.patch(projectId, patch);
+      updated++;
+    }
+    return { updated, skipped };
+  },
+});
+
 export const getProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
@@ -312,82 +361,203 @@ export const createProject = mutation({
 
 
 
-// Duplicate support: the dashboard "Duplicate" action opens /project/new?from=<id>
-// with the wizard prefilled; on commit the wizard calls this to bring the source
-// project's non-archived documents along. Text content only — the original file
-// bytes stay owned by the source project (sharing a storageId would break
-// downloads if either copy is deleted, since document deletion also deletes its
-// storage object).
+type ProjectDocumentCopy = {
+  sourceId: Id<"projectDocuments">;
+  documentId: Id<"projectDocuments">;
+  storageId?: Id<"_storage">;
+};
+
+async function requireDuplicatePair(
+  ctx: MutationCtx,
+  fromProjectId: Id<"projects">,
+  toProjectId: Id<"projects">
+) {
+  const user = await requireCurrentUser(ctx);
+  const source = await ctx.db.get(fromProjectId);
+  const target = await ctx.db.get(toProjectId);
+  if (!source || !target) domainError("NOT_FOUND", "Project not found");
+  await requireInternalProjectAccess(ctx, source._id);
+  await requireInternalProjectAccess(ctx, target._id);
+  return { user, source, target };
+}
+
+async function copyProjectInputRows(
+  ctx: MutationCtx,
+  args: {
+    fromProjectId: Id<"projects">;
+    toProjectId: Id<"projects">;
+    targetTranscriptId?: Id<"transcripts">;
+  }
+) {
+  const { user } = await requireDuplicatePair(
+    ctx,
+    args.fromProjectId,
+    args.toProjectId
+  );
+  const now = Date.now();
+  const documents = await ctx.db
+    .query("projectDocuments")
+    .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
+    .take(250);
+  const copies: ProjectDocumentCopy[] = [];
+  const docIdMap = new Map<Id<"projectDocuments">, Id<"projectDocuments">>();
+
+  // Copy every support document, including archived records and review-mode PDs.
+  // Storage ids are filled by the action after it clones the original bytes.
+  for (const doc of documents) {
+    const documentId = await ctx.db.insert("projectDocuments", {
+      projectId: args.toProjectId,
+      fileName: doc.fileName,
+      fileType: doc.fileType,
+      content: doc.content,
+      ...(doc.mimeType ? { mimeType: doc.mimeType } : {}),
+      ...(doc.category ? { category: doc.category } : {}),
+      ...(doc.archived !== undefined ? { archived: doc.archived } : {}),
+      source: doc.source,
+      uploadedBy: userDisplayLabel(user),
+      createdAt: now,
+    });
+    docIdMap.set(doc._id, documentId);
+    copies.push({
+      sourceId: doc._id,
+      documentId,
+      ...(doc.storageId ? { storageId: doc.storageId } : {}),
+    });
+  }
+
+  const evidence = await ctx.db
+    .query("projectIdentityEvidence")
+    .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
+    .take(250);
+  let evidenceCopied = 0;
+  for (const row of evidence) {
+    const remappedDocId = row.projectDocumentId
+      ? docIdMap.get(row.projectDocumentId)
+      : undefined;
+    if (row.projectDocumentId && !remappedDocId) continue;
+    await ctx.db.insert("projectIdentityEvidence", {
+      projectId: args.toProjectId,
+      subjectName: row.subjectName,
+      relationship: row.relationship,
+      evidenceKind: row.evidenceKind,
+      ...(remappedDocId ? { projectDocumentId: remappedDocId } : {}),
+      sourceDescription: `${row.sourceDescription} (copied from source project)`,
+      status: row.status,
+      ...(row.verifiedBy ? { verifiedBy: row.verifiedBy } : {}),
+      ...(row.verifiedAt ? { verifiedAt: row.verifiedAt } : {}),
+      ...(row.rejectionReason ? { rejectionReason: row.rejectionReason } : {}),
+      createdAt: now,
+      updatedAt: now,
+    });
+    evidenceCopied += 1;
+  }
+
+  const sourceReport = await ctx.db
+    .query("reports")
+    .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
+    .order("desc")
+    .first();
+  let reportId: Id<"reports"> | undefined;
+  if (sourceReport) {
+    const contentHash = sourceReport.contentHash ?? (await sha256(sourceReport.content));
+    reportId = await ctx.db.insert("reports", {
+      projectId: args.toProjectId,
+      content: sourceReport.content,
+      version: sourceReport.version,
+      generatedAt: now,
+      updatedAt: now,
+      ...(args.targetTranscriptId
+        ? { sourceTranscriptId: args.targetTranscriptId }
+        : {}),
+      revisionNumber: sourceReport.revisionNumber ?? 0,
+      contentHash,
+    });
+    await ctx.db.patch(args.toProjectId, {
+      status: "review",
+      updatedAt: now,
+    });
+  }
+
+  const reviews = await ctx.db
+    .query("pdReviews")
+    .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
+    .take(100);
+  let pdReviewsCopied = 0;
+  for (const review of reviews) {
+    const documentId = docIdMap.get(review.documentId);
+    if (!documentId) continue;
+    await ctx.db.insert("pdReviews", {
+      projectId: args.toProjectId,
+      documentId,
+      sourceFileName: review.sourceFileName,
+      status: review.status,
+      ...(review.result ? { result: review.result } : {}),
+      ...(review.model ? { model: review.model } : {}),
+      ...(review.error ? { error: review.error } : {}),
+      createdBy: review.createdBy,
+      createdAt: now,
+      ...(review.completedAt ? { completedAt: review.completedAt } : {}),
+    });
+    pdReviewsCopied += 1;
+  }
+
+  return {
+    documents: copies,
+    evidenceCopied,
+    pdReviewsCopied,
+    ...(reportId ? { reportId } : {}),
+  };
+}
+
+// Called by projectDuplication:copyProjectContent. This mutation creates the
+// destination rows atomically; the action then clones any original file bytes.
+export const prepareProjectContentCopy = mutation({
+  args: {
+    fromProjectId: v.id("projects"),
+    toProjectId: v.id("projects"),
+    targetTranscriptId: v.optional(v.id("transcripts")),
+  },
+  handler: async (ctx, args) => {
+    return await copyProjectInputRows(ctx, args);
+  },
+});
+
+export const finishProjectContentCopy = mutation({
+  args: {
+    toProjectId: v.id("projects"),
+    storageCopies: v.array(
+      v.object({
+        documentId: v.id("projectDocuments"),
+        storageId: v.id("_storage"),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    await requireInternalProjectAccess(ctx, args.toProjectId);
+    for (const copy of args.storageCopies) {
+      const document = await ctx.db.get(copy.documentId);
+      if (!document || document.projectId !== args.toProjectId) {
+        domainError("INVALID_INPUT", "Copied document does not belong to this project");
+      }
+      await ctx.db.patch(copy.documentId, { storageId: copy.storageId });
+    }
+    return null;
+  },
+});
+
+/** Legacy text-only entry point retained for older clients during rollout. */
 export const copyProjectDocuments = mutation({
   args: {
     fromProjectId: v.id("projects"),
     toProjectId: v.id("projects"),
   },
   handler: async (ctx, args) => {
-    const user = await requireCurrentUser(ctx);
-    const source = await ctx.db.get(args.fromProjectId);
-    const target = await ctx.db.get(args.toProjectId);
-    if (!source || !target) domainError("NOT_FOUND", "Project not found");
-
-    const now = Date.now();
-    const documents = await ctx.db
-      .query("projectDocuments")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
-      .collect();
-    let copied = 0;
-    // Old doc id → new doc id, so copied identity evidence keeps its
-    // supporting-document link.
-    const docIdMap = new Map<Id<"projectDocuments">, Id<"projectDocuments">>();
-    for (const doc of documents) {
-      if (doc.archived) continue;
-      const newDocId = await ctx.db.insert("projectDocuments", {
-        projectId: args.toProjectId,
-        fileName: doc.fileName,
-        fileType: doc.fileType,
-        content: doc.content,
-        ...(doc.mimeType ? { mimeType: doc.mimeType } : {}),
-        ...(doc.category ? { category: doc.category } : {}),
-        source: doc.source,
-        uploadedBy: userDisplayLabel(user),
-        createdAt: now,
-      });
-      docIdMap.set(doc._id, newDocId);
-      copied += 1;
-    }
-
-    // Identity evidence comes along too — it attests the claimant (same
-    // client on a duplicate), and without it every duplicate started
-    // export-blocked on EVIDENCE_REQUIRED (alerts, Jul 17). Verification
-    // status and verifier are preserved; provenance notes the copy.
-    const evidence = await ctx.db
-      .query("projectIdentityEvidence")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.fromProjectId))
-      .take(250);
-    let evidenceCopied = 0;
-    for (const row of evidence) {
-      const remappedDocId = row.projectDocumentId
-        ? docIdMap.get(row.projectDocumentId)
-        : undefined;
-      // A doc-backed evidence row whose document didn't copy (archived)
-      // can't stand on its own — skip it rather than copy a broken link.
-      if (row.projectDocumentId && !remappedDocId) continue;
-      await ctx.db.insert("projectIdentityEvidence", {
-        projectId: args.toProjectId,
-        subjectName: row.subjectName,
-        relationship: row.relationship,
-        evidenceKind: row.evidenceKind,
-        ...(remappedDocId ? { projectDocumentId: remappedDocId } : {}),
-        sourceDescription: `${row.sourceDescription} (copied from source project)`,
-        status: row.status,
-        ...(row.verifiedBy ? { verifiedBy: row.verifiedBy } : {}),
-        ...(row.verifiedAt ? { verifiedAt: row.verifiedAt } : {}),
-        ...(row.rejectionReason ? { rejectionReason: row.rejectionReason } : {}),
-        createdAt: now,
-        updatedAt: now,
-      });
-      evidenceCopied += 1;
-    }
-    return { copied, evidenceCopied };
+    const result = await copyProjectInputRows(ctx, args);
+    return {
+      copied: result.documents.length,
+      evidenceCopied: result.evidenceCopied,
+      pdReviewsCopied: result.pdReviewsCopied,
+    };
   },
 });
 

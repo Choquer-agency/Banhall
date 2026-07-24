@@ -90,6 +90,10 @@
   $effect(() => {
     const onError = (e: ErrorEvent) => {
       const message = e.message || "Unknown error";
+      // Benign browser notice (resize notifications deferred one frame), fired
+      // by observer-based UI libs during animations. Never actionable — error
+      // reporters ignore both its variants by default; so do we.
+      if (message.includes("ResizeObserver loop")) return;
       const source = e.filename
         ? `${e.filename}:${e.lineno}:${e.colno}`
         : undefined;

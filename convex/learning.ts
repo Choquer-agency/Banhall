@@ -59,6 +59,22 @@ export const getCandidateFeedbackForDigest = internalQuery({
 
 /** Recent section-by-section edit events (draft vs approved vs ghost) for the
  * draft_style digest. Skips near-untouched approvals — no critique signal. */
+/** Direct edits to AI proposal wording, including edits made in normal chat. */
+export const getProposalWordingEditsForDigest = internalQuery({
+  args: { limit: v.number() },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("proposalWordingEditEvents")
+      .order("desc")
+      .take(args.limit);
+    return rows.map((row) => ({
+      originalText: row.originalText.slice(0, 2000),
+      editedText: row.editedText.slice(0, 2000),
+      updatedAt: row.createdAt,
+    }));
+  },
+});
+
 export const getSectionEditsForDigest = internalQuery({
   args: { limit: v.number() },
   handler: async (ctx, args) => {

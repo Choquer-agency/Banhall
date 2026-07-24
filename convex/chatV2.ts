@@ -26,6 +26,7 @@ import { pruneSnapshots, snapshotAuditFields } from "./lib/snapshots";
 import { applyReplacements, type PMNode } from "./lib/reportEdits";
 import { domainError, sha256 } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+import { proposalPairs } from "../shared/chatProposals";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -114,6 +115,7 @@ export const sendMessage = mutation({
     content: v.string(),
     threadId: v.optional(v.string()),
     highlight: v.optional(highlightValidator),
+    refineProposalId: v.optional(v.id("chatProposals")),
     /** Force a fresh thread even when the report already has one ("New chat"). */
     newThread: v.optional(v.boolean()),
   },
@@ -126,6 +128,19 @@ export const sendMessage = mutation({
       throw new Error("Message is empty");
     }
     const userId = user._id;
+
+    let refineProposal;
+    if (args.refineProposalId) {
+      refineProposal = await ctx.db.get(args.refineProposalId);
+      if (
+        !refineProposal ||
+        refineProposal.reportId !== report._id ||
+        refineProposal.projectId !== report.projectId ||
+        refineProposal.kind === "references"
+      ) {
+        throw new Error("Suggestion not found");
+      }
+    }
 
     // Resolve (or create) the component thread for this report.
     let agentThreadId = args.threadId;
@@ -167,10 +182,16 @@ export const sendMessage = mutation({
     const excerpt = args.highlight
       ? `\n\n[Writer highlighted this excerpt from the report]:\n"""${args.highlight.text}"""`
       : "";
+    const refinement = refineProposal
+      ? `\n\n[Writer is refining suggestion ${refineProposal._id}. Keep this exact canonical report target:]
+"""${proposalPairs(refineProposal).map((pair) => pair.find).join("\n---\n")}"""
+[Current candidate wording:]
+"""${proposalPairs(refineProposal).map((pair) => pair.replaceWith).join("\n---\n")}"""`
+      : "";
     const { messageId } = await saveMessage(ctx, components.agent, {
       threadId: agentThreadId,
       userId,
-      message: { role: "user", content: `${args.content}${excerpt}` },
+      message: { role: "user", content: `${args.content}${excerpt}${refinement}` },
     });
 
     await ctx.scheduler.runAfter(0, internal.ai.chatAgentV2.streamChatReply, {
@@ -214,18 +235,23 @@ export const applyProposal = mutation({
       domainError("INVALID_INPUT", "Highlights have nothing to apply.");
     }
     await requireInternalProjectAccess(ctx, proposal.projectId);
+    if (proposal.state === "applied") {
+      return { applied: true as const, count: 0, alreadyApplied: true as const };
+    }
+    if (proposal.state !== "pending") {
+      domainError(
+        "INVALID_INPUT",
+        proposal.state === "stale"
+          ? "This suggestion no longer matches the current report. Ask the assistant to regenerate it."
+          : "This suggestion is no longer available to apply."
+      );
+    }
     const report = await ctx.db.get(proposal.reportId);
     if (!report || report.projectId !== proposal.projectId) {
       domainError("NOT_FOUND", "Report not found");
     }
 
-    const pairs: { find: string; replaceWith: string }[] = (
-      proposal.replacements && proposal.replacements.length
-        ? proposal.replacements
-        : proposal.targetText
-          ? [{ find: proposal.targetText, replaceWith: proposal.newText ?? "" }]
-          : []
-    ).filter((pair) => pair.find);
+    const pairs = proposalPairs(proposal);
     if (pairs.length === 0) {
       domainError("INVALID_INPUT", "This edit has nothing to replace.");
     }
@@ -241,10 +267,13 @@ export const applyProposal = mutation({
     }
     const { doc: updated, count } = applyReplacements(parsed as PMNode, pairs);
     if (count === 0) {
-      domainError(
-        "STALE_REVISION",
-        "Couldn't find the original passage in the report to replace — it may have already changed. Try asking again."
-      );
+      await ctx.db.patch(args.proposalId, { state: "stale" });
+      return {
+        applied: false as const,
+        count: 0,
+        reason:
+          "Couldn't find the original passage in the current report. This suggestion may be based on wording that was rejected or already changed.",
+      };
     }
     // Producer-declared single-target proposals (older research proposals
     // predate the flag, hence the researchSessionId fallback).
@@ -311,13 +340,95 @@ export const markProposalApplied = mutation({
   },
 });
 
+export const updateProposalWording = mutation({
+  args: {
+    proposalId: v.id("chatProposals"),
+    newText: v.optional(v.string()),
+    replacements: v.optional(
+      v.array(v.object({ find: v.string(), replaceWith: v.string() }))
+    ),
+  },
+  handler: async (ctx, args) => {
+    const proposal = await ctx.db.get(args.proposalId);
+    if (!proposal) domainError("NOT_FOUND", "Suggestion not found");
+    const { user } = await requireInternalProjectAccess(ctx, proposal.projectId);
+    if (proposal.state !== "pending") {
+      domainError("INVALID_INPUT", "Only a pending suggestion can be edited.");
+    }
+    if (proposal.kind === "references") {
+      domainError("INVALID_INPUT", "A highlight suggestion has no wording to edit.");
+    }
+
+    const originalText = proposalPairs(proposal)
+      .map((pair) => pair.replaceWith)
+      .join("\n---\n");
+    let editedText: string;
+    let patch: {
+      newText?: string;
+      replacements?: Array<{ find: string; replaceWith: string }>;
+    };
+
+    if (proposal.kind === "edit") {
+      if (args.replacements !== undefined || args.newText === undefined) {
+        domainError("INVALID_INPUT", "Provide the edited wording for this suggestion.");
+      }
+      editedText = args.newText.trim();
+      patch = { newText: editedText };
+    } else {
+      if (args.newText !== undefined || !args.replacements) {
+        domainError("INVALID_INPUT", "Provide every edited replacement.");
+      }
+      const current = proposal.replacements ?? [];
+      if (
+        args.replacements.length !== current.length ||
+        args.replacements.some((pair, index) => pair.find !== current[index]?.find)
+      ) {
+        domainError(
+          "INVALID_INPUT",
+          "The report targets changed. Edit only the replacement wording."
+        );
+      }
+      const replacements = args.replacements.map((pair) => ({
+        find: pair.find,
+        replaceWith: pair.replaceWith.trim(),
+      }));
+      editedText = replacements.map((pair) => pair.replaceWith).join("\n---\n");
+      patch = { replacements };
+    }
+
+    if (editedText === originalText) return { updated: false as const };
+    const now = Date.now();
+    await ctx.db.patch(proposal._id, {
+      ...patch,
+      wordingEditedBy: user._id,
+      wordingEditedAt: now,
+      wordingEditCount: (proposal.wordingEditCount ?? 0) + 1,
+    });
+    await ctx.db.insert("proposalWordingEditEvents", {
+      projectId: proposal.projectId,
+      reportId: proposal.reportId,
+      proposalId: proposal._id,
+      userId: user._id,
+      originalText,
+      editedText,
+      createdAt: now,
+    });
+    return { updated: true as const };
+  },
+});
+
 export const rejectProposal = mutation({
   args: { proposalId: v.id("chatProposals") },
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) throw new Error("Proposal not found");
     await requireInternalProjectAccess(ctx, proposal.projectId);
-    await ctx.db.patch(args.proposalId, { state: "rejected" });
+    if (proposal.state === "applied") {
+      domainError("INVALID_INPUT", "An applied suggestion cannot be rejected.");
+    }
+    if (proposal.state !== "rejected") {
+      await ctx.db.patch(args.proposalId, { state: "rejected" });
+    }
   },
 });
 
@@ -326,6 +437,8 @@ export const rejectProposal = mutation({
 export const saveProposal = internalMutation({
   args: {
     agentThreadId: v.string(),
+    toolCallId: v.optional(v.string()),
+    promptMessageId: v.optional(v.string()),
     messageId: v.optional(v.string()),
     kind: v.union(
       v.literal("edit"),
@@ -342,8 +455,70 @@ export const saveProposal = internalMutation({
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.agentThreadId);
     if (!thread) throw new Error("Unknown agent thread");
-    return await ctx.db.insert("chatProposals", {
+
+    if (args.toolCallId) {
+      const existing = await ctx.db
+        .query("chatProposals")
+        .withIndex("by_agentThreadId_and_toolCallId", (q) =>
+          q.eq("agentThreadId", args.agentThreadId).eq("toolCallId", args.toolCallId)
+        )
+        .unique();
+      if (existing) return { ok: true as const, proposalId: existing._id };
+    }
+
+    const report = await ctx.db.get(thread.reportId);
+    if (!report) return { ok: false as const, reason: "The current report could not be loaded." };
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(report.content);
+    } catch {
+      return { ok: false as const, reason: "The current report is not valid editor content." };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false as const, reason: "The current report is not valid editor content." };
+    }
+
+    const pairs = proposalPairs(args);
+    if (args.kind !== "references") {
+      if (pairs.length === 0) {
+        return { ok: false as const, reason: "The suggestion did not include text to replace." };
+      }
+      for (const pair of pairs) {
+        const { count } = applyReplacements(parsed as PMNode, [pair]);
+        if (count === 0) {
+          return {
+            ok: false as const,
+            reason:
+              "The proposed target is not in the CURRENT REPORT. Re-copy the canonical passage from the report; do not use wording from an earlier rejected or unapplied suggestion as targetText.",
+          };
+        }
+        if (args.kind === "edit" && count !== 1) {
+          return {
+            ok: false as const,
+            reason: `The proposed target matches ${count} places. Include more surrounding words so it identifies exactly one passage.`,
+          };
+        }
+      }
+    } else {
+      const references = (args.references ?? []).filter((reference) => {
+        if (!reference) return false;
+        return applyReplacements(parsed as PMNode, [
+          { find: reference, replaceWith: reference },
+        ]).count > 0;
+      });
+      if (references.length === 0) {
+        return {
+          ok: false as const,
+          reason: "None of the highlighted passages are in the CURRENT REPORT. Re-copy them from the report.",
+        };
+      }
+      args.references = references;
+    }
+
+    const proposalId = await ctx.db.insert("chatProposals", {
       agentThreadId: args.agentThreadId,
+      toolCallId: args.toolCallId,
+      promptMessageId: args.promptMessageId,
       messageId: args.messageId,
       projectId: thread.projectId,
       reportId: thread.reportId,
@@ -352,9 +527,11 @@ export const saveProposal = internalMutation({
       newText: args.newText,
       replacements: args.replacements,
       references: args.references,
+      requireUniqueTarget: args.kind === "edit" ? true : undefined,
       state: args.kind === "references" ? "applied" : "pending",
       createdAt: Date.now(),
     });
+    return { ok: true as const, proposalId };
   },
 });
 
@@ -404,13 +581,12 @@ export const getChatContextV2 = internalQuery({
       .reverse()
       .map((p) => ({
         state: p.state,
-        summary:
+        target:
+          p.targetText ??
+          (p.replacements ? p.replacements.map((r) => r.find).join(" | ") : ""),
+        candidate:
           p.newText ??
-          (p.replacements
-            ? p.replacements
-                .map((r) => `"${r.find}" → "${r.replaceWith}"`)
-                .join(", ")
-            : ""),
+          (p.replacements ? p.replacements.map((r) => r.replaceWith).join(" | ") : ""),
       }));
 
     return {

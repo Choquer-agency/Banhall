@@ -223,12 +223,9 @@
     if (!ed || !report) return;
     const matches = ed.findReplaceMatches(pairs);
     if (matches.length === 0) {
-      // Nothing left to replace — almost always because it's already applied.
-      // Collapse the card so its buttons stop looking actionable.
       notifyReplace(
-        `No remaining “${pairs[0]?.find ?? "matches"}” in the report — already applied.`
+        `No matching passage remains for “${pairs[0]?.find ?? "this suggestion"}”. The report may have changed; refine or ask again.`
       );
-      markApplied(messageId).catch(() => {});
       return;
     }
     // Snapshot once so the whole stepping pass can be undone.
@@ -271,7 +268,7 @@
     advanceReplace(sess.current.from + sess.current.replaceWith.length, 1);
   }
 
-  function rejectAndNext() {
+  function keepOriginalAndNext() {
     const sess = replaceSession;
     if (!sess?.current) return;
     advanceReplace(sess.current.to, 0);
@@ -1187,6 +1184,7 @@
                     else editorRef?.clearProposalPreview();
                   }}
                   reviewingId={replaceSession?.messageId ?? null}
+                  onBeforeApply={flushEditor}
                 />
             </div>
           </aside>
@@ -1251,7 +1249,7 @@
           <div class="ml-2 flex items-center gap-1.5">
             <button
               onclick={replaceAndNext}
-              class="inline-flex items-center gap-1 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-green-600"
+              class="inline-flex items-center gap-1 rounded-lg bg-primary-selected px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark"
             >
               Replace · Next
               <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -1260,15 +1258,15 @@
             </button>
             <button
               onclick={replaceAllRemaining}
-              class="rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-orange-600"
+              class="rounded-lg border border-line bg-white px-3 py-2 text-xs font-medium text-navy transition-colors hover:bg-primary-wash"
             >
               Replace All
             </button>
             <button
-              onclick={rejectAndNext}
-              class="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-600"
+              onclick={keepOriginalAndNext}
+              class="rounded-lg px-3 py-2 text-xs font-medium text-ink-secondary transition-colors hover:bg-primary-wash hover:text-navy"
             >
-              Reject
+              Keep original
             </button>
             <button
               onclick={endReplaceReview}

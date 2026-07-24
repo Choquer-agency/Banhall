@@ -6,13 +6,15 @@
   import type { Doc } from "../../../convex/_generated/dataModel";
   import Button from "$lib/components/ui/Button.svelte";
   import ProjectCard from "$lib/components/dashboard/ProjectCard.svelte";
+  import BulkEditDialog from "$lib/components/dashboard/BulkEditDialog.svelte";
   import TagPicker from "$lib/components/project-new/TagPicker.svelte";
   import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
   import AppNav from "$lib/components/ui/AppNav.svelte";
+  import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { slide } from "svelte/transition";
+  import { fly, slide } from "svelte/transition";
   import { scienceCodeLabel, CRA_SCIENCE_CODES } from "../../../shared/craScienceCodes";
 
   type Project = Doc<"projects">;
@@ -190,6 +192,35 @@
     else expanded.add(key);
   }
 
+  // Bulk select edits (company name + fiscal year-end) across many projects.
+  const selected = new SvelteSet<string>();
+  const selectionMode = $derived(selected.size > 0);
+  let bulkEditOpen = $state(false);
+
+  function toggleSelect(id: string) {
+    if (selected.has(id)) selected.delete(id);
+    else selected.add(id);
+  }
+  function clearSelection() {
+    selected.clear();
+  }
+  /** Checked/indeterminate state for a group-header checkbox. */
+  function groupState(ps: Project[]) {
+    let n = 0;
+    for (const p of ps) if (selected.has(p._id as string)) n++;
+    return { all: n > 0 && n === ps.length, some: n > 0 && n < ps.length };
+  }
+  function toggleGroup(ps: Project[]) {
+    const { all } = groupState(ps);
+    for (const p of ps) {
+      if (all) selected.delete(p._id as string);
+      else selected.add(p._id as string);
+    }
+  }
+  function onWindowKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape" && selectionMode && !bulkEditOpen) clearSelection();
+  }
+
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
       goto("/login", { replaceState: true });
@@ -197,6 +228,19 @@
   });
 
   const projects = $derived(projectsQ.data);
+
+  const selectedProjects = $derived(
+    (projects ?? []).filter((p) => selected.has(p._id as string))
+  );
+  const allCompanies = $derived(distinct((projects ?? []).map((p) => p.clientName)));
+  // Deleted (or otherwise vanished) projects fall out of the selection.
+  $effect(() => {
+    if (!projects) return;
+    const ids = new Set(projects.map((p) => p._id as string));
+    for (const id of [...selected]) {
+      if (!ids.has(id)) selected.delete(id);
+    }
+  });
 
   const filtered = $derived(
     filter === "all" ? projects : projects?.filter((p) => p.status === filter)
@@ -269,6 +313,8 @@
     }))
   );
 </script>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 {#if auth.isLoading || !auth.isAuthenticated}
   <div class="flex flex-1 items-center justify-center bg-canvas">
@@ -444,7 +490,13 @@
         <!-- BNH-49: recency sorts render a flat, most-recent-first grid -->
         <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {#each flatSorted as project (project._id)}
-            <ProjectCard {project} tags={projectTags(project)} />
+            <ProjectCard
+              {project}
+              tags={projectTags(project)}
+              selected={selected.has(project._id as string)}
+              {selectionMode}
+              onToggleSelect={() => toggleSelect(project._id as string)}
+            />
           {/each}
         </div>
       {:else}
@@ -452,43 +504,85 @@
         <div class="mt-5 flex flex-col gap-2">
           {#each groups as g (g.company)}
             {@const companyOpen = isOpen(g.company)}
+            {@const companyProjects = g.yearGroups.flatMap((yg) => yg.projects)}
+            {@const cState = groupState(companyProjects)}
             <div class="card overflow-hidden">
-              <button
-                onclick={() => toggle(g.company)}
-                class="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-primary-wash"
-              >
-                <span class={`text-sm font-semibold transition-colors duration-300 ${companyOpen ? "text-primary" : "text-navy"}`}>{g.company}</span>
-                <span class="text-xs text-gray-400">
-                  {g.total} report{g.total !== 1 ? "s" : ""}
-                </span>
-                <svg class={`ml-auto h-4 w-4 flex-shrink-0 transition-all duration-300 ${companyOpen ? "rotate-180 text-primary" : "text-gray-400"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
+              <!-- Checkbox is a sibling of the expand button (buttons can't nest) -->
+              <div class="group/chdr flex items-center transition-colors hover:bg-primary-wash">
+                <div
+                  class={`flex pl-4 transition-opacity duration-300 ${
+                    selectionMode || cState.all || cState.some
+                      ? "opacity-100"
+                      : "opacity-0 focus-within:opacity-100 group-hover/chdr:opacity-100"
+                  }`}
+                >
+                  <Checkbox
+                    checked={cState.all}
+                    indeterminate={cState.some}
+                    aria-label={`Select all ${g.company} projects`}
+                    onCheckedChange={() => toggleGroup(companyProjects)}
+                  />
+                </div>
+                <button
+                  onclick={() => toggle(g.company)}
+                  class="flex min-w-0 flex-1 items-center gap-2 px-3 py-3 text-left"
+                >
+                  <span class={`text-sm font-semibold transition-colors duration-300 ${companyOpen ? "text-primary" : "text-navy"}`}>{g.company}</span>
+                  <span class="text-xs text-gray-400">
+                    {g.total} report{g.total !== 1 ? "s" : ""}
+                  </span>
+                  <svg class={`ml-auto h-4 w-4 flex-shrink-0 transition-all duration-300 ${companyOpen ? "rotate-180 text-primary" : "text-gray-400"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              </div>
 
               {#if companyOpen}
                 <div class="border-t border-gray-100" transition:slide={{ duration: 300 }}>
                   {#each g.yearGroups as yg (yg.fyKey)}
                     {@const yearKey = `${g.company}|${yg.fyKey}`}
                     {@const yearOpen = isOpen(yearKey)}
+                    {@const yState = groupState(yg.projects)}
                     <div class="border-b border-gray-50 last:border-0">
-                      <button
-                        onclick={() => toggle(yearKey)}
-                        class="flex w-full items-center gap-2 px-4 py-2.5 pl-7 text-left transition-colors hover:bg-primary-wash"
-                      >
-                        <span class="text-sm font-medium text-gray-700">{yg.label}</span>
-                        {#if yg.dateLabel}
-                          <span class="text-xs text-gray-400">· {yg.dateLabel}</span>
-                        {/if}
-                        <span class="ml-auto text-xs text-gray-400">{yg.projects.length}</span>
-                        <svg class={`h-3.5 w-3.5 flex-shrink-0 transition-all duration-300 ${yearOpen ? "rotate-180 text-primary" : "text-gray-300"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </button>
+                      <div class="group/yhdr flex items-center transition-colors hover:bg-primary-wash">
+                        <div
+                          class={`flex pl-7 transition-opacity duration-300 ${
+                            selectionMode || yState.all || yState.some
+                              ? "opacity-100"
+                              : "opacity-0 focus-within:opacity-100 group-hover/yhdr:opacity-100"
+                          }`}
+                        >
+                          <Checkbox
+                            checked={yState.all}
+                            indeterminate={yState.some}
+                            aria-label={`Select ${g.company} ${yg.label} projects`}
+                            onCheckedChange={() => toggleGroup(yg.projects)}
+                          />
+                        </div>
+                        <button
+                          onclick={() => toggle(yearKey)}
+                          class="flex min-w-0 flex-1 items-center gap-2 px-3 py-2.5 text-left"
+                        >
+                          <span class="text-sm font-medium text-gray-700">{yg.label}</span>
+                          {#if yg.dateLabel}
+                            <span class="text-xs text-gray-400">· {yg.dateLabel}</span>
+                          {/if}
+                          <span class="ml-auto text-xs text-gray-400">{yg.projects.length}</span>
+                          <svg class={`h-3.5 w-3.5 flex-shrink-0 transition-all duration-300 ${yearOpen ? "rotate-180 text-primary" : "text-gray-300"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                      </div>
                       {#if yearOpen}
                         <div class="grid gap-3 px-4 pb-4 pl-10 pt-1 sm:grid-cols-2 lg:grid-cols-3" transition:slide={{ duration: 300 }}>
                           {#each yg.projects as project (project._id)}
-                            <ProjectCard {project} tags={projectTags(project)} />
+                            <ProjectCard
+                              {project}
+                              tags={projectTags(project)}
+                              selected={selected.has(project._id as string)}
+                              {selectionMode}
+                              onToggleSelect={() => toggleSelect(project._id as string)}
+                            />
                           {/each}
                         </div>
                       {/if}
@@ -500,6 +594,30 @@
           {/each}
         </div>
       {/if}
+
+      <!-- Bulk-selection action bar — the view's one lagoon action while active -->
+      {#if selectionMode}
+        <div
+          transition:fly={{ y: 16, duration: 300 }}
+          class="fixed inset-x-0 bottom-6 z-50 mx-auto flex w-fit items-center gap-3 rounded-xl border border-gray-200 bg-white py-2 pl-4 pr-2 shadow-lg"
+        >
+          <span class="text-data text-ink-secondary">{selected.size} selected</span>
+          <button
+            onclick={clearSelection}
+            class="text-xs text-gray-500 transition-colors hover:text-navy"
+          >
+            Clear
+          </button>
+          <Button size="sm" onclick={() => (bulkEditOpen = true)}>Edit details</Button>
+        </div>
+      {/if}
+
+      <BulkEditDialog
+        bind:open={bulkEditOpen}
+        projects={selectedProjects}
+        companies={allCompanies}
+        onSaved={clearSelection}
+      />
     </main>
   </div>
 {/if}

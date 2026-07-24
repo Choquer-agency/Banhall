@@ -22,8 +22,8 @@
     role="status"
     aria-label="Assistant is responding"
   >
-    <span class={cn(dot, "animate-bounce rounded-full bg-gray-400 [animation-delay:-0.3s]")}></span>
-    <span class={cn(dot, "animate-bounce rounded-full bg-gray-400 [animation-delay:-0.15s]")}></span>
-    <span class={cn(dot, "animate-bounce rounded-full bg-gray-400")}></span>
+    <span class={cn(dot, "animate-bounce rounded-full bg-gray-400 [animation-delay:-0.3s] motion-reduce:animate-none")}></span>
+    <span class={cn(dot, "animate-bounce rounded-full bg-gray-400 [animation-delay:-0.15s] motion-reduce:animate-none")}></span>
+    <span class={cn(dot, "animate-bounce rounded-full bg-gray-400 motion-reduce:animate-none")}></span>
   </div>
 {/if}

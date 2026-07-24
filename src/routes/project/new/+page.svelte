@@ -1,7 +1,7 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { toast } from "svelte-sonner";
-  import { useMutation, useQuery } from "convex-svelte";
+  import { useAction, useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
@@ -131,7 +131,7 @@
       ? { projectId: fromProjectId as Id<"projects"> }
       : "skip"
   );
-  const copyProjectDocuments = useMutation(api.projects.copyProjectDocuments);
+  const copyProjectContent = useAction(api.projectDuplication.copyProjectContent);
 
   let prefilled = $state(false);
   $effect(() => {
@@ -378,12 +378,17 @@
       });
       createdProjectId = projectId;
 
-      // Duplicate flow: bring the source project's documents along.
+      // Duplicate flow: clone the complete project input package, including
+      // transcripts, support docs, archived docs, review PDs, original file
+      // bytes, and identity evidence. The transcript was already created from
+      // the prefilled source text above, so the copy action handles everything
+      // else without sharing storage ownership with the source project.
       if (fromProjectId) {
-        progress = "Copying documents…";
-        await copyProjectDocuments({
+        progress = "Copying all project materials…";
+        await copyProjectContent({
           fromProjectId: fromProjectId as Id<"projects">,
           toProjectId: projectId,
+          targetTranscriptId: transcriptId,
         });
       }
 
@@ -466,7 +471,9 @@
         }
       }
 
-      if (mode === "review" && pdDoc) {
+      if (fromProjectId) {
+        progress = "Opening duplicate…";
+      } else if (mode === "review" && pdDoc) {
         // BNH-39: store the written PD (no category — it must NOT feed a later
         // generation as context; the review agent reads it directly).
         progress = `Uploading ${pdDoc.name}…`;

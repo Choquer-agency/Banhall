@@ -57,7 +57,10 @@
   ) {
     onkeydown?.(e);
     if (e.defaultPrevented) return;
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    if (e.key !== "Enter" || e.isComposing) return;
+    const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+    const shortcut = e.metaKey || e.ctrlKey;
+    if ((!coarsePointer && !e.shiftKey) || shortcut) {
       e.preventDefault();
       ctx.submit();
     }
@@ -75,7 +78,7 @@
     disabled={disabled || ctx.disabled}
     style={textIndent ? `text-indent: ${textIndent}px` : undefined}
     class={cn(
-      "min-h-[28px] w-full resize-none bg-transparent px-1 py-0.5 text-[14px] leading-snug text-gray-800 placeholder:text-gray-400 outline-none disabled:opacity-50",
+      "min-h-[28px] w-full resize-none bg-transparent px-1 py-0.5 text-base leading-snug text-gray-800 placeholder:text-ink-muted outline-none disabled:opacity-50 md:text-sm",
       className
     )}
   ></textarea>

@@ -2,7 +2,13 @@ import { internalAction } from "../_generated/server";
 import { components, internal } from "../_generated/api";
 import { v } from "convex/values";
 import { z } from "zod";
-import { Agent, createTool, stepCountIs, saveMessage } from "@convex-dev/agent";
+import {
+  Agent,
+  createTool,
+  stepCountIs,
+  saveMessage,
+  type ToolCtx,
+} from "@convex-dev/agent";
 import { anthropic } from "@ai-sdk/anthropic";
 import { MODEL } from "./model";
 import { CHAT_SYSTEM_PROMPT_V2 } from "./prompts";
@@ -30,16 +36,20 @@ const proposeEdit = createTool({
       .min(1)
       .describe("The replacement text, fully compliant with the writing rules."),
   }),
-  execute: async (ctx, input): Promise<string> => {
+  execute: async (ctx, input, options): Promise<string> => {
     if (!ctx.threadId) throw new Error("No thread in tool context");
-    await ctx.runMutation(internal.chatV2.saveProposal, {
+    const runtimeCtx = ctx as ToolCtx & { promptMessageId?: string };
+    const result = await ctx.runMutation(internal.chatV2.saveProposal, {
       agentThreadId: ctx.threadId,
-      messageId: ctx.messageId,
+      toolCallId: options.toolCallId,
+      promptMessageId: runtimeCtx.promptMessageId ?? ctx.messageId,
       kind: "edit",
       targetText: input.targetText,
       newText: scrubBannedWords(input.newText),
     });
-    return "Edit proposed — the writer sees it as a card with Apply/Reject.";
+    return result.ok
+      ? "Edit proposed — the writer sees it as a card with Replace, Refine, or Reject."
+      : `Proposal NOT created: ${result.reason} Re-read the CURRENT REPORT and retry the edit tool with an exact canonical target.`;
   },
 });
 
@@ -59,18 +69,22 @@ const proposeReplacements = createTool({
       )
       .min(1),
   }),
-  execute: async (ctx, input): Promise<string> => {
+  execute: async (ctx, input, options): Promise<string> => {
     if (!ctx.threadId) throw new Error("No thread in tool context");
-    await ctx.runMutation(internal.chatV2.saveProposal, {
+    const runtimeCtx = ctx as ToolCtx & { promptMessageId?: string };
+    const result = await ctx.runMutation(internal.chatV2.saveProposal, {
       agentThreadId: ctx.threadId,
-      messageId: ctx.messageId,
+      toolCallId: options.toolCallId,
+      promptMessageId: runtimeCtx.promptMessageId ?? ctx.messageId,
       kind: "replacements",
       replacements: input.replacements.map((r) => ({
         find: r.find,
         replaceWith: scrubBannedWords(r.replaceWith),
       })),
     });
-    return "Replacement set proposed — the writer sees it as a card with Apply/Reject.";
+    return result.ok
+      ? "Replacement set proposed — the writer sees it as a card with Replace or Reject."
+      : `Proposal NOT created: ${result.reason} Re-read the CURRENT REPORT and retry with exact canonical find text.`;
   },
 });
 
@@ -87,15 +101,19 @@ const highlightPassages = createTool({
       )
       .min(1),
   }),
-  execute: async (ctx, input): Promise<string> => {
+  execute: async (ctx, input, options): Promise<string> => {
     if (!ctx.threadId) throw new Error("No thread in tool context");
-    await ctx.runMutation(internal.chatV2.saveProposal, {
+    const runtimeCtx = ctx as ToolCtx & { promptMessageId?: string };
+    const result = await ctx.runMutation(internal.chatV2.saveProposal, {
       agentThreadId: ctx.threadId,
-      messageId: ctx.messageId,
+      toolCallId: options.toolCallId,
+      promptMessageId: runtimeCtx.promptMessageId ?? ctx.messageId,
       kind: "references",
       references: input.references,
     });
-    return `Highlighted ${input.references.length} passage(s) in the document panel.`;
+    return result.ok
+      ? `Highlighted ${input.references.length} passage(s) in the document panel.`
+      : `Highlights NOT created: ${result.reason}`;
   },
 });
 
@@ -205,7 +223,11 @@ export const streamChatReply = internalAction({
       reportContent: string | null;
       agentOutputs: string | null;
       documents: { fileName: string; content: string }[];
-      decisions: { state: "pending" | "applied" | "rejected"; summary: string }[];
+      decisions: {
+        state: "pending" | "applied" | "rejected" | "stale";
+        target: string;
+        candidate: string;
+      }[];
     } = await ctx.runQuery(internal.chatV2.getChatContextV2, {
       reportId: args.reportId,
       agentThreadId: args.agentThreadId,
@@ -236,7 +258,10 @@ export const streamChatReply = internalAction({
       : "(no documents uploaded)";
 
     const editDecisions = context.decisions
-      .map((d, i) => `[Edit ${i + 1} — ${d.state.toUpperCase()}]\n${d.summary}`)
+      .map(
+        (d, i) =>
+          `[Edit ${i + 1} — ${d.state.toUpperCase()}]\nCanonical target from report: ${d.target}\nCandidate replacement (context only — never use as target unless it is present in CURRENT REPORT): ${d.candidate}`
+      )
       .join("\n\n");
 
     const grounding = `# CURRENT REPORT (the only document you may edit)\n${reportText}\n\n# TRANSCRIPT ANALYSIS (source of truth — do not exceed it)\n${analysisText}\n\n# UPLOADED CONTEXT DOCUMENTS\n${docsText}${
