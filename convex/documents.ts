@@ -6,6 +6,11 @@ import {
   requireInternalProjectAccess,
 } from "./lib/auth";
 import { domainError } from "./lib/contracts";
+import {
+  deriveProcessingStatus,
+  deriveStoredProcessing,
+} from "../shared/documentStatus";
+import { requireAttemptKey, resolveUploadAttempt } from "./lib/uploadAttempts";
 
 const fileTypeValidator = v.union(
   v.literal("txt"),
@@ -47,6 +52,15 @@ export const uploadDocument = mutation({
     storageId: v.optional(v.id("_storage")),
     mimeType: v.optional(v.string()),
     category: v.optional(categoryValidator),
+    // PSOS-04 derivation facts. Both are validated enums, never prose: the
+    // client reports what it observed and this mutation decides what it means.
+    // Absent (old client) is the conservative default — empty content still
+    // forces a non-ready status on its own.
+    extractionOutcome: v.optional(v.union(v.literal("ok"), v.literal("failed"))),
+    intake: v.optional(v.union(v.literal("file"), v.literal("pasted"))),
+    // PSOS-04: resolves the durable upload attempt this call belongs to, in the
+    // same transaction as the insert.
+    attemptKey: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { project, user } = await requireInternalProjectAccess(ctx, args.projectId);
@@ -58,13 +72,31 @@ export const uploadDocument = mutation({
     }
 
     // Dedupe: same file (name + content) already in this project → reuse it.
+    //
+    // Empty content is exempt. Files we could not read all store "", so
+    // deduping them would merge genuinely different uploads that happen to
+    // share a name: the receipt would show one row for two files, and both
+    // upload attempts would resolve to the same document — an audit trail
+    // claiming success for a file that was never stored. There is also no text
+    // to save by deduping. Two identical unreadable uploads now make two rows,
+    // which is the honest answer: the user performed two uploads.
     const existingDocs = await ctx.db
       .query("projectDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .collect();
-    const dup = existingDocs.find(
-      (d) => d.fileName === args.fileName && d.content === args.content
-    );
+    const dup =
+      args.content.trim().length > 0
+        ? existingDocs.find(
+            (d) => d.fileName === args.fileName && d.content === args.content
+          )
+        : undefined;
+    const derived = deriveProcessingStatus({
+      fileName: args.fileName,
+      content: args.content,
+      extractionFailed: args.extractionOutcome === "failed",
+      intake: args.intake,
+    });
+
     if (dup) {
       if (!dup.storageId && args.storageId) {
         // Upgrade a text-only record with the freshly stored original bytes.
@@ -76,10 +108,30 @@ export const uploadDocument = mutation({
         // Already have the file — drop the orphaned re-upload.
         await ctx.storage.delete(args.storageId);
       }
+      // Backfill-on-touch: the dedupe key is (fileName, content), so the
+      // derivation is identical by construction. Fill it in when missing;
+      // never churn a value already recorded.
+      if (!dup.processingStatus) {
+        await ctx.db.patch(dup._id, {
+          processingStatus: derived.status,
+          processingDetail: derived.detail,
+        });
+      }
+      // The dedupe path resolves the attempt too. Without this a dedupe hit
+      // would leave a ghost attempt stuck "in progress" on the receipt for a
+      // file that is demonstrably in the project.
+      if (args.attemptKey) {
+        await resolveUploadAttempt(
+          ctx,
+          args.projectId,
+          requireAttemptKey(args.attemptKey),
+          dup._id
+        );
+      }
       return dup._id;
     }
 
-    return await ctx.db.insert("projectDocuments", {
+    const documentId = await ctx.db.insert("projectDocuments", {
       projectId: args.projectId,
       ...(args.reportId ? { reportId: args.reportId } : {}),
       fileName: args.fileName,
@@ -89,9 +141,21 @@ export const uploadDocument = mutation({
       ...(args.mimeType ? { mimeType: args.mimeType } : {}),
       ...(args.category ? { category: args.category } : {}),
       source: args.source ?? "chat_upload",
+      processingStatus: derived.status,
+      processingDetail: derived.detail,
       uploadedBy: user._id,
       createdAt: Date.now(),
     });
+
+    if (args.attemptKey) {
+      await resolveUploadAttempt(
+        ctx,
+        args.projectId,
+        requireAttemptKey(args.attemptKey),
+        documentId
+      );
+    }
+    return documentId;
   },
 });
 
@@ -108,19 +172,29 @@ export const listDocuments = query({
 
     // Metadata + a download URL for files with stored bytes.
     return await Promise.all(
-      docs.map(async (d) => ({
-        _id: d._id,
-        fileName: d.fileName,
-        fileType: d.fileType,
-        source: d.source,
-        category: d.category ?? null,
-        createdAt: d.createdAt,
-        sizeChars: d.content.length,
-        hasFile: !!d.storageId,
-        mimeType: d.mimeType ?? null,
-        url: d.storageId ? await ctx.storage.getUrl(d.storageId) : null,
-        archived: d.archived ?? false,
-      }))
+      docs.map(async (d) => {
+        // Rows uploaded before PSOS-04 carry no stored status. Deriving it here
+        // from the same function means every listed document reports a truthful
+        // status on day one, and the backfill is only a persistence step.
+        const derived = d.processingStatus
+          ? { status: d.processingStatus, detail: d.processingDetail ?? null }
+          : deriveStoredProcessing(d);
+        return {
+          _id: d._id,
+          fileName: d.fileName,
+          fileType: d.fileType,
+          source: d.source,
+          category: d.category ?? null,
+          createdAt: d.createdAt,
+          sizeChars: d.content.length,
+          hasFile: !!d.storageId,
+          mimeType: d.mimeType ?? null,
+          url: d.storageId ? await ctx.storage.getUrl(d.storageId) : null,
+          archived: d.archived ?? false,
+          processingStatus: derived.status,
+          processingDetail: derived.detail,
+        };
+      })
     );
   },
 });

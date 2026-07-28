@@ -7,15 +7,9 @@
   import Spinner from "$lib/components/ui/Spinner.svelte";
 
   import { goto } from "$app/navigation";
+  import { resolve } from "$app/paths";
 
   const auth = useAuth();
-  // Suppress the demo auto-login after an explicit sign-out. sessionStorage
-  // marker only — no URL param, so /login stays clean in the address bar.
-  // svelte-ignore state_referenced_locally
-  const manualLogin = $state(
-    typeof sessionStorage !== "undefined" &&
-      sessionStorage.getItem("banhall:manual-signout") === "1"
-  );
 
   async function signInEmail(email: string, password: string) {
     const { error } = await authClient.signIn.email({ email, password });
@@ -26,35 +20,17 @@
   let password = $state("");
   let error = $state("");
   let submitting = $state(false);
+  let signInAttempt = 0;
 
-  // One state machine for the whole page: no flashes, no window.location
-  // reload cascades. "entering" covers auto-login AND post-sign-in token
-  // propagation; the reactive auth watcher below performs a single
-  // client-side goto once Convex auth is actually live.
+  // Keep the split login shell mounted while the session resolves. Only the
+  // form column changes state, so sign-out and background-tab session refreshes
+  // cannot remount or flash the large brand panel.
   let entering = $state(false);
-  let autoLoginAttempted = $state(false);
 
   $effect(() => {
-    if (auth.isLoading) return;
-    if (auth.isAuthenticated) {
-      // Client-side navigation — no full reload, no login re-render.
-      goto("/dashboard", { replaceState: true });
-      return;
+    if (!auth.isLoading && auth.isAuthenticated) {
+      void goto(resolve("/dashboard"), { replaceState: true });
     }
-    if (manualLogin || autoLoginAttempted) return;
-    autoLoginAttempted = true;
-    entering = true;
-
-    const demoEmail = "demo@banhall.ca";
-    const demoPassword = "Test12345";
-
-    // demo@ is a permanent account (recreated post-Better-Auth migration);
-    // no signUp fallback — signups are invite-only. Redirect happens via the
-    // auth watcher above the moment isAuthenticated flips.
-    signInEmail(demoEmail, demoPassword).catch(() => {
-      // Auto-login failed — show the normal login form as fallback.
-      entering = false;
-    });
   });
 
   async function handleSubmit(e: SubmitEvent) {
@@ -62,16 +38,25 @@
     error = "";
     submitting = true;
 
+    const attempt = ++signInAttempt;
     try {
-      await signInEmail(email, password);
-      // Fresh session — future sign-outs start clean.
-      sessionStorage.removeItem("banhall:manual-signout");
-      // Hold the entering screen; the auth watcher redirects when the
-      // Convex token is live (no arbitrary setTimeout, no reload).
+      await signInEmail(email.trim().toLowerCase(), password);
+      // Hold the stable form-column progress state until Convex auth is live;
+      // the watcher above then performs one client-side navigation. Recover if
+      // token propagation stalls rather than leaving a permanent spinner.
       entering = true;
+      window.setTimeout(() => {
+        if (attempt === signInAttempt && entering && !auth.isAuthenticated) {
+          entering = false;
+          submitting = false;
+          error = "We couldn't finish signing you in. Check your connection and try again.";
+        }
+      }, 10_000);
     } catch (err) {
       console.error("Auth error:", err);
-      error = "Invalid email or password.";
+      error = navigator.onLine
+        ? "Check your @banhall.com email address and password."
+        : "You're offline. Reconnect and try signing in again.";
       submitting = false;
     }
   }
@@ -81,16 +66,8 @@
   <title>Sign in — Banhall</title>
 </svelte:head>
 
-{#if auth.isLoading || auth.isAuthenticated || entering}
-  <!-- One uninterrupted holding screen from "checking session" through
-       "signed in, navigating" — the form never flashes in between. -->
-  <div class="flex flex-1 flex-col items-center justify-center bg-canvas">
-    <Spinner />
-    <p class="mt-3 text-sm text-gray-500">Signing you in…</p>
-  </div>
-{:else}
-  <!-- Full-bleed split: fir brand field · ledger-paper form column -->
-  <div class="grid min-h-screen flex-1 lg:grid-cols-[minmax(0,11fr)_minmax(0,9fr)]">
+<!-- Keep this full shell stable across checking, signed-out, and entering states. -->
+<div class="grid min-h-screen flex-1 lg:grid-cols-[minmax(0,11fr)_minmax(0,9fr)]">
     <!-- Brand field: the app bar's material at page scale. Wordmark floats
          free on the fir — no container. -->
     <div class="brand-field relative hidden flex-col justify-between overflow-hidden bg-navy px-12 py-12 lg:flex xl:px-16">
@@ -129,43 +106,52 @@
           class="logo-fir -ml-2 mb-8 w-32 lg:hidden"
         />
 
-        <h1 class="text-2xl font-semibold tracking-tight text-gray-900">Welcome back</h1>
-        <p class="mt-1.5 text-sm text-gray-600">Sign in to your account to continue.</p>
-
-        <form onsubmit={handleSubmit} class="mt-8 flex flex-col gap-4">
-          <Input
-            id="email"
-            label="Email"
-            type="email"
-            bind:value={email}
-            placeholder="you@banhall.ca"
-            autocomplete="email"
-            required
-          />
-          <Input
-            id="password"
-            label="Password"
-            type="password"
-            bind:value={password}
-            placeholder="Enter your password"
-            autocomplete="current-password"
-            required
-            minlength={8}
-          />
-
-          {#if error}
-            <p role="alert" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-              {error}
+        {#if auth.isLoading || auth.isAuthenticated || entering}
+          <div class="flex min-h-64 flex-col items-center justify-center" aria-live="polite">
+            <Spinner />
+            <p class="mt-3 text-sm text-gray-500">
+              {entering || auth.isAuthenticated ? "Signing you in…" : "Checking your session…"}
             </p>
-          {/if}
+          </div>
+        {:else}
+          <h1 class="text-2xl font-semibold tracking-tight text-gray-900">Welcome back</h1>
+          <p class="mt-1.5 text-sm text-gray-600">Sign in to your account to continue.</p>
 
-          <Button type="submit" disabled={submitting} class="mt-2 gap-2">
-            {#if submitting}
-              <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
+          <form onsubmit={handleSubmit} class="mt-8 flex flex-col gap-4">
+            <Input
+              id="email"
+              label="Email"
+              type="email"
+              bind:value={email}
+              placeholder="you@banhall.com"
+              autocomplete="email"
+              required
+            />
+            <Input
+              id="password"
+              label="Password"
+              type="password"
+              bind:value={password}
+              placeholder="Enter your password"
+              autocomplete="current-password"
+              required
+              minlength={8}
+            />
+
+            {#if error}
+              <p role="alert" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+                {error}
+              </p>
             {/if}
-            {submitting ? "Signing in…" : "Sign in"}
-          </Button>
-        </form>
+
+            <Button type="submit" disabled={submitting} class="mt-2 gap-2">
+              {#if submitting}
+                <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
+              {/if}
+              {submitting ? "Signing in…" : "Sign in"}
+            </Button>
+          </form>
+        {/if}
 
         <div class="mt-10 flex items-center gap-2 text-xs text-gray-500 lg:hidden">
           <span>Banhall SR&amp;ED Consulting</span>
@@ -178,29 +164,8 @@
       </div>
     </div>
   </div>
-{/if}
 
 <style>
-  /* Entrances: brand elements rise on the fir; the form follows a beat later. */
-  .brand-mark {
-    animation: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-  .brand-copy {
-    animation: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both;
-  }
-  .form-col {
-    animation: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both;
-  }
-  @keyframes rise {
-    from {
-      opacity: 0;
-      transform: translateY(14px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
   /* Ledger ruling carries into the brand field at whisper contrast — the
      same material, lit dark. */
   .brand-field {
@@ -217,12 +182,5 @@
   .logo-fir {
     filter: brightness(0) saturate(100%) invert(17%) sepia(21%) saturate(1900%)
       hue-rotate(140deg) brightness(93%) contrast(101%);
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .brand-mark,
-    .brand-copy,
-    .form-col {
-      animation: none;
-    }
   }
 </style>

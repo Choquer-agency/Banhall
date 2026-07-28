@@ -6,6 +6,7 @@
 -->
 <script module lang="ts">
   import { z } from "zod";
+  import { qaScorecardSchema } from "../../../../shared/qaScorecard";
   interface QAIssue {
     text: string;
     severity: "deduction" | "warning";
@@ -22,7 +23,8 @@
     superlative_flags: string[];
     gaps_requiring_client_followup: Array<{
       section: string;
-      paragraph: number;
+      /** Null/absent when the gap spans the section rather than one paragraph. */
+      paragraph?: number | null;
       question: string;
     }>;
     suggested_improvements: string[];
@@ -38,37 +40,10 @@
     items: QAGroupItem[];
   }
 
-  const qaScorecardSchema = z.object({
-    overall_score: z.number().finite(),
-    section_scores: z.record(
-      z.string(),
-      z.object({
-        score: z.number().finite().default(0),
-        issues: z.array(z.union([
-          z.string().transform((text): QAIssue => ({ text, severity: "deduction" })),
-          z.object({
-            text: z.string(),
-            severity: z.enum(["deduction", "warning"]),
-            deduction: z.number().positive().optional(),
-            paragraph: z.number().int().positive().nullable().optional(),
-          }),
-        ])).default([]),
-        strengths: z.array(z.string()).default([]),
-      })
-    ).default({}),
-    cra_compliance: z.record(z.string(), z.boolean()).default({}),
-    hallucination_risks: z.array(z.string()).default([]),
-    ai_language_flags: z.array(z.string()).default([]),
-    superlative_flags: z.array(z.string()).default([]),
-    gaps_requiring_client_followup: z.array(
-      z.object({
-        section: z.string(),
-        paragraph: z.number().int().nonnegative(),
-        question: z.string(),
-      })
-    ).default([]),
-    suggested_improvements: z.array(z.string()).default([]),
-  });
+  // The scorecard contract lives in shared/ so this panel and the agent that
+  // produces it validate against ONE definition. Three separate declarations
+  // (TS interface, provider JSON Schema, this Zod schema) had already drifted
+  // apart, which is what discarded a complete, valid scorecard.
 
   const reportDocumentSchema = z.object({
     content: z.array(
@@ -130,27 +105,57 @@
     runningQaLocal = true;
     try {
       await onRunQa();
-    } catch {
+    } catch (error) {
+      // Swallowed deliberately: this runs from a click handler, where a
+      // rejection would surface as an unhandled promise error.
+      console.error("QA scorecard could not be started", error);
+    } finally {
+      // Always hand back to server state. Clearing only on error meant a
+      // successful call that didn't flip postQaStatus (already done, or a
+      // no-op because a pass was in flight) left the spinner up forever,
+      // which is indistinguishable from a stalled run.
       runningQaLocal = false;
     }
-    // Server status takes over; the scorecard arrives reactively via
-    // agentOutputs and replaces this empty state entirely.
   }
 
-  const scorecard = $derived.by((): QAScorecard | null => {
+  /**
+   * True when a scorecard was produced but could not be read.
+   *
+   * "Absent" and "unreadable" used to look identical — both showed "No QA
+   * scorecard yet" with a Run button, so a complete, paid-for scorecard that
+   * failed validation was indistinguishable from one that never ran, and every
+   * retry burned another API call into the void. Telling them apart is what
+   * turns that from a database investigation into a glance.
+   */
+  const scorecardState = $derived.by((): {
+    scorecard: QAScorecard | null;
+    unreadable: boolean;
+  } => {
+    let sawUnreadablePayload = false;
+
     const direct = parseScorecard(rawQa);
-    if (direct) return direct;
+    if (direct) return { scorecard: direct, unreadable: false };
+    if (rawQa != null) sawUnreadablePayload = true;
+
     if (agentOutputs) {
       try {
         const parsed: unknown = JSON.parse(agentOutputs);
         if (typeof parsed === "object" && parsed !== null && "qa" in parsed) {
           const fromAgent = parseScorecard(parsed.qa);
-          if (fromAgent) return fromAgent;
+          if (fromAgent) return { scorecard: fromAgent, unreadable: false };
+          if (parsed.qa != null) {
+            sawUnreadablePayload = true;
+            console.error(
+              "QA scorecard failed validation — stored payload does not match the expected shape",
+              qaScorecardSchema.safeParse(parsed.qa).error?.issues
+            );
+          }
         }
       } catch {
         // Fall through to the legacy report payload.
       }
     }
+
     if (reportContent) {
       try {
         const parsedDocument = reportDocumentSchema.safeParse(JSON.parse(reportContent));
@@ -159,14 +164,22 @@
             (node) => node.type === "codeBlock" && node.attrs?.language === "json"
           );
           const rawText = codeBlock?.content?.[0]?.text;
-          if (rawText) return parseScorecard(JSON.parse(rawText));
+          if (rawText) {
+            const legacy = parseScorecard(JSON.parse(rawText));
+            if (legacy) return { scorecard: legacy, unreadable: false };
+            sawUnreadablePayload = true;
+          }
         }
       } catch {
         // No scorecard in this legacy report.
       }
     }
-    return null;
+
+    return { scorecard: null, unreadable: sawUnreadablePayload };
   });
+
+  const scorecard = $derived(scorecardState.scorecard);
+  const scorecardUnreadable = $derived(scorecardState.unreadable);
 
   // Managers/admins may reclassify QA severity; consultants only vote/comment.
   const currentUserQ = useQuery(api.users.getCurrentUser, () => ({}));
@@ -349,7 +362,10 @@
       .sort((a, b) => lineOrder(a[0]) - lineOrder(b[0]) || a[0].localeCompare(b[0]))
       .map(([section, items]) => ({
         section,
-        items: [...items].sort((a, b) => a.paragraph - b.paragraph),
+        // Section-wide gaps (no paragraph) sort after the located ones.
+        items: [...items].sort(
+          (a, b) => (a.paragraph ?? Infinity) - (b.paragraph ?? Infinity)
+        ),
       }));
   });
   let openGapGroups = $state<Record<string, boolean>>({});
@@ -732,7 +748,7 @@
                       {@const locate = onLocateGap}
                       <button
                         type="button"
-                        onclick={() => locate({ section: gap.section, paragraph: gap.paragraph })}
+                        onclick={() => locate({ section: gap.section, paragraph: gap.paragraph ?? null })}
                         class="group flex w-full items-start gap-2 px-2.5 py-2 text-left transition-colors hover:bg-amber-50/75"
                       >
                         <Tooltip.Root>
@@ -749,13 +765,17 @@
                           <Tooltip.Content side="top" sideOffset={6}>Jump to this paragraph</Tooltip.Content>
                         </Tooltip.Root>
                         <span class="min-w-0">
-                          <span class="text-data block text-gap-text/70">Paragraph {gap.paragraph}</span>
+                          <span class="text-data block text-gap-text/70">
+                            {gap.paragraph != null ? `Paragraph ${gap.paragraph}` : "Whole section"}
+                          </span>
                           <span class="mt-0.5 block text-xs leading-relaxed text-gap-text">{gap.question}</span>
                         </span>
                       </button>
                     {:else}
                       <div class="px-2.5 py-2">
-                        <p class="text-data text-gap-text/70">Paragraph {gap.paragraph}</p>
+                        <p class="text-data text-gap-text/70">
+                          {gap.paragraph != null ? `Paragraph ${gap.paragraph}` : "Whole section"}
+                        </p>
                         <p class="mt-0.5 text-xs leading-relaxed text-gap-text">{gap.question}</p>
                       </div>
                     {/if}
@@ -844,7 +864,18 @@
     <svg class="h-8 w-8 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
       <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
     </svg>
-    <p class="text-sm text-gray-500">No QA scorecard for this report yet.</p>
+    <p class="text-sm text-gray-500">
+      {scorecardUnreadable
+        ? "This report's QA scorecard couldn't be read."
+        : "No QA scorecard for this report yet."}
+    </p>
+    {#if scorecardUnreadable}
+      <p class="max-w-[280px] text-xs leading-relaxed text-ink-muted">
+        The scoring finished, but the saved result didn't match the expected
+        format — so there is nothing to show. Running it again may produce a
+        readable one.
+      </p>
+    {/if}
     {#if onRunQa}
       {#if qaRunning}
         <p class="inline-flex items-center gap-2 text-xs text-gray-400">
@@ -852,17 +883,19 @@
           Scoring the report — it keeps running even if you close this panel.
         </p>
       {:else}
-        <p class="text-xs text-gray-400">
-          {postQaStatus === "failed"
-            ? "The last QA pass failed — you can run it again."
-            : "Score the assembled report with the same QA agent other modes use."}
-        </p>
+        {#if !scorecardUnreadable}
+          <p class="text-xs text-gray-400">
+            {postQaStatus === "failed"
+              ? "The last QA pass failed — you can run it again."
+              : "Score the assembled report with the same QA agent other modes use."}
+          </p>
+        {/if}
         <button
           type="button"
           onclick={handleRunQa}
           class="mt-1 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-dark"
         >
-          Run QA scorecard
+          {scorecardUnreadable ? "Run QA scorecard again" : "Run QA scorecard"}
         </button>
       {/if}
     {:else}

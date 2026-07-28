@@ -70,12 +70,23 @@ export async function openRouterChatCompletion(
     body: JSON.stringify(input.body),
     ...(input.timeoutMs ? { signal: AbortSignal.timeout(input.timeoutMs) } : {}),
   });
-  const raw: unknown = await response.json().catch(() => null);
+  // Read as text first: gateway errors are not always JSON (HTML error pages,
+  // plaintext proxy failures), and discarding that body left status-only
+  // errors that were impossible to diagnose.
+  const text = await response.text();
+  let raw: unknown = null;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    raw = null;
+  }
   const body = (raw ?? {}) as ChatCompletionsResponse;
   if (!response.ok) {
+    const detail = body.error?.message ?? text.trim().slice(0, 300);
     throw new OpenRouterError(
-      body.error?.message ??
-        `OpenRouter request failed with status ${response.status}`,
+      `OpenRouter request failed with status ${response.status}${
+        detail ? `: ${detail}` : ""
+      }`,
       response.status
     );
   }

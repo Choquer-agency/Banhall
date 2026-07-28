@@ -8,7 +8,7 @@
   import { useMutation, useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
-  import { z } from "zod";
+  import { pdReviewResultSchema } from "../../../../shared/pdReview";
   type PdReviewSummary = {
     _id: Id<"pdReviews">;
     projectId: Id<"projects">;
@@ -49,6 +49,10 @@
       // Reactive getLatestPdReview flips the page to the new running review.
     } catch (e) {
       toast.error(userErrorMessage(e, "Couldn't restart the review."));
+    } finally {
+      // Always release. Clearing only on error left the button disabled for
+      // the life of the mount, so if the new run itself failed the writer had
+      // no way to retry again without reloading.
       retrying = false;
     }
   }
@@ -66,24 +70,30 @@
     suggested_strengthening: string[];
   }
 
-  const pdReviewResultSchema = z.object({
-    summary: z.string(),
-    qualitative_score: z.number(),
-    score_rationale: z.string(),
-    strengths: z.array(z.string()),
-    risks: z.array(z.string()),
-    suggested_strengthening: z.array(z.string()),
-  });
-
-  const result = $derived.by((): PdReviewResult | null => {
-    if (!review.result) return null;
+  // One shared contract with the agent that produces this (shared/pdReview.ts)
+  // so the two definitions cannot drift apart again.
+  const resultState = $derived.by((): {
+    result: PdReviewResult | null;
+    unreadable: boolean;
+  } => {
+    if (!review.result) return { result: null, unreadable: false };
     try {
       const parsed = pdReviewResultSchema.safeParse(JSON.parse(review.result));
-      return parsed.success ? parsed.data : null;
-    } catch {
-      return null;
+      if (parsed.success) return { result: parsed.data, unreadable: false };
+      console.error(
+        "PD review result failed validation — stored payload does not match the expected shape",
+        parsed.error.issues
+      );
+    } catch (error) {
+      console.error("PD review result is not valid JSON", error);
     }
+    // Stored but unreadable: distinct from "no result yet", and the only
+    // signal that a completed review has nothing to show.
+    return { result: null, unreadable: true };
   });
+
+  const result = $derived(resultState.result);
+  const resultUnreadable = $derived(resultState.unreadable);
 
   const score = $derived(result?.qualitative_score ?? 0);
   const band = $derived(
@@ -205,6 +215,37 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
           Retry review
+        {/if}
+      </button>
+    </div>
+  {:else if resultUnreadable}
+    <!-- Completed, but the stored result can't be read. Without this the panel
+         rendered nothing at all, indistinguishable from "no review yet" — and
+         retry was unreachable because it only accepts failed reviews. -->
+    <div class="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+      <div class="min-w-0">
+        <p class="text-sm font-medium text-amber-800">
+          This review finished, but its result couldn’t be read.
+        </p>
+        <p class="mt-1 text-xs text-amber-700">
+          The saved feedback didn’t match the expected format, so there’s
+          nothing to show. Running the review again should fix it.
+        </p>
+      </div>
+      <button
+        type="button"
+        onclick={retry}
+        disabled={retrying}
+        class="inline-flex flex-none items-center gap-2 rounded-lg bg-amber-600 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
+      >
+        {#if retrying}
+          <Spinner size="sm" class="h-3.5 w-3.5 border-white/40 border-t-white" />
+          Restarting…
+        {:else}
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Run review again
         {/if}
       </button>
     </div>

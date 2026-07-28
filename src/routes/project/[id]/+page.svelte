@@ -1,3 +1,12 @@
+<script lang="ts" module>
+  // PSOS-04: one outbox-flush attempt per user per project per app session.
+  // Module-local so re-entering the route doesn't re-fire it. Keyed by user as
+  // well as project because a session can change hands without a sign-out (an
+  // expiry, then a different person signs in) — keying on project alone would
+  // silently skip the second user's own queued failures.
+  const flushedOutboxProjects = new Set<string>();
+</script>
+
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
@@ -51,6 +60,7 @@
     type ExportValidationResult,
   } from "$lib/exportValidation";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
+  import { flushOutboxFor } from "$lib/uploads/outboxFlush";
   import { toast } from "svelte-sonner";
   import { comparePairFromSlots, type CandidateModelId } from "../../../../shared/generationModels";
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
@@ -94,6 +104,7 @@
   );
 
   const generateReport = useMutation(api.generations.requestGeneration);
+  const recordUploadAttempts = useMutation(api.uploadAttempts.recordUploadAttempts);
   const logPdReviewEvent = useMutation(api.pdReviews.logPdReviewEvent);
   const updateReport = useMutation(api.reports.updateReportContent);
   const createSnapshot = useMutation(api.snapshots.createManualSnapshot);
@@ -332,6 +343,21 @@
   let railView = $state<"chat" | "qa">("chat");
   let workspaceEl: HTMLDivElement | null = $state(null);
   let dragging = $state(false);
+
+  // Send any upload failures this user queued while offline. Page-level rather
+  // than inside FilesPanel so it runs in every state of the page, including the
+  // ones that render no files panel at all.
+  $effect(() => {
+    const userId = userQ.data?._id;
+    if (!userId) return;
+    const flushKey = `${userId}:${projectId}`;
+    if (flushedOutboxProjects.has(flushKey)) return;
+    // Added synchronously so a reactive re-run cannot double-fire it.
+    flushedOutboxProjects.add(flushKey);
+    void flushOutboxFor(userId, projectId, (attempts) =>
+      recordUploadAttempts({ projectId, attempts })
+    );
+  });
 
   $effect(() => {
     // Restore once from locals only — reading component state here would make
@@ -1024,9 +1050,21 @@
 
     <!-- Generation progress — no metadata header; the progress card is the page -->
     {#if generation && (isGenerating || showFailedGeneration)}
-      <div class="flex min-h-0 flex-1 items-center overflow-y-auto">
-        <div class="mx-auto w-full max-w-3xl px-6 py-8">
+      <!-- `my-auto` rather than `items-center`: a centred flex child that
+           overflows its scroll container cannot be scrolled back to at the top
+           edge. Auto margins centre it identically while it fits, and yield
+           when the files panel below makes the content taller than the view. -->
+      <div class="flex min-h-0 flex-1 overflow-y-auto">
+        <div class="mx-auto my-auto w-full max-w-3xl px-6 py-8">
           <GenerationProgress generationId={generation._id} />
+          {#if !report}
+            <!-- Uploads that failed on the way in have no other home while a
+                 generation is running or has failed — the editor (and its files
+                 panel) only exists once there is a report. -->
+            <div class="mt-6">
+              <FilesPanel {projectId} initiallyOpen={showFailedGeneration} />
+            </div>
+          {/if}
         </div>
       </div>
     {/if}
@@ -1469,6 +1507,12 @@
     {#if !report && !isGenerating && !awaitingSelection && !showIterativeStepper && !showFailedGeneration}
       <main class="mx-auto w-full max-w-3xl min-h-0 flex-1 overflow-y-auto px-6 py-8">
         {@render projectMetadata()}
+
+        <!-- Reachable later: a project with no report still has to show what
+             happened to its uploads. -->
+        <div class="mt-8">
+          <FilesPanel {projectId} />
+        </div>
 
         {#if project.mode === "review" && generation?.status === "failed"}
           <div class="mt-8 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">

@@ -2,6 +2,7 @@ import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { getCurrentUserOrNull, requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
+import { normalizeEmail } from "./lib/email";
 
 /**
  * Invite-only membership (BNH-50). Admins issue invites from /admin/users;
@@ -36,10 +37,10 @@ export const createInvite = mutation({
   },
   handler: async (ctx, args) => {
     const admin = await requireRole(ctx, ["admin"]);
-    const email = args.email.trim().toLowerCase();
+    const email = normalizeEmail(args.email);
     const firstName = args.firstName.trim();
     const lastName = args.lastName.trim();
-    if (!email.includes("@")) {
+    if (!email) {
       domainError("INVALID_INPUT", "A valid email address is required");
     }
     if (!firstName || !lastName) {
@@ -56,8 +57,10 @@ export const createInvite = mutation({
     const now = Date.now();
     const pending = await ctx.db
       .query("invites")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .collect();
+      .withIndex("by_email_and_status", (q) =>
+        q.eq("email", email).eq("status", "pending"),
+      )
+      .take(10);
     if (pending.some((i) => i.status === "pending" && i.expiresAt > now)) {
       domainError(
         "INVALID_INPUT",
@@ -166,7 +169,7 @@ export const getInviteByToken = query({
 export const signupAllowed = internalQuery({
   args: { email: v.string(), token: v.string() },
   handler: async (ctx, args) => {
-    const email = args.email.trim().toLowerCase();
+    const email = normalizeEmail(args.email);
     if (!email || !args.token) return false;
     const invite = await ctx.db
       .query("invites")
@@ -176,7 +179,7 @@ export const signupAllowed = internalQuery({
       invite &&
       invite.status === "pending" &&
       invite.expiresAt > Date.now() &&
-      invite.email === email,
+      normalizeEmail(invite.email) === email,
     );
   },
 });

@@ -140,6 +140,20 @@ describe("project duplication", () => {
         uploadedBy: "Owner",
         createdAt: now,
       });
+      // A legacy row from before status was stored: an unreadable previous-year
+      // file whose only content is the wizard's boilerplate. Duplication
+      // persists a derived status, so this is where a wrong `ready` would be
+      // frozen permanently.
+      await ctx.db.insert("projectDocuments", {
+        projectId,
+        fileName: "Scanned 2023.pdf",
+        fileType: "pdf",
+        content: "[Previous-year report — fiscal 2023]\n\n",
+        category: "previous_pd",
+        source: "context_input",
+        uploadedBy: "Owner",
+        createdAt: now,
+      });
       await ctx.db.insert("projectIdentityEvidence", {
         projectId,
         subjectName: "Client",
@@ -176,7 +190,7 @@ describe("project duplication", () => {
       }
     );
 
-    expect(result.documents).toHaveLength(2);
+    expect(result.documents).toHaveLength(3);
     expect(result.evidenceCopied).toBe(1);
     expect(result.pdReviewsCopied).toBe(1);
     expect(result.reportId).toBeTruthy();
@@ -198,10 +212,16 @@ describe("project duplication", () => {
         .withIndex("by_projectId", (q) => q.eq("projectId", destinationProjectId))
         .collect(),
     }));
-    expect(copied.documents).toHaveLength(2);
+    expect(copied.documents).toHaveLength(3);
     expect(copied.documents.find((doc) => doc.fileName === "Support.pdf")).toMatchObject({
       archived: true,
       category: "background",
+    });
+    expect(
+      copied.documents.find((doc) => doc.fileName === "Scanned 2023.pdf")
+    ).toMatchObject({
+      processingStatus: "could_not_read",
+      processingDetail: "no_text_extracted",
     });
     expect(copied.evidence[0]?.projectDocumentId).toBeTruthy();
     expect(copied.reviews[0]).toMatchObject({

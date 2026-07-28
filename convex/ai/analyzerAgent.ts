@@ -1,6 +1,7 @@
 "use node";
 
 import type Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
 import type { GenerationClient } from "./openrouterCore";
 import { ANALYZER_SYSTEM_PROMPT, CONTEXT_INPUTS_GUIDANCE } from "./prompts";
 import { generateStructured } from "./structured";
@@ -75,6 +76,51 @@ export interface TranscriptAnalysis {
   useful_quotes: string[];
 }
 
+/**
+ * Runtime contract for the analyzer.
+ *
+ * The provider's JSON Schema lists `unreliable_narrator_flags`, `gaps`, and
+ * `useful_quotes` as properties but NOT as required, while the TypeScript type
+ * declares them present. A model that omits `useful_quotes` therefore produced
+ * an `undefined` that survived the cast and only exploded much later, at
+ * `provenanceDrafts`' `.map()` (pipeline.ts) — after all three sections had
+ * been drafted and paid for. Defaulting the optional collections here keeps
+ * that from failing an otherwise-good candidate.
+ *
+ * The load-bearing narrative fields stay required: a analysis missing those is
+ * genuinely unusable, and failing fast beats drafting from nothing.
+ */
+const analysisSchema: z.ZodType<TranscriptAnalysis> = z.object({
+  company_context: z.string(),
+  project_goal: z.string(),
+  business_problem: z.string(),
+  scientific_technical_problem: z.string(),
+  passive_uncertainties: z.array(z.string()).default([]),
+  active_uncertainties: z.array(z.string()).default([]),
+  technological_objective: z.string(),
+  work_performed: z.object({
+    prior_year_status: z.string().nullable().default(null),
+    workplan_steps: z.array(z.string()).default([]),
+    hypothesis: z.string().default(""),
+    experiments_iterations: z
+      .array(
+        z.object({
+          problem_addressed: z.string().default(""),
+          approach: z.string().default(""),
+          results: z.string().default(""),
+          conclusions: z.string().default(""),
+        })
+      )
+      .default([]),
+  }),
+  advancements_achieved: z.array(z.string()).default([]),
+  remaining_uncertainties: z.array(z.string()).default([]),
+  project_status: z.string(),
+  unreliable_narrator_flags: z.array(z.string()).default([]),
+  gaps: z.array(z.string()).default([]),
+  useful_quotes: z.array(z.string()).default([]),
+});
+
 export async function runAnalyzerAgent(
   client: GenerationClient,
   transcript: string,
@@ -100,6 +146,7 @@ export async function runAnalyzerAgent(
     schema: ANALYSIS_SCHEMA,
     maxTokens: 8192,
     model,
+    validate: analysisSchema,
   });
 }
 

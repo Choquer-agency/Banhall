@@ -9,12 +9,13 @@ import {
   PROVIDER_LOGOS,
   gatewayForModel,
   comparePairFromSlots,
+  maxTokensWithReasoningHeadroom,
 } from "../../shared/generationModels";
 
 describe("toChatCompletions", () => {
   it("prepends system as a system message and passes tokens through", () => {
     const body = toChatCompletions({
-      model: "openai/gpt-5.6-sol",
+      model: "claude-sonnet-5",
       max_tokens: 4096,
       system: "You are an SR&ED writer.",
       messages: [{ role: "user", content: "Draft section 242." }],
@@ -48,6 +49,51 @@ describe("toChatCompletions", () => {
       type: "function",
       function: { name: "submit_analysis" },
     });
+  });
+
+  it("scales max_tokens for mandatory-reasoning models and leaves others alone", () => {
+    // Gemini's reasoning tokens share the output budget, so 4096 answer tokens
+    // must be sent as 16384 or the model truncates before answering.
+    for (const id of ["google/gemini-3.5-flash", "google/gemini-3.1-pro-preview"]) {
+      expect(toChatCompletions({
+        model: id,
+        max_tokens: 4096,
+        messages: [{ role: "user", content: "Draft." }],
+      }).max_tokens).toBe(16384);
+    }
+    // GPT-5.6 also reasons against the output budget — it must be scaled too,
+    // or its section agents truncate exactly like Gemini did.
+    expect(toChatCompletions({
+      model: "openai/gpt-5.6-sol",
+      max_tokens: 4096,
+      messages: [{ role: "user", content: "Draft." }],
+    }).max_tokens).toBe(16384);
+    // Anthropic-gateway models pass through untouched.
+    expect(toChatCompletions({
+      model: "claude-sonnet-5",
+      max_tokens: 8192,
+      messages: [{ role: "user", content: "Draft." }],
+    }).max_tokens).toBe(8192);
+  });
+});
+
+describe("maxTokensWithReasoningHeadroom", () => {
+  it("clamps the scaled budget to the model's completion cap", () => {
+    expect(maxTokensWithReasoningHeadroom("google/gemini-3.5-flash", 8192)).toBe(32768);
+    expect(maxTokensWithReasoningHeadroom("google/gemini-3.5-flash", 20000)).toBe(65536);
+  });
+
+  it("passes through unknown ids unchanged", () => {
+    expect(maxTokensWithReasoningHeadroom("some-legacy-model", 4096)).toBe(4096);
+  });
+
+  it("scales every OpenRouter model, since all current ones reason", () => {
+    // Seven consecutive generations failed because a reasoning model's budget
+    // was not scaled. Any OpenRouter entry missing the fields is now a compile
+    // error; this asserts the runtime behaviour matches.
+    expect(maxTokensWithReasoningHeadroom("openai/gpt-5.6-luna", 4096)).toBe(16384);
+    expect(maxTokensWithReasoningHeadroom("openai/gpt-5.6-sol", 4096)).toBe(16384);
+    expect(maxTokensWithReasoningHeadroom("google/gemini-3.1-pro-preview", 4096)).toBe(16384);
   });
 });
 

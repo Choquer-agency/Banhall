@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import {
+  capContent,
   getFileExtension,
   isImageFile,
   isSupportedFile,
@@ -8,6 +9,11 @@ import {
   SUPPORTED_ACCEPT,
   SUPPORTED_EXTENSIONS,
 } from "./parseDocument";
+import {
+  deriveProcessingStatus,
+  hasTruncationMarker,
+  pdfPageStopMarker,
+} from "../../shared/documentStatus";
 
 describe("supported file registry", () => {
   it("accept attribute covers every supported extension", () => {
@@ -72,5 +78,52 @@ describe("parseFileToText", () => {
     const parsed = await parseFileToText(file);
     expect(parsed.content.length).toBeLessThan(500_000);
     expect(parsed.content).toContain("[Document truncated");
+  });
+});
+
+/**
+ * PSOS-04 regression: every size-limited path must leave a marker the status
+ * derivation can still see at the tail. No parser behaviour changes here —
+ * these tests pin the behaviour the receipt depends on.
+ */
+describe("truncation is detectable by status derivation", () => {
+  it("a size-truncated workbook keeps a marker at the tail and derives ready_truncated", async () => {
+    const wb = XLSX.utils.book_new();
+    // Three sheets, each large enough that the joined content blows the cap:
+    // the loop pushes a sheet BEFORE checking the size, so capContent still
+    // appends the generic marker and later sheets are silently dropped.
+    // Few, wide rows rather than many narrow ones: the cap is measured in
+    // characters, and per-cell work is what makes this fixture slow.
+    for (const sheet of ["One", "Two", "Three"]) {
+      const rows = Array.from({ length: 400 }, (_, i) => [
+        `${sheet} row ${i}`,
+        "y".repeat(500),
+      ]);
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), sheet);
+    }
+    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+
+    const parsed = await parseFileToText(new File([buf], "huge.xlsx"));
+    expect(hasTruncationMarker(parsed.content)).toBe(true);
+    expect(deriveProcessingStatus(parsed).status).toBe("ready_truncated");
+  });
+
+  it("an over-cap PDF keeps the generic marker after capContent replaces the page marker", () => {
+    // The PDF path appends its page-stop marker and then caps: over the cap,
+    // the specific marker is cut and the generic one takes its place.
+    const content = capContent("p".repeat(500_000) + pdfPageStopMarker(38));
+    expect(content).not.toContain("Stopped reading at page");
+    expect(hasTruncationMarker(content)).toBe(true);
+    expect(
+      deriveProcessingStatus({ fileName: "drawings.pdf", content }).status
+    ).toBe("ready_truncated");
+  });
+
+  it("an under-cap PDF keeps its page-specific marker and still derives ready_truncated", () => {
+    const content = capContent("page text" + pdfPageStopMarker(4));
+    expect(content).toContain("Stopped reading at page 4");
+    expect(
+      deriveProcessingStatus({ fileName: "drawings.pdf", content }).status
+    ).toBe("ready_truncated");
   });
 });

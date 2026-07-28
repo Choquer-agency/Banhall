@@ -6,6 +6,8 @@ import { v } from "convex/values";
 import { instrumentedAnthropic } from "./instrument";
 import { PD_REVIEW_SYSTEM_PROMPT } from "./prompts";
 import { generateStructured } from "./structured";
+import { pdReviewResultSchema } from "../../shared/pdReview";
+import type { z } from "zod";
 import { MODEL } from "./model";
 import type { ContextDoc } from "./analyzerAgent";
 import { normalizeProviderError } from "./providers";
@@ -107,6 +109,11 @@ export const runPdReview = internalAction({
         description: "Submit the structured feedback report for the written PD.",
         schema: PD_REVIEW_SCHEMA as never,
         maxTokens: 4096,
+        // Validate before storing. An unreadable result used to be saved as
+        // `completed`, which rendered a blank report the writer could not
+        // retry (retry only accepts `failed`). Now it lands in the catch below
+        // and becomes an honest, retryable failure.
+        validate: pdReviewResultSchema satisfies z.ZodType<PdReviewResult>,
       });
 
       await ctx.runMutation(internal.pdReviews.completePdReview, {

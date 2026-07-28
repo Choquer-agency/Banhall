@@ -26,7 +26,9 @@ export default defineSchema({
 
   // ─── Invite-only membership: admin-issued signup tokens ────────────────────
   invites: defineTable({
-    email: v.string(), // lowercased at write
+    // Canonical trim+lowercase form at write; legacy rows are backfilled by
+    // emailMigration while collision reports remain available for review.
+    email: v.string(),
     firstName: v.string(),
     lastName: v.string(),
     role: v.union(v.literal("writer"), v.literal("manager"), v.literal("admin")),
@@ -44,6 +46,7 @@ export default defineSchema({
   })
     .index("by_token", ["token"])
     .index("by_email", ["email"])
+    .index("by_email_and_status", ["email", "status"])
     .index("by_status", ["status"]),
 
   projects: defineTable({
@@ -411,6 +414,29 @@ export default defineSchema({
     .index("by_reportId", ["reportId"])
     .index("by_agentThreadId", ["agentThreadId"]),
 
+  // The agent UIMessage cannot durably express turn start/end, so app-owned
+  // timing keeps queued and terminal states stable across reloads and races.
+  chatTurns: defineTable({
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    order: v.number(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("aborted"),
+    ),
+    startedAt: v.optional(v.number()),
+    endedAt: v.optional(v.number()),
+    stepCount: v.number(),
+  })
+    .index("by_agentThreadId_and_promptMessageId", [
+      "agentThreadId",
+      "promptMessageId",
+    ])
+    .index("by_agentThreadId_and_order", ["agentThreadId", "order"]),
+
   // One row per tool call the assistant makes (proposeEdit / proposeReplacements
   // / highlightPassages). Same lifecycle semantics as chatMessages.proposedEdit.
   chatProposals: defineTable({
@@ -533,6 +559,32 @@ export default defineSchema({
     // BNH-24: archived files stay visible to reviewers but are excluded from
     // AI context (generation + chat).
     archived: v.optional(v.boolean()),
+    // PSOS-04: per-file processing outcome, derived server-side in
+    // uploadDocument from observable extraction facts (shared/documentStatus.ts).
+    // Optional during widen → backfill; narrowing is a separate work item.
+    processingStatus: v.optional(
+      v.union(
+        v.literal("ready"),
+        v.literal("ready_truncated"),
+        v.literal("reference_only"),
+        v.literal("could_not_read"),
+        v.literal("skipped_unsupported")
+      )
+    ),
+    // Machine reason code ONLY — never free text, so no provider or internal
+    // error string can reach a user through this field. Deliberately NOT the
+    // financialUploads.processingError shape.
+    processingDetail: v.optional(
+      v.union(
+        v.literal("text_extracted"),
+        v.literal("text_truncated"),
+        v.literal("image_reference"),
+        v.literal("no_text_extracted"),
+        v.literal("parse_failed"),
+        v.literal("unsupported_extension"),
+        v.literal("pasted_text")
+      )
+    ),
     // Contextual-input category (BNH-9) used for SR&ED weighting at generation.
     category: v.optional(
       v.union(
@@ -552,6 +604,45 @@ export default defineSchema({
       searchField: "content",
       filterFields: ["projectId"],
     }),
+
+  // PSOS-04: durable record of upload attempts that never produced a
+  // projectDocuments row (storage/network failure, client-side type rejection).
+  // A failed upload has no document to carry a status, so the audit trail lives
+  // here. `upload_failed` is never a projectDocuments.processingStatus value.
+  documentUploadAttempts: defineTable({
+    projectId: v.id("projects"),
+    // Client-generated UUID; the idempotency key for retry and outbox flush.
+    // Format-validated server-side so no prose can flow through it.
+    attemptKey: v.string(),
+    // The user's own file name (already stored on projectDocuments), capped.
+    fileName: v.string(),
+    fileSizeBytes: v.optional(v.number()),
+    origin: v.union(
+      v.literal("chat_upload"),
+      v.literal("context_input"),
+      v.literal("review_pd")
+    ),
+    status: v.union(
+      v.literal("in_progress"),
+      v.literal("failed"),
+      // Resolved to a document row in the same transaction as its insert;
+      // excluded from the receipt so a file can never show twice.
+      v.literal("succeeded"),
+      // User removed the row; kept for audit until pruned.
+      v.literal("dismissed")
+    ),
+    // Machine codes only — never a raw error.
+    failureCode: v.optional(
+      v.union(v.literal("rejected_unsupported"), v.literal("upload_failed"))
+    ),
+    documentId: v.optional(v.id("projectDocuments")),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    // Drives read-time staleness derivation for abandoned in_progress rows.
+    updatedAt: v.number(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_attemptKey", ["projectId", "attemptKey"]),
 
   // ─── Contextual Research: selected text → two researchers → review ──────
   // Large/unbounded evidence is split into child tables so the session remains

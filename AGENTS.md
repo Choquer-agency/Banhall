@@ -10,6 +10,13 @@ follows the design system — tokens in `src/routes/layout.css`, rules in
 remapped gray ramp, never ad-hoc hexes. Dev server:
 `npm run dev` (or bun/pnpm) → localhost:3001.
 
+For project ownership, workflow stages, assignments/current handoffs, report
+branches, production outcomes, notifications, role capabilities, clients, or
+claim-period work, **read `docs/product-domain.md` before planning or editing**.
+It is the canonical domain contract; do not repurpose `projects.createdBy`, mix
+human workflow with generation state, or invent transitions/permissions outside
+that document without recording an approved amendment.
+
 <!-- convex-ai-start -->
 
 This project uses [Convex](https://convex.dev) as its backend.

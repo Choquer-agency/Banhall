@@ -54,7 +54,9 @@ export const runReportQa = internalAction({
 
     try {
       const analysis = JSON.parse(input.analysis) as TranscriptAnalysis;
-      const [qa, chronology] = await Promise.all([
+      // Independently settled: a malformed scorecard must not also throw away
+      // a perfectly good chronology, and vice versa.
+      const [qaSettled, chronologySettled] = await Promise.allSettled([
         runQAAgent(
           clientFor("generation:post_qa"),
           analysis,
@@ -70,11 +72,31 @@ export const runReportQa = internalAction({
           input.model
         ),
       ]);
+      if (qaSettled.status === "rejected") {
+        console.error("post-assembly QA scorecard failed", args.generationId, qaSettled.reason);
+      }
+      if (chronologySettled.status === "rejected") {
+        console.error("post-assembly chronology failed", args.generationId, chronologySettled.reason);
+      }
+      const qa = qaSettled.status === "fulfilled" ? qaSettled.value : null;
+      const chronology =
+        chronologySettled.status === "fulfilled" ? chronologySettled.value : null;
+
+      // Only a missing scorecard makes the pass "failed" — that is what the
+      // panel offers to re-run.
+      if (!qa) {
+        await ctx.runMutation(internal.generations.saveReportQa, {
+          generationId: args.generationId,
+          failed: true,
+          ...(chronology ? { chronology: JSON.stringify(chronology) } : {}),
+        });
+        return;
+      }
       await ctx.runMutation(internal.generations.saveReportQa, {
         generationId: args.generationId,
         qa: JSON.stringify(qa),
-        chronology: JSON.stringify(chronology),
-        ...(typeof qa?.overall_score === "number"
+        ...(chronology ? { chronology: JSON.stringify(chronology) } : {}),
+        ...(typeof qa.overall_score === "number"
           ? { qaScore: qa.overall_score }
           : {}),
       });

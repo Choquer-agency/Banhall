@@ -20,6 +20,8 @@
   } from "$lib/parseDocument";
   import { CONTEXT_CATEGORIES, type ContextCategoryId } from "$lib/contextCategories";
   import { userErrorMessage } from "$lib/errors";
+  import { appendOutbox } from "$lib/uploads/attemptOutbox";
+  import { shouldDropOutboxEntry, withUploadTimeout } from "$lib/uploads/outboxFlush";
   import {
     emptyStaged,
     guessFileType,
@@ -52,6 +54,7 @@
   const startPdReview = useMutation(api.pdReviews.startPdReview);
   const uploadDocument = useMutation(api.documents.uploadDocument);
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
+  const recordUploadAttempts = useMutation(api.uploadAttempts.recordUploadAttempts);
   const user = useQuery(api.users.getCurrentUser, () =>
     auth.isAuthenticated ? {} : "skip"
   );
@@ -346,6 +349,55 @@
     }
   }
 
+  /**
+   * Durable record of a failed upload during the commit loop, falling back to
+   * the local outbox when the network is down. Never throws — one unrecorded
+   * failure must not sink a project that is otherwise being created.
+   */
+  async function recordFailedWizardAttempt(
+    projectId: Id<"projects">,
+    a: {
+      attemptKey: string;
+      fileName: string;
+      fileSizeBytes?: number;
+      origin: "context_input" | "review_pd";
+    }
+  ) {
+    try {
+      await withUploadTimeout(
+        recordUploadAttempts({
+          projectId,
+          attempts: [
+            {
+              attemptKey: a.attemptKey,
+              fileName: a.fileName,
+              ...(a.fileSizeBytes !== undefined
+                ? { fileSizeBytes: a.fileSizeBytes }
+                : {}),
+              origin: a.origin,
+              failureCode: "upload_failed" as const,
+            },
+          ],
+        })
+      );
+    } catch (err) {
+      console.error("Failed to record upload attempt", err);
+      if (shouldDropOutboxEntry(err)) return;
+      const userId = user.data?._id;
+      if (!userId) return;
+      appendOutbox(userId, {
+        userId,
+        projectId,
+        attemptKey: a.attemptKey,
+        fileName: a.fileName,
+        ...(a.fileSizeBytes !== undefined ? { fileSizeBytes: a.fileSizeBytes } : {}),
+        origin: a.origin,
+        failureCode: "upload_failed",
+        at: Date.now(),
+      });
+    }
+  }
+
   async function commit() {
     if (!hasAnySource) {
       toast.error(
@@ -399,48 +451,76 @@
         file: File,
         category: ContextCategoryId,
         prefix = ""
-      ) => {
+      ): Promise<"stored_text" | "stored_empty" | "failed"> => {
         progress = `Uploading ${file.name}…`;
+        const attemptKey = crypto.randomUUID();
         try {
           const storageId = await uploadOriginal(file);
           let parsed;
+          let extractionFailed = false;
           try {
             parsed = await parseFileToText(file);
           } catch {
+            extractionFailed = true;
             parsed = {
               fileName: file.name,
               fileType: guessFileType(file.name),
               content: "",
             };
           }
-          await uploadDocument({
-            projectId,
-            fileName: file.name,
-            fileType: parsed.fileType,
-            content: prefix + parsed.content,
-            source: "context_input",
-            category,
-            ...(storageId ? { storageId } : {}),
-            ...(file.type ? { mimeType: file.type } : {}),
-          });
+          // Only prefix content we actually extracted. Prefixing an empty
+          // extraction would store boilerplate the server reads as real text,
+          // and the file would report "Ready for AI" when nothing can be read
+          // from it — a lie on exactly the file the receipt exists to flag.
+          const hasText = parsed.content.trim().length > 0;
+          await withUploadTimeout(
+            uploadDocument({
+              projectId,
+              fileName: file.name,
+              fileType: parsed.fileType,
+              content: hasText ? prefix + parsed.content : "",
+              source: "context_input",
+              category,
+              extractionOutcome: extractionFailed ? "failed" : "ok",
+              attemptKey,
+              ...(storageId ? { storageId } : {}),
+              ...(file.type ? { mimeType: file.type } : {}),
+            })
+          );
+          return hasText ? "stored_text" : "stored_empty";
         } catch (e) {
           console.error(`upload failed for ${file.name}`, e);
           skippedFiles.push(file.name);
+          // The toast is transient; this is what survives the navigation.
+          await recordFailedWizardAttempt(projectId, {
+            attemptKey,
+            fileName: file.name,
+            fileSizeBytes: file.size,
+            origin: "context_input",
+          });
+          return "failed";
         }
       };
 
       // Previous-year reports — tagged with their fiscal year + optional note.
       for (const row of pyRows) {
         const noteLine = row.note.trim() ? `Note: ${row.note.trim()}\n` : "";
+        // The note rides along inside the prefix, so it only survives if some
+        // file in this row actually stored text.
+        let noteCarried = false;
         for (const file of row.files) {
-          await uploadFile(
+          const outcome = await uploadFile(
             file,
             "previous_pd",
             `[Previous-year report — fiscal ${row.year}]\n${noteLine}\n`
           );
+          if (outcome === "stored_text") noteCarried = true;
         }
-        // A note with no files still carries useful prior-year context.
-        if (row.note.trim() && row.files.length === 0) {
+        // A note no file carried still holds useful prior-year context. This is
+        // a strict superset of the old "no files at all" condition: a row whose
+        // files were all unreadable now keeps the note instead of losing it
+        // silently along with the prefix.
+        if (row.note.trim() && !noteCarried) {
           await uploadDocument({
             projectId,
             fileName: `Previous-year note (FY ${row.year})`,
@@ -448,6 +528,7 @@
             content: `[Previous-year note — fiscal ${row.year}]\n\n${row.note.trim()}`,
             source: "context_input",
             category: "previous_pd",
+            intake: "pasted",
           });
         }
       }
@@ -467,6 +548,7 @@
             content: s.text,
             source: "context_input",
             category: cat.id,
+            intake: "pasted",
           });
         }
       }
@@ -478,15 +560,30 @@
         // generation as context; the review agent reads it directly).
         progress = `Uploading ${pdDoc.name}…`;
         const storageId = await uploadOriginal(pdDoc.file);
-        const documentId = await uploadDocument({
-          projectId,
-          fileName: pdDoc.name,
-          fileType: guessFileType(pdDoc.name),
-          content: pdDoc.content,
-          source: "review_pd",
-          ...(storageId ? { storageId } : {}),
-          ...(pdDoc.file.type ? { mimeType: pdDoc.file.type } : {}),
-        });
+        const pdAttemptKey = crypto.randomUUID();
+        let documentId: Id<"projectDocuments">;
+        try {
+          documentId = await withUploadTimeout(
+            uploadDocument({
+              projectId,
+              fileName: pdDoc.name,
+              fileType: guessFileType(pdDoc.name),
+              content: pdDoc.content,
+              source: "review_pd",
+              attemptKey: pdAttemptKey,
+              ...(storageId ? { storageId } : {}),
+              ...(pdDoc.file.type ? { mimeType: pdDoc.file.type } : {}),
+            })
+          );
+        } catch (e) {
+          await recordFailedWizardAttempt(projectId, {
+            attemptKey: pdAttemptKey,
+            fileName: pdDoc.name,
+            fileSizeBytes: pdDoc.file.size,
+            origin: "review_pd",
+          });
+          throw e;
+        }
         progress = "Starting PD review…";
         await startPdReview({ projectId, documentId });
       } else {

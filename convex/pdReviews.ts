@@ -65,8 +65,8 @@ export const startPdReview = mutation({
   },
 });
 
-/** Re-run a failed review against the same uploaded PD (e.g. after a provider
- *  outage or billing failure). Creates a fresh pdReviews row. */
+/** Re-run a review against the same uploaded PD (e.g. after a provider outage
+ *  or billing failure). Creates a fresh pdReviews row. */
 export const retryPdReview = mutation({
   args: { reviewId: v.id("pdReviews") },
   handler: async (ctx, args) => {
@@ -74,8 +74,11 @@ export const retryPdReview = mutation({
     if (!failed) domainError("NOT_FOUND", "Review not found");
     const { user } = await requireInternalProjectAccess(ctx, failed.projectId);
     requireAnthropicConfigured("review");
-    if (failed.status !== "failed") {
-      domainError("INVALID_INPUT", "Only a failed review can be retried");
+    // `completed` is retryable too: older rows were stored before the result
+    // was validated, so a review can be marked complete yet hold a payload the
+    // report can't read. Refusing to re-run those left them permanently blank.
+    if (failed.status !== "failed" && failed.status !== "completed") {
+      domainError("INVALID_INPUT", "This review can't be retried yet");
     }
     const running = await ctx.db
       .query("pdReviews")
@@ -104,7 +107,7 @@ export const retryPdReview = mutation({
       reviewId,
       actor: user._id,
       action: "review_started",
-      detail: `Retry of failed review — ${doc.fileName}`,
+      detail: `Retry of ${failed.status} review — ${doc.fileName}`,
       at: now,
     });
     await ctx.scheduler.runAfter(0, internal.ai.reviewAgent.runPdReview, {

@@ -21,12 +21,38 @@
 
   let isOpen = $state(false);
 
+  /**
+   * The chronology agent returns tool output that is trusted as-is, so a model
+   * can hand back an off-spec shape — one report has `entries` as a JSON
+   * *string* wrapping another `{entries:[...]}`. Unwrap that, and treat
+   * anything that still isn't an array of objects as absent: an advisory panel
+   * must never take the report page down with it.
+   */
+  function readEntries(value: unknown, depth = 0): ChronologyEntry[] | null {
+    if (typeof value === "string" && depth < 3) {
+      try {
+        return readEntries(JSON.parse(value), depth + 1);
+      } catch {
+        return null;
+      }
+    }
+    if (Array.isArray(value)) {
+      const entries = value.filter(
+        (entry): entry is ChronologyEntry => !!entry && typeof entry === "object"
+      );
+      return entries.length ? entries : null;
+    }
+    if (value && typeof value === "object" && "entries" in value) {
+      return readEntries((value as { entries: unknown }).entries, depth + 1);
+    }
+    return null;
+  }
+
   const chronology = $derived.by((): ChronologyTableData | null => {
     if (!agentOutputs) return null;
     try {
-      const parsed = JSON.parse(agentOutputs);
-      if (parsed.chronology?.entries) return parsed.chronology as ChronologyTableData;
-      return null;
+      const entries = readEntries(JSON.parse(agentOutputs).chronology);
+      return entries ? { entries } : null;
     } catch {
       return null;
     }
@@ -38,6 +64,7 @@
   const supporting = $derived(
     chronology?.entries.filter((e) => e.activityType === "supporting") ?? []
   );
+
 </script>
 
 {#if chronology && chronology.entries.length > 0}

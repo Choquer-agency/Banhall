@@ -39,6 +39,14 @@ const highlightValidator = v.object({
   to: v.number(),
 });
 
+const chatTurnStatusValidator = v.union(
+  v.literal("queued"),
+  v.literal("running"),
+  v.literal("completed"),
+  v.literal("failed"),
+  v.literal("aborted")
+);
+
 /** Resolve a component thread id to our mapping row (or null). */
 async function threadRow(ctx: QueryCtx | MutationCtx, agentThreadId: string) {
   return await ctx.db
@@ -104,6 +112,33 @@ export const listProposals = query({
       .withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", args.threadId))
       .order("asc")
       .collect();
+  },
+});
+
+export const listTurns = query({
+  args: {
+    threadId: v.string(),
+    startOrder: v.number(),
+    endOrder: v.number(),
+  },
+  handler: async (ctx, args) => {
+    if (args.startOrder > args.endOrder) return [];
+
+    const thread = await threadRow(ctx, args.threadId);
+    if (!thread) return [];
+    if (!(await getInternalProjectAccessOrNull(ctx, thread.projectId))) return [];
+
+    const turns = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_order", (q) =>
+        q
+          .eq("agentThreadId", args.threadId)
+          .gte("order", args.startOrder)
+          .lte("order", args.endOrder)
+      )
+      .order("desc")
+      .take(200);
+    return turns.reverse();
   },
 });
 
@@ -188,10 +223,18 @@ export const sendMessage = mutation({
 [Current candidate wording:]
 """${proposalPairs(refineProposal).map((pair) => pair.replaceWith).join("\n---\n")}"""`
       : "";
-    const { messageId } = await saveMessage(ctx, components.agent, {
+    const { messageId, message } = await saveMessage(ctx, components.agent, {
       threadId: agentThreadId,
       userId,
       message: { role: "user", content: `${args.content}${excerpt}${refinement}` },
+    });
+
+    await ctx.db.insert("chatTurns", {
+      agentThreadId,
+      promptMessageId: messageId,
+      order: message.order,
+      status: "queued",
+      stepCount: 0,
     });
 
     await ctx.scheduler.runAfter(0, internal.ai.chatAgentV2.streamChatReply, {
@@ -218,11 +261,27 @@ export const abortStreaming = mutation({
     if (!thread) throw new Error("Thread not found");
     await requireInternalProjectAccess(ctx, thread.projectId);
 
-    return await abortStream(ctx, components.agent, {
+    const turn = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_order", (q) =>
+        q.eq("agentThreadId", args.threadId).eq("order", args.order)
+      )
+      .unique();
+    const appTurnStopped =
+      turn?.status === "queued" || turn?.status === "running";
+    if (appTurnStopped) {
+      await ctx.db.patch(turn._id, {
+        status: "aborted",
+        endedAt: Date.now(),
+      });
+    }
+
+    const componentStreamStopped = await abortStream(ctx, components.agent, {
       threadId: args.threadId,
       order: args.order,
       reason: "Writer pressed stop",
     });
+    return appTurnStopped || componentStreamStopped;
   },
 });
 
@@ -434,6 +493,105 @@ export const rejectProposal = mutation({
 
 // ─── Internal: tool + action support ─────────────────────────────────────────
 
+/**
+ * Whether a started turn is still allowed to do work. `markTurnStarted` fences
+ * the scheduler gap, but context loading takes long enough that the writer can
+ * press stop after it — without a second check the action would keep
+ * generating text and proposals for a turn already reported as stopped.
+ */
+export const isTurnActive = internalQuery({
+  args: { agentThreadId: v.string(), promptMessageId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const turn = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+        q
+          .eq("agentThreadId", args.agentThreadId)
+          .eq("promptMessageId", args.promptMessageId)
+      )
+      .unique();
+    // A missing row predates chatTurns; let those turns run.
+    return !turn || turn.status === "queued" || turn.status === "running";
+  },
+});
+
+export const markTurnStarted = internalMutation({
+  args: {
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    startedAt: v.number(),
+  },
+  returns: v.object({
+    shouldRun: v.boolean(),
+    status: chatTurnStatusValidator,
+  }),
+  handler: async (ctx, args) => {
+    const turn = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+        q
+          .eq("agentThreadId", args.agentThreadId)
+          .eq("promptMessageId", args.promptMessageId)
+      )
+      .unique();
+
+    if (!turn) return { shouldRun: true, status: "running" as const };
+    if (turn.status === "queued") {
+      await ctx.db.patch(turn._id, {
+        status: "running",
+        ...(turn.startedAt === undefined ? { startedAt: args.startedAt } : {}),
+      });
+      return { shouldRun: true, status: "running" as const };
+    }
+    if (turn.status === "running") {
+      return { shouldRun: true, status: "running" as const };
+    }
+    return { shouldRun: false, status: turn.status };
+  },
+});
+
+export const finishTurn = internalMutation({
+  args: {
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    requestedStatus: v.union(v.literal("completed"), v.literal("failed")),
+    endedAt: v.number(),
+    stepCount: v.number(),
+  },
+  returns: v.object({ status: chatTurnStatusValidator }),
+  handler: async (ctx, args) => {
+    const turn = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+        q
+          .eq("agentThreadId", args.agentThreadId)
+          .eq("promptMessageId", args.promptMessageId)
+      )
+      .unique();
+    if (!turn) return { status: args.requestedStatus };
+
+    const stepCount = Number.isFinite(args.stepCount)
+      ? Math.max(0, Math.floor(args.stepCount))
+      : 0;
+    if (turn.status === "queued" || turn.status === "running") {
+      await ctx.db.patch(turn._id, {
+        status: args.requestedStatus,
+        endedAt: args.endedAt,
+        stepCount,
+      });
+      return { status: args.requestedStatus };
+    }
+    if (turn.status === "aborted") {
+      if (stepCount > turn.stepCount) {
+        await ctx.db.patch(turn._id, { stepCount });
+      }
+      return { status: "aborted" as const };
+    }
+    return { status: turn.status };
+  },
+});
+
 export const saveProposal = internalMutation({
   args: {
     agentThreadId: v.string(),
@@ -455,6 +613,28 @@ export const saveProposal = internalMutation({
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.agentThreadId);
     if (!thread) throw new Error("Unknown agent thread");
+
+    // Final stop fence. The action's pre-stream check can't cover the instant
+    // between it and the model's first tool call, and a card appearing after
+    // the writer pressed stop is the visible harm. This mutation is the single
+    // write path for every proposal tool, so the check lands atomically here.
+    if (args.promptMessageId) {
+      const turn = await ctx.db
+        .query("chatTurns")
+        .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+          q
+            .eq("agentThreadId", args.agentThreadId)
+            .eq("promptMessageId", args.promptMessageId!)
+        )
+        .unique();
+      if (turn && turn.status !== "queued" && turn.status !== "running") {
+        return {
+          ok: false as const,
+          stopped: true as const,
+          reason: "The writer stopped this reply.",
+        };
+      }
+    }
 
     if (args.toolCallId) {
       const existing = await ctx.db

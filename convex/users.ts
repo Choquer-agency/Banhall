@@ -8,6 +8,7 @@ import {
 } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { authComponent, createAuth } from "./auth";
+import { normalizeEmail } from "./lib/email";
 
 export const getCurrentUser = query({
   args: {},
@@ -215,11 +216,13 @@ export const setRole = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
+    const email = normalizeEmail(args.email);
+    if (!email) throw new Error("A valid email address is required");
     const user = await ctx.db
       .query("users")
-      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .withIndex("by_email", (q) => q.eq("email", email))
       .unique();
-    if (!user) throw new Error(`No user with email ${args.email}`);
+    if (!user) throw new Error(`No user with email ${email}`);
     await ctx.db.patch(user._id, { role: args.role });
     return user._id;
   },

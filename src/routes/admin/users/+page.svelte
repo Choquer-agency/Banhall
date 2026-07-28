@@ -7,6 +7,7 @@
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import RoleDescriptions from "$lib/components/roles/RoleDescriptions.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { goto } from "$app/navigation";
   import { useQuery, useMutation } from "convex-svelte";
@@ -293,8 +294,7 @@
       {:else}
         <h1 class="text-display">Users & roles</h1>
         <p class="mt-1 text-sm text-gray-500">
-          Consultants vote and comment on QA observations; managers and admins can
-          also reclassify their severity.
+          Invite team members, assign roles, and review what each role can do.
         </p>
 
         <!-- Invite a team member: accounts are invite-only -->
@@ -333,6 +333,9 @@
               Create invite
             </button>
           </form>
+          <div class="mt-5">
+            <RoleDescriptions heading="Invite role reference" />
+          </div>
           {#if inviteError}
             <p role="alert" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{inviteError}</p>
           {/if}
@@ -414,7 +417,10 @@
             </div>
             <span class="text-data text-gray-400">{users.length} total</span>
           </div>
-          <div class="card mt-3 overflow-hidden">
+          <div class="mt-4">
+            <RoleDescriptions heading="Team role reference" />
+          </div>
+          <div class="card mt-4 overflow-hidden">
             <div class="overflow-x-auto">
             <table class="w-full min-w-4xl text-sm">
               <thead>

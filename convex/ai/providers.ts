@@ -73,7 +73,14 @@ export function voyageTokenCount(responseBody: unknown): number | null {
 }
 
 export function normalizeProviderError(error: unknown): {
-  code: "billing" | "rate_limited" | "authentication" | "model_access" | "network" | "unknown";
+  code:
+    | "billing"
+    | "rate_limited"
+    | "authentication"
+    | "model_access"
+    | "output_limit"
+    | "network"
+    | "unknown";
   message: string;
 } {
   let status: number | undefined;
@@ -119,14 +126,27 @@ export function normalizeProviderError(error: unknown): {
       message: "The configured account does not have access to a required model.",
     };
   }
+  // Thrown locally by fromChatCompletions, not by the provider: the model hit
+  // max_tokens before finishing. Distinct code so it is not mistaken for a
+  // provider outage — the fix is budget/model, not provider status.
+  if (message.includes("truncated at the max_tokens limit")) {
+    return {
+      code: "output_limit",
+      message: "The model ran out of output budget before finishing this step. Retry, or use a different model for this draft.",
+    };
+  }
   if (message.includes("network") || message.includes("fetch")) {
     return {
       code: "network",
       message: "The AI provider could not be reached from this deployment.",
     };
   }
+  // Unclassified: keep the raw message. Replacing it with generic advice made
+  // real failures undiagnosable in the generation progress log.
   return {
     code: "unknown",
-    message: "The AI provider rejected the request. An administrator should inspect provider status.",
+    message: rawMessage
+      ? `The AI provider rejected the request: ${rawMessage.slice(0, 300)}`
+      : "The AI provider rejected the request. An administrator should inspect provider status.",
   };
 }

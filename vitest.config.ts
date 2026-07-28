@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 // Standalone vitest config: takes precedence over vite.config.ts so unit tests
 // of plain TS modules do not boot the SvelteKit plugin. Only the $lib alias is
@@ -18,6 +18,11 @@ export default defineConfig({
           name: "convex",
           include: ["convex/**/*.test.ts"],
           environment: "edge-runtime",
+          // convex-test glob-imports the whole backend per test file, so the
+          // first case in a file pays a module-graph cost that varies with
+          // machine load. The 5s default made the two slowest cases fail
+          // intermittently even though nothing about them is slow.
+          testTimeout: 30_000,
         },
       },
       {
@@ -25,6 +30,10 @@ export default defineConfig({
         test: {
           name: "src",
           include: ["src/**/*.test.ts"],
+          // Component tests match the include glob above but need a real
+          // browser; they run from vitest.component.config.ts instead. The
+          // defaults are spread back in because `exclude` replaces them.
+          exclude: [...configDefaults.exclude, "src/**/*.component.test.ts"],
           environment: "node",
         },
       },

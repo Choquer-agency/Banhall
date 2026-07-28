@@ -1,8 +1,12 @@
 <script lang="ts">
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { useQuery } from "convex-svelte";
+  import { goto } from "$app/navigation";
+  import { resolve } from "$app/paths";
   import { page } from "$app/state";
+  import { toast } from "svelte-sonner";
   import { authClient } from "$lib/authClient";
+  import { clearAllOutboxes } from "$lib/uploads/attemptOutbox";
   import { api } from "../../../../convex/_generated/api";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
@@ -123,8 +127,19 @@
           class="mt-4"
           variant="secondary"
           onclick={async () => {
-            await authClient.signOut();
-            window.location.reload();
+            try {
+              await authClient.signOut();
+              // Handing the browser to a different person is exactly the case
+              // the per-user outbox scoping exists for.
+              clearAllOutboxes();
+              await goto(resolve("/signup/[token]", { token }), {
+                replaceState: true,
+                invalidateAll: true,
+              });
+            } catch (error) {
+              console.error("Sign-out failed", error);
+              toast.error("Sign-out failed. Check your connection and try again.");
+            }
           }}
         >
           Sign out

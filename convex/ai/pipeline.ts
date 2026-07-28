@@ -294,10 +294,23 @@ async function runPipelineForModel(
     s246: sectionMetrics(section246, "s246"),
     lengthTarget,
   };
-  const [qaScorecard, chronology] = await Promise.all([
+  // QA and chronology are ADVISORY: the report is already drafted and usable
+  // without them. Neither may fail a generation the writer would otherwise
+  // have received — losing a full multi-model draft because a scorecard came
+  // back malformed is far worse than shipping the draft with no scorecard.
+  const [qaSettled, chronologySettled] = await Promise.allSettled([
     runQAAgent(anthropicFor("generation:qa"), analysis, section242, section244, section246, modelId, qaCalibration),
     runChronologyAgent(anthropicFor("generation:chronology"), analysis, modelId),
   ]);
+  if (qaSettled.status === "rejected") {
+    console.error("QA scorecard failed; continuing without it", qaSettled.reason);
+  }
+  if (chronologySettled.status === "rejected") {
+    console.error("Chronology failed; continuing without it", chronologySettled.reason);
+  }
+  const qaScorecard = qaSettled.status === "fulfilled" ? qaSettled.value : null;
+  const chronology =
+    chronologySettled.status === "fulfilled" ? chronologySettled.value : null;
   const doc = buildTiptapDocument(
     title,
     section242,

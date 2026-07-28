@@ -51,12 +51,40 @@ Respond with ONLY valid JSON:
   ]
 }`;
 
+/**
+ * Tool output is trusted as-is by generateStructured, so a model can return an
+ * off-spec shape despite the schema — observed in production: `entries` came
+ * back as a JSON *string* wrapping another `{ entries: [...] }`, which crashed
+ * the report page's chronology panel. Normalize here so the stored shape always
+ * matches ChronologyTable.
+ */
+export function normalizeChronology(value: unknown, depth = 0): ChronologyTable {
+  if (typeof value === "string" && depth < 3) {
+    try {
+      return normalizeChronology(JSON.parse(value), depth + 1);
+    } catch {
+      return { entries: [] };
+    }
+  }
+  if (Array.isArray(value)) {
+    return {
+      entries: value.filter(
+        (entry): entry is ChronologyEntry => !!entry && typeof entry === "object"
+      ),
+    };
+  }
+  if (value && typeof value === "object" && "entries" in value) {
+    return normalizeChronology((value as { entries: unknown }).entries, depth + 1);
+  }
+  return { entries: [] };
+}
+
 export async function runChronologyAgent(
   client: GenerationClient,
   analysis: TranscriptAnalysis,
   model?: string
 ): Promise<ChronologyTable> {
-  return await generateStructured<ChronologyTable>(client, {
+  const raw = await generateStructured<unknown>(client, {
     system: CHRONOLOGY_SYSTEM_PROMPT,
     user: `Generate a chronology table from this transcript analysis:\n\n${JSON.stringify(analysis, null, 2)}`,
     toolName: "submit_chronology_table",
@@ -65,6 +93,7 @@ export async function runChronologyAgent(
     maxTokens: 4096,
     model,
   });
+  return normalizeChronology(raw);
 }
 
 const CHRONOLOGY_SCHEMA: Anthropic.Tool.InputSchema = {

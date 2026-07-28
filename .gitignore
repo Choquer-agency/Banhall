@@ -50,4 +50,8 @@ data/brain-seed.json
 .svelte-kit/
 /build
 
+# Component-test failure artifacts (screenshots of a failing render)
+.vitest-attachments/
+**/__screenshots__/
+
 # Client PD examples (confidential — templates are CRA forms, fine to track)

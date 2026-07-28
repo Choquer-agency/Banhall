@@ -1176,16 +1176,6 @@ export const saveReportQa = internalMutation({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return;
-    if (args.failed) {
-      await ctx.db.patch(generation._id, {
-        postQaStatus: "failed",
-        progressLog: [
-          ...(generation.progressLog ?? []),
-          "Post-assembly QA pass failed — the report is unaffected.",
-        ],
-      });
-      return;
-    }
     let outputs: Record<string, unknown> = {};
     try {
       const parsed: unknown = JSON.parse(generation.agentOutputs ?? "{}");
@@ -1208,6 +1198,19 @@ export const saveReportQa = internalMutation({
       } catch {
         /* skip unparseable */
       }
+    }
+    // A failed pass still persists whatever DID succeed (e.g. the chronology
+    // when only the scorecard was malformed) instead of discarding it.
+    if (args.failed) {
+      await ctx.db.patch(generation._id, {
+        agentOutputs: JSON.stringify(outputs),
+        postQaStatus: "failed",
+        progressLog: [
+          ...(generation.progressLog ?? []),
+          "Post-assembly QA pass failed — the report is unaffected.",
+        ],
+      });
+      return;
     }
     await ctx.db.patch(generation._id, {
       agentOutputs: JSON.stringify(outputs),

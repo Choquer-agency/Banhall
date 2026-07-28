@@ -5,21 +5,18 @@
   "revise the report" chat handoff when removing a file (BNH-24).
 -->
 <script module lang="ts">
+  import type { FunctionReturnType } from "convex/server";
   import type { Id } from "../../../../convex/_generated/dataModel";
+  import type { api as convexApi } from "../../../../convex/_generated/api";
 
-  export type DocRow = {
-    _id: Id<"projectDocuments">;
-    fileName: string;
-    fileType: "txt" | "md" | "pdf" | "docx" | "msg" | "eml" | "xlsx" | "image" | "other";
-    source: string;
-    category: string | null;
-    createdAt: number;
-    sizeChars: number;
-    hasFile: boolean;
-    mimeType: string | null;
-    url: string | null;
-    archived: boolean;
-  };
+  /**
+   * Derived from the query itself rather than hand-written. The previous copy
+   * silently dropped fields the projection had gained — including this
+   * ticket's processing status — because the cast below it hid the mismatch.
+   */
+  export type DocRow = FunctionReturnType<
+    typeof convexApi.documents.listDocuments
+  >[number];
 
   function craftRevisionMessage(
     fileName: string,
@@ -73,18 +70,43 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
 
 <script lang="ts">
   import { useQuery, useMutation, useConvexClient } from "convex-svelte";
+  import { toast } from "svelte-sonner";
   import { api } from "../../../../convex/_generated/api";
   import { categoryMeta } from "$lib/contextCategories";
+  import { userErrorMessage } from "$lib/errors";
+  import { parseFileToText, SUPPORTED_ACCEPT } from "$lib/parseDocument";
+  import { withUploadTimeout } from "$lib/uploads/outboxFlush";
+  import Button from "$lib/components/ui/Button.svelte";
+  import ProcessingStatusBadge from "$lib/components/upload/ProcessingStatusBadge.svelte";
+  import UploadReceiptRow from "$lib/components/upload/UploadReceiptRow.svelte";
+  import {
+    buildReceiptRows,
+    countReceiptFailures,
+    summarizeReceipt,
+    type ReceiptRow,
+  } from "$lib/uploads/receiptRows";
+  import {
+    DENIED_COPY,
+    PROCESSING_STATUS_COPY,
+    REPLACE_UNCHANGED_COPY,
+    statusAction,
+  } from "$lib/uploads/processingStatus";
 
   let {
     projectId,
     reportId,
+    initiallyOpen = false,
   }: {
     projectId: Id<"projects">;
     reportId?: Id<"reports">;
+    /** Opened on surfaces that exist because something went wrong. */
+    initiallyOpen?: boolean;
   } = $props();
 
-  let isOpen = $state(false);
+  // Deliberately a seed, not a binding: capturing the initial value is the
+  // point, so a later re-render can't reopen a panel the user just closed.
+  // svelte-ignore state_referenced_locally
+  let isOpen = $state(initiallyOpen);
   let preview = $state<DocRow | null>(null);
   let showTranscript = $state(false);
   let removal = $state<{ doc: DocRow; action: "archive" | "delete" } | null>(null);
@@ -98,9 +120,216 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   // Agent chat pipeline (legacy chat.ts panel retired Jul 22).
   const sendMessage = useMutation(api.chatV2.sendMessage);
 
-  const documents = $derived(documentsQ.data as DocRow[] | undefined);
+  const attemptsQ = useQuery(api.uploadAttempts.listUploadAttempts, () => ({ projectId }));
+  const dismissAttempt = useMutation(api.uploadAttempts.dismissUploadAttempt);
+  const uploadDoc = useMutation(api.documents.uploadDocument);
+  const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
+  const recordUploadAttempts = useMutation(api.uploadAttempts.recordUploadAttempts);
+  const failUploadAttempt = useMutation(api.uploadAttempts.failUploadAttempt);
+
+  const documents = $derived(documentsQ.data);
   const transcript = $derived(transcriptQ.data);
   const count = $derived(documents?.length ?? 0);
+
+  // null means the server refused to say, which is not the same as "none".
+  let busyAttemptKey = $state<string | null>(null);
+  let replaceBusyDocId = $state<Id<"projectDocuments"> | null>(null);
+  let replaceTarget = $state<DocRow | null>(null);
+  let pendingReplace = $state<{ doc: DocRow; file: File } | null>(null);
+  let replaceInputEl: HTMLInputElement | null = $state(null);
+
+  const attemptsDenied = $derived(attemptsQ.data === null);
+  const attempts = $derived(attemptsQ.data ?? []);
+  // Documents keep their own rendering below (preview, download, archive,
+  // delete); only the failed attempts have no row of their own, so those are
+  // the ones drawn with the receipt component.
+  const receiptRows = $derived(buildReceiptRows(documents ?? [], attempts, []));
+  const attemptRows = $derived(receiptRows.filter((row) => row.attemptKey));
+  const failureCount = $derived(countReceiptFailures(receiptRows));
+  const summary = $derived(summarizeReceipt(receiptRows));
+  const docCanReplace = $derived(
+    new Map(
+      receiptRows
+        .filter(
+          (row): row is ReceiptRow & { documentId: Id<"projectDocuments"> } =>
+            row.documentId !== undefined
+        )
+        .map((row) => [row.documentId, row.canReplace])
+    )
+  );
+
+  /**
+   * What a document row says under its badge. `null` for anything that needs
+   * no explanation: a ready file, or an archived one already labelled as
+   * excluded from AI.
+   */
+  function documentStatusCopy(doc: DocRow): string | null {
+    if (doc.archived || doc.processingStatus === "ready") return null;
+    const explanation = PROCESSING_STATUS_COPY[doc.processingStatus].explanation;
+    const action = statusAction(doc.processingStatus, {
+      canRetry: false,
+      canReplace: docCanReplace.get(doc._id) ?? false,
+    });
+    return action ? `${explanation} ${action}` : explanation;
+  }
+
+  async function removeAttempt(row: ReceiptRow) {
+    if (!row.attemptKey || busyAttemptKey) return;
+    busyAttemptKey = row.attemptKey;
+    try {
+      await dismissAttempt({ projectId, attemptKey: row.attemptKey });
+    } catch (error) {
+      console.error("Could not dismiss upload attempt", error);
+      // Without this the row simply stays put and the user is left guessing
+      // whether the click registered.
+      toast.error(userErrorMessage(error, "Couldn't remove that row. Please try again."));
+    } finally {
+      busyAttemptKey = null;
+    }
+  }
+
+  /** Store a replacement file and return the new (or deduped) document id. */
+  async function storeReplacement(opts: {
+    attemptKey: string;
+    file: File;
+    origin: "chat_upload" | "context_input" | "review_pd";
+    source: string;
+    category?: DocRow["category"];
+  }) {
+    const { attemptKey, file } = opts;
+    try {
+      await withUploadTimeout(
+        recordUploadAttempts({
+          projectId,
+          attempts: [
+            {
+              attemptKey,
+              fileName: file.name,
+              fileSizeBytes: file.size,
+              origin: opts.origin,
+            },
+          ],
+        })
+      );
+    } catch (error) {
+      console.error("Failed to open replacement attempt", error);
+    }
+
+    let storageId: Id<"_storage"> | undefined;
+    try {
+      const url = await withUploadTimeout(generateUploadUrl({}));
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      storageId = ((await response.json()) as { storageId: Id<"_storage"> }).storageId;
+    } catch (error) {
+      console.error("Replacement file storage upload failed", error);
+    }
+
+    let parsed;
+    let extractionFailed = false;
+    try {
+      parsed = await parseFileToText(file);
+    } catch (error) {
+      console.error("Replacement parse failed", error);
+      extractionFailed = true;
+      parsed = { fileName: file.name, fileType: "other" as const, content: "" };
+    }
+
+    try {
+      return await withUploadTimeout(
+        uploadDoc({
+          projectId,
+          fileName: file.name,
+          fileType: parsed.fileType,
+          content: parsed.content,
+          source: opts.source,
+          ...(opts.category ? { category: opts.category } : {}),
+          extractionOutcome: extractionFailed ? "failed" : "ok",
+          attemptKey,
+          ...(storageId ? { storageId } : {}),
+          ...(file.type ? { mimeType: file.type } : {}),
+        })
+      );
+    } catch (error) {
+      void withUploadTimeout(
+        failUploadAttempt({ projectId, attemptKey, failureCode: "upload_failed" })
+      ).catch(() => {});
+      throw error;
+    }
+  }
+
+  async function replaceAttempt(row: ReceiptRow, file: File) {
+    if (!row.attemptKey || busyAttemptKey) return;
+    const origin =
+      attempts.find((attempt) => attempt.attemptKey === row.attemptKey)?.origin ??
+      "chat_upload";
+    busyAttemptKey = row.attemptKey;
+    try {
+      await storeReplacement({
+        attemptKey: row.attemptKey,
+        file,
+        origin,
+        source: origin,
+      });
+    } catch (error) {
+      toast.error(
+        userErrorMessage(error, "Couldn't upload the replacement. Please try again.")
+      );
+    } finally {
+      busyAttemptKey = null;
+    }
+  }
+
+  async function runDocumentReplace() {
+    if (!pendingReplace || replaceBusyDocId) return;
+    const { doc, file } = pendingReplace;
+    replaceBusyDocId = doc._id;
+    try {
+      const origin =
+        doc.source === "context_input" || doc.source === "review_pd"
+          ? doc.source
+          : ("chat_upload" as const);
+      const newId = await storeReplacement({
+        attemptKey: crypto.randomUUID(),
+        file,
+        origin,
+        source: doc.source,
+        category: doc.category ?? undefined,
+      });
+      // Mandatory id guard: a non-empty dedupe can return the old row itself;
+      // deleting unconditionally would destroy the row just returned.
+      if (newId !== doc._id) {
+        try {
+          await deleteDoc({ documentId: doc._id });
+        } catch (deleteError) {
+          // The replacement is already safely in the project. Do not claim the
+          // original was unchanged — the honest state is two rows and one clear
+          // recovery action.
+          console.error("Replacement saved but old file could not be removed", deleteError);
+          toast.error(
+            "Replacement added, but the old file couldn't be removed. Delete it manually."
+          );
+          pendingReplace = null;
+          return;
+        }
+      } else {
+        toast.info(REPLACE_UNCHANGED_COPY);
+      }
+      pendingReplace = null;
+    } catch (error) {
+      toast.error(
+        userErrorMessage(
+          error,
+          "Couldn't upload the replacement. The original file was not changed."
+        )
+      );
+    } finally {
+      replaceBusyDocId = null;
+    }
+  }
 
   // Preview modal: PDFs and images render from the stored file; everything
   // else loads the extracted text (replaces React's nested FilePreview query).
@@ -217,6 +446,13 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
         <span class="ml-2 text-xs text-gray-400">
           {count} file{count !== 1 ? "s" : ""}
         </span>
+        {#if failureCount > 0}
+          <!-- Surfaced on the collapsed header: a failure hidden behind a shut
+               panel is the thing this receipt exists to prevent. -->
+          <span class="ml-2 text-xs font-medium text-red-600">
+            · {failureCount} failed
+          </span>
+        {/if}
       </div>
     </div>
     <svg
@@ -296,11 +532,35 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
         </div>
       {/if}
 
-      {#if count === 0}
-        <p class="py-3 text-sm text-gray-400">
-          No supporting files yet. Documents attached in the chat appear here.
-        </p>
+      {#if attemptsDenied}
+        <!-- Replaces the whole body: showing "no files yet" underneath a denial
+             would tell the user something we do not actually know. -->
+        <p class="py-3 text-sm text-gray-400">{DENIED_COPY.explanation}</p>
       {:else}
+        {#if summary}
+          <p class="text-data pt-2 pb-1 text-ink-muted">{summary}</p>
+        {/if}
+
+        {#if attemptRows.length > 0}
+          <!-- Uploads that never produced a file. They have no document row of
+               their own, so they are drawn with the shared receipt row. -->
+          <ul class="divide-y divide-line-soft border-b border-gray-100">
+            {#each attemptRows as row (row.key)}
+              <UploadReceiptRow
+                {row}
+                busy={busyAttemptKey === row.attemptKey}
+                onRemove={removeAttempt}
+                onReplace={replaceAttempt}
+              />
+            {/each}
+          </ul>
+        {/if}
+
+        {#if count === 0 && attemptRows.length === 0}
+          <p class="py-3 text-sm text-gray-400">
+            No supporting files yet. Documents attached in the chat appear here.
+          </p>
+        {:else if count > 0}
         <ul class="divide-y divide-gray-100">
           {#each documents ?? [] as doc (doc._id)}
             <li class={`flex items-center gap-3 py-2.5 ${doc.archived ? "opacity-60" : ""}`}>
@@ -317,10 +577,35 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
                     </span>
                   {/if}
                 </div>
+                {#if !doc.archived}
+                  {@const copy = documentStatusCopy(doc)}
+                  <div class="mt-1">
+                    <ProcessingStatusBadge status={doc.processingStatus} />
+                  </div>
+                  {#if copy}
+                    <p class="mt-1 text-xs text-ink-muted">{copy}</p>
+                  {/if}
+                {/if}
                 <p class="text-xs text-gray-400">
                   {formatDate(doc.createdAt)}{doc.archived ? " · excluded from AI" : ""}
                 </p>
               </div>
+              {#if !doc.archived && docCanReplace.get(doc._id)}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="min-h-11 flex-shrink-0"
+                  disabled={replaceBusyDocId !== null}
+                  aria-busy={replaceBusyDocId === doc._id}
+                  aria-label="Replace file… — {doc.fileName}"
+                  onclick={() => {
+                    replaceTarget = doc;
+                    replaceInputEl?.click();
+                  }}
+                >
+                  Replace file…
+                </Button>
+              {/if}
               <button
                 type="button"
                 onclick={() => (preview = doc)}
@@ -398,7 +683,63 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
             </li>
           {/each}
         </ul>
+        {/if}
       {/if}
+      <input
+        bind:this={replaceInputEl}
+        type="file"
+        class="hidden"
+        tabindex={-1}
+        aria-hidden="true"
+        accept={SUPPORTED_ACCEPT}
+        onchange={(event) => {
+          const input = event.currentTarget;
+          const file = input.files?.[0];
+          if (file && replaceTarget) pendingReplace = { doc: replaceTarget, file };
+          replaceTarget = null;
+          input.value = "";
+        }}
+      />
+    </div>
+  {/if}
+
+  <!-- Confirm document replacement (upload first, delete second). -->
+  {#if pendingReplace}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-6"
+      onclick={() => !replaceBusyDocId && (pendingReplace = null)}
+    >
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div
+        class="card w-full max-w-md p-6"
+        role="dialog"
+        tabindex={-1}
+        aria-modal="true"
+        aria-labelledby="replace-file-title"
+        onclick={(event) => event.stopPropagation()}
+      >
+        <h2 id="replace-file-title" class="text-title">
+          Replace “{pendingReplace.doc.fileName}”?
+        </h2>
+        <p class="mt-2 text-sm text-ink-muted">
+          The current file will be permanently removed from the project and replaced by
+          “{pendingReplace.file.name}”.
+        </p>
+        <div class="mt-6 flex justify-end gap-2">
+          <Button
+            variant="ghost"
+            disabled={replaceBusyDocId !== null}
+            onclick={() => (pendingReplace = null)}
+          >
+            Cancel
+          </Button>
+          <Button disabled={replaceBusyDocId !== null} onclick={runDocumentReplace}>
+            {replaceBusyDocId ? "Replacing…" : "Replace file"}
+          </Button>
+        </div>
+      </div>
     </div>
   {/if}
 

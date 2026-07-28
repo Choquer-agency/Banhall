@@ -13,6 +13,7 @@ import { anthropic } from "@ai-sdk/anthropic";
 import { MODEL } from "./model";
 import { CHAT_SYSTEM_PROMPT_V2 } from "./prompts";
 import { scrubBannedWords, extractPlainText } from "../lib/reportEdits";
+import { preserveReasoningSignature } from "./reasoningSignature";
 import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
 
 // ─── Agent-based chat (BNH-10 P2) ────────────────────────────────────────────
@@ -47,9 +48,11 @@ const proposeEdit = createTool({
       targetText: input.targetText,
       newText: scrubBannedWords(input.newText),
     });
-    return result.ok
-      ? "Edit proposed — the writer sees it as a card with Replace, Refine, or Reject."
-      : `Proposal NOT created: ${result.reason} Re-read the CURRENT REPORT and retry the edit tool with an exact canonical target.`;
+    if (result.ok) return "Edit proposed — the writer now sees it as a suggestion card.";
+    // A stopped turn is not a recoverable tool error: telling the model to
+    // retry would have it work against the writer's explicit stop.
+    if (result.stopped) return `Stop requested: ${result.reason} Do not retry.`;
+    return `Proposal NOT created: ${result.reason} Re-read the CURRENT REPORT and retry the edit tool with an exact canonical target.`;
   },
 });
 
@@ -82,9 +85,11 @@ const proposeReplacements = createTool({
         replaceWith: scrubBannedWords(r.replaceWith),
       })),
     });
-    return result.ok
-      ? "Replacement set proposed — the writer sees it as a card with Replace or Reject."
-      : `Proposal NOT created: ${result.reason} Re-read the CURRENT REPORT and retry with exact canonical find text.`;
+    if (result.ok) {
+      return "Replacement set proposed — the writer now sees it as a suggestion card.";
+    }
+    if (result.stopped) return `Stop requested: ${result.reason} Do not retry.`;
+    return `Proposal NOT created: ${result.reason} Re-read the CURRENT REPORT and retry with exact canonical find text.`;
   },
 });
 
@@ -152,7 +157,7 @@ const searchBrain = createTool({
       }
       if (exemplars.length === 0) {
         return brainContext.industry
-          ? `The Brain has no approved knowledge matching that in the "${brainContext.industry}" industry yet.`
+          ? `The Brain has no approved knowledge matching that in the “${brainContext.industry}” industry yet.`
           : "The Brain has no approved knowledge matching that yet.";
       }
       return formatBrainExemplars(exemplars);
@@ -163,11 +168,43 @@ const searchBrain = createTool({
   },
 });
 
+/**
+ * Reasoning is on by default so the assistant analyses a request as carefully
+ * here as the same model would on claude.ai — a writer shouldn't get shallower
+ * answers because they asked inside Banhall.
+ *
+ * `adaptive` (Sonnet 4.6/Opus 4.6+) lets the model scale its own thinking to
+ * the task instead of us paying a fixed budget on every "tighten this
+ * sentence". `display: "summarized"` is required for the thinking text to come
+ * back at all — without it the blocks arrive empty and the trace's reasoning
+ * disclosure would render nothing.
+ */
+const CHAT_THINKING = {
+  thinking: { type: "adaptive" as const, display: "summarized" as const },
+};
+
+/**
+ * Per-step ceiling shared by thinking, tool-call JSON, and answer text. Without
+ * it the request inherits the model's 128K output ceiling, which is not a sane
+ * worst case for one turn in a chat rail. Sonnet 5 defaults to high effort and
+ * adaptive thinking can eat a tight budget, truncating the reply with
+ * finishReason "length" — so this leaves real headroom for a dense report edit
+ * rather than trimming to the smallest plausible number.
+ */
+const CHAT_MAX_OUTPUT_TOKENS = 16384;
+
+const CHAT_TOOLS = {
+  proposeEdit,
+  proposeReplacements,
+  highlightPassages,
+  searchBrain,
+};
+
 export const reportChatAgent = new Agent(components.agent, {
   name: "report-editor",
   languageModel: anthropic(MODEL),
   instructions: CHAT_SYSTEM_PROMPT_V2,
-  tools: { proposeEdit, proposeReplacements, highlightPassages, searchBrain },
+  tools: CHAT_TOOLS,
   // BNH-16: durably log billed usage for every model step without turning a
   // successful streamed response into a chat failure.
   usageHandler: async (ctx, { threadId, userId, model, usage }) => {
@@ -218,78 +255,131 @@ export const streamChatReply = internalAction({
     reportId: v.id("reports"),
   },
   handler: async (ctx, args) => {
-    // Explicit annotation breaks api-graph type circularity (TS7006 cascade).
-    const context: {
-      reportContent: string | null;
-      agentOutputs: string | null;
-      documents: { fileName: string; content: string }[];
-      decisions: {
-        state: "pending" | "applied" | "rejected" | "stale";
-        target: string;
-        candidate: string;
-      }[];
-    } = await ctx.runQuery(internal.chatV2.getChatContextV2, {
-      reportId: args.reportId,
+    const startedAt = Date.now();
+    const start: {
+      shouldRun: boolean;
+      status: "queued" | "running" | "completed" | "failed" | "aborted";
+    } = await ctx.runMutation(internal.chatV2.markTurnStarted, {
       agentThreadId: args.agentThreadId,
+      promptMessageId: args.promptMessageId,
+      startedAt,
     });
+    if (!start.shouldRun) return;
 
-    const reportText = context.reportContent
-      ? extractPlainText(context.reportContent)
-      : "(no report content available)";
-
-    let analysisText = "(no transcript analysis available)";
-    if (context.agentOutputs) {
-      try {
-        const parsed = JSON.parse(context.agentOutputs);
-        if (parsed.analyzer) {
-          analysisText = JSON.stringify(parsed.analyzer, null, 2);
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-
-    const docsText = context.documents.length
-      ? context.documents
-          .map(
-            (d) => `--- Document: ${d.fileName} ---\n${d.content.slice(0, 20000)}`
-          )
-          .join("\n\n")
-      : "(no documents uploaded)";
-
-    const editDecisions = context.decisions
-      .map(
-        (d, i) =>
-          `[Edit ${i + 1} — ${d.state.toUpperCase()}]\nCanonical target from report: ${d.target}\nCandidate replacement (context only — never use as target unless it is present in CURRENT REPORT): ${d.candidate}`
-      )
-      .join("\n\n");
-
-    const grounding = `# CURRENT REPORT (the only document you may edit)\n${reportText}\n\n# TRANSCRIPT ANALYSIS (source of truth — do not exceed it)\n${analysisText}\n\n# UPLOADED CONTEXT DOCUMENTS\n${docsText}${
-      editDecisions
-        ? `\n\n# PRIOR EDIT DECISIONS (the exact text you proposed and whether the writer accepted/rejected it — your memory for iterating. If they liked a rejected version and want a small change, reuse it with only that change. Context only — never repeat this block in your reply.)\n${editDecisions}`
-        : ""
-    }`;
+    const toolCallIds = new Set<string>();
 
     try {
+      // Explicit annotation breaks api-graph type circularity (TS7006 cascade).
+      const context: {
+        reportContent: string | null;
+        agentOutputs: string | null;
+        documents: { fileName: string; content: string }[];
+        decisions: {
+          state: "pending" | "applied" | "rejected" | "stale";
+          target: string;
+          candidate: string;
+        }[];
+      } = await ctx.runQuery(internal.chatV2.getChatContextV2, {
+        reportId: args.reportId,
+        agentThreadId: args.agentThreadId,
+      });
+
+      const reportText = context.reportContent
+        ? extractPlainText(context.reportContent)
+        : "(no report content available)";
+
+      let analysisText = "(no transcript analysis available)";
+      if (context.agentOutputs) {
+        try {
+          const parsed = JSON.parse(context.agentOutputs);
+          if (parsed.analyzer) {
+            analysisText = JSON.stringify(parsed.analyzer, null, 2);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      const docsText = context.documents.length
+        ? context.documents
+            .map(
+              (d) =>
+                `--- Document: ${d.fileName} ---\n${d.content.slice(0, 20000)}`
+            )
+            .join("\n\n")
+        : "(no documents uploaded)";
+
+      const editDecisions = context.decisions
+        .map(
+          (d, i) =>
+            `[Edit ${i + 1} — ${d.state.toUpperCase()}]\nCanonical target from report: ${d.target}\nCandidate replacement (context only — never use as target unless it is present in CURRENT REPORT): ${d.candidate}`
+        )
+        .join("\n\n");
+
+      const grounding = `# CURRENT REPORT (the only document you may edit)\n${reportText}\n\n# TRANSCRIPT ANALYSIS (source of truth — do not exceed it)\n${analysisText}\n\n# UPLOADED CONTEXT DOCUMENTS\n${docsText}${
+        editDecisions
+          ? `\n\n# PRIOR EDIT DECISIONS (the exact text you proposed and whether the writer accepted/rejected it — your memory for iterating. If they liked a rejected version and want a small change, reuse it with only that change. Context only — never repeat this block in your reply.)\n${editDecisions}`
+          : ""
+      }`;
+
+      // Second cancellation fence: context loading above is slow enough that
+      // the writer can press stop during it. Without this, an aborted turn
+      // would still generate text and create proposal cards.
+      const stillActive: boolean = await ctx.runQuery(internal.chatV2.isTurnActive, {
+        agentThreadId: args.agentThreadId,
+        promptMessageId: args.promptMessageId,
+      });
+      if (!stillActive) return;
+
       const result = await reportChatAgent.streamText(
         ctx,
         { threadId: args.agentThreadId },
         {
           promptMessageId: args.promptMessageId,
           system: `${CHAT_SYSTEM_PROMPT_V2}\n\n${grounding}`,
+          providerOptions: { anthropic: CHAT_THINKING },
+          maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
+          // Must run upstream of the agent's smoothStream — see the module
+          // comment. Without it, multi-step tool turns lose the thinking
+          // signature and the model's reasoning is dropped between steps.
+          experimental_transform: preserveReasoningSignature<typeof CHAT_TOOLS>(),
+          onStepFinish: (step) => {
+            for (const toolCall of step.toolCalls) {
+              toolCallIds.add(toolCall.toolCallId);
+            }
+          },
         },
         { saveStreamDeltas: true }
       );
       await result.consumeStream();
+      await ctx.runMutation(internal.chatV2.finishTurn, {
+        agentThreadId: args.agentThreadId,
+        promptMessageId: args.promptMessageId,
+        requestedStatus: "completed",
+        endedAt: Date.now(),
+        stepCount: toolCallIds.size,
+      });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      // Surface the failure in-thread so the writer isn't left with silence.
+      const finish: {
+        status: "queued" | "running" | "completed" | "failed" | "aborted";
+      } = await ctx.runMutation(internal.chatV2.finishTurn, {
+        agentThreadId: args.agentThreadId,
+        promptMessageId: args.promptMessageId,
+        requestedStatus: "failed",
+        endedAt: Date.now(),
+        stepCount: toolCallIds.size,
+      });
+      console.error("report chat response failed", error);
+      if (finish.status !== "failed") return;
+
       await saveMessage(ctx, components.agent, {
         threadId: args.agentThreadId,
         agentName: "report-editor",
+        // Shares the prompt's order so the failed turn's trace attaches to it.
+        promptMessageId: args.promptMessageId,
         message: {
           role: "assistant",
-          content: `Something went wrong generating a response: ${message}`,
+          content: "I couldn’t finish that response. Try again.",
         },
       });
     }

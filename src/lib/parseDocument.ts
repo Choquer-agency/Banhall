@@ -1,5 +1,29 @@
 "use client";
 
+import {
+  CAP_TRUNCATION_MARKER,
+  mboxOverflowMarker,
+  pdfPageStopMarker,
+} from "../../shared/documentStatus";
+
+/**
+ * The pure registry (whitelist, extension helpers) and the truncation markers
+ * moved to `shared/documentStatus.ts` so Convex can derive processing status
+ * without importing this file — its pdfjs/xlsx/mammoth dynamic imports are
+ * browser-only. Re-exported here so existing importers are unaffected, and so
+ * the marker text a parser writes and the detector that reads it can't drift.
+ */
+export {
+  SUPPORTED_EXTENSIONS,
+  IMAGE_EXTENSIONS,
+  SUPPORTED_ACCEPT,
+  SUPPORTED_LABEL,
+  getFileExtension,
+  isSupportedFile,
+  isImageFile,
+} from "../../shared/documentStatus";
+import { isImageFile } from "../../shared/documentStatus";
+
 export type ParsedFileType =
   | "txt"
   | "md"
@@ -16,43 +40,6 @@ export interface ParsedDocument {
   fileType: ParsedFileType;
   content: string;
 }
-
-/**
- * BNH-33: the single source of truth for which file extensions we can actually
- * parse. Anything outside this list is flagged in the UI before generation so a
- * writer never hits a silent failure mid-generate (e.g. .msg used to error).
- * Email exports: .msg (Outlook), .eml (RFC822 — Apple Mail / Thunderbird / Gmail
- * "show original" / Outlook "save as"), .mbox (Gmail / Thunderbird bulk export).
- */
-export const SUPPORTED_EXTENSIONS = [
-  "txt",
-  "md",
-  "markdown",
-  "pdf",
-  "docx",
-  "msg",
-  "eml",
-  "mbox",
-  "xlsx",
-  "xls",
-  "csv",
-  "png",
-  "jpg",
-  "jpeg",
-  "webp",
-  "gif",
-] as const;
-
-/** Extensions stored as reference files only — no text extraction (yet). */
-export const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif"] as const;
-
-/** Human-friendly list for `accept` attributes and warning copy. */
-export const SUPPORTED_ACCEPT =
-  ".txt,.md,.markdown,.pdf,.docx,.msg,.eml,.mbox,.xlsx,.xls,.csv,.png,.jpg,.jpeg,.webp,.gif";
-
-/** For warning copy — keep in sync with SUPPORTED_EXTENSIONS. */
-export const SUPPORTED_LABEL =
-  "PDF, Word (.docx), Excel (.xlsx/.xls/.csv), email (.eml/.msg/.mbox), images (.png/.jpg/.webp/.gif), .txt, .md";
 
 /**
  * Hard ceiling on extracted text per document. Convex documents max out at
@@ -84,27 +71,9 @@ function withDeadline<T>(promise: Promise<T>, deadline: number): Promise<T> {
   ]);
 }
 
-function capContent(content: string): string {
+export function capContent(content: string): string {
   if (content.length <= MAX_CONTENT_CHARS) return content;
-  return (
-    content.slice(0, MAX_CONTENT_CHARS) +
-    "\n\n[Document truncated — text exceeded the size limit]"
-  );
-}
-
-export function getFileExtension(name: string): string {
-  const m = name.toLowerCase().match(/\.([a-z0-9]+)$/);
-  return m ? m[1] : "";
-}
-
-export function isSupportedFile(name: string): boolean {
-  return (SUPPORTED_EXTENSIONS as readonly string[]).includes(
-    getFileExtension(name)
-  );
-}
-
-export function isImageFile(name: string): boolean {
-  return (IMAGE_EXTENSIONS as readonly string[]).includes(getFileExtension(name));
+  return content.slice(0, MAX_CONTENT_CHARS) + CAP_TRUNCATION_MARKER;
 }
 
 // ─── Email helpers (shared by .msg, .eml, .mbox) ────────────────────────────
@@ -235,7 +204,7 @@ export async function parseFileToText(file: File): Promise<ParsedDocument> {
       void loadingTask.destroy().catch(() => {});
     }
     if (truncatedAtPage > 0) {
-      text += `\n[Stopped reading at page ${truncatedAtPage} — document too large or slow to parse (likely drawings/scans with little extractable text)]`;
+      text += pdfPageStopMarker(truncatedAtPage);
     }
     return { fileName: name, fileType: "pdf", content: capContent(text.trim()) };
   }
@@ -327,7 +296,7 @@ export async function parseFileToText(file: File): Promise<ParsedDocument> {
     }
     let content = parts.join("\n\n———\n\n");
     if (chunks.length > MAX) {
-      content += `\n\n[${chunks.length - MAX} more message(s) in this mailbox were not included]`;
+      content += mboxOverflowMarker(chunks.length - MAX);
     }
     return { fileName: name, fileType: "eml", content: capContent(content) };
   }

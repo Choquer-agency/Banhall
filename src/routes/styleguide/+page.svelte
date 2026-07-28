@@ -5,6 +5,26 @@
   import Badge from "$lib/components/ui/Badge.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
+  import ProcessingStatusBadge from "$lib/components/upload/ProcessingStatusBadge.svelte";
+  import UploadReceipt from "$lib/components/upload/UploadReceipt.svelte";
+  import { PROCESSING_STATUS_COPY } from "$lib/uploads/processingStatus";
+  import type { ReceiptRow } from "$lib/uploads/receiptRows";
+  import { PROCESSING_STATUSES, type ReceiptStatus } from "../../../shared/documentStatus";
+
+  // Literal rows: the specimen shows the component, not the merge logic.
+  const receiptRows: ReceiptRow[] = [
+    { key: "r1", fileName: "Interview transcript.docx", status: "ready", canRetry: false, canReplace: false, canRemove: true },
+    { key: "r2", fileName: "Cost breakdown 2024.xlsx", status: "ready_truncated", canRetry: false, canReplace: false, canRemove: true },
+    { key: "r3", fileName: "Rig photo.png", status: "reference_only", canRetry: false, canReplace: true, canRemove: true },
+    { key: "r4", fileName: "Scanned notes.pdf", status: "could_not_read", canRetry: false, canReplace: true, canRemove: true },
+    { key: "r5", fileName: "drawings.zip", status: "skipped_unsupported", canRetry: false, canReplace: false, canRemove: true },
+    { key: "r6", fileName: "Site survey.pdf", status: "upload_failed", canRetry: true, canReplace: false, canRemove: true },
+    { key: "r7", fileName: "Lab results.docx", status: null, canRetry: false, canReplace: false, canRemove: false },
+    { key: "r8", fileName: "Superseded draft.docx", status: "ready", archived: true, canRetry: false, canReplace: false, canRemove: true },
+  ];
+  const busyReceiptRows: ReceiptRow[] = [
+    { key: "b1", fileName: "Site survey.pdf", status: "upload_failed", canRetry: true, canReplace: false, canRemove: true },
+  ];
   import {
     Message,
     MessageContent,
@@ -163,6 +183,65 @@
       </div>
       <div class="max-w-xs">
         <Input id="sg-input" label="Field label" placeholder="Placeholder text…" />
+      </div>
+    </div>
+
+    <!-- Upload processing statuses -->
+    <h2 class="text-label mt-12">File processing statuses</h2>
+    <p class="mt-2 max-w-2xl text-xs text-gray-500">
+      One per outcome of reading an uploaded file. The label is always text — colour and
+      icon are decoration, so the status survives greyscale and a screen reader. Copy
+      lives in <code class="text-data">$lib/uploads/processingStatus</code>.
+    </p>
+    <div class="card mt-3 divide-y divide-line-soft">
+      {#each [...PROCESSING_STATUSES, "upload_failed"] as ReceiptStatus[] as status (status)}
+        <div class="flex items-start gap-4 px-5 py-3">
+          <div class="w-48 flex-shrink-0">
+            <ProcessingStatusBadge {status} />
+          </div>
+          <p class="text-xs text-ink-muted">{PROCESSING_STATUS_COPY[status].explanation}</p>
+        </div>
+      {/each}
+      <div class="flex items-start gap-4 px-5 py-3">
+        <div class="w-48 flex-shrink-0">
+          <ProcessingStatusBadge status={null} />
+        </div>
+        <p class="text-xs text-ink-muted">While the file is still being read.</p>
+      </div>
+    </div>
+
+    <!-- Upload receipt -->
+    <h2 class="text-label mt-12">Upload receipt</h2>
+    <p class="mt-2 max-w-2xl text-xs text-gray-500">
+      The per-file processing receipt shown after an upload batch and again from the
+      project files panel. Every non-ready row explains itself and offers at most one
+      obvious next action; an archived file shows no status, because it is already
+      excluded from AI.
+    </p>
+    <div class="card mt-3 px-5 py-4">
+      <UploadReceipt
+        rows={receiptRows}
+        onRetry={() => {}}
+        onReplace={() => {}}
+        onRemove={() => {}}
+      />
+    </div>
+
+    <div class="mt-3 grid gap-3 sm:grid-cols-3">
+      <div class="card px-5 py-4">
+        <UploadReceipt rows={[]} heading="Empty" />
+      </div>
+      <div class="card px-5 py-4">
+        <UploadReceipt rows={[]} heading="No access" denied />
+      </div>
+      <div class="card px-5 py-4">
+        <UploadReceipt
+          rows={busyReceiptRows}
+          heading="Busy"
+          busy={new Set(["b1"])}
+          onRetry={() => {}}
+          onRemove={() => {}}
+        />
       </div>
     </div>
 

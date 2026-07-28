@@ -1,7 +1,13 @@
 <script lang="ts">
   import type { HTMLButtonAttributes } from "svelte/elements";
 
-  type Variant = "primary" | "primary-outline" | "secondary" | "ghost" | "link";
+  type Variant =
+    | "primary"
+    | "primary-outline"
+    | "secondary"
+    | "ghost"
+    | "danger-ghost"
+    | "link";
 
   const variantStyles: Record<Variant, string> = {
     primary:
@@ -12,6 +18,12 @@
       "bg-chrome text-navy border border-gray-200 hover:bg-primary-wash focus-visible:ring-primary",
     ghost:
       "border border-transparent text-gray-600 hover:text-navy hover:bg-primary-wash focus-visible:ring-primary",
+    // Destructive actions take a red hover (design system rule 9). A class
+    // override can't express this: the class string is concatenated, not
+    // cn-merged, so a conflicting hover:bg-* would be settled by stylesheet
+    // order rather than by the caller.
+    "danger-ghost":
+      "border border-transparent text-red-600 hover:bg-red-50 hover:text-red-700 focus-visible:ring-red-500",
     link:
       "p-0! text-primary hover:text-primary-dark focus-visible:ring-primary",
   };

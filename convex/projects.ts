@@ -15,6 +15,7 @@ import {
 } from "./lib/teamRoster";
 import { domainError, sha256 } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+import { deriveStoredProcessing } from "../shared/documentStatus";
 import { canUseIndustry, industrySlug } from "../shared/industries";
 import { findActiveGeneration } from "./lib/activeGeneration";
 
@@ -405,6 +406,12 @@ async function copyProjectInputRows(
   // Copy every support document, including archived records and review-mode PDs.
   // Storage ids are filled by the action after it clones the original bytes.
   for (const doc of documents) {
+    // A duplicate must report the same truth as its source. Rows that predate
+    // PSOS-04 carry no status, so derive it from the copied content — the same
+    // function the read-time fallback and the backfill use.
+    const processing = doc.processingStatus
+      ? { status: doc.processingStatus, detail: doc.processingDetail }
+      : deriveStoredProcessing(doc);
     const documentId = await ctx.db.insert("projectDocuments", {
       projectId: args.toProjectId,
       fileName: doc.fileName,
@@ -413,6 +420,8 @@ async function copyProjectInputRows(
       ...(doc.mimeType ? { mimeType: doc.mimeType } : {}),
       ...(doc.category ? { category: doc.category } : {}),
       ...(doc.archived !== undefined ? { archived: doc.archived } : {}),
+      processingStatus: processing.status,
+      ...(processing.detail ? { processingDetail: processing.detail } : {}),
       source: doc.source,
       uploadedBy: userDisplayLabel(user),
       createdAt: now,

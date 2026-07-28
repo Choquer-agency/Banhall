@@ -54,7 +54,7 @@ export const seedDemoProject = internalMutation({
 
     if (!user) {
       throw new Error(
-        "Demo user not found. Open http://localhost:3001 once to auto-create demo@banhall.ca, then re-run this seed."
+        "Demo user not found. Create demo@banhall.ca explicitly, then re-run this seed."
       );
     }
 

@@ -6,6 +6,8 @@ import { QA_SYSTEM_PROMPT } from "./prompts";
 import type { TranscriptAnalysis } from "./analyzerAgent";
 import { runDeterministicChecks } from "./qaChecks";
 import { generateStructured } from "./structured";
+import { qaScorecardSchema } from "../../shared/qaScorecard";
+import type { z } from "zod";
 
 function numberParagraphs(text: string): string {
   return text
@@ -26,22 +28,28 @@ export interface QAIssue {
 
 export interface QAScorecard {
   overall_score: number;
-  section_scores: {
-    "242": { score: number; issues: QAIssue[]; strengths: string[] };
-    "244": { score: number; issues: QAIssue[]; strengths: string[] };
-    "246": { score: number; issues: QAIssue[]; strengths: string[] };
-  };
-  cra_compliance: {
-    verbiage_present: boolean;
-    why_how_why_intact: boolean;
-    uncertainties_distinguished: boolean;
-  };
+  /**
+   * Keyed by T661 line ("242", "244", "246"). A record, not a fixed triple:
+   * the model can omit a section, and every consumer iterates these entries
+   * rather than indexing a known key. Declaring all three as guaranteed was a
+   * promise the model never made.
+   */
+  section_scores: Record<
+    string,
+    { score: number; issues: QAIssue[]; strengths: string[] }
+  >;
+  cra_compliance: Record<string, boolean>;
   hallucination_risks: string[];
   ai_language_flags: string[];
   superlative_flags: string[];
   gaps_requiring_client_followup: Array<{
     section: string;
-    paragraph: number;
+    /**
+     * Null when the gap spans the whole section rather than one paragraph.
+     * The model legitimately returns null here; typing it as a required
+     * number is what made the frontend discard entire valid scorecards.
+     */
+    paragraph?: number | null;
     question: string;
   }>;
   suggested_improvements: string[];
@@ -92,6 +100,10 @@ ${numberParagraphs(section246)}`,
     schema: QA_SCHEMA,
     maxTokens: 4096,
     model,
+    // Enforce the same contract the panel reads. Without this a scorecard the
+    // renderer can't parse is still stored and marked done, and the writer
+    // sees an empty panel with no way to tell it apart from "never ran".
+    validate: qaScorecardSchema satisfies z.ZodType<QAScorecard>,
   });
 }
 

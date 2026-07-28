@@ -1,17 +1,37 @@
 <script lang="ts">
   import { useQuery, useMutation } from "convex-svelte";
+  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
+  import { appendOutbox } from "$lib/uploads/attemptOutbox";
+  import {
+    ATTEMPT_BATCH_LIMIT,
+    flushOutboxFor,
+    shouldDropOutboxEntry,
+    withUploadTimeout,
+  } from "$lib/uploads/outboxFlush";
+  import UploadReceipt from "$lib/components/upload/UploadReceipt.svelte";
+  import {
+    buildReceiptRows,
+    type EphemeralEntry,
+    type ReceiptRow,
+  } from "$lib/uploads/receiptRows";
+  import { deriveProcessingStatus } from "../../../../shared/documentStatus";
   import { api } from "../../../../convex/_generated/api";
   import type { Doc, Id } from "../../../../convex/_generated/dataModel";
   import { createUIMessages } from "$lib/chat/uiMessages.svelte";
   import type { UIMessage } from "@convex-dev/agent";
-  import ProposalCard from "$lib/components/chat/ProposalCard.svelte";
+  import AssistantTurn from "$lib/components/chat/AssistantTurn.svelte";
+  import {
+    correlateProposals,
+    normalizeTurnParts,
+    type TurnTiming,
+  } from "$lib/chat/turnParts";
   import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
-  import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
   import type { ResearchSelection } from "$lib/components/editor/types";
   import { DropdownMenu } from "bits-ui";
-  import { SvelteMap } from "svelte/reactivity";
+  import { SvelteMap, SvelteSet } from "svelte/reactivity";
+  import Button from "$lib/components/ui/Button.svelte";
   import { fade } from "svelte/transition";
   import {
     ChatContainer,
@@ -19,7 +39,6 @@
     Message,
     MessageContent,
     MessageAvatar,
-    MessageActions,
     ActionButton,
     PromptInput,
     PromptInputTextarea,
@@ -117,10 +136,7 @@
 
   /** Visible text of a UIMessage (joins text parts; ignores tool/reasoning). */
   function messageText(m: UIMessage): string {
-    return m.parts
-      .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
-      .map((p) => p.text)
-      .join("");
+    return normalizeTurnParts(m).text;
   }
 
   /** Split the appended highlight excerpt back out of a writer message. */
@@ -223,6 +239,15 @@
   const uploadDocument = useMutation(api.documents.uploadDocument);
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
   const startResearch = useMutation(api.research.startResearch);
+  const recordUploadAttempts = useMutation(api.uploadAttempts.recordUploadAttempts);
+  const dismissUploadAttempt = useMutation(api.uploadAttempts.dismissUploadAttempt);
+
+  // Only needed to scope the offline outbox to whoever queued an entry: a
+  // failure recorded by one user must never be flushed under another's session.
+  const uploadAuth = useAuth();
+  const currentUserQ = useQuery(api.users.getCurrentUser, () =>
+    uploadAuth.isAuthenticated ? {} : "skip"
+  );
 
 
   let input = $state("");
@@ -238,6 +263,15 @@
   // Copy-to-clipboard feedback (assistant hover actions).
   let copiedId = $state<string | null>(null);
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Load a suggestion into the composer for a refinement turn. */
+  function refineProposal(proposal: Proposal) {
+    refiningProposal = proposal;
+    input = "";
+    retryText = null;
+    textareaEl?.focus();
+    chatContainer?.scrollToBottom("smooth");
+  }
 
   async function copyMessage(id: string, text: string) {
     try {
@@ -270,7 +304,16 @@
       /* ignore */
     }
   }
-  let uploadError = $state<string | null>(null);
+  /**
+   * The live receipt: one entry per file in the current batch. Plain data only
+   * — the `File` objects live in `retryableFiles` below, deliberately outside
+   * reactive state, because host objects don't belong in a proxy.
+   */
+  let receiptEntries = $state<EphemeralEntry[]>([]);
+  const retryableFiles = new Map<string, { file: File; category: ContextCategoryId }>();
+  const receiptBusy = new SvelteSet<string>();
+  const receiptRows = $derived(buildReceiptRows([], [], receiptEntries));
+  const receiptSettled = $derived(receiptEntries.some((entry) => entry.status !== null));
   let attachments = $state<
     { documentId: Id<"projectDocuments">; fileName: string; category: ContextCategoryId }[]
   >([]);
@@ -282,73 +325,43 @@
   let pillWidth = $state(0);
   let chatContainer: ChatContainer | null = $state(null);
 
-  function messageToolCallIds(message: UIMessage) {
-    return new Set(
-      message.parts.flatMap((part) =>
-        "toolCallId" in part && typeof part.toolCallId === "string"
-          ? [part.toolCallId]
-          : []
-      )
-    );
-  }
+  // Proposal→message association lives in $lib/chat/turnParts so the exact
+  // toolCallId match and its legacy fallbacks stay unit-testable.
+  const grouped = $derived(
+    correlateProposals(messages ?? [], proposalsQ.data ?? [])
+  );
 
-  // Associate proposal cards with their exact assistant tool call. Older rows
-  // fall back to the reply sharing their prompt's order, then nearby creation
-  // time, instead of accumulating in a detached stack at the bottom.
-  const grouped = $derived.by(() => {
-    const byMessage = new SvelteMap<string, Proposal[]>();
-    const orphans: Proposal[] = [];
-    const allMessages = messages ?? [];
-    const assistantMessages = allMessages.filter((m) => m.role === "assistant");
-    const toolOwners = new SvelteMap<string, UIMessage>();
-    for (const message of assistantMessages) {
-      for (const toolCallId of messageToolCallIds(message)) {
-        toolOwners.set(toolCallId, message);
-      }
+  // Durable turn timing ("Worked for 12s"). The agent component's UIMessage
+  // can't express it: its _creationTime is enqueue time and is regenerated on
+  // every streaming re-derive, so the app records start/end itself. Scoped to
+  // the orders currently loaded, so pagination doesn't widen the read.
+  // Primitive bounds, not an object: token deltas change `messages` constantly
+  // while the order range holds steady, and a fresh object would tear down and
+  // recreate the subscription on every delta.
+  const startOrder = $derived(
+    messages.length ? Math.min(...messages.map((m) => m.order)) : -1
+  );
+  const endOrder = $derived(
+    messages.length ? Math.max(...messages.map((m) => m.order)) : -1
+  );
+
+  const turnsQ = useQuery(api.chatV2.listTurns, () => {
+    if (!selectedThreadId || startOrder < 0) return "skip";
+    return { threadId: selectedThreadId, startOrder, endOrder };
+  });
+
+  // The reply shares its prompt's order, so order is the join key.
+  const timingByOrder = $derived.by(() => {
+    const map = new SvelteMap<number, TurnTiming>();
+    for (const turn of turnsQ.data ?? []) {
+      map.set(turn.order, {
+        status: turn.status,
+        ...(turn.startedAt !== undefined ? { startedAt: turn.startedAt } : {}),
+        ...(turn.endedAt !== undefined ? { endedAt: turn.endedAt } : {}),
+        stepCount: turn.stepCount,
+      });
     }
-    const messageById = new SvelteMap(allMessages.map((message) => [message.id, message]));
-
-    const proposals = proposalsQ.data ?? [];
-    const latestPendingIndexByPrompt = new SvelteMap<string, number>();
-    proposals.forEach((proposal, index) => {
-      if (proposal.state === "pending" && proposal.promptMessageId) {
-        latestPendingIndexByPrompt.set(proposal.promptMessageId, index);
-      }
-    });
-
-    for (const [proposalIndex, proposal] of proposals.entries()) {
-      // A refinement turn supersedes the previous pending card from that prompt.
-      // Keep the latest actionable wording in the timeline instead of stacking
-      // every intermediate iteration in the narrow chat rail.
-      if (
-        proposal.state === "pending" &&
-        proposal.promptMessageId &&
-        latestPendingIndexByPrompt.get(proposal.promptMessageId) !== proposalIndex
-      ) {
-        continue;
-      }
-      let owner = proposal.toolCallId ? toolOwners.get(proposal.toolCallId) : undefined;
-      if (!owner && proposal.promptMessageId) {
-        const prompt = messageById.get(proposal.promptMessageId);
-        if (prompt) {
-          owner = assistantMessages.find((message) => message.order === prompt.order);
-        }
-      }
-      if (!owner && proposal.messageId) owner = messageById.get(proposal.messageId);
-      if (!owner) {
-        owner = [...assistantMessages]
-          .reverse()
-          .find((message) => message._creationTime <= proposal.createdAt);
-      }
-      if (!owner) {
-        orphans.push(proposal);
-        continue;
-      }
-      const list = byMessage.get(owner.id) ?? [];
-      list.push(proposal);
-      byMessage.set(owner.id, list);
-    }
-    return { byMessage, orphans };
+    return map;
   });
 
   const composerSelection = $derived(pendingResearch ?? pendingHighlight);
@@ -454,36 +467,100 @@
     }
   }
 
-  async function uploadFiles(files: File[], category: ContextCategoryId) {
-    if (!files || files.length === 0) return;
-    pendingFiles = null;
-    uploading = true;
-    uploadError = null;
-    try {
-      for (const file of files) {
-        let storageId: Id<"_storage"> | undefined;
-        try {
-          const url = await generateUploadUrl({});
-          const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": file.type || "application/octet-stream" },
-            body: file,
+  type AttemptInfo = { attemptKey: string; fileName: string; fileSizeBytes: number };
+
+  /**
+   * Record failures durably. If the server is unreachable the failure is queued
+   * locally instead, because a network failure is precisely the case that
+   * leaves no server-side trace. Never throws: failing to record a failure must
+   * not also break the upload flow.
+   */
+  async function recordFailedChatAttempts(
+    entries: AttemptInfo[],
+    failureCode: "rejected_unsupported" | "upload_failed"
+  ) {
+    for (let i = 0; i < entries.length; i += ATTEMPT_BATCH_LIMIT) {
+      const slice = entries.slice(i, i + ATTEMPT_BATCH_LIMIT);
+      try {
+        await withUploadTimeout(
+          recordUploadAttempts({
+            projectId,
+            attempts: slice.map((a) => ({
+              attemptKey: a.attemptKey,
+              fileName: a.fileName,
+              fileSizeBytes: a.fileSizeBytes,
+              origin: "chat_upload" as const,
+              failureCode,
+            })),
+          })
+        );
+      } catch (err) {
+        console.error("Failed to record upload attempts", err);
+        // The server considered it and refused: queueing would be poison.
+        if (shouldDropOutboxEntry(err)) continue;
+        const userId = currentUserQ.data?._id;
+        if (!userId) continue;
+        for (const a of slice) {
+          appendOutbox(userId, {
+            userId,
+            projectId,
+            attemptKey: a.attemptKey,
+            fileName: a.fileName,
+            fileSizeBytes: a.fileSizeBytes,
+            origin: "chat_upload",
+            failureCode,
+            at: Date.now(),
           });
-          const json = (await res.json()) as { storageId: Id<"_storage"> };
-          storageId = json.storageId;
-        } catch (e) {
-          console.error("File storage upload failed", e);
         }
+      }
+    }
+  }
 
-        let parsed;
-        try {
-          parsed = await parseFileToText(file);
-        } catch (e) {
-          console.error("Parse failed", e);
-          parsed = { fileName: file.name, fileType: guessFileType(file.name), content: "" };
-        }
+  /** Update one receipt row in place, keyed by its attempt. */
+  function patchReceipt(attemptKey: string, patch: Partial<EphemeralEntry>) {
+    receiptEntries = receiptEntries.map((entry) =>
+      entry.attemptKey === attemptKey ? { ...entry, ...patch } : entry
+    );
+  }
 
-        const documentId = await uploadDocument({
+  /**
+   * Run one file all the way through: store the bytes, extract the text, and
+   * record the document. Returns whether the row ended up on the receipt as a
+   * success, so the caller can decide about the rest of the batch.
+   */
+  async function uploadOne(
+    file: File,
+    attemptKey: string,
+    category: ContextCategoryId
+  ): Promise<boolean> {
+    let storageId: Id<"_storage"> | undefined;
+    try {
+      const url = await withUploadTimeout(generateUploadUrl({}));
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      const json = (await res.json()) as { storageId: Id<"_storage"> };
+      storageId = json.storageId;
+    } catch (e) {
+      // Losing the original bytes still leaves the extracted text worth having.
+      console.error("File storage upload failed", e);
+    }
+
+    let parsed;
+    let extractionFailed = false;
+    try {
+      parsed = await parseFileToText(file);
+    } catch (e) {
+      console.error("Parse failed", e);
+      extractionFailed = true;
+      parsed = { fileName: file.name, fileType: guessFileType(file.name), content: "" };
+    }
+
+    try {
+      const documentId = await withUploadTimeout(
+        uploadDocument({
           projectId,
           reportId,
           fileName: file.name,
@@ -491,22 +568,181 @@
           content: parsed.content,
           source: "chat_upload",
           category,
+          // A validated enum, never the error itself: the server decides
+          // what the failure means, and no provider text can ride along.
+          extractionOutcome: extractionFailed ? "failed" : "ok",
+          // Resolves this file's attempt in the same transaction as the insert.
+          attemptKey,
           ...(storageId ? { storageId } : {}),
           ...(file.type ? { mimeType: file.type } : {}),
-        });
-        attachments = [...attachments, { documentId, fileName: file.name, category }];
+        })
+      );
 
-        if (!parsed.content.trim()) {
-          uploadError = `"${trimName(file.name)}" was added to Files, but no readable text was found for the assistant to use (outlined fonts or a scanned image).`;
-        }
-      }
+      // The server owns the stored status; deriving the same facts here only
+      // decides what this row shows, and uses the very same function.
+      const derived = deriveProcessingStatus({
+        fileName: file.name,
+        content: parsed.content,
+        extractionFailed,
+      });
+      patchReceipt(attemptKey, {
+        status: derived.status,
+        detail: derived.detail,
+        documentId,
+        hasFile: false,
+      });
+      // The bytes are only needed for a retry, and this one succeeded.
+      retryableFiles.delete(attemptKey);
+      attachments = [...attachments, { documentId, fileName: file.name, category }];
+      return true;
     } catch (e) {
       console.error("Upload failed", e);
-      uploadError = "Upload failed. Please try again.";
+      patchReceipt(attemptKey, { status: "upload_failed", hasFile: true });
+      await recordFailedChatAttempts(
+        [{ attemptKey, fileName: file.name, fileSizeBytes: file.size }],
+        "upload_failed"
+      );
+      return false;
+    }
+  }
+
+  async function uploadFiles(files: File[], category: ContextCategoryId) {
+    if (!files || files.length === 0) return;
+    pendingFiles = null;
+    uploading = true;
+
+    const flushUserId = currentUserQ.data?._id;
+    if (flushUserId) {
+      // Opportunistic: anything queued while offline goes out now that we know
+      // the network is being used again.
+      void flushOutboxFor(flushUserId, projectId, (attempts) =>
+        recordUploadAttempts({ projectId, attempts })
+      );
+    }
+
+    const batch = files.map((file) => ({ file, attemptKey: crypto.randomUUID() }));
+
+    // Every file appears immediately as its own row, so the user watches the
+    // batch resolve instead of waiting for one message at the end.
+    receiptEntries = [
+      ...receiptEntries,
+      ...batch.map(({ file, attemptKey }) => ({
+        attemptKey,
+        fileName: file.name,
+        fileSizeBytes: file.size,
+        status: null,
+        hasFile: true,
+      })),
+    ];
+    for (const { file, attemptKey } of batch) {
+      retryableFiles.set(attemptKey, { file, category });
+    }
+
+    try {
+      for (let i = 0; i < batch.length; i += ATTEMPT_BATCH_LIMIT) {
+        await withUploadTimeout(
+          recordUploadAttempts({
+            projectId,
+            attempts: batch.slice(i, i + ATTEMPT_BATCH_LIMIT).map((b) => ({
+              attemptKey: b.attemptKey,
+              fileName: b.file.name,
+              fileSizeBytes: b.file.size,
+              origin: "chat_upload" as const,
+            })),
+          })
+        );
+      }
+    } catch (e) {
+      // A lost begin is safe: the failure path upserts its own row, and
+      // resolving a non-existent attempt is a no-op.
+      console.error("Failed to open upload attempts", e);
+    }
+
+    try {
+      for (const { file, attemptKey } of batch) {
+        const ok = await uploadOne(file, attemptKey, category);
+        if (!ok) {
+          // The batch stops at the first failure, so mark the files that never
+          // got their turn rather than leaving them reading forever.
+          const remaining = batch.slice(batch.findIndex((b) => b.attemptKey === attemptKey) + 1);
+          for (const b of remaining) {
+            patchReceipt(b.attemptKey, { status: "upload_failed", hasFile: true });
+          }
+          if (remaining.length) {
+            await recordFailedChatAttempts(
+              remaining.map((b) => ({
+                attemptKey: b.attemptKey,
+                fileName: b.file.name,
+                fileSizeBytes: b.file.size,
+              })),
+              "upload_failed"
+            );
+          }
+          break;
+        }
+      }
     } finally {
       uploading = false;
       if (fileInputEl) fileInputEl.value = "";
     }
+  }
+
+  async function retryUpload(row: ReceiptRow) {
+    const key = row.attemptKey;
+    if (!key || uploading || receiptBusy.has(row.key)) return;
+    const held = retryableFiles.get(key);
+    if (!held) return;
+
+    receiptBusy.add(row.key);
+    patchReceipt(key, { status: null });
+    try {
+      // Same attemptKey throughout: the server upsert flips the row back to
+      // in-progress, so a retry can never create a second record.
+      await withUploadTimeout(
+        recordUploadAttempts({
+          projectId,
+          attempts: [
+            {
+              attemptKey: key,
+              fileName: held.file.name,
+              fileSizeBytes: held.file.size,
+              origin: "chat_upload" as const,
+            },
+          ],
+        })
+      );
+    } catch (e) {
+      console.error("Failed to reopen upload attempt", e);
+    }
+    try {
+      await uploadOne(held.file, key, held.category);
+    } finally {
+      receiptBusy.delete(row.key);
+    }
+  }
+
+  async function removeReceiptRow(row: ReceiptRow) {
+    const key = row.attemptKey;
+    if (!key) return;
+    retryableFiles.delete(key);
+    receiptEntries = receiptEntries.filter((entry) => entry.attemptKey !== key);
+    try {
+      await withUploadTimeout(dismissUploadAttempt({ projectId, attemptKey: key }));
+    } catch (e) {
+      // The row is already gone from view; the durable row ages out on its own.
+      console.error("Could not dismiss upload attempt", e);
+    }
+  }
+
+  /** Clears rows that have finished, keeping anything still in flight. */
+  function dismissReceipt() {
+    const settledKeys = new Set(
+      receiptEntries
+        .filter((entry) => entry.status !== null)
+        .map((entry) => entry.attemptKey)
+    );
+    for (const key of settledKeys) retryableFiles.delete(key);
+    receiptEntries = receiptEntries.filter((entry) => entry.status === null);
   }
 
   const highlightLineCount = $derived(
@@ -520,8 +756,26 @@
   const lastMessage = $derived(
     messages.length ? messages[messages.length - 1] : undefined
   );
+  /**
+   * The turn row for a reply that has no assistant message yet. It carries the
+   * queued/working state during the scheduler gap — and, crucially, the
+   * terminal state when a turn is stopped or fails *before* producing a
+   * message, which is the only record that the turn is over.
+   */
+  const pendingTiming = $derived(
+    lastMessage?.role === "user" ? timingByOrder.get(lastMessage.order) : undefined
+  );
+
+  /** A trailing prompt whose turn already ended without ever replying. */
+  const pendingTurnEnded = $derived(
+    pendingTiming !== undefined &&
+      pendingTiming.status !== "queued" &&
+      pendingTiming.status !== "running"
+  );
+
   const awaitingReply = $derived(
     !!lastMessage &&
+      !pendingTurnEnded &&
       (lastMessage.role === "user" ||
         (lastMessage.role === "assistant" &&
           lastMessage.status === "streaming" &&
@@ -531,6 +785,7 @@
   // A reply is in flight (queued or token-streaming) — send becomes Stop.
   const isStreaming = $derived(
     !!lastMessage &&
+      !pendingTurnEnded &&
       (awaitingReply ||
         (lastMessage.role === "assistant" &&
           (lastMessage.status === "streaming" ||
@@ -582,47 +837,6 @@
   }
 </script>
 
-{#snippet proposalView(p: Proposal)}
-  {#if p.kind === "references"}
-    {@const refs = p.references ?? []}
-    {#if refs.length && onReferenceText}
-      <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
-        <span class="inline-flex items-center gap-1 text-xs text-gray-400">
-          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-          </svg>
-          {refs.length === 1 ? "Jump to:" : `Jump to (${refs.length}):`}
-        </span>
-        {#each refs as ref, i (i)}
-          <button
-            onclick={() => onReferenceText?.([ref], ref)}
-            title={ref.length > 90 ? `${ref.slice(0, 90)}…` : ref}
-            class="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-md border border-gray-200 px-2 text-xs font-semibold text-navy transition-colors hover:border-primary/50 hover:bg-primary/5"
-          >
-            {i + 1}
-          </button>
-        {/each}
-      </div>
-    {/if}
-  {:else}
-    <ProposalCard
-      proposal={p}
-      {onBeforeApply}
-      {onReferenceText}
-      {onReviewReplacements}
-      {onPreviewProposal}
-      onRefine={(proposal) => {
-        refiningProposal = proposal;
-        input = "";
-        retryText = null;
-        textareaEl?.focus();
-        chatContainer?.scrollToBottom("smooth");
-      }}
-      reviewing={reviewingId === p._id}
-    />
-  {/if}
-{/snippet}
-
 {#snippet composer()}
   {#if sendError}
     <div class="mb-2 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" role="alert">
@@ -656,18 +870,24 @@
     </div>
   {/if}
 
-  {#if uploadError}
-    <div class="mb-2 flex items-start justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-600">
-      <span>{uploadError}</span>
-      <button
-        aria-label="Dismiss"
-        onclick={() => (uploadError = null)}
-        class="mt-0.5 flex-shrink-0 text-red-400 hover:text-red-600"
-      >
-        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
+  {#if receiptRows.length > 0}
+    <!-- One row per file, replacing the single overwriting error message: in a
+         mixed batch that message could only ever describe one file. -->
+    <div class="mb-2 rounded-xl border border-line bg-chrome/50 px-3 py-2">
+      <UploadReceipt
+        rows={receiptRows}
+        heading="Uploads"
+        busy={receiptBusy}
+        onRetry={retryUpload}
+        onRemove={removeReceiptRow}
+      />
+      {#if receiptSettled}
+        <div class="mt-2 flex justify-end">
+          <Button variant="ghost" size="sm" class="min-h-11" onclick={dismissReceipt}>
+            Dismiss
+          </Button>
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -763,9 +983,25 @@
             const ok = all.filter((f) => isSupportedFile(f.name));
             const bad = all.filter((f) => !isSupportedFile(f.name));
             if (bad.length) {
-              uploadError = `Unsupported file type: ${bad
-                .map((f) => f.name)
-                .join(", ")}. Supported: ${SUPPORTED_LABEL}.`;
+              const rejected = bad.map((f) => ({
+                attemptKey: crypto.randomUUID(),
+                fileName: f.name,
+                fileSizeBytes: f.size,
+              }));
+              // Each rejected file gets its own receipt row saying why, instead
+              // of one message listing them all.
+              receiptEntries = [
+                ...receiptEntries,
+                ...rejected.map((r) => ({
+                  ...r,
+                  status: "skipped_unsupported" as const,
+                  detail: "unsupported_extension" as const,
+                  hasFile: false,
+                })),
+              ];
+              // These never reach the server, so without a recorded attempt the
+              // rejection would vanish on reload with nothing to show for it.
+              void recordFailedChatAttempts(rejected, "rejected_unsupported");
             }
             if (ok.length) pendingFiles = ok;
           }
@@ -1026,55 +1262,33 @@
             </MessageContent>
           </Message>
         {:else if m.role === "assistant"}
-          {@const own = grouped.byMessage.get(m.id) ?? []}
-          <Message role="assistant" class="group">
-            {#if text}
-              <MessageContent
-                markdown
-                {text}
-                class={m.status === "failed" ? "text-red-500" : undefined}
-              />
-            {/if}
-            {#each own as p (p._id)}
-              {@render proposalView(p)}
-            {/each}
-            {#if text && m.status !== "streaming" && m.status !== "pending"}
-              <MessageActions>
-                <Tooltip text={copiedId === m.id ? "Copied!" : "Copy message"} side="bottom" delayDuration={300}>
-                  {#snippet children({ props })}
-                <button
-                  {...props}
-                  type="button"
-                  onclick={() => copyMessage(m.id, text)}
-                  aria-label={copiedId === m.id ? "Copied" : "Copy message"}
-                  class="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
-                >
-                  {#if copiedId === m.id}
-                    <svg class="h-3.5 w-3.5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  {:else}
-                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                      <rect x="9" y="9" width="13" height="13" rx="2" />
-                      <path stroke-linecap="round" d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                    </svg>
-                  {/if}
-                </button>
-                {/snippet}
-                </Tooltip>
-              </MessageActions>
-            {/if}
-          </Message>
+          <AssistantTurn
+            message={m}
+            proposals={grouped.byMessageId.get(m.id) ?? []}
+            timing={timingByOrder.get(m.order)}
+            copied={copiedId === m.id}
+            onCopy={copyMessage}
+            onRefine={refineProposal}
+            {onBeforeApply}
+            {onReferenceText}
+            {onReviewReplacements}
+            {onPreviewProposal}
+            {reviewingId}
+          />
         {/if}
       {/each}
 
       <!-- Proposals we couldn't pin to a specific message -->
       {#if grouped.orphans.length > 0}
-        <Message role="assistant">
-          {#each grouped.orphans as p (p._id)}
-            {@render proposalView(p)}
-          {/each}
-        </Message>
+        <AssistantTurn
+          proposals={grouped.orphans}
+          onRefine={refineProposal}
+          {onBeforeApply}
+          {onReferenceText}
+          {onReviewReplacements}
+          {onPreviewProposal}
+          {reviewingId}
+        />
       {/if}
 
       <ResearchFeed
@@ -1082,15 +1296,14 @@
         {onReferenceText}
         {onPreviewProposal}
         {onBeforeApply}
-        onRefineProposal={(proposal) => {
-          refiningProposal = proposal;
-          input = "";
-          textareaEl?.focus();
-          chatContainer?.scrollToBottom("smooth");
-        }}
+        onRefineProposal={refineProposal}
       />
 
-      {#if awaitingReply}
+      {#if pendingTiming}
+        <!-- Covers the scheduler gap and, when a turn is stopped or fails
+             before replying, the only record that it ended. -->
+        <AssistantTurn timing={pendingTiming} onRefine={refineProposal} />
+      {:else if awaitingReply}
         <Loader class="py-1" />
       {/if}
 

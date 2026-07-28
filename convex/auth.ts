@@ -10,6 +10,7 @@ import { ConvexError } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import authConfig from "./auth.config";
+import { normalizeEmail } from "./lib/email";
 
 const authFunctions: AuthFunctions = internal.auth;
 
@@ -34,7 +35,7 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
       // projects.createdBy, generations.requestedBy, writerProfiles, …) when
       // those accounts re-sign-up under Better Auth.
       onCreate: async (ctx, authUser) => {
-        const email = authUser.email?.toLowerCase();
+        const email = normalizeEmail(authUser.email);
         const now = Date.now();
         // Invite-only (Layer B, transactional backstop to the hooks.before
         // gate): a fresh signup must carry a pending unexpired invite for
@@ -43,8 +44,10 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
         const invites = email
           ? await ctx.db
               .query("invites")
-              .withIndex("by_email", (q) => q.eq("email", email))
-              .collect()
+              .withIndex("by_email_and_status", (q) =>
+                q.eq("email", email).eq("status", "pending"),
+              )
+              .take(10)
           : [];
         const invite =
           invites.find((i) => i.status === "pending" && i.expiresAt > now) ??
@@ -77,7 +80,7 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
         } else {
           userId = await ctx.db.insert("users", {
             authId: authUser._id,
-            email: authUser.email,
+            email: email ?? undefined,
             firstName: invite!.firstName,
             lastName: invite!.lastName,
             name: authUser.name ?? undefined,
@@ -122,11 +125,26 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
       // (Layer B) — but only this layer can check the TOKEN, so an attacker
       // who merely knows an invited email still can't take the seat.
       before: createAuthMiddleware(async (hookCtx) => {
-        if (hookCtx.path !== "/sign-up/email") return;
+        if (
+          hookCtx.path !== "/sign-up/email" &&
+          hookCtx.path !== "/sign-in/email"
+        ) {
+          return;
+        }
         const body = (hookCtx.body ?? {}) as Record<string, unknown>;
-        const email = String(body.email ?? "")
-          .trim()
-          .toLowerCase();
+        const email = normalizeEmail(String(body.email ?? ""));
+        if (!email) {
+          throw new APIError("BAD_REQUEST", {
+            message: "A valid email address is required.",
+          });
+        }
+        // Return a replacement context instead of relying on middleware body
+        // mutation. Better Auth then validates and processes the canonical
+        // address even when a caller bypasses our UI.
+        const normalizedContext = {
+          context: { body: { ...body, email } },
+        };
+        if (hookCtx.path === "/sign-in/email") return normalizedContext;
         const inviteToken = String(body.inviteToken ?? "");
         // Legacy relink escape hatch: pre-migration accounts (users doc
         // without authId) may re-sign-up without a token. Checked in the
@@ -144,6 +162,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
             message: "Signups are invite-only. Ask an admin for an invite.",
           });
         }
+        return normalizedContext;
       }),
     },
     plugins: [convex({ authConfig })],

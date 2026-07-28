@@ -8,6 +8,7 @@
  * to OpenRouter chat-completions and the response back to Anthropic-shaped
  * content blocks, so the agents run unchanged on either gateway.
  */
+import { maxTokensWithReasoningHeadroom } from "../../shared/generationModels";
 
 export type GenerationContentBlock =
   | { type: "text"; text: string }
@@ -60,7 +61,11 @@ export function toChatCompletions(
 ): ChatCompletionsBody {
   const body: ChatCompletionsBody = {
     model: params.model,
-    max_tokens: params.max_tokens,
+    // Agents budget max_tokens for the answer alone (the Anthropic-correct
+    // number). On OpenRouter, a reasoning model's thinking tokens come out of
+    // the same budget, so scale it here rather than inflating every agent's
+    // maxTokens for one gateway.
+    max_tokens: maxTokensWithReasoningHeadroom(params.model, params.max_tokens),
     messages: [
       ...(params.system
         ? [{ role: "system" as const, content: params.system }]
