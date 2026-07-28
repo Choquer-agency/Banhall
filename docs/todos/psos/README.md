@@ -5,10 +5,10 @@ This directory is the internal source of truth for executing the **Banhall Profe
 - **Master product/ticket context:** [`../../futur-board-ticket-breakdown-psos.md`](../../futur-board-ticket-breakdown-psos.md)
 - **Task specifications:** [`tasks/`](tasks/)
 - **Total work items:** 36
-- **Current work item:** None — PSOS-26 is in release review.
-- **Release-QA items:** **PSOS-04** mixed-upload receipts; **PSOS-26** role capability foundation (`in_review`)
-- **Next dependency-unlocked work item:** **PSOS-08** — ownership/stage backfill after PSOS-26 releases
-- **Queue state:** PSOS-07 is complete and production-deployed. PSOS-26 implementation, full validation, and final Claude Code/Fable review are complete with verdict SHIP; no call sites or visibility behavior migrate until PSOS-27.
+- **Current work item:** None — PSOS-07 and PSOS-26 are complete.
+- **Release-QA item:** **PSOS-04** — mixed-upload processing receipt with per-file statuses (`in_review`)
+- **Next dependency-unlocked work item:** **PSOS-08** — ownership/stage backfill
+- **Queue state:** PSOS-07 and PSOS-26 are committed, backend-first production-deployed, and reviewed with final Claude Code/Fable verdicts SHIP. Capability call sites and visibility behavior remain unchanged until PSOS-27. Historical email-based consultant labels now resolve current account names in real time on internal project and QA-review surfaces.
 
 ## Operating rules
 
@@ -138,7 +138,7 @@ The first delivery train should proceed as follows:
 
 | ID | Work item | Status | Dependencies |
 |---|---|---|---|
-| [PSOS-26](tasks/PSOS-26.md) | roleCapabilities module: presets + server helpers | `in_review` | PSOS-01 |
+| [PSOS-26](tasks/PSOS-26.md) | roleCapabilities module: presets + server helpers | `done` | PSOS-01 |
 | [PSOS-27](tasks/PSOS-27.md) | Authorization audit & migration of all Convex functions + matrix tests | `not_started` | PSOS-26 |
 | [PSOS-28](tasks/PSOS-28.md) | Financial role + role-aware landing/navigation | `not_started` | PSOS-26, PSOS-27 |
 | [PSOS-29](tasks/PSOS-29.md) | Role/capability matrix UI | `not_started` | PSOS-01, PSOS-26, PSOS-28 |
@@ -188,4 +188,5 @@ None. Add an entry before starting more than one PSOS ticket simultaneously:
 | 2026-07-28 | PSOS-05 moved to release review after implementation, two Fable reviews, full validation, and Convex development deployment. | Per-model recovery preserves ready candidates, retries only failed models in a linked generation, sanitizes product error copy, and passes 371 unit/integration plus 38 browser-component tests. |
 | 2026-07-28 | PSOS-05 signed-in live recovery QA passed in installed Google Chrome. | Genuine partial generation `k579qgcv1e69acsrpaxam2cmgs8b9cqa` retried only failed Sonnet 5 in linked generation `k574pkzy3favphj2vqat820a7x8bcqwd`; retained Opus 4.8, finished 2/0, restored both selectable drafts, and exposed no provider error. |
 | 2026-07-28 | PSOS-05 committed in `d03bea2`, pushed to `main`, deployed through Vercel, and closed after production smoke. | `https://banhall.vercel.app` accepted administrator login and rendered the recovered project with both drafts, the “Ready for your review” chip, no provider-error leak, and no undefined resources. PSOS-05 marked `done`; PSOS-06 became the next implementation ticket. |
-| 2026-07-28 | PSOS-06 approved, verified, reviewed, committed in `4477203`, and released backend-first. | Research remains scoped to the generated comparison report with the uploaded PD as private evidence; six regressions and a manual matrix were added. Production Chrome smoke confirmed revisitable research history and sanitized PD-review failures. PSOS-06 marked `done`; PSOS-07 is next. |
+| 2026-07-28 | PSOS-06 approved, verified, reviewed, committed in `4477203`, and released backend-first. | Research remains scoped to the generated comparison report with the uploaded PD as private evidence; six regressions and a manual matrix were added. Production Chrome smoke confirmed revisitable research history and sanitized PD-review failures. PSOS-06 marked `done`; PSOS-07 became next. |
+| 2026-07-28 | PSOS-07 released in `e9abff3`; PSOS-26 released in `48e8485` plus live-name compatibility `9e3d869`. | Ownership/workflow schema is safely widened with no writers; centralized role presets are ready for PSOS-27; production Chrome proved a legacy `demo@banhall.ca` project displays **Demo Writer** in real time without rewriting storage. |

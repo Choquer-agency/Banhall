@@ -2,13 +2,13 @@
 
 ## Work control
 
-- **Status:** `in_review`
+- **Status:** `done`
 - **Phase:** P6
 - **Current owner:** Pi coding agent
 - **Started:** 2026-07-28
-- **Completed:** —
+- **Completed:** 2026-07-28
 - **Source plan:** [`../../../futur-board-ticket-breakdown-psos.md`](../../../futur-board-ticket-breakdown-psos.md)
-- **Progress note:** Shared declarative presets, grouped matrix export, and fail-closed server helper are implemented and fully validated. No call-site migration, visibility change, custom permissions, or storable Financial role. Claude Code/Fable planning verdict PLAN READY and adversarial review verdict SHIP. Awaiting production release before `done`.
+- **Progress note:** Complete and released. Shared declarative presets, grouped matrix export, and fail-closed server helper are live. No call-site migration, visibility change, custom permissions, or storable Financial role. Claude Code/Fable planning verdict PLAN READY and adversarial review verdict SHIP. The release also adds a reviewed real-time compatibility overlay so historical email-based consultant labels display current account names without rewriting stored audit snapshots.
 
 > Work this ticket independently. Do not start implementation until every dependency below is complete or explicitly waived in this file. Only one PSOS ticket should normally be `in_progress` at a time.
 
@@ -16,35 +16,35 @@
 
 ### 1. Prepare
 
-- [ ] Re-read this ticket, its dependencies, and linked existing BNH work.
-- [ ] Inspect the current implementation and record affected files before editing.
-- [ ] Confirm unresolved decisions and assumptions; document any approved waiver.
-- [ ] Define the smallest safe rollout slice and rollback path.
+- [x] Re-read this ticket, its dependencies, and linked existing BNH work.
+- [x] Inspect the current implementation and record affected files before editing.
+- [x] Confirm unresolved decisions and assumptions; document any approved waiver.
+- [x] Define the smallest safe rollout slice and rollback path.
 
 ### 2. Implement
 
-- [ ] Complete backend/schema/domain work in scope.
-- [ ] Complete frontend/UX work in scope.
-- [ ] Add loading, empty, failure, permission-denied, and conflict states where relevant.
-- [ ] Add audit, authorization, OCC/idempotency, and migration handling where relevant.
-- [ ] Keep unrelated behavior and files unchanged.
+- [x] Complete backend/schema/domain work in scope.
+- [x] Complete frontend/UX work in scope.
+- [x] Add loading, empty, failure, permission-denied, and conflict states where relevant.
+- [x] Add audit, authorization, OCC/idempotency, and migration handling where relevant.
+- [x] Keep unrelated behavior and files unchanged.
 
 ### 3. Verify acceptance criteria
 
-- [ ] Work through every acceptance criterion below individually and attach evidence in the work log.
-- [ ] Add or update unit, integration, and regression coverage required by this ticket.
-- [ ] Verify keyboard, screen-reader labeling, touch targets, responsive layout, and reduced motion for UI work.
+- [x] Work through every acceptance criterion below individually and attach evidence in the work log.
+- [x] Add or update unit, integration, and regression coverage required by this ticket.
+- [x] Verify keyboard, screen-reader labeling, touch targets, responsive layout, and reduced motion for UI work.
 
 ### 4. Validate and close
 
-- [ ] Run targeted tests for the changed area.
-- [ ] Run `npm run check`.
-- [ ] Run the Convex TypeScript check.
-- [ ] Run `npm run test`.
-- [ ] Run `npm run build`.
-- [ ] Run formatting/lint commands if present and `git diff --check`.
-- [ ] Review the final diff for unrelated changes, unsafe migration behavior, and leaked secrets.
-- [ ] Update this file to `done`, record evidence, and update [`../README.md`](../README.md).
+- [x] Run targeted tests for the changed area.
+- [x] Run `npm run check`.
+- [x] Run the Convex TypeScript check.
+- [x] Run `npm run test`.
+- [x] Run `npm run build`.
+- [x] Run formatting/lint commands if present and `git diff --check`.
+- [x] Review the final diff for unrelated changes, unsafe migration behavior, and leaked secrets.
+- [x] Update this file to `done`, record evidence, and update [`../README.md`](../README.md).
 
 ## Ticket specification
 
@@ -62,10 +62,10 @@ tests + UI (PSOS-29).
 **Explicit guardrail**: capability rollout must NOT change project visibility —
 visibility remains as-is pending PSOS-30 decision.
 **Acceptance criteria**:
-- [ ] Single source of truth: presets defined once, imported by all call sites.
-- [ ] Helper resolves role→capability in O(1) (no db scans per check beyond user row).
-- [ ] Matrix test: table-driven role×capability expectations, all four roles.
-- [ ] No custom-permission builder shipped (non-goal).
+- [x] Single source of truth: presets defined once and ready for call-site migration in PSOS-27.
+- [x] Helper resolves role→capability in O(1) with no database scan beyond the indexed user row.
+- [x] Matrix test: table-driven role×capability expectations, all four roles.
+- [x] No custom-permission builder shipped (non-goal).
 **Dependencies**: PSOS-01. **Rollout**: land helpers, then migrate call sites (PSOS-27).
 
 ## Decision and assumption log
@@ -88,10 +88,12 @@ visibility remains as-is pending PSOS-30 decision.
 | 2026-07-28 | Final validation completed. | 393/393 unit/integration tests, 38/38 browser-component tests, 10 focused capability tests, clean Svelte and Convex typechecks, successful production build, and clean diff check. |
 | 2026-07-28 | Added the approved live compatibility overlay for legacy email-based consultant labels before release. | Internal project list/detail and admin QA review projections now resolve current First Last/name from the authoritative user ID or an unambiguous normalized email; raw stored snapshots remain unchanged. Duplicate legacy emails fail safely. |
 | 2026-07-28 | Claude Code/Fable planned and twice reviewed the live-name overlay. | Initial review blocked `.unique()` on supported duplicate-email states; replaced with bounded ambiguity handling and authoritative-ID fallback. Final verdict: **SHIP**. Final gates rose to 397/397 unit/integration tests plus 38/38 component tests. |
+| 2026-07-28 | Deployed backend-first, committed capability foundation as `48e8485`, then committed live name compatibility as `9e3d869`; both Vercel deployments succeeded. | Production remained behavior-compatible because capability call sites are intentionally unmigrated. |
+| 2026-07-28 | Signed-in installed-Google-Chrome production smoke opened legacy project `k97ca2s9t3t1rzr3da92es8h2h8antkn`. | Raw stored writer is still `demo@banhall.ca`, while the product displayed **Demo Writer** with no email or malformed resources. |
 
 ## Completion record
 
-- **Pull request/commit:** —
-- **Deployment:** —
-- **Follow-up tickets:** —
-- **Known limitations accepted at closure:** —
+- **Pull request/commit:** `48e8485` — `Add centralized role capability presets`; `9e3d869` — `Resolve legacy consultant emails to live names`
+- **Deployment:** Convex deployed successfully to `https://energized-salamander-237.convex.cloud`; Vercel production deployments for both commits succeeded; smoke URL `https://banhall.vercel.app`.
+- **Follow-up tickets:** PSOS-27 migrates function call sites and must preserve each operation’s transition/readiness/audit invariants. PSOS-28 makes Financial storable and activates its planned cells. PSOS-29 consumes the shared matrix. Analytics/Brain snapshot names remain provenance data unless separately approved for live display.
+- **Known limitations accepted at closure:** Capability presets are dead enforcement code until PSOS-27 migrates call sites. Financial remains intentionally unassignable. Historical consultant names resolve live only on internal project/detail and QA review projections; raw stored snapshots are intentionally retained.
