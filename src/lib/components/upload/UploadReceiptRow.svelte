@@ -1,6 +1,6 @@
 <script lang="ts">
   import { SUPPORTED_ACCEPT } from "../../../../shared/documentStatus";
-  import { PROCESSING_STATUS_COPY, statusAction } from "$lib/uploads/processingStatus";
+  import { statusAction, statusExplanation } from "$lib/uploads/processingStatus";
   import type { ReceiptRow } from "$lib/uploads/receiptRows";
   import ProcessingStatusBadge from "./ProcessingStatusBadge.svelte";
   import Button from "../ui/Button.svelte";
@@ -31,7 +31,7 @@
   // An archived file is already excluded from AI, and a file still being read
   // has nothing to explain yet. A ready file needs no advice.
   const quiet = $derived(row.archived === true || row.status === null || row.status === "ready");
-  const explanation = $derived(quiet ? null : PROCESSING_STATUS_COPY[row.status!].explanation);
+  const explanation = $derived(quiet ? null : statusExplanation(row.status));
   const action = $derived(
     quiet
       ? null

@@ -55,23 +55,37 @@ export async function generateStructured<T>(
   }
 ): Promise<T> {
   const client = rawClient as GenerationClient;
-  const res = await client.messages.create({
-    model: opts.model ?? MODEL,
-    max_tokens: opts.maxTokens ?? 8192,
-    system: opts.system,
-    tools: [
-      {
-        name: opts.toolName,
-        description: opts.description,
-        input_schema: opts.schema ?? { type: "object" },
-      },
-    ],
-    tool_choice: { type: "tool", name: opts.toolName },
-    messages: [{ role: "user", content: opts.user }],
-  });
+  let validationSummary = "";
 
-  for (const block of res.content) {
-    if (block.type !== "tool_use") continue;
+  // A forced tool call can still omit required JSON fields. Retry once with
+  // the concrete validation feedback; accepting a partial object would let a
+  // malformed analysis fail much later after more paid generation work.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const user =
+      attempt === 0
+        ? opts.user
+        : `${opts.user}\n\nYour previous tool output was invalid: ${validationSummary}. Return the complete tool object and include every required field.`;
+    const res = await client.messages.create({
+      model: opts.model ?? MODEL,
+      max_tokens: opts.maxTokens ?? 8192,
+      system: opts.system,
+      tools: [
+        {
+          name: opts.toolName,
+          description: opts.description,
+          input_schema: opts.schema ?? { type: "object" },
+        },
+      ],
+      tool_choice: { type: "tool", name: opts.toolName },
+      messages: [{ role: "user", content: user }],
+    });
+
+    const block = res.content.find((item) => item.type === "tool_use");
+    if (!block || block.type !== "tool_use") {
+      validationSummary = "the required tool was not called";
+      if (attempt === 0) continue;
+      throw new Error(`${opts.toolName}: model did not return structured output`);
+    }
     if (!opts.validate) return block.input as T;
 
     // Validate the value as returned FIRST: a tool whose output is legitimately
@@ -87,19 +101,19 @@ export async function generateStructured<T>(
         : opts.validate.safeParse(unwrapped);
     if (parsed.success) return parsed.data;
 
-    // Log the shape mismatch before throwing: the thrown message is truncated
-    // for storage, and the issue list is what actually identifies the field.
+    validationSummary = parsed.error.issues
+      .slice(0, 3)
+      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      .join("; ");
     console.error(
       `${opts.toolName}: tool output failed validation`,
       JSON.stringify(parsed.error.issues.slice(0, 10))
     );
-    const summary = parsed.error.issues
-      .slice(0, 3)
-      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
-      .join("; ");
+    if (attempt === 0) continue;
     throw new Error(
-      `${opts.toolName}: model returned an unexpected shape — ${summary}`
+      `${opts.toolName}: model returned an unexpected shape — ${validationSummary}`
     );
   }
+
   throw new Error(`${opts.toolName}: model did not return structured output`);
 }

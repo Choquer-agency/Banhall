@@ -4,7 +4,11 @@ import {
   PROCESSING_STATUSES,
   type ReceiptStatus,
 } from "../../../../shared/documentStatus";
-import { PROCESSING_STATUS_COPY, LOADING_COPY } from "$lib/uploads/processingStatus";
+import {
+  PROCESSING_STATUS_COPY,
+  LOADING_COPY,
+  UNKNOWN_STATUS_COPY,
+} from "$lib/uploads/processingStatus";
 import ProcessingStatusBadge from "./ProcessingStatusBadge.svelte";
 
 const ALL_STATUSES: ReceiptStatus[] = [...PROCESSING_STATUSES, "upload_failed"];
@@ -35,6 +39,12 @@ describe("ProcessingStatusBadge", () => {
     const { container } = await render(ProcessingStatusBadge, { status: null });
     expect(container.querySelector('[role="status"]')).not.toBeNull();
     expect(container.textContent).toContain(LOADING_COPY.label);
+  });
+
+  it("renders deploy-skew payloads as a neutral readable status", async () => {
+    const { container } = await render(ProcessingStatusBadge, { status: undefined });
+    expect(container.textContent).toContain(UNKNOWN_STATUS_COPY.label);
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 
   it("stops the spinner animating under reduced motion", async () => {

@@ -4,7 +4,12 @@ import type {
   ProcessingStatus,
   ReceiptStatus,
 } from "../../../shared/documentStatus";
-import { SUMMARY_CLAUSE, SUMMARY_LOADING_CLAUSE } from "./processingStatus";
+import { isReceiptStatus } from "../../../shared/documentStatus";
+import {
+  SUMMARY_CLAUSE,
+  SUMMARY_LOADING_CLAUSE,
+  SUMMARY_UNKNOWN_CLAUSE,
+} from "./processingStatus";
 
 /**
  * PSOS-04: the pure seam between the two server queries (plus the chat panel's
@@ -201,7 +206,12 @@ export function summarizeReceipt(rows: ReceiptRow[]): string {
   if (counted.length === 0) return "";
 
   const counts = new Map<ReceiptStatus | null, number>();
+  let unknownCount = 0;
   for (const row of counted) {
+    if (row.status !== null && !isReceiptStatus(row.status)) {
+      unknownCount += 1;
+      continue;
+    }
     counts.set(row.status, (counts.get(row.status) ?? 0) + 1);
   }
 
@@ -209,6 +219,7 @@ export function summarizeReceipt(rows: ReceiptRow[]): string {
     const noun = status === null ? SUMMARY_LOADING_CLAUSE : SUMMARY_CLAUSE[status];
     return `${counts.get(status)} ${noun}`;
   });
+  if (unknownCount > 0) clauses.push(`${unknownCount} ${SUMMARY_UNKNOWN_CLAUSE}`);
 
   return `${counted.length} ${counted.length === 1 ? "file" : "files"}: ${clauses.join(", ")}`;
 }

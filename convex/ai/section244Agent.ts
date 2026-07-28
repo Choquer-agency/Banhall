@@ -1,7 +1,8 @@
 "use node";
 
-import type { GenerationClient } from "./openrouterCore";
+import { requireTextResponse, type GenerationClient } from "./openrouterCore";
 import { MODEL } from "./model";
+import { sectionAnswerTokenBudget } from "../../shared/generationModels";
 import { SECTION_244_SYSTEM_PROMPT } from "./prompts";
 import type { TranscriptAnalysis } from "./analyzerAgent";
 
@@ -15,7 +16,8 @@ export async function runSection244Agent(
 ): Promise<string> {
   const response = await client.messages.create({
     model,
-    max_tokens: 4096,
+    max_tokens: sectionAnswerTokenBudget(model),
+    thinking: { type: "disabled" },
     system: SECTION_244_SYSTEM_PROMPT,
     messages: [
       {
@@ -25,12 +27,5 @@ export async function runSection244Agent(
     ],
   });
 
-  const text =
-    response.content[0].type === "text" ? response.content[0].text : "";
-
-  if (!text.trim()) {
-    throw new Error("Section 244 agent returned empty response");
-  }
-
-  return text.trim();
+  return requireTextResponse(response, "Section 244 agent");
 }

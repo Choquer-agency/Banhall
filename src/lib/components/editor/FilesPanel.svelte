@@ -87,9 +87,9 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   } from "$lib/uploads/receiptRows";
   import {
     DENIED_COPY,
-    PROCESSING_STATUS_COPY,
     REPLACE_UNCHANGED_COPY,
     statusAction,
+    statusExplanation,
   } from "$lib/uploads/processingStatus";
 
   let {
@@ -165,7 +165,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
    */
   function documentStatusCopy(doc: DocRow): string | null {
     if (doc.archived || doc.processingStatus === "ready") return null;
-    const explanation = PROCESSING_STATUS_COPY[doc.processingStatus].explanation;
+    const explanation = statusExplanation(doc.processingStatus);
     const action = statusAction(doc.processingStatus, {
       canRetry: false,
       canReplace: docCanReplace.get(doc._id) ?? false,

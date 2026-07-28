@@ -16,6 +16,8 @@ export type GenerationContentBlock =
 
 export interface GenerationResponse {
   content: GenerationContentBlock[];
+  /** Anthropic/OpenRouter completion reason, when the gateway provides one. */
+  stop_reason?: string | null;
 }
 
 /** JSON Schema for a tool input (matches Anthropic.Tool.InputSchema). */
@@ -32,6 +34,8 @@ export interface GenerationMessageParams {
     input_schema: ToolInputSchema;
   }>;
   tool_choice?: { type: "tool"; name: string };
+  /** Direct Anthropic control; OpenRouter conversion intentionally ignores it. */
+  thinking?: { type: "disabled" };
 }
 
 export interface GenerationClient {
@@ -154,7 +158,27 @@ export function fromChatCompletions(
   if (content.length === 0) {
     throw new Error("OpenRouter returned an empty completion");
   }
-  return { content };
+  return { content, stop_reason: choice.finish_reason ?? null };
+}
+
+/**
+ * Read the first text block even when a reasoning/tool block comes first.
+ * The stop reason makes the next provider failure actionable instead of an
+ * undiagnosable "empty response".
+ */
+export function requireTextResponse(
+  response: GenerationResponse,
+  label: string
+): string {
+  const text = response.content.find(
+    (block): block is Extract<GenerationContentBlock, { type: "text" }> =>
+      block.type === "text"
+  )?.text;
+  if (!text?.trim()) {
+    const reason = response.stop_reason ? ` (stop reason: ${response.stop_reason})` : "";
+    throw new Error(`${label} returned an empty response${reason}`);
+  }
+  return text.trim();
 }
 
 /**

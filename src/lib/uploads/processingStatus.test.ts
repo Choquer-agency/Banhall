@@ -11,7 +11,10 @@ import {
   REPLACE_UNCHANGED_COPY,
   SUMMARY_CLAUSE,
   SUMMARY_LOADING_CLAUSE,
+  SUMMARY_UNKNOWN_CLAUSE,
+  UNKNOWN_STATUS_COPY,
   statusAction,
+  statusExplanation,
   statusLabel,
 } from "./processingStatus";
 
@@ -52,6 +55,9 @@ describe("copy map", () => {
       ...ALL_STATUSES.map((status) => SUMMARY_CLAUSE[status]),
       SUMMARY_LOADING_CLAUSE,
       REPLACE_UNCHANGED_COPY,
+      UNKNOWN_STATUS_COPY.label,
+      UNKNOWN_STATUS_COPY.explanation,
+      SUMMARY_UNKNOWN_CLAUSE,
     ];
     for (const text of strings) {
       expect(text, text).not.toMatch(banned);
@@ -132,5 +138,12 @@ describe("statusLabel", () => {
     for (const status of ALL_STATUSES) {
       expect(statusLabel(status), status).toBe(PROCESSING_STATUS_COPY[status].label);
     }
+  });
+
+  it("falls back safely for a missing or unknown status", () => {
+    expect(statusLabel(undefined)).toBe(UNKNOWN_STATUS_COPY.label);
+    expect(statusLabel("future_status")).toBe(UNKNOWN_STATUS_COPY.label);
+    expect(statusExplanation(undefined)).toBe(UNKNOWN_STATUS_COPY.explanation);
+    expect(statusAction(undefined, { canRetry: false, canReplace: false })).toBeNull();
   });
 });

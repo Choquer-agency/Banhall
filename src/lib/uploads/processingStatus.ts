@@ -1,5 +1,6 @@
 import {
   SUPPORTED_LABEL,
+  isReceiptStatus,
   type ReceiptStatus,
 } from "../../../shared/documentStatus";
 
@@ -87,6 +88,13 @@ export const LOADING_COPY = {
   label: "Reading…",
 } as const;
 
+/** Safe copy for an older or malformed server payload during deploy skew. */
+export const UNKNOWN_STATUS_COPY = {
+  label: "Status unavailable",
+  explanation:
+    "We couldn't determine what happened to this file. Preview it to confirm its contents, or upload it again.",
+} as const;
+
 /**
  * The noun each status contributes to the one-line batch summary
  * ("6 files: 4 ready, 1 reference only, 1 failed"). Adjectival, so counts read
@@ -108,6 +116,7 @@ export const SUMMARY_CLAUSE: Record<ReceiptStatus, string> = {
 
 /** Summary clause for rows still being read. */
 export const SUMMARY_LOADING_CLAUSE = "still reading";
+export const SUMMARY_UNKNOWN_CLAUSE = "status unavailable";
 
 /** Shown when a replacement dedupes into the row it was meant to replace. */
 export const REPLACE_UNCHANGED_COPY =
@@ -123,14 +132,24 @@ export const DENIED_COPY = {
   explanation: "You don't have permission to view this project's files.",
 } as const;
 
-export function statusLabel(status: ReceiptStatus | null): string {
-  return status === null ? LOADING_COPY.label : PROCESSING_STATUS_COPY[status].label;
+export function statusLabel(status: unknown): string {
+  if (status === null) return LOADING_COPY.label;
+  return isReceiptStatus(status)
+    ? PROCESSING_STATUS_COPY[status].label
+    : UNKNOWN_STATUS_COPY.label;
+}
+
+export function statusExplanation(status: unknown): string {
+  return isReceiptStatus(status)
+    ? PROCESSING_STATUS_COPY[status].explanation
+    : UNKNOWN_STATUS_COPY.explanation;
 }
 
 export function statusAction(
-  status: ReceiptStatus,
+  status: unknown,
   flags: ActionFlags
 ): string | null {
+  if (!isReceiptStatus(status)) return null;
   const { action } = PROCESSING_STATUS_COPY[status];
   return typeof action === "function" ? action(flags) : action;
 }

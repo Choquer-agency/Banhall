@@ -139,6 +139,15 @@ const REASONING_TOKEN_MULTIPLIER = 4;
  * The output budget to actually send for `id`, given the agent's answer
  * budget. Non-reasoning models (and unknown ids) pass through untouched.
  */
+/**
+ * Direct Anthropic reasoning models can spend part of the response budget
+ * before emitting the final section. Keep OpenRouter agents at their existing
+ * answer budget because the gateway adapter applies its own larger multiplier.
+ */
+export function sectionAnswerTokenBudget(id: string): number {
+  return gatewayForModel(id) === "anthropic" ? 8192 : 4096;
+}
+
 export function maxTokensWithReasoningHeadroom(
   id: string,
   maxTokens: number

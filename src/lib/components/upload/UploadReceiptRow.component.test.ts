@@ -5,7 +5,11 @@ import {
   PROCESSING_STATUSES,
   type ProcessingStatus,
 } from "../../../../shared/documentStatus";
-import { PROCESSING_STATUS_COPY, statusAction } from "$lib/uploads/processingStatus";
+import {
+  PROCESSING_STATUS_COPY,
+  UNKNOWN_STATUS_COPY,
+  statusAction,
+} from "$lib/uploads/processingStatus";
 import type { ReceiptRow } from "$lib/uploads/receiptRows";
 import UploadReceiptRow from "./UploadReceiptRow.svelte";
 
@@ -41,6 +45,13 @@ describe("UploadReceiptRow copy", () => {
       expect(getComputedStyle(second).display, status).not.toBe("none");
       await unmount();
     }
+  });
+
+  it("survives a future or missing server status with honest fallback copy", async () => {
+    const unknown = row({ status: "future_status" as never });
+    const { container } = await render(UploadReceiptRow, { row: unknown });
+    expect(container.textContent).toContain(UNKNOWN_STATUS_COPY.label);
+    expect(container.textContent).toContain(UNKNOWN_STATUS_COPY.explanation);
   });
 
   it("says nothing extra about a file that is simply ready", async () => {

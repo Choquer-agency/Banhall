@@ -296,6 +296,17 @@ describe("countReceiptFailures", () => {
   });
 });
 
+describe("deploy-skew resilience", () => {
+  it("summarizes an unknown status without leaking undefined or throwing", () => {
+    const row = {
+      ...buildReceiptRows([doc()], [], [])[0],
+      status: "future_status",
+    } as unknown as ReceiptRow;
+    expect(summarizeReceipt([row])).toBe("1 file: 1 status unavailable");
+    expect(summarizeReceipt([row])).not.toContain("undefined");
+  });
+});
+
 describe("acceptance scenarios", () => {
   it("AC1 — a mixed batch reports every file with its own outcome and actions", () => {
     const rows = buildReceiptRows(

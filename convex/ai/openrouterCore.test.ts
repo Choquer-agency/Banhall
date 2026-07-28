@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   toChatCompletions,
   fromChatCompletions,
+  requireTextResponse,
   openRouterUsage,
 } from "./openrouterCore";
 import {
@@ -10,6 +11,7 @@ import {
   gatewayForModel,
   comparePairFromSlots,
   maxTokensWithReasoningHeadroom,
+  sectionAnswerTokenBudget,
 } from "../../shared/generationModels";
 
 describe("toChatCompletions", () => {
@@ -74,6 +76,14 @@ describe("toChatCompletions", () => {
       max_tokens: 8192,
       messages: [{ role: "user", content: "Draft." }],
     }).max_tokens).toBe(8192);
+  });
+});
+
+describe("sectionAnswerTokenBudget", () => {
+  it("gives direct Anthropic sections more room without double-inflating OpenRouter", () => {
+    expect(sectionAnswerTokenBudget("claude-sonnet-5")).toBe(8192);
+    expect(sectionAnswerTokenBudget("claude-opus-4-8")).toBe(8192);
+    expect(sectionAnswerTokenBudget("google/gemini-3.1-pro-preview")).toBe(4096);
   });
 });
 
@@ -154,6 +164,28 @@ describe("fromChatCompletions", () => {
         ],
       })
     ).toThrow(/truncated/);
+  });
+
+  it("reads text after a leading non-text block and reports the stop reason", () => {
+    expect(
+      requireTextResponse(
+        {
+          content: [
+            { type: "tool_use", id: "thinking", name: "reasoning", input: {} },
+            { type: "text", text: "  usable answer  " },
+          ],
+          stop_reason: "end_turn",
+        },
+        "Section 244 agent"
+      )
+    ).toBe("usable answer");
+
+    expect(() =>
+      requireTextResponse(
+        { content: [], stop_reason: "max_tokens" },
+        "Section 244 agent"
+      )
+    ).toThrow(/stop reason: max_tokens/);
   });
 
   it("throws on empty responses with the provider message when present", () => {

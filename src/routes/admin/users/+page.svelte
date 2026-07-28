@@ -15,6 +15,7 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { ROLE_LABELS, type Role } from "../../../../shared/roles";
+  import { MAX_INSTRUCTIONS_CHARS } from "../../../../shared/writerProfileLimits";
 
   const ROLE_ITEMS = (Object.entries(ROLE_LABELS) as [Role, string][]).map(
     ([value, label]) => ({ value, label })
@@ -111,6 +112,7 @@
   let flavorSaving = $state(false);
   let flavorSaved = $state(false);
   let flavorError = $state("");
+  const flavorTooLong = $derived(flavorText.length > MAX_INSTRUCTIONS_CHARS);
   let temporaryPassword = $state("");
   let passwordSaving = $state(false);
   let passwordSaved = $state(false);
@@ -207,7 +209,7 @@
   });
 
   async function handleFlavorSave(userId: Id<"users">) {
-    if (flavorSaving) return;
+    if (flavorSaving || flavorTooLong) return;
     flavorError = "";
     flavorSaved = false;
     flavorSaving = true;
@@ -500,8 +502,11 @@
                       placeholder="e.g. Prefer short declarative sentences. Avoid the passive voice."
                       class="mt-2 block w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
                     ></textarea>
-                    <span class="mt-1 block text-right text-xs text-gray-400">
-                      {flavorText.length.toLocaleString()} characters
+                    <span
+                      class={`mt-1 block text-right text-xs ${flavorTooLong ? "text-red-600" : "text-gray-400"}`}
+                      aria-live="polite"
+                    >
+                      {flavorText.length.toLocaleString()} / {MAX_INSTRUCTIONS_CHARS.toLocaleString()} characters
                     </span>
                     <div class="mt-2 flex items-center justify-between gap-4">
                       <Checkbox bind:checked={flavorEnabled} labelText="Apply to this user's generations" />
@@ -512,7 +517,7 @@
                         <button
                           type="button"
                           onclick={() => handleFlavorSave(expandedUser._id)}
-                          disabled={flavorSaving}
+                          disabled={flavorSaving || flavorTooLong}
                           class="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
                         >
                           {flavorSaving ? "Saving…" : "Save"}

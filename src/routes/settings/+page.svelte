@@ -11,7 +11,7 @@
   import { useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../convex/_generated/api";
-
+  import { MAX_INSTRUCTIONS_CHARS } from "../../../shared/writerProfileLimits";
 
   const auth = useAuth();
   const profileQ = useQuery(api.writerProfiles.getMyProfile, () =>
@@ -142,9 +142,12 @@
   let saving = $state(false);
   let saved = $state(false);
   let error = $state("");
+  const preferencesTooLong = $derived(
+    customInstructions.length > MAX_INSTRUCTIONS_CHARS
+  );
 
   async function handleSave() {
-    if (saving) return;
+    if (saving || preferencesTooLong) return;
     error = "";
     saved = false;
     saving = true;
@@ -271,8 +274,11 @@
                 placeholder={"e.g. Prefer short declarative sentences. Lead each iteration with the hypothesis tested. Avoid the passive voice in the work narrative."}
                 class="mt-2 block w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
               ></textarea>
-              <span class="mt-1 block text-right text-xs text-gray-400">
-                {customInstructions.length.toLocaleString()} characters
+              <span
+                class={`mt-1 block text-right text-xs ${preferencesTooLong ? "text-red-600" : "text-gray-400"}`}
+                aria-live="polite"
+              >
+                {customInstructions.length.toLocaleString()} / {MAX_INSTRUCTIONS_CHARS.toLocaleString()} characters
               </span>
             </label>
 
@@ -282,7 +288,7 @@
                 {#if saved}
                   <span role="status" class="text-xs text-primary">Saved</span>
                 {/if}
-                <Button onclick={handleSave} disabled={saving}>
+                <Button onclick={handleSave} disabled={saving || preferencesTooLong}>
                   {saving ? "Saving…" : "Save preferences"}
                 </Button>
               </span>

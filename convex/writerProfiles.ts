@@ -4,6 +4,7 @@ import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireCurrentUser, requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
+import { MAX_INSTRUCTIONS_CHARS } from "../shared/writerProfileLimits";
 
 /**
  * Per-writer "flavor" (Phase A): free-text personal writing instructions,
@@ -23,8 +24,8 @@ import { domainError } from "./lib/contracts";
  */
 
 // Jul 17 meeting: the visible 4k limit was removed so writers can paste their
-// full ChatGPT prompt docs. This is only a backstop against runaway payloads.
-const MAX_INSTRUCTIONS_CHARS = 40_000;
+// full prompt documents. The shared 60k limit is a backstop against runaway
+// payloads and keeps both writer/admin clients aligned with server validation.
 
 const profileValidator = v.object({
   _id: v.id("writerProfiles"),

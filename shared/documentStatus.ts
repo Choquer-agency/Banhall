@@ -122,6 +122,16 @@ export type ProcessingStatus = (typeof PROCESSING_STATUSES)[number];
  */
 export type ReceiptStatus = ProcessingStatus | "upload_failed";
 
+const RECEIPT_STATUSES: readonly string[] = [
+  ...PROCESSING_STATUSES,
+  "upload_failed",
+];
+
+/** Runtime guard for payloads crossing a deploy-version boundary. */
+export function isReceiptStatus(value: unknown): value is ReceiptStatus {
+  return typeof value === "string" && RECEIPT_STATUSES.includes(value);
+}
+
 /**
  * Machine reason code, never free text. Making this a literal union is what
  * makes "no provider/internal error strings leak" a structural guarantee rather
