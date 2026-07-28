@@ -86,6 +86,8 @@ visibility remains as-is pending PSOS-30 decision.
 | 2026-07-28 | Added the shared capability vocabulary, four declarative presets, grouped matrix export, fail-closed server helper, and table-driven tests. | Current stored roles retain approved behavior; planned Financial cells remain visible but runtime-denied and unstorable. No function call sites or project visibility queries changed. |
 | 2026-07-28 | Claude Code/Fable 5 completed the mandatory adversarial post-implementation review. | Verdict: **SHIP**, no blockers. Canonical error fields were protected from detail shadowing and denial metadata was renamed to `effectiveLevel` before rollout. |
 | 2026-07-28 | Final validation completed. | 393/393 unit/integration tests, 38/38 browser-component tests, 10 focused capability tests, clean Svelte and Convex typechecks, successful production build, and clean diff check. |
+| 2026-07-28 | Added the approved live compatibility overlay for legacy email-based consultant labels before release. | Internal project list/detail and admin QA review projections now resolve current First Last/name from the authoritative user ID or an unambiguous normalized email; raw stored snapshots remain unchanged. Duplicate legacy emails fail safely. |
+| 2026-07-28 | Claude Code/Fable planned and twice reviewed the live-name overlay. | Initial review blocked `.unique()` on supported duplicate-email states; replaced with bounded ambiguity handling and authoritative-ID fallback. Final verdict: **SHIP**. Final gates rose to 397/397 unit/integration tests plus 38/38 component tests. |
 
 ## Completion record
 

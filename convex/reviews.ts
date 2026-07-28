@@ -9,6 +9,7 @@ import {
 } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { canOverrideQaSeverity } from "../shared/roles";
+import { resolveLiveUserLabel, userDisplayLabel } from "./lib/teamRoster";
 
 /**
  * BNH-29: the signed-in writer's own QA review for a specific report version.
@@ -53,7 +54,7 @@ export const submitWriterReview = mutation({
     const comment = args.comment?.trim() || undefined;
     const now = Date.now();
 
-    const writerName = user.name ?? user.email ?? undefined;
+    const writerName = userDisplayLabel(user);
 
     // Learning loop (auto-nomination): a highly rated report is candidate
     // Brain knowledge. Nominates into the PENDING queue only; the admin still
@@ -208,7 +209,7 @@ export const saveQaItemFeedback = mutation({
         ? (args.overrideSeverity ?? undefined)
         : (existing?.overrideSeverity ?? undefined),
       vote: args.vote ?? undefined,
-      writerName: user.name ?? user.email ?? undefined,
+      writerName: userDisplayLabel(user),
       updatedAt: now,
     };
     // Learning loop: refresh the QA calibration digest after feedback settles.
@@ -255,7 +256,9 @@ export const listWriterReviews = query({
           projectTitle: project?.title ?? "(deleted project)",
           clientName: project?.clientName ?? "",
           reportVersion: review.reportVersion ?? null,
-          writerName: review.writerName ?? "Consultant",
+          writerName:
+            (await resolveLiveUserLabel(ctx, review.writerName, review.userId)) ??
+            "Consultant",
           score: review.score,
           aiScore: review.aiScore ?? null,
           comment: review.comment ?? "",
@@ -284,7 +287,9 @@ export const listWriterReviews = query({
         return {
           _id: item._id,
           projectTitle: project?.title ?? "(deleted project)",
-          writerName: item.writerName ?? "Consultant",
+          writerName:
+            (await resolveLiveUserLabel(ctx, item.writerName, item.userId)) ??
+            "Consultant",
           section: item.section,
           itemText: item.itemText,
           itemKind: item.itemKind,

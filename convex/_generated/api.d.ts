@@ -69,6 +69,7 @@ import type * as lib_email from "../lib/email.js";
 import type * as lib_lineLimits from "../lib/lineLimits.js";
 import type * as lib_providerConfig from "../lib/providerConfig.js";
 import type * as lib_reportEdits from "../lib/reportEdits.js";
+import type * as lib_roleCapabilities from "../lib/roleCapabilities.js";
 import type * as lib_snapshots from "../lib/snapshots.js";
 import type * as lib_teamRoster from "../lib/teamRoster.js";
 import type * as lib_tiptapReport from "../lib/tiptapReport.js";
@@ -159,6 +160,7 @@ declare const fullApi: ApiFromModules<{
   "lib/lineLimits": typeof lib_lineLimits;
   "lib/providerConfig": typeof lib_providerConfig;
   "lib/reportEdits": typeof lib_reportEdits;
+  "lib/roleCapabilities": typeof lib_roleCapabilities;
   "lib/snapshots": typeof lib_snapshots;
   "lib/teamRoster": typeof lib_teamRoster;
   "lib/tiptapReport": typeof lib_tiptapReport;

@@ -11,6 +11,7 @@ import {
 } from "./lib/auth";
 import {
   getTeamRosterMemberOrNull,
+  resolveLiveUserLabel,
   userDisplayLabel,
 } from "./lib/teamRoster";
 import { domainError, sha256 } from "./lib/contracts";
@@ -59,6 +60,12 @@ export const listProjects = query({
     return await Promise.all(
       projects.map(async (project) => ({
         ...project,
+        writer: await resolveLiveUserLabel(ctx, project.writer, project.createdBy),
+        interviewer: await resolveLiveUserLabel(
+          ctx,
+          project.interviewer,
+          project.interviewerUserId
+        ),
         awaitingSelection:
           (await findActiveGeneration(ctx, project, ["awaiting_selection"])) !== null,
         // Iterative mode: a section draft is waiting on the writer's review.
@@ -232,7 +239,20 @@ export const getProject = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
     const access = await getInternalProjectAccessOrNull(ctx, args.projectId);
-    return access?.project ?? null;
+    if (!access) return null;
+    return {
+      ...access.project,
+      writer: await resolveLiveUserLabel(
+        ctx,
+        access.project.writer,
+        access.project.createdBy
+      ),
+      interviewer: await resolveLiveUserLabel(
+        ctx,
+        access.project.interviewer,
+        access.project.interviewerUserId
+      ),
+    };
   },
 });
 

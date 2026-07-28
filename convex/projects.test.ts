@@ -92,6 +92,103 @@ async function getProject(
   return await t.run(async (ctx) => await ctx.db.get(projectId));
 }
 
+describe("live project contributor labels", () => {
+  test("resolves legacy email snapshots to current first and last names without rewriting storage", async () => {
+    const { t, projectId, ownerId } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(ownerId, {
+        email: "demo@banhall.ca",
+        firstName: "Demo",
+        lastName: "Writer",
+      });
+      await ctx.db.patch(projectId, { writer: "DEMO@BANHALL.CA" });
+    });
+
+    const first = await asActor(t, "owner").query(api.projects.getProject, {
+      projectId,
+    });
+    expect(first?.writer).toBe("Demo Writer");
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(ownerId, { firstName: "Dana", lastName: "Writer" });
+    });
+    const updated = await asActor(t, "owner").query(api.projects.getProject, {
+      projectId,
+    });
+    const listed = await asActor(t, "owner").query(api.projects.listProjects, {});
+    const stored = await t.run(async (ctx) => await ctx.db.get(projectId));
+
+    expect(updated?.writer).toBe("Dana Writer");
+    expect(listed.find((project) => project._id === projectId)?.writer).toBe(
+      "Dana Writer"
+    );
+    expect(stored?.writer).toBe("DEMO@BANHALL.CA");
+  });
+
+  test("uses the authoritative project user when duplicate legacy emails exist or the email changes", async () => {
+    const { t, projectId, ownerId } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(ownerId, {
+        email: "current@banhall.ca",
+        firstName: "Current",
+        lastName: "Writer",
+      });
+      await ctx.db.insert("users", {
+        authId: "duplicate-email-a",
+        email: "demo@banhall.ca",
+        firstName: "Wrong",
+        lastName: "Account",
+        role: "writer",
+      });
+      await ctx.db.insert("users", {
+        authId: "duplicate-email-b",
+        email: "demo@banhall.ca",
+        firstName: "Also Wrong",
+        lastName: "Account",
+        role: "writer",
+      });
+      await ctx.db.patch(projectId, { writer: "demo@banhall.ca" });
+    });
+
+    const project = await asActor(t, "owner").query(api.projects.getProject, {
+      projectId,
+    });
+    const listed = await asActor(t, "owner").query(api.projects.listProjects, {});
+    expect(project?.writer).toBe("Current Writer");
+    expect(listed.find((row) => row._id === projectId)?.writer).toBe(
+      "Current Writer"
+    );
+  });
+
+  test("keeps non-email and nameless legacy labels unchanged", async () => {
+    const { t, projectId, ownerId } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(ownerId, { email: "demo@banhall.ca" });
+      await ctx.db.patch(projectId, { writer: "demo@banhall.ca" });
+    });
+    const emailOnly = await asActor(t, "owner").query(api.projects.getProject, {
+      projectId,
+    });
+    expect(emailOnly?.writer).toBe("demo@banhall.ca");
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(ownerId, { name: "Legacy Display Name" });
+    });
+    const legacyName = await asActor(t, "owner").query(api.projects.getProject, {
+      projectId,
+    });
+    expect(legacyName?.writer).toBe("Legacy Display Name");
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(projectId, { writer: "Legacy Consultant" });
+    });
+    const named = await asActor(t, "owner").query(api.projects.getProject, {
+      projectId,
+    });
+    expect(named?.writer).toBe("Legacy Consultant");
+  });
+});
+
 describe("project duplication", () => {
   test("copies all project documents, archived state, evidence, and PD reviews", async () => {
     const { t, projectId, reportId } = await setup();
