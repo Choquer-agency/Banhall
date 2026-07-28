@@ -135,7 +135,10 @@ export const getLatestPdReview = query({
       sourceFileName: review.sourceFileName,
       status: review.status,
       result: review.result,
-      error: review.error,
+      error:
+        review.status === "failed"
+          ? "The review did not complete. Try running it again."
+          : undefined,
       createdAt: review.createdAt,
       completedAt: review.completedAt,
     };
@@ -154,7 +157,10 @@ export const listPdReviewEvents = query({
     return events.map((event) => ({
       _id: event._id,
       action: event.action,
-      detail: event.detail,
+      detail:
+        event.action === "review_failed"
+          ? "The review did not complete."
+          : event.detail,
       at: event.at,
     }));
   },

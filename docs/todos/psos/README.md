@@ -5,11 +5,11 @@ This directory is the internal source of truth for executing the **Banhall Profe
 - **Master product/ticket context:** [`../../futur-board-ticket-breakdown-psos.md`](../../futur-board-ticket-breakdown-psos.md)
 - **Task specifications:** [`tasks/`](tasks/)
 - **Total work items:** 36
-- **Current work item:** None — PSOS-05 is complete; PSOS-04 remains in release review.
-- **Release-QA item:** **PSOS-04** — mixed-upload processing receipt with per-file statuses (`in_review`)
-- **Next ready work item:** **PSOS-06** — highlighted-text research in uploaded-PD review mode
-- **Also dependency-ready:** PSOS-07, PSOS-26
-- **Queue state:** PSOS-05 is committed, pushed, production-deployed, and signed-in smoke-tested with final Fable verdict SHIP. PSOS-04 retains its separate release gate. PSOS-06 is now the next single implementation ticket when work resumes.
+- **Current work item:** None — PSOS-06 is in release review.
+- **Release-QA items:** **PSOS-04** mixed-upload receipts; **PSOS-06** review-mode contextual research (`in_review`)
+- **Next ready work item:** **PSOS-07** — project owner + current assignee fields
+- **Also dependency-ready:** PSOS-26
+- **Queue state:** PSOS-06 implementation, validation, installed-Chrome development verification, and final Claude Code/Fable review are complete with verdict SHIP. It awaits production deployment smoke. Direct source-PD research is deferred to imported-report branches in PSOS-18/19.
 
 ## Operating rules
 
@@ -94,7 +94,7 @@ The first delivery train should proceed as follows:
 | [PSOS-03](tasks/PSOS-03.md) | Role descriptions & capability explanations in Users & roles | `done` | PSOS-01 |
 | [PSOS-04](tasks/PSOS-04.md) | Mixed-upload processing receipt with per-file statuses | `in_review` | — |
 | [PSOS-05](tasks/PSOS-05.md) | Generation failure & recovery surface in project header | `done` | — |
-| [PSOS-06](tasks/PSOS-06.md) | Verify highlighted-text research entry in uploaded-PD review mode | `ready` | — |
+| [PSOS-06](tasks/PSOS-06.md) | Verify highlighted-text research entry in uploaded-PD review mode | `in_review` | — |
 
 ### P2 — Ownership and workflow foundation
 
