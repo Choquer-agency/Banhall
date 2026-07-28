@@ -2,13 +2,13 @@
 
 ## Work control
 
-- **Status:** `in_review`
+- **Status:** `done`
 - **Phase:** P1
 - **Current owner:** Pi coding agent
 - **Started:** 2026-07-28
-- **Completed:** —
+- **Completed:** 2026-07-28
 - **Source plan:** [`../../../futur-board-ticket-breakdown-psos.md`](../../../futur-board-ticket-breakdown-psos.md)
-- **Progress note:** Approved verification slice is complete and reviewed. Contextual research remains scoped to the generated comparison report, with the uploaded PD available only as private project evidence; direct source-document research is deferred to PSOS-18/19 imported branches. Added six Convex regressions, a committed installed-Chrome matrix, and PD-review provider-error projection hardening. Final Claude Code/Fable 5 verdict: SHIP. Awaiting production deployment smoke before `done`.
+- **Progress note:** Complete and released. Contextual research remains scoped to the generated comparison report, with the uploaded PD available only as private project evidence; direct source-document research is deferred to PSOS-18/19 imported branches. Added six Convex regressions, a committed installed-Chrome matrix, and PD-review provider-error projection hardening. Final Claude Code/Fable 5 verdict: SHIP. Backend-first deployment and signed-in production Chrome verification passed.
 
 > Work this ticket independently. Do not start implementation until every dependency below is complete or explicitly waived in this file. Only one PSOS ticket should normally be `in_progress` at a time.
 
@@ -16,35 +16,35 @@
 
 ### 1. Prepare
 
-- [ ] Re-read this ticket, its dependencies, and linked existing BNH work.
-- [ ] Inspect the current implementation and record affected files before editing.
-- [ ] Confirm unresolved decisions and assumptions; document any approved waiver.
-- [ ] Define the smallest safe rollout slice and rollback path.
+- [x] Re-read this ticket, its dependencies, and linked existing BNH work.
+- [x] Inspect the current implementation and record affected files before editing.
+- [x] Confirm unresolved decisions and assumptions; document any approved waiver.
+- [x] Define the smallest safe rollout slice and rollback path.
 
 ### 2. Implement
 
-- [ ] Complete backend/schema/domain work in scope.
-- [ ] Complete frontend/UX work in scope.
-- [ ] Add loading, empty, failure, permission-denied, and conflict states where relevant.
-- [ ] Add audit, authorization, OCC/idempotency, and migration handling where relevant.
-- [ ] Keep unrelated behavior and files unchanged.
+- [x] Complete backend/schema/domain work in scope.
+- [x] Complete frontend/UX work in scope.
+- [x] Add loading, empty, failure, permission-denied, and conflict states where relevant.
+- [x] Add audit, authorization, OCC/idempotency, and migration handling where relevant.
+- [x] Keep unrelated behavior and files unchanged.
 
 ### 3. Verify acceptance criteria
 
-- [ ] Work through every acceptance criterion below individually and attach evidence in the work log.
-- [ ] Add or update unit, integration, and regression coverage required by this ticket.
-- [ ] Verify keyboard, screen-reader labeling, touch targets, responsive layout, and reduced motion for UI work.
+- [x] Work through every acceptance criterion below individually and attach evidence in the work log.
+- [x] Add or update unit, integration, and regression coverage required by this ticket.
+- [x] Verify keyboard, screen-reader labeling, touch targets, responsive layout, and reduced motion for UI work.
 
 ### 4. Validate and close
 
-- [ ] Run targeted tests for the changed area.
-- [ ] Run `npm run check`.
-- [ ] Run the Convex TypeScript check.
-- [ ] Run `npm run test`.
-- [ ] Run `npm run build`.
-- [ ] Run formatting/lint commands if present and `git diff --check`.
-- [ ] Review the final diff for unrelated changes, unsafe migration behavior, and leaked secrets.
-- [ ] Update this file to `done`, record evidence, and update [`../README.md`](../README.md).
+- [x] Run targeted tests for the changed area.
+- [x] Run `npm run check`.
+- [x] Run the Convex TypeScript check.
+- [x] Run `npm run test`.
+- [x] Run `npm run build`.
+- [x] Run formatting/lint commands if present and `git diff --check`.
+- [x] Review the final diff for unrelated changes, unsafe migration behavior, and leaked secrets.
+- [x] Update this file to `done`, record evidence, and update [`../README.md`](../README.md).
 
 ## Ticket specification
 
@@ -82,10 +82,12 @@ report/document ID in review mode.
 | 2026-07-28 | Deployed the projection fix to Convex development and repeated Chrome verification on project `k9705nbencz4b5wjaa04hgc93h8a3xbn`. | Source-PD review correctly offers no direct research control; historical failure now reads “The review did not complete.” with no provider, request ID, or billing text. Existing generated-report project `k97drrdvsmsm3gwvjareka1abs8aqnbz` retained its revisitable research feed. |
 | 2026-07-28 | Claude Code/Fable 5 completed the mandatory adversarial post-implementation review. | Verdict: **SHIP**, no blockers. Acceptance wording was amended to match the approved decision; the unauthenticated mutation regression was tightened to require the authentication error. |
 | 2026-07-28 | Final validation completed after review fixes. | 377/377 unit/integration tests, 38/38 browser-component tests, clean Svelte and Convex typechecks, successful production build, and clean `git diff --check`. |
+| 2026-07-28 | Promoted Convex first, committed and pushed `4477203` (`Verify review-mode contextual research`), and waited for the exact Vercel deployment to succeed. | Backend and frontend release ordering preserved; Vercel reported commit `4477203` successful. |
+| 2026-07-28 | Completed signed-in installed-Google-Chrome production smoke at `https://banhall.vercel.app`. | Source-PD project showed no direct research control and generic historical failure copy; generated-report project retained its revisitable research feed. Neither view exposed provider/request/billing text or undefined resources. |
 
 ## Completion record
 
-- **Pull request/commit:** —
-- **Deployment:** —
-- **Follow-up tickets:** —
-- **Known limitations accepted at closure:** —
+- **Pull request/commit:** `4477203` — `Verify review-mode contextual research`
+- **Deployment:** Convex deployed successfully to `https://energized-salamander-237.convex.cloud`; Vercel production deployment for `4477203` succeeded; smoke URL `https://banhall.vercel.app`.
+- **Follow-up tickets:** PSOS-18/19 own imported report branches and direct research against an uploaded PD represented as an editable branch. Review-agent write-time error normalization can be revisited separately while retaining raw forensic storage.
+- **Known limitations accepted at closure:** The source uploaded PD is intentionally not directly selectable for research before branch materialization. The generated comparison report is the editable research scope, while the source PD participates only as private project evidence.

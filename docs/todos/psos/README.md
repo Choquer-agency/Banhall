@@ -5,11 +5,11 @@ This directory is the internal source of truth for executing the **Banhall Profe
 - **Master product/ticket context:** [`../../futur-board-ticket-breakdown-psos.md`](../../futur-board-ticket-breakdown-psos.md)
 - **Task specifications:** [`tasks/`](tasks/)
 - **Total work items:** 36
-- **Current work item:** None — PSOS-06 is in release review.
-- **Release-QA items:** **PSOS-04** mixed-upload receipts; **PSOS-06** review-mode contextual research (`in_review`)
+- **Current work item:** None — PSOS-06 is complete; PSOS-04 remains in release review.
+- **Release-QA item:** **PSOS-04** — mixed-upload processing receipt with per-file statuses (`in_review`)
 - **Next ready work item:** **PSOS-07** — project owner + current assignee fields
 - **Also dependency-ready:** PSOS-26
-- **Queue state:** PSOS-06 implementation, validation, installed-Chrome development verification, and final Claude Code/Fable review are complete with verdict SHIP. It awaits production deployment smoke. Direct source-PD research is deferred to imported-report branches in PSOS-18/19.
+- **Queue state:** PSOS-06 is committed, production-deployed, and signed-in smoke-tested with final Claude Code/Fable verdict SHIP. Direct source-PD research is deferred to imported-report branches in PSOS-18/19.
 
 ## Operating rules
 
@@ -94,7 +94,7 @@ The first delivery train should proceed as follows:
 | [PSOS-03](tasks/PSOS-03.md) | Role descriptions & capability explanations in Users & roles | `done` | PSOS-01 |
 | [PSOS-04](tasks/PSOS-04.md) | Mixed-upload processing receipt with per-file statuses | `in_review` | — |
 | [PSOS-05](tasks/PSOS-05.md) | Generation failure & recovery surface in project header | `done` | — |
-| [PSOS-06](tasks/PSOS-06.md) | Verify highlighted-text research entry in uploaded-PD review mode | `in_review` | — |
+| [PSOS-06](tasks/PSOS-06.md) | Verify highlighted-text research entry in uploaded-PD review mode | `done` | — |
 
 ### P2 — Ownership and workflow foundation
 
@@ -188,4 +188,5 @@ None. Add an entry before starting more than one PSOS ticket simultaneously:
 | 2026-07-28 | PSOS program reconciled against the shipped repository by Claude Code/Fable 5 and Codex. | PSOS-04 release metadata corrected; PSOS-30 dependency corrected to PSOS-27; PSOS-05 selected as the sole active ticket because failure prevention had shipped but the per-model recovery surface remained absent. |
 | 2026-07-28 | PSOS-05 moved to release review after implementation, two Fable reviews, full validation, and Convex development deployment. | Per-model recovery preserves ready candidates, retries only failed models in a linked generation, sanitizes product error copy, and passes 371 unit/integration plus 38 browser-component tests. |
 | 2026-07-28 | PSOS-05 signed-in live recovery QA passed in installed Google Chrome. | Genuine partial generation `k579qgcv1e69acsrpaxam2cmgs8b9cqa` retried only failed Sonnet 5 in linked generation `k574pkzy3favphj2vqat820a7x8bcqwd`; retained Opus 4.8, finished 2/0, restored both selectable drafts, and exposed no provider error. |
-| 2026-07-28 | PSOS-05 committed in `d03bea2`, pushed to `main`, deployed through Vercel, and closed after production smoke. | `https://banhall.vercel.app` accepted administrator login and rendered the recovered project with both drafts, the “Ready for your review” chip, no provider-error leak, and no undefined resources. PSOS-05 marked `done`; PSOS-06 becomes the next implementation ticket. |
+| 2026-07-28 | PSOS-05 committed in `d03bea2`, pushed to `main`, deployed through Vercel, and closed after production smoke. | `https://banhall.vercel.app` accepted administrator login and rendered the recovered project with both drafts, the “Ready for your review” chip, no provider-error leak, and no undefined resources. PSOS-05 marked `done`; PSOS-06 became the next implementation ticket. |
+| 2026-07-28 | PSOS-06 approved, verified, reviewed, committed in `4477203`, and released backend-first. | Research remains scoped to the generated comparison report with the uploaded PD as private evidence; six regressions and a manual matrix were added. Production Chrome smoke confirmed revisitable research history and sanitized PD-review failures. PSOS-06 marked `done`; PSOS-07 is next. |
