@@ -569,8 +569,8 @@ Steps 1–3 are pure additions (fastest review). Steps 4–5 are the trust bound
 
 ## Completion record
 
-- **Pull request/commit:** Pending release owner. Do not blindly commit the full dirty tree: unrelated pre-existing chat/QA/email work is interleaved in the workspace and requires scope review.
-- **Deployment:** Pending. Required order: Convex first, then frontend. New server args are optional/additive; reverse order would send args an old server rejects.
+- **Pull request/commit:** `8fa3a2e` — `Ship PSOS upload receipts and reliability updates`, pushed to `origin/main` on 2026-07-28. The integrated commit includes the complete pre-existing reviewed workspace (PSOS, chat/reasoning, QA, role, and email reliability work), not only PSOS-04.
+- **Deployment:** Convex development deployment completed 2026-07-28 with `npx convex dev --once` against `admin-choquer:banhall:dev/bryce-choquer` (`energized-salamander-237`); functions ready after successful typecheck. Frontend production deployment was not requested/run.
 - **Follow-up tickets to file during release handoff:**
   1. Structured truncation metadata / generation's separate 15,000-char context slice (a long file may say Ready while generation uses only its first 15k chars).
   2. Storage-bytes failure with successful text extraction (human Q3 accepted unchanged for v1).
@@ -579,4 +579,4 @@ Steps 1–3 are pure additions (fastest review). Steps 4–5 are the trust bound
   5. First repository-wide test CI workflow; intentionally excluded from this ticket under queue rule 5.
   6. `tests/*.test.ts` bun suite not included in `npm run test`.
 - **Known limitations accepted for release:** same-browser-profile-only durability for failures whose first request never reached Convex; 30s per mutation timeout means a fully offline first file may take roughly 90s through begin/url/upload before all rows settle; wizard rejections before `createProject` remain session-only; timed-out replace that lands late can leave two truthful rows for manual cleanup; attempts do not store category, so replacing a failed context-input attempt creates an uncategorized document; no duration/backfill of statuses already persisted in the brief step-1→step-8 window until the force migration follow-up.
-- **Release QA still required before `done`:** signed-in Chrome mixed chat batch; Chrome offline → settle → Retry with no duplicate; reload shows durable failures; failed-attempt Replace; document Replace success + partial-success (delete-old failure) + confirmation; verify no Replace on ready/ready-truncated.
+- **Release QA still required before `done`:** signed-in Chrome mixed chat batch; Chrome offline → settle → Retry with no duplicate; reload shows durable failures; failed-attempt Replace; document Replace success + partial-success (delete-old failure) + confirmation; verify no Replace on ready/ready-truncated. Convex development deployment is complete; production frontend/deployment remains separate.
