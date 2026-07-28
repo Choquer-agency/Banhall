@@ -2,13 +2,13 @@
 
 ## Work control
 
-- **Status:** `ready`
+- **Status:** `in_review`
 - **Phase:** P6
-- **Current owner:** Unassigned
-- **Started:** —
+- **Current owner:** Pi coding agent
+- **Started:** 2026-07-28
 - **Completed:** —
 - **Source plan:** [`../../../futur-board-ticket-breakdown-psos.md`](../../../futur-board-ticket-breakdown-psos.md)
-- **Progress note:** Dependencies satisfied by PSOS-01; ready to begin in queue order.
+- **Progress note:** Shared declarative presets, grouped matrix export, and fail-closed server helper are implemented and fully validated. No call-site migration, visibility change, custom permissions, or storable Financial role. Claude Code/Fable planning verdict PLAN READY and adversarial review verdict SHIP. Awaiting production release before `done`.
 
 > Work this ticket independently. Do not start implementation until every dependency below is complete or explicitly waived in this file. Only one PSOS ticket should normally be `in_progress` at a time.
 
@@ -72,13 +72,20 @@ visibility remains as-is pending PSOS-30 decision.
 
 | Date | Decision or assumption | Reason | Approved by |
 |---|---|---|---|
-| — | — | — | — |
+| 2026-07-28 | Keep capability data in `shared/capabilities.ts` and server enforcement in `convex/lib/roleCapabilities.ts`. | Provides one UI/test-safe source of truth without making a Convex function module or importing generated backend types into the frontend. | Claude Code/Fable plan |
+| 2026-07-28 | Represent Financial in capability data only; do not widen stored user/invite roles until PSOS-28. | The role has no approved landing/navigation/auth rollout yet and must remain unassignable. | Approved product-domain contract |
+| 2026-07-28 | Runtime scope levels are `none`, `own`, and `all`; planned cells deny. Object facts are caller-supplied and `own` without matching scope fails closed. | Avoids hidden database scans and prevents the capability layer from pretending it owns transition/readiness/business invariants. | Claude Code/Fable plan |
+| 2026-07-28 | Preserve broad internal project visibility; `project.readInternal` remains allowed for current stored roles. | Product-domain decision D1 and PSOS-30 explicitly defer membership-based visibility. | Approved product-domain contract |
 
 ## Work log and evidence
 
 | Date | Change/evidence | Result |
 |---|---|---|
 | — | Ticket created from the PSOS master plan. | Not started |
+| 2026-07-28 | Claude Code/Fable 5 completed the required read-only planning pass. | PLAN READY; no blockers. PSOS-26 activated only after PSOS-07 deployed, preserving one active ticket. |
+| 2026-07-28 | Added the shared capability vocabulary, four declarative presets, grouped matrix export, fail-closed server helper, and table-driven tests. | Current stored roles retain approved behavior; planned Financial cells remain visible but runtime-denied and unstorable. No function call sites or project visibility queries changed. |
+| 2026-07-28 | Claude Code/Fable 5 completed the mandatory adversarial post-implementation review. | Verdict: **SHIP**, no blockers. Canonical error fields were protected from detail shadowing and denial metadata was renamed to `effectiveLevel` before rollout. |
+| 2026-07-28 | Final validation completed. | 393/393 unit/integration tests, 38/38 browser-component tests, 10 focused capability tests, clean Svelte and Convex typechecks, successful production build, and clean diff check. |
 
 ## Completion record
 

@@ -20,8 +20,12 @@ export const domainErrorCodes = [
 
 export type DomainErrorCode = (typeof domainErrorCodes)[number];
 
-export function domainError(code: DomainErrorCode, message: string): never {
-  throw new ConvexError({ code, message });
+export function domainError(
+  code: DomainErrorCode,
+  message: string,
+  details?: Record<string, string>
+): never {
+  throw new ConvexError({ ...details, code, message });
 }
 
 export const projectStatusValidator = v.union(

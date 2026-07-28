@@ -2,13 +2,13 @@
 
 ## Work control
 
-- **Status:** `in_review`
+- **Status:** `done`
 - **Phase:** P2
 - **Current owner:** Pi coding agent
 - **Started:** 2026-07-28
-- **Completed:** —
+- **Completed:** 2026-07-28
 - **Source plan:** [`../../../futur-board-ticket-breakdown-psos.md`](../../../futur-board-ticket-breakdown-psos.md)
-- **Progress note:** Strict widen-only implementation and validation complete: optional ownership/workflow fields, typed immutable event storage, shared stage vocabulary, and indexes; no backfill, mutations, or UI. Claude Code/Fable planning verdict PLAN READY and adversarial review verdict SHIP. Awaiting backend-first production deployment before `done`.
+- **Progress note:** Complete and released. Strict widen-only schema adds optional ownership/workflow fields, typed immutable event storage, shared stage vocabulary, and indexes; no backfill, mutations, or UI. Claude Code/Fable planning verdict PLAN READY and adversarial review verdict SHIP. Backend-first deployment succeeded and the empty event table confirms no behavior was introduced.
 
 > Work this ticket independently. Do not start implementation until every dependency below is complete or explicitly waived in this file. Only one PSOS ticket should normally be `in_progress` at a time.
 
@@ -16,35 +16,35 @@
 
 ### 1. Prepare
 
-- [ ] Re-read this ticket, its dependencies, and linked existing BNH work.
-- [ ] Inspect the current implementation and record affected files before editing.
-- [ ] Confirm unresolved decisions and assumptions; document any approved waiver.
-- [ ] Define the smallest safe rollout slice and rollback path.
+- [x] Re-read this ticket, its dependencies, and linked existing BNH work.
+- [x] Inspect the current implementation and record affected files before editing.
+- [x] Confirm unresolved decisions and assumptions; document any approved waiver.
+- [x] Define the smallest safe rollout slice and rollback path.
 
 ### 2. Implement
 
-- [ ] Complete backend/schema/domain work in scope.
-- [ ] Complete frontend/UX work in scope.
-- [ ] Add loading, empty, failure, permission-denied, and conflict states where relevant.
-- [ ] Add audit, authorization, OCC/idempotency, and migration handling where relevant.
-- [ ] Keep unrelated behavior and files unchanged.
+- [x] Complete backend/schema/domain work in scope.
+- [x] Complete frontend/UX work in scope.
+- [x] Add loading, empty, failure, permission-denied, and conflict states where relevant.
+- [x] Add audit, authorization, OCC/idempotency, and migration handling where relevant.
+- [x] Keep unrelated behavior and files unchanged.
 
 ### 3. Verify acceptance criteria
 
-- [ ] Work through every acceptance criterion below individually and attach evidence in the work log.
-- [ ] Add or update unit, integration, and regression coverage required by this ticket.
-- [ ] Verify keyboard, screen-reader labeling, touch targets, responsive layout, and reduced motion for UI work.
+- [x] Work through every acceptance criterion below individually and attach evidence in the work log.
+- [x] Add or update unit, integration, and regression coverage required by this ticket.
+- [x] Verify keyboard, screen-reader labeling, touch targets, responsive layout, and reduced motion for UI work.
 
 ### 4. Validate and close
 
-- [ ] Run targeted tests for the changed area.
-- [ ] Run `npm run check`.
-- [ ] Run the Convex TypeScript check.
-- [ ] Run `npm run test`.
-- [ ] Run `npm run build`.
-- [ ] Run formatting/lint commands if present and `git diff --check`.
-- [ ] Review the final diff for unrelated changes, unsafe migration behavior, and leaked secrets.
-- [ ] Update this file to `done`, record evidence, and update [`../README.md`](../README.md).
+- [x] Run targeted tests for the changed area.
+- [x] Run `npm run check`.
+- [x] Run the Convex TypeScript check.
+- [x] Run `npm run test`.
+- [x] Run `npm run build`.
+- [x] Run formatting/lint commands if present and `git diff --check`.
+- [x] Review the final diff for unrelated changes, unsafe migration behavior, and leaked secrets.
+- [x] Update this file to `done`, record evidence, and update [`../README.md`](../README.md).
 
 ## Ticket specification
 
@@ -63,9 +63,9 @@ repurposed. Legacy free-text `writer` field exists on projects/reports metadata.
 - Project indexes: `by_ownerId`, `by_ownerId_and_workflowStage`, `by_workflowStage`.
 **Out of scope**: Backfill (PSOS-08), transition rules (PSOS-09), UI (PSOS-10).
 **Acceptance criteria**:
-- [ ] Schema deploys with all fields optional (widen); existing mutations unaffected.
-- [ ] Convex TS + existing test suite (`convex/projects.test.ts`) green.
-- [ ] `projectEvents` has no update/delete mutations exported.
+- [x] Schema deploys with all fields optional (widen); existing mutations unaffected.
+- [x] Convex TS + existing test suite (`convex/projects.test.ts`) green.
+- [x] `projectEvents` has no update/delete mutations exported.
 **Dependencies**: PSOS-01 vocabulary. **Rollout**: deploy before PSOS-08.
 
 ## Decision and assumption log
@@ -86,10 +86,11 @@ repurposed. Legacy free-text `writer` field exists on projects/reports metadata.
 | 2026-07-28 | Added shared workflow-stage vocabulary, optional project fields/indexes, and typed append-only project event storage. | Legacy project inserts remain valid; ownership and stage events cannot mix identifier and stage values. |
 | 2026-07-28 | Claude Code/Fable 5 completed the mandatory adversarial post-implementation review. | Verdict: **SHIP**, no blockers. Added its recommended negative event-shape and remaining index regressions. |
 | 2026-07-28 | Final gates completed. | 383/383 unit/integration tests, 38/38 browser-component tests, 24 focused schema/project tests, clean Svelte and Convex typechecks, successful production build, and clean diff check. |
+| 2026-07-28 | Deployed Convex first, committed and pushed `e9abff3` (`Add project ownership workflow schema`), then waited for Vercel success. | Schema validation and index creation succeeded; `projectEvents` exists and is empty because no writer/backfill was shipped. Pure-widen rollout complete. |
 
 ## Completion record
 
-- **Pull request/commit:** —
-- **Deployment:** —
-- **Follow-up tickets:** —
-- **Known limitations accepted at closure:** —
+- **Pull request/commit:** `e9abff3` — `Add project ownership workflow schema`
+- **Deployment:** Convex deployed successfully to `https://energized-salamander-237.convex.cloud`; Vercel deployment for `e9abff3` succeeded.
+- **Follow-up tickets:** PSOS-08 owns owner/stage backfill and actor attribution; PSOS-09 owns validated event writers and transition rules; PSOS-10 owns UI; PSOS-18 widens event variants for branches.
+- **Known limitations accepted at closure:** All new project fields remain optional and unpopulated until PSOS-08. Immutability is currently enforced by having no project-event mutation API; later writers must remain append-only.

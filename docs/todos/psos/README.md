@@ -5,10 +5,10 @@ This directory is the internal source of truth for executing the **Banhall Profe
 - **Master product/ticket context:** [`../../futur-board-ticket-breakdown-psos.md`](../../futur-board-ticket-breakdown-psos.md)
 - **Task specifications:** [`tasks/`](tasks/)
 - **Total work items:** 36
-- **Current work item:** None — PSOS-07 is in release review.
-- **Release-QA items:** **PSOS-04** mixed-upload receipts; **PSOS-07** ownership/workflow schema widen (`in_review`)
-- **Next planned work item:** **PSOS-26** — role capability presets and server helpers, after PSOS-07 releases
-- **Queue state:** PSOS-07 implementation, full validation, and final Claude Code/Fable review are complete with verdict SHIP. PSOS-26 has been planned but remains inactive until PSOS-07 production deployment succeeds.
+- **Current work item:** None — PSOS-26 is in release review.
+- **Release-QA items:** **PSOS-04** mixed-upload receipts; **PSOS-26** role capability foundation (`in_review`)
+- **Next dependency-unlocked work item:** **PSOS-08** — ownership/stage backfill after PSOS-26 releases
+- **Queue state:** PSOS-07 is complete and production-deployed. PSOS-26 implementation, full validation, and final Claude Code/Fable review are complete with verdict SHIP; no call sites or visibility behavior migrate until PSOS-27.
 
 ## Operating rules
 
@@ -99,7 +99,7 @@ The first delivery train should proceed as follows:
 
 | ID | Work item | Status | Dependencies |
 |---|---|---|---|
-| [PSOS-07](tasks/PSOS-07.md) | Schema: ownerId, workflowStage, workflowUpdatedAt + audit events + indexes | `in_review` | PSOS-01 |
+| [PSOS-07](tasks/PSOS-07.md) | Schema: ownerId, workflowStage, workflowUpdatedAt + audit events + indexes | `done` | PSOS-01 |
 | [PSOS-08](tasks/PSOS-08.md) | Ownership/stage backfill: writer matching, creator fallback, ambiguity queue | `not_started` | PSOS-07 |
 | [PSOS-09](tasks/PSOS-09.md) | Server-side ownership transfer + stage transition mutations with validation | `not_started` | PSOS-01, PSOS-07, PSOS-08 |
 | [PSOS-10](tasks/PSOS-10.md) | Project header & list metadata: Stage, Owner, With, Due as labeled data | `not_started` | PSOS-07, PSOS-09 |
@@ -138,7 +138,7 @@ The first delivery train should proceed as follows:
 
 | ID | Work item | Status | Dependencies |
 |---|---|---|---|
-| [PSOS-26](tasks/PSOS-26.md) | roleCapabilities module: presets + server helpers | `ready` | PSOS-01 |
+| [PSOS-26](tasks/PSOS-26.md) | roleCapabilities module: presets + server helpers | `in_review` | PSOS-01 |
 | [PSOS-27](tasks/PSOS-27.md) | Authorization audit & migration of all Convex functions + matrix tests | `not_started` | PSOS-26 |
 | [PSOS-28](tasks/PSOS-28.md) | Financial role + role-aware landing/navigation | `not_started` | PSOS-26, PSOS-27 |
 | [PSOS-29](tasks/PSOS-29.md) | Role/capability matrix UI | `not_started` | PSOS-01, PSOS-26, PSOS-28 |
