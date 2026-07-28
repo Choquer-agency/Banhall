@@ -7,7 +7,7 @@
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
-  import RoleDescriptions from "$lib/components/roles/RoleDescriptions.svelte";
+  import RoleGuideSheet from "$lib/components/roles/RoleGuideSheet.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { goto } from "$app/navigation";
   import { useQuery, useMutation } from "convex-svelte";
@@ -243,6 +243,12 @@
 
   let savingId = $state<string | null>(null);
   let error = $state("");
+  let roleGuideOpen = $state(false);
+  let roleGuideRole = $state<Role>("writer");
+
+  function openRoleGuide() {
+    roleGuideOpen = true;
+  }
 
   // Local mirror of each row's role so a server rejection (e.g. self-demotion)
   // can snap the SelectInput back to the stored role.
@@ -283,7 +289,24 @@
 {:else}
   <div class="flex flex-1 flex-col bg-canvas">
     <AppNav breadcrumbs={[{ label: "Users & roles" }]} />
-    <PageBar backHref="/dashboard" backLabel="Back" />
+    <PageBar backHref="/dashboard" backLabel="Back">
+      {#snippet actions()}
+        {#if isAdmin}
+          <button
+            type="button"
+            onclick={openRoleGuide}
+            aria-haspopup="dialog"
+            class="flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-ink-secondary transition-colors hover:bg-primary-wash hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <svg aria-hidden="true" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M9.1 9a3 3 0 115.8 1c0 2-2.9 2-2.9 4" />
+              <circle cx="12" cy="12" r="9" />
+            </svg>
+            Role guide
+          </button>
+        {/if}
+      {/snippet}
+    </PageBar>
 
     <PageContainer class="pb-10">
       {#if currentUserQ.data === undefined}
@@ -335,9 +358,6 @@
               Create invite
             </button>
           </form>
-          <div class="mt-5">
-            <RoleDescriptions heading="Invite role reference" />
-          </div>
           {#if inviteError}
             <p role="alert" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{inviteError}</p>
           {/if}
@@ -387,7 +407,7 @@
                       <button
                         type="button"
                         onclick={() => revokeInvite({ inviteId: invite._id })}
-                        class="rounded-md px-2 py-1 text-xs font-medium text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                        class="rounded-md px-2 py-1 text-xs font-medium text-ink-faint transition-colors hover:bg-red-50 hover:text-red-600"
                       >
                         Revoke
                       </button>
@@ -418,9 +438,6 @@
               </p>
             </div>
             <span class="text-data text-gray-400">{users.length} total</span>
-          </div>
-          <div class="mt-4">
-            <RoleDescriptions heading="Team role reference" />
           </div>
           <div class="card mt-4 overflow-hidden">
             <div class="overflow-x-auto">
@@ -598,5 +615,8 @@
         {/if}
       {/if}
     </PageContainer>
+    {#if isAdmin}
+      <RoleGuideSheet bind:open={roleGuideOpen} bind:role={roleGuideRole} />
+    {/if}
   </div>
 {/if}
