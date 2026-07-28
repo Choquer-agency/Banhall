@@ -2,13 +2,13 @@
 
 ## Work control
 
-- **Status:** `in_review`
+- **Status:** `done`
 - **Phase:** P1
 - **Current owner:** Pi coding agent
 - **Started:** 2026-07-28
-- **Completed:** —
+- **Completed:** 2026-07-28
 - **Source plan:** [`../../../futur-board-ticket-breakdown-psos.md`](../../../futur-board-ticket-breakdown-psos.md)
-- **Progress note:** Implementation, Convex development deployment, and signed-in live recovery QA are complete. A user-safe recovery projection, failed-model-only linked retries, preserved ready candidates, header status chip, partial/full recovery UX, and raw-error sanitization shipped locally. Final Claude Code/Fable 5 verdict: SHIP. Green gates: 371 unit/integration tests, 38 installed-Chromium component tests, clean Svelte/Convex typechecks, production build, diff check, and installed-Google-Chrome CDP validation of a genuine partial failure through successful recovery. Awaiting commit/push and production frontend rollout before `done`.
+- **Progress note:** Complete and released. A user-safe recovery projection, failed-model-only linked retries, preserved ready candidates, header status chip, partial/full recovery UX, and raw-error sanitization are live in production. Final Claude Code/Fable 5 verdict: SHIP. Green gates: 371 unit/integration tests, 38 installed-Chromium component tests, clean Svelte/Convex typechecks, production build, diff check, installed-Google-Chrome CDP validation of a genuine partial failure through successful recovery, and signed-in production smoke.
 
 > Work this ticket independently. Do not start implementation until every dependency below is complete or explicitly waived in this file. Only one PSOS ticket should normally be `in_progress` at a time.
 
@@ -16,35 +16,35 @@
 
 ### 1. Prepare
 
-- [ ] Re-read this ticket, its dependencies, and linked existing BNH work.
-- [ ] Inspect the current implementation and record affected files before editing.
-- [ ] Confirm unresolved decisions and assumptions; document any approved waiver.
-- [ ] Define the smallest safe rollout slice and rollback path.
+- [x] Re-read this ticket, its dependencies, and linked existing BNH work.
+- [x] Inspect the current implementation and record affected files before editing.
+- [x] Confirm unresolved decisions and assumptions; document any approved waiver.
+- [x] Define the smallest safe rollout slice and rollback path.
 
 ### 2. Implement
 
-- [ ] Complete backend/schema/domain work in scope.
-- [ ] Complete frontend/UX work in scope.
-- [ ] Add loading, empty, failure, permission-denied, and conflict states where relevant.
-- [ ] Add audit, authorization, OCC/idempotency, and migration handling where relevant.
-- [ ] Keep unrelated behavior and files unchanged.
+- [x] Complete backend/schema/domain work in scope.
+- [x] Complete frontend/UX work in scope.
+- [x] Add loading, empty, failure, permission-denied, and conflict states where relevant.
+- [x] Add audit, authorization, OCC/idempotency, and migration handling where relevant.
+- [x] Keep unrelated behavior and files unchanged.
 
 ### 3. Verify acceptance criteria
 
-- [ ] Work through every acceptance criterion below individually and attach evidence in the work log.
-- [ ] Add or update unit, integration, and regression coverage required by this ticket.
-- [ ] Verify keyboard, screen-reader labeling, touch targets, responsive layout, and reduced motion for UI work.
+- [x] Work through every acceptance criterion below individually and attach evidence in the work log.
+- [x] Add or update unit, integration, and regression coverage required by this ticket.
+- [x] Verify keyboard, screen-reader labeling, touch targets, responsive layout, and reduced motion for UI work.
 
 ### 4. Validate and close
 
-- [ ] Run targeted tests for the changed area.
-- [ ] Run `npm run check`.
-- [ ] Run the Convex TypeScript check.
-- [ ] Run `npm run test`.
-- [ ] Run `npm run build`.
-- [ ] Run formatting/lint commands if present and `git diff --check`.
-- [ ] Review the final diff for unrelated changes, unsafe migration behavior, and leaked secrets.
-- [ ] Update this file to `done`, record evidence, and update [`../README.md`](../README.md).
+- [x] Run targeted tests for the changed area.
+- [x] Run `npm run check`.
+- [x] Run the Convex TypeScript check.
+- [x] Run `npm run test`.
+- [x] Run `npm run build`.
+- [x] Run formatting/lint commands if present and `git diff --check`.
+- [x] Review the final diff for unrelated changes, unsafe migration behavior, and leaked secrets.
+- [x] Update this file to `done`, record evidence, and update [`../README.md`](../README.md).
 
 ## Ticket specification
 
@@ -66,13 +66,11 @@ beyond friendly model names; chip is text+shape, not color-only.
 **Technical notes**: query by `generations.by_projectId_and_status`; retry must be
 idempotent (reuse guards from BNH-52 work); header component in project layout.
 **Acceptance criteria**:
-- [ ] Given 3-model run with 1 failure, header shows partial-failure state; completed
-      candidates remain selectable; retry re-runs only the failed model.
-- [ ] Given full failure, user can retry all from header without navigating to logs.
-- [ ] Retry is idempotent under double-click (single new generation attempt).
-- [ ] Stale (stuck >threshold) generations surface as failed-with-retry, not spinner.
-- [ ] Tests: retry idempotency; partial-state query; component states (running/partial/
-      failed/recovered).
+- [x] Given a supported multi-model comparison with 1 failure, header shows partial-failure state; completed candidates remain selectable; retry re-runs only the failed model. The current canonical comparison product uses a 2-model pair; live QA proved the equivalent 1-ready/1-failed case.
+- [x] Given full failure, user can retry all from header without navigating to logs.
+- [x] Retry is idempotent under double-click (single new generation attempt).
+- [x] Stale (stuck >threshold) generations surface as failed-with-retry, not spinner.
+- [x] Tests: retry idempotency; partial-state query; component states (running/partial/failed/recovered).
 **Dependencies**: none. **Rollout**: pure additive UI + query.
 
 ## Claude Code/Fable planning pass
@@ -126,10 +124,12 @@ The 2026-07-28 high-reasoning audit reviewed all 36 PSOS tasks, current code, Gi
 | 2026-07-28 | Signed in through installed Google Chrome as an administrator and opened genuine partial generation `k579qgcv1e69acsrpaxam2cmgs8b9cqa` for project `k97cdf1xg9x6dqenftwe59ncq98b9rt3`. | Header showed “Some drafts need retry”; Opus 4.8 remained fully selectable; Sonnet 5 showed “Needs retry”; recovery copy exposed no provider details. |
 | 2026-07-28 | Activated “Retry failed drafts” once in the live development UI. | Created linked generation `k574pkzy3favphj2vqat820a7x8bcqwd`, persisted `retryModelIds: [claude-sonnet-5]`, seeded the completed Opus candidate, and scheduled only Sonnet 5. |
 | 2026-07-28 | Waited for the exact live retry to terminalize and reloaded the project in Chrome. | Recovery reached `awaiting_selection` with `candidatesDone: 2`, `candidatesFailed: 0`; both Sonnet 5 and Opus 4.8 were selectable, header returned to “Ready for your review,” original generation history remained linked, and no raw provider error appeared. |
+| 2026-07-28 | Committed and pushed implementation as `d03bea2` (`Add generation failure recovery workflow`). | Local `main` and `origin/main` matched `d03bea21eb0947235bdd5207b099e5b15023f6cf`; Vercel reported the exact commit deployment successful. |
+| 2026-07-28 | Promoted the reviewed Convex functions and completed signed-in production smoke at `https://banhall.vercel.app`. | Administrator login succeeded; recovered project loaded with “Ready for your review,” both Sonnet 5 and Opus 4.8 selectable, no raw provider strings, and no undefined-resource failures. PSOS-05 released. |
 
 ## Completion record
 
-- **Pull request/commit:** Uncommitted implementation pending scope-reviewed integration.
-- **Deployment:** Convex development functions deployed to `energized-salamander-237` with `npx convex dev --once`; frontend production not deployed.
+- **Pull request/commit:** `d03bea21eb0947235bdd5207b099e5b15023f6cf` — `Add generation failure recovery workflow`
+- **Deployment:** Vercel production deployment succeeded for `d03bea2`; canonical smoke URL `https://banhall.vercel.app`. Convex functions promoted successfully to the configured deployment at `https://energized-salamander-237.convex.cloud`.
 - **Follow-up tickets:** PSOS-18/19 remain responsible for persistent branches and non-destructive post-selection alternatives. Iterative-mode raw internal error copy is a separate pre-existing hardening follow-up.
-- **Known limitations accepted at closure:** Ticket remains `in_review` only because the implementation is uncommitted and the frontend has not been rolled out to production. Signed-in live partial-failure recovery QA passed in installed Google Chrome against Convex development.
+- **Known limitations accepted at closure:** The current comparison product uses two configured models rather than the source ticket’s three-model example; the recovery design supports a failed subset of the persisted canonical pair and was proven live with one ready and one failed model. Pre-existing iterative-mode raw-log hardening remains outside PSOS-05.

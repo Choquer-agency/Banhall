@@ -5,11 +5,11 @@ This directory is the internal source of truth for executing the **Banhall Profe
 - **Master product/ticket context:** [`../../futur-board-ticket-breakdown-psos.md`](../../futur-board-ticket-breakdown-psos.md)
 - **Task specifications:** [`tasks/`](tasks/)
 - **Total work items:** 36
-- **Current work item:** None — PSOS-04 and PSOS-05 are both in release review.
-- **Release-QA items:** **PSOS-04** mixed-upload receipts; **PSOS-05** generation failure recovery (`in_review`)
+- **Current work item:** None — PSOS-05 is complete; PSOS-04 remains in release review.
+- **Release-QA item:** **PSOS-04** — mixed-upload processing receipt with per-file statuses (`in_review`)
 - **Next ready work item:** **PSOS-06** — highlighted-text research in uploaded-PD review mode
 - **Also dependency-ready:** PSOS-07, PSOS-26
-- **Queue state:** PSOS-04 is committed and Convex-development deployed; PSOS-05 implementation, Convex-development deployment, and signed-in live partial-failure recovery QA are complete with final Fable verdict SHIP. PSOS-05 now awaits commit/push and production frontend rollout; PSOS-04 retains its separate release gate. Do not start PSOS-06 until the release-review concurrency is explicitly accepted under the one-active-ticket rule.
+- **Queue state:** PSOS-05 is committed, pushed, production-deployed, and signed-in smoke-tested with final Fable verdict SHIP. PSOS-04 retains its separate release gate. PSOS-06 is now the next single implementation ticket when work resumes.
 
 ## Operating rules
 
@@ -93,7 +93,7 @@ The first delivery train should proceed as follows:
 | [PSOS-02](tasks/PSOS-02.md) | Remove demo auto-login; normalize credentials; @banhall.com guidance | `done` | PSOS-01 |
 | [PSOS-03](tasks/PSOS-03.md) | Role descriptions & capability explanations in Users & roles | `done` | PSOS-01 |
 | [PSOS-04](tasks/PSOS-04.md) | Mixed-upload processing receipt with per-file statuses | `in_review` | — |
-| [PSOS-05](tasks/PSOS-05.md) | Generation failure & recovery surface in project header | `in_review` | — |
+| [PSOS-05](tasks/PSOS-05.md) | Generation failure & recovery surface in project header | `done` | — |
 | [PSOS-06](tasks/PSOS-06.md) | Verify highlighted-text research entry in uploaded-PD review mode | `ready` | — |
 
 ### P2 — Ownership and workflow foundation
@@ -187,4 +187,5 @@ None. Add an entry before starting more than one PSOS ticket simultaneously:
 | 2026-07-24 | PSOS-03 completed after Claude plan and review. | Shared Consultant/Manager/Admin descriptions now appear as accessible disclosures in invite and roster contexts; 4 focused tests added; 99 full-suite tests pass; no commit or deployment at that time. |
 | 2026-07-28 | PSOS program reconciled against the shipped repository by Claude Code/Fable 5 and Codex. | PSOS-04 release metadata corrected; PSOS-30 dependency corrected to PSOS-27; PSOS-05 selected as the sole active ticket because failure prevention had shipped but the per-model recovery surface remained absent. |
 | 2026-07-28 | PSOS-05 moved to release review after implementation, two Fable reviews, full validation, and Convex development deployment. | Per-model recovery preserves ready candidates, retries only failed models in a linked generation, sanitizes product error copy, and passes 371 unit/integration plus 38 browser-component tests. |
-| 2026-07-28 | PSOS-05 signed-in live recovery QA passed in installed Google Chrome. | Genuine partial generation `k579qgcv1e69acsrpaxam2cmgs8b9cqa` retried only failed Sonnet 5 in linked generation `k574pkzy3favphj2vqat820a7x8bcqwd`; retained Opus 4.8, finished 2/0, restored both selectable drafts, and exposed no provider error. Commit/push and frontend production rollout remain. |
+| 2026-07-28 | PSOS-05 signed-in live recovery QA passed in installed Google Chrome. | Genuine partial generation `k579qgcv1e69acsrpaxam2cmgs8b9cqa` retried only failed Sonnet 5 in linked generation `k574pkzy3favphj2vqat820a7x8bcqwd`; retained Opus 4.8, finished 2/0, restored both selectable drafts, and exposed no provider error. |
+| 2026-07-28 | PSOS-05 committed in `d03bea2`, pushed to `main`, deployed through Vercel, and closed after production smoke. | `https://banhall.vercel.app` accepted administrator login and rendered the recovered project with both drafts, the “Ready for your review” chip, no provider-error leak, and no undefined resources. PSOS-05 marked `done`; PSOS-06 becomes the next implementation ticket. |
