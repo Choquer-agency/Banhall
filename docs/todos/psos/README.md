@@ -5,10 +5,11 @@ This directory is the internal source of truth for executing the **Banhall Profe
 - **Master product/ticket context:** [`../../futur-board-ticket-breakdown-psos.md`](../../futur-board-ticket-breakdown-psos.md)
 - **Task specifications:** [`tasks/`](tasks/)
 - **Total work items:** 36
-- **Current work item:** **PSOS-04** — mixed-upload processing receipt with per-file statuses (`in_review`)
-- **Next ready work item:** **PSOS-05** — generation failure & recovery surface in project header
-- **Also dependency-ready:** PSOS-06, PSOS-07, PSOS-26, PSOS-30
-- **Queue state:** PSOS-04 implementation and all local gates are complete; final Fable audit says SHIP WITH KNOWN LIMITATIONS. Awaiting signed-in Chrome release QA, scope-reviewed commit, and Convex-first deployment before `done`.
+- **Current work item:** None — PSOS-04 and PSOS-05 are both in release review.
+- **Release-QA items:** **PSOS-04** mixed-upload receipts; **PSOS-05** generation failure recovery (`in_review`)
+- **Next ready work item:** **PSOS-06** — highlighted-text research in uploaded-PD review mode
+- **Also dependency-ready:** PSOS-07, PSOS-26
+- **Queue state:** PSOS-04 is committed and Convex-development deployed; PSOS-05 implementation, Convex-development deployment, and signed-in live partial-failure recovery QA are complete with final Fable verdict SHIP. PSOS-05 now awaits commit/push and production frontend rollout; PSOS-04 retains its separate release gate. Do not start PSOS-06 until the release-review concurrency is explicitly accepted under the one-active-ticket rule.
 
 ## Operating rules
 
@@ -92,7 +93,7 @@ The first delivery train should proceed as follows:
 | [PSOS-02](tasks/PSOS-02.md) | Remove demo auto-login; normalize credentials; @banhall.com guidance | `done` | PSOS-01 |
 | [PSOS-03](tasks/PSOS-03.md) | Role descriptions & capability explanations in Users & roles | `done` | PSOS-01 |
 | [PSOS-04](tasks/PSOS-04.md) | Mixed-upload processing receipt with per-file statuses | `in_review` | — |
-| [PSOS-05](tasks/PSOS-05.md) | Generation failure & recovery surface in project header | `ready` | — |
+| [PSOS-05](tasks/PSOS-05.md) | Generation failure & recovery surface in project header | `in_review` | — |
 | [PSOS-06](tasks/PSOS-06.md) | Verify highlighted-text research entry in uploaded-PD review mode | `ready` | — |
 
 ### P2 — Ownership and workflow foundation
@@ -114,7 +115,7 @@ The first delivery train should proceed as follows:
 | [PSOS-14](tasks/PSOS-14.md) | My Work dashboard: lanes, dense ledger rows, mobile cards | `not_started` | PSOS-11, PSOS-12 |
 | [PSOS-15](tasks/PSOS-15.md) | Team pipeline view for managers/admins | `not_started` | PSOS-12, PSOS-14 |
 | [PSOS-16](tasks/PSOS-16.md) | In-app notifications & Inbox (unread/read/archive, dedup) | `not_started` | PSOS-09, PSOS-12 |
-| [PSOS-17](tasks/PSOS-17.md) | Email notifications: preferences, delivery ledger, idempotent retries | `not_started` | PSOS-01 provider decision, PSOS-16 |
+| [PSOS-17](tasks/PSOS-17.md) | Email notifications: preferences, delivery ledger, idempotent retries | `blocked` | PSOS-01 provider decision, PSOS-16 |
 
 ### P4 — Persistent draft branches
 
@@ -142,7 +143,7 @@ The first delivery train should proceed as follows:
 | [PSOS-27](tasks/PSOS-27.md) | Authorization audit & migration of all Convex functions + matrix tests | `not_started` | PSOS-26 |
 | [PSOS-28](tasks/PSOS-28.md) | Financial role + role-aware landing/navigation | `not_started` | PSOS-26, PSOS-27 |
 | [PSOS-29](tasks/PSOS-29.md) | Role/capability matrix UI | `not_started` | PSOS-01, PSOS-26, PSOS-28 |
-| [PSOS-30](tasks/PSOS-30.md) | Decision ticket: membership-based project visibility (deferred) | `ready` | PSOS-01 |
+| [PSOS-30](tasks/PSOS-30.md) | Decision ticket: membership-based project visibility (deferred) | `not_started` | PSOS-27 |
 
 ### P7 — Client and claim-period financial workspace
 
@@ -183,4 +184,7 @@ None. Add an entry before starting more than one PSOS ticket simultaneously:
 | 2026-07-24 | PSOS-01 completed. | Vocabulary/storage contract, full stage transition matrix, four-role capability matrix, and all nine product decisions documented; full validation passed; no commit or deployment performed. |
 | 2026-07-24 | PSOS-02 urgent authentication slice started. | Removed demo auto-login/client credentials and stabilized sign-out/login rendering. |
 | 2026-07-24 | PSOS-02 completed after Claude plan and review. | Canonical auth/invite/user email handling, collision-safe migration tooling, 16 new tests, and clean development-deployment report/dry-runs completed; no commit or production deployment. |
-| 2026-07-24 | PSOS-03 completed after Claude plan and review. | Shared Consultant/Manager/Admin descriptions now appear as accessible disclosures in invite and roster contexts; 4 focused tests added; 99 full-suite tests pass; no commit or deployment. |
+| 2026-07-24 | PSOS-03 completed after Claude plan and review. | Shared Consultant/Manager/Admin descriptions now appear as accessible disclosures in invite and roster contexts; 4 focused tests added; 99 full-suite tests pass; no commit or deployment at that time. |
+| 2026-07-28 | PSOS program reconciled against the shipped repository by Claude Code/Fable 5 and Codex. | PSOS-04 release metadata corrected; PSOS-30 dependency corrected to PSOS-27; PSOS-05 selected as the sole active ticket because failure prevention had shipped but the per-model recovery surface remained absent. |
+| 2026-07-28 | PSOS-05 moved to release review after implementation, two Fable reviews, full validation, and Convex development deployment. | Per-model recovery preserves ready candidates, retries only failed models in a linked generation, sanitizes product error copy, and passes 371 unit/integration plus 38 browser-component tests. |
+| 2026-07-28 | PSOS-05 signed-in live recovery QA passed in installed Google Chrome. | Genuine partial generation `k579qgcv1e69acsrpaxam2cmgs8b9cqa` retried only failed Sonnet 5 in linked generation `k574pkzy3favphj2vqat820a7x8bcqwd`; retained Opus 4.8, finished 2/0, restored both selectable drafts, and exposed no provider error. Commit/push and frontend production rollout remain. |

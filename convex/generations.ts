@@ -26,6 +26,7 @@ import {
   CANDIDATE_MODELS,
   MODEL,
   gatewayForModel,
+  modelById,
   type CandidateModelId,
 } from "../shared/generationModels";
 import { randomComparePair, resolveCompareModels } from "./ai/model";
@@ -109,7 +110,6 @@ export const getGeneration = query({
       status: generation.status,
       candidateMode: generation.candidateMode ?? "compare",
       currentStep: generation.currentStep,
-      progressLog: generation.progressLog,
       estimatedMs: generation.estimatedMs,
       totalCandidates: generation.totalCandidates,
       candidatesDone: generation.candidatesDone,
@@ -117,8 +117,39 @@ export const getGeneration = query({
       requestedAt: generation.requestedAt,
       startedAt: generation.startedAt,
       completedAt: generation.completedAt,
-      error: generation.error,
       agentOutputs: generation.agentOutputs,
+    };
+  },
+});
+
+/** User-safe recovery state. Raw provider errors and progress-log strings do
+ * not cross this boundary. */
+export const getGenerationRecovery = query({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) return null;
+    if (!(await getInternalProjectAccessOrNull(ctx, generation.projectId))) return null;
+    const runs = await ctx.db
+      .query("generationCandidateRuns")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      .take(10);
+    const models = runs
+      .filter((run) => !run.ghost)
+      .map((run) => ({
+        model: run.model,
+        label: modelById(run.model)?.label ?? run.label ?? "Draft model",
+        status: run.status,
+      }));
+    return {
+      generationId: generation._id,
+      status: generation.status,
+      retryOfGenerationId: generation.retryOfGenerationId ?? null,
+      candidatesDone:
+        generation.candidatesDone ?? models.filter((run) => run.status === "succeeded").length,
+      candidatesFailed:
+        generation.candidatesFailed ?? models.filter((run) => run.status === "failed").length,
+      models,
     };
   },
 });
@@ -205,7 +236,9 @@ async function reserveGeneration(
   candidateMode: CandidateMode,
   explicitSingleModelId?: CandidateModelId,
   compareModelIds?: string[],
-  retryOfGenerationId?: Id<"generations">
+  retryOfGenerationId?: Id<"generations">,
+  retryModelIds?: string[],
+  seededCandidates = 0
 ) {
   // "Default" in single/iterative modes resolves to the admin-set default
   // model (appSettings), persisted here so retries reuse the same model even
@@ -264,6 +297,12 @@ async function reserveGeneration(
           (model) => model.id
         )
       : undefined;
+  const persistedRetryModelIds = retryModelIds?.filter((id) =>
+    persistedCompareModelIds?.some((modelId) => modelId === id)
+  );
+  if (retryModelIds && (!persistedRetryModelIds || persistedRetryModelIds.length === 0)) {
+    domainError("INVALID_INPUT", "No failed models are available to retry");
+  }
 
   // OpenRouter key is only required when a selected model routes through it —
   // fail here with a clear error instead of mid-generation.
@@ -287,10 +326,12 @@ async function reserveGeneration(
     singleModelId,
     compareModelIds: persistedCompareModelIds,
     retryOfGenerationId,
+    retryModelIds: persistedRetryModelIds,
+    seededCandidates: seededCandidates || undefined,
     previousProjectStatus: project.status,
     currentStep: "Queued",
     progressLog: ["Generation request reserved."],
-    candidatesDone: 0,
+    candidatesDone: seededCandidates,
     candidatesFailed: 0,
     startedAt: now,
   });
@@ -408,6 +449,135 @@ export const retryGeneration = mutation({
   },
 });
 
+/** Retry only failed compare-mode models. Successful candidates are copied
+ * into a fresh linked generation before failed models are scheduled. */
+export const retryFailedCandidates = mutation({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) domainError("NOT_FOUND", "Generation not found");
+    if ((generation.candidateMode ?? "compare") !== "compare") {
+      domainError("INVALID_INPUT", "Only comparison drafts support model-specific retry");
+    }
+    if (generation.status !== "awaiting_selection") {
+      domainError("INVALID_STATE", "Only a partial generation can retry failed drafts");
+    }
+    const { project, user } = await requireInternalProjectAccess(ctx, generation.projectId);
+    const transcript = await ctx.db.get(generation.transcriptId);
+    if (!transcript) domainError("NOT_FOUND", "Transcript not found");
+    const runs = await ctx.db
+      .query("generationCandidateRuns")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      .take(10);
+    const failedModelIds = runs
+      .filter((run) => !run.ghost && run.status === "failed")
+      .map((run) => run.model);
+    if (failedModelIds.length === 0) {
+      domainError("INVALID_STATE", "There are no failed drafts to retry");
+    }
+    const compareModelIds =
+      generation.compareModelIds ?? [
+        ...new Set(runs.filter((run) => !run.ghost).map((run) => run.model)),
+      ];
+    if (!resolveCompareModels(compareModelIds)) {
+      domainError(
+        "INVALID_STATE",
+        "This older comparison cannot retry individual drafts. Start a fresh generation instead"
+      );
+    }
+    const sourceCandidates = await ctx.db
+      .query("reportCandidates")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      .take(10);
+    const successfulCandidates = sourceCandidates.filter((candidate) =>
+      runs.some(
+        (run) =>
+          !run.ghost &&
+          run.status === "succeeded" &&
+          run.candidateId === candidate._id
+      )
+    );
+    const now = Date.now();
+    // Supersede the partial selection state inside the same transaction so the
+    // normal active-generation guard can reserve its linked recovery. The
+    // original candidates and run rows stay intact as attempt history.
+    await ctx.db.patch(generation._id, {
+      status: "completed",
+      currentStep: "Recovery started",
+      completedAt: now,
+    });
+    await ctx.db.patch(project._id, {
+      activeGenerationId: undefined,
+      status: generation.previousProjectStatus ?? "draft",
+      updatedAt: now,
+    });
+    const resetProject = await ctx.db.get(project._id);
+    if (!resetProject) domainError("NOT_FOUND", "Project not found");
+    let retryId: Id<"generations">;
+    try {
+      retryId = await reserveGeneration(
+        ctx,
+        resetProject,
+        transcript,
+        user._id,
+        generation.lengthTarget ?? "standard",
+        "compare",
+        undefined,
+        compareModelIds,
+        generation._id,
+        failedModelIds,
+        successfulCandidates.length
+      );
+    } catch (error) {
+      // The whole mutation is transactional, so this restoration mainly
+      // documents the intended invariant and protects future refactors that
+      // move reservation work behind a non-throwing boundary.
+      await ctx.db.patch(generation._id, {
+        status: "awaiting_selection",
+        currentStep: "Choose your preferred draft",
+        completedAt: undefined,
+      });
+      await ctx.db.patch(project._id, {
+        activeGenerationId: generation._id,
+        status: "generating",
+        updatedAt: Date.now(),
+      });
+      throw error;
+    }
+    for (const candidate of successfulCandidates) {
+      const candidateId = await ctx.db.insert("reportCandidates", {
+        projectId: candidate.projectId,
+        generationId: retryId,
+        model: candidate.model,
+        label: candidate.label,
+        content: candidate.content,
+        agentOutputs: candidate.agentOutputs,
+        provenanceId: candidate.provenanceId,
+        createdAt: now,
+      });
+      await ctx.db.insert("generationCandidateRuns", {
+        generationId: retryId,
+        projectId: candidate.projectId,
+        model: candidate.model,
+        label: candidate.label,
+        status: "succeeded",
+        candidateId,
+        queuedAt: now,
+        completedAt: now,
+      });
+    }
+    await ctx.db.patch(retryId, {
+      progressLog: [
+        "Generation recovery reserved.",
+        successfulCandidates.length > 0
+          ? `Kept ${successfulCandidates.length} completed draft${successfulCandidates.length === 1 ? "" : "s"}.`
+          : "Retrying all failed drafts.",
+      ],
+    });
+    return retryId;
+  },
+});
+
 // ─── Internal functions used by the pipeline action ──────────────────────────
 
 export const beginGeneration = internalMutation({
@@ -454,6 +624,8 @@ export const getGenerationInput = internalQuery({
       candidateMode: generation.candidateMode ?? "compare",
       singleModelId: generation.singleModelId as CandidateModelId | undefined,
       compareModelIds: generation.compareModelIds,
+      retryModelIds: generation.retryModelIds,
+      seededCandidates: generation.seededCandidates ?? 0,
       industry: project.industry,
       scienceCode: project.scienceCode,
       contextDocs: sources

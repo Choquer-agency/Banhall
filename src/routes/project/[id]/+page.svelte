@@ -25,6 +25,7 @@
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import GenerationProgress from "$lib/components/generation/GenerationProgress.svelte";
   import CandidateSelection from "$lib/components/generation/CandidateSelection.svelte";
+  import GenerationStatusChip from "$lib/components/generation/GenerationStatusChip.svelte";
   import IterativeStepper from "$lib/components/generation/IterativeStepper.svelte";
   import Editor from "$lib/components/editor/Editor.svelte";
   import type {
@@ -810,14 +811,15 @@
             Share failed: {shareError}
           </span>
         {/if}
-        <Badge
-          status={awaitingSelection
-            ? "awaiting"
-            : generation?.status === "awaiting_input"
-              ? "awaiting_input"
-              : project.status}
-          dot
-        />
+        {#if generation && generation.status !== "completed"}
+          <GenerationStatusChip
+            status={generation.status}
+            candidatesDone={generation.candidatesDone ?? 0}
+            candidatesFailed={generation.candidatesFailed ?? 0}
+          />
+        {:else}
+          <Badge status={project.status} dot />
+        {/if}
       {/snippet}
     </AppNav>
 
@@ -1517,8 +1519,7 @@
         {#if project.mode === "review" && generation?.status === "failed"}
           <div class="mt-8 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
             <p class="text-sm text-red-700">
-              The comparison draft generation failed{generation.error ? `: ${generation.error}` : "."}
-              Use “Generate PD for comparison” below to retry.
+              The comparison draft stopped before it completed. Use “Generate PD for comparison” below to try again.
             </p>
           </div>
         {/if}

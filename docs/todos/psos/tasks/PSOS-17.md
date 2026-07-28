@@ -2,13 +2,13 @@
 
 ## Work control
 
-- **Status:** `not_started`
+- **Status:** `blocked`
 - **Phase:** P3
 - **Current owner:** Unassigned
 - **Started:** —
 - **Completed:** —
 - **Source plan:** [`../../../futur-board-ticket-breakdown-psos.md`](../../../futur-board-ticket-breakdown-psos.md)
-- **Progress note:** Not started.
+- **Progress note:** Blocked by product-domain decision D6: no notification email provider has been selected. Build PSOS-16 in-app notifications first; do not introduce provider-specific schema, secrets, or delivery behavior without explicit approval.
 
 > Work this ticket independently. Do not start implementation until every dependency below is complete or explicitly waived in this file. Only one PSOS ticket should normally be `in_progress` at a time.
 

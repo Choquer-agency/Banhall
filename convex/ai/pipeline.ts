@@ -12,7 +12,7 @@ import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
 import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
-import { candidateModelsForMode } from "./model";
+import { CANDIDATE_MODELS, candidateModelsForMode } from "./model";
 import { normalizeProviderError } from "./providers";
 import { buildTiptapDocument } from "../lib/tiptapReport";
 import {
@@ -370,11 +370,16 @@ export const generateReport = internalAction({
     const title = input.title || "Untitled Report";
     const lengthTarget: LengthTarget = input.lengthTarget;
     const contextDocs = toContextDocs(input.contextDocs);
-    const candidateModels = candidateModelsForMode(
-      input.candidateMode,
-      input.singleModelId,
-      input.compareModelIds
-    );
+    const candidateModels = input.retryModelIds?.length
+      ? input.retryModelIds
+          .map((id) => CANDIDATE_MODELS.find((model) => model.id === id))
+          .filter((model): model is (typeof CANDIDATE_MODELS)[number] => model !== undefined)
+      : candidateModelsForMode(
+          input.candidateMode,
+          input.singleModelId,
+          input.compareModelIds
+        );
+    const seededCandidates = input.seededCandidates ?? 0;
     const retrievalBriefClient = instrumentedAnthropic(ctx, {
       callSite: "generation:retrieval_brief",
       capability: "generation",
@@ -430,7 +435,7 @@ export const generateReport = internalAction({
       await ctx.runMutation(internal.generations.setGenerationEstimate, {
         generationId: genId,
         estimatedMs,
-        totalCandidates: candidateModels.length,
+        totalCandidates: candidateModels.length + seededCandidates,
       });
 
       await ctx.runMutation(internal.generations.updateGenerationStatus, {

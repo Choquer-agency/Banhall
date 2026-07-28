@@ -2,13 +2,13 @@
 
 ## Work control
 
-- **Status:** `ready`
+- **Status:** `not_started`
 - **Phase:** P6
 - **Current owner:** Unassigned
 - **Started:** —
 - **Completed:** —
 - **Source plan:** [`../../../futur-board-ticket-breakdown-psos.md`](../../../futur-board-ticket-breakdown-psos.md)
-- **Progress note:** Dependencies satisfied by PSOS-01; ready to begin in queue order.
+- **Progress note:** Not dependency-ready. The approved specification requires PSOS-27 to establish the enforced authorization baseline before this visibility decision is evaluated; no waiver has been approved.
 
 > Work this ticket independently. Do not start implementation until every dependency below is complete or explicitly waived in this file. Only one PSOS ticket should normally be `in_progress` at a time.
 

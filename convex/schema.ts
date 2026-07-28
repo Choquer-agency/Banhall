@@ -280,6 +280,11 @@ export default defineSchema({
     // rows, which fall back to the full candidate roster.
     compareModelIds: v.optional(v.array(v.string())),
     retryOfGenerationId: v.optional(v.id("generations")),
+    // A recovery generation can rerun only the failed models while carrying
+    // successful candidates forward. The full compare pair remains in
+    // compareModelIds for provenance; this bounded subset drives scheduling.
+    retryModelIds: v.optional(v.array(v.string())),
+    seededCandidates: v.optional(v.number()),
     scheduledJobId: v.optional(v.id("_scheduled_functions")),
     previousProjectStatus: v.optional(
       v.union(

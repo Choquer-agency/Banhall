@@ -2,13 +2,13 @@
 
 ## Work control
 
-- **Status:** `ready`
+- **Status:** `in_review`
 - **Phase:** P1
-- **Current owner:** Unassigned
-- **Started:** —
+- **Current owner:** Pi coding agent
+- **Started:** 2026-07-28
 - **Completed:** —
 - **Source plan:** [`../../../futur-board-ticket-breakdown-psos.md`](../../../futur-board-ticket-breakdown-psos.md)
-- **Progress note:** Dependencies satisfied by PSOS-01; ready to begin in queue order.
+- **Progress note:** Implementation, Convex development deployment, and signed-in live recovery QA are complete. A user-safe recovery projection, failed-model-only linked retries, preserved ready candidates, header status chip, partial/full recovery UX, and raw-error sanitization shipped locally. Final Claude Code/Fable 5 verdict: SHIP. Green gates: 371 unit/integration tests, 38 installed-Chromium component tests, clean Svelte/Convex typechecks, production build, diff check, and installed-Google-Chrome CDP validation of a genuine partial failure through successful recovery. Awaiting commit/push and production frontend rollout before `done`.
 
 > Work this ticket independently. Do not start implementation until every dependency below is complete or explicitly waived in this file. Only one PSOS ticket should normally be `in_progress` at a time.
 
@@ -75,21 +75,61 @@ idempotent (reuse guards from BNH-52 work); header component in project layout.
       failed/recovered).
 **Dependencies**: none. **Rollout**: pure additive UI + query.
 
+## Claude Code/Fable planning pass
+
+The 2026-07-28 high-reasoning audit reviewed all 36 PSOS tasks, current code, Git history, the domain contract, Svelte migration rules, and Convex guidelines. It recommended PSOS-05 next because recent generation-alert fixes reduce provider failures but do not implement the meeting-requested recovery surface.
+
+### Verified starting point
+
+- `generationCandidateRuns` already stores one durable row per model with queued/running/succeeded/failed state.
+- `retryGeneration` handles full failures, while `reserveGeneration` and `activeGenerationId` fence overlapping whole generations.
+- `failStaleGenerations` converts stranded runs to recoverable failed states.
+- `GenerationProgress.svelte` has a full-failure retry button, but renders stored raw errors.
+- Partial failures end in `awaiting_selection`; `CandidateSelection.svelte` does not acknowledge failed models, and the existing retry mutation rejects this state.
+
+### Smallest safe implementation slice
+
+1. Add a bounded, access-controlled generation recovery projection that returns friendly model labels and statuses but never raw provider errors.
+2. Add an idempotent mutation for retrying only failed non-ghost candidate models while preserving every successful candidate. Retry work is represented by a fresh linked generation containing only the failed models; the original successful candidates remain selectable and immutable.
+3. Add user-safe shared generation-status copy and replace raw stored errors in product UI, including the visible activity log.
+4. Add a dense partial/full failure panel and header status chip, with one obvious retry action and an explicit “Continue with ready drafts” path.
+5. Cover partial, full, stale, double-submit, authorization, unknown/legacy payload, keyboard, touch-target, and responsive states.
+6. Deploy Convex before any frontend depending on the new projection/mutation. Rollback is frontend-first; additive server functions and linked retry rows are safe to leave in place.
+
+### Explicit scope boundaries
+
+- No report-branch materialization or preservation change; PSOS-18/19 still own persistent alternatives after selection.
+- No human workflow-stage updates; generation state remains technical per the domain contract.
+- No new provider engine behavior; recent provider-budget/structured-output fixes remain separate failure-prevention work.
+- Ghost iterative comparison runs are excluded from recovery counts and retries.
+
 ## Decision and assumption log
 
 | Date | Decision or assumption | Reason | Approved by |
 |---|---|---|---|
-| — | — | — | — |
+| 2026-07-28 | Sanitize the activity log as part of PSOS-05 rather than exposing stored provider strings behind “Show activity.” | The product-domain contract prohibits raw provider/Convex strings in end-user copy; leaving the expandable log unsanitized would violate the same acceptance goal as the failure panel. | Existing approved domain contract |
+| 2026-07-28 | Retry failed models in a new linked generation instead of mutating terminal candidate-run rows in place. | Candidate-run rows are durable attempt history; a linked retry preserves auditability, uses existing scheduling/fencing, and avoids resetting immutable evidence. Successful candidates in the original generation remain available. | Implementation decision |
+| 2026-07-28 | A partial-retry generation may contain one or more explicitly persisted compare models. | The existing compare-mode pipeline is model-list driven; allowing a bounded non-empty retry subset avoids rerunning successful models without introducing a new generation mode. | Implementation decision |
 
 ## Work log and evidence
 
 | Date | Change/evidence | Result |
 |---|---|---|
 | — | Ticket created from the PSOS master plan. | Not started |
+| 2026-07-28 | Claude Code/Fable 5 program audit and independent Codex code-reality audit completed. | Both audits recommended PSOS-05 next and verified the same missing recovery/UI paths; no implementation edits preceded planning. |
+| 2026-07-28 | Ticket selected as the sole active queue item; queue/dependency metadata reconciled. | Implementation started under the one-active-ticket rule. |
+| 2026-07-28 | Added the authenticated bounded recovery projection and linked failed-model retry mutation. | Successful candidates and original attempt rows remain intact; only failed non-ghost models are scheduled in a fresh generation. Legacy model pairs are proven from durable runs or rejected without random fallback. |
+| 2026-07-28 | Added `GenerationRecoveryPanel`, `GenerationStatusChip`, safe activity copy, and CandidateSelection recovery controls. | Partial and full failures have plain-language next actions; product UI no longer renders compare-generation provider errors or raw progress logs. |
+| 2026-07-28 | Added Convex, unit, and browser-component regressions. | Covers projection privacy, authentication, linked retry idempotency, legacy rollback, seeded retry success/re-failure math, copy, statuses, 44px targets, and partial/full UI. |
+| 2026-07-28 | Claude Code/Fable post-implementation review found two blockers. | Fixed the remaining raw-error status line and prevented legacy retries from falling through to a random compare pair; added seeded terminalization tests. Final re-review verdict: **SHIP**, no blockers. |
+| 2026-07-28 | Final validation and Convex development deployment completed. | 371/371 unit/integration tests, 38/38 component tests, `npm run check` 0 errors/warnings, Convex TypeScript clean, production build passed, `git diff --check` clean. Installed Google Chrome was launched directly with CDP on port 9222; `/styleguide` loaded with the current Svelte bundle and no undefined-resource failures. |
+| 2026-07-28 | Signed in through installed Google Chrome as an administrator and opened genuine partial generation `k579qgcv1e69acsrpaxam2cmgs8b9cqa` for project `k97cdf1xg9x6dqenftwe59ncq98b9rt3`. | Header showed “Some drafts need retry”; Opus 4.8 remained fully selectable; Sonnet 5 showed “Needs retry”; recovery copy exposed no provider details. |
+| 2026-07-28 | Activated “Retry failed drafts” once in the live development UI. | Created linked generation `k574pkzy3favphj2vqat820a7x8bcqwd`, persisted `retryModelIds: [claude-sonnet-5]`, seeded the completed Opus candidate, and scheduled only Sonnet 5. |
+| 2026-07-28 | Waited for the exact live retry to terminalize and reloaded the project in Chrome. | Recovery reached `awaiting_selection` with `candidatesDone: 2`, `candidatesFailed: 0`; both Sonnet 5 and Opus 4.8 were selectable, header returned to “Ready for your review,” original generation history remained linked, and no raw provider error appeared. |
 
 ## Completion record
 
-- **Pull request/commit:** —
-- **Deployment:** —
-- **Follow-up tickets:** —
-- **Known limitations accepted at closure:** —
+- **Pull request/commit:** Uncommitted implementation pending scope-reviewed integration.
+- **Deployment:** Convex development functions deployed to `energized-salamander-237` with `npx convex dev --once`; frontend production not deployed.
+- **Follow-up tickets:** PSOS-18/19 remain responsible for persistent branches and non-destructive post-selection alternatives. Iterative-mode raw internal error copy is a separate pre-existing hardening follow-up.
+- **Known limitations accepted at closure:** Ticket remains `in_review` only because the implementation is uncommitted and the frontend has not been rolled out to production. Signed-in live partial-failure recovery QA passed in installed Google Chrome against Convex development.

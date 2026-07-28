@@ -33,11 +33,13 @@
   import QALauncher from "$lib/components/qa/QALauncher.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { useQuery, useMutation } from "convex-svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import { api } from "../../../../convex/_generated/api";
   import ReadOnlyEditor from "$lib/components/review/ReadOnlyEditor.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { reportSectionMetrics } from "$lib/reportSections";
+  import GenerationRecoveryPanel from "./GenerationRecoveryPanel.svelte";
 
   /**
    * Candidate picker (port of src/components/generation/CandidateSelection.tsx).
@@ -55,8 +57,11 @@
   } = $props();
 
   const candidatesQ = useQuery(api.generations.getCandidates, () => ({ generationId }));
+  const recoveryQ = useQuery(api.generations.getGenerationRecovery, () => ({ generationId }));
   const candidates = $derived(candidatesQ.data);
+  const recovery = $derived(recoveryQ.data);
   const selectCandidate = useMutation(api.generations.selectReportCandidate);
+  const retryFailedCandidates = useMutation(api.generations.retryFailedCandidates);
 
   // BNH-48: optional 1–10 writer score per option, persisted immediately.
   const scoreCandidateMut = useMutation(api.generations.scoreCandidate);
@@ -174,13 +179,27 @@
   }
   let activePos = $state(0);
   let choosing = $state(false);
+  let retryingFailed = $state(false);
+
+  async function retryFailed() {
+    if (retryingFailed) return;
+    retryingFailed = true;
+    actionError = "";
+    try {
+      await retryFailedCandidates({ generationId });
+    } catch (error) {
+      actionError = userErrorMessage(error, "The failed drafts could not be restarted.");
+    } finally {
+      retryingFailed = false;
+    }
+  }
 
   // Display candidates in stable model-registry order, labelled by model.
   // Dedup by _id: a retry racing the subscription briefly delivered the same
   // candidate row twice, crashing the keyed {#each} (alerts, Jul 10).
   const displayed = $derived.by(() => {
     if (!candidates) return [];
-    const seen = new Set<string>();
+    const seen = new SvelteSet<string>();
     return registryOrder(candidates).filter((c) => {
       if (seen.has(c._id)) return false;
       seen.add(c._id);
@@ -225,12 +244,28 @@
         which model works best.
       </p>
 
+      {#if recovery && recovery.candidatesFailed > 0}
+        <div class="mb-5">
+          <GenerationRecoveryPanel
+            models={recovery.models}
+            candidatesDone={recovery.candidatesDone}
+            candidatesFailed={recovery.candidatesFailed}
+            busy={retryingFailed}
+            onRetry={retryFailed}
+            onContinue={() => {
+              document.querySelector<HTMLButtonElement>("[data-candidate-option]")?.focus();
+            }}
+          />
+        </div>
+      {/if}
+
       <!-- Model option tabs -->
       <div class="flex flex-wrap gap-2">
         {#each displayed as c, i (c._id)}
           {@const myScore = myScores.get(c._id)?.score}
           <button
             type="button"
+            data-candidate-option
             aria-pressed={i === pos}
             onclick={() => {
               activePos = i;

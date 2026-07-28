@@ -4,6 +4,7 @@
   import type { Id } from "../../../../convex/_generated/dataModel";
   import Button from "$lib/components/ui/Button.svelte";
   import { userErrorMessage } from "$lib/errors";
+  import { safeGenerationActivity } from "$lib/generation/recovery";
 
   /**
    * Live generation progress card (port of src/components/generation/GenerationProgress.tsx).
@@ -23,7 +24,11 @@
   let now = $state(0);
   const activityId = "generation-activity";
 
-  const log = $derived(generation?.progressLog ?? []);
+  const activity = $derived(
+    generation
+      ? safeGenerationActivity(generation.status, generation.currentStep)
+      : "Preparing the project inputs."
+  );
 
   function clamp(n: number, lo: number, hi: number) {
     return Math.max(lo, Math.min(hi, n));
@@ -78,12 +83,10 @@
     }
   }
 
-  // Keep the (collapsed) terminal pinned to the newest line when open.
+  // Keep the compact activity panel visible when opened.
   $effect(() => {
-    void log.length;
-    if (showLog && scrollEl) {
-      scrollEl.scrollTop = scrollEl.scrollHeight;
-    }
+    void activity;
+    if (showLog && scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
   });
 
   const estimatedMs = $derived(generation?.estimatedMs ?? 0);
@@ -114,9 +117,7 @@
         : 1
   );
 
-  const currentLine = $derived(
-    log.length > 0 ? log[log.length - 1] : (generation?.currentStep ?? "Warming up…")
-  );
+  const currentLine = $derived(activity);
 
   const totalMins = $derived(Math.round(estimatedMs / 60_000));
 </script>
@@ -155,7 +156,7 @@
     <!-- Subtle status line under the bar -->
     <div class="mt-2 flex items-center justify-between gap-3">
       <p class="min-w-0 flex-1 truncate text-xs text-gray-500">
-        {isActive ? currentLine : isComplete ? "Done." : generation.error}
+        {isActive ? currentLine : isComplete ? "Done." : activity}
       </p>
       <div class="flex flex-shrink-0 items-center gap-2 text-xs text-gray-400">
         {#if isRunning && totalCandidates > 0}
@@ -199,15 +200,10 @@
         bind:this={scrollEl}
         class="mt-2 h-[180px] overflow-y-auto rounded-xl bg-navy px-4 py-3 font-mono text-[12px] leading-[1.7] text-white/85"
       >
-        {#if log.length === 0 && isActive}
-          <div class="text-white/50">› warming up…</div>
-        {/if}
-        {#each log as line, i}
-          <div class="flex gap-2">
-            <span class="select-none text-primary-light">›</span>
-            <span class="flex-1">{line}{#if i === log.length - 1 && isActive}<span class="ml-0.5 inline-block animate-pulse">▍</span>{/if}</span>
-          </div>
-        {/each}
+        <div class="flex gap-2">
+          <span class="select-none text-primary-light">›</span>
+          <span class="flex-1">{activity}{#if isActive}<span class="ml-0.5 inline-block animate-pulse motion-reduce:animate-none">▍</span>{/if}</span>
+        </div>
         {#if isComplete}
           <div class="flex gap-2 text-green-400">
             <span class="select-none">✓</span>
@@ -220,7 +216,7 @@
     {#if isFailed}
       <div class="mt-3 rounded-lg bg-red-50 px-3 py-2.5">
         <p class="text-sm text-red-700">
-          {generation.error ?? "The run stopped before any draft finished."}
+          {activity}
         </p>
       </div>
       <div class="mt-3 flex items-center gap-3">
