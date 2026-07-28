@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { workflowStageValidator } from "./lib/contracts";
 
 export default defineSchema({
   // Auth lives in the Better Auth component (see convex/auth.ts). This app
@@ -73,6 +74,12 @@ export default defineSchema({
     // BNH-39: how the project started — generate a PD from a transcript
     // (default, absent on older projects) or review an existing written PD.
     mode: v.optional(v.union(v.literal("generate"), v.literal("review"))),
+    // PSOS-07 widen phase. Owner is durable accountability and never replaces
+    // immutable createdBy. Human workflow remains separate from legacy status
+    // and technical generation state. PSOS-08 owns backfill.
+    ownerId: v.optional(v.id("users")),
+    workflowStage: v.optional(workflowStageValidator),
+    workflowUpdatedAt: v.optional(v.number()),
     status: v.union(
       v.literal("draft"),
       v.literal("generating"),
@@ -104,7 +111,37 @@ export default defineSchema({
     .index("by_createdBy", ["createdBy"])
     .index("by_status", ["status"])
     .index("by_shareToken", ["shareToken"])
-    .index("by_industry", ["industry"]),
+    .index("by_industry", ["industry"])
+    .index("by_ownerId", ["ownerId"])
+    .index("by_ownerId_and_workflowStage", ["ownerId", "workflowStage"])
+    .index("by_workflowStage", ["workflowStage"]),
+
+  // PSOS-07: append-only project audit history. No update/delete API is
+  // exported; later tickets widen this discriminated union for new event kinds.
+  projectEvents: defineTable(
+    v.union(
+      v.object({
+        projectId: v.id("projects"),
+        type: v.literal("ownership_transferred"),
+        actorId: v.id("users"),
+        at: v.number(),
+        from: v.optional(v.id("users")),
+        to: v.id("users"),
+        note: v.optional(v.string()),
+      }),
+      v.object({
+        projectId: v.id("projects"),
+        type: v.literal("stage_changed"),
+        actorId: v.id("users"),
+        at: v.number(),
+        from: v.optional(workflowStageValidator),
+        to: workflowStageValidator,
+        note: v.optional(v.string()),
+      })
+    )
+  )
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_and_type", ["projectId", "type"]),
 
   // ─── BNH-35: admin-curated project tags (nested via parentId) ──────────────
   tags: defineTable({

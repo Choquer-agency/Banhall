@@ -32,6 +32,19 @@ export const projectStatusValidator = v.union(
   v.literal("final")
 );
 
+export const workflowStageValidator = v.union(
+  v.literal("intake"),
+  v.literal("interview_complete"),
+  v.literal("drafting"),
+  v.literal("internal_review"),
+  v.literal("client_review"),
+  v.literal("revisions"),
+  v.literal("ready_for_delivery"),
+  v.literal("delivered"),
+  v.literal("on_hold"),
+  v.literal("abandoned")
+);
+
 export const generationStatusValidator = v.union(
   v.literal("reserved"),
   v.literal("running"),

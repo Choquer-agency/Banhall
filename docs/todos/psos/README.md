@@ -5,11 +5,10 @@ This directory is the internal source of truth for executing the **Banhall Profe
 - **Master product/ticket context:** [`../../futur-board-ticket-breakdown-psos.md`](../../futur-board-ticket-breakdown-psos.md)
 - **Task specifications:** [`tasks/`](tasks/)
 - **Total work items:** 36
-- **Current work item:** None — PSOS-06 is complete; PSOS-04 remains in release review.
-- **Release-QA item:** **PSOS-04** — mixed-upload processing receipt with per-file statuses (`in_review`)
-- **Next ready work item:** **PSOS-07** — project owner + current assignee fields
-- **Also dependency-ready:** PSOS-26
-- **Queue state:** PSOS-06 is committed, production-deployed, and signed-in smoke-tested with final Claude Code/Fable verdict SHIP. Direct source-PD research is deferred to imported-report branches in PSOS-18/19.
+- **Current work item:** None — PSOS-07 is in release review.
+- **Release-QA items:** **PSOS-04** mixed-upload receipts; **PSOS-07** ownership/workflow schema widen (`in_review`)
+- **Next planned work item:** **PSOS-26** — role capability presets and server helpers, after PSOS-07 releases
+- **Queue state:** PSOS-07 implementation, full validation, and final Claude Code/Fable review are complete with verdict SHIP. PSOS-26 has been planned but remains inactive until PSOS-07 production deployment succeeds.
 
 ## Operating rules
 
@@ -100,7 +99,7 @@ The first delivery train should proceed as follows:
 
 | ID | Work item | Status | Dependencies |
 |---|---|---|---|
-| [PSOS-07](tasks/PSOS-07.md) | Schema: ownerId, workflowStage, workflowUpdatedAt + audit events + indexes | `ready` | PSOS-01 |
+| [PSOS-07](tasks/PSOS-07.md) | Schema: ownerId, workflowStage, workflowUpdatedAt + audit events + indexes | `in_review` | PSOS-01 |
 | [PSOS-08](tasks/PSOS-08.md) | Ownership/stage backfill: writer matching, creator fallback, ambiguity queue | `not_started` | PSOS-07 |
 | [PSOS-09](tasks/PSOS-09.md) | Server-side ownership transfer + stage transition mutations with validation | `not_started` | PSOS-01, PSOS-07, PSOS-08 |
 | [PSOS-10](tasks/PSOS-10.md) | Project header & list metadata: Stage, Owner, With, Due as labeled data | `not_started` | PSOS-07, PSOS-09 |
