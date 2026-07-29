@@ -8,11 +8,16 @@
   import { toast } from "svelte-sonner";
   import { useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
-  import type { Doc } from "../../../../convex/_generated/dataModel";
+  import type { Doc, Id } from "../../../../convex/_generated/dataModel";
   import { overlayFade, modalPop } from "$lib/motion";
   import Button from "$lib/components/ui/Button.svelte";
   import DatePicker from "$lib/components/ui/DatePicker.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
+
+  type BulkProject = Pick<
+    Doc<"projects">,
+    "_id" | "clientName" | "fiscalYearEnd"
+  > & { _id: Id<"projects"> };
 
   let {
     open = $bindable(false),
@@ -22,7 +27,7 @@
   }: {
     open?: boolean;
     /** The selected project docs (drives the count and "currently:" summaries). */
-    projects: Doc<"projects">[];
+    projects: BulkProject[];
     /** Distinct existing company names, offered so spellings converge. */
     companies: string[];
     onSaved?: () => void;
@@ -73,7 +78,7 @@
     const counts = new Map<string, number>();
     for (const p of projects) {
       const key = p.fiscalYearEnd
-        ? `Fiscal ${new Date(p.fiscalYearEnd).getFullYear()}`
+        ? `Fiscal ${new Date(p.fiscalYearEnd).getUTCFullYear()}`
         : "not set";
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
@@ -102,7 +107,7 @@
         projectIds: projects.map((p) => p._id),
         ...(companyValue.trim() ? { clientName: companyValue.trim() } : {}),
         ...(fyMode === "set"
-          ? { fiscalYearEnd: new Date(`${fyDate}T00:00:00`).getTime() }
+          ? { fiscalYearEnd: new Date(`${fyDate}T00:00:00Z`).getTime() }
           : fyMode === "clear"
             ? { fiscalYearEnd: null }
             : {}),

@@ -92,6 +92,72 @@ async function getProject(
   return await t.run(async (ctx) => await ctx.db.get(projectId));
 }
 
+describe("dashboard project projection", () => {
+  test.each([
+    ["reserved", "generating"],
+    ["running", "generating"],
+    ["awaiting_selection", "awaiting_selection"],
+    ["awaiting_input", "awaiting_input"],
+  ] as const)("scopes active generation %s as secondary activity %s", async (status, expected) => {
+    const { t, projectId, ownerId } = await setup();
+    await t.run(async (ctx) => {
+      const transcriptId = await ctx.db.insert("transcripts", {
+        projectId,
+        content: "Interview",
+        createdAt: Date.now(),
+      });
+      const generationId = await ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        status,
+        requestedBy: ownerId,
+        startedAt: Date.now(),
+      });
+      await ctx.db.patch(projectId, {
+        workflowStage: "on_hold",
+        activeGenerationId: generationId,
+      });
+    });
+
+    const listed = await asActor(t, "owner").query(api.projects.listProjects, {});
+    expect(listed.find((project) => project._id === projectId)).toMatchObject({
+      workflowStage: "on_hold",
+      status: "review",
+      generationActivity: expected,
+    });
+  });
+
+  test("finds a pointerless legacy active generation through the exact status index", async () => {
+    const { t, projectId, ownerId } = await setup();
+    await t.run(async (ctx) => {
+      const transcriptId = await ctx.db.insert("transcripts", {
+        projectId,
+        content: "Interview",
+        createdAt: Date.now(),
+      });
+      await ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        status: "awaiting_selection",
+        requestedBy: ownerId,
+        startedAt: Date.now(),
+      });
+      await ctx.db.patch(projectId, { workflowStage: "drafting", activeGenerationId: undefined });
+    });
+
+    const listed = await asActor(t, "owner").query(api.projects.listProjects, {});
+    expect(listed.find((project) => project._id === projectId)?.generationActivity).toBe(
+      "awaiting_selection"
+    );
+  });
+
+  test("returns no generation activity after the active generation is complete", async () => {
+    const { t, projectId } = await setup();
+    const listed = await asActor(t, "owner").query(api.projects.listProjects, {});
+    expect(listed.find((project) => project._id === projectId)?.generationActivity).toBeNull();
+  });
+});
+
 describe("live project contributor labels", () => {
   test("resolves legacy email snapshots to current first and last names without rewriting storage", async () => {
     const { t, projectId, ownerId } = await setup();

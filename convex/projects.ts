@@ -19,6 +19,11 @@ import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { deriveStoredProcessing } from "../shared/documentStatus";
 import { canUseIndustry, industrySlug } from "../shared/industries";
 import { findActiveGeneration } from "./lib/activeGeneration";
+import {
+  projectDashboardProjectionPatch,
+  syncProjectDashboardFields,
+  upsertDashboardCompany,
+} from "./lib/dashboardProjection";
 
 async function validatedIndustry(
   ctx: MutationCtx,
@@ -55,23 +60,32 @@ export const listProjects = query({
   handler: async (ctx) => {
     await requireCurrentUser(ctx);
     const projects = await ctx.db.query("projects").order("desc").collect();
-    // Surface "awaiting draft selection" so the dashboard can badge it —
-    // the project itself still reads "generating" until a draft is chosen.
     return await Promise.all(
-      projects.map(async (project) => ({
-        ...project,
-        writer: await resolveLiveUserLabel(ctx, project.writer, project.createdBy),
-        interviewer: await resolveLiveUserLabel(
-          ctx,
-          project.interviewer,
-          project.interviewerUserId
-        ),
-        awaitingSelection:
-          (await findActiveGeneration(ctx, project, ["awaiting_selection"])) !== null,
-        // Iterative mode: a section draft is waiting on the writer's review.
-        awaitingInput:
-          (await findActiveGeneration(ctx, project, ["awaiting_input"])) !== null,
-      }))
+      projects.map(async (project) => {
+        const activeGeneration = await findActiveGeneration(ctx, project, [
+          "reserved",
+          "running",
+          "awaiting_selection",
+          "awaiting_input",
+        ]);
+        const generationActivity: "generating" | "awaiting_selection" | "awaiting_input" | null =
+          activeGeneration?.status === "reserved" || activeGeneration?.status === "running"
+            ? "generating"
+            : activeGeneration?.status === "awaiting_selection" ||
+                activeGeneration?.status === "awaiting_input"
+              ? activeGeneration.status
+              : null;
+        return {
+          ...project,
+          writer: await resolveLiveUserLabel(ctx, project.writer, project.createdBy),
+          interviewer: await resolveLiveUserLabel(
+            ctx,
+            project.interviewer,
+            project.interviewerUserId
+          ),
+          generationActivity,
+        };
+      })
     );
   },
 });
@@ -113,6 +127,7 @@ export const updateProjectTitles = mutation({
       patch.sredTitle = args.sredTitle.trim() || undefined;
     }
     await ctx.db.patch(args.projectId, patch);
+    await syncProjectDashboardFields(ctx, args.projectId, patch);
   },
 });
 
@@ -130,10 +145,9 @@ export const updateProjectIndustry = mutation({
   handler: async (ctx, args) => {
     await requireInternalProjectAccess(ctx, args.projectId);
     const industry = await validatedIndustry(ctx, args.industry);
-    await ctx.db.patch(args.projectId, {
-      industry,
-      updatedAt: Date.now(),
-    });
+    const patch = { industry, updatedAt: Date.now() };
+    await ctx.db.patch(args.projectId, patch);
+    await syncProjectDashboardFields(ctx, args.projectId, patch);
   },
 });
 
@@ -149,10 +163,9 @@ export const updateProjectScienceCode = mutation({
     if (args.scienceCode?.trim() && !scienceCode) {
       domainError("INVALID_INPUT", "Select a valid CRA science code");
     }
-    await ctx.db.patch(args.projectId, {
-      scienceCode,
-      updatedAt: Date.now(),
-    });
+    const patch = { scienceCode, updatedAt: Date.now() };
+    await ctx.db.patch(args.projectId, patch);
+    await syncProjectDashboardFields(ctx, args.projectId, patch);
   },
 });
 
@@ -179,10 +192,12 @@ export const updateProjectFiscalYear = mutation({
   },
   handler: async (ctx, args) => {
     await requireInternalProjectAccess(ctx, args.projectId);
-    await ctx.db.patch(args.projectId, {
+    const patch = {
       fiscalYearEnd: args.fiscalYearEnd,
       updatedAt: Date.now(),
-    });
+    };
+    await ctx.db.patch(args.projectId, patch);
+    await syncProjectDashboardFields(ctx, args.projectId, patch);
   },
 });
 
@@ -229,6 +244,7 @@ export const bulkUpdateProjects = mutation({
         patch.fiscalYearEnd = args.fiscalYearEnd ?? undefined;
       }
       await ctx.db.patch(projectId, patch);
+      await syncProjectDashboardFields(ctx, projectId, patch);
       updated++;
     }
     return { updated, skipped };
@@ -346,9 +362,20 @@ export const createProject = mutation({
     const now = Date.now();
     const shareToken = generateShareToken();
 
+    const dashboardProjection = projectDashboardProjectionPatch({
+      title: args.title,
+      clientName: args.clientName,
+      writer: userDisplayLabel(writer),
+      interviewer: interviewer ? userDisplayLabel(interviewer) : undefined,
+      scienceCode,
+      industry,
+      fiscalYearEnd: args.fiscalYearEnd,
+    });
     const projectId = await ctx.db.insert("projects", {
       title: args.title,
       clientName: args.clientName,
+      ...dashboardProjection,
+      dashboardCompanyCounted: true,
       ...(args.sredTitle ? { sredTitle: args.sredTitle } : {}),
       writer: userDisplayLabel(writer),
       ...(interviewer
@@ -369,6 +396,13 @@ export const createProject = mutation({
       createdAt: now,
       updatedAt: now,
     });
+
+    await upsertDashboardCompany(
+      ctx,
+      dashboardProjection.dashboardCompanyKey,
+      args.clientName,
+      1
+    );
 
     const transcriptId = await ctx.db.insert("transcripts", {
       projectId,
@@ -662,17 +696,24 @@ export const updateProjectTitle = mutation({
   handler: async (ctx, args) => {
     await requireInternalProjectAccess(ctx, args.projectId);
 
-    await ctx.db.patch(args.projectId, {
-      title: args.title.trim(),
-      updatedAt: Date.now(),
-    });
+    const patch = { title: args.title.trim(), updatedAt: Date.now() };
+    await ctx.db.patch(args.projectId, patch);
+    await syncProjectDashboardFields(ctx, args.projectId, patch);
   },
 });
 
 export const deleteProject = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    await requireProjectCreatorOrAdmin(ctx, args.projectId);
+    const { project } = await requireProjectCreatorOrAdmin(ctx, args.projectId);
+    if (project.dashboardCompanyCounted === true) {
+      await upsertDashboardCompany(
+        ctx,
+        project.dashboardCompanyKey ?? projectDashboardProjectionPatch(project).dashboardCompanyKey,
+        project.clientName,
+        -1
+      );
+    }
 
     // Delete related records
     const transcripts = await ctx.db

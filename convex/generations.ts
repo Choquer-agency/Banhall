@@ -34,6 +34,7 @@ import { findActiveGeneration } from "./lib/activeGeneration";
 import { defaultModelId } from "./appSettings";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { sectionMetrics } from "./lib/lineLimits";
+import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
 /**
  * Requires internal project access. Strips internal agentOutputs.
  */
@@ -373,6 +374,7 @@ async function reserveGeneration(
     status: "generating",
     updatedAt: now,
   });
+  await refreshProjectGenerationActivity(ctx, project._id);
   const scheduledJobId = await ctx.scheduler.runAfter(
     0,
     candidateMode === "iterative"
@@ -542,6 +544,7 @@ export const retryFailedCandidates = mutation({
         status: "generating",
         updatedAt: Date.now(),
       });
+      await refreshProjectGenerationActivity(ctx, generation.projectId);
       throw error;
     }
     for (const candidate of successfulCandidates) {
@@ -592,6 +595,7 @@ export const beginGeneration = internalMutation({
       currentStep: "Preparing frozen project sources...",
       startedAt: Date.now(),
     });
+    await refreshProjectGenerationActivity(ctx, generation.projectId);
     return true;
   },
 });
@@ -913,6 +917,7 @@ export const completeCandidateRun = internalMutation({
           currentStep: "Choose your preferred draft",
           progressLog,
         });
+        await refreshProjectGenerationActivity(ctx, generation.projectId);
         return;
       }
 
@@ -934,6 +939,7 @@ export const completeCandidateRun = internalMutation({
         completedAt: now,
         progressLog,
       });
+      await refreshProjectGenerationActivity(ctx, generation.projectId);
       const candidates = await ctx.db
         .query("reportCandidates")
         .withIndex("by_generationId", (q) =>
@@ -958,6 +964,7 @@ export const completeCandidateRun = internalMutation({
       status: generation.previousProjectStatus ?? "draft",
       updatedAt: Date.now(),
     });
+    await refreshProjectGenerationActivity(ctx, generation.projectId);
   },
 });
 
@@ -988,6 +995,7 @@ export const failGeneration = internalMutation({
         updatedAt: Date.now(),
       });
     }
+    await refreshProjectGenerationActivity(ctx, generation.projectId);
   },
 });
 
@@ -1155,6 +1163,7 @@ export const completeSectionRun = internalMutation({
         `✓ ${SECTION_TITLES[args.section]} draft ready for review.`,
       ],
     });
+    await refreshProjectGenerationActivity(ctx, generation.projectId);
   },
 });
 
@@ -1185,6 +1194,7 @@ export const failSectionRun = internalMutation({
           `✗ ${SECTION_TITLES[args.section]} draft failed: ${args.error.slice(0, 200)}.`,
         ],
       });
+      await refreshProjectGenerationActivity(ctx, generation.projectId);
     }
   },
 });
@@ -1616,6 +1626,7 @@ export const approveSectionDraft = mutation({
           `Drafting ${SECTION_TITLES[nextSection]}…`,
         ],
       });
+      await refreshProjectGenerationActivity(ctx, generation.projectId);
       await ctx.scheduler.runAfter(0, internal.ai.iterative.generateSection, {
         generationId: generation._id,
         section: nextSection,
@@ -1745,6 +1756,7 @@ export const approveSectionDraft = mutation({
         "Running the QA scorecard and chronology in the background…",
       ],
     });
+    await refreshProjectGenerationActivity(ctx, generation.projectId);
     // Every mode ends with a scorecard: run QA + chronology over the
     // assembled sections in the background (feeds the learning loops).
     await ctx.db.patch(generation._id, { postQaStatus: "running" });
@@ -1794,6 +1806,7 @@ export const regenerateSectionDraft = mutation({
         `Redrafting ${SECTION_TITLES[args.section]}${guidance ? " with writer guidance" : ""}…`,
       ],
     });
+    await refreshProjectGenerationActivity(ctx, generation.projectId);
     await ctx.scheduler.runAfter(0, internal.ai.iterative.generateSection, {
       generationId: generation._id,
       section: args.section,
@@ -1837,6 +1850,7 @@ export const cancelIterativeGeneration = mutation({
       status: generation.previousProjectStatus ?? "draft",
       updatedAt: now,
     });
+    await refreshProjectGenerationActivity(ctx, generation.projectId);
     return null;
   },
 });
@@ -1920,6 +1934,7 @@ export const failStaleGenerations = internalMutation({
               "✗ Section draft timed out. Use Regenerate to retry.",
             ],
           });
+          await refreshProjectGenerationActivity(ctx, generation.projectId);
           failed += 1;
           continue;
         }
@@ -1960,6 +1975,7 @@ export const failStaleGenerations = internalMutation({
           });
         }
       }
+      await refreshProjectGenerationActivity(ctx, generation.projectId);
     }
 
     // Also free projects orphaned in "generating" with no live generation —
@@ -1988,6 +2004,7 @@ export const failStaleGenerations = internalMutation({
         status: lastGeneration?.previousProjectStatus ?? "draft",
         updatedAt: Date.now(),
       });
+      await refreshProjectGenerationActivity(ctx, project._id);
       freed += 1;
     }
     return { failed, freed };
@@ -2075,6 +2092,7 @@ export const updateGenerationStatus = internalMutation({
     if (args.error !== undefined) updates.error = args.error;
     if (args.completedAt !== undefined) updates.completedAt = args.completedAt;
     await ctx.db.patch(args.generationId, updates);
+    await refreshProjectGenerationActivity(ctx, generation.projectId);
   },
 });
 
@@ -2254,6 +2272,7 @@ export const selectReportCandidate = mutation({
       agentOutputs: candidate.agentOutputs,
       completedAt: now,
     });
+    await refreshProjectGenerationActivity(ctx, generation.projectId);
     await ctx.db.insert("modelSelections", {
       projectId: candidate.projectId,
       generationId: generation._id,

@@ -2,16 +2,15 @@
  * Frontend mirror of convex/lib/teamRoster.ts userDisplayLabel:
  * "First Last" → legacy single-field name → email → fallback.
  */
+type DisplayUser = {
+  firstName?: string | null;
+  lastName?: string | null;
+  name?: string | null;
+  email?: string | null;
+};
+
 export function displayName(
-  user:
-    | {
-        firstName?: string | null;
-        lastName?: string | null;
-        name?: string | null;
-        email?: string | null;
-      }
-    | null
-    | undefined,
+  user: DisplayUser | null | undefined,
   fallback = "—"
 ): string {
   if (!user) return fallback;

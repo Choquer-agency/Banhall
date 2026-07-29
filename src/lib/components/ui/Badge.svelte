@@ -3,7 +3,7 @@
     draft: { label: "Draft", className: "bg-gray-100 text-gray-600", dotColor: "bg-gray-400" },
     generating: {
       label: "Generating",
-      className: "bg-blue-50 text-blue-600 animate-pulse",
+      className: "bg-blue-50 text-blue-800",
       dotColor: "bg-blue-500",
     },
     awaiting: {
@@ -19,13 +19,17 @@
     review: { label: "Review", className: "bg-amber-50 text-amber-700", dotColor: "bg-amber-500" },
     client_review: {
       label: "Client Review",
-      className: "bg-red-50 text-red-600",
+      className: "bg-red-50 text-red-700",
       dotColor: "bg-red-500",
     },
     final: { label: "Final", className: "bg-primary/15 text-navy", dotColor: "bg-primary" },
   };
 
-  let { status, dot = false }: { status: string; dot?: boolean } = $props();
+  let {
+    status,
+    dot = false,
+    darkSurface = false,
+  }: { status: string; dot?: boolean; darkSurface?: boolean } = $props();
 
   const config = $derived(
     statusConfig[status] ?? {
@@ -37,10 +41,10 @@
 </script>
 
 <span
-  class={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${config.className}`}
+  class={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${darkSurface ? "bg-white text-navy" : config.className}`}
 >
   {#if dot}
-    <span aria-hidden="true" class={`h-1.5 w-1.5 rounded-full ${config.dotColor}`}></span>
+    <span aria-hidden="true" class={`h-1.5 w-1.5 rounded-full ${darkSurface ? "bg-primary" : config.dotColor}`}></span>
   {/if}
   {config.label}
 </span>

@@ -2,16 +2,22 @@
   import { DropdownMenu } from "bits-ui";
   import { goto } from "$app/navigation";
   import { toast } from "svelte-sonner";
-  import Badge from "$lib/components/ui/Badge.svelte";
+  import ProjectStateBadge from "$lib/components/dashboard/ProjectStateBadge.svelte";
+  import ProjectCardMetadata from "$lib/components/dashboard/ProjectCardMetadata.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
-  import type { Doc } from "../../../../convex/_generated/dataModel";
+  import type { Doc, Id } from "../../../../convex/_generated/dataModel";
   import { useMutation } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import { scienceCodeLabel } from "../../../../shared/craScienceCodes";
+  import { stageCardTheme } from "$lib/workflow/stagePresentation";
+  import {
+    generationActivityLabel,
+    type GenerationActivity,
+  } from "$lib/dashboard/generationActivity";
 
-  // Card surfaces tint to the project status: border, footer wash,
-  // footer text, and the hover shadow all draw from one palette.
+  // Legacy themes remain only for pre-workflow compatibility rows. Once a
+  // workflow stage exists, canonical stage presentation owns the whole card.
   const STATUS_THEME: Record<
     string,
     { border: string; hoverBorder: string; footerBg: string; footerText: string; hoverShadow: string }
@@ -69,6 +75,20 @@
 
   type ProjectTag = { id: string; label: string };
 
+  type ProjectCardProject = Pick<
+    Doc<"projects">,
+    | "_id"
+    | "title"
+    | "clientName"
+    | "writer"
+    | "tagIds"
+    | "scienceCode"
+    | "workflowStage"
+    | "status"
+    | "createdAt"
+    | "updatedAt"
+  > & { _id: Id<"projects">; generationActivity?: GenerationActivity | null };
+
   // Tag IDs remain the chip identity because display labels are not unique.
   let {
     project,
@@ -76,8 +96,9 @@
     selected = false,
     selectionMode = false,
     onToggleSelect,
+    writerLabel,
   }: {
-    project: Doc<"projects"> & { awaitingSelection?: boolean; awaitingInput?: boolean };
+    project: ProjectCardProject;
     tags?: ProjectTag[];
     /** Bulk edit: card is in the current selection. */
     selected?: boolean;
@@ -85,22 +106,20 @@
     selectionMode?: boolean;
     /** Presence enables the selection checkbox overlay. */
     onToggleSelect?: () => void;
+    /** Live display label resolved from the bounded team roster. */
+    writerLabel?: string | null;
   } = $props();
 
   let menuOpen = $state(false);
   let confirming = $state(false);
   const deleteProject = useMutation(api.projects.deleteProject);
 
-  // Drafts are ready and waiting on the writer's pick (or, in iterative mode,
-  // a section review) — surface that over the underlying "generating" status.
-  const displayStatus = $derived(
-    project.awaitingSelection
-      ? "awaiting"
-      : project.awaitingInput
-        ? "awaiting_input"
-        : project.status
+  const theme = $derived(
+    project.workflowStage
+      ? stageCardTheme(project.workflowStage)
+      : (STATUS_THEME[project.status] ?? STATUS_THEME.draft)
   );
-  const theme = $derived(STATUS_THEME[displayStatus] ?? STATUS_THEME.draft);
+  const activityLabel = $derived(generationActivityLabel(project.generationActivity));
 
   const updatedDate = $derived(
     new Date(project.updatedAt).toLocaleDateString("en-CA", {
@@ -167,11 +186,14 @@
         <p class="mt-1 truncate text-xs text-ink-muted">{project.clientName}</p>
       </div>
 
-      <Badge status={displayStatus} dot />
+      <ProjectStateBadge
+        workflowStage={project.workflowStage}
+        legacyStatus={project.status}
+      />
     </div>
 
     <!-- Chip zone -->
-    {#if tags.length || project.scienceCode}
+    {#if tags.length || project.scienceCode || activityLabel}
       <div class="border-t border-line-soft px-4 py-3">
         <div class="flex flex-wrap items-center gap-1.5">
           {#each tags as tag (tag.id)}
@@ -185,24 +207,23 @@
               <span class="truncate">{scienceCodeLabel(project.scienceCode)}</span>
             </span>
           {/if}
+
+          {#if activityLabel}
+            <span
+              role="status"
+              data-generation-activity={project.generationActivity}
+              class="inline-flex min-w-0 max-w-full rounded-full bg-chrome px-2 py-0.5 text-xs font-medium text-ink-secondary"
+            >
+              <span class="truncate">{activityLabel}</span>
+            </span>
+          {/if}
         </div>
       </div>
     {/if}
 
-    <!-- Metadata footer zone — tinted to the status -->
-    <div
-      class={`mt-auto flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line-soft px-4 py-2.5 pr-12 text-xs ${theme.footerBg} ${theme.footerText}`}
-    >
-      {#if project.writer}
-        <span class="inline-flex min-w-0 max-w-full items-center gap-1.5">
-          <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-          </svg>
-          <span class="truncate">{project.writer}</span>
-        </span>
-      {/if}
-
-      <span class="whitespace-nowrap">Updated {updatedDate}</span>
+    <!-- Metadata footer zone — workflow stage is already shown in the header badge. -->
+    <div class={`mt-auto border-t border-line-soft ${theme.footerBg} ${theme.footerText}`}>
+      <ProjectCardMetadata writer={writerLabel ?? project.writer} {updatedDate} />
     </div>
   </a>
 

@@ -33,6 +33,7 @@
     { href: "/admin/brain", label: "The Brain" },
     { href: "/admin/tags", label: "Project tags" },
     { href: "/admin/reviews", label: "Consultant QA reviews" },
+    { href: "/admin/backfill", label: "Ownership review" },
     { href: "/admin/users", label: "Users & roles" },
     { href: "/admin/models", label: "Model preferences" },
     { href: "/admin/usage", label: "AI usage & cost" },

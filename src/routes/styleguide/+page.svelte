@@ -3,9 +3,11 @@
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import Badge from "$lib/components/ui/Badge.svelte";
+  import StageBadge from "$lib/components/ui/StageBadge.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
   import ProcessingStatusBadge from "$lib/components/upload/ProcessingStatusBadge.svelte";
+  import { WORKFLOW_STAGES } from "../../../shared/workflowStages";
   import UploadReceipt from "$lib/components/upload/UploadReceipt.svelte";
   import { PROCESSING_STATUS_COPY } from "$lib/uploads/processingStatus";
   import type { ReceiptRow } from "$lib/uploads/receiptRows";
@@ -176,10 +178,21 @@
         <Button variant="link">Link</Button>
         <Button disabled>Disabled</Button>
       </div>
-      <div class="flex flex-wrap items-center gap-2">
-        {#each statuses as s (s)}
-          <Badge status={s} />
-        {/each}
+      <div>
+        <p class="text-label mb-2">Workflow stages</p>
+        <div class="flex flex-wrap items-center gap-2">
+          {#each WORKFLOW_STAGES as stage (stage)}
+            <StageBadge {stage} dot />
+          {/each}
+        </div>
+      </div>
+      <div>
+        <p class="text-label mb-2">Legacy status — compatibility only</p>
+        <div class="flex flex-wrap items-center gap-2">
+          {#each statuses as s (s)}
+            <Badge status={s} />
+          {/each}
+        </div>
       </div>
       <div class="max-w-xs">
         <Input id="sg-input" label="Field label" placeholder="Placeholder text…" />

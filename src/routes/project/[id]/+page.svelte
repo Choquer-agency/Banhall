@@ -16,7 +16,7 @@
   import { overlayFade, modalPop } from "$lib/motion";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
-  import Badge from "$lib/components/ui/Badge.svelte";
+  import ProjectStateBadge from "$lib/components/dashboard/ProjectStateBadge.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import IconAction from "$lib/components/ui/IconAction.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
@@ -52,6 +52,7 @@
   import IndustryField from "$lib/components/project/IndustryField.svelte";
   import FiscalYearField from "$lib/components/project/FiscalYearField.svelte";
   import ScienceCodeField from "$lib/components/project/ScienceCodeField.svelte";
+  import ProjectWorkflowMenu from "$lib/components/project/ProjectWorkflowMenu.svelte";
   import ExportValidationDialog from "$lib/components/export/ExportValidationDialog.svelte";
   import {
     canonicalizeExportPreflight,
@@ -811,15 +812,22 @@
             Share failed: {shareError}
           </span>
         {/if}
-        {#if generation && generation.status !== "completed"}
-          <GenerationStatusChip
-            status={generation.status}
-            candidatesDone={generation.candidatesDone ?? 0}
-            candidatesFailed={generation.candidatesFailed ?? 0}
+        <div class="flex min-w-0 items-center gap-2">
+          <ProjectStateBadge
+            workflowStage={project.workflowStage}
+            legacyStatus={project.status}
+            darkSurface
           />
-        {:else}
-          <Badge status={project.status} dot />
-        {/if}
+          {#if generation && generation.status !== "completed"}
+            <span class="hidden lg:inline-flex">
+              <GenerationStatusChip
+                status={generation.status}
+                candidatesDone={generation.candidatesDone ?? 0}
+                candidatesFailed={generation.candidatesFailed ?? 0}
+              />
+            </span>
+          {/if}
+        </div>
       {/snippet}
     </AppNav>
 
@@ -852,7 +860,7 @@
             <p class="mt-1 text-gray-800">{project.clientName}</p>
           </div>
           <div>
-            <span class="text-label block">Consultant</span>
+            <span class="text-label block">Created by</span>
             <p class="mt-1 text-gray-800">{writerLabel}</p>
           </div>
           {#if interviewerLabel}
@@ -946,9 +954,12 @@
 
     <!-- Page bar: back + report actions (hidden while picking a draft) -->
     <PageBar>
+      {#snippet leading()}
+        <ProjectWorkflowMenu {projectId} />
+      {/snippet}
       {#snippet center()}
         {#if showIterativeStepper && generation?.iterativeModelLabel}
-          <span class="text-xs text-gray-400">Model: {generation.iterativeModelLabel}</span>
+          <span class="hidden text-xs text-gray-400 sm:inline">Model: {generation.iterativeModelLabel}</span>
         {/if}
       {/snippet}
       {#snippet actions()}

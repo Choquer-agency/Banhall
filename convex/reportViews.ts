@@ -31,6 +31,7 @@ export const logClientView = mutation({
     if (!report || report.projectId !== args.projectId) {
       domainError("REPORT_NOT_PUBLISHED", "This report is not published for review");
     }
+    const viewedAt = Date.now();
     await ctx.db.insert("reportViews", {
       projectId: args.projectId,
       reportId: report._id,
@@ -39,20 +40,24 @@ export const logClientView = mutation({
       contentHash: report.contentHash,
       viewerName,
       viewerType: "client",
-      viewedAt: Date.now(),
+      viewedAt,
     });
+    if ((access.project.lastViewedAt ?? 0) < viewedAt) {
+      await ctx.db.patch(args.projectId, { lastViewedAt: viewedAt });
+    }
   },
 });
 
 export const logWriterView = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const { user } = await requireInternalProjectAccess(ctx, args.projectId);
+    const { user, project } = await requireInternalProjectAccess(ctx, args.projectId);
     const report = await ctx.db
       .query("reports")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .order("desc")
       .first();
+    const viewedAt = Date.now();
     await ctx.db.insert("reportViews", {
       projectId: args.projectId,
       reportId: report?._id,
@@ -61,8 +66,11 @@ export const logWriterView = mutation({
       contentHash: report?.contentHash,
       viewerName: user.name ?? user.email ?? "Writer",
       viewerType: "writer",
-      viewedAt: Date.now(),
+      viewedAt,
     });
+    if ((project.lastViewedAt ?? 0) < viewedAt) {
+      await ctx.db.patch(args.projectId, { lastViewedAt: viewedAt });
+    }
   },
 });
 

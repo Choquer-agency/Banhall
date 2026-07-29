@@ -36,8 +36,15 @@ every neutral in the app shares the brand hue. Hierarchy:
 Semantic aliases for new code: `ink`, `ink-secondary`, `ink-muted`,
 `ink-faint`, `line`, `line-soft`.
 
-Status colors (Badge): draft=gray, generating=blue, review=amber,
-client_review=purple, final=primary. Errors/destructive=red-500/600.
+Workflow stage badges are the only primary project-state badges on stage-aware
+surfaces. Stage tones use text labels plus color: intake/interview complete=gray,
+drafting=blue, internal review/revisions=amber, client review=purple,
+ready/delivered=primary, on hold/abandoned=muted gray. Generation activity is a
+separately labelled secondary chip and never controls the project card theme.
+
+The legacy `Badge` palette remains compatibility-only for records without a
+workflow stage: draft=gray, generating=blue, review=amber, client_review=red,
+final=primary. Errors/destructive=red-500/600.
 
 ## Type
 
@@ -68,6 +75,11 @@ values are legacy — replace on touch.
 - **Global rail**: AppNav + PageBar inner containers are ALWAYS `max-w-7xl`
   (never per-page). Page `<main>` may be narrower for reading width
   (`max-w-3xl/4xl`), centered inside the same gutters; `px-6 pt-12`.
+- **PageBar leading controls**: one stable, 44px-tall page-scoped disclosure may
+  sit beside Back. Use it for reference details that must remain accessible
+  without creating another permanent page row; content opens in a portaled,
+  collision-aware popover. Do not repeat a state already shown in AppNav or
+  reserve space for optional empty fields.
 
 ## Rules of use
 

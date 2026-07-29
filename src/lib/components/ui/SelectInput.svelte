@@ -116,7 +116,7 @@
       }}
       class={`w-full border border-gray-200 bg-white pr-8 text-left font-normal transition-colors placeholder:text-gray-400 hover:border-gray-300 focus:outline-none focus-visible:border-navy focus-visible:ring-1 focus-visible:ring-navy disabled:opacity-50 ${
         size === "md"
-          ? "h-[42px] rounded-lg px-3.5 text-sm"
+          ? "h-11 rounded-lg px-3.5 text-sm"
           : "rounded-md px-2 py-1.5 text-xs"
       } ${selected?.value ? "text-gray-900" : "text-gray-500"}`}
     />

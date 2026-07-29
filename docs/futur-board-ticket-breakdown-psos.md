@@ -13,6 +13,17 @@ Conventions (matching current BNH board):
 - "Standard rails" below apply to every implementation ticket and are incorporated by
   reference to keep tickets right-sized.
 
+## July 27, 2026 meeting addendum
+
+The July 27 meeting introduced four program items that were reconciled against the approved PSOS domain contract rather than folded silently into existing tickets:
+
+- **PSOS-37** — decision: logical grouping of historical multi-row AI tests, project-number scope, and display-only Primary-instance semantics;
+- **PSOS-38** — blocked implementation of indexed dashboard groups after PSOS-37 and normally PSOS-11;
+- **PSOS-39** — discovery for a project source-analysis workspace whose approved revision can feed generation/review;
+- **PSOS-40** — deferred strategy record for client repository, historical reports, company-scoped chat, and analytics.
+
+The generic ChatGPT/Claude-like baseline workspace was explicitly back-burnered in the meeting and is not an implementation ticket. Full executable task contracts live in `docs/todos/psos/tasks/PSOS-37.md` through `PSOS-40.md`; the week plan lives in `docs/todos/psos/JUL-27-31-WEEKLY-PLAN.md`.
+
 ## Standard rails (apply to all implementation tickets)
 
 - **Authorization**: every new/changed Convex query/mutation/action authenticates via the

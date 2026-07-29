@@ -71,6 +71,20 @@ export default defineSchema({
     industry: v.optional(v.string()),
     // BNH-54: CRA T4088 line 206 field of science or technology code.
     scienceCode: v.optional(v.string()),
+    // PSOS-11 widen phase. These additive fields power bounded dashboard
+    // projections without changing canonical project/workflow semantics.
+    dashboardCompanyKey: v.optional(v.string()),
+    dashboardFiscalYearRank: v.optional(v.number()),
+    dashboardSearchText: v.optional(v.string()),
+    dashboardCompanyCounted: v.optional(v.boolean()),
+    generationActivity: v.optional(
+      v.union(
+        v.literal("generating"),
+        v.literal("awaiting_selection"),
+        v.literal("awaiting_input")
+      )
+    ),
+    lastViewedAt: v.optional(v.number()),
     // BNH-39: how the project started — generate a PD from a transcript
     // (default, absent on older projects) or review an existing written PD.
     mode: v.optional(v.union(v.literal("generate"), v.literal("review"))),
@@ -78,8 +92,14 @@ export default defineSchema({
     // immutable createdBy. Human workflow remains separate from legacy status
     // and technical generation state. PSOS-08 owns backfill.
     ownerId: v.optional(v.id("users")),
+    // PSOS-08: writer matching fell back to the immutable creator but an
+    // administrator still needs to confirm or correct the accountable owner.
+    ownerBackfillStatus: v.optional(v.literal("needs_review")),
     workflowStage: v.optional(workflowStageValidator),
     workflowUpdatedAt: v.optional(v.number()),
+    // PSOS-09: monotonic OCC token shared by ownership and workflow-stage
+    // mutations. Existing/backfilled rows omit it and therefore begin at 0.
+    workflowVersion: v.optional(v.number()),
     status: v.union(
       v.literal("draft"),
       v.literal("generating"),
@@ -113,11 +133,57 @@ export default defineSchema({
     .index("by_shareToken", ["shareToken"])
     .index("by_industry", ["industry"])
     .index("by_ownerId", ["ownerId"])
+    .index("by_ownerBackfillStatus", ["ownerBackfillStatus"])
     .index("by_ownerId_and_workflowStage", ["ownerId", "workflowStage"])
-    .index("by_workflowStage", ["workflowStage"]),
+    .index("by_workflowStage", ["workflowStage"])
+    .index("by_dashboardCompanyKey", ["dashboardCompanyKey"])
+    .index("by_dashboardCompanyKey_and_dashboardFiscalYearRank", [
+      "dashboardCompanyKey",
+      "dashboardFiscalYearRank",
+    ])
+    .index("by_createdAt", ["createdAt"])
+    .index("by_updatedAt", ["updatedAt"])
+    .index("by_lastViewedAt", ["lastViewedAt"])
+    .searchIndex("search_dashboardSearchText", {
+      searchField: "dashboardSearchText",
+      filterFields: ["workflowStage", "ownerId", "industry", "scienceCode"],
+    }),
+
+  dashboardBackfillRuns: defineTable({
+    runKey: v.string(),
+    status: v.union(v.literal("running"), v.literal("completed")),
+    dryRun: v.boolean(),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  }).index("by_runKey", ["runKey"]),
+
+  dashboardCompanies: defineTable({
+    companyKey: v.string(),
+    clientName: v.string(),
+    projectCount: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_companyKey", ["companyKey"])
+    .index("by_companyKey_and_updatedAt", ["companyKey", "updatedAt"]),
 
   // PSOS-07: append-only project audit history. No update/delete API is
   // exported; later tickets widen this discriminated union for new event kinds.
+  ownerBackfillRuns: defineTable({
+    runKey: v.string(),
+    actorId: v.id("users"),
+    totals: v.object({
+      scanned: v.number(),
+      ownerFromWriter: v.number(),
+      ownerFromCreator: v.number(),
+      flaggedForReview: v.number(),
+      stageDrafting: v.number(),
+      stageIntake: v.number(),
+      skippedOwner: v.number(),
+      skippedStage: v.number(),
+    }),
+    completedAt: v.number(),
+  }).index("by_runKey", ["runKey"]),
+
   projectEvents: defineTable(
     v.union(
       v.object({

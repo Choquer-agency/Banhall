@@ -11,12 +11,15 @@
     backHref = "/dashboard",
     backLabel = "Back",
     width = "max-w-[var(--container-shell)]",
+    leading,
     center,
     actions,
   }: {
     backHref?: string;
     backLabel?: string;
     width?: string;
+    /** Optional stable page control rendered beside Back. */
+    leading?: Snippet;
     /** Optional content centered in the bar (absolute, doesn't shift sides). */
     center?: Snippet;
     actions?: Snippet;
@@ -77,15 +80,23 @@
         </div>
       </div>
     {/if}
-    <a
-      href={backHref}
-      class="-ml-3 flex h-9 items-center gap-1.5 px-3 text-xs font-medium text-navy transition-colors hover:text-primary"
-    >
-      <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-      </svg>
-      <span class="whitespace-nowrap">{backLabel}</span>
-    </a>
+    <div class="flex min-w-0 items-center">
+      <a
+        href={backHref}
+        class="-ml-3 flex h-11 min-h-11 items-center gap-1.5 px-3 text-xs font-medium text-navy transition-colors hover:text-primary-selected"
+      >
+        <svg aria-hidden="true" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+        </svg>
+        <span class="whitespace-nowrap">{backLabel}</span>
+      </a>
+      {#if leading}
+        <span aria-hidden="true" class="mx-1 h-5 w-px flex-none bg-line-soft"></span>
+        <div class="flex min-w-0 items-center">
+          {@render leading()}
+        </div>
+      {/if}
+    </div>
 
     {#if actions}
       <div class="-mr-3 flex flex-shrink-0 items-center gap-1">

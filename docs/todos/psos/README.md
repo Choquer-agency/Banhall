@@ -4,11 +4,13 @@ This directory is the internal source of truth for executing the **Banhall Profe
 
 - **Master product/ticket context:** [`../../futur-board-ticket-breakdown-psos.md`](../../futur-board-ticket-breakdown-psos.md)
 - **Task specifications:** [`tasks/`](tasks/)
-- **Total work items:** 36
-- **Current work item:** None — PSOS-07 and PSOS-26 are complete.
-- **Release-QA item:** **PSOS-04** — mixed-upload processing receipt with per-file statuses (`in_review`)
-- **Next dependency-unlocked work item:** **PSOS-08** — ownership/stage backfill
-- **Queue state:** PSOS-07 and PSOS-26 are committed, backend-first production-deployed, and reviewed with final Claude Code/Fable verdicts SHIP. Capability call sites and visibility behavior remain unchanged until PSOS-27. Historical email-based consultant labels now resolve current account names in real time on internal project and QA-review surfaces.
+- **Total work items:** 40
+- **Current implementation:** None — PSOS-11 is complete on the development deployment.
+- **Separate release-QA item:** **PSOS-04** — mixed-upload processing receipt with per-file statuses (`in_review`)
+- **Next dependency-unlocked implementation:** **PSOS-12** — work-item schema, lifecycle, and current-handoff foundation.
+- **Meeting-directed decision ready:** **PSOS-37** — logical project grouping, numbering, and Primary-instance semantics; it may be timeboxed without opening a second implementation.
+- **Weekly plan:** [`JUL-27-31-WEEKLY-PLAN.md`](JUL-27-31-WEEKLY-PLAN.md)
+- **Queue state:** PSOS-11 is complete after Opus/Codex review, bounded development backfill, and responsive Chrome QA. PSOS-12 is next by dependency order. Resolve PSOS-37 before PSOS-38 grouping code; PSOS-39 remains timeboxed discovery, and PSOS-40 is strategic backlog.
 
 ## Operating rules
 
@@ -76,6 +78,7 @@ The first delivery train should proceed as follows:
 7. **Capabilities:** PSOS-26 → PSOS-27 → PSOS-28/29. PSOS-30 remains a decision task unless visibility scope is approved.
 8. **Financial workspace:** PSOS-31 → PSOS-32 → PSOS-33 → PSOS-34.
 9. **Backlog:** PSOS-35 and PSOS-36 only after real usage validates demand.
+10. **July 27 meeting insertion:** disposition PSOS-04 → implement PSOS-08 in dependency order while completing PSOS-37’s product decision. PSOS-38 cannot start before PSOS-37 and normally waits for PSOS-11. PSOS-39 is discovery only; PSOS-40 remains deferred.
 
 ## Work queue
 
@@ -100,10 +103,10 @@ The first delivery train should proceed as follows:
 | ID | Work item | Status | Dependencies |
 |---|---|---|---|
 | [PSOS-07](tasks/PSOS-07.md) | Schema: ownerId, workflowStage, workflowUpdatedAt + audit events + indexes | `done` | PSOS-01 |
-| [PSOS-08](tasks/PSOS-08.md) | Ownership/stage backfill: writer matching, creator fallback, ambiguity queue | `not_started` | PSOS-07 |
-| [PSOS-09](tasks/PSOS-09.md) | Server-side ownership transfer + stage transition mutations with validation | `not_started` | PSOS-01, PSOS-07, PSOS-08 |
-| [PSOS-10](tasks/PSOS-10.md) | Project header & list metadata: Stage, Owner, With, Due as labeled data | `not_started` | PSOS-07, PSOS-09 |
-| [PSOS-11](tasks/PSOS-11.md) | Indexed, paginated dashboard projection queries (retire broad fetch + N+1) | `not_started` | PSOS-07 |
+| [PSOS-08](tasks/PSOS-08.md) | Ownership/stage backfill: writer matching, creator fallback, ambiguity queue | `done` | PSOS-07 |
+| [PSOS-09](tasks/PSOS-09.md) | Server-side ownership transfer + stage transition mutations with validation | `done` | PSOS-01, PSOS-07, PSOS-08 |
+| [PSOS-10](tasks/PSOS-10.md) | Project header & card metadata: Stage, Owner, With, Due as labeled data | `done` | PSOS-07, PSOS-09 |
+| [PSOS-11](tasks/PSOS-11.md) | Indexed, paginated dashboard projection queries (retire broad fetch + N+1) | `done` | PSOS-07 |
 
 ### P3 — Assignments, My Work, and Inbox
 
@@ -160,19 +163,31 @@ The first delivery train should proceed as follows:
 | [PSOS-35](tasks/PSOS-35.md) | Backlog: named saved views + email digests | `not_started` | PSOS-14, PSOS-16, PSOS-17 |
 | [PSOS-36](tasks/PSOS-36.md) | Backlog: assignment templates + automation rules (architecture-first) | `not_started` | PSOS-12, PSOS-13 |
 
+### P9 — July 27 meeting-directed work
+
+| ID | Work item | Status | Dependencies |
+|---|---|---|---|
+| [PSOS-37](tasks/PSOS-37.md) | Decision: logical project grouping, numbering, and Primary-instance semantics | `ready` | PSOS-01 (produces product approval for PSOS-38) |
+| [PSOS-38](tasks/PSOS-38.md) | Dashboard project groups: numbering, collapse/expand, and Primary instance | `blocked` | PSOS-37; normally PSOS-11; conditional PSOS-31 |
+| [PSOS-39](tasks/PSOS-39.md) | Discovery: project source-analysis workspace | `not_started` | Discovery; coordinate PSOS-04/06 and existing generation/review work |
+| [PSOS-40](tasks/PSOS-40.md) | Backlog: client repository, historical reports, company chat, and analytics | `deferred` | PSOS-22/23, PSOS-30/31/32 |
+
 ## Parallel-work exceptions
 
 None. Add an entry before starting more than one PSOS ticket simultaneously:
 
 | Date | Tickets | Why parallel is safe | File/domain boundaries | Approved by |
 |---|---|---|---|---|
-| — | — | — | — | — |
+| 2026-07-28 | PSOS-08 + PSOS-37/39 documentation | Decision/discovery work is documentation-only and may be timeboxed while PSOS-08 remains the sole active implementation. | PSOS-08 may touch Convex/admin implementation; PSOS-37/39 touch docs only and may not add code. | Product team weekly-plan direction |
+| 2026-07-28 | PSOS-04 release QA + PSOS-08 implementation | PSOS-04 is awaiting a separate production-frontend release check; PSOS-08 is the only active code implementation. | Scopes are disjoint: upload receipt versus ownership/stage migration and admin review. | Queue reconciliation |
 
 ## Program decision log
 
 | Date | Decision | Affected tickets | Rationale |
 |---|---|---|---|
 | — | Use this repository queue until Futurlabs ERP exposes ticket creation/editing through MCP. | All | Futur-board MCP is currently read/status-only. |
+| 2026-07-28 | Defer a generic ChatGPT/Claude-like baseline workspace. | PSOS-39 boundary | The July 27 meeting explicitly back-burnered it because API parity and cost are uncertain. Revisit only through an approved, measured experiment. |
+| 2026-07-28 | Require decision-first handling for cross-project test grouping. | PSOS-37/38; PSOS-11/18–23/31 | “Primary/final,” project numbering, branches, outcomes, and accounting scope conflict unless resolved in the domain contract first. |
 
 ## Program progress log
 
@@ -190,3 +205,8 @@ None. Add an entry before starting more than one PSOS ticket simultaneously:
 | 2026-07-28 | PSOS-05 committed in `d03bea2`, pushed to `main`, deployed through Vercel, and closed after production smoke. | `https://banhall.vercel.app` accepted administrator login and rendered the recovered project with both drafts, the “Ready for your review” chip, no provider-error leak, and no undefined resources. PSOS-05 marked `done`; PSOS-06 became the next implementation ticket. |
 | 2026-07-28 | PSOS-06 approved, verified, reviewed, committed in `4477203`, and released backend-first. | Research remains scoped to the generated comparison report with the uploaded PD as private evidence; six regressions and a manual matrix were added. Production Chrome smoke confirmed revisitable research history and sanitized PD-review failures. PSOS-06 marked `done`; PSOS-07 became next. |
 | 2026-07-28 | PSOS-07 released in `e9abff3`; PSOS-26 released in `48e8485` plus live-name compatibility `9e3d869`. | Ownership/workflow schema is safely widened with no writers; centralized role presets are ready for PSOS-27; production Chrome proved a legacy `demo@banhall.ca` project displays **Demo Writer** in real time without rewriting storage. |
+| 2026-07-28 | July 27 meeting transcript triaged with Claude Code/Fable and Opus against the existing queue. | Created PSOS-37 decision, blocked PSOS-38 implementation, PSOS-39 source-analysis discovery, PSOS-40 deferred repository strategy, and a July 27–31 weekly plan. Existing branch, outcome, dashboard, and client contracts remain authoritative. |
+| 2026-07-28 | PSOS-08 completed on the development deployment after Fable plan/review and signed-in Chrome QA. | 30/30 projects now have owner/stage; 24 exact writer matches, 6 creator fallbacks, 22 drafting, 8 intake, 60 immutable events. One fallback was confirmed in Chrome; five remain in the Admin review queue. |
+| 2026-07-28 | PSOS-09 completed and deployed after mandatory Fable planning and adversarial review. | Exact 41-edge matrix, atomic audited ownership/stage mutations, shared monotonic OCC, typed prerequisite failures, 100-pair matrix coverage, and role/eligibility/idempotency tests shipped. |
+| 2026-07-28 | Claude Code Opus 5 reviewed and planned PSOS-10; product owner approved the dashboard-card interpretation. | **PLAN READY.** Existing company → fiscal-year cards remain; labelled Owner + Stage slots replace the ticket's nonexistent row/column assumption. |
+| 2026-07-28 | PSOS-10 implemented, deployed backend-first to development, reviewed twice, hardened, and validated in installed Chrome. | Final Opus verdict **SHIP**. Four workflow slots, audited transfer/stage dialogs, responsive mobile disclosure, card metadata, server-derived authorities, and shared OCC protection are live in development. |

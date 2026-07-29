@@ -12,8 +12,7 @@ type ActiveStatus =
  * Checks the activeGenerationId pointer first, then ALWAYS falls back to
  * the status index — deliberately: legacy projects predate the pointer,
  * and an orphaned active row (pointer moved on) still means a generation
- * is live/awaiting a pick and must be surfaced (mirrors the original run
- * guard, which forbade a second generation while any such row existed).
+ * is live/awaiting a pick and must be surfaced regardless of row age.
  */
 export async function findActiveGeneration(
   ctx: QueryCtx,
