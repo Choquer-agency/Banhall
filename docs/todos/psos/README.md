@@ -5,12 +5,12 @@ This directory is the internal source of truth for executing the **Banhall Profe
 - **Master product/ticket context:** [`../../futur-board-ticket-breakdown-psos.md`](../../futur-board-ticket-breakdown-psos.md)
 - **Task specifications:** [`tasks/`](tasks/)
 - **Total work items:** 40
-- **Current implementation:** None — PSOS-11 is complete on the development deployment.
+- **Current implementation:** **PSOS-14** — My Work dashboard lanes and dense ledger rows (`in_progress`, development rollout gate).
 - **Separate release-QA item:** **PSOS-04** — mixed-upload processing receipt with per-file statuses (`in_review`)
-- **Next dependency-unlocked implementation:** **PSOS-12** — work-item schema, lifecycle, and current-handoff foundation.
+- **Next dependency-unlocked implementation:** PSOS-14 is active; PSOS-15 follows after PSOS-14 closes.
 - **Meeting-directed decision ready:** **PSOS-37** — logical project grouping, numbering, and Primary-instance semantics; it may be timeboxed without opening a second implementation.
 - **Weekly plan:** [`JUL-27-31-WEEKLY-PLAN.md`](JUL-27-31-WEEKLY-PLAN.md)
-- **Queue state:** PSOS-11 is complete after Opus/Codex review, bounded development backfill, and responsive Chrome QA. PSOS-12 is next by dependency order. Resolve PSOS-37 before PSOS-38 grouping code; PSOS-39 remains timeboxed discovery, and PSOS-40 is strategic backlog.
+- **Queue state:** PSOS-14 is the sole active implementation ticket. Opus 5 planning, Codex verification, implementation, adversarial remediation, and automated validation are complete; development backfill/flag enablement and live Chrome QA remain. Resolve PSOS-37 before PSOS-38 grouping code; PSOS-39 remains timeboxed discovery, and PSOS-40 is strategic backlog.
 
 ## Operating rules
 
@@ -112,9 +112,9 @@ The first delivery train should proceed as follows:
 
 | ID | Work item | Status | Dependencies |
 |---|---|---|---|
-| [PSOS-12](tasks/PSOS-12.md) | workItems + workItemEvents schema, invariants, transactional lifecycle | `not_started` | PSOS-07, PSOS-09 |
-| [PSOS-13](tasks/PSOS-13.md) | Assignment composer + "Send for internal review" shortcut | `not_started` | PSOS-09, PSOS-12 |
-| [PSOS-14](tasks/PSOS-14.md) | My Work dashboard: lanes, dense ledger rows, mobile cards | `not_started` | PSOS-11, PSOS-12 |
+| [PSOS-12](tasks/PSOS-12.md) | workItems + workItemEvents schema, invariants, transactional lifecycle | `done` | PSOS-07, PSOS-09 |
+| [PSOS-13](tasks/PSOS-13.md) | Assignment composer + "Send for internal review" shortcut | `done` | PSOS-09, PSOS-12 |
+| [PSOS-14](tasks/PSOS-14.md) | My Work dashboard: lanes, dense ledger rows, mobile cards | `in_progress` | PSOS-11, PSOS-12 |
 | [PSOS-15](tasks/PSOS-15.md) | Team pipeline view for managers/admins | `not_started` | PSOS-12, PSOS-14 |
 | [PSOS-16](tasks/PSOS-16.md) | In-app notifications & Inbox (unread/read/archive, dedup) | `not_started` | PSOS-09, PSOS-12 |
 | [PSOS-17](tasks/PSOS-17.md) | Email notifications: preferences, delivery ledger, idempotent retries | `blocked` | PSOS-01 provider decision, PSOS-16 |

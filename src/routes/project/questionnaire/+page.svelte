@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
-  import { useMutation } from "convex-svelte";
+  import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import Button from "$lib/components/ui/Button.svelte";
@@ -8,6 +8,8 @@
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import SelectInput from "$lib/components/ui/SelectInput.svelte";
+  import type { Id } from "../../../../convex/_generated/dataModel";
 
   const QUESTIONS = [
     {
@@ -78,10 +80,19 @@
   const auth = useAuth();
   const createProject = useMutation(api.projects.createProject);
   const generateReport = useMutation(api.generations.requestGeneration);
+  const ownerQ = useQuery(api.projectCreation.getOwnerOptions, () => auth.isAuthenticated ? {} : "skip");
+  const ownerOptions = $derived((ownerQ.data?.candidates ?? []).map((member) => ({ value: member.userId, label: member.label })));
 
   let step = $state(0);
   let title = $state("");
   let clientName = $state("");
+  let ownerId = $state("");
+  let ownerInitialized = false;
+  $effect(() => {
+    if (ownerInitialized || !ownerQ.data) return;
+    ownerInitialized = true;
+    ownerId = ownerQ.data.defaultOwnerId ?? "";
+  });
   let answers = $state<Record<string, string>>({});
   let submitting = $state(false);
   let error = $state("");
@@ -101,8 +112,8 @@
 
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
-    if (!title.trim() || !clientName.trim()) {
-      error = "Project title and client name are required.";
+    if (!title.trim() || !clientName.trim() || !ownerId) {
+      error = "Project title, client name, and Owner are required.";
       return;
     }
     error = "";
@@ -113,6 +124,7 @@
       const { projectId, transcriptId } = await createProject({
         title: title.trim(),
         clientName: clientName.trim(),
+        ownerId: ownerId as Id<"users">,
         transcriptContent,
       });
       await generateReport({ projectId, transcriptId });
@@ -184,9 +196,10 @@
               placeholder="GreenStem Nurseries Inc."
               required
             />
+            <div class="sm:col-span-2"><label for="questionnaireOwner" class="text-sm font-medium text-ink">Owner <span class="text-red-600">*</span></label><SelectInput id="questionnaireOwner" bind:value={ownerId} items={ownerOptions} placeholder={ownerQ.isLoading ? "Loading eligible owners…" : "Choose the accountable owner"} disabled={!ownerQ.data?.requiresSelection || ownerQ.isLoading || Boolean(ownerQ.error)} class="mt-1.5" />{#if ownerQ.error}<p class="mt-1 text-xs text-red-700" role="alert">Eligible Owners could not be loaded. Refresh the page and try again.</p>{:else if ownerQ.data?.requiresSelection && ownerOptions.length === 0}<p class="mt-1 text-xs text-red-700" role="alert">No eligible Consultants or Managers are available.</p>{/if}</div>
           </div>
           <div class="mt-8 flex justify-end">
-            <Button onclick={() => (step = 0)} disabled={!title.trim() || !clientName.trim()}>
+            <Button onclick={() => (step = 0)} disabled={!title.trim() || !clientName.trim() || !ownerId}>
               Start Questionnaire
             </Button>
           </div>
@@ -250,7 +263,7 @@
                 <button type="button" onclick={() => (step = -1)} class="text-xs text-primary hover:underline">Edit</button>
               </div>
               <p class="mt-1 text-sm font-medium text-gray-900">{title}</p>
-              <p class="text-sm text-gray-500">{clientName}</p>
+              <p class="text-sm text-gray-500">{clientName}</p><p class="mt-1 text-xs text-ink-muted">Owner · {ownerOptions.find((option) => option.value === ownerId)?.label ?? "Not selected"}</p>
             </div>
 
             {#each QUESTIONS as q, i (q.id)}
@@ -281,7 +294,7 @@
             >
               Back
             </button>
-            <Button type="submit" disabled={submitting}>
+            <Button type="submit" disabled={submitting || !ownerId}>
               {submitting ? "Generating..." : "Generate Report"}
             </Button>
           </div>

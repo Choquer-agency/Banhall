@@ -14,6 +14,8 @@ import {
   matchWriterText,
   ownerCandidates,
 } from "./lib/ownerMatching";
+import { workflowStageRank } from "../shared/workflowStages";
+import { scheduleOwnershipOversightRebuild } from "./oversight";
 import {
   getTeamRosterMemberOrNull,
   isTeamRosterMember,
@@ -148,6 +150,7 @@ export const backfillOwnership = internalMutation({
         ownerId?: typeof project.createdBy;
         ownerBackfillStatus?: "needs_review";
         workflowStage?: "intake" | "drafting";
+        workflowStageRank?: number;
         workflowUpdatedAt?: number;
         workflowVersion?: number;
       } = {};
@@ -190,6 +193,7 @@ export const backfillOwnership = internalMutation({
           .first();
         const stage = report ? "drafting" : "intake";
         patch.workflowStage = stage;
+        patch.workflowStageRank = workflowStageRank(stage);
         patch.workflowUpdatedAt = now;
         if (stage === "drafting") batch.stageDrafting += 1;
         else batch.stageIntake += 1;
@@ -210,6 +214,14 @@ export const backfillOwnership = internalMutation({
       if (!args.dryRun && Object.keys(patch).length > 0) {
         patch.workflowVersion = (project.workflowVersion ?? 0) + 1;
         await ctx.db.patch(project._id, patch);
+        if (patch.ownerId && patch.ownerId !== project.ownerId) {
+          await scheduleOwnershipOversightRebuild(ctx, {
+            projectId: project._id,
+            reason: "owner_review_assign",
+            fromOwnerId: project.ownerId,
+            toOwnerId: patch.ownerId,
+          });
+        }
       }
     }
 
@@ -391,6 +403,12 @@ export const assignOwnerFromReview = mutation({
       to: target._id,
       note: "review:manual-assign",
       at: now,
+    });
+    await scheduleOwnershipOversightRebuild(ctx, {
+      projectId: project._id,
+      reason: "owner_review_assign",
+      fromOwnerId: project.ownerId,
+      toOwnerId: target._id,
     });
     return null;
   },

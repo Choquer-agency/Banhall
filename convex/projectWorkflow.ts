@@ -1,11 +1,9 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import {
-  getInternalProjectAccessOrNull,
-  requireCurrentUser,
-} from "./lib/auth";
+import { getInternalProjectAccessOrNull } from "./lib/auth";
+import { requireCapability } from "./lib/roleCapabilities";
 import {
   domainError,
   workflowStageValidator,
@@ -20,6 +18,8 @@ import {
   type TransitionAuthority,
 } from "../shared/workflowTransitions";
 import { MAX_WORKFLOW_NOTE_CHARS } from "../shared/workflowLabels";
+import { workflowStageRank } from "../shared/workflowStages";
+import { scheduleOwnershipOversightRebuild } from "./oversight";
 
 const transferCandidateRoleValidator = v.union(
   v.literal("writer"),
@@ -57,7 +57,35 @@ function normalizedNote(note: string | undefined) {
   return value;
 }
 
-export function workflowAuthorities(
+async function validCurrentHandoff(
+  ctx: Parameters<typeof getInternalProjectAccessOrNull>[0],
+  project: Doc<"projects">
+) {
+  if (!project.currentHandoffId) return null;
+  const [pointed, blockers] = await Promise.all([
+    ctx.db.get(project.currentHandoffId),
+    ctx.db
+      .query("workItems")
+      .withIndex("by_projectId_and_status_and_blocking", (q) =>
+        q.eq("projectId", project._id).eq("status", "open").eq("blocking", true)
+      )
+      .take(2),
+  ]);
+  if (
+    !pointed ||
+    pointed.projectId !== project._id ||
+    pointed.status !== "open" ||
+    pointed.blocking !== true ||
+    blockers.length !== 1 ||
+    blockers[0]._id !== pointed._id
+  ) {
+    return null;
+  }
+  return pointed;
+}
+
+export async function workflowAuthorities(
+  ctx: Parameters<typeof getInternalProjectAccessOrNull>[0],
   project: Doc<"projects">,
   user: Doc<"users">
 ) {
@@ -67,17 +95,17 @@ export function workflowAuthorities(
   if (user.role === "manager") authorities.add("manager");
   if (user.role === "admin") authorities.add("admin");
 
-  // PSOS-12 widens projects with currentHandoffId and introduces workItems.
-  // Add `handoff_assignee` here after loading and validating that one bounded
-  // pointer. Keeping the authority resolution centralized preserves call sites.
+  const handoff = await validCurrentHandoff(ctx, project);
+  if (handoff?.assigneeId === user._id) authorities.add("handoff_assignee");
   return authorities;
 }
 
-function requireAnyWorkflowAuthority(
+async function requireAnyWorkflowAuthority(
+  ctx: Parameters<typeof getInternalProjectAccessOrNull>[0],
   project: Doc<"projects">,
   user: Doc<"users">
 ) {
-  const authorities = workflowAuthorities(project, user);
+  const authorities = await workflowAuthorities(ctx, project, user);
   if (authorities.size === 0) {
     domainError(
       "NOT_AUTHORIZED",
@@ -87,8 +115,16 @@ function requireAnyWorkflowAuthority(
   return authorities;
 }
 
-function requireTransferAuthority(project: Doc<"projects">, user: Doc<"users">) {
-  const authorities = workflowAuthorities(project, user);
+async function requireInternalWorkflowActor(ctx: QueryCtx | MutationCtx) {
+  return (await requireCapability(ctx, "project.readInternal")).user;
+}
+
+async function requireTransferAuthority(
+  ctx: Parameters<typeof getInternalProjectAccessOrNull>[0],
+  project: Doc<"projects">,
+  user: Doc<"users">
+) {
+  const authorities = await workflowAuthorities(ctx, project, user);
   if (
     !authorities.has("owner") &&
     !authorities.has("manager") &&
@@ -150,7 +186,7 @@ export const getProjectWorkflowHeader = query({
       createdByLabel: creator
         ? userDisplayLabel(creator)
         : access.project.writer?.trim() || "Unknown creator",
-      viewerAuthorities: [...workflowAuthorities(access.project, access.user)],
+      viewerAuthorities: [...await workflowAuthorities(ctx, access.project, access.user)],
     };
   },
 });
@@ -170,10 +206,10 @@ export const listOwnerTransferCandidates = query({
     truncated: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    const user = await requireCurrentUser(ctx);
+    const user = await requireInternalWorkflowActor(ctx);
     const project = await ctx.db.get(args.projectId);
     if (!project) domainError("NOT_FOUND", "Project not found");
-    requireTransferAuthority(project, user);
+    await requireTransferAuthority(ctx, project, user);
 
     const rosterPage = await ctx.db.query("users").take(201);
     const roster = rosterPage.slice(0, 200).filter(isTeamRosterMember);
@@ -226,11 +262,11 @@ export const transferOwnership = mutation({
     version: v.number(),
   }),
   handler: async (ctx, args) => {
-    const user = await requireCurrentUser(ctx);
+    const user = await requireInternalWorkflowActor(ctx);
     const project = await ctx.db.get(args.projectId);
     if (!project) domainError("NOT_FOUND", "Project not found");
 
-    requireTransferAuthority(project, user);
+    await requireTransferAuthority(ctx, project, user);
     validateExpectedVersion(args.expectedVersion);
     const version = workflowVersion(project);
     if (project.ownerId === args.toUserId) {
@@ -267,6 +303,12 @@ export const transferOwnership = mutation({
       ...(note ? { note } : {}),
       at: now,
     });
+    await scheduleOwnershipOversightRebuild(ctx, {
+      projectId: project._id,
+      reason: "ownership_transfer",
+      ...(project.ownerId ? { fromOwnerId: project.ownerId } : {}),
+      toOwnerId: target._id,
+    });
     return { status: "updated" as const, version: nextVersion };
   },
 });
@@ -283,11 +325,11 @@ export const setWorkflowStage = mutation({
     version: v.number(),
   }),
   handler: async (ctx, args) => {
-    const user = await requireCurrentUser(ctx);
+    const user = await requireInternalWorkflowActor(ctx);
     const project = await ctx.db.get(args.projectId);
     if (!project) domainError("NOT_FOUND", "Project not found");
 
-    const authorities = requireAnyWorkflowAuthority(project, user);
+    const authorities = await requireAnyWorkflowAuthority(ctx, project, user);
     validateExpectedVersion(args.expectedVersion);
     const version = workflowVersion(project);
     const fromStage = project.workflowStage ?? "intake";
@@ -324,16 +366,40 @@ export const setWorkflowStage = mutation({
       );
     }
     if (transition.requirements?.includes("review_handoff")) {
-      domainError(
-        "INVALID_STATE",
-        "An active internal-review handoff is required before resuming internal review"
-      );
+      const handoff = await validCurrentHandoff(ctx, project);
+      if (
+        !handoff ||
+        handoff.projectId !== project._id ||
+        handoff.status !== "open" ||
+        handoff.blocking !== true ||
+        handoff.kind !== "internal_review"
+      ) {
+        domainError(
+          "INVALID_STATE",
+          "An active internal-review handoff is required before resuming internal review"
+        );
+      }
+    }
+    if (args.toStage === "abandoned") {
+      const openWork = await ctx.db
+        .query("workItems")
+        .withIndex("by_projectId_and_status", (q) =>
+          q.eq("projectId", project._id).eq("status", "open")
+        )
+        .first();
+      if (openWork) {
+        domainError(
+          "INVALID_STATE",
+          "Complete, decline, or cancel open work before abandoning this project"
+        );
+      }
     }
 
     const now = Date.now();
     const nextVersion = version + 1;
     await ctx.db.patch(project._id, {
       workflowStage: args.toStage,
+      workflowStageRank: workflowStageRank(args.toStage),
       workflowUpdatedAt: now,
       workflowVersion: nextVersion,
     });

@@ -188,7 +188,7 @@ describe("workflow authorization and validation", () => {
           toStage: "drafting",
           expectedVersion: 0,
         })
-      ).rejects.toThrow(/NOT_AUTHORIZED|authority|owner/i);
+      ).rejects.toThrow(/NOT_AUTHORIZED|NOT_AUTHENTICATED|Authentication required|authority|owner/i);
     }
     const projectId = await insertProject(setup, { stage: "intake" });
     await expect(
@@ -258,6 +258,79 @@ describe("workflow authorization and validation", () => {
       expect.objectContaining({ type: "stage_changed", to: "drafting" }),
     ]);
     expect((await projectEvents(setup, projectId))[0]).not.toHaveProperty("from");
+  });
+});
+
+describe("work-item workflow authority", () => {
+  it("allows a valid internal-review handoff to satisfy review resumption and grants only H-authorized edges", async () => {
+    const setup = await setupFixture();
+    const projectId = await insertProject(setup, { stage: "on_hold" });
+    const created = await setup.owner.mutation(api.workItems.create, {
+      projectId,
+      kind: "internal_review",
+      assigneeId: setup.otherWriterId,
+      blocking: true,
+      instructions: "Review the current draft",
+      createRequestId: "workflow-review-handoff",
+    });
+    const project = await setup.t.run((ctx) => ctx.db.get(projectId));
+    expect(project).toMatchObject({ currentHandoffId: created.workItemId, workflowVersion: 1 });
+    await expect(setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+      projectId,
+      toStage: "internal_review",
+      expectedVersion: 1,
+    })).resolves.toEqual({ status: "updated", version: 2 });
+    await expect(setup.other.mutation(api.projectWorkflow.setWorkflowStage, {
+      projectId,
+      toStage: "revisions",
+      expectedVersion: 2,
+    })).resolves.toEqual({ status: "updated", version: 3 });
+    await expect(setup.other.mutation(api.projectWorkflow.transferOwnership, {
+      projectId,
+      toUserId: setup.managerId,
+      expectedVersion: 3,
+    })).rejects.toThrow(/NOT_AUTHORIZED|owner/i);
+  });
+
+  it("rejects missing, wrong-kind, closed, and foreign review handoffs", async () => {
+    const setup = await setupFixture();
+    const projectId = await insertProject(setup, { stage: "on_hold" });
+    const wrongKind = await setup.owner.mutation(api.workItems.create, {
+      projectId,
+      kind: "other",
+      assigneeId: setup.otherWriterId,
+      blocking: true,
+      instructions: "Other task",
+      createRequestId: "wrong-kind",
+    });
+    await expect(setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+      projectId,
+      toStage: "internal_review",
+      expectedVersion: 1,
+    })).rejects.toThrow(/review handoff|INVALID_STATE/i);
+    await setup.owner.mutation(api.workItems.cancel, {
+      workItemId: wrongKind.workItemId,
+      expectedVersion: 0,
+      reason: "Replace task",
+    });
+    const closed = await setup.owner.mutation(api.workItems.create, {
+      projectId,
+      kind: "internal_review",
+      assigneeId: setup.otherWriterId,
+      blocking: true,
+      instructions: "Review task",
+      createRequestId: "closed-review",
+    });
+    await setup.owner.mutation(api.workItems.cancel, {
+      workItemId: closed.workItemId,
+      expectedVersion: 0,
+    });
+    const afterClose = await setup.t.run((ctx) => ctx.db.get(projectId));
+    await expect(setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+      projectId,
+      toStage: "internal_review",
+      expectedVersion: afterClose?.workflowVersion ?? -1,
+    })).rejects.toThrow(/review handoff|INVALID_STATE/i);
   });
 });
 

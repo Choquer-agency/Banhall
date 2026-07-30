@@ -35,7 +35,7 @@ export async function getInternalProjectAccessOrNull(
   projectId: Id<"projects">
 ) {
   const user = await getCurrentUserOrNull(ctx);
-  if (!user) return null;
+  if (!user || user.isAnonymous === true || !user.role) return null;
   const project = await ctx.db.get(projectId);
   if (!project) return null;
   return { project, user };

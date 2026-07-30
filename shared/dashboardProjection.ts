@@ -1,4 +1,4 @@
-import type { WorkflowStage } from "./workflowStages";
+import { workflowStageRank, type WorkflowStage } from "./workflowStages";
 
 export const DASHBOARD_COMPANY_PAGE_SIZE = 20;
 export const DASHBOARD_PROJECT_PAGE_SIZE = 60;
@@ -19,6 +19,7 @@ export type DashboardProjectSource = {
   scienceCode?: string;
   industry?: string;
   fiscalYearEnd?: number;
+  workflowStage?: WorkflowStage;
 };
 
 export type DashboardProjectFilters = {
@@ -74,5 +75,6 @@ export function dashboardProjectionFields(source: DashboardProjectSource) {
     dashboardCompanyKey: dashboardCompanyKey(source.clientName),
     dashboardFiscalYearRank: dashboardFiscalYearRank(source.fiscalYearEnd),
     dashboardSearchText: dashboardSearchText(source),
+    workflowStageRank: workflowStageRank(source.workflowStage),
   };
 }

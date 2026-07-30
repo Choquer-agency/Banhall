@@ -14,6 +14,7 @@ type DashboardProjectionPatch = {
   dashboardCompanyKey: string;
   dashboardFiscalYearRank: number;
   dashboardSearchText: string;
+  workflowStageRank: number;
 };
 
 export function projectDashboardProjectionPatch(
@@ -26,6 +27,7 @@ export function projectDashboardProjectionPatch(
     | "scienceCode"
     | "industry"
     | "fiscalYearEnd"
+    | "workflowStage"
   >
 ): DashboardProjectionPatch {
   return dashboardProjectionFields(project);
@@ -75,7 +77,8 @@ export async function syncProjectDashboardFields(
   if (
     project.dashboardCompanyKey !== patch.dashboardCompanyKey ||
     project.dashboardFiscalYearRank !== patch.dashboardFiscalYearRank ||
-    project.dashboardSearchText !== patch.dashboardSearchText
+    project.dashboardSearchText !== patch.dashboardSearchText ||
+    project.workflowStageRank !== patch.workflowStageRank
   ) {
     await ctx.db.patch(projectId, patch);
   }

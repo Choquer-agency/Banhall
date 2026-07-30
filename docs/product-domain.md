@@ -28,8 +28,8 @@ The report remains the primary workspace. Workflow controls support the report r
 | **Project** | One SR&ED technical narrative/PD for a client and fiscal period. | Existing `projects` row. | A project is the durable workflow container. It is not an assignment or a report branch. |
 | **Creator** | The internal user who originally created the project. Historical audit identity only. | Existing immutable `projects.createdBy`. | Never relabel or repurpose this field as Owner. It does not change when responsibility is transferred. |
 | **Owner** | The consultant accountable for the project across its lifecycle, even while another person performs a temporary review or action. | Planned `projects.ownerId: Id<"users">`; initially optional during widen/backfill, then required for active projects. Ownership changes create immutable `projectEvents`. | Owner and Current handoff are separate. Ownership transfer never changes `createdBy`. |
-| **Work item** | A concrete action requested from a person, with type, assignee, assigner, due date, instructions, blocking status, lifecycle, and completion history. | Planned `workItems` row and immutable `workItemEvents`. | Do not model the work system as one mutable `assignedTo` field. Work items are never hard-deleted during their normal lifecycle. |
-| **Current handoff** | The one open blocking work item that answers “who has the next action on this project?” | Planned `projects.currentHandoffId: Id<"workItems">` as a denormalized pointer maintained transactionally; canonical details remain on `workItems`. | At most one open blocking handoff per project. Multiple open non-blocking work items are allowed. “With” in the UI means the current handoff assignee, not the Owner. |
+| **Work item** | A concrete action requested from a person, with type, assignee, assigner, due date, instructions, blocking status, lifecycle, and completion history. | `workItems` row and immutable `workItemEvents`. | Do not model the work system as one mutable `assignedTo` field. Work items are never hard-deleted during their normal lifecycle. |
+| **Current handoff** | The one open blocking work item that answers “who has the next action on this project?” | `projects.currentHandoffId: Id<"workItems">` as a denormalized pointer maintained transactionally; canonical details remain on `workItems`. | At most one open blocking handoff per project. Multiple open non-blocking work items are allowed. “With” in the UI means the current handoff assignee, not the Owner. |
 | **Workflow stage** | The human production stage of the project. | Planned `projects.workflowStage` and `projects.workflowUpdatedAt`; transitions create immutable `projectEvents`. | Separate from legacy `projects.status` and from AI generation state. Do not infer ownership or assignment from stage. |
 | **Generation state** | Technical lifecycle of an AI generation attempt. | Existing `generations.status`; canonical states are `reserved`, `running`, `awaiting_selection`, `awaiting_input`, `completed`, and `failed`. | A generation failure does not itself determine the human workflow stage. Existing stale/retry fencing remains technical generation behavior. |
 | **Draft branch** | A persistent, independently editable report alternative, such as a model draft, imported report, manual alternative, or duplicate. | Planned `reportBranches` row pointing to a branch-owned `reports` row; planned `projects.activeBranchId` and `projects.promotedBranchId`. | Branches are not snapshots. Switching branches never changes another branch’s content, revision, chat, comments, research, provenance, or snapshots. |
@@ -85,7 +85,7 @@ Authority labels:
 | `intake` | `interview_complete` | O, M, A | Manual confirmation only in the initial release. |
 | `intake` | `drafting` | O, M, A | Manual shortcut allowed when intake/interview completion is implicit or legacy. |
 | `intake` | `on_hold` | O, M, A | Reason required. |
-| `intake` | `abandoned` | O, M, A | Reason required; cancel open work items. |
+| `intake` | `abandoned` | O, M, A | Reason required; all open work items must be completed, declined, or canceled first. |
 | `interview_complete` | `drafting` | O, M, A | May later be suggested after generation starts, but no invisible automatic transition initially. |
 | `interview_complete` | `on_hold` | O, M, A | Reason required. |
 | `interview_complete` | `abandoned` | O, M, A | Reason required. |
@@ -262,6 +262,16 @@ These decisions provide defaults so implementation does not invent product behav
 8. Centralize capabilities, then migrate Convex functions module by module with role-matrix tests.
 9. Introduce durable clients/claim periods through a separate reviewed migration.
 10. Narrow or remove legacy fields only after measured verification and a dedicated decision.
+
+## Approved amendments
+
+### 2026-07-29 — Abandonment requires closing open work first
+
+- **Affected tickets:** PSOS-12, PSOS-13, and subsequent workflow-stage surfaces.
+- **Decision:** A project cannot enter `abandoned` while any open work item remains. Authorized users must complete, decline, or cancel open work before changing the Stage.
+- **Compatibility and migration:** No data migration is required. Existing projects and work-item history remain unchanged; the mutation continues to fail closed when open work exists.
+- **Authorization and tests:** Existing Stage authority remains unchanged. Workflow tests must cover rejection with open work and success after all work is closed.
+- **Approval:** Product owner confirmed this policy on 2026-07-29 and reconfirmed it during the PSOS-12/13/14 remediation review.
 
 ## Amendment process
 

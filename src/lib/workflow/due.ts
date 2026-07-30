@@ -4,16 +4,12 @@ export type FormattedDue = {
   overdue: boolean;
 };
 
-const DAY_MS = 24 * 60 * 60 * 1_000;
-
-function localDayStart(timestamp: number) {
-  const date = new Date(timestamp);
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-}
+import { WORK_ITEM_FIRM_TIME_ZONE } from "../../../shared/workItems";
+import { firmDayNumber } from "../../../shared/firmTime";
 
 export function formatDue(dueAt: number | null, now: number): FormattedDue | null {
   if (dueAt === null) return null;
-  const dayDifference = Math.round((localDayStart(dueAt) - localDayStart(now)) / DAY_MS);
+  const dayDifference = firmDayNumber(dueAt) - firmDayNumber(now);
   const relative =
     dayDifference === 0
       ? "Due today"
@@ -26,6 +22,7 @@ export function formatDue(dueAt: number | null, now: number): FormattedDue | nul
             : `${Math.abs(dayDifference)} days overdue`;
   return {
     absolute: new Date(dueAt).toLocaleDateString("en-CA", {
+      timeZone: WORK_ITEM_FIRM_TIME_ZONE,
       year: "numeric",
       month: "short",
       day: "numeric",

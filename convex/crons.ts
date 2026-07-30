@@ -13,15 +13,25 @@ crons.interval(
 // Learning loop: nightly safety nets for the feedback digests. The main
 // triggers are debounced scheduling from saveQaItemFeedback / scoreCandidate;
 // the actions no-op when there is no new feedback since the active digest.
-crons.daily(
+crons.cron(
   "refresh QA calibration digest",
-  { hourUTC: 8, minuteUTC: 0 }, // ~3am ET, outside working hours
+  "0 8 * * *", // ~3am ET, outside working hours
   internal.ai.learning.generateQaCalibrationDigest
 );
-crons.daily(
+crons.cron(
   "refresh draft style digest",
-  { hourUTC: 8, minuteUTC: 15 },
+  "15 8 * * *",
   internal.ai.learning.generateDraftStyleDigest
+);
+crons.interval(
+  "reconcile stalled oversight rebuilds",
+  { minutes: 5 },
+  internal.oversight.sweepStalled
+);
+crons.interval(
+  "resume stalled My work backfills",
+  { minutes: 5 },
+  internal.myWorkBackfill.sweepStalled
 );
 
 export default crons;

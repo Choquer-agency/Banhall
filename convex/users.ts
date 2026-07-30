@@ -22,13 +22,15 @@ export const listTeam = query({
   args: {},
   handler: async (ctx) => {
     const viewer = await getCurrentUserOrNull(ctx);
-    if (!viewer) return [];
+    if (!viewer || viewer.isAnonymous === true || !viewer.role) return [];
     const users = await listTeamRoster(ctx);
     return users
+      .filter((user) => Boolean(user.role))
       .map((user) => ({
         id: user._id,
         name: userDisplayLabel(user),
         email: user.email?.trim() || null,
+        role: user.role ?? null,
       }))
       .sort((a, b) => {
         const byName = a.name.localeCompare(b.name, undefined, {

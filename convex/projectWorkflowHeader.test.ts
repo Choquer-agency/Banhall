@@ -130,13 +130,11 @@ describe("project workflow header", () => {
         })
       )?.viewerAuthorities
     ).toEqual([]);
-    expect(
-      (
-        await fixture.roleless.query(api.projectWorkflow.getProjectWorkflowHeader, {
-          projectId: fixture.projectId,
-        })
-      )?.viewerAuthorities
-    ).toEqual([]);
+    await expect(
+      fixture.roleless.query(api.projectWorkflow.getProjectWorkflowHeader, {
+        projectId: fixture.projectId,
+      })
+    ).resolves.toBeNull();
   });
 
   it("returns only eligible transfer candidates and excludes the current owner", async () => {

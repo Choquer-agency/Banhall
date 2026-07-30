@@ -1,6 +1,10 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { workflowStageValidator } from "./lib/contracts";
+import {
+  workflowStageValidator,
+  workItemKindValidator,
+  workItemStatusValidator,
+} from "./lib/contracts";
 
 export default defineSchema({
   // Auth lives in the Better Auth component (see convex/auth.ts). This app
@@ -96,10 +100,14 @@ export default defineSchema({
     // administrator still needs to confirm or correct the accountable owner.
     ownerBackfillStatus: v.optional(v.literal("needs_review")),
     workflowStage: v.optional(workflowStageValidator),
+    workflowStageRank: v.optional(v.number()),
     workflowUpdatedAt: v.optional(v.number()),
     // PSOS-09: monotonic OCC token shared by ownership and workflow-stage
     // mutations. Existing/backfilled rows omit it and therefore begin at 0.
     workflowVersion: v.optional(v.number()),
+    // PSOS-12: denormalized pointer to the one open blocking work item.
+    // Canonical details remain on workItems and are validated at read time.
+    currentHandoffId: v.optional(v.id("workItems")),
     status: v.union(
       v.literal("draft"),
       v.literal("generating"),
@@ -135,6 +143,11 @@ export default defineSchema({
     .index("by_ownerId", ["ownerId"])
     .index("by_ownerBackfillStatus", ["ownerBackfillStatus"])
     .index("by_ownerId_and_workflowStage", ["ownerId", "workflowStage"])
+    .index("by_ownerId_and_workflowStageRank_and_updatedAt", [
+      "ownerId",
+      "workflowStageRank",
+      "updatedAt",
+    ])
     .index("by_workflowStage", ["workflowStage"])
     .index("by_dashboardCompanyKey", ["dashboardCompanyKey"])
     .index("by_dashboardCompanyKey_and_dashboardFiscalYearRank", [
@@ -208,6 +221,169 @@ export default defineSchema({
   )
     .index("by_projectId", ["projectId"])
     .index("by_projectId_and_type", ["projectId", "type"]),
+
+  workItems: defineTable({
+    projectId: v.id("projects"),
+    kind: workItemKindValidator,
+    assigneeId: v.id("users"),
+    assignerId: v.id("users"),
+    dueAt: v.optional(v.number()),
+    dueSortAt: v.optional(v.number()),
+    instructions: v.string(),
+    blocking: v.boolean(),
+    status: workItemStatusValidator,
+    completedAt: v.optional(v.number()),
+    completedBy: v.optional(v.id("users")),
+    resolutionNote: v.optional(v.string()),
+    version: v.number(),
+    createRequestId: v.string(),
+    createRequestFingerprint: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_assigneeId_and_status", ["assigneeId", "status"])
+    .index("by_assigneeId_and_status_and_dueAt", ["assigneeId", "status", "dueAt"])
+    .index("by_assigneeId_and_status_and_kind_and_dueAt", [
+      "assigneeId",
+      "status",
+      "kind",
+      "dueAt",
+    ])
+    .index("by_assigneeId_and_status_and_dueSortAt", [
+      "assigneeId",
+      "status",
+      "dueSortAt",
+    ])
+    .index("by_assigneeId_and_status_and_kind_and_dueSortAt", [
+      "assigneeId",
+      "status",
+      "kind",
+      "dueSortAt",
+    ])
+    .index("by_assignerId_and_status", ["assignerId", "status"])
+    .index("by_assignerId_and_status_and_dueAt", ["assignerId", "status", "dueAt"])
+    .index("by_projectId_and_status", ["projectId", "status"])
+    .index("by_projectId_and_status_and_blocking", ["projectId", "status", "blocking"])
+    .index("by_projectId_and_status_and_dueAt", ["projectId", "status", "dueAt"])
+    .index("by_status_and_dueAt", ["status", "dueAt"])
+    .index("by_assignerId_and_createRequestId", ["assignerId", "createRequestId"]),
+
+  workItemOversight: defineTable({
+    viewerId: v.id("users"),
+    workItemId: v.id("workItems"),
+    projectId: v.id("projects"),
+    assigneeId: v.id("users"),
+    dueSortAt: v.number(),
+    sourceAssigner: v.boolean(),
+    sourceOwner: v.boolean(),
+    updatedAt: v.number(),
+  })
+    .index("by_viewerId_and_dueSortAt", ["viewerId", "dueSortAt"])
+    .index("by_viewerId_and_workItemId", ["viewerId", "workItemId"])
+    .index("by_workItemId", ["workItemId"])
+    .index("by_projectId_and_viewerId", ["projectId", "viewerId"]),
+
+  oversightRebuilds: defineTable({
+    projectId: v.id("projects"),
+    reason: v.union(
+      v.literal("ownership_transfer"),
+      v.literal("owner_review_assign"),
+      v.literal("repair")
+    ),
+    fromOwnerId: v.optional(v.id("users")),
+    toOwnerId: v.id("users"),
+    affectedViewerIds: v.optional(v.array(v.id("users"))),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("superseded"),
+      v.literal("failed")
+    ),
+    cursor: v.optional(v.string()),
+    attempts: v.number(),
+    lastError: v.optional(v.string()),
+    startedAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_projectId_and_status", ["projectId", "status"])
+    .index("by_fromOwnerId_and_status", ["fromOwnerId", "status"])
+    .index("by_toOwnerId_and_status", ["toOwnerId", "status"])
+    .index("by_status_and_updatedAt", ["status", "updatedAt"]),
+
+  oversightSyncing: defineTable({
+    viewerId: v.id("users"),
+    projectId: v.id("projects"),
+    rebuildId: v.id("oversightRebuilds"),
+    startedAt: v.number(),
+  })
+    .index("by_viewerId", ["viewerId"])
+    .index("by_rebuildId", ["rebuildId"])
+    .index("by_projectId", ["projectId"]),
+
+  myWorkBackfillRuns: defineTable({
+    runKey: v.string(),
+    status: v.union(v.literal("running"), v.literal("completed"), v.literal("failed")),
+    phase: v.optional(v.union(v.literal("projects"), v.literal("workItems"), v.literal("verifyProjects"), v.literal("verifyWorkItems"))),
+    dryRun: v.boolean(),
+    cursor: v.optional(v.string()),
+    scanned: v.number(),
+    patched: v.number(),
+    verificationMismatches: v.optional(v.number()),
+    startedAt: v.number(),
+    updatedAt: v.number(),
+    verifiedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+  })
+    .index("by_runKey", ["runKey"])
+    .index("by_status_and_updatedAt", ["status", "updatedAt"])
+    .index("by_status_and_dryRun_and_updatedAt", ["status", "dryRun", "updatedAt"]),
+
+  workItemEvents: defineTable(
+    v.union(
+      v.object({
+        workItemId: v.id("workItems"), projectId: v.id("projects"),
+        type: v.literal("created"), actorId: v.id("users"), at: v.number(), itemVersion: v.number(),
+        detail: v.object({ kind: workItemKindValidator, assigneeId: v.id("users"), blocking: v.boolean(), dueAt: v.optional(v.number()) }),
+      }),
+      v.object({
+        workItemId: v.id("workItems"), projectId: v.id("projects"),
+        type: v.literal("reassigned"), actorId: v.id("users"), at: v.number(), itemVersion: v.number(),
+        detail: v.object({ fromAssigneeId: v.id("users"), toAssigneeId: v.id("users"), note: v.optional(v.string()) }),
+      }),
+      v.object({
+        workItemId: v.id("workItems"), projectId: v.id("projects"),
+        type: v.literal("blocking_changed"), actorId: v.id("users"), at: v.number(), itemVersion: v.number(),
+        detail: v.object({ fromBlocking: v.boolean(), toBlocking: v.boolean(), note: v.optional(v.string()) }),
+      }),
+      v.object({
+        workItemId: v.id("workItems"), projectId: v.id("projects"),
+        type: v.literal("due_changed"), actorId: v.id("users"), at: v.number(), itemVersion: v.number(),
+        detail: v.object({ fromDueAt: v.optional(v.number()), toDueAt: v.optional(v.number()), note: v.optional(v.string()) }),
+      }),
+      v.object({
+        workItemId: v.id("workItems"), projectId: v.id("projects"),
+        type: v.literal("completed"), actorId: v.id("users"), at: v.number(), itemVersion: v.number(),
+        detail: v.object({ resolutionNote: v.optional(v.string()), onBehalfOfAssignee: v.boolean() }),
+      }),
+      v.object({
+        workItemId: v.id("workItems"), projectId: v.id("projects"),
+        type: v.literal("declined"), actorId: v.id("users"), at: v.number(), itemVersion: v.number(),
+        detail: v.object({ reason: v.string() }),
+      }),
+      v.object({
+        workItemId: v.id("workItems"), projectId: v.id("projects"),
+        type: v.literal("canceled"), actorId: v.id("users"), at: v.number(), itemVersion: v.number(),
+        detail: v.object({ reason: v.optional(v.string()) }),
+      })
+    )
+  )
+    .index("by_workItemId", ["workItemId"])
+    .index("by_workItemId_and_itemVersion", ["workItemId", "itemVersion"])
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_and_at", ["projectId", "at"]),
 
   // ─── BNH-35: admin-curated project tags (nested via parentId) ──────────────
   tags: defineTable({

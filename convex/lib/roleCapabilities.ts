@@ -42,8 +42,11 @@ export async function requireCapability(
   scope?: CapabilityScope
 ) {
   const user = await getCurrentUserOrNull(ctx);
-  if (!user) {
+  if (!user || user.isAnonymous === true) {
     domainError("NOT_AUTHENTICATED", "Authentication required", { capability });
+  }
+  if (!user.role) {
+    domainError("NOT_AUTHORIZED", "An active internal role is required", { capability });
   }
 
   const level = getEffectiveCapabilityLevel(user.role, capability);

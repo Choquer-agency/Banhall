@@ -11,15 +11,45 @@ const baseProps = {
 };
 
 describe("WorkflowDetailsPanel", () => {
-  it("shows only current Stage and Owner before handoff storage ships", async () => {
+  it("shows Stage, Owner, With, and Due after handoff storage ships", async () => {
     await render(WorkflowDetailsPanel, baseProps);
 
     const labels = [...document.body.querySelectorAll("dt")].map((node) => node.textContent?.trim());
-    expect(labels).toEqual(["Stage", "Owner"]);
+    expect(labels).toEqual(["Stage", "Owner", "With", "Due"]);
     expect(document.body.textContent).toContain("On hold");
     expect(document.body.textContent).toContain("Admin Writer");
-    expect(document.body.textContent).not.toContain("With");
-    expect(document.body.textContent).not.toContain("Due");
+    expect(document.body.textContent).toContain("No current handoff");
+    expect(document.body.textContent).toContain("Not set");
+  });
+
+  it("renders current handoff metadata and work actions", async () => {
+    const onAssignWork = vi.fn();
+    const onSendForReview = vi.fn();
+    await render(WorkflowDetailsPanel, {
+      ...baseProps,
+      stage: "drafting",
+      workItems: [{
+        workItemId: "work-1" as never,
+        kind: "internal_review",
+        blocking: true,
+        isCurrentHandoff: true,
+        dueAt: Date.now() + 86_400_000,
+        instructionsPreview: "Review the current draft.",
+        version: 0,
+        assignee: { userId: "user-1" as never, label: "Alex Lee", initials: "AL" },
+        viewerCanManage: true,
+      }],
+      canCreateWork: true,
+      canSendForReview: true,
+      onAssignWork,
+      onSendForReview,
+    });
+    expect(document.body.textContent).toContain("Alex Lee");
+    expect(document.body.textContent).toContain("Internal review");
+    await userEvent.click([...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "Send for internal review")!);
+    await userEvent.click([...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "Assign work")!);
+    expect(onSendForReview).toHaveBeenCalledOnce();
+    expect(onAssignWork).toHaveBeenCalledOnce();
   });
 
   it("uses explicit fallback and unassigned copy instead of ambiguous dashes", async () => {

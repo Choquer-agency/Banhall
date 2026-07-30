@@ -18,6 +18,12 @@
   import WorkflowDetailsPanel from "./WorkflowDetailsPanel.svelte";
   import StageChangeDialog from "./StageChangeDialog.svelte";
   import OwnerTransferDialog from "./OwnerTransferDialog.svelte";
+  import AssignmentComposerDialog, { type AssignmentValues, type BlockingConflict } from "./AssignmentComposerDialog.svelte";
+  import ReassignWorkItemDialog from "./ReassignWorkItemDialog.svelte";
+  import CancelWorkItemDialog from "./CancelWorkItemDialog.svelte";
+  import type { WorkItemSummary } from "./WorkflowDetailsPanel.svelte";
+  import { assignmentDefaults, firmDateInputToTimestamp } from "$lib/workflow/assignmentDefaults";
+  import { WORK_ITEM_KIND_LABELS } from "../../../../shared/workItems";
 
   type WorkflowHeader = Exclude<
     FunctionReturnType<typeof api.projectWorkflow.getProjectWorkflowHeader>,
@@ -45,6 +51,21 @@
   let retryHeaderData = $state<WorkflowHeader | null>(null);
   let retrySourceError = $state<Error | null>(null);
   let forcedStale = $state(false);
+  let composerOpen = $state(false);
+  let composerVariant = $state<"full" | "review">("full");
+  let composerBusy = $state(false);
+  let composerError = $state<string | null>(null);
+  let conflict = $state<BlockingConflict | null>(null);
+  let reassignOpen = $state(false);
+  let cancelOpen = $state(false);
+  let selectedWorkItem = $state<WorkItemSummary | null>(null);
+  let actionBusy = $state(false);
+  let actionWorkError = $state<string | null>(null);
+  let reassignPrefill = $state<Id<"users"> | null>(null);
+  let createRequestId = $state(crypto.randomUUID());
+  let createRequestFingerprint = $state<string | null>(null);
+  let composerDefaults = $state(assignmentDefaults("other"));
+  let composerWorkflowVersion = $state(0);
   let baseline = $state<ActionBaseline | null>(null);
 
   const componentId = $props.id();
@@ -58,6 +79,19 @@
   );
   const setWorkflowStage = useMutation(api.projectWorkflow.setWorkflowStage);
   const transferOwnership = useMutation(api.projectWorkflow.transferOwnership);
+  const createWork = useMutation(api.workItems.create);
+  const reassignWork = useMutation(api.workItems.reassign);
+  const cancelWork = useMutation(api.workItems.cancel);
+  const workPanelQ = useQuery(api.workItems.getProjectWorkPanel, () =>
+    auth.isAuthenticated && (menuOpen || composerOpen || reassignOpen || cancelOpen)
+      ? { projectId }
+      : "skip"
+  );
+  const assigneesQ = useQuery(api.workItems.listAssigneeCandidates, () =>
+    auth.isAuthenticated && (composerOpen || reassignOpen)
+      ? { projectId, ...(reassignOpen && selectedWorkItem ? { workItemId: selectedWorkItem.workItemId } : {}) }
+      : "skip"
+  );
 
   const useRetryFallback = $derived(
     Boolean(headerQ.error && headerQ.error === retrySourceError && retryHeaderData)
@@ -102,6 +136,9 @@
       )
     )
   );
+  const composerStale = $derived(
+    composerOpen && Boolean(header && header.workflowVersion !== composerWorkflowVersion)
+  );
   const actionStale = $derived(
     forcedStale || Boolean(baseline && header && header.workflowVersion !== baseline.version)
   );
@@ -129,6 +166,34 @@
     forcedStale = false;
     menuOpen = false;
     requestAnimationFrame(() => (stageOpen = true));
+  }
+
+  function openComposer(variant: "full" | "review") {
+    composerVariant = variant;
+    composerDefaults = assignmentDefaults(variant === "review" ? "internal_review" : "other");
+    composerWorkflowVersion = header?.workflowVersion ?? 0;
+    createRequestId = crypto.randomUUID();
+    createRequestFingerprint = null;
+    composerError = null;
+    conflict = null;
+    menuOpen = false;
+    requestAnimationFrame(() => (composerOpen = true));
+  }
+
+  function openReassign(item: WorkItemSummary, prefill?: Id<"users">) {
+    selectedWorkItem = item;
+    reassignPrefill = prefill ?? item.assignee.userId;
+    actionWorkError = null;
+    composerOpen = false;
+    menuOpen = false;
+    requestAnimationFrame(() => (reassignOpen = true));
+  }
+
+  function openCancel(item: WorkItemSummary) {
+    selectedWorkItem = item;
+    actionWorkError = null;
+    menuOpen = false;
+    requestAnimationFrame(() => (cancelOpen = true));
   }
 
   function openTransferDialog() {
@@ -206,6 +271,85 @@
     }
   }
 
+  async function submitAssignment(values: AssignmentValues) {
+    const dueAt = firmDateInputToTimestamp(values.dueDate);
+    const fingerprint = JSON.stringify({
+      kind: values.kind,
+      assigneeId: values.assigneeId,
+      blocking: values.blocking,
+      dueAt: dueAt ?? null,
+      instructions: values.instructions,
+      changeStage: values.changeStage,
+      workflowVersion: values.changeStage ? composerWorkflowVersion : null,
+    });
+    if (createRequestFingerprint && createRequestFingerprint !== fingerprint) {
+      createRequestId = crypto.randomUUID();
+    }
+    createRequestFingerprint = fingerprint;
+    composerBusy = true;
+    composerError = null;
+    conflict = null;
+    try {
+      const result = await createWork({
+        projectId,
+        kind: values.kind,
+        assigneeId: values.assigneeId,
+        blocking: values.blocking,
+        dueAt,
+        instructions: values.instructions,
+        createRequestId,
+        ...(values.changeStage ? { confirmedStageChange: "internal_review" as const, expectedWorkflowVersion: composerWorkflowVersion } : {}),
+      });
+      toast.success(result.stageChanged ? "Internal review handoff created and Stage updated." : "Work assigned.");
+      composerOpen = false;
+    } catch (error) {
+      if (userErrorCode(error) === "BLOCKING_EXISTS") {
+        const current = workPanelQ.data?.openItems.find((item) => item.isCurrentHandoff);
+        if (current) {
+          conflict = {
+            workItemId: current.workItemId,
+            assigneeLabel: current.assignee.label,
+            kindLabel: WORK_ITEM_KIND_LABELS[current.kind],
+            canReassign: current.viewerCanManage,
+          };
+        } else {
+          composerError = "This project already has a blocking handoff. Review the latest workflow details and retry.";
+        }
+      } else {
+        composerError = userErrorMessage(error, "Work could not be assigned.");
+      }
+    } finally {
+      composerBusy = false;
+    }
+  }
+
+  async function submitReassign(toUserId: Id<"users">) {
+    if (!selectedWorkItem) return;
+    actionBusy = true;
+    actionWorkError = null;
+    try {
+      const result = await reassignWork({ workItemId: selectedWorkItem.workItemId, toAssigneeId: toUserId, expectedVersion: selectedWorkItem.version });
+      if (result.status === "updated") toast.success("Handoff reassigned. Project Stage unchanged.");
+      else toast.info("That person already has this handoff.");
+      reassignOpen = false;
+    } catch (error) {
+      actionWorkError = userErrorMessage(error, "The handoff could not be reassigned.");
+    } finally { actionBusy = false; }
+  }
+
+  async function submitCancel(reason?: string) {
+    if (!selectedWorkItem) return;
+    actionBusy = true;
+    actionWorkError = null;
+    try {
+      await cancelWork({ workItemId: selectedWorkItem.workItemId, expectedVersion: selectedWorkItem.version, reason });
+      toast.success("Work item canceled.");
+      cancelOpen = false;
+    } catch (error) {
+      actionWorkError = userErrorMessage(error, "The work item could not be canceled.");
+    } finally { actionBusy = false; }
+  }
+
   async function submitTransfer(toUserId: Id<"users">, note?: string) {
     if (!baseline) return;
     transferBusy = true;
@@ -274,6 +418,19 @@
         onRetry={retryHeader}
         onChangeStage={openStageDialog}
         onTransferOwner={openTransferDialog}
+        workItems={workPanelQ.data?.openItems ?? []}
+        workTruncated={workPanelQ.data?.truncated ?? false}
+        canCreateWork={workPanelQ.data?.viewer.canCreate ?? false}
+        canSendForReview={Boolean(workPanelQ.data?.viewer.canCreate && header && (header.workflowStage === "drafting" || header.workflowStage === "revisions"))}
+        assignable={workPanelQ.data?.assignable ?? false}
+        assignableReason={workPanelQ.data?.assignableReason ?? null}
+        pointerHealthy={workPanelQ.data?.pointerHealthy ?? true}
+        workLoading={workPanelQ.isLoading}
+        workError={workPanelQ.error ? userErrorMessage(workPanelQ.error, "Work assignments are temporarily unavailable. Close and reopen Workflow to retry.") : null}
+        onAssignWork={() => openComposer("full")}
+        onSendForReview={() => openComposer("review")}
+        onReassignWork={openReassign}
+        onCancelWork={openCancel}
         {titleId}
       />
     </Popover.Content>
@@ -305,5 +462,57 @@
     busy={transferBusy}
     errorMessage={transferError ?? (candidatesQ.error ? userErrorMessage(candidatesQ.error, "Eligible owners could not be loaded.") : null)}
     onSubmit={submitTransfer}
+  />
+{/if}
+
+<AssignmentComposerDialog
+  bind:open={composerOpen}
+  variant={composerVariant}
+  candidates={assigneesQ.data?.candidates ?? []}
+  loading={assigneesQ.isLoading}
+  failed={Boolean(assigneesQ.error)}
+  truncated={assigneesQ.data?.truncated ?? false}
+  canUseFinancialKind={workPanelQ.data?.viewer.canCreateFinancial ?? false}
+  busy={composerBusy}
+  errorMessage={composerError}
+  {conflict}
+  stale={composerStale}
+  latestWorkflowVersion={header?.workflowVersion ?? null}
+  onUseLatest={() => {
+    if (header) { composerWorkflowVersion = header.workflowVersion; composerError = null; createRequestId = crypto.randomUUID(); createRequestFingerprint = null; }
+  }}
+  initialKind={composerDefaults.kind}
+  initialBlocking={composerDefaults.blocking}
+  initialInstructions={composerDefaults.instructions}
+  initialDueDate={composerDefaults.dueDate}
+  onSubmit={submitAssignment}
+  onReassignConflict={(workItemId, assigneeId) => {
+    const item = workPanelQ.data?.openItems.find((candidate) => candidate.workItemId === workItemId);
+    if (item) openReassign(item, assigneeId);
+  }}
+/>
+
+<ReassignWorkItemDialog
+  bind:open={reassignOpen}
+  candidates={assigneesQ.data?.candidates ?? []}
+  selectedId={reassignPrefill}
+  loading={assigneesQ.isLoading}
+  failed={Boolean(assigneesQ.error)}
+  busy={actionBusy}
+  errorMessage={actionWorkError}
+  onUseLatest={() => {
+    const latest = selectedWorkItem && workPanelQ.data?.openItems.find((item) => item.workItemId === selectedWorkItem?.workItemId);
+    if (latest) { selectedWorkItem = latest; actionWorkError = null; }
+  }}
+  onSubmit={submitReassign}
+/>
+
+{#if selectedWorkItem}
+  <CancelWorkItemDialog
+    bind:open={cancelOpen}
+    label={`${WORK_ITEM_KIND_LABELS[selectedWorkItem.kind]} assigned to ${selectedWorkItem.assignee.label}`}
+    busy={actionBusy}
+    errorMessage={actionWorkError}
+    onSubmit={submitCancel}
   />
 {/if}

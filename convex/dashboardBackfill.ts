@@ -124,6 +124,7 @@ export const processBatch = internalMutation({
         project.dashboardCompanyKey !== patch.dashboardCompanyKey ||
         project.dashboardFiscalYearRank !== patch.dashboardFiscalYearRank ||
         project.dashboardSearchText !== patch.dashboardSearchText ||
+        project.workflowStageRank !== patch.workflowStageRank ||
         project.dashboardCompanyCounted !== true ||
         project.generationActivity !== patch.generationActivity ||
         project.lastViewedAt !== patch.lastViewedAt;
@@ -181,7 +182,8 @@ async function verificationReport(ctx: QueryCtx | MutationCtx) {
         (project) =>
           project.dashboardCompanyKey === undefined ||
           project.dashboardFiscalYearRank === undefined ||
-          project.dashboardSearchText === undefined
+          project.dashboardSearchText === undefined ||
+          project.workflowStageRank === undefined
       ).length,
     projectedCompanyTotal: companies.reduce((sum, company) => sum + company.projectCount, 0),
     companyRows: companies.length,

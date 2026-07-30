@@ -15,6 +15,9 @@ import {
   userDisplayLabel,
 } from "./lib/teamRoster";
 import { domainError, sha256 } from "./lib/contracts";
+import { requireCapability } from "./lib/roleCapabilities";
+import { requireEligibleProjectOwner } from "./lib/eligibleOwner";
+import { workflowStageRank } from "../shared/workflowStages";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { deriveStoredProcessing } from "../shared/documentStatus";
 import { canUseIndustry, industrySlug } from "../shared/industries";
@@ -340,9 +343,26 @@ export const createProject = mutation({
     // BNH-39: review mode reviews an existing written PD instead of generating.
     mode: v.optional(v.union(v.literal("generate"), v.literal("review"))),
     transcriptContent: v.string(),
+    ownerId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
     const writer = await requireCurrentUser(ctx);
+    await requireCapability(ctx, "project.create");
+    if (writer.isAnonymous === true || !writer.role) {
+      domainError("NOT_AUTHORIZED", "An active internal role is required to create a project");
+    }
+    let ownerId = args.ownerId;
+    if (writer.role === "writer") {
+      if (ownerId && ownerId !== writer._id) {
+        domainError("NOT_AUTHORIZED", "Consultants can create projects only for themselves");
+      }
+      ownerId = writer._id;
+    } else if (writer.role === "manager") {
+      ownerId ??= writer._id;
+    } else if (!ownerId) {
+      domainError("INVALID_INPUT", "Choose the accountable Consultant or Manager");
+    }
+    const owner = await requireEligibleProjectOwner(ctx, ownerId);
     const interviewer = args.interviewerUserId
       ? await getTeamRosterMemberOrNull(ctx, args.interviewerUserId)
       : null;
@@ -370,6 +390,7 @@ export const createProject = mutation({
       scienceCode,
       industry,
       fiscalYearEnd: args.fiscalYearEnd,
+      workflowStage: "intake",
     });
     const projectId = await ctx.db.insert("projects", {
       title: args.title,
@@ -390,11 +411,33 @@ export const createProject = mutation({
       ...(industry ? { industry } : {}),
       ...(scienceCode ? { scienceCode } : {}),
       ...(args.mode ? { mode: args.mode } : {}),
+      ownerId: owner._id,
+      workflowStage: "intake",
+      workflowStageRank: workflowStageRank("intake"),
+      workflowUpdatedAt: now,
+      workflowVersion: 0,
       status: "draft",
       createdBy: writer._id,
       shareToken,
       createdAt: now,
       updatedAt: now,
+    });
+
+    await ctx.db.insert("projectEvents", {
+      projectId,
+      type: "ownership_transferred",
+      actorId: writer._id,
+      to: owner._id,
+      note: "creation:initial-owner",
+      at: now,
+    });
+    await ctx.db.insert("projectEvents", {
+      projectId,
+      type: "stage_changed",
+      actorId: writer._id,
+      to: "intake",
+      note: "creation:initial-stage",
+      at: now,
     });
 
     await upsertDashboardCompany(
@@ -712,6 +755,19 @@ export const deleteProject = mutation({
         project.dashboardCompanyKey ?? projectDashboardProjectionPatch(project).dashboardCompanyKey,
         project.clientName,
         -1
+      );
+    }
+
+    const openWorkItem = await ctx.db
+      .query("workItems")
+      .withIndex("by_projectId_and_status", (q) =>
+        q.eq("projectId", args.projectId).eq("status", "open")
+      )
+      .first();
+    if (openWorkItem) {
+      domainError(
+        "INVALID_STATE",
+        "Complete, decline, or cancel open work before deleting this project"
       );
     }
 

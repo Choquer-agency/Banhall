@@ -68,6 +68,7 @@ import type * as lib_activeGeneration from "../lib/activeGeneration.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as lib_contracts from "../lib/contracts.js";
 import type * as lib_dashboardProjection from "../lib/dashboardProjection.js";
+import type * as lib_eligibleOwner from "../lib/eligibleOwner.js";
 import type * as lib_email from "../lib/email.js";
 import type * as lib_lineLimits from "../lib/lineLimits.js";
 import type * as lib_ownerMatching from "../lib/ownerMatching.js";
@@ -78,8 +79,14 @@ import type * as lib_snapshots from "../lib/snapshots.js";
 import type * as lib_teamRoster from "../lib/teamRoster.js";
 import type * as lib_tiptapReport from "../lib/tiptapReport.js";
 import type * as lib_uploadAttempts from "../lib/uploadAttempts.js";
+import type * as lib_workItemOversight from "../lib/workItemOversight.js";
+import type * as myWork from "../myWork.js";
+import type * as myWorkBackfill from "../myWorkBackfill.js";
+import type * as myWorkOps from "../myWorkOps.js";
+import type * as oversight from "../oversight.js";
 import type * as ownerBackfill from "../ownerBackfill.js";
 import type * as pdReviews from "../pdReviews.js";
+import type * as projectCreation from "../projectCreation.js";
 import type * as projectDuplication from "../projectDuplication.js";
 import type * as projectEvidence from "../projectEvidence.js";
 import type * as projectWorkflow from "../projectWorkflow.js";
@@ -96,6 +103,7 @@ import type * as tags from "../tags.js";
 import type * as transcripts from "../transcripts.js";
 import type * as uploadAttempts from "../uploadAttempts.js";
 import type * as users from "../users.js";
+import type * as workItems from "../workItems.js";
 import type * as writerProfiles from "../writerProfiles.js";
 
 import type {
@@ -165,6 +173,7 @@ declare const fullApi: ApiFromModules<{
   "lib/auth": typeof lib_auth;
   "lib/contracts": typeof lib_contracts;
   "lib/dashboardProjection": typeof lib_dashboardProjection;
+  "lib/eligibleOwner": typeof lib_eligibleOwner;
   "lib/email": typeof lib_email;
   "lib/lineLimits": typeof lib_lineLimits;
   "lib/ownerMatching": typeof lib_ownerMatching;
@@ -175,8 +184,14 @@ declare const fullApi: ApiFromModules<{
   "lib/teamRoster": typeof lib_teamRoster;
   "lib/tiptapReport": typeof lib_tiptapReport;
   "lib/uploadAttempts": typeof lib_uploadAttempts;
+  "lib/workItemOversight": typeof lib_workItemOversight;
+  myWork: typeof myWork;
+  myWorkBackfill: typeof myWorkBackfill;
+  myWorkOps: typeof myWorkOps;
+  oversight: typeof oversight;
   ownerBackfill: typeof ownerBackfill;
   pdReviews: typeof pdReviews;
+  projectCreation: typeof projectCreation;
   projectDuplication: typeof projectDuplication;
   projectEvidence: typeof projectEvidence;
   projectWorkflow: typeof projectWorkflow;
@@ -193,6 +208,7 @@ declare const fullApi: ApiFromModules<{
   transcripts: typeof transcripts;
   uploadAttempts: typeof uploadAttempts;
   users: typeof users;
+  workItems: typeof workItems;
   writerProfiles: typeof writerProfiles;
 }>;
 

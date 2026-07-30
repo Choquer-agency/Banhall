@@ -1,5 +1,9 @@
 import { ConvexError, v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
+import {
+  WORK_ITEM_KINDS,
+  WORK_ITEM_STATUSES,
+} from "../../shared/workItems";
 
 export const domainErrorCodes = [
   "NOT_AUTHENTICATED",
@@ -18,6 +22,7 @@ export const domainErrorCodes = [
   "EXPORT_NOT_AUTHORIZED",
   "INVALID_STATE",
   "INVALID_INPUT",
+  "BLOCKING_EXISTS",
 ] as const;
 
 export type DomainErrorCode = (typeof domainErrorCodes)[number];
@@ -49,6 +54,14 @@ export const workflowStageValidator = v.union(
   v.literal("delivered"),
   v.literal("on_hold"),
   v.literal("abandoned")
+);
+
+export const workItemKindValidator = v.union(
+  ...WORK_ITEM_KINDS.map((kind) => v.literal(kind))
+);
+
+export const workItemStatusValidator = v.union(
+  ...WORK_ITEM_STATUSES.map((status) => v.literal(status))
 );
 
 export const generationStatusValidator = v.union(
