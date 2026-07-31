@@ -27,7 +27,7 @@ The report remains the primary workspace. Workflow controls support the report r
 |---|---|---|---|
 | **Project** | One SR&ED technical narrative/PD for a client and fiscal period. | Existing `projects` row. | A project is the durable workflow container. It is not an assignment or a report branch. |
 | **Creator** | The internal user who originally created the project. Historical audit identity only. | Existing immutable `projects.createdBy`. | Never relabel or repurpose this field as Owner. It does not change when responsibility is transferred. |
-| **Owner** | The consultant accountable for the project across its lifecycle, even while another person performs a temporary review or action. | Planned `projects.ownerId: Id<"users">`; initially optional during widen/backfill, then required for active projects. Ownership changes create immutable `projectEvents`. | Owner and Current handoff are separate. Ownership transfer never changes `createdBy`. |
+| **Owner** | The internal user accountable for the project across its lifecycle, even while another person performs a temporary review or action. A new project's initial Owner is always its authenticated Creator, including when that Creator is an Admin. | Planned `projects.ownerId: Id<"users">`; initially optional during widen/backfill, then required for active projects. Ownership changes create immutable `projectEvents`. | Owner and Current handoff are separate. Ownership transfer never changes `createdBy`. Project creation never accepts a different initial Owner from the client. |
 | **Work item** | A concrete action requested from a person, with type, assignee, assigner, due date, instructions, blocking status, lifecycle, and completion history. | `workItems` row and immutable `workItemEvents`. | Do not model the work system as one mutable `assignedTo` field. Work items are never hard-deleted during their normal lifecycle. |
 | **Current handoff** | The one open blocking work item that answers “who has the next action on this project?” | `projects.currentHandoffId: Id<"workItems">` as a denormalized pointer maintained transactionally; canonical details remain on `workItems`. | At most one open blocking handoff per project. Multiple open non-blocking work items are allowed. “With” in the UI means the current handoff assignee, not the Owner. |
 | **Workflow stage** | The human production stage of the project. | Planned `projects.workflowStage` and `projects.workflowUpdatedAt`; transitions create immutable `projectEvents`. | Separate from legacy `projects.status` and from AI generation state. Do not infer ownership or assignment from stage. |
@@ -200,7 +200,7 @@ Legend:
 
 | Operation | Consultant (`writer`) | Manager | Admin | Financial (planned) |
 |---|---|---|---|---|
-| Create a project | Yes | Yes | Yes | No |
+| Create a project | Yes; creator becomes Owner | Yes; creator becomes Owner | Yes; creator becomes Owner | No |
 | Read internal projects | All, under the current visibility default | All | All | Read only as required for linked financial work; exact scope lands with the role |
 | Edit report prose | Own and assigned collaboration contexts | All | All | No by default |
 | Transfer project ownership | Own project to another eligible Consultant/Manager | All | All | No |
@@ -264,6 +264,14 @@ These decisions provide defaults so implementation does not invent product behav
 10. Narrow or remove legacy fields only after measured verification and a dedicated decision.
 
 ## Approved amendments
+
+### 2026-07-30 — Project Creator is the initial Owner
+
+- **Affected tickets:** PSOS-09, PSOS-10, PSOS-13, and PSOS-14.
+- **Decision:** Every newly created project automatically sets `ownerId` to the authenticated Creator, including Consultant, Manager, and Admin creators. Project-creation screens do not ask users to select an Owner. A different initial Owner cannot be supplied by the client; responsibility may be transferred afterward through the audited ownership workflow.
+- **Compatibility and migration:** No data migration or schema change is required. Existing ownership and historical `createdBy` values remain unchanged. During the compatibility window, the optional `ownerId` mutation argument may be accepted only when it equals the authenticated Creator; a different value fails closed rather than being silently ignored.
+- **Authorization and tests:** Project creation still requires an active internal role and `project.create`. Tests must prove each permitted role becomes both Creator and initial Owner, client-supplied ownership cannot assign another user, and the immutable initial-ownership event identifies the Creator.
+- **Approval:** Product owner approved creator-owned project creation and Admin ownership on 2026-07-30.
 
 ### 2026-07-29 — Abandonment requires closing open work first
 

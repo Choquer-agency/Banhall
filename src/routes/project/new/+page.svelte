@@ -62,9 +62,6 @@
   const teamQ = useQuery(api.users.listTeam, () =>
     auth.isAuthenticated ? {} : "skip"
   );
-  const ownerQ = useQuery(api.projectCreation.getOwnerOptions, () =>
-    auth.isAuthenticated ? {} : "skip"
-  );
   const interviewerOptions = $derived([
     { value: "", label: "Not set" },
     ...(teamQ.data ?? []).map((member) => ({
@@ -81,18 +78,8 @@
   );
   const allTags = $derived(tagsQ.data ?? []);
 
-  // Writer is always the signed-in user — not editable.
+  // The authenticated creator is always the initial Owner.
   const writerName = $derived(user.data ? displayName(user.data, "Unknown team member") : "");
-  const ownerOptions = $derived(
-    (ownerQ.data?.candidates ?? []).map((member) => ({ value: member.userId, label: member.label }))
-  );
-  let ownerId = $state("");
-  let ownerInitialized = false;
-  $effect(() => {
-    if (ownerInitialized || !ownerQ.data) return;
-    ownerInitialized = true;
-    ownerId = ownerQ.data.defaultOwnerId ?? "";
-  });
 
   let step = $state(0);
   // BNH-39: generate a new PD from a transcript, or review an existing written PD.
@@ -308,7 +295,7 @@
   // engagements only have a spreadsheet/drawings/an email. Generation still
   // needs at least one source (transcript OR context docs), checked at commit.
   const detailsValid = $derived(
-    Boolean(title.trim() && clientName.trim() && ownerId && (mode === "review" ? pdDoc : true))
+    Boolean(title.trim() && clientName.trim() && (mode === "review" ? pdDoc : true))
   );
   const canGoNext = $derived(step !== 0 || detailsValid);
 
@@ -339,8 +326,6 @@
     if (step === 0 && !detailsValid) {
       if (!title.trim() || !clientName.trim())
         toast.error("Project title and client name are required.");
-      else if (!ownerId)
-        toast.error("Choose the accountable Consultant or Manager.");
       else if (mode === "review")
         toast.error("Upload the written PD to review.");
       return;
@@ -426,7 +411,6 @@
       progress = "Creating project…";
       const { projectId, transcriptId } = await createProject({
         title: title.trim(),
-        ...(ownerId ? { ownerId: ownerId as Id<"users"> } : {}),
         ...(sredTitle.trim() ? { sredTitle: sredTitle.trim() } : {}),
         clientName: clientName.trim(),
         ...(interviewerUserId
@@ -842,11 +826,6 @@
               {/if}
             </div>
             <div class="flex flex-col gap-1.5">
-              <label for="projectOwner" class="text-sm font-medium text-gray-700">Owner <span class="text-red-600">*</span></label>
-              <SelectInput id="projectOwner" bind:value={ownerId} items={ownerOptions} placeholder={ownerQ.isLoading ? "Loading eligible owners…" : "Choose the accountable owner"} disabled={!ownerQ.data?.requiresSelection || ownerQ.isLoading || Boolean(ownerQ.error)} />
-              {#if ownerQ.error}<p class="text-xs text-red-700" role="alert">Eligible Owners could not be loaded. Refresh the page and try again.</p>{:else if ownerQ.data?.requiresSelection && ownerOptions.length === 0}<p class="text-xs text-red-700" role="alert">No eligible Consultants or Managers are available. Ask an administrator to assign an active role.</p>{:else}<p class="text-xs text-ink-muted">The Owner stays accountable while temporary handoffs move between people.</p>{/if}
-            </div>
-            <div class="flex flex-col gap-1.5">
               <label for="industry" class="text-sm font-medium text-gray-700">Industry</label>
               <IndustrySelect id="industry" bind:value={industry} canCreate={user.data?.role === "admin"} />
             </div>
@@ -1150,9 +1129,8 @@
               {@render row("Science code", scienceCodeLabel(scienceCode))}
             {/if}
             {#if writerName}
-              {@render row("Consultant", writerName)}
+              {@render row("Creator & initial Owner", writerName)}
             {/if}
-            {@render row("Owner", ownerOptions.find((option) => option.value === ownerId)?.label ?? "Not selected")}
             {#if interviewerName}
               {@render row("Interviewer", interviewerName)}
             {/if}
@@ -1247,7 +1225,7 @@
             <Button
               type="button"
               onclick={commit}
-              disabled={committing || !hasAnySource || !ownerId}
+              disabled={committing || !hasAnySource}
             >
               {#if committing}
                 <Spinner size="sm" class="mr-2 h-3.5 w-3.5 border-white" />

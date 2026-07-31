@@ -16,7 +16,6 @@ import {
 } from "./lib/teamRoster";
 import { domainError, sha256 } from "./lib/contracts";
 import { requireCapability } from "./lib/roleCapabilities";
-import { requireEligibleProjectOwner } from "./lib/eligibleOwner";
 import { workflowStageRank } from "../shared/workflowStages";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { deriveStoredProcessing } from "../shared/documentStatus";
@@ -351,18 +350,15 @@ export const createProject = mutation({
     if (writer.isAnonymous === true || !writer.role) {
       domainError("NOT_AUTHORIZED", "An active internal role is required to create a project");
     }
-    let ownerId = args.ownerId;
-    if (writer.role === "writer") {
-      if (ownerId && ownerId !== writer._id) {
-        domainError("NOT_AUTHORIZED", "Consultants can create projects only for themselves");
-      }
-      ownerId = writer._id;
-    } else if (writer.role === "manager") {
-      ownerId ??= writer._id;
-    } else if (!ownerId) {
-      domainError("INVALID_INPUT", "Choose the accountable Consultant or Manager");
+    // Compatibility: older clients may still submit ownerId. New projects are
+    // always owned by their authenticated creator; never silently accept a
+    // stale client assigning initial ownership to someone else.
+    if (args.ownerId && args.ownerId !== writer._id) {
+      domainError(
+        "NOT_AUTHORIZED",
+        "New projects are initially owned by the person creating them"
+      );
     }
-    const owner = await requireEligibleProjectOwner(ctx, ownerId);
     const interviewer = args.interviewerUserId
       ? await getTeamRosterMemberOrNull(ctx, args.interviewerUserId)
       : null;
@@ -411,7 +407,7 @@ export const createProject = mutation({
       ...(industry ? { industry } : {}),
       ...(scienceCode ? { scienceCode } : {}),
       ...(args.mode ? { mode: args.mode } : {}),
-      ownerId: owner._id,
+      ownerId: writer._id,
       workflowStage: "intake",
       workflowStageRank: workflowStageRank("intake"),
       workflowUpdatedAt: now,
@@ -427,7 +423,7 @@ export const createProject = mutation({
       projectId,
       type: "ownership_transferred",
       actorId: writer._id,
-      to: owner._id,
+      to: writer._id,
       note: "creation:initial-owner",
       at: now,
     });
