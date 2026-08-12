@@ -59,9 +59,11 @@
   class={cn(
     // Recessed well with a soft inner shadow; the border + halo warm to
     // lagoon while the writer is composing (focus-within).
-    "flex items-end gap-2 rounded-2xl border border-chrome bg-canvas px-2 py-1.5",
-    "inset-shadow-[0_1px_3px_rgba(10,58,56,0.05)] transition-[border-color,box-shadow]",
-    "focus-within:border-primary/50 focus-within:ring-[3px] focus-within:ring-primary/10",
+    // Obvious composer anatomy (2026-08-10): a white bordered box; consumers
+    // may switch to a column layout (textarea row + action row) via class.
+    "flex items-end gap-2 rounded-2xl border border-line bg-surface px-2 py-1.5",
+    "shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition-[border-color,box-shadow]",
+    "focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10",
     "motion-reduce:transition-none",
     className
   )}

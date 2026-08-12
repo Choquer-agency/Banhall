@@ -38,6 +38,17 @@ export const startPdReview = mutation({
     ) {
       domainError("INVALID_INPUT", "An active, non-empty project document is required");
     }
+    // Start is user-invocable from the project page (recovery for the
+    // 2026-08-07 stranded-review flag), so it needs the same double-run guard
+    // retry has always had.
+    const latest = await ctx.db
+      .query("pdReviews")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .first();
+    if (latest && latest.status === "running") {
+      domainError("INVALID_INPUT", "A review is already running for this project");
+    }
 
     const now = Date.now();
     const reviewId = await ctx.db.insert("pdReviews", {
@@ -141,6 +152,38 @@ export const getLatestPdReview = query({
           : undefined,
       createdAt: review.createdAt,
       completedAt: review.completedAt,
+    };
+  },
+});
+
+/** The uploaded written PD a review would run against — lets the project page
+ *  offer "start review" when a review-mode project has a PD but no review row
+ *  (the stranded state behind the 2026-08-07 flag). */
+export const getReviewSourceDocument = query({
+  args: { projectId: v.id("projects") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id("projectDocuments"),
+      fileName: v.string(),
+      hasText: v.boolean(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    if (!(await getInternalProjectAccessOrNull(ctx, args.projectId))) return null;
+    const docs = await ctx.db
+      .query("projectDocuments")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .collect();
+    const candidates = docs
+      .filter((d) => d.source === "review_pd" && !d.archived)
+      .sort((a, b) => b.createdAt - a.createdAt);
+    const doc = candidates[0];
+    if (!doc) return null;
+    return {
+      _id: doc._id,
+      fileName: doc.fileName,
+      hasText: doc.content.trim().length > 0,
     };
   },
 });

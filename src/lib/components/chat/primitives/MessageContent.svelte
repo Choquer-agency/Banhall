@@ -28,8 +28,8 @@
 
   const roleClass = $derived(
     resolvedRole === "user"
-      ? "max-w-[85%] rounded-2xl rounded-br-sm bg-primary/10 px-4 py-2.5 font-sans text-[0.8125rem] leading-relaxed text-navy"
-      : cn("text-[0.8125rem] leading-relaxed text-gray-800", markdown && "chat-markdown")
+      ? "chat-fluid-text ml-auto w-fit max-w-[90%] rounded-lg bg-gray-50 px-3 py-2.5 font-sans leading-relaxed text-ink"
+      : cn("chat-fluid-text leading-normal text-ink", markdown && "chat-markdown")
   );
 </script>
 

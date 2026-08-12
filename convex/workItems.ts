@@ -27,7 +27,7 @@ import {
 } from "../shared/workItems";
 import { requireEligibleProjectOwner } from "./lib/eligibleOwner";
 import { deleteOversightForItem, syncOversightForItem } from "./lib/workItemOversight";
-import { workflowStageRank } from "../shared/workflowStages";
+import { patchProjectWorkflowStage } from "./lib/dashboardProjection";
 import { findWorkflowTransition } from "../shared/workflowTransitions";
 
 function validateVersion(expectedVersion: number) {
@@ -286,10 +286,14 @@ export const create = mutation({
     });
     if (args.confirmedStageChange) {
       const nextWorkflowVersion = workflowVersion(project) + 1;
-      await ctx.db.patch(project._id, {
+      // B1 correction (2026-08-06): this is a live workflowStage writer, so
+      // it MUST move the per-client stageCounts bucket in the same
+      // transaction. patchProjectWorkflowStage is the one sanctioned stage
+      // writer — a bare patch here silently drifted the exact counts while
+      // keeping sum === projectCount intact (undetectable by sum checks) and
+      // hide-empty then hid the moved project on client-scoped surfaces.
+      await patchProjectWorkflowStage(ctx, project, "internal_review", {
         currentHandoffId: workItemId,
-        workflowStage: "internal_review",
-        workflowStageRank: workflowStageRank("internal_review"),
         workflowVersion: nextWorkflowVersion,
         workflowUpdatedAt: now,
       });

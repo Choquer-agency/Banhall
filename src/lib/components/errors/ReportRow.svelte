@@ -45,8 +45,8 @@
 </script>
 
 <div
-  class={`rounded-xl border bg-white transition-colors ${
-    isResolved ? "border-gray-100 opacity-60" : "border-gray-200"
+  class={`rounded-xl border bg-surface transition-colors ${
+    isResolved ? "border-line-soft opacity-60" : "border-line"
   }`}
 >
   <!-- Collapsed header row -->
@@ -57,10 +57,10 @@
     <span
       class={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
         report.reportType === "feature"
-          ? "bg-primary/15 text-primary-dark"
+          ? "bg-primary/15 text-primary-selected"
           : report.kind === "manual"
             ? "bg-amber-100 text-amber-700"
-            : "bg-red-100 text-red-700"
+            : "bg-red-100 text-red-800"
       }`}
     >
       {report.reportType === "feature"
@@ -70,18 +70,18 @@
           : "Error"}
     </span>
 
-    <span class="min-w-0 flex-1 truncate text-sm text-navy">
+    <span class="min-w-0 flex-1 truncate text-sm text-ink">
       {report.message}
     </span>
 
-    <span class="hidden flex-shrink-0 truncate text-xs text-gray-400 sm:block sm:max-w-[160px]">
+    <span class="hidden flex-shrink-0 truncate text-xs text-ink-faint sm:block sm:max-w-[160px]">
       {report.url}
     </span>
-    <span class="flex-shrink-0 text-xs text-gray-400">
+    <span class="flex-shrink-0 text-xs text-ink-faint">
       {timeAgo(report.createdAt)}
     </span>
     <svg
-      class={`h-3.5 w-3.5 flex-shrink-0 transition-all duration-300 ${open ? "rotate-180 text-primary" : "text-gray-400"}`}
+      class={`h-3.5 w-3.5 flex-shrink-0 transition-all duration-300 ${open ? "rotate-180 text-primary" : "text-ink-faint"}`}
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
@@ -93,7 +93,7 @@
 
   <!-- Expanded detail -->
   {#if open}
-    <div class="space-y-4 border-t border-gray-100 px-4 py-4 text-sm" transition:slide={{ duration: 300 }}>
+    <div class="space-y-4 border-t border-line-soft px-4 py-4 text-sm" transition:slide={{ duration: 300 }}>
       <div class="flex flex-wrap items-center gap-2">
         <button
           onclick={copy}
@@ -120,43 +120,43 @@
               id: report._id,
               status: isResolved ? "open" : "resolved",
             })}
-          class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-primary-wash"
+          class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-secondary transition-colors hover:bg-primary-wash"
         >
           {isResolved ? "Reopen" : "Mark resolved"}
         </button>
         <button
           onclick={() => deleteError({ id: report._id })}
-          class="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-red-600"
+          class="rounded-lg px-3 py-1.5 text-xs font-medium text-ink-faint transition-colors hover:text-red-600"
         >
           Delete
         </button>
       </div>
 
       <dl class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-xs">
-        <dt class="text-gray-400">Page</dt>
-        <dd class="break-all font-mono text-navy">{report.url}</dd>
+        <dt class="text-ink-faint">Page</dt>
+        <dd class="break-all font-mono text-ink">{report.url}</dd>
         {#if report.source}
-          <dt class="text-gray-400">Source</dt>
-          <dd class="break-all font-mono text-navy">
+          <dt class="text-ink-faint">Source</dt>
+          <dd class="break-all font-mono text-ink">
             {report.source}
           </dd>
         {/if}
         {#if report.userEmail}
-          <dt class="text-gray-400">Reporter</dt>
-          <dd class="text-navy">{report.userEmail}</dd>
+          <dt class="text-ink-faint">Reporter</dt>
+          <dd class="text-ink">{report.userEmail}</dd>
         {/if}
-        <dt class="text-gray-400">When</dt>
-        <dd class="text-navy">
+        <dt class="text-ink-faint">When</dt>
+        <dd class="text-ink">
           {new Date(report.createdAt).toLocaleString()}
         </dd>
       </dl>
 
       {#if report.userNote}
         <div>
-          <p class="mb-1 text-xs font-semibold text-gray-500">
+          <p class="mb-1 text-xs font-semibold text-ink-muted">
             What the user said
           </p>
-          <p class="whitespace-pre-wrap rounded-lg bg-chrome px-3 py-2 text-sm text-navy">
+          <p class="whitespace-pre-wrap rounded-lg bg-chrome px-3 py-2 text-sm text-ink">
             {report.userNote}
           </p>
         </div>
@@ -164,19 +164,19 @@
 
       {#if report.breadcrumbs.length > 0}
         <div>
-          <p class="mb-1 text-xs font-semibold text-gray-500">
+          <p class="mb-1 text-xs font-semibold text-ink-muted">
             Recent activity (most recent last)
           </p>
           <ol class="space-y-1">
             {#each report.breadcrumbs as b, i (i)}
               <li class="flex items-start gap-2 text-xs">
-                <span class="mt-0.5 w-12 flex-shrink-0 font-mono text-gray-400">
+                <span class="mt-0.5 w-12 flex-shrink-0 font-mono text-ink-faint">
                   {TYPE_LABEL[b.type] ?? b.type}
                 </span>
-                <span class="min-w-0 text-navy">
+                <span class="min-w-0 text-ink">
                   {b.label}
                   {#if b.detail}
-                    <span class="text-gray-400"> — {b.detail}</span>
+                    <span class="text-ink-faint"> — {b.detail}</span>
                   {/if}
                 </span>
               </li>
@@ -187,7 +187,7 @@
 
       {#if report.stack}
         <div>
-          <p class="mb-1 text-xs font-semibold text-gray-500">
+          <p class="mb-1 text-xs font-semibold text-ink-muted">
             Stack trace
           </p>
           <pre class="overflow-x-auto rounded-lg bg-navy px-3 py-2 text-[11px] leading-relaxed text-white/80">{report.stack}</pre>
@@ -195,7 +195,7 @@
       {/if}
 
       {#if report.userAgent}
-        <p class="break-all text-[11px] text-gray-400">
+        <p class="break-all text-[11px] text-ink-faint">
           {report.userAgent}
         </p>
       {/if}

@@ -75,6 +75,11 @@ export default defineSchema({
     industry: v.optional(v.string()),
     // BNH-54: CRA T4088 line 206 field of science or technology code.
     scienceCode: v.optional(v.string()),
+    // 2026-08-11 amendment — per-company project numbering. Final projects
+    // carry "1".."20" (sequential, no gaps per company); uncertain/draft
+    // projects carry a letter "A".."Z" until converted. Conversion is a
+    // label-only change; validation lives in projects.setProjectNumber.
+    projectNumber: v.optional(v.string()),
     // PSOS-11 widen phase. These additive fields power bounded dashboard
     // projections without changing canonical project/workflow semantics.
     dashboardCompanyKey: v.optional(v.string()),
@@ -92,6 +97,12 @@ export default defineSchema({
     // BNH-39: how the project started — generate a PD from a transcript
     // (default, absent on older projects) or review an existing written PD.
     mode: v.optional(v.union(v.literal("generate"), v.literal("review"))),
+    // 2026-08-11 (second) amendment — review projects created from an
+    // existing project: on a review project, the source project whose report
+    // snapshot is under review (review → source). Navigational association
+    // only — no workflow, ownership, or outcome coupling crosses it. Set once
+    // at creation by reviewFromProject.createReviewFromProject.
+    sourceProjectId: v.optional(v.id("projects")),
     // PSOS-07 widen phase. Owner is durable accountability and never replaces
     // immutable createdBy. Human workflow remains separate from legacy status
     // and technical generation state. PSOS-08 owns backfill.
@@ -154,6 +165,18 @@ export default defineSchema({
       "dashboardCompanyKey",
       "dashboardFiscalYearRank",
     ])
+    // 2026-08-06 second amendment (Client → Status widen phase): per-client
+    // stage-ordered pagination. Rank is the FROZEN persisted rank
+    // (on_hold=7 before delivered=8); presentation re-maps complete runs
+    // into WORKFLOW_STAGE_PIPELINE_ORDER. Rows with a missing rank sort
+    // before all ranked rows — the rank-presence verification pass
+    // (dashboardBackfill.verifyStageCounts Pass 0) must report zero before
+    // consumers treat this index as complete.
+    .index("by_dashboardCompanyKey_and_workflowStageRank_and_updatedAt", [
+      "dashboardCompanyKey",
+      "workflowStageRank",
+      "updatedAt",
+    ])
     .index("by_createdAt", ["createdAt"])
     .index("by_updatedAt", ["updatedAt"])
     .index("by_lastViewedAt", ["lastViewedAt"])
@@ -164,16 +187,36 @@ export default defineSchema({
 
   dashboardBackfillRuns: defineTable({
     runKey: v.string(),
-    status: v.union(v.literal("running"), v.literal("completed")),
+    // "failed" (2026-08-06 correction): a live stageCounts run aborts —
+    // rather than writing counts on an unverified base — when Pass 0 finds
+    // projects with a missing workflowStageRank; the remediation is recorded
+    // in `note`. Failed and completed runs can both be re-run.
+    status: v.union(v.literal("running"), v.literal("completed"), v.literal("failed")),
     dryRun: v.boolean(),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
+    // 2026-08-06 second amendment: verification counters recorded by the
+    // stageCounts backfill passes (rank-presence, patched companies,
+    // verification mismatches, over-bound companies, projectCount-divergent
+    // companies). Server-written only.
+    stats: v.optional(v.record(v.string(), v.number())),
+    // Human-readable failure/remediation note (server-written only).
+    note: v.optional(v.string()),
   }).index("by_runKey", ["runKey"]),
 
   dashboardCompanies: defineTable({
     companyKey: v.string(),
     clientName: v.string(),
     projectCount: v.number(),
+    // 2026-08-06 second amendment (widen phase): exact per-client stage
+    // counts. Keys are canonical stage literals plus "legacy"; invariant
+    // sum(stageCounts) === projectCount. Optional during widen — absent
+    // means "not yet backfilled" and consumers MUST fail honest (loaded-only
+    // counts, hide-empty disabled), never treat absence as zero. Maintained
+    // in the same transaction as stage transitions, project create/delete,
+    // and client-name reassignment; the verified backfill establishes it on
+    // pre-widen rows. Written only by server mutations (never client input).
+    stageCounts: v.optional(v.record(v.string(), v.number())),
     updatedAt: v.number(),
   })
     .index("by_companyKey", ["companyKey"])
@@ -220,7 +263,10 @@ export default defineSchema({
     )
   )
     .index("by_projectId", ["projectId"])
-    .index("by_projectId_and_type", ["projectId", "type"]),
+    .index("by_projectId_and_type", ["projectId", "type"])
+    // Additive (2026-08-07): bounded newest-first activity reads for the
+    // read-only project activity timeline. Widen-only — no data migration.
+    .index("by_projectId_and_at", ["projectId", "at"]),
 
   workItems: defineTable({
     projectId: v.id("projects"),
@@ -1564,6 +1610,36 @@ export default defineSchema({
     lastSeenAt: v.number(),
   }).index("by_userId", ["userId"]),
 
+  // Workspace dashboard preview pilot: one row per user, admin-managed.
+  // Fail-closed — a user without an enabled row never sees the preview, and
+  // the global "workspace.dashboard.v1.enabled" appSettings master switch
+  // must also be on. Never store this allowlist inside appSettings.
+  workspaceDashboardAccess: defineTable({
+    userId: v.id("users"),
+    enabled: v.boolean(),
+    updatedBy: v.id("users"),
+    updatedAt: v.number(),
+    // Optimistic-concurrency version for public admin mutations. Optional so
+    // pre-versioning rows stay valid; treated as 0 when absent.
+    version: v.optional(v.number()),
+  }).index("by_userId", ["userId"]),
+
+  // Append-only audit trail for workspace dashboard rollout configuration
+  // changes (master switch + per-user access). Rows are never patched or
+  // deleted — duplicate-row repair on the config tables never touches this
+  // history.
+  workspaceDashboardRolloutEvents: defineTable({
+    actorId: v.id("users"),
+    scope: v.union(v.literal("master"), v.literal("user_access")),
+    targetUserId: v.optional(v.id("users")),
+    enabled: v.boolean(),
+    previousEnabled: v.optional(v.boolean()),
+    via: v.union(v.literal("public"), v.literal("internal")),
+    occurredAt: v.number(),
+  })
+    .index("by_occurredAt", ["occurredAt"])
+    .index("by_targetUserId_and_occurredAt", ["targetUserId", "occurredAt"]),
+
   // Admin-tunable app settings, one row per key. Currently: "defaultModel" —
   // the generation model used when a writer doesn't pick one explicitly.
   appSettings: defineTable({
@@ -1571,5 +1647,8 @@ export default defineSchema({
     value: v.string(),
     updatedBy: v.id("users"),
     updatedAt: v.number(),
+    // Optimistic-concurrency version, used only by the workspace rollout
+    // master-switch key today. Optional: other settings rows never set it.
+    version: v.optional(v.number()),
   }).index("by_key", ["key"]),
 });

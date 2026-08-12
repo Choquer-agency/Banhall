@@ -81,8 +81,10 @@ export async function requireRole(
   roles: Array<"writer" | "manager" | "admin">
 ) {
   const user = await requireCurrentUser(ctx);
-  if (!user.role || !roles.includes(user.role)) {
-    domainError("NOT_AUTHORIZED", "This action requires an elevated role");
+  // Anonymous auth records are never active role holders, even if a role
+  // field is somehow present — role-gated actions require a real account.
+  if (user.isAnonymous === true || !user.role || !roles.includes(user.role)) {
+    domainError("NOT_AUTHORIZED", "This action requires an active elevated role");
   }
   return user;
 }

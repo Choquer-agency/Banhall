@@ -127,7 +127,7 @@
     <!-- Type -->
     <h2 class="text-label mt-12">Type roles</h2>
     <div class="card mt-3 divide-y divide-gray-100">
-      {#each [["text-display", "Page titles — DM Sans 700, tight"], ["text-title", "Card & section titles — 600"], ["text-body", "Default UI copy — 400, secondary ink"], ["text-label", "EYEBROWS, COLUMN HEADERS — 600 CAPS"], ["text-data", "Numbers · ids · 2026-07-02 · QA 88/100 — mono, tabular"]] as [cls, sample] (cls)}
+      {#each [["text-display", "Page titles — Geist 700, tight"], ["text-title", "Card & section titles — 600"], ["text-body", "Default UI copy — 400, secondary ink"], ["text-label", "EYEBROWS, COLUMN HEADERS — 600 CAPS"], ["text-data", "Numbers · ids · 2026-07-02 · QA 88/100 — mono, tabular"]] as [cls, sample] (cls)}
         <div class="flex items-baseline gap-6 px-5 py-4">
           <code class="text-data w-28 flex-shrink-0 text-gray-500">.{cls}</code>
           <span class={cls}>{sample}</span>

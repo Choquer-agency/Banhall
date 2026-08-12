@@ -41,7 +41,10 @@
   <nav class="w-full bg-navy">
     <div class={`relative mx-auto flex h-13 w-full items-center px-6 ${width}`}>
       <!-- Logo — standalone, left -->
-      <a href="/dashboard" class="flex flex-shrink-0 items-center" aria-label="Banhall dashboard">
+      <!-- Explicit h-13: the logo image bleeds with negative margins, which
+           previously let this focus stop collapse to zero height (a11y P0,
+           2026-08-08 audit) — the anchor now owns the bar's full height. -->
+      <a href="/dashboard" class="flex h-13 flex-shrink-0 items-center" aria-label="Banhall dashboard">
         <img src="/logo.png" alt="" width="84" height="84" class="-my-5 brightness-0 invert" />
       </a>
 

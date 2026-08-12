@@ -265,6 +265,441 @@ These decisions provide defaults so implementation does not invent product behav
 
 ## Approved amendments
 
+### 2026-08-11 (second) — Review projects created from an existing project
+
+Additive amendment approved from the client meeting (owner top priority).
+The client's request, paraphrased from the meeting: from a written PD
+project, trigger PD-review mode that inherits the title, writer, and ALL
+supporting documents so nothing is re-collected; the review lives as an
+associated project; review mode must show the PD in the text editor
+alongside the AI feedback.
+
+- **Affected tickets:** BNH-39 (PD review mode) follow-up; no PSOS workflow
+  ticket — workflow-stage semantics are untouched.
+- **Storage:** `projects.sourceProjectId` (optional `Id<"projects">`, no
+  index) on the REVIEW project points at the source project whose report it
+  reviews (review → source). The association is **navigational only**: no
+  workflow, ownership, stage, handoff, or outcome coupling crosses it in
+  either direction, and neither project's lifecycle constrains the other's.
+  `createdBy` remains immutable audit identity and is not repurposed.
+- **Creation:** `reviewFromProject.createReviewFromProject` (action) is the
+  one sanctioned writer of the association. It requires the same authority
+  as project creation (`project.create` plus an active internal role) and
+  read access to the source project, and fails closed (`INVALID_INPUT`)
+  when the source has no report. It creates the review project with the
+  wizard path's insert conventions — mode `review`, initial stage `intake`,
+  creation events, dashboard company/stage counting in the same transaction
+  — and the authenticated caller becomes Creator **and** initial Owner per
+  the 2026-07-30 amendment (never the source project's Owner). It then
+  copies the source's transcript, support documents, archived documents,
+  review PDs, and original file bytes through the existing duplicate-flow
+  internals (`projects.prepareProjectContentCopy` /
+  `finishProjectContentCopy`), serializes the source's **latest report** to
+  plain text as a `projectDocuments` row with source `review_pd` — the
+  report snapshot becomes the written PD under review — and starts the AI
+  review through the same guarded insert-and-schedule path as
+  `startPdReview` (including the already-running guard).
+- **Presentation:** the report workbench header gains a ghost "Start AI
+  review" icon action; a review project's metadata grid renders a "Reviews"
+  link to its source project; and review-mode projects **with** a report
+  render the AI feedback report in the workbench's supporting panels, so
+  the PD (in the editor) and the feedback are visible together.
+- **Migration and compatibility:** widen-only optional field; no backfill
+  (existing review projects legitimately have no source), no index, no
+  narrow phase. Deleting the source project may leave the pointer dangling;
+  consumers treat an unresolvable source as "no association to show" rather
+  than an error.
+- **Authorization and tests:** no new permission surface — creation reuses
+  `project.create` + internal project access, and the content copy keeps
+  its existing access checks. Convex tests cover the created association
+  (`sourceProjectId`, creator-as-Owner, intake stage), the inherited
+  `review_pd` document serialized from the report, the running `pdReviews`
+  row, the copied documents, and the no-report failure.
+- **Approval:** product owner directed this as the top-priority client
+  request on 2026-08-11.
+
+### 2026-08-11 — Per-company project numbering with draft-letter identity
+
+(Owner clarification, same day: number and letter identities COMPOSE — a
+project may be labelled `2A`, `3B`, etc. Validation is `1–20`, `A–Z`, or
+`<1–20><A–Z>`; normalization stays trimmed-uppercase.)
+
+Additive storage amendment approved from the owner meeting. Meeting
+rationale, quoted: "final projects are numbered sequentially with no gaps
+1..N (≤20 per company); uncertain/draft projects carry a LETTER identity
+(A..Z) that can later be converted to a number; conversion preserves the
+project and all its associations — it is just a label change."
+
+- **Storage:** `projects.projectNumber` (optional string, no index) holds
+  either a final number `"1"`..`"20"` or a draft letter `"A"`..`"Z"`.
+  Absent means "not yet assigned". Values are stored trimmed and
+  uppercased. No other project field is repurposed; `createdBy` and all
+  workflow/ownership semantics are untouched.
+- **Mutation:** `projects.setProjectNumber` is the one sanctioned writer.
+  Authorization is `requireInternalProjectAccess` (same as sibling project
+  metadata mutations). It validates `/^([1-9][0-9]?|[A-Z])$/` and rejects
+  numeric values above 20 (`INVALID_INPUT`); empty/omitted clears the
+  field. It bumps `updatedAt` like sibling metadata mutations and does not
+  touch the dashboard projection (the field feeds no projection-derived
+  value; it is a raw-doc pass-through on `dashboardProjectRow`).
+- **Conversion semantics:** converting a letter project to a number is
+  exactly a `setProjectNumber` call — a label change only. The project
+  document, its `_id`, and every association (transcripts, reports, work
+  items, tags, workflow history) are preserved; no copy/recreate flow
+  exists or is permitted.
+- **Sequencing honesty:** the "sequential with no gaps 1..N per company"
+  rule is an operator practice this amendment records; the system does not
+  yet enforce cross-project uniqueness or gap-freeness per company (no
+  index, no counter). Enforcement, if wanted, is a future amendment.
+- **Presentation:** the Preview project metadata grid gains an inline-edit
+  "Project #" field; board cards render the value as a faint mono data
+  chip (`#3` / `#A`) — identity only, never a status or priority signal.
+
+### 2026-08-10 (third) — Chrome-less Home plane; persistent rail creation anchor
+
+Presentation-only amendment. **No domain vocabulary, workflow transition,
+permission, query-semantic, or storage change.** Supersedes two clauses:
+the 2026-08-08 rail clause "the duplicate rail action is shown only in the
+Projects workspace", and Home's use of the compact in-plane toolbar.
+
+- **Affected tickets:** PSOS-14 presentation follow-up; no backend ticket.
+- **Home chrome:** `/my-work` renders no in-plane toolbar (Obvious Home
+  parity: the content plane opens directly with the greeting/intake hero).
+  The workspace rail is Home's chrome: it carries the persistent
+  "New project" creation anchor on **every** view (Obvious's sidebar "New")
+  and the search control. The drawer hamburger (below 1280px) and the
+  rail-restore control (while the rail is hidden) float over the plane's
+  top-left so navigation stays reachable; both render nothing against an
+  expanded desktop rail. Projects keeps the existing toolbar unchanged.
+- **Search from Home:** search remains project discovery. Invoking it on
+  Home (rail button or ⌘K/Ctrl K — Home owns the shortcut while no header
+  is mounted) navigates to `/projects` with a one-shot, TTL-bounded focus
+  handoff so the caret lands in the Projects search field after the
+  remount. The typed-query handoff, canonical URLs, `/dashboard`
+  compatibility, and `?workspace=current` rollback are unchanged.
+- **Migration and tests:** No schema or data change. The superseded
+  HomeParity "duplicate New project" assertion updates in the same change
+  (rail anchor now expected on Home; no header element on Home; floating
+  controls present); focus-handoff unit tests added.
+- **Prompt-box intake (same date, follow-up direction):** the Home start
+  form presents as one quiet prompt container (Obvious prompt anatomy):
+  borderless title/transcript fields inside a rounded container that owns
+  the focus treatment via `focus-within` border shift; the fields opt out
+  of the global input focus ring through the `input-chromeless` utility
+  (layout.css), which must never be used outside a container providing its
+  own visible focus state. Field labels remain in the DOM as `sr-only`;
+  attach and Start project act as accessibly-named icon buttons in the
+  prompt toolbar row. Behavior is unchanged: still pure navigation into
+  the wizard with the same one-use in-memory handoff.
+- **Approval:** Product owner directed removing Home's nav bar while
+  keeping the sidebar creation button, matching the authenticated Obvious
+  board/home evidence, and the prompt-box input treatment in the
+  2026-08-10 requests.
+
+### 2026-08-10 (fourth) — Rail utility IA; wash/radius presentation
+
+Presentation-only amendment. **No permission, query, or storage change** —
+server-enforced authorization is untouched; rail visibility gating is
+presentation on top of it.
+
+- **Rail IA:** the workspace rail's bottom utility group gains Settings
+  (all roles), Admin (`/admin/users`, rendered only for the admin role —
+  visibility only; admin routes keep their server checks), Flag issue
+  (raises the existing ErrorMonitor manual dialog via a window event; the
+  global floating button hides while a workspace shell is mounted), and
+  the contract-required current-dashboard escape (unchanged semantics,
+  now a direct row). The **More menu is retired**; Self-Serve intake
+  remains reachable at `/project/questionnaire` (current-dashboard entry
+  points unchanged). **Rail recents are removed** — Home's "Recently
+  opened" band is the single device-local recency surface; the recents
+  storage contract is unchanged.
+- **Wash:** Home shader band at 40% opacity; backing-store resizes are
+  debounced (the per-tick buffer clear flashed during rail drags) and the
+  first frame renders unconditionally so mounts never flash blank.
+- **Radius:** Home containers align to the board-card `rounded-xl` scale;
+  pill/circular treatments remain reserved for pill chips and icon
+  buttons.
+- **Approval:** product owner directed all three in the 2026-08-10
+  requests.
+- **Board light-card anatomy (same date, follow-up direction):** measured
+  live against Obvious's LIGHT theme (white `bg-surface` card, 1px
+  rgba(0,0,0,.04) hairline, soft shadow; stage colour only in the column
+  label chip). Board cards drop the stage-tinted shell/footer band
+  (supersedes that clause of the 2026-08-08 design-system amendment);
+  paused keeps the dashed cue; the column chips remain the labelled stage
+  colour carrier, so text+colour state is preserved. Cards gain distinct
+  client (building) vs owner (person) icons, dates join the shared sans
+  row type, and metadata rhythm tightens. Toolbar filter/group/display
+  controls present as Obvious-style borderless ghost chips. **Hide empty
+  stages defaults ON for the global board** (supersedes the 2026-08-06
+  board-OFF default); the visible "N empty stages hidden — Show"
+  disclosure remains the truth affordance.
+
+### 2026-08-10 (second) — Board-card current-handoff projection; card-preview and Home-feed rejections
+
+This amendment lifts the deferral recorded in the 2026-08-08 board-card
+metadata amendment ("Current-handoff assignee/kind on board cards is
+deliberately deferred: it requires a bounded per-page server projection …
+reviewed as its own backend change — never per-card subscriptions"). That
+reviewed backend change is this amendment.
+
+- **Affected tickets:** PSOS-14 presentation follow-up and the PSOS-11
+  projection work.
+- **Backend:** The shared per-page row projection used by the four dashboard
+  list queries (`listFlatProjects`, `searchProjects`, `listCompanyProjects`,
+  `listCompanyProjectsByStageRank`) additionally resolves each row's
+  `projects.currentHandoffId` — one deduplicated `workItems` get per
+  pointered row on the already-bounded page, with assignee labels resolved in
+  the same batch as owner labels. The projected `currentHandoff` field
+  carries kind, assignee id/label, blocking, and dueAt. Defensive truth: a
+  stale pointer (missing item, non-`open` status, or an item belonging to a
+  different project) projects nothing rather than a wrong "With". No new
+  query, no per-card subscription, no schema change, no mutation change; D1
+  read visibility is unchanged.
+- **Presentation:** Board cards (stage-first board, client lanes, focused
+  client board — all consumers of the shared card) render the projection as
+  a "With" field: assignee label, work-item kind label, and due date when
+  recorded. Canonical vocabulary is enforced: "With" is the current-handoff
+  assignee, never the Owner; the Owner row is unchanged. Cards without an
+  open blocking handoff render no handoff row — never a placeholder.
+- **Rejected interpretations (recorded so absence is a decision):**
+  (a) **Report-snippet card previews** (Obvious's live artifact thumbnails)
+  are rejected: a per-page read of report content would couple dashboard
+  subscriptions to report autosave invalidation, and a denormalized snippet
+  field would put dashboard writes on the autosave hot path — both violate
+  the report-primacy and subscription-budget rules; cards must summarize
+  accountable state, not preview prose. (b) A **Home activity feed** is
+  rejected: the 2026-08-10 Home simplification deliberately released Home's
+  operational subscriptions; per-project activity remains served by the
+  existing bounded `projectActivity.listProjectActivity` timeline on the
+  project's Workflow details rail.
+- **Migration and tests:** No schema or data change. Convex tests cover the
+  projected handoff (kind/assignee label/blocking/dueAt) and the
+  stale-pointer nothing-projected cases; board-card component tests cover
+  the rendered "With" row and its absence without a handoff.
+- **Approval:** Product owner directed implementation of the remaining
+  Obvious-parity ideas in the 2026-08-10 request; this amendment records the
+  domain-truthful scope of that direction.
+
+### 2026-08-10 — Home start-project prompt
+
+Presentation-only amendment approved from the supplied Customer.io Agent and
+Obvious Home references. `/my-work` may place a large start-project prompt
+above the existing operational queue, provided it remains navigation into the
+existing project wizard rather than an assistant, chat, or generation action.
+
+- Home accepts an editable internal project title plus an optional interview
+  transcript. The transcript may be pasted or parsed browser-side from a Teams
+  Word `.docx`; only the extracted text and optional filename cross the route.
+  These values cross only the immediate client-side navigation through a
+  one-use, five-second in-memory handoff; they are not placed in the URL,
+  browser history, durable browser storage, Convex, or application data.
+- Home performs no upload. The wizard receives editable values and continues to
+  own project creation, transcript persistence, validation, and generation.
+- Empty submission opens the ordinary blank wizard. Duplicate-project prefill
+  remains authoritative when present, and client-name prefill remains a
+  separate editable field.
+- The canonical `/my-work` URL, feature gate, and
+  `/dashboard?workspace=current` rollback are unchanged. A later approved Home
+  simplification removes the loaded insight strip and the Next actions, Owned
+  by me, and Waiting on others projections from this route, releasing their
+  subscriptions rather than hiding still-live data.
+- Device-local recents may remain beneath the prompt. No AI assistant,
+  artifacts, templates, inline report generation, fake metrics, or unsupported
+  object types are introduced.
+
+
+### 2026-08-07 — Admin workspace-shell presentation expansion
+
+Presentation-only amendment approved in the 2026-08-07 admin-shell redesign
+request. **No domain vocabulary, workflow transition, permission, query,
+mutation, authorization, or storage semantics change.**
+
+- The authenticated admin routes `/admin/usage`, `/admin/reviews`,
+  `/admin/brain`, `/admin/models`, `/admin/tags`, `/admin/users`, and
+  `/admin/backfill` may use the shared fir-railed workspace chrome with a
+  light, normally scrolling operational content plane. Admin destinations
+  remain in the account utility menu rather than becoming primary workspace
+  navigation.
+- Route pages continue to own their existing queries, mutations, access
+  checks, and content. `AdminWorkspacePage` owns presentation only: one page
+  heading, compact header/actions, content width, gutters, and scroll
+  containment. It must not duplicate an experience subtree or own business
+  authorization.
+- `/my-work` and `/projects` remain the canonical global destinations. The
+  desktop rail remains browser-locally resizable with a 255px default; below
+  1280px the navigation remains a modal drawer with focus trapping, Escape,
+  scroll lock, and focus return. Nested account menus must render above the
+  drawer and retain 44px touch rows.
+- `?workspace=current` selects the prior AppNav/PageBar presentation for the
+  same admin URL without changing or duplicating route data behavior. This is
+  a UI-only rollback contract and does not depend on a backend rollout gate.
+- Mobile table/tabs containment and localized touch-target corrections are
+  presentation fixes only. Existing server-enforced admin permissions remain
+  authoritative and unchanged.
+
+**Migration and tests:** no schema, data, or Convex change. Component/route
+tests cover landmarks, canonical shell links, admin content widths/actions,
+drawer menu layering, and the `?workspace=current` branch. **Approval:** the
+product owner explicitly approved this presentation expansion in the
+2026-08-07 implementation request.
+
+### 2026-08-08 (second) — Obvious-parity presentation: Home boundary/recents and Preview project intake workbench
+
+Presentation-only amendment. **No domain vocabulary, workflow transition,
+permission, query-semantic, or storage change is made by this amendment.**
+Evidence: the completed AUTHENTICATED comparative audit of app.obvious.ai
+(direct desktop, 2560×1266) recorded 2026-08-07/08 — the first amendment in
+this document backed by live authenticated Obvious evidence rather than
+recorded research alone.
+
+- **Affected tickets:** PSOS-14 presentation follow-up and the preview
+  report-workbench work; no backend ticket (zero Convex changes ship).
+- **Home:** content centers in a `--container-shell` boundary; a
+  "Recently opened · on this device" horizontal module renders from the
+  existing browser-local `recentProjects` list only (no new queries, no
+  server pins; absent recents render nothing). Queue primacy, the five
+  accountability meanings, scope-chip query swapping, truthful loaded-only
+  counts, all subscriptions, canonical URLs, `/dashboard` compatibility,
+  and the `?workspace=current` rollback are unchanged.
+- **Preview project route (preview subtree only):** the no-report/intake
+  state presents as a desktop split workbench — left contextual pane
+  (files evidence + interview transcript), right primary intake/generation
+  surface — with independent pane scrolling, a persisted resizable
+  separator, and narrow-screen Work/Context switches. The generated-report
+  state keeps its Agent-left/Report-right split and query gating. All
+  generation states, dialogs, OCC/autosave behavior, exports, comments,
+  workflow controls, and report primacy are preserved. `CurrentProjectPage`
+  and the `?workspace=current` rollback remain untouched.
+- **Explicit domain deviations from Obvious (rejected interpretations):**
+  no freeform AI achievement composer, artifact shortcut chips, idea
+  templates, or pinned apps on Home; no fabricated chat/report on projects
+  without one; no artifact tabs, drag/drop, or "Add new" column/card
+  mutations; Obvious accessibility defects are not reproduced.
+- **Migration and tests:** no schema or data change. New browser component
+  tests cover the Home boundary/recents module, the intake split and its
+  narrow-screen modes, heading naming, Files disclosure semantics, and the
+  view-toggle tab sequence; the rollback-purity sentinel, route/gate, and
+  existing workspace tests remain in force.
+- **Approval:** product owner approved implementing the Obvious-inspired
+  redesign from the authenticated audit in the 2026-08-08 implementation
+  request ("copy exactly", qualified by the recorded trademark/domain-truth/
+  accessibility deviations above).
+
+### 2026-08-08 — Home presentation of /my-work, board-card metadata, workspace-rail ergonomics
+
+Presentation-only amendment. **No domain vocabulary, workflow transition, permission, query-semantic, or storage change is made by this amendment.** The five accountability meanings, their indexed queries, the subscription budget, WorkspaceGate, `/dashboard` compatibility, unknown-param preservation, and the `?workspace=current` rollback all remain exactly as recorded in the 2026-08-06 amendments.
+
+- **Affected tickets:** PSOS-14 presentation follow-up; no backend ticket (no Convex change ships with this amendment).
+- **Home rename:** The default daily destination presents as **"Home"** in the workspace rail and content header. Its canonical URL remains `/my-work` (the 2026-08-06 canonical-URL clause is unchanged — this renames the label, nothing else). `/dashboard?view=my_work` compatibility, soft-redirects, and `?workspace=current` behave exactly as before. Kill-switch/readiness downgrade copy references Home.
+- **Home composition:** Home renders a restrained time-of-day greeting (identity from the existing `users.getCurrentUser` query — deduplicated client-side with the rail's subscription; no new server load), the start-project intake, and optional device-local recents. **2026-08-10 simplification:** the loaded-insight strip and the Next actions, Owned by me, and Waiting on others regions are removed from Home; their paginated subscriptions and reconciliation-state subscription are released on this route rather than retained invisibly.
+- **Board-card metadata:** Projects-board cards add the created date (from the projected `createdAt`, falling back to `_creationTime`; rows lacking both omit the field rather than inventing a date) beside the updated date, both in the mono date role. Canonical Owner display rules are unchanged (legacy writer only with its explicit "Writer · legacy" qualifier). **Current-handoff assignee/kind on board cards is deliberately deferred**: it requires a bounded per-page server projection (workItems + assignee label resolution across the four dashboard list queries) reviewed as its own backend change — never per-card subscriptions. This deferral is recorded here so the absence is a decision, not an oversight.
+- **Stage-related card presentation:** governed by the design-system amendment of the same date (stage-toned border + tinted footer band from the canonical `STAGE_CARD_THEMES` tier; text labels always accompany colour; no drag-to-transition, no invented priority field, no arbitrary state changes — boards remain navigational projections).
+- **Workspace-rail ergonomics:** The desktop rail is pointer- and keyboard-resizable (min 220 / default 255 / max 360) and fully hide/showable from a persistent, accessible header control; width and hidden state are **browser-local presentation preferences** (fail-closed parse, like the layout preference) — never server state. The mobile drawer is independent and unchanged.
+- **Migration and tests:** No schema or data change. Superseded presentation assertions ("My work" rail/header label) update in the same change; new unit/browser tests cover rail preference parsing/clamping/persistence, resize/hide interactions, disclosure animation + aria lifecycle, Home greeting/insight truth, and card created/owner hierarchy.
+- **Approval:** Product owner approved this workspace overhaul (Home rename + composition, polished status board with restrained stage-toned cards, resizable/hidable rail, motivated disclosure transitions) in the 2026-08-08 implementation request. No authenticated live Obvious evidence informs this amendment (Chrome control was unavailable); the evidence base is recorded Mobbin research, prior recorded Obvious evidence, and the supplied sprint-board screenshot.
+
+### 2026-08-06 (second amendment) — Client → Status grouping, hide-empty display option, queue-first My Work, same-tone column anatomy, scoped creation affordances
+
+This amendment supersedes four clauses of the earlier 2026-08-06 amendment and one clause of 2026-08-05: (a) "The Projects Board stays stage-first and gains no client/company axis"; (b) the unconditional rendering of all ten stage columns with the "No loaded projects in this stage." empty-body copy; (c) "My Work keeps exactly the five canonical accountability lanes … does not add a grouping axis"; (d) "Add-new affordances … deliberately NOT copied." All other clauses of both amendments — canonical URLs, `?workspace=current` precedence, current-interface freeze, report boundary, scoped shell extension, pipeline-order correction, frozen persisted ranks — remain in force.
+
+- **Affected tickets:** PSOS-14, PSOS-11 (projection), the workspace-preview rollout work; a new backend widen ticket for the stage-ranked client projection.
+- **Board client axis:** The Projects Board may group by client **as a display grouping of recorded client names** (identical D7 language and caveats as the approved List grouping — never a durable Client/Company entity, no merge affordances, no client pages implied; the recorded-name qualifier and the backfill-completeness warning carry verbatim onto every client-grouped surface). Chosen interpretation: **stacked per-client lanes** (each lane a horizontal row of stage columns for that client, lanes collapsible and paginated A–Z), with a **single-client focused board** as the drill-in state reachable from every lane and by URL (a `?client=` deep link alone resolves to the focused board — never an inert parameter). The focused board is the approved fallback default if lane review at production client counts fails. Lane stage columns keep the governed 360px width and preview at most three cards; the truthful remainder is disclosed as a "Show N more in Focus" link into the focused board — lanes never grow an inner vertical scroller or a viewport-tall stack (correction 2026-08-06). At most **six** client sections hold live per-section queries simultaneously — user toggles and the bounded, honestly labelled "Expand first 6" control included; opening a section beyond the cap releases the least-recently-opened one (correction 2026-08-06). Projects with no recorded client name render in a conditional "No client recorded" lane/section that appears only while its count is non-zero; its creation link carries **no** name prefill. Below the `md` breakpoint the grouped board presents as the grouped List; the focused board presents one stage column at a time with an explicit "Stage N of M" indicator and an accessible stage selector that scrolls/focuses the chosen column (presentation navigation only — never a mutation). Grouped-board mode uses an outer vertical scroll owner with one horizontal scroller per expanded lane and no per-column vertical scroll; the stage-first and focused boards keep the existing containment chain.
+- **Hide-empty:** All ten canonical stages remain the **default** on the stage-first board. A user-controlled, persisted display option ("Hide empty stages") may collapse zero-count stages. Truth criteria: on the global board, a stage is empty only when the bounded facet count is 0 (when facets are truncated, the control's label carries the bound qualifier); on client-scoped surfaces, only when the **verified** exact per-client `stageCounts` value is 0 — a record is trusted only while its sum equals the maintained `projectCount`; an empty or sum-divergent record is treated as not-backfilled (correction 2026-08-06). Loaded-rows-zero is never a hide criterion. Hidden stages are always disclosed by a visible, focusable "N empty stages hidden — show" affordance; client-scoped surfaces default the option ON (structural sparsity), the global board defaults it OFF. Before verified per-client counts exist, client-scoped hiding is disabled **and the control itself presents disabled with the copy "Available after client counts finish backfilling"** — never an active-looking switch that hides nothing (correction 2026-08-06); the control stays present (honestly stated) in focus mode too. All columns then render with loaded-only counts and `+` qualifiers; a bounded/unknown zero renders `0` with an explicit "not fully loaded" note — never `0+` and never a false exact zero.
+- **My Work:** The five canonical accountability **meanings** — my open assignments, my ownership, my review duty, my due/overdue pressure, work I am waiting on — and their existing indexed queries are the invariant; the five-equal-stacked-sections **layout** is not. My Work presents one primary due-ordered queue fed by `listAssignedToMe`, with Reviews and Due soon as scopes that swap the subscribed indexed query (never client-side filters) — **only the active scope carries a count** (its truthful loaded count); inactive scopes are labels without counts, because exact inactive counts would require standing subscriptions or a `userWorkCounters` denormalization, which remains a recorded later option and is deliberately not part of this change (correction 2026-08-06; no count is promised that the budget does not pay for). The scope chips are a plain `role="group"` of `aria-pressed` toggle buttons, not a `tablist` (they do not implement the APG tabs keyboard contract). Owned by me / Waiting on others remain compact secondary regions. Each meaning stays individually reachable, labelled, and truthful; one visible row per work item per scope. Work-item actions, server-computed permissions, expected-version checks, STALE_REVISION recovery copy, idempotent completion, bounded-count semantics, and the waiting-lane reconciliation notes are unchanged. The My Work Board/List presentation toggle is retired; the stored preference parses fail-closed to the queue.
+- **Column anatomy:** Board columns are same-tone containers on the workspace canvas — column fill equals the canvas token, structural radius retained, no border, no contrast well, no tint. Empty columns render header (and footer only where a creation affordance is defined) with no empty-state body box; the bounded-scan truth ("0", `N+`, "none loaded yet") lives in the header. Non-intake columns terminate after their last card. `docs/design-system.md` is updated in the same change (PRODUCT.md reconciliation clause).
+- **Creation affordances:** All creation affordances are navigation into the existing wizard; the board itself never mutates. Approved placements: the global New project action; a client-scoped "+ New project" on client lane/section headers navigating to `/project/new?client=<recorded name>` (an editable free-text prefill — no durable-Client implication); an intake-column-only "+ New project" footer (truthful: creation always enters intake). Per-status "create here" on any other column is explicitly rejected — `createProject` accepts no stage and the transition matrix governs stage entry. Creator-becomes-Owner and no-foreign-owner rules are unchanged.
+- **Migration and compatibility:** Widen-only schema change: new `projects` index `by_dashboardCompanyKey_and_workflowStageRank_and_updatedAt` and optional `dashboardCompanies.stageCounts` (record of canonical stage literals + `"legacy"`, invariant `sum(stageCounts) === projectCount`), maintained in the same transaction by **every** `workflowStage` writer through the single sanctioned helper (`patchProjectWorkflowStage` — stage transitions, the confirmed-stage-change work-item path, and the stage-heuristic owner backfill; correction 2026-08-06 after the B1 drift finding), plus project create/delete and client-name reassignment. Idempotent, resumable, `runKey`-fenced backfill with a rank-presence verification pass first (a non-zero missing-rank count **hard-fails a live run** with a recorded remediation; it never writes on an unverified base), a per-company sum-vs-`projectCount` guard in the counting pass (divergent companies are recorded, never written — `{}` is never persisted on a counted row), one company per scheduled transaction, a stale-run takeover window plus an explicit `force`, and a per-bucket verification pass after. Consumers treat absent **or sum-divergent** `stageCounts` as not-yet-backfilled and fail honest (loaded-only counts, no hiding). No narrow phase in this release. All existing queries, the current interface, `/dashboard` compatibility, and `?workspace=current` remain intact as the rollback target.
+- **Authorization and tests:** No permission changes; feature flags continue to gate exposure only. Per D1, every dashboard read query — including the new `getCompany` and `listCompanyProjectsByStageRank` — keeps the pre-existing authenticated-internal-user read visibility of `listCompanies`/`listCompanyProjects`; a capability-based read hardening that denied previously-visible roleless signed-in users was reverted on 2026-08-06 as unapproved scope creep (mutation-side authorization is unchanged and unweakened). Superseded test contracts change in this same PR: `ProjectsBoard.component.test.ts` (well/empty-box/no-Add-new/all-ten-unconditional assertions → same-tone anatomy, header-carried truth, hide-empty criteria + disclosure, intake-footer semantics, all-ten default), `ProjectsTableViewGrouping.component.test.ts` ("board never gains client axis" → lane/focus contracts + caveats), `MyWorkLaneSort.component.test.ts` and My Work view tests (five-stacked-lanes → five-meaning reachability, scope-chip server-query swap, unchanged action permissions/OCC copy). New tests: `stageCounts` maintenance and sum invariant, backfill idempotency/verification, stage-ranked query ordering (including missing-rank and legacy-rank rows), no-op transition leaves the company row untouched, wizard `?client=` prefill, hide-empty disclosure a11y, lane keyboard traversal. Unchanged and must stay green: WorkspaceGate/route tests, `?workspace=current` precedence, param preservation, truthful-count qualifiers, owner ladder and legacy qualifiers, work-item action permissions, viewport containment (amended only for the grouped board's outer-scroll chain).
+- **Rejected interpretations:** client × stage matrix cells; per-cell live subscriptions; hiding stages on loaded-rows-zero; reusing global facets for per-client truth; per-status creation; drag-to-transition; client grouping on My Work; editing `WORKFLOW_STAGE_PERSISTED_RANK`; any durable Client entity or fuzzy-name merging.
+- **Approval:** Product owner approved the full redesign contract on 2026-08-06 (§G of the 2026-08-06 synthesis: amendment as a whole; client lanes with focus as the primary Board form; retirement of the My Work Board/List toggle; the intake-column-only creation footer). The local Convex data backfill is tooling-only until separately requested: no data-changing backfill or rollout mutation runs with this change.
+- **Corrections (2026-08-06, post-review):** This amendment's clauses above were corrected after the independent implementation review and authenticated live QA of the same date, to describe shipped behavior truthfully: centralized stage-writer counter maintenance (B1), the live-backfill missing-rank hard gate and divergence guard (H2/H3), the six-section live-subscription cap, bounded lane previews at the governed 360px column width, the mobile client-scoped creation affordance, the honest disabled pre-backfill hide-empty control (all surfaces, focus included), the mobile focused-board stage indicator/selector, the "No client recorded" label with no prefill, active-count-only My Work scope chips as a toggle group, the `0` + "not fully loaded" treatment replacing `0+`, and the reverted read-authorization hardening. The lanes + Focus architecture itself is unchanged.
+
+### 2026-08-06 — Canonical workspace URLs and always-visible canonical board columns
+
+- **Affected tickets:** PSOS-14 and the workspace-preview rollout work.
+- **Canonical URLs:** The flagged workspace's destinations gain canonical routes: `/my-work` is the
+  canonical URL of the default daily destination (My Work remains the default destination — this
+  names its URL, nothing more) and `/projects` is the canonical URL of the dense repository view.
+  `/dashboard` is preserved **permanently** as the compatibility entry (bookmarks, emails, and the
+  rollback target keep working at the same canonical route). For users in the preview cohort,
+  `/dashboard` soft-navigates (client-side `replaceState`) to the canonical route — `/projects` when
+  `?view=all_projects`, otherwise `/my-work` — preserving `layout`, `workspace`, and unknown query
+  params. Users outside the cohort see `/dashboard` unchanged, and requests to `/projects` or
+  `/my-work` soft-redirect to `/dashboard?view=…` with params preserved — never a 404, never a
+  preview flash (a neutral loading state renders while the rollout decision loads).
+  `?workspace=current` wins on every gated route, including mid-load and on query error. No
+  destination, lane, stage, permission, or query semantics change; the rollout gate
+  (master switch AND per-user access, fail-closed) is reused unchanged, and feature flags continue
+  to control exposure, never authorization. No email address appears in source.
+- **Board columns:** Clarifying the 2026-08-05 projections amendment: the Projects board renders
+  **all ten canonical workflow stages** in `WORKFLOW_STAGE_PIPELINE_ORDER`, full width, including
+  zero-count stages. `WORKFLOW_STAGE_PIPELINE_ORDER` itself is corrected (2026-08-06) to match the
+  canonical stage table above: `… ready_for_delivery → delivered → on_hold → abandoned`. Delivery
+  completes the pipeline; the paused/terminal exceptions (`on_hold`, `abandoned`) present after it.
+  The constant previously placed `on_hold` before `delivered`; that ordering was an implementation
+  artifact, never an approved contract. **Persisted sort ranks are unchanged:** the stored
+  `projects.workflowStageRank` values (indexed by
+  `by_ownerId_and_workflowStageRank_and_updatedAt`) keep their historical numbering
+  (`on_hold` = 7, `delivered` = 8), frozen in an explicit map in `shared/workflowStages.ts`, so this
+  correction mutates no data and keeps stored rows, new writes, and backfill verification
+  byte-consistent. Consequence until a future audited re-rank: the My Work "Owned by me" lane, which
+  sorts by the stored rank, orders a member's `on_hold` projects before `delivered` ones; realigning
+  those two ranks requires the existing `myWorkBackfill` re-rank plus its own amendment note, and is
+  deliberately out of scope here. No stage semantics, transitions, or permissions change. Only the explicitly qualified `Legacy status` compatibility column is
+  conditional — it renders only while legacy rows or counts exist, so an emptied compatibility
+  column does not advertise an artifact forever. Empty columns state "No loaded projects in this
+  stage." (a bounded-scan truth, never a completeness claim); header counts keep the `+` qualifier
+  whenever facets are truncated or pagination is not exhausted; when a facet count exists but no
+  rows are loaded, the header carries a "none loaded yet" subtext. Column headers are focusable
+  and labelled ("«Stage», N projects") so the full column track is keyboard-traversable. Lane
+  backgrounds stay neutral; stage tone remains confined to the header chip and card shell, with
+  keyboard `focus-within` receiving the same affordance as hover.
+- **Client-name inspection:** Projects List may use the indexed, paginated PSOS-11 projection
+  (`dashboard.listCompanies` → `dashboard.listCompanyProjects`) to group by the recorded client name.
+  The UI must describe this as a display grouping of client names as entered on projects, not as a
+  durable Company or Client record; D7 and PSOS-31/32 remain unchanged. Cross-group ordering is client
+  name A–Z and each group retains the server's fiscal-year-rank order. The Projects Board stays
+  stage-first and gains no client/company axis. Until production backfill completeness is verified,
+  the grouped view explicitly warns that older projects may not appear.
+- **My Work sorting:** My Work keeps exactly the five canonical accountability lanes and their indexed
+  queries. The preview may reorder only the rows already loaded in each lane by Recently updated or
+  Client name A–Z, with the explicit qualifier “Sorts loaded items only.” It does not add a grouping
+  axis or client-side filter and does not change work-item actions, expected-version checks, or counts.
+- **Scoped shell extension:** The flagged fir/dark workspace chrome may wrap `/settings`, `/alerts`,
+  `/requests`, and `/changelog` after their content uses theme-aware semantic tokens. Each route mounts
+  exactly one experience through the same fail-closed gate, and `?workspace=current` restores its
+  existing AppNav/PageBar interface. Admin routes, project creation/questionnaire, public review,
+  print, and export surfaces remain outside this rollout.
+- **Current-interface freeze and report boundary:** The current dashboard keeps its original tabbed,
+  one-lane-at-a-time My Work ledger and active-lane query gating; the preview's five-section Board/List
+  projection is a separate component. The report route also branches through the same rollout gate:
+  the committed report workspace is the current/rollback subtree, while the previously reviewed
+  Agent-left/report-right workbench is the preview subtree. `?workspace=current` restores the current
+  report immediately. While the server rollout decision is pending, the report route renders a neutral
+  loading surface instead of mounting either query-heavy report subtree, preventing transient duplicate
+  subscriptions and a current-to-preview composition flash. This gates composition only; report queries, mutations, permissions, autosave,
+  QA, generation, exports, and report primacy remain shared and unchanged.
+- **Rejected interpretations:** This amendment does not introduce “Company” as a domain entity,
+  company×stage board cells, My Work company lanes, client-side filtering of incomplete pages,
+  drag-to-transition, a hardcoded pilot email, or a one-release theme sweep across every route.
+- **Migration and tests:** No schema or data migration. The My Work projection adds only an `updatedAt`
+  display field; rollout admin reads are bounded and additive. Route/gate behavior, param preservation,
+  `?workspace=current` precedence, all-columns rendering, grouped-list truthfulness, five-lane
+  preservation, well neutrality, and focusability are covered by unit and browser component tests.
+- **Approval:** Product owner explicitly approved the canonical routes, fir-branded rail,
+  always-visible canonical columns, client-name inspection, bounded My Work sort, admin-only pilot,
+  and the scoped internal-page rollout on 2026-08-06.
+
+### 2026-08-05 — Personal board/list workspace projections
+
+- **Affected tickets:** PSOS-14 and future report-workspace fidelity work.
+- **Decision:** My Work remains the default dashboard destination. My Work and Projects each offer personal **Board** and **List** projections, with Board as the default presentation and a one-click accessible toggle. Projects board columns use only canonical workflow stages plus an explicitly qualified legacy-status compatibility column. My Work board columns use the five canonical accountability lanes already exposed by the indexed My Work queries. The projections do not redefine Project, Owner, Current handoff, Work item, Workflow stage, Generation state, Creator, or Outcome.
+- **Interaction boundary:** Initial boards are navigational and operational projections only. Cards are not draggable and a visual move never changes workflow stage, assignment, ownership, or work-item lifecycle. Existing confirmed mutations, expected-version checks, transition rules, and authorization remain authoritative. List views remain available and preserve the same truthful fields.
+- **Report primacy and design compatibility:** The report remains the primary project workspace. Compact ruled cards may summarize existing server-projected rows without turning the product into a generic CRM; Ledger paper tokens, explicit labels, text-plus-color states, 44 px touch targets, and restrained actions remain required.
+- **Migration and tests:** No schema or data migration is required for the first frontend-only release. Per-user layout preference is browser-local and fails closed to the documented default. Tests cover preference parsing, canonical column labels/order, owner/legacy qualifiers, and unchanged work-item action permissions. Per-column server pagination, current-handoff projection on Projects, or drag-to-transition require separate backend review.
+- **Approval:** Product owner explicitly approved the Obvious-inspired board default and retained list toggle on 2026-08-05.
+
 ### 2026-07-30 — Project Creator is the initial Owner
 
 - **Affected tickets:** PSOS-09, PSOS-10, PSOS-13, and PSOS-14.

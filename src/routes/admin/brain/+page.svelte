@@ -1,6 +1,6 @@
 <script lang="ts">
-  import AppNav from "$lib/components/ui/AppNav.svelte";
-  import PageBar from "$lib/components/ui/PageBar.svelte";
+  import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
+  import { resolve } from "$app/paths";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { Tabs } from "bits-ui";
   import { goto } from "$app/navigation";
@@ -50,7 +50,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goto(resolve("/login"), { replaceState: true });
     }
   });
 
@@ -79,17 +79,10 @@
     <Spinner />
   </div>
 {:else}
-  <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav breadcrumbs={[{ label: "The Brain" }]} />
-    <PageBar backHref="/dashboard" backLabel="Back" />
-
-    <main class="mx-auto w-full max-w-[var(--container-shell)] px-6 pt-12 pb-10">
-      <h1 class="text-display">The Brain</h1>
-      <p class="mt-1 text-sm text-gray-500">
-        Curated knowledge behind generation. Only approved sources are ever
-        retrievable — approving ingests, revoking unlearns, and every change is
-        audited.
-      </p>
+  <AdminWorkspacePage
+    title="The Brain"
+    description="Curated knowledge behind generation. Only approved sources are retrievable; every change is audited."
+  >
 
       {#if stats === null}
         <p class="mt-8 text-sm text-gray-400">Admin access only.</p>
@@ -118,11 +111,12 @@
 
         <!-- Tabs -->
         <Tabs.Root value={tab} onValueChange={(v) => (tab = v as Tab)} class="mt-6">
-          <Tabs.List class="card flex gap-1 p-1">
+          <div class="overflow-x-auto">
+          <Tabs.List class="card flex min-w-max gap-1 p-1 sm:min-w-0">
             {#each tabs as t (t.key)}
               <Tabs.Trigger
                 value={t.key}
-                class={`flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                class={`min-h-11 flex-none whitespace-nowrap rounded-lg px-3 text-sm font-medium transition-colors sm:flex-1 ${
                   tab === t.key
                     ? "bg-navy text-white"
                     : "text-gray-500 hover:bg-primary-wash hover:text-gray-700"
@@ -132,6 +126,7 @@
               </Tabs.Trigger>
             {/each}
           </Tabs.List>
+          </div>
         </Tabs.Root>
 
         <!-- Panel -->
@@ -171,7 +166,8 @@
               No activity yet.
             </p>
           {:else}
-            <table class="w-full text-sm">
+            <div class="overflow-x-auto">
+            <table class="w-full min-w-[44rem] text-sm">
               <thead>
                 <tr class="text-label border-b border-gray-100 text-left">
                   <th class="px-4 py-2.5 font-medium">Action</th>
@@ -197,9 +193,9 @@
                 {/each}
               </tbody>
             </table>
+            </div>
           {/if}
         </div>
       {/if}
-    </main>
-  </div>
+  </AdminWorkspacePage>
 {/if}

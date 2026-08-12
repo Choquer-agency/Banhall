@@ -54,6 +54,21 @@
     return user?.email?.[0]?.toUpperCase() ?? "?";
   });
 
+  let {
+    tone = "dark",
+    menuTheme = "light",
+    menuLayer = "app",
+  }: {
+    tone?: "dark" | "light";
+    /** Portaled menu surface theme — "dark" keeps it inside the workspace dark scope. */
+    menuTheme?: "light" | "dark";
+    /**
+     * Portaled surface layer. Drawer menus must clear the modal drawer
+     * (z-110) while remaining managed by the dialog/dropdown focus scopes.
+     */
+    menuLayer?: "app" | "drawer";
+  } = $props();
+
   let open = $state(false);
   let signingOut = $state(false);
 
@@ -79,28 +94,36 @@
   }
 
   const itemClass =
-    "flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-sm text-ink-secondary transition-colors hover:bg-primary-wash hover:text-navy focus-visible:bg-primary-wash focus-visible:outline-none";
+    "flex h-11 min-h-11 w-full shrink-0 items-center gap-2.5 px-3.5 text-left text-sm text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:bg-primary-wash focus-visible:outline-none";
 </script>
 
 <DropdownMenu.Root bind:open>
   <DropdownMenu.Trigger
     aria-label="Account menu"
-    class={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-light ${
-      open ? "bg-white text-navy" : "bg-white/15 text-white hover:bg-white/25"
+    class={`flex h-11 w-11 items-center justify-center rounded-full text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:h-8 md:w-8 ${
+      tone === "light"
+        ? open
+          ? "bg-navy text-white"
+          : "bg-chrome text-navy hover:bg-primary-wash"
+        : open
+          ? "bg-white text-navy"
+          : "bg-white/15 text-white hover:bg-white/25"
     }`}
   >
     {initials}
   </DropdownMenu.Trigger>
   <DropdownMenu.Portal>
     <DropdownMenu.Content
+      data-workspace-theme={menuTheme === "dark" ? "dark" : undefined}
       side="bottom"
       align="end"
       sideOffset={8}
       preventScroll={false}
-      class="z-[80] w-64 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg"
+      data-menu-layer={menuLayer}
+      class={`${menuLayer === "drawer" ? "z-[130]" : "z-[80]"} w-64 overflow-hidden rounded-xl border border-line bg-surface shadow-lg`}
     >
       <!-- Identity header -->
-      <div class="border-b border-gray-100 px-3.5 py-3">
+      <div class="border-b border-line-soft px-3.5 py-3">
         <p class="truncate text-sm font-semibold text-ink">{label || "—"}</p>
         <p class="mt-0.5 flex items-center gap-2">
           <span class="min-w-0 truncate text-xs text-ink-muted">{user?.email ?? ""}</span>
@@ -123,7 +146,7 @@
       </div>
 
       {#if isAdmin}
-        <div class="border-t border-gray-100" role="group" aria-label="Administration">
+        <div class="border-t border-line-soft" role="group" aria-label="Administration">
           <p class="text-label px-3.5 pb-1 pt-2">Administration</p>
           {#each ADMIN_ROUTES as route (route.href)}
             <DropdownMenu.Item onSelect={() => goto(resolve(route.href))} class={itemClass}>
@@ -133,11 +156,11 @@
         </div>
       {/if}
 
-      <div class="border-t border-gray-100">
+      <div class="border-t border-line-soft">
         <DropdownMenu.Item
           onSelect={handleSignOut}
           disabled={signingOut}
-          class="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-sm text-ink-muted transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:bg-red-50 focus-visible:text-red-600 focus-visible:outline-none data-[disabled]:opacity-50"
+          class="flex h-11 min-h-11 w-full shrink-0 items-center gap-2.5 px-3.5 text-left text-sm text-ink-muted transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:bg-red-50 focus-visible:text-red-600 focus-visible:outline-none data-[disabled]:opacity-50"
         >
           <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-7.5A2.25 2.25 0 003.75 5.25v13.5A2.25 2.25 0 006 21h7.5a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />

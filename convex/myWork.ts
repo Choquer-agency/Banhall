@@ -76,6 +76,10 @@ function workRow(
   return {
     workItemId: item._id,
     version: item.version,
+    // Additive projection field for the client-side within-lane "Recently
+    // updated" sort of loaded rows (plan §1.4). Read-only display data; lane
+    // queries, indexes, and ordering are unchanged.
+    updatedAt: item.updatedAt,
     projectId: project._id,
     projectTitle: project.title,
     clientName: project.clientName,

@@ -4,14 +4,21 @@
    Canonical reference: docs/design-system.md · live: /styleguide
    "Ledger paper": pale-teal working surface with near-invisible ruled lines,
    one deep-fir app bar, a single teal accent, and a teal-cast neutral ramp.
+   NOTE: this @theme is intentionally NOT `inline` — utilities must reference
+   the CSS variables so the scoped workspace dark theme below
+   (`[data-workspace-theme="dark"]`) can retint semantic tokens per subtree.
    ══════════════════════════════════════════════════════════════════════════ */
 
-@theme inline {
+@theme {
   /* Surfaces */
   --color-canvas: #F9FCFB;        /* app background (ledger paper) */
   --color-chrome: #EAF2F1;        /* recessed UI: wells, hovers, pills */
+  --color-surface: #FFFFFF;       /* card material (theme-aware; white on light) */
+  --color-shell: #0A3A38;         /* navigation shell (workspace rail/drawer) */
+  --color-shell-line: #114b48;    /* hairline on the navigation shell */
 
   /* Brand */
+  --color-fir: #0A3A38;           /* fixed fir — identity/avatar surfaces; never theme-flipped */
   --color-navy: #0A3A38;          /* fir — app bar, primary text on light */
   --color-navy-light: #114b48;    /* fir hover */
   --color-primary: #0DACA5;       /* lagoon — actions, links, active */
@@ -57,9 +64,9 @@
      (workspace editor, candidate preview, version history). max-w-report. */
   --container-report: 67.5rem;
 
-  --font-sans: "DM Sans Variable", "DM Sans", system-ui, sans-serif;
+  --font-sans: "Geist Variable", "Geist", system-ui, sans-serif;
   --font-serif: Georgia, "Times New Roman", serif;
-  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
 }
 
 /* ─── Type roles (use these before reaching for ad-hoc sizes) ─────────────── */
@@ -82,6 +89,27 @@
   letter-spacing: -0.015em;
   color: var(--color-ink);
   text-wrap: balance;
+}
+
+@utility text-hero {
+  /* Fluid hero headline (2026-08-10 Home, Obvious-parity): scales
+     continuously between phone (24px) and desktop (32px) instead of
+     stepping at breakpoints. Weight capped at medium per the Home
+     weight-discipline rule. */
+  font-size: clamp(1.5rem, 1.1rem + 1.6vw, 2rem);
+  line-height: 1.2;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--color-ink);
+  text-wrap: balance;
+}
+
+@utility text-hero-sub {
+  /* Fluid hero support line: 15px → 18px. */
+  font-size: clamp(0.9375rem, 0.85rem + 0.4vw, 1.125rem);
+  line-height: 1.5;
+  font-weight: 400;
+  text-wrap: pretty;
 }
 
 @utility text-body {
@@ -109,6 +137,15 @@
   letter-spacing: -0.01em;
 }
 
+@utility scrollbar-hidden {
+  /* Obvious artifact-board scroll planes: content scrolls, chrome stays
+     invisible (outer horizontal board plane + per-column vertical scroll). */
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* ─── Rhythm (8px grid) ───────────────────────────────────────────────────────
    page top: py-8 · page-header → content: 24px (mb-6 via .page-header) ·
    between sections: 40px (mt-10) · label → content: 12px (mt-3) ·
@@ -128,7 +165,7 @@
 /* ─── Surfaces ────────────────────────────────────────────────────────────── */
 
 @utility card {
-  background: #fff;
+  background: var(--color-surface);
   border: 1px solid var(--color-line);
   border-radius: 0.75rem;
 }
@@ -159,6 +196,93 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
   text-wrap: pretty;
+}
+
+/* ─── Workspace light scope — the bounded preview workspace (2026-08-06) ────
+   The flagged dashboard workspace (`WorkspaceDashboard` on /my-work and
+   /projects) presents a PURE WHITE working plane inside the fir-railed,
+   viewport-bounded shell: the scope retints only `canvas` so the board's
+   same-tone columns (column fill = canvas token) and every `bg-canvas`
+   surface resolve to white, and the opaque shell root keeps the body's
+   ledger-rule texture out of the bounded workspace. Everything else — ink
+   ramp, hairlines, chrome, lagoon accents — inherits the base Ledger Paper
+   tokens. The fir rail/drawer (`--color-shell`) is theme-independent by
+   construction and does not change. */
+[data-workspace-theme="light"] {
+  --color-canvas: #FFFFFF;
+}
+
+/* ─── Workspace dark scope — recorded design-system exception (2026-08-06) ──
+   Since the 2026-08-06 light-workspace redesign the dashboard workspace
+   (`WorkspaceDashboard`) no longer mounts this scope on its content plane —
+   it remains in use by the `WorkspaceChrome` utility pages, the navigation
+   drawer, rail-anchored portaled menus, and the preview report surfaces,
+   and it is the retheme's own rollback seam (re-adding the attribute on the
+   shell root restores the dark plane wholesale).
+   The scope is an Obvious-dark shell with a Banhall
+   identity: a near-black content plane, low-alpha boundaries, calm
+   high-fidelity density — and a BRANDED FIR navigation shell (PRODUCT.md
+   Brand Commitments: "fir navigation surface"; Obvious's monochrome charcoal
+   rail is deliberately not copied). Banhall accents INHERIT rather than
+   invert: lagoon (`primary`) remains the single accent for focus, active,
+   and the primary action; fir carries the navigation shell and stays on
+   identity/avatar surfaces via the fixed `--color-fir`; canonical workflow
+   stage tones keep their hue as low-alpha charcoal chips (`charcoal*`
+   classes in stagePresentation.ts). The scope is the
+   `[data-workspace-theme="dark"]` subtree plus portaled surfaces (menus,
+   the navigation drawer) that re-declare the attribute. Everything outside —
+   including the `?workspace=current` escape — remains Ledger Paper. */
+[data-workspace-theme="dark"] {
+  color-scheme: dark;
+  --color-canvas: #161717;                       /* content plane (Obvious ≈ #161717) */
+  --color-surface: #1E2020;                      /* card / menu material */
+  --color-chrome: #262929;                       /* recessed wells, pills, hover fills */
+  --color-shell: #0A3A38;                        /* fir rail/drawer — branded, not Obvious charcoal */
+  --color-shell-line: #114b48;                   /* fir hover-tier hairline on the shell */
+  --color-ink: #EDF1F0;
+  --color-ink-secondary: #B8C3C1;
+  --color-ink-muted: #9DAAA7;
+  --color-ink-faint: #7F8D89;
+  --color-line: #343837;
+  --color-line-soft: #272B2A;
+  --color-primary-wash: rgba(13, 172, 165, 0.10); /* lagoon hover hint */
+  --color-primary-selected: #2BC1BA;              /* text-tier lagoon on charcoal */
+  /* Remapped gray ramp, dark tier. The app-wide gray scale is semantic by
+     role (900/800 ink · 700/600 secondary · 500 muted · 400 faint ·
+     300 disabled · 200/100 lines · 50 wash — see @theme above), so existing
+     gray text, border, and background utilities inside shared controls
+     (Input, SelectInput, Checkbox, Button) stay readable inside the dark
+     scope without forking those components. Light pages are untouched. */
+  --color-gray-900: #EDF1F0;
+  --color-gray-800: #D7DEDC;
+  --color-gray-700: #B8C3C1;
+  --color-gray-600: #B8C3C1;
+  --color-gray-500: #9DAAA7;
+  --color-gray-400: #7F8D89;
+  --color-gray-300: #5C6764;
+  --color-gray-200: #343837;
+  --color-gray-100: #272B2A;
+  --color-gray-50:  #262929;
+  /* Status tints legible on charcoal (overdue text, error surfaces) */
+  --color-red-50: rgba(248, 113, 113, 0.10);
+  --color-red-200: rgba(248, 113, 113, 0.35);
+  --color-red-600: #F87171;
+  --color-red-700: #F87171;
+}
+
+/* Keyboard focus inside the dark workspace: the fir halo disappears on the
+   near-black plane and the fir shell, so focus falls to lagoon-light
+   (#45CFC9 ≈ 6.6:1 on fir, ≈ 9.5:1 on the content plane). Unlayered rules
+   intentionally beat the layered `outline-navy` utilities. */
+[data-workspace-theme="dark"] :focus-visible {
+  outline-color: var(--color-primary-light);
+}
+
+[data-workspace-theme="dark"] input:focus-visible,
+[data-workspace-theme="dark"] textarea:focus-visible,
+[data-workspace-theme="dark"] select:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-canvas), 0 0 0 4px var(--color-primary-light);
 }
 
 /* ─── bits-ui floating surfaces: enter/exit motion (design rule #8) ────────── */
@@ -240,14 +364,57 @@ textarea:focus,
 select:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: none; /* kills ring growth from focus:ring-* utilities */
+  box-shadow: none;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  border-color: var(--color-navy);
+  box-shadow: 0 0 0 2px var(--color-canvas), 0 0 0 4px var(--color-navy);
+}
+
+/* The workspace rail owns "Flag issue" (2026-08-10 rail IA) — the global
+   floating button hides while a workspace shell is mounted. */
+body:has([data-workspace-shell], [data-workspace-chrome]) [data-flag-issue-floating] {
+  display: none;
+}
+
+/* Ghost selects (board toolbar chips, 2026-08-10): the global heavy
+   focus-visible box-shadow ring reads as a fat capsule on a borderless
+   pill — these keep the standard thin focus-visible outline (set via
+   utility classes on the element) instead. */
+select.select-ghost {
+  user-select: none;
+}
+select.select-ghost:focus,
+select.select-ghost:focus-visible {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* Chrome-free prompt fields (2026-08-10 Home prompt box): the CONTAINER owns
+   the focus treatment via focus-within, so the field itself suppresses the
+   global hover/focus ring — never use outside a container that provides its
+   own visible focus state. */
+input.input-chromeless:hover:not(:disabled),
+textarea.input-chromeless:hover:not(:disabled),
+input.input-chromeless:focus,
+textarea.input-chromeless:focus,
+input.input-chromeless:focus-visible,
+textarea.input-chromeless:focus-visible {
+  border-color: transparent;
+  box-shadow: none;
+  outline: none;
 }
 
 /* ─── Tiptap Editor Styles ─────────────────────────────────────────────────── */
 
 .tiptap-editor {
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 0.875rem;
+  /* Report body reads in Geist (owner direction 2026-08-11; was Georgia) and
+     scales with its pane width — the pane is an inline-size container. */
+  font-family: var(--font-sans);
+  font-size: clamp(0.8125rem, 0.6rem + 0.5cqi, 0.9375rem);
   line-height: 1.75;
   color: #1a1a1a;
 }
@@ -262,8 +429,8 @@ select:focus {
 
 /* Headings */
 .tiptap-editor h1 {
-  font-family: "DM Sans", system-ui, sans-serif;
-  font-size: 1.75rem;
+  font-family: var(--font-sans);
+  font-size: 2em;
   font-weight: 700;
   line-height: 1.3;
   color: #1a1a1a;
@@ -277,8 +444,8 @@ select:focus {
 }
 
 .tiptap-editor h2 {
-  font-family: "DM Sans", system-ui, sans-serif;
-  font-size: 1.125rem;
+  font-family: var(--font-sans);
+  font-size: 1.29em;
   font-weight: 600;
   line-height: 1.4;
   color: #0A3A38;
@@ -289,8 +456,8 @@ select:focus {
 }
 
 .tiptap-editor h3 {
-  font-family: "DM Sans", system-ui, sans-serif;
-  font-size: 1rem;
+  font-family: var(--font-sans);
+  font-size: 1.14em;
   font-weight: 600;
   line-height: 1.4;
   color: #374151;
@@ -371,13 +538,13 @@ select:focus {
   border-radius: 0.5rem;
   padding: 1rem;
   overflow-x: auto;
-  font-family: "Geist Mono", ui-monospace, monospace;
-  font-size: 0.8125rem;
+  font-family: var(--font-mono);
+  font-size: 0.93em;
   line-height: 1.6;
 }
 
 .tiptap-editor code {
-  font-family: "Geist Mono", ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.875em;
   background: #f5f5f3;
   padding: 0.125rem 0.25rem;
@@ -401,8 +568,8 @@ select:focus {
 .tiptap-editor mark[data-color="#FEF3C7"] {
   background-color: #FEF3C7;
   color: #A8500F;
-  font-family: "DM Sans", system-ui, sans-serif;
-  font-size: 0.8125rem;
+  font-family: var(--font-sans);
+  font-size: 0.93em;
   font-weight: 500;
   padding: 2px 6px;
   border-radius: 4px;
@@ -527,9 +694,9 @@ select:focus {
   margin: 0.75rem 0 0.375rem;
   line-height: 1.3;
 }
-.chat-markdown h1 { font-size: 1rem; }
-.chat-markdown h2 { font-size: 0.9375rem; }
-.chat-markdown h3 { font-size: 0.875rem; }
+.chat-markdown h1 { font-size: 1.15em; }
+.chat-markdown h2 { font-size: 1.07em; }
+.chat-markdown h3 { font-size: 1em; }
 .chat-markdown code {
   background-color: #F1F0EC;
   border-radius: 3px;
@@ -688,3 +855,33 @@ select:focus {
   color: inherit;
   border-color: currentColor;
 }
+
+/* Fluid workbench type (2026-08-11): the report and assistant panes are
+   inline-size containers; chat prose scales with the pane width. */
+.chat-fluid-text {
+  font-size: clamp(0.75rem, 0.55rem + 0.65cqi, 0.875rem);
+}
+
+/* Whole-thread fluid scope: reasoning traces, chain-of-thought steps, and
+   other message furniture use fixed text-xs/text-sm/text-[11px] utilities —
+   remap them to em inside the scrolling thread so EVERYTHING tracks the
+   pane's fluid size. */
+.chat-scale {
+  font-size: clamp(0.75rem, 0.55rem + 0.65cqi, 0.875rem);
+}
+.chat-scale .text-sm { font-size: 1em; }
+.chat-scale .text-xs { font-size: 0.9em; }
+.chat-scale [class*="text-[11px]"] { font-size: 0.85em; }
+.chat-scale [class*="text-[10px]"] { font-size: 0.8em; }
+.chat-scale [class*="text-[0.8125rem]"] { font-size: 0.95em; }
+
+/* svelte-streamdown ships fixed Tailwind sizes (text-sm on body-ish elements,
+   text-xs on sub/sup/captions, text-2xl..base on headings). Inside chat these
+   must track the fluid pane size, so remap them to em within .chat-markdown —
+   unlayered, so it wins over the utility classes. */
+.chat-markdown .text-2xl { font-size: 1.45em; }
+.chat-markdown .text-xl { font-size: 1.3em; }
+.chat-markdown .text-lg { font-size: 1.15em; }
+.chat-markdown .text-base { font-size: 1.05em; }
+.chat-markdown .text-sm { font-size: 1em; }
+.chat-markdown .text-xs { font-size: 0.85em; }

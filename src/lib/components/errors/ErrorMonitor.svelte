@@ -238,12 +238,23 @@
   // Snapshot when the modal opens (breadcrumbs aren't reactive state; only
   // rendered inside the modal, so recomputing on open is enough).
   const crumbCount = $derived(modalMode ? getBreadcrumbs().length : 0);
+
+  // Workspace rail integration (2026-08-10): the rail's "Flag issue" row
+  // raises this custom event; the floating button hides inside the
+  // workspace shell (layout.css :has rule) so the action lives in one
+  // place per surface.
+  $effect(() => {
+    const open = () => (modalMode = "manual");
+    window.addEventListener("banhall:flag-issue", open);
+    return () => window.removeEventListener("banhall:flag-issue", open);
+  });
 </script>
 
 <!-- AUTO path renders through the global sonner toaster (see notifyError). -->
 
 <!-- ── MANUAL: floating flag button, bottom-right ────────────────────── -->
 <button
+  data-flag-issue-floating
   onclick={() => (modalMode = "manual")}
   title="Something off? Flag it so we can take a look."
   class="fixed bottom-3 left-3 z-[90] flex items-center gap-1 rounded-full bg-navy px-2.5 py-1.5 text-xs font-medium text-white shadow-lg shadow-navy/30 transition-transform hover:scale-105 active:scale-95"

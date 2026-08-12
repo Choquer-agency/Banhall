@@ -9,6 +9,7 @@
   import type { Id } from "../../../../convex/_generated/dataModel";
   import type { FunctionReturnType } from "convex/server";
   import type { WorkflowStage } from "../../../../shared/workflowStages";
+  import StageBadge from "$lib/components/ui/StageBadge.svelte";
   import {
     WORKFLOW_STAGE_LABELS,
     workflowStageOptions,
@@ -40,6 +41,13 @@
 
   const auth = useAuth();
   let menuOpen = $state(false);
+  // Activity disclosure inside the Workflow popover. The read-only activity
+  // query subscribes only while BOTH the popover and the section are open
+  // (subscription budget); collapsing either releases it.
+  let activityOpen = $state(false);
+  $effect(() => {
+    if (!menuOpen) activityOpen = false;
+  });
   let stageOpen = $state(false);
   let transferOpen = $state(false);
   let stageBusy = $state(false);
@@ -91,6 +99,18 @@
     auth.isAuthenticated && (composerOpen || reassignOpen)
       ? { projectId, ...(reassignOpen && selectedWorkItem ? { workItemId: selectedWorkItem.workItemId } : {}) }
       : "skip"
+  );
+  const activityQ = useQuery(api.projectActivity.listProjectActivity, () =>
+    auth.isAuthenticated && menuOpen && activityOpen ? { projectId } : "skip"
+  );
+  const activityState = $derived<"loading" | "ready" | "error" | "denied">(
+    activityQ.error
+      ? "error"
+      : activityQ.isLoading || activityQ.data === undefined
+        ? "loading"
+        : activityQ.data === null
+          ? "denied"
+          : "ready"
   );
 
   const useRetryFallback = $derived(
@@ -378,9 +398,15 @@
 <Popover.Root bind:open={menuOpen}>
   <Popover.Trigger
     aria-label={triggerAriaLabel}
-    class="flex h-11 min-h-11 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold text-navy transition-colors hover:text-primary-selected data-[state=open]:text-primary-selected motion-reduce:transition-none"
+    class="group flex h-7 min-h-7 items-center gap-1 rounded-full py-0.5 pl-1 pr-1.5 text-xs font-medium text-ink-secondary transition-colors hover:bg-chrome/60 hover:text-ink data-[state=open]:bg-chrome/60 data-[state=open]:text-ink motion-reduce:transition-none pointer-coarse:min-h-11"
   >
-    <span>Workflow</span>
+    <!-- The stage badge IS the workflow control (2026-08-10 owner feedback:
+         a separate "Workflow" label pill was pointless next to the badge). -->
+    {#if header && !header.stageIsFallback}
+      <StageBadge stage={header.workflowStage} />
+    {:else}
+      <span class="px-1.5">Workflow</span>
+    {/if}
     {#if header?.ownerNeedsReview}
       <span aria-hidden="true" class="size-1.5 rounded-full bg-amber-600"></span>
       <span class="sr-only">Ownership needs administrator review</span>
@@ -431,6 +457,11 @@
         onSendForReview={() => openComposer("review")}
         onReassignWork={openReassign}
         onCancelWork={openCancel}
+        {activityOpen}
+        onToggleActivity={() => (activityOpen = !activityOpen)}
+        {activityState}
+        activityEntries={activityQ.data?.entries ?? []}
+        activityTruncated={activityQ.data?.truncated ?? false}
         {titleId}
       />
     </Popover.Content>

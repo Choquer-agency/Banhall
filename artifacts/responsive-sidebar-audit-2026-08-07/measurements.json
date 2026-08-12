@@ -1,0 +1,96 @@
+{
+  "audit_date": "2026-08-07",
+  "browser": "Authenticated Google Chrome",
+  "original_viewport": { "width": 1512, "height": 750, "device_pixel_ratio": 2 },
+  "restored_viewport": { "width": 1512, "height": 750, "device_pixel_ratio": 2 },
+  "obvious": {
+    "tested_viewports": [
+      { "width": 1512, "height": 750 },
+      { "width": 1024, "height": 768 },
+      { "width": 390, "height": 844 }
+    ],
+    "closed_opener": { "width": 28, "height": 28, "x": 12, "y": 8 },
+    "open_sidebar": { "width": 256, "x": 4, "top_inset": 4, "bottom_inset": 4 },
+    "desktop_sidebar_controls": {
+      "workspace_menu": { "width": 186, "height": 28 },
+      "pin_sidebar_open": { "width": 28, "height": 28 },
+      "home_row": { "width": 222, "height": 32 }
+    },
+    "dialog_count_when_open": 0,
+    "scrim_observed": false,
+    "escape_closes": false,
+    "focus_trapped": false,
+    "outside_click_closes": true,
+    "outside_click_focus_target": "BODY",
+    "body_overflow_closed": "hidden",
+    "body_overflow_open": "hidden"
+  },
+  "banhall": {
+    "tested_routes": ["/my-work", "/projects"],
+    "tested_viewports": [
+      { "width": 1512, "height": 750 },
+      { "width": 1280, "height": 750 },
+      { "width": 1279, "height": 750 },
+      { "width": 1024, "height": 768 },
+      { "width": 390, "height": 844 }
+    ],
+    "breakpoint": {
+      "persistent_rail_at_width": 1280,
+      "drawer_opener_at_width": 1279
+    },
+    "desktop_rail": {
+      "default_width": 255,
+      "resize_min": 220,
+      "resize_max": 360,
+      "resize_separator_width": 8,
+      "hide_toggle": { "width": 44, "height": 44, "aria_expanded": true, "aria_controls": "workspace-rail" },
+      "navigation_row_height": 34,
+      "footer_icon_target_height": 32
+    },
+    "drawer": {
+      "width": 255,
+      "role": "dialog",
+      "aria_modal": true,
+      "scrim_observed": true,
+      "body_overflow_open": "hidden",
+      "control_target_height": 44,
+      "focus_entry_after_tab": "Close workspace navigation",
+      "shift_tab_wrap_target": "Account menu",
+      "escape_closes": true,
+      "focus_return_target": "Open workspace navigation"
+    },
+    "mobile_header": {
+      "height": 48,
+      "navigation_opener": { "width": 44, "height": 44 },
+      "search": { "width": 44, "height": 44 },
+      "new_project": { "width": 44, "height": 44 }
+    },
+    "mobile_content_targets_below_44": {
+      "owned_by_me_disclosure_height": 32,
+      "waiting_on_others_disclosure_height": 32,
+      "account_menu_item_height_approx": 43.34
+    },
+    "mobile_account_menu": {
+      "rect": { "x": 0, "y": 289, "width": 256, "height": 491.2 },
+      "z_index": 80,
+      "drawer_z_index": 110,
+      "observed_result": "Menu exists and receives focus but is visually hidden behind the drawer"
+    },
+    "projects_containment": {
+      "desktop": {
+        "document_width": 1512,
+        "main_width": 1257,
+        "board_client_width": 1225,
+        "board_scroll_width": 1328,
+        "column_width": 360
+      },
+      "mobile": {
+        "document_width": 390,
+        "main_width": 390,
+        "board_client_width": 366,
+        "board_scroll_width": 1298,
+        "visible_column_width": 350
+      }
+    }
+  }
+}

@@ -1,13 +1,13 @@
 <script lang="ts">
-  import AppNav from "$lib/components/ui/AppNav.svelte";
-  import PageBar from "$lib/components/ui/PageBar.svelte";
-  import PageContainer from "$lib/components/ui/PageContainer.svelte";
+  import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
+  import { resolve } from "$app/paths";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import RoleGuideSheet from "$lib/components/roles/RoleGuideSheet.svelte";
+  import WorkspaceRolloutCard from "$lib/components/admin/WorkspaceRolloutCard.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { goto } from "$app/navigation";
   import { useQuery, useMutation } from "convex-svelte";
@@ -232,7 +232,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goto(resolve("/login"), { replaceState: true });
     }
   });
 
@@ -287,43 +287,35 @@
     <Spinner />
   </div>
 {:else}
-  <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav breadcrumbs={[{ label: "Users & roles" }]} />
-    <PageBar backHref="/dashboard" backLabel="Back">
-      {#snippet actions()}
-        {#if isAdmin}
-          <button
-            type="button"
-            onclick={openRoleGuide}
-            aria-haspopup="dialog"
-            class="flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-ink-secondary transition-colors hover:bg-primary-wash hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            <svg aria-hidden="true" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M9.1 9a3 3 0 115.8 1c0 2-2.9 2-2.9 4" />
-              <circle cx="12" cy="12" r="9" />
-            </svg>
-            Role guide
-          </button>
-        {/if}
-      {/snippet}
-    </PageBar>
-
-    <PageContainer class="pb-10">
+  <AdminWorkspacePage
+    title="Users & roles"
+    description="Invite team members, assign roles, and review what each role can do."
+  >
+    {#snippet actions()}
+      {#if isAdmin}
+        <button
+          type="button"
+          onclick={openRoleGuide}
+          aria-haspopup="dialog"
+          class="flex h-11 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-ink-secondary transition-colors hover:bg-primary-wash hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <svg aria-hidden="true" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M9.1 9a3 3 0 115.8 1c0 2-2.9 2-2.9 4" />
+            <circle cx="12" cy="12" r="9" />
+          </svg>
+          Role guide
+        </button>
+      {/if}
+    {/snippet}
       {#if currentUserQ.data === undefined}
         <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
       {:else if !isAdmin}
-        <h1 class="text-display">Users & roles</h1>
-        <p class="mt-3 text-sm text-gray-500">
+        <p class="text-sm text-gray-500">
           Role management is available to administrators only.
         </p>
       {:else}
-        <h1 class="text-display">Users & roles</h1>
-        <p class="mt-1 text-sm text-gray-500">
-          Invite team members, assign roles, and review what each role can do.
-        </p>
-
         <!-- Invite a team member: accounts are invite-only -->
-        <section class="card mt-8 p-6">
+        <section class="card p-6">
           <h2 class="text-title">Invite a team member</h2>
           <p class="mt-0.5 text-xs text-gray-500">
             Creates a one-time signup link (valid 7 days) — copy it and send it
@@ -350,7 +342,7 @@
               type="submit"
               disabled={inviteSending || !inviteValid}
               title={inviteValid ? undefined : "Fill in first name, last name, and a valid email"}
-              class="inline-flex h-[42px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-2 lg:col-span-1"
+              class="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-primary-selected px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-2 lg:col-span-1"
             >
               {#if inviteSending}
                 <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
@@ -486,7 +478,7 @@
                         type="button"
                         onclick={() => toggleFlavor(row._id)}
                         aria-expanded={expandedUserId === row._id}
-                        class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-primary-wash {expandedUserId === row._id ? 'text-navy' : 'text-gray-500 hover:text-navy'}"
+                        class="flex min-h-11 w-full items-center justify-between gap-2 rounded-md px-2 text-xs font-medium transition-colors hover:bg-primary-wash {expandedUserId === row._id ? 'text-navy' : 'text-gray-500 hover:text-navy'}"
                       >
                         Manage
                         <svg
@@ -553,7 +545,7 @@
                     {#if expandedUser._id === currentUserQ.data?._id}
                       <p class="mt-1 text-sm text-gray-500">
                         Change your own password from
-                        <a class="font-medium text-primary hover:text-primary-dark" href="/settings#security">Settings</a>.
+                        <a class="font-medium text-primary hover:text-primary-dark" href={resolve("/settings#security")}>Settings</a>.
                       </p>
                     {:else if !expandedUser.hasAuthAccount}
                       <p class="mt-1 text-sm text-gray-500">
@@ -613,10 +605,12 @@
             {/if}
           </div>
         {/if}
+
+        <!-- Workspace preview rollout (exposure only, never authorization) -->
+        <WorkspaceRolloutCard members={users} currentUserId={currentUserQ.data?._id} />
       {/if}
-    </PageContainer>
+  </AdminWorkspacePage>
     {#if isAdmin}
       <RoleGuideSheet bind:open={roleGuideOpen} bind:role={roleGuideRole} />
     {/if}
-  </div>
 {/if}

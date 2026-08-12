@@ -15,10 +15,12 @@ describe("StageBadge", () => {
     }
   });
 
-  it("uses a subdued non-error treatment for paused work", async () => {
+  it("uses the violet held tone (non-error) for paused work", async () => {
+    // 2026-08-10 board redesign: On hold reads as the distinct violet "held"
+    // tone, still never the red error treatment.
     await render(StageBadge, { stage: "on_hold", dot: true });
     const badge = document.body.querySelector('[data-stage-badge="on_hold"]');
-    expect(badge?.className).toContain("gray");
+    expect(badge?.className).toContain("violet");
     expect(badge?.className).not.toContain("red");
     expect(badge?.textContent).toContain("On hold");
   });

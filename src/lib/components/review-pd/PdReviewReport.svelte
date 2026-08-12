@@ -252,8 +252,8 @@
   {:else if result}
     <!-- Score + summary -->
     <div class="card flex items-start gap-4 p-5">
-      <div class="relative h-16 w-16 flex-none">
-        <svg viewBox="0 0 36 36" class="h-16 w-16 -rotate-90">
+      <div class="relative h-14 w-14 flex-none">
+        <svg viewBox="0 0 36 36" class="h-14 w-14 -rotate-90">
           <circle cx="18" cy="18" r="16" fill="none" class="stroke-gray-100" stroke-width="2" />
           <circle
             cx="18" cy="18" r="16" fill="none"
@@ -264,16 +264,16 @@
           />
         </svg>
         <div class="absolute inset-0 flex items-center justify-center">
-          <span class={`text-lg font-semibold tabular-nums ${band}`}>{score}</span>
+          <span class={`text-base font-medium tabular-nums ${band}`}>{score}</span>
         </div>
       </div>
       <div class="min-w-0">
-        <p class="text-sm font-semibold text-gray-900">
+        <p class="text-sm font-medium text-gray-900">
           {score >= 80 ? "Strong PD" : score >= 60 ? "Needs attention" : "Significant issues"}
           <span class="font-normal text-gray-400"> · /100</span>
         </p>
         {#if result.summary}
-          <p class="mt-1.5 text-sm leading-relaxed text-gray-600">{result.summary}</p>
+          <p class="mt-1.5 text-[13px] leading-relaxed text-gray-600">{result.summary}</p>
         {/if}
         {#if result.score_rationale}
           <p class="mt-1.5 text-xs text-gray-400">{result.score_rationale}</p>
@@ -281,7 +281,7 @@
       </div>
     </div>
 
-    <div class="card flex flex-col gap-6 p-5">
+    <div class="card flex flex-col gap-5 p-4">
       {@render feedbackList("Strengths", result.strengths, "bg-green-500", "text-gray-700")}
       {@render feedbackList("Risks / areas to improve", result.risks, "bg-red-400", "text-gray-700")}
       {@render feedbackList("Suggested strengthening", result.suggested_strengthening, "bg-amber-400", "text-gray-700")}

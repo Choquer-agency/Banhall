@@ -193,3 +193,179 @@ describe("PSOS-11 dashboard projections", () => {
     expect(page.page[0]).toMatchObject({ _id: projectId, lastViewedAt: project?.lastViewedAt });
   });
 });
+
+describe("dashboard query authorization", () => {
+  const paginationOpts = { cursor: null, numItems: 10 };
+
+  async function authSetup() {
+    const { t, userId } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", { authId: "dash-writer", role: "writer", firstName: "Writer" });
+      await ctx.db.insert("users", { authId: "dash-manager", role: "manager", firstName: "Manager" });
+      await ctx.db.insert("users", { authId: "dash-roleless", firstName: "NoRole" });
+      await ctx.db.insert("users", { authId: "dash-anon", role: "writer", isAnonymous: true });
+    });
+    await insertProject(t, userId, { title: "Shared visibility", clientName: "Client" });
+    return t;
+  }
+
+  it("denies unauthenticated callers and preserves the pre-existing signed-in read visibility (D1)", async () => {
+    const t = await authSetup();
+    const roleless = t.withIdentity({ subject: "dash-roleless" });
+
+    // Unauthenticated: every dashboard read fails.
+    await expect(t.query(api.dashboard.listFlatProjects, { sortBy: "updated", paginationOpts })).rejects.toThrow(/authentication/i);
+    await expect(t.query(api.dashboard.listCompanies, { paginationOpts })).rejects.toThrow(/authentication/i);
+    await expect(t.query(api.dashboard.getFacets, {})).rejects.toThrow(/authentication/i);
+
+    // D1 (2026-08-06 correction): the redesign changes no read permissions —
+    // a signed-in user without an assigned role could read the dashboard
+    // projections before the redesign and still can. Read hardening beyond
+    // this requires a separately approved and tested decision (PSOS-30).
+    const flat = await roleless.query(api.dashboard.listFlatProjects, { sortBy: "updated", paginationOpts });
+    expect(flat.page.map((row) => row.title)).toContain("Shared visibility");
+    // These resolve without NOT_AUTHORIZED (no projection rows are seeded
+    // here, so only reachability is asserted).
+    await expect(roleless.query(api.dashboard.listCompanies, { paginationOpts })).resolves.toBeTruthy();
+    await expect(
+      roleless.query(api.dashboard.listCompanyProjects, { companyKey: "client", paginationOpts })
+    ).resolves.toBeTruthy();
+    // (searchProjects shares the identical requireCurrentUser gate; its
+    // search-index pagination is not exercisable under convex-test here.)
+    const facets = await roleless.query(api.dashboard.getFacets, {});
+    expect(facets.total).toBeGreaterThan(0);
+  });
+
+  it("preserves decision D1 firm-wide visibility for writer, manager, and admin roles", async () => {
+    const t = await authSetup();
+    for (const subject of ["dash-writer", "dash-manager", "dashboard-user"]) {
+      const caller = t.withIdentity({ subject });
+      const flat = await caller.query(api.dashboard.listFlatProjects, { sortBy: "updated", paginationOpts });
+      expect(flat.page.map((row) => row.title)).toContain("Shared visibility");
+      const facets = await caller.query(api.dashboard.getFacets, {});
+      expect(facets.total).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("dashboard owner labels", () => {
+  it("includes the canonical owner label in every bounded result page", async () => {
+    const { t, asUser, userId } = await setup();
+    const writerId = await t.run((ctx) =>
+      ctx.db.insert("users", {
+        authId: "owner-writer",
+        firstName: "Wendy",
+        lastName: "Writer",
+        role: "writer",
+      })
+    );
+    const projectId = await insertProject(t, userId, {
+      title: "Owned project",
+      clientName: "Client",
+    });
+    await t.run((ctx) => ctx.db.patch(projectId, { ownerId: writerId }));
+
+    const page = await asUser.query(api.dashboard.listFlatProjects, {
+      sortBy: "updated",
+      paginationOpts: { cursor: null, numItems: 10 },
+    });
+    expect(page.page.find((row) => row._id === projectId)).toMatchObject({
+      ownerId: writerId,
+      ownerLabel: "Wendy Writer",
+    });
+  });
+});
+
+describe("dashboard current-handoff projection (2026-08-10 amendment)", () => {
+  async function insertHandoff(
+    t: ReturnType<typeof convexTest>,
+    projectId: Id<"projects">,
+    assigneeId: Id<"users">,
+    assignerId: Id<"users">,
+    overrides: { status?: "open" | "completed"; dueAt?: number } = {}
+  ) {
+    const now = Date.now();
+    const workItemId = await t.run((ctx) =>
+      ctx.db.insert("workItems", {
+        projectId,
+        kind: "internal_review",
+        assigneeId,
+        assignerId,
+        dueAt: overrides.dueAt,
+        instructions: "Review the draft",
+        blocking: true,
+        status: overrides.status ?? "open",
+        version: 1,
+        createRequestId: `req-${projectId}-${now}`,
+        createRequestFingerprint: "fp",
+        createdAt: now,
+        updatedAt: now,
+      })
+    );
+    await t.run((ctx) => ctx.db.patch(projectId, { currentHandoffId: workItemId }));
+    return workItemId;
+  }
+
+  it("projects the open blocking handoff with its assignee label on bounded pages", async () => {
+    const { t, asUser, userId } = await setup();
+    const revieweeId = await t.run((ctx) =>
+      ctx.db.insert("users", {
+        authId: "handoff-reviewer",
+        firstName: "Rita",
+        lastName: "Reviewer",
+        role: "manager",
+      })
+    );
+    const projectId = await insertProject(t, userId, {
+      title: "Handoff project",
+      clientName: "Handoff Client",
+    });
+    await insertHandoff(t, projectId, revieweeId, userId, { dueAt: Date.UTC(2026, 8, 1) });
+
+    const page = await asUser.query(api.dashboard.listFlatProjects, {
+      sortBy: "updated",
+      paginationOpts: { cursor: null, numItems: 10 },
+    });
+    expect(page.page.find((row) => row._id === projectId)?.currentHandoff).toMatchObject({
+      kind: "internal_review",
+      assigneeId: revieweeId,
+      assigneeLabel: "Rita Reviewer",
+      blocking: true,
+      dueAt: Date.UTC(2026, 8, 1),
+    });
+  });
+
+  it("projects nothing for absent, non-open, or cross-project handoff pointers", async () => {
+    const { t, asUser, userId } = await setup();
+    const noPointerId = await insertProject(t, userId, {
+      title: "No pointer",
+      clientName: "H Client",
+    });
+    const staleId = await insertProject(t, userId, {
+      title: "Stale pointer",
+      clientName: "H Client",
+    });
+    await insertHandoff(t, staleId, userId, userId, { status: "completed" });
+    const crossId = await insertProject(t, userId, {
+      title: "Cross pointer",
+      clientName: "H Client",
+    });
+    const otherProjectId = await insertProject(t, userId, {
+      title: "Other project",
+      clientName: "H Client",
+    });
+    const foreignItemId = await insertHandoff(t, otherProjectId, userId, userId);
+    await t.run((ctx) => ctx.db.patch(crossId, { currentHandoffId: foreignItemId }));
+
+    const page = await asUser.query(api.dashboard.listFlatProjects, {
+      sortBy: "updated",
+      paginationOpts: { cursor: null, numItems: 10 },
+    });
+    for (const id of [noPointerId, staleId, crossId]) {
+      expect(page.page.find((row) => row._id === id)?.currentHandoff).toBeUndefined();
+    }
+    expect(page.page.find((row) => row._id === otherProjectId)?.currentHandoff).toMatchObject({
+      kind: "internal_review",
+    });
+  });
+});

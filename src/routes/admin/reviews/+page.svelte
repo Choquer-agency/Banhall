@@ -1,6 +1,6 @@
 <script lang="ts">
-  import AppNav from "$lib/components/ui/AppNav.svelte";
-  import PageBar from "$lib/components/ui/PageBar.svelte";
+  import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
+  import { resolve } from "$app/paths";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goto } from "$app/navigation";
   import { useQuery } from "convex-svelte";
@@ -38,7 +38,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goto(resolve("/login"), { replaceState: true });
     }
   });
 
@@ -56,16 +56,10 @@
     <Spinner />
   </div>
 {:else}
-  <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav breadcrumbs={[{ label: "Consultant QA reviews" }]} />
-    <PageBar backHref="/dashboard" backLabel="Back" />
-
-    <main class="mx-auto w-full max-w-[var(--container-shell)] px-6 pt-12 pb-10">
-      <h1 class="text-display">Consultant QA reviews</h1>
-      <p class="mt-1 text-sm text-gray-500">
-        Human quality scores consultants gave generated reports, alongside the AI QA
-        score. For your review only — never auto-applied to the brain.
-      </p>
+  <AdminWorkspacePage
+    title="Consultant QA reviews"
+    description="Human quality scores alongside AI QA scores, for administrator review only."
+  >
 
       {#if data === undefined}
         <div class="flex min-h-[55vh] items-center justify-center">
@@ -77,7 +71,7 @@
         <p class="mt-8 text-sm text-gray-400">No consultant reviews or QA item feedback yet.</p>
       {:else}
         <!-- Summary -->
-        <div class="mt-6 grid grid-cols-3 gap-3">
+        <div class="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div class="card p-4">
             <p class="text-label">Reviews</p>
             <p class="mt-1 text-2xl font-bold text-navy">{data.total}</p>
@@ -97,7 +91,8 @@
         {#if data.rows.length > 0}
         <!-- Report review table -->
         <div class="card mt-6 overflow-hidden">
-          <table class="w-full text-sm">
+          <div class="overflow-x-auto">
+          <table class="w-full min-w-[46rem] text-sm">
             <thead>
               <tr class="text-label border-b border-gray-100 text-left">
                 <th class="px-4 py-2.5 font-medium">Project</th>
@@ -134,6 +129,7 @@
               {/each}
             </tbody>
           </table>
+          </div>
         </div>
         {/if}
 
@@ -168,7 +164,7 @@
             {#if digestHistory.length > 0}
               <button
                 onclick={() => (showCalibrationHistory = !showCalibrationHistory)}
-                class="mt-3 text-xs text-primary hover:underline"
+                class="mt-3 min-h-11 rounded-lg px-2 text-xs text-primary hover:bg-primary-wash hover:underline"
               >
                 {showCalibrationHistory ? "Hide" : "Show"} previous versions ({digestHistory.length})
               </button>
@@ -219,7 +215,7 @@
             {#if styleHistory.length > 0}
               <button
                 onclick={() => (showStyleHistory = !showStyleHistory)}
-                class="mt-3 text-xs text-primary hover:underline"
+                class="mt-3 min-h-11 rounded-lg px-2 text-xs text-primary hover:bg-primary-wash hover:underline"
               >
                 {showStyleHistory ? "Hide" : "Show"} previous versions ({styleHistory.length})
               </button>
@@ -251,7 +247,8 @@
           <div class="card mt-4 p-5 text-sm text-gray-400">No QA items have been rated yet.</div>
         {:else}
           <div class="card mt-4 overflow-hidden">
-            <table class="w-full text-sm">
+            <div class="overflow-x-auto">
+            <table class="w-full min-w-[60rem] text-sm">
               <thead>
                 <tr class="text-label border-b border-gray-100 text-left">
                   <th class="px-4 py-2.5 font-medium">Project</th>
@@ -288,9 +285,9 @@
                 {/each}
               </tbody>
             </table>
+            </div>
           </div>
         {/if}
       {/if}
-    </main>
-  </div>
+  </AdminWorkspacePage>
 {/if}

@@ -589,6 +589,132 @@ describe("bulk project edits", () => {
   });
 });
 
+describe("project numbering", () => {
+  test("accepts combined number+letter identities like 2a -> 2A", async () => {
+    const { t, projectId } = await setup();
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId,
+      projectNumber: " 2a ",
+    });
+    let project = await asActor(t, "owner").query(api.projects.getProject, { projectId });
+    expect(project?.projectNumber).toBe("2A");
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId,
+      projectNumber: "14b",
+    });
+    project = await asActor(t, "owner").query(api.projects.getProject, { projectId });
+    expect(project?.projectNumber).toBe("14B");
+    // combined form still respects the 20 cap
+    await expect(
+      asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+        projectId,
+        projectNumber: "21A",
+      })
+    ).rejects.toThrow();
+  });
+
+  test("sets a valid final number", async () => {
+    const { t, projectId } = await setup();
+
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId,
+      projectNumber: "3",
+    });
+
+    await expect(getProject(t, projectId)).resolves.toMatchObject({
+      projectNumber: "3",
+    });
+  });
+
+  test("sets a valid draft letter", async () => {
+    const { t, projectId } = await setup();
+
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId,
+      projectNumber: "A",
+    });
+
+    await expect(getProject(t, projectId)).resolves.toMatchObject({
+      projectNumber: "A",
+    });
+  });
+
+  test.each([["21"], ["99"]])("rejects numbers above the 20 cap (%s)", async (value) => {
+    const { t, projectId } = await setup();
+
+    await expect(
+      asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+        projectId,
+        projectNumber: value,
+      })
+    ).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+    const project = await getProject(t, projectId);
+    expect(project).not.toHaveProperty("projectNumber");
+  });
+
+  test.each([["0"], ["AB"], ["A1"]])("rejects malformed value %s", async (value) => {
+    const { t, projectId } = await setup();
+
+    await expect(
+      asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+        projectId,
+        projectNumber: value,
+      })
+    ).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+  });
+
+  test("normalizes lowercase letters and surrounding whitespace", async () => {
+    const { t, projectId } = await setup();
+
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId,
+      projectNumber: "  b ",
+    });
+
+    await expect(getProject(t, projectId)).resolves.toMatchObject({
+      projectNumber: "B",
+    });
+  });
+
+  test("clears the number with empty or omitted input", async () => {
+    const { t, projectId } = await setup();
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId,
+      projectNumber: "7",
+    });
+
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId,
+      projectNumber: "",
+    });
+    let project = await getProject(t, projectId);
+    expect(project).not.toHaveProperty("projectNumber");
+
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId,
+      projectNumber: "A",
+    });
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId,
+    });
+    project = await getProject(t, projectId);
+    expect(project).not.toHaveProperty("projectNumber");
+  });
+
+  test("denies unauthenticated callers", async () => {
+    const { t, projectId } = await setup();
+
+    await expect(
+      t.mutation(api.projects.setProjectNumber, {
+        projectId,
+        projectNumber: "1",
+      })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
+    const project = await getProject(t, projectId);
+    expect(project).not.toHaveProperty("projectNumber");
+  });
+});
+
 describe("project review unpublishing", () => {
   test.each([
     ["creator", "owner"],

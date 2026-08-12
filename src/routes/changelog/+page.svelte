@@ -1,6 +1,8 @@
 <script lang="ts">
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
+  import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
+  import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
@@ -41,7 +43,7 @@
   const KIND_STYLES: Record<string, string> = {
     feature: "bg-primary/10 text-primary-dark",
     fix: "bg-amber-50 text-amber-700",
-    mixed: "bg-chrome text-gray-500",
+    mixed: "bg-chrome text-ink-muted",
   };
   const KIND_LABELS: Record<string, string> = {
     feature: "New",
@@ -79,24 +81,18 @@
   }
 </script>
 
-{#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
-{:else}
-  <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav breadcrumbs={[{ label: "What's new" }]} />
-    <PageBar backHref="/dashboard" backLabel="Back" />
-
-    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 px-6 pt-12 pb-10">
-      <div class="mx-auto w-full max-w-3xl">
-        <div class="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 class="text-display">What's new</h1>
-            <p class="mt-1 text-sm text-gray-500">
-              Features and fixes shipped since you last looked — no meeting required.
-            </p>
-          </div>
+{#snippet changelogContent(showHeading: boolean)}
+    <main class={`w-full flex-1 ${showHeading ? "mx-auto max-w-[var(--container-shell)] px-6 pt-12" : "px-4 pt-6 sm:px-6"} pb-10`}>
+      <div class={`w-full ${showHeading ? "mx-auto max-w-3xl" : ""}`}>
+        <div class={`flex flex-wrap items-start gap-4 ${showHeading ? "justify-between" : "justify-end"}`}>
+          {#if showHeading}
+            <div>
+              <h1 class="text-display">What's new</h1>
+              <p class="mt-1 text-sm text-ink-muted">
+                Features and fixes shipped since you last looked — no meeting required.
+              </p>
+            </div>
+          {/if}
           {#if isAdmin && !composing}
             <Button onclick={() => (composing = true)}>New entry</Button>
           {/if}
@@ -109,13 +105,13 @@
               <input
                 bind:value={title}
                 placeholder="e.g. Excel uploads, single-page project setup"
-                class="block w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                class="block w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink placeholder:text-ink-faint focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
               />
               <textarea
                 rows={8}
                 bind:value={body}
                 placeholder={"Markdown supported.\n\n- Added X\n- Fixed Y"}
-                class="block w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                class="block w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
               ></textarea>
               <div class="flex items-center justify-between gap-3">
                 <SelectInput
@@ -148,7 +144,7 @@
         {#if entriesQ.data === undefined}
           <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
         {:else if entriesQ.data.length === 0}
-          <p class="mt-10 text-sm text-gray-400">Nothing published yet — check back after the next sprint.</p>
+          <p class="mt-10 text-sm text-ink-faint">Nothing published yet — check back after the next sprint.</p>
         {:else}
           <div class="mt-8 flex flex-col gap-6">
             {#each entriesQ.data as entry (entry._id)}
@@ -161,19 +157,19 @@
                     <h2 class="text-title">{entry.title}</h2>
                   </div>
                   <span class="flex items-center gap-3">
-                    <time class="text-xs text-gray-400">{fmtDate(entry.publishedAt)}</time>
+                    <time class="text-xs text-ink-faint">{fmtDate(entry.publishedAt)}</time>
                     {#if isAdmin}
                       <button
                         type="button"
                         onclick={() => deleteEntry({ id: entry._id })}
-                        class="rounded-md px-1.5 py-0.5 text-xs text-gray-300 transition-colors hover:bg-red-50 hover:text-red-600"
+                        class="rounded-md px-1.5 py-0.5 text-xs text-ink-faint transition-colors hover:bg-red-50 hover:text-red-600"
                       >
                         Delete
                       </button>
                     {/if}
                   </span>
                 </div>
-                <div class="chat-markdown mt-3 text-sm leading-relaxed text-gray-700">
+                <div class="chat-markdown mt-3 text-sm leading-relaxed text-ink-secondary">
                   <Streamdown content={entry.body} />
                 </div>
               </article>
@@ -182,5 +178,27 @@
         {/if}
       </div>
     </main>
+{/snippet}
+
+{#if auth.isLoading || !auth.isAuthenticated}
+  <div class="flex flex-1 items-center justify-center bg-canvas">
+    <Spinner />
   </div>
+{:else}
+  <WorkspaceGate currentWhileLoading={false}>
+    {#snippet current()}
+      <div class="flex flex-1 flex-col bg-canvas">
+        <AppNav breadcrumbs={[{ label: "What's new" }]} />
+        <PageBar backHref="/dashboard" backLabel="Back" />
+        {@render changelogContent(true)}
+      </div>
+    {/snippet}
+    {#snippet preview()}
+      <WorkspaceChrome title="What's new" description="Features and fixes shipped to Banhall">
+        {#snippet children()}
+          {@render changelogContent(false)}
+        {/snippet}
+      </WorkspaceChrome>
+    {/snippet}
+  </WorkspaceGate>
 {/if}

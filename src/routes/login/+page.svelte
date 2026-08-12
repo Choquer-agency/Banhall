@@ -8,6 +8,7 @@
 
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
+  import { onMount } from "svelte";
 
   const auth = useAuth();
 
@@ -21,6 +22,15 @@
   let error = $state("");
   let submitting = $state(false);
   let signInAttempt = 0;
+  let hydrated = $state(false);
+
+  // The email/password flow is client-only. Keep the native form out of the
+  // server-rendered HTML until Svelte has attached handleSubmit; otherwise a
+  // password manager or fast Enter/click can perform a plain GET /login?
+  // submission, which looks like a flash/reload and never calls Better Auth.
+  onMount(() => {
+    hydrated = true;
+  });
 
   // Keep the split login shell mounted while the session resolves. Only the
   // form column changes state, so sign-out and background-tab session refreshes
@@ -106,7 +116,7 @@
           class="logo-fir -ml-2 mb-8 w-32 lg:hidden"
         />
 
-        {#if auth.isLoading || auth.isAuthenticated || entering}
+        {#if !hydrated || auth.isAuthenticated || entering}
           <div class="flex min-h-64 flex-col items-center justify-center" aria-live="polite">
             <Spinner />
             <p class="mt-3 text-sm text-gray-500">

@@ -28,7 +28,7 @@
     bind:checked
     bind:ref
     aria-labelledby={labelText || label ? `${id}-label` : undefined}
-    class="peer inline-flex size-[18px] flex-none items-center justify-center rounded-[5px] border transition-colors duration-150 ease-out active:scale-[0.97] data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=indeterminate]:border-primary data-[state=indeterminate]:bg-primary data-[state=unchecked]:border-gray-300 data-[state=unchecked]:bg-white data-[state=unchecked]:hover:border-gray-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[disabled]:opacity-50"
+    class="peer inline-flex size-[18px] flex-none items-center justify-center rounded-[5px] border transition-colors duration-150 ease-out active:scale-[0.97] data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=indeterminate]:border-primary data-[state=indeterminate]:bg-primary data-[state=unchecked]:border-gray-300 data-[state=unchecked]:bg-surface data-[state=unchecked]:hover:border-gray-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[disabled]:opacity-50"
     {...restProps}
   >
     {#snippet children({ checked: isChecked, indeterminate })}

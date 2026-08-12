@@ -1,5 +1,6 @@
 <script lang="ts">
-    import { usePaginatedQuery, useQuery } from "convex-svelte";
+    import { resolve } from "$app/paths";
+  import { usePaginatedQuery, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { fly } from "svelte/transition";
@@ -126,6 +127,12 @@
       ? activeFlatQ.status === "LoadingFirstPage"
       : companiesQ.status === "LoadingFirstPage"
   );
+  // Protected dashboard queries reject roleless/anonymous/stale sessions.
+  // Surface that explicitly instead of leaving the loading spinner up forever
+  // (facetsQ gates the spinner and its data stays undefined on error).
+  const protectedQueryError = $derived(
+    facetsQ.error ?? (flatMode ? activeFlatQ.error : companiesQ.error) ?? null
+  );
   const allTags = $derived(tagsQ.data ?? []);
   const tagById = $derived(new Map(allTags.map((tag) => [tag._id as string, tag])));
   const team = $derived(teamQ.data ?? []);
@@ -238,7 +245,7 @@
       <div class="border-b border-line-soft bg-white">
         <nav aria-label="Admin" class="mx-auto flex w-full max-w-[var(--container-shell)] items-center justify-center gap-1 px-6 py-1.5">
           {#each ADMIN_ROUTES as route (route.href)}
-            <a href={route.href} class="rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-primary-wash hover:text-navy">{route.label}</a>
+            <a href={resolve(route.href)} class="rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-primary-wash hover:text-navy">{route.label}</a>
           {/each}
         </nav>
       </div>
@@ -255,8 +262,8 @@
           {/if}
         </div>
         <div class="flex items-center gap-2">
-          <a href="/project/questionnaire"><Button variant="secondary">Self-Serve</Button></a>
-          <a href="/project/new"><Button>New Project</Button></a>
+          <Button href={resolve("/project/questionnaire")} variant="secondary" class="min-h-11">Self-Serve</Button>
+          <Button href={resolve("/project/new")} class="min-h-11">New Project</Button>
         </div>
       </div>
 
@@ -286,13 +293,25 @@
         {/if}
       {/if}
 
-      {#if projectsLoading || facetsQ.data === undefined}
+      {#if protectedQueryError}
+        <div class="mx-auto mt-10 max-w-md rounded-xl border border-line bg-white p-6 text-center" role="alert">
+          <h3 class="text-title">Projects can’t be shown right now</h3>
+          <p class="mt-1 text-sm text-ink-muted">
+            Your session may have expired or your account may not have dashboard
+            access. Sign in again, or reload after access is restored.
+          </p>
+          <div class="mt-4 flex items-center justify-center gap-2">
+            <Button href={resolve("/login")} variant="secondary" class="min-h-11">Sign in again</Button>
+            <Button onclick={() => location.reload()}>Reload</Button>
+          </div>
+        </div>
+      {:else if projectsLoading || facetsQ.data === undefined}
         <div class="flex min-h-[55vh] items-center justify-center"><Spinner /></div>
       {:else if totalProjects === 0}
         <div class="mt-16 text-center">
           <p class="font-medium text-navy">No projects yet.</p>
           <p class="mt-1 text-sm text-ink-muted">Create your first project to get started.</p>
-          <a href="/project/new" class="mt-4 inline-block"><Button>Create your first project</Button></a>
+          <Button href={resolve("/project/new")} class="mt-4 min-h-11">Create your first project</Button>
         </div>
       {:else if flatMode}
         {#if flatProjects.length === 0 && (activeFlatQ.status === "Exhausted" || activeFlatQ.error)}

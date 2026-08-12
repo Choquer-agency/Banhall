@@ -15,6 +15,7 @@ import {
   ownerCandidates,
 } from "./lib/ownerMatching";
 import { workflowStageRank } from "../shared/workflowStages";
+import { patchProjectWorkflowStage } from "./lib/dashboardProjection";
 import { scheduleOwnershipOversightRebuild } from "./oversight";
 import {
   getTeamRosterMemberOrNull,
@@ -213,7 +214,16 @@ export const backfillOwnership = internalMutation({
 
       if (!args.dryRun && Object.keys(patch).length > 0) {
         patch.workflowVersion = (project.workflowVersion ?? 0) + 1;
-        await ctx.db.patch(project._id, patch);
+        if (patch.workflowStage !== undefined) {
+          // B1 correction (2026-08-06): stage writes go through the one
+          // sanctioned helper so a counted legacy row moving into the
+          // workflow also moves its per-client stageCounts bucket
+          // ("legacy" → intake/drafting) in the same transaction.
+          const { workflowStage, workflowStageRank: _rank, ...rest } = patch;
+          await patchProjectWorkflowStage(ctx, project, workflowStage, rest);
+        } else {
+          await ctx.db.patch(project._id, patch);
+        }
         if (patch.ownerId && patch.ownerId !== project.ownerId) {
           await scheduleOwnershipOversightRebuild(ctx, {
             projectId: project._id,

@@ -197,12 +197,6 @@
     }
   });
 
-  const threadTitle = $derived.by(() => {
-    if (startingNewChat || !selectedThreadId) return "New chat";
-    const t = threadsQ.data?.find((t) => t.agentThreadId === selectedThreadId);
-    return t?.title ?? "New chat";
-  });
-
   function startNewThread() {
     startingNewChat = true;
     selectedThreadId = null;
@@ -952,66 +946,12 @@
     </div>
   {/if}
 
-  <PromptInput bind:value={input} isLoading={sending || researchStarting} onSubmit={(v) => sendText(v)}>
-    <PromptInputActions>
-      <ActionButton
-        variant="icon"
-        class="mb-0.5 h-9 w-9 rounded-full"
-        onclick={() => fileInputEl?.click()}
-        disabled={uploading}
-        tooltip="Add a document to project context"
-        aria-label="Add a document to project context"
-      >
-        {#if uploading}
-          <Spinner size="sm" class="border-gray-300 border-t-gray-500" />
-        {:else}
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-          </svg>
-        {/if}
-      </ActionButton>
-      <input
-        bind:this={fileInputEl}
-        type="file"
-        multiple
-        accept={SUPPORTED_ACCEPT}
-        class="hidden"
-        onchange={(e) => {
-          const target = e.currentTarget;
-          if (target.files && target.files.length) {
-            const all = Array.from(target.files);
-            const ok = all.filter((f) => isSupportedFile(f.name));
-            const bad = all.filter((f) => !isSupportedFile(f.name));
-            if (bad.length) {
-              const rejected = bad.map((f) => ({
-                attemptKey: crypto.randomUUID(),
-                fileName: f.name,
-                fileSizeBytes: f.size,
-              }));
-              // Each rejected file gets its own receipt row saying why, instead
-              // of one message listing them all.
-              receiptEntries = [
-                ...receiptEntries,
-                ...rejected.map((r) => ({
-                  ...r,
-                  status: "skipped_unsupported" as const,
-                  detail: "unsupported_extension" as const,
-                  hasFile: false,
-                })),
-              ];
-              // These never reach the server, so without a recorded attempt the
-              // rejection would vanish on reload with nothing to show for it.
-              void recordFailedChatAttempts(rejected, "rejected_unsupported");
-            }
-            if (ok.length) pendingFiles = ok;
-          }
-          target.value = "";
-        }}
-      />
-    </PromptInputActions>
-
+  <PromptInput bind:value={input} isLoading={sending || researchStarting} onSubmit={(v) => sendText(v)} class="flex-col items-stretch gap-0 rounded-[20px] p-1.5">
+    <!-- Obvious v3-prompt: p-1.5 box, p-2 text region, action row below. -->
+    <div class="p-2">
     <PromptInputTextarea
       bind:ref={textareaEl}
+      class="min-h-7"
       aria-label="Message the report assistant"
       textIndent={composerContextActive ? pillWidth : undefined}
       placeholder={pendingResearch
@@ -1021,8 +961,8 @@
           : pendingHighlight
             ? "Add instructions…"
             : isEmpty
-              ? "Ask anything about this report…"
-              : "Ask a follow-up…"}
+              ? "What should we work on?"
+              : "What should we work on?"}
     >
       {#snippet pill()}
         {#if refiningProposal}
@@ -1081,13 +1021,71 @@
         {/if}
       {/snippet}
     </PromptInputTextarea>
-
+    </div>
+    <!-- Obvious anatomy: actions on a row BELOW the text — attach left, send right. -->
+    <div class="flex items-center justify-between">
+    <PromptInputActions>
+      <ActionButton
+        variant="icon"
+        class="size-7 rounded-full"
+        onclick={() => fileInputEl?.click()}
+        disabled={uploading}
+        tooltip="Add a document to project context"
+        aria-label="Add a document to project context"
+      >
+        {#if uploading}
+          <Spinner size="sm" class="border-gray-300 border-t-gray-500" />
+        {:else}
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 7V12M12 12V17M12 12H7M12 12H17" />
+          </svg>
+        {/if}
+      </ActionButton>
+      <input
+        bind:this={fileInputEl}
+        type="file"
+        multiple
+        accept={SUPPORTED_ACCEPT}
+        class="hidden"
+        onchange={(e) => {
+          const target = e.currentTarget;
+          if (target.files && target.files.length) {
+            const all = Array.from(target.files);
+            const ok = all.filter((f) => isSupportedFile(f.name));
+            const bad = all.filter((f) => !isSupportedFile(f.name));
+            if (bad.length) {
+              const rejected = bad.map((f) => ({
+                attemptKey: crypto.randomUUID(),
+                fileName: f.name,
+                fileSizeBytes: f.size,
+              }));
+              // Each rejected file gets its own receipt row saying why, instead
+              // of one message listing them all.
+              receiptEntries = [
+                ...receiptEntries,
+                ...rejected.map((r) => ({
+                  ...r,
+                  status: "skipped_unsupported" as const,
+                  detail: "unsupported_extension" as const,
+                  hasFile: false,
+                })),
+              ];
+              // These never reach the server, so without a recorded attempt the
+              // rejection would vanish on reload with nothing to show for it.
+              void recordFailedChatAttempts(rejected, "rejected_unsupported");
+            }
+            if (ok.length) pendingFiles = ok;
+          }
+          target.value = "";
+        }}
+      />
+    </PromptInputActions>
     <PromptInputActions>
       {#if isStreaming}
         <button
           onclick={stopGeneration}
           disabled={stopping || !selectedThreadId}
-          class="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy text-white transition-colors hover:bg-navy-light disabled:opacity-50"
+          class="flex h-8 shrink-0 items-center justify-center rounded-full bg-navy px-4 text-white transition-[box-shadow,transform] hover:bg-navy-light active:translate-y-px disabled:opacity-50"
           title="Stop generating"
           aria-label="Stop generating"
         >
@@ -1099,16 +1097,17 @@
         <button
           onclick={() => sendText(input)}
           disabled={sending || researchStarting || (!input.trim() && !pendingHighlight && !pendingResearch)}
-          class="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy text-white transition-colors hover:bg-navy-light disabled:opacity-30"
+          class="group flex h-8 shrink-0 items-center justify-center rounded-full bg-navy px-4 text-white transition-[box-shadow,transform] hover:bg-navy-light active:translate-y-px disabled:opacity-10"
           title={pendingResearch ? "Start research" : "Send"}
           aria-label="Send message"
         >
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+          <svg class="h-4 w-4 transition-transform group-hover:-translate-y-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 10L12 4L18 10M12 5V20" />
           </svg>
         </button>
       {/if}
     </PromptInputActions>
+    </div>
   </PromptInput>
 
   {#if showHint}
@@ -1123,21 +1122,19 @@
 
 <div class="flex h-full flex-col bg-white">
   <!-- Header (pr-12 clears the workspace's overlay close button) -->
-  <div class="flex shrink-0 items-center gap-2.5 border-b border-chrome py-2.5 pl-5 pr-12">
-    <MessageAvatar>
-      <ChatIcon class="h-3 w-3" />
-    </MessageAvatar>
-    <div class="min-w-0 flex-1 leading-tight">
-      <span class="block text-sm font-semibold text-navy">Assistant</span>
-      <span class="block truncate text-[11px] text-gray-500">{threadTitle}</span>
-    </div>
+  <div class="flex shrink-0 items-center gap-1 border-b border-chrome py-1.5 pl-2.5 pr-12">
+    <!-- Obvious thread bar: one ghost rounded-full pill IS the thread
+         selector — "Assistant · thread ⌄" opens the conversation menu. -->
     <DropdownMenu.Root>
       <DropdownMenu.Trigger
         aria-label="Conversation menu"
-        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+        class="group flex h-7 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm transition-colors hover:bg-chrome/60 data-[state=open]:bg-chrome/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:min-h-11"
       >
-        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+        <span class="font-medium text-ink">Assistant</span>
+        <span aria-hidden="true" class="text-ink-muted">•</span>
+        <span class="text-ink-muted">{threadsQ.data?.length ?? 0}</span>
+        <svg class="size-3.5 shrink-0 text-ink-faint transition-transform group-data-[state=open]:rotate-180 motion-reduce:transition-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -1149,9 +1146,9 @@
         >
           <DropdownMenu.Item
             onSelect={startNewThread}
-            class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-navy outline-none hover:bg-primary-wash focus:bg-primary-wash"
+            class="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-sm font-medium text-ink outline-none hover:bg-chrome/60 focus:bg-chrome/60"
           >
-            <svg class="h-4 w-4 text-primary-selected" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <svg class="h-4 w-4 shrink-0 text-primary-selected" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path stroke-linecap="round" d="M12 5v14M5 12h14" />
             </svg>
             New conversation
@@ -1161,10 +1158,11 @@
             {#each threadsQ.data ?? [] as thread (thread._id)}
               <DropdownMenu.Item
                 onSelect={() => selectThread(thread.agentThreadId)}
-                class={`block w-full rounded-lg px-3 py-2 text-left outline-none hover:bg-primary-wash focus:bg-primary-wash ${thread.agentThreadId === selectedThreadId ? "bg-primary-wash text-navy" : "text-ink-secondary"}`}
+                class={`flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-sm outline-none hover:bg-chrome/60 focus:bg-chrome/60 ${thread.agentThreadId === selectedThreadId ? "bg-chrome" : ""}`}
               >
-                <span class="block truncate text-sm font-medium">{thread.title}</span>
-                <span class="text-data mt-0.5 block text-ink-muted">
+                <span class="size-2 shrink-0 rounded-full bg-primary-selected" aria-hidden="true"></span>
+                <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">{thread.title}</span>
+                <span class="shrink-0 text-xs text-ink-faint">
                   {new Date(thread.createdAt).toLocaleDateString()}
                 </span>
               </DropdownMenu.Item>
@@ -1176,40 +1174,36 @@
     {#if onToggleFull}
       <button
         onclick={onToggleFull}
-        title={isFull ? "Exit full screen" : "Expand to full screen"}
-        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
+        title={isFull ? "Exit focus mode" : "Enter focus mode"}
+        aria-label={isFull ? "Exit focus mode" : "Enter focus mode"}
+        class="ml-auto flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink motion-reduce:transition-none"
       >
-        {#if isFull}
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 9L4 4m0 0v4m0-4h4m7 5l5-5m0 0v4m0-4h-4M9 15l-5 5m0 0v-4m0 4h4m7-5l5 5m0 0v-4m0 4h-4" />
-          </svg>
-        {:else}
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-          </svg>
-        {/if}
+        <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M10 4H4V10M20 14V20H14M4.75 4.75L10 10M14 14L19.25 19.25" />
+        </svg>
       </button>
     {/if}
   </div>
 
 
   {#if isConversationEmpty}
-    <!-- Empty state: brand mark, capability blurb, starter suggestions -->
-    <div class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-8">
-      <span class="mb-4 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-navy text-white">
-        <ChatIcon class="h-5 w-5" />
+    <!-- Empty state: brand mark, capability blurb, starter suggestions; the
+         composer stays pinned to the bottom (Obvious anatomy) in EVERY state. -->
+    <div class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-6">
+      <span class="mb-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy text-white">
+        <ChatIcon class="h-4 w-4" />
       </span>
-      <h2 class="text-center text-[19px] font-semibold text-navy">
+      <h2 class="text-center text-[15px] font-medium text-ink">
         How can I help with this report?
       </h2>
-      <p class="mt-1.5 max-w-[320px] text-center text-xs leading-relaxed text-ink-muted">
+      <p class="mt-1 max-w-[300px] text-center text-xs leading-relaxed text-ink-muted">
         I can tighten language, find passages, check compliance, and propose
         edits — grounded in this report and its source documents.
       </p>
-      <div class="mb-7 mt-6 flex w-full max-w-[340px] flex-col gap-1.5">
+      <div class="mt-5 flex w-full max-w-[320px] flex-col gap-1.5">
         {#each STARTERS as starter (starter)}
           <Suggestion
-            class="w-full justify-start rounded-lg px-3 py-2 text-left"
+            class="w-full justify-start rounded-lg px-3 py-1.5 text-left text-[13px]"
             disabled={sending}
             onclick={() => sendText(starter)}
           >
@@ -1217,14 +1211,14 @@
           </Suggestion>
         {/each}
       </div>
-      <div class="w-full">{@render composer()}</div>
     </div>
+    <div class="shrink-0 px-2 pb-2.5 pt-2">{@render composer()}</div>
   {:else}
     <ChatContainer
       bind:this={chatContainer}
       class="min-h-0 flex-1"
       viewportClass="px-5 py-4"
-      contentClass="space-y-3"
+      contentClass="chat-scale space-y-3"
     >
       {#if canLoadOlder}
         <div class="flex justify-center pb-1">
@@ -1256,8 +1250,12 @@
               {#if split.highlight}
                 <p class="mb-2 italic text-navy/80">&ldquo;{split.highlight}&rdquo;</p>
               {/if}
-              {#if split.content}
-                <p class="whitespace-pre-wrap">{split.content}</p>
+              {#if split.content.trim()}
+                <!-- Display-side sanitization: stored messages may carry
+                     leading/trailing whitespace (pasted text, highlight
+                     composites) which whitespace-pre-wrap would render as
+                     empty space inside the bubble. -->
+                <p class="whitespace-pre-wrap">{split.content.trim()}</p>
               {/if}
             </MessageContent>
           </Message>
@@ -1310,6 +1308,7 @@
       <ScrollButton />
     </ChatContainer>
 
-    <div class="shrink-0 border-t border-chrome px-4 py-3">{@render composer()}</div>
+    <!-- No divider: the Obvious composer floats below the fading scroll mask. -->
+    <div class="shrink-0 px-2 pb-2.5 pt-2">{@render composer()}</div>
   {/if}
 </div>

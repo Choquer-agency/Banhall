@@ -86,6 +86,7 @@ import type * as myWorkOps from "../myWorkOps.js";
 import type * as oversight from "../oversight.js";
 import type * as ownerBackfill from "../ownerBackfill.js";
 import type * as pdReviews from "../pdReviews.js";
+import type * as projectActivity from "../projectActivity.js";
 import type * as projectCreation from "../projectCreation.js";
 import type * as projectDuplication from "../projectDuplication.js";
 import type * as projectEvidence from "../projectEvidence.js";
@@ -95,6 +96,7 @@ import type * as providerReadiness from "../providerReadiness.js";
 import type * as reportViews from "../reportViews.js";
 import type * as reports from "../reports.js";
 import type * as research from "../research.js";
+import type * as reviewFromProject from "../reviewFromProject.js";
 import type * as reviews from "../reviews.js";
 import type * as scienceCodeSuggestions from "../scienceCodeSuggestions.js";
 import type * as seed from "../seed.js";
@@ -104,6 +106,7 @@ import type * as transcripts from "../transcripts.js";
 import type * as uploadAttempts from "../uploadAttempts.js";
 import type * as users from "../users.js";
 import type * as workItems from "../workItems.js";
+import type * as workspaceRollout from "../workspaceRollout.js";
 import type * as writerProfiles from "../writerProfiles.js";
 
 import type {
@@ -191,6 +194,7 @@ declare const fullApi: ApiFromModules<{
   oversight: typeof oversight;
   ownerBackfill: typeof ownerBackfill;
   pdReviews: typeof pdReviews;
+  projectActivity: typeof projectActivity;
   projectCreation: typeof projectCreation;
   projectDuplication: typeof projectDuplication;
   projectEvidence: typeof projectEvidence;
@@ -200,6 +204,7 @@ declare const fullApi: ApiFromModules<{
   reportViews: typeof reportViews;
   reports: typeof reports;
   research: typeof research;
+  reviewFromProject: typeof reviewFromProject;
   reviews: typeof reviews;
   scienceCodeSuggestions: typeof scienceCodeSuggestions;
   seed: typeof seed;
@@ -209,6 +214,7 @@ declare const fullApi: ApiFromModules<{
   uploadAttempts: typeof uploadAttempts;
   users: typeof users;
   workItems: typeof workItems;
+  workspaceRollout: typeof workspaceRollout;
   writerProfiles: typeof writerProfiles;
 }>;
 

@@ -8,8 +8,6 @@
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
   import FiscalYearEndInput from "$lib/components/project/FiscalYearEndInput.svelte";
-  import AppNav from "$lib/components/ui/AppNav.svelte";
-  import PageBar from "$lib/components/ui/PageBar.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import {
     parseFileToText,
@@ -40,7 +38,9 @@
   import ComparePairPicker from "$lib/components/generation/ComparePairPicker.svelte";
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
+  import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
   import { displayName } from "$lib/displayName";
+  import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
   import { page } from "$app/state";
 
   // Jul 17 meeting: transcript + context inputs merged onto one page so
@@ -124,6 +124,52 @@
   // Duplicate flow: /project/new?from=<projectId> prefills the wizard from an
   // existing project (setup + transcript now; documents copied on commit).
   const fromProjectId = page.url.searchParams.get("from");
+
+  // Home's large start-project prompt is navigation/prefill, not generation:
+  // it hands a short editable intent across one immediate client-side route
+  // transition. Duplicate remains the richer source and therefore wins.
+  const projectStartPrefill = takeProjectStart();
+  let projectStartPrefillApplied = $state(false);
+  $effect(() => {
+    if (fromProjectId || projectStartPrefillApplied) return;
+    if (!projectStartPrefill.title && !projectStartPrefill.transcriptText) return;
+    projectStartPrefillApplied = true;
+    if (!title && projectStartPrefill.title) title = projectStartPrefill.title;
+    if (!transcript && projectStartPrefill.transcriptText) {
+      transcript = projectStartPrefill.transcriptText;
+      transcriptFileName = projectStartPrefill.transcriptFileName;
+      transcriptTab = projectStartPrefill.transcriptFileName ? "upload" : "paste";
+    }
+  });
+
+  // Client-scoped creation (2026-08-06 second amendment):
+  // /project/new?client=<recorded name> prefills the free-text client name
+  // from a client lane/section header. Editable text only — never a durable
+  // Client reference; creation still always enters intake with the creator
+  // as Owner. The duplicate flow's richer prefill wins when both are set.
+  const clientPrefill = page.url.searchParams.get("client")?.trim() ?? "";
+  let clientPrefillApplied = $state(false);
+  $effect(() => {
+    if (!clientPrefill || fromProjectId || clientPrefillApplied) return;
+    clientPrefillApplied = true;
+    if (!clientName) clientName = clientPrefill;
+  });
+
+  // Fiscal-year prefill (client/fiscal group quick-create, 2026-08-11):
+  // /project/new?fye=YYYY-MM-DD prefills the optional fiscal year-end
+  // alongside the client prefill. Strictly validated before applying —
+  // anything else is ignored. Same guard grammar as the client prefill:
+  // the duplicate flow's richer prefill wins, and a value the user already
+  // typed is never overwritten.
+  const fyePrefill = page.url.searchParams.get("fye")?.trim() ?? "";
+  let fyePrefillApplied = $state(false);
+  $effect(() => {
+    if (!fyePrefill || fromProjectId || fyePrefillApplied) return;
+    fyePrefillApplied = true;
+    if (!fiscalYearEnd && /^\d{4}-\d{2}-\d{2}$/.test(fyePrefill)) {
+      fiscalYearEnd = fyePrefill;
+    }
+  });
   const sourceProjectQ = useQuery(api.projects.getProject, () =>
     auth.isAuthenticated && fromProjectId
       ? { projectId: fromProjectId as Id<"projects"> }
@@ -553,9 +599,12 @@
         }
       }
 
-      if (fromProjectId) {
-        progress = "Opening duplicate…";
-      } else if (mode === "review" && pdDoc) {
+      if (mode === "review" && pdDoc) {
+        // Runs for duplicates too. This was `if (fromProjectId) ... else if`,
+        // which silently discarded the staged PD on a duplicated review
+        // project — no review_pd upload, no review, and the project page had
+        // nothing to show (the 2026-08-07 stranded-review flag). Duplicates
+        // still skip auto-generation below; only the review start is shared.
         // BNH-39: store the written PD (no category — it must NOT feed a later
         // generation as context; the review agent reads it directly).
         progress = `Uploading ${pdDoc.name}…`;
@@ -586,6 +635,8 @@
         }
         progress = "Starting PD review…";
         await startPdReview({ projectId, documentId });
+      } else if (fromProjectId) {
+        progress = "Opening duplicate…";
       } else {
         progress = "Starting generation…";
         await generateReport({
@@ -623,7 +674,9 @@
       progress = "";
       if (createdProjectId) {
         toast.error(
-          "The project was created but generation did not start — open it and use Generate to retry."
+          mode === "review"
+            ? "The project was created but the PD review did not start — open it and use Start PD review to retry."
+            : "The project was created but generation did not start — open it and use Generate to retry."
         );
         goto(`/project/${createdProjectId}`);
       }
@@ -643,23 +696,29 @@
     <Spinner />
   </div>
 {:else}
-  <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav breadcrumbs={[{ label: "New project" }]} />
-    <PageBar backHref="/dashboard" backLabel="Back">
-      {#snippet actions()}
-        {#if writerName}
-          <Tooltip text="Set automatically to the signed-in user">
-            {#snippet children({ props })}
-              <span {...props} class="whitespace-nowrap text-sm font-medium text-navy">
-                Consultant · {writerName}
-              </span>
-            {/snippet}
-          </Tooltip>
-        {/if}
-      {/snippet}
-    </PageBar>
-
-    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 px-6 pt-8 pb-8">
+  <!-- New-UI shell (2026-08-10, owner direction): the wizard lives in the
+       light workspace chrome — rail + thin header — matching Home/Projects
+       instead of the classic AppNav/PageBar ledger bands. -->
+  <WorkspaceChrome
+    theme="light"
+    title="New project"
+    description={mode === "review"
+      ? "AI feedback report on an existing written PD"
+      : "Generate an SR&ED project description"}
+  >
+    {#snippet actions()}
+      {#if writerName}
+        <Tooltip text="Set automatically to the signed-in user">
+          {#snippet children({ props })}
+            <span {...props} class="whitespace-nowrap text-sm font-medium text-ink-secondary">
+              Consultant · {writerName}
+            </span>
+          {/snippet}
+        </Tooltip>
+      {/if}
+    {/snippet}
+    {#snippet children()}
+    <main class="mx-auto w-full max-w-[var(--container-shell)] px-6 pt-8 pb-8">
       <!-- Step indicator — segment bar: two labeled progress segments, the
            ledger idiom (a rule that fills) instead of numbered circles. -->
       <div class="mx-auto mb-6 w-full max-w-sm">
@@ -1241,5 +1300,6 @@
         </div>
       </div>
     </main>
-  </div>
+    {/snippet}
+  </WorkspaceChrome>
 {/if}

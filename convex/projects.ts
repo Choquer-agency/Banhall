@@ -23,6 +23,7 @@ import { canUseIndustry, industrySlug } from "../shared/industries";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import {
   projectDashboardProjectionPatch,
+  stageCountBucket,
   syncProjectDashboardFields,
   upsertDashboardCompany,
 } from "./lib/dashboardProjection";
@@ -168,6 +169,50 @@ export const updateProjectScienceCode = mutation({
     const patch = { scienceCode, updatedAt: Date.now() };
     await ctx.db.patch(args.projectId, patch);
     await syncProjectDashboardFields(ctx, args.projectId, patch);
+  },
+});
+
+/**
+ * 2026-08-11 amendment — per-company project numbering. Accepts "1".."20"
+ * (final, sequential per company) or a single letter "A".."Z" (uncertain/
+ * draft identity, convertible to a number later — a label-only change).
+ * Empty/omitted clears the field. Stored trimmed and uppercased. Not part
+ * of the dashboard projection (mirrors updateProjectTags: patch + updatedAt
+ * only; no dashboardSearchText/projection field derives from it).
+ */
+export const setProjectNumber = mutation({
+  args: {
+    projectId: v.id("projects"),
+    projectNumber: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireInternalProjectAccess(ctx, args.projectId);
+    const raw = args.projectNumber?.trim().toUpperCase() ?? "";
+    let projectNumber: string | undefined;
+    if (raw) {
+      // 1–20, a letter A–Z, or a combined form like 2A/14B (owner
+      // clarification 2026-08-11: numbering and lettering compose).
+      if (!/^(?:[1-9][0-9]?[A-Z]?|[A-Z])$/.test(raw)) {
+        domainError(
+          "INVALID_INPUT",
+          "Project number must be 1–20, a letter A–Z, or combined like 2A"
+        );
+      }
+      const numericPart = raw.match(/^[0-9]+/)?.[0];
+      if (numericPart && Number(numericPart) > 20) {
+        domainError(
+          "INVALID_INPUT",
+          "Numbered projects are capped at 20 per company"
+        );
+      }
+      projectNumber = raw;
+    }
+    await ctx.db.patch(args.projectId, {
+      projectNumber,
+      updatedAt: Date.now(),
+    });
+    return null;
   },
 });
 
@@ -436,11 +481,14 @@ export const createProject = mutation({
       at: now,
     });
 
+    // New projects are always born at intake; the company row's stage bucket
+    // moves in the same transaction (2026-08-06 second amendment).
     await upsertDashboardCompany(
       ctx,
       dashboardProjection.dashboardCompanyKey,
       args.clientName,
-      1
+      1,
+      "intake"
     );
 
     const transcriptId = await ctx.db.insert("transcripts", {
@@ -746,11 +794,14 @@ export const deleteProject = mutation({
   handler: async (ctx, args) => {
     const { project } = await requireProjectCreatorOrAdmin(ctx, args.projectId);
     if (project.dashboardCompanyCounted === true) {
+      // Decrement the exact stage bucket the row occupied (2026-08-06
+      // second amendment): workflowStage ?? "legacy".
       await upsertDashboardCompany(
         ctx,
         project.dashboardCompanyKey ?? projectDashboardProjectionPatch(project).dashboardCompanyKey,
         project.clientName,
-        -1
+        -1,
+        stageCountBucket(project.workflowStage)
       );
     }
 
@@ -814,7 +865,10 @@ export const deleteProject = mutation({
   },
 });
 
-function generateShareToken(): string {
+// Exported for reviewFromProject.createReviewProjectRecord, which mirrors
+// this mutation's insert conventions for review projects created from an
+// existing project (2026-08-11 second amendment).
+export function generateShareToken(): string {
   const bytes = new Uint8Array(24);
   crypto.getRandomValues(bytes);
   // Base64url encoding: URL-safe, 32 characters, 192 bits of entropy

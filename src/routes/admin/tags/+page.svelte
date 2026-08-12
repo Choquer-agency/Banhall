@@ -1,6 +1,6 @@
 <script lang="ts">
-  import AppNav from "$lib/components/ui/AppNav.svelte";
-  import PageBar from "$lib/components/ui/PageBar.svelte";
+  import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
+  import { resolve } from "$app/paths";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
@@ -30,7 +30,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goto(resolve("/login"), { replaceState: true });
     }
   });
 
@@ -312,7 +312,7 @@
             confirmDeleteId = tag._id;
             editingId = null;
           }}
-          class="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+          class="rounded-md p-1.5 text-red-600/70 transition-colors hover:bg-red-50 hover:text-red-700 disabled:opacity-50 pointer-coarse:h-11 pointer-coarse:w-11"
         >
           <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
             <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
@@ -328,38 +328,31 @@
     <Spinner />
   </div>
 {:else}
-  <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav breadcrumbs={[{ label: "Project tags" }]} />
-    <PageBar backHref="/dashboard" backLabel="Back" />
-
-    <main class="mx-auto w-full max-w-[var(--container-shell)] px-6 pt-12 pb-10">
+  <AdminWorkspacePage
+    title="Project tags"
+    description="Curate the tag taxonomy writers apply to projects; parent filters include every nested descendant."
+  >
+    {#snippet actions()}
+      {#if isAdmin}
+        <Button
+          variant="secondary"
+          class="min-h-11"
+          disabled={busy}
+          onclick={() => run(() => seedDefaults({}))}
+        >
+          Repair defaults
+        </Button>
+      {/if}
+    {/snippet}
       {#if currentUserQ.data === undefined}
         <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
       {:else if !isAdmin}
-        <h1 class="text-display">Project tags</h1>
-        <p class="mt-3 text-sm text-gray-500">
+        <p class="text-sm text-gray-500">
           Tag management is available to administrators only.
         </p>
       {:else}
-        <div class="flex items-end justify-between gap-4">
-          <div>
-            <h1 class="text-display">Project tags</h1>
-            <p class="mt-1 text-sm text-gray-500">
-              Curate the tag taxonomy writers apply to projects. Parent filters
-              include every nested descendant.
-            </p>
-          </div>
-          <Button
-            variant="secondary"
-            disabled={busy}
-            onclick={() => run(() => seedDefaults({}))}
-          >
-            Repair defaults
-          </Button>
-        </div>
-
         {#if error}
-          <p role="alert" class="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+          <p role="alert" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
             {error}
           </p>
         {/if}
@@ -377,7 +370,7 @@
                 placeholder="e.g. Robotics"
                 disabled={busy}
                 onkeydown={(event) => event.key === "Enter" && handleCreate()}
-                class="h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy disabled:opacity-50"
+                class="h-11 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy disabled:opacity-50"
               />
             </label>
             <label class="flex flex-col gap-1 text-xs text-gray-500" for="new-tag-kind">
@@ -432,6 +425,5 @@
         </div>
         </div>
       {/if}
-    </main>
-  </div>
+  </AdminWorkspacePage>
 {/if}

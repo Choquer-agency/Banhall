@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { userEvent } from "vitest/browser";
 import StageChangeDialog from "./StageChangeDialog.svelte";
+// Accepted noise: this suite emits `svelte.dev/e/derived_inert` console.warn
+// lines from bits-ui's Dialog internals (forceMount + svelte transition reads
+// a library $derived after teardown) — attributed 2026-08-06 by per-file
+// bisection of the component suite; not a product-code teardown leak.
 import type { WorkflowStageOption } from "../../../../shared/workflowLabels";
 
 const options: WorkflowStageOption[] = [

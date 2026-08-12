@@ -1,6 +1,6 @@
 <script lang="ts">
-  import AppNav from "$lib/components/ui/AppNav.svelte";
-  import PageBar from "$lib/components/ui/PageBar.svelte";
+  import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
+  import { resolve } from "$app/paths";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goto } from "$app/navigation";
   import { useQuery, useMutation, useConvexClient } from "convex-svelte";
@@ -22,7 +22,7 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goto(resolve("/login"), { replaceState: true });
     }
   });
 
@@ -100,17 +100,11 @@
     <Spinner />
   </div>
 {:else}
-  <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav breadcrumbs={[{ label: "Model preferences" }]} />
-    <PageBar backHref="/dashboard" backLabel="Back" />
-
-    <main class="mx-auto w-full max-w-[var(--container-shell)] px-6 pt-12 pb-10">
-      <!-- Two stat cards read best at a compact width inside the shared shell. -->
-      <div class="mx-auto w-full max-w-3xl">
-      <h1 class="text-display">Model A/B preferences</h1>
-      <p class="mt-1 text-sm text-gray-500">
-        Which model consultants keep when shown side-by-side candidate drafts.
-      </p>
+  <AdminWorkspacePage
+    title="Model A/B preferences"
+    description="Which model consultants keep when shown side-by-side candidate drafts."
+    width="compact"
+  >
 
       {#if stats === undefined}
         <div class="flex min-h-[55vh] items-center justify-center">
@@ -219,7 +213,7 @@
                           type="button"
                           onclick={() => summarize(m.model)}
                           disabled={summarizing !== null}
-                          class="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-primary-dark transition-colors hover:bg-primary-wash disabled:opacity-60"
+                          class="inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-primary-dark transition-colors hover:bg-primary-wash disabled:opacity-60"
                         >
                           {#if summarizing === m.model}
                             <span class="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary"></span>
@@ -239,7 +233,5 @@
           {/if}
         </div>
       {/if}
-      </div>
-    </main>
-  </div>
+  </AdminWorkspacePage>
 {/if}

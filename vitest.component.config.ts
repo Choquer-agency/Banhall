@@ -24,11 +24,59 @@ import { playwright } from "@vitest/browser-playwright";
 export default defineConfig({
   plugins: [tailwindcss(), svelte()],
   resolve: {
-    alias: { $lib: fileURLToPath(new URL("./src/lib", import.meta.url)) },
+    alias: {
+      $lib: fileURLToPath(new URL("./src/lib", import.meta.url)),
+      // Presentational components may build hrefs with `resolve()` from
+      // $app/paths; stub just that module instead of pulling in Kit's graph.
+      "$app/paths": fileURLToPath(new URL("./src/lib/test/app-paths-stub.ts", import.meta.url)),
+      // Workspace-shell suites mount container components (WorkspaceDashboard,
+      // ProjectsTableView) in the real route parent context, so their runtime
+      // modules are stubbed faithfully: `$app/state` is a reactive page whose
+      // url only moves on goto (never on shallow replaceState — Kit parity),
+      // and convex-svelte resolves from a per-test registry. Still no
+      // sveltekit() plugin, and presentational suites are unaffected.
+      "$app/state": fileURLToPath(new URL("./src/lib/test/app-state-stub.svelte.ts", import.meta.url)),
+      "$app/navigation": fileURLToPath(new URL("./src/lib/test/app-navigation-stub.ts", import.meta.url)),
+      // The shared WorkspaceGate reads `dev` to decide whether the rollout
+      // access query even runs; the stub pins dev=false so gate suites
+      // exercise the production decision path.
+      "$app/environment": fileURLToPath(new URL("./src/lib/test/app-environment-stub.ts", import.meta.url)),
+      // Route-level suites mount the full current dashboard, whose shared
+      // chrome (e.g. BuildStamp) reads public env modules.
+      "$env/dynamic/public": fileURLToPath(new URL("./src/lib/test/env-dynamic-public-stub.ts", import.meta.url)),
+      "$env/static/public": fileURLToPath(new URL("./src/lib/test/env-static-public-stub.ts", import.meta.url)),
+      "convex-svelte": fileURLToPath(new URL("./src/lib/test/convex-svelte-stub.svelte.ts", import.meta.url)),
+      "@mmailaender/convex-better-auth-svelte/svelte": fileURLToPath(
+        new URL("./src/lib/test/convex-auth-stub.ts", import.meta.url)
+      ),
+    },
     conditions: ["browser"],
   },
   optimizeDeps: {
-    include: ["bits-ui", "vaul-svelte"],
+    include: [
+      "bits-ui",
+      "vaul-svelte",
+      // The /project/[id] route suite mounts the full report pages, whose
+      // import graph pulls these in; pre-bundling them stops Vite's optimizer
+      // from reloading mid-run (vitest flags that as flaky behavior).
+      "@kenjiuno/msgreader",
+      "@tiptap/core",
+      "@tiptap/extension-character-count",
+      "@tiptap/extension-highlight",
+      "@tiptap/extension-placeholder",
+      "@tiptap/extension-underline",
+      "@tiptap/pm/view",
+      "@tiptap/starter-kit",
+      "convex/browser",
+      "file-saver",
+      "mammoth",
+      "pdfjs-dist",
+      "postal-mime",
+      "svelte-streamdown",
+      "svelte-tiptap",
+      "xlsx",
+      "zod",
+    ],
   },
   test: {
     name: "component",

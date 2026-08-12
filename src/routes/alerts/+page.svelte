@@ -1,6 +1,8 @@
 <script lang="ts">
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
+  import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
+  import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import { goto } from "$app/navigation";
@@ -44,27 +46,20 @@
   });
 </script>
 
-{#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
-{:else}
-  <div class="flex flex-1 flex-col bg-canvas">
-    <!-- Floating dark brand bar (matches dashboard) -->
-    <AppNav breadcrumbs={[{ label: "Alerts" }]} />
-    <PageBar backHref="/dashboard" backLabel="Back" />
-
-    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 px-6 pt-12 pb-8">
+{#snippet alertsContent(showHeading: boolean)}
+    <main class={`w-full flex-1 ${showHeading ? "mx-auto max-w-[var(--container-shell)] px-6 pt-12" : "px-4 pt-6 sm:px-6"} pb-8`}>
       <!-- Alert rows read best at a threads-list width inside the shared shell. -->
-      <div class="mx-auto w-full max-w-3xl">
-      <div class="flex items-center justify-between">
-        <div>
-          <h2 class="text-display">Alerts &amp; requests</h2>
-          <p class="mt-0.5 text-sm text-gray-400">
-            Bugs (auto-captured + flagged) and feature requests. Expand a row and
-            copy it straight into Claude Code.
-          </p>
-        </div>
+      <div class={`w-full ${showHeading ? "mx-auto max-w-3xl" : ""}`}>
+      <div class={`flex items-center ${showHeading ? "justify-between" : "justify-end"}`}>
+        {#if showHeading}
+          <div>
+            <h2 class="text-display">Alerts &amp; requests</h2>
+            <p class="mt-0.5 text-sm text-ink-muted">
+              Bugs (auto-captured + flagged) and feature requests. Expand a row and
+              copy it straight into Claude Code.
+            </p>
+          </div>
+        {/if}
         <Checkbox bind:checked={includeResolved} labelText="Show resolved" />
       </div>
 
@@ -75,11 +70,11 @@
           <button
             onclick={() => (tab = val)}
             class={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-              tab === val ? "bg-navy text-white" : "text-gray-500 hover:bg-primary-wash hover:text-navy"
+              tab === val ? "bg-navy text-white" : "text-ink-muted hover:bg-primary-wash hover:text-ink"
             }`}
           >
             {label}
-            <span class={`ml-1.5 ${tab === val ? "text-primary-light" : "text-gray-400"}`}>
+            <span class={`ml-1.5 ${tab === val ? "text-primary-light" : "text-ink-faint"}`}>
               {count}
             </span>
           </button>
@@ -108,8 +103,8 @@
                 />
               </svg>
             </div>
-            <p class="font-medium text-navy">No alerts.</p>
-            <p class="mt-1 text-sm text-gray-400">
+            <p class="font-medium text-ink">No alerts.</p>
+            <p class="mt-1 text-sm text-ink-faint">
               {includeResolved
                 ? "Nothing reported yet."
                 : "No open reports. Everything's clear."}
@@ -123,5 +118,27 @@
       </div>
       </div>
     </main>
+{/snippet}
+
+{#if auth.isLoading || !auth.isAuthenticated}
+  <div class="flex flex-1 items-center justify-center bg-canvas">
+    <Spinner />
   </div>
+{:else}
+  <WorkspaceGate currentWhileLoading={false}>
+    {#snippet current()}
+      <div class="flex flex-1 flex-col bg-canvas">
+        <AppNav breadcrumbs={[{ label: "Alerts" }]} />
+        <PageBar backHref="/dashboard" backLabel="Back" />
+        {@render alertsContent(true)}
+      </div>
+    {/snippet}
+    {#snippet preview()}
+      <WorkspaceChrome title="Alerts & requests" description="Bugs, flagged issues, and feature requests">
+        {#snippet children()}
+          {@render alertsContent(false)}
+        {/snippet}
+      </WorkspaceChrome>
+    {/snippet}
+  </WorkspaceGate>
 {/if}

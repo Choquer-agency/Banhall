@@ -47,18 +47,32 @@
    * intermediate scroll events don't read as the user scrolling away. */
   let animating = false;
 
+  /** One-shot: the pane lands at the bottom the first time content renders
+   * (messages usually arrive after mount, so the mount pin alone is not
+   * enough — Obvious parity: a reload opens scrolled to the latest turn). */
+  let hasAutoScrolled = false;
+
+  /** Anchor state across LAYOUT changes (rail toggle, pane resize, hide/show):
+   * reflow fires scroll events that would falsely unset the bottom pin, and
+   * mid-thread positions drift. Scroll events are ignored for a beat after
+   * any resize, and the user's distance-from-bottom is restored instead. */
+  let suppressScrollUntil = 0;
+  let anchoredDist = 0;
+
   function distanceFromBottom(el: HTMLElement): number {
     return el.scrollHeight - el.scrollTop - el.clientHeight;
   }
 
   function handleScroll() {
     if (!viewportEl) return;
+    if (performance.now() < suppressScrollUntil) return; // layout, not user
     const dist = distanceFromBottom(viewportEl);
     if (animating) {
       if (dist <= 1) animating = false;
       return; // stay pinned while the programmatic scroll lands
     }
     isAtBottom = dist <= threshold;
+    anchoredDist = dist;
     if (isAtBottom) hasUnseen = false;
   }
 
@@ -94,10 +108,24 @@
     const ro = new ResizeObserver(() => {
       const grown = ct.scrollHeight > lastContentHeight + 1;
       lastContentHeight = ct.scrollHeight;
+      // Reflow-driven scroll events must not read as the user scrolling away.
+      suppressScrollUntil = performance.now() + 200;
+      // First real content render (messages often load after mount): land at
+      // the bottom exactly once, regardless of any interim scroll state.
+      if (!hasAutoScrolled && ct.scrollHeight > 0) {
+        hasAutoScrolled = true;
+        isAtBottom = true;
+        hasUnseen = false;
+        vp.scrollTop = vp.scrollHeight;
+        return;
+      }
       if (isAtBottom) {
         vp.scrollTop = vp.scrollHeight;
-      } else if (grown) {
-        hasUnseen = true; // new content arrived below the fold
+      } else {
+        // Mid-thread: keep the same distance from the bottom through the
+        // resize instead of letting reflow strand the reader elsewhere.
+        vp.scrollTop = vp.scrollHeight - vp.clientHeight - anchoredDist;
+        if (grown) hasUnseen = true; // new content arrived below the fold
       }
     });
     ro.observe(ct);
@@ -127,6 +155,7 @@
       "h-full w-full overflow-y-auto overscroll-y-contain [overflow-anchor:none]",
       viewportClass
     )}
+    style="mask-image: linear-gradient(transparent, black 16px, black calc(100% - 32px), transparent); -webkit-mask-image: linear-gradient(transparent, black 16px, black calc(100% - 32px), transparent)"
   >
     <div bind:this={contentEl} class={contentClass}>
       {@render children?.()}

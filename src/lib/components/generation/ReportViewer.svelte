@@ -201,7 +201,7 @@
 {#if !doc || !doc.content}
   <p class="text-sm text-gray-400">Could not render report content.</p>
 {:else}
-  <div class="report-viewer font-serif">
+  <div class="report-viewer font-sans">
     {#each doc.content as node}{@render renderNode(node)}{/each}
   </div>
 {/if}

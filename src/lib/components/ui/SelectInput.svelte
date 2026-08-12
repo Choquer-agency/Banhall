@@ -10,6 +10,7 @@
     value = $bindable(""),
     items,
     placeholder = "Select…",
+    ariaLabel,
     id,
     size = "md",
     disabled = false,
@@ -21,6 +22,8 @@
     value?: string;
     items: readonly { value: string; label: string }[];
     placeholder?: string;
+    /** Accessible name for the input; defaults to the placeholder. */
+    ariaLabel?: string;
     id?: string;
     size?: "md" | "sm";
     disabled?: boolean;
@@ -34,6 +37,14 @@
   let open = $state(false);
   let searchValue = $state("");
   let inputRef = $state<HTMLElement | null>(null);
+
+  // The dropdown renders through a portal, outside any ancestor
+  // [data-workspace-theme] scope. Re-declare the dark scope on the portaled
+  // content when the trigger sits inside it (same pattern as UserMenu /
+  // MyWorkCard) so the popup matches the trigger's theme.
+  const portalTheme = $derived(
+    inputRef?.closest('[data-workspace-theme="dark"]') ? "dark" : undefined
+  );
 
   const selected = $derived(items.find((i) => i.value === value));
   const query = $derived(searchValue.trim().toLowerCase());
@@ -97,7 +108,7 @@
       bind:ref={inputRef}
       defaultValue={selected?.label ?? ""}
       placeholder={placeholder}
-      aria-label={placeholder}
+      aria-label={ariaLabel ?? placeholder}
       disabled={disabled}
       onfocus={(e) => {
         if (!openOnFocus) return;
@@ -114,10 +125,10 @@
         open = true;
         searchValue = e.currentTarget.value;
       }}
-      class={`w-full border border-gray-200 bg-white pr-8 text-left font-normal transition-colors placeholder:text-gray-400 hover:border-gray-300 focus:outline-none focus-visible:border-navy focus-visible:ring-1 focus-visible:ring-navy disabled:opacity-50 ${
+      class={`w-full border border-gray-200 bg-surface pr-8 text-left font-normal transition-colors placeholder:text-gray-400 hover:border-gray-300 focus:outline-none focus-visible:border-navy focus-visible:ring-1 focus-visible:ring-navy disabled:opacity-50 ${
         size === "md"
           ? "h-11 rounded-lg px-3.5 text-sm"
-          : "rounded-md px-2 py-1.5 text-xs"
+          : "h-11 rounded-md px-2 text-xs sm:h-9"
       } ${selected?.value ? "text-gray-900" : "text-gray-500"}`}
     />
     <Combobox.Trigger
@@ -134,22 +145,23 @@
   <Combobox.Portal>
     <Combobox.Content
       sideOffset={4}
-      class="select-pop z-[120] max-h-72 w-[var(--bits-combobox-anchor-width)] min-w-[var(--bits-combobox-anchor-width)] max-w-[32rem] overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg"
+      data-workspace-theme={portalTheme}
+      class="select-pop z-[120] max-h-72 w-[var(--bits-combobox-anchor-width)] min-w-[var(--bits-combobox-anchor-width)] max-w-[32rem] overflow-hidden rounded-md border border-gray-200 bg-surface shadow-lg"
     >
       <Combobox.Viewport class="max-h-72 overflow-y-auto">
         {#each filteredItems as item (item.value)}
           <Combobox.Item
             value={item.value}
             label={item.label}
-            class={`cursor-pointer px-2.5 py-1.5 font-normal transition-colors duration-100 data-highlighted:bg-primary/10 data-highlighted:text-primary-dark data-selected:bg-primary/15 data-selected:font-medium data-selected:text-primary-dark ${
-              size === "md" ? "text-sm" : "text-xs"
+            class={`flex cursor-pointer items-center px-2.5 py-1.5 font-normal transition-colors data-highlighted:bg-primary/10 data-highlighted:text-primary-selected data-selected:bg-primary/15 data-selected:font-medium data-selected:text-primary-selected motion-reduce:transition-none ${
+              size === "md" ? "min-h-11 text-sm" : "min-h-11 text-xs sm:min-h-9"
             } ${item.value ? "text-gray-900" : "text-gray-500"}`}
           >
             {item.label}
           </Combobox.Item>
         {:else}
           {#if !canCreate}
-            <p class="px-2.5 py-2 text-xs text-gray-400">No matching options.</p>
+            <p class="flex min-h-11 items-center px-2.5 py-2 text-xs text-gray-400">No matching options.</p>
           {/if}
         {/each}
         {#if canCreate}
@@ -159,8 +171,8 @@
               e.preventDefault();
               handleCreate();
             }}
-            class={`flex w-full cursor-pointer items-center gap-1.5 px-2.5 py-1.5 text-left font-medium text-primary-dark transition-colors duration-100 hover:bg-primary/10 ${
-              size === "md" ? "text-sm" : "text-xs"
+            class={`flex w-full cursor-pointer items-center gap-1.5 px-2.5 py-1.5 text-left font-medium text-primary-selected transition-colors hover:bg-primary/10 motion-reduce:transition-none ${
+              size === "md" ? "min-h-11 text-sm" : "min-h-11 text-xs sm:min-h-9"
             }`}
           >
             <span aria-hidden="true">+</span>

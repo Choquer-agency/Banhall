@@ -69,21 +69,21 @@
      The surface caps at the global rail width — canvas shows beyond it. -->
 <div bind:this={barEl} class="sticky top-[54px] z-40 -mt-px w-full">
   <div
-    class={`relative mx-auto flex h-11 w-full items-center justify-between gap-3 rounded-b-xl border-x border-b px-6 transition-colors duration-300 ${
+    class={`relative mx-auto flex h-11 w-full items-center justify-between gap-2 rounded-b-xl border-x border-b px-3 transition-colors duration-300 sm:gap-3 sm:px-6 ${
       scrolled ? "border-line-soft bg-white" : "border-transparent bg-transparent"
     } ${width}`}
   >
     {#if center}
-      <div class="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-center">
+      <div class="pointer-events-none absolute inset-x-0 top-1/2 hidden -translate-y-1/2 justify-center sm:flex">
         <div class="pointer-events-auto">
           {@render center()}
         </div>
       </div>
     {/if}
-    <div class="flex min-w-0 items-center">
+    <div class="flex min-w-0 shrink items-center">
       <a
         href={backHref}
-        class="-ml-3 flex h-11 min-h-11 items-center gap-1.5 px-3 text-xs font-medium text-navy transition-colors hover:text-primary-selected"
+        class="flex h-11 min-h-11 shrink-0 items-center gap-1.5 px-2 text-xs font-medium text-navy transition-colors hover:text-primary-selected sm:-ml-3 sm:px-3"
       >
         <svg aria-hidden="true" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -92,14 +92,14 @@
       </a>
       {#if leading}
         <span aria-hidden="true" class="mx-1 h-5 w-px flex-none bg-line-soft"></span>
-        <div class="flex min-w-0 items-center">
+        <div class="min-w-0 max-w-[8.5rem] overflow-hidden sm:max-w-none">
           {@render leading()}
         </div>
       {/if}
     </div>
 
     {#if actions}
-      <div class="-mr-3 flex flex-shrink-0 items-center gap-1">
+      <div class="flex min-w-0 flex-1 items-center justify-end gap-0 overflow-x-auto sm:-mr-3 sm:flex-initial sm:flex-shrink-0 sm:gap-1 sm:overflow-visible">
         {@render actions()}
       </div>
     {/if}

@@ -2,6 +2,8 @@
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import PageContainer from "$lib/components/ui/PageContainer.svelte";
+  import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
+  import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import Button from "$lib/components/ui/Button.svelte";
@@ -164,20 +166,14 @@
   }
 </script>
 
-{#if auth.isLoading || !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas">
-    <Spinner />
-  </div>
-{:else}
-  <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav breadcrumbs={[{ label: "Settings" }]} />
-    <PageBar backHref="/dashboard" backLabel="Back" />
-
+{#snippet settingsContent(showHeading: boolean)}
     <PageContainer>
-      <h1 class="text-display">Settings</h1>
-      <p class="mt-1 max-w-2xl text-sm text-gray-500">
-        Manage your account details, sign-in security, and report-writing preferences.
-      </p>
+      {#if showHeading}
+        <h1 class="text-display">Settings</h1>
+        <p class="mt-1 max-w-2xl text-sm text-ink-muted">
+          Manage your account details, sign-in security, and report-writing preferences.
+        </p>
+      {/if}
 
       {#if profileQ.data === undefined || meQ.data === undefined}
         <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
@@ -186,7 +182,7 @@
           <div class="flex flex-col gap-8">
             <section class="card p-6">
               <h2 class="text-title">Your name</h2>
-              <p class="mt-1 text-sm text-gray-500">
+              <p class="mt-1 text-sm text-ink-muted">
                 Shown on reports, the team roster, and review history.
               </p>
               <div class="mt-4 grid gap-3 sm:grid-cols-2">
@@ -210,7 +206,7 @@
 
             <section id="security" class="card p-6">
               <h2 class="text-title">Password</h2>
-              <p class="mt-1 text-sm text-gray-500">
+              <p class="mt-1 text-sm text-ink-muted">
                 Changing your password signs out your other active sessions.
               </p>
               <form class="mt-4 flex flex-col gap-4" onsubmit={handlePasswordChange}>
@@ -261,7 +257,7 @@
 
           <section class="card p-6">
             <h2 class="text-title">Writing preferences</h2>
-            <p class="mt-1 max-w-2xl text-sm text-gray-500">
+            <p class="mt-1 max-w-2xl text-sm text-ink-muted">
               Applied to every report you generate. Never overrides CRA structural
               requirements, banned-word rules, or length limits.
             </p>
@@ -272,10 +268,10 @@
                 rows={14}
                 bind:value={customInstructions}
                 placeholder={"e.g. Prefer short declarative sentences. Lead each iteration with the hypothesis tested. Avoid the passive voice in the work narrative."}
-                class="mt-2 block w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                class="mt-2 block w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
               ></textarea>
               <span
-                class={`mt-1 block text-right text-xs ${preferencesTooLong ? "text-red-600" : "text-gray-400"}`}
+                class={`mt-1 block text-right text-xs ${preferencesTooLong ? "text-red-600" : "text-ink-faint"}`}
                 aria-live="polite"
               >
                 {customInstructions.length.toLocaleString()} / {MAX_INSTRUCTIONS_CHARS.toLocaleString()} characters
@@ -303,5 +299,27 @@
         </div>
       {/if}
     </PageContainer>
+{/snippet}
+
+{#if auth.isLoading || !auth.isAuthenticated}
+  <div class="flex flex-1 items-center justify-center bg-canvas">
+    <Spinner />
   </div>
+{:else}
+  <WorkspaceGate currentWhileLoading={false}>
+    {#snippet current()}
+      <div class="flex flex-1 flex-col bg-canvas">
+        <AppNav breadcrumbs={[{ label: "Settings" }]} />
+        <PageBar backHref="/dashboard" backLabel="Back" />
+        {@render settingsContent(true)}
+      </div>
+    {/snippet}
+    {#snippet preview()}
+      <WorkspaceChrome title="Settings" description="Account, security, and report-writing preferences">
+        {#snippet children()}
+          {@render settingsContent(false)}
+        {/snippet}
+      </WorkspaceChrome>
+    {/snippet}
+  </WorkspaceGate>
 {/if}

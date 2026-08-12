@@ -1,6 +1,6 @@
 <script lang="ts">
-  import AppNav from "$lib/components/ui/AppNav.svelte";
-  import PageBar from "$lib/components/ui/PageBar.svelte";
+  import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
+  import { resolve } from "$app/paths";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import DailySpendChart from "$lib/components/admin/DailySpendChart.svelte";
   import SpendBars from "$lib/components/admin/SpendBars.svelte";
@@ -67,9 +67,9 @@
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      goto("/login", { replaceState: true });
+      goto(resolve("/login"), { replaceState: true });
     } else if (accessQ.data === false) {
-      goto("/dashboard", { replaceState: true });
+      goto(resolve("/dashboard"), { replaceState: true });
     }
   });
 
@@ -106,18 +106,10 @@
     <Spinner />
   </div>
 {:else}
-  <div class="flex flex-1 flex-col bg-canvas">
-    <AppNav breadcrumbs={[{ label: "AI usage & cost" }]} />
-    <PageBar backHref="/dashboard" backLabel="Back" />
-
-    <main class="mx-auto w-full max-w-[var(--container-shell)] px-6 pt-12 pb-10">
-      <div>
-        <h1 class="text-display">AI usage &amp; cost</h1>
-        <p class="mt-1 text-sm text-gray-500">
-          Token consumption and estimated spend across all AI calls.
-          Amounts in CAD, converted from USD billing at {USD_TO_CAD.toFixed(2)}.
-        </p>
-      </div>
+  <AdminWorkspacePage
+    title="AI usage & cost"
+    description={`Token consumption and estimated spend in CAD at a ${USD_TO_CAD.toFixed(2)} USD conversion rate.`}
+  >
 
       <!-- Filter row: preset tabs left, custom range picker right -->
       <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
@@ -128,7 +120,7 @@
               role="radio"
               aria-checked={activePreset === p.label}
               onclick={() => applyPreset(p.days)}
-              class={`rounded-md px-3 py-1.5 text-xs transition-colors ${
+              class={`min-h-11 rounded-md px-3 text-xs transition-colors ${
                 activePreset === p.label
                   ? "bg-primary-selected font-semibold text-white"
                   : "text-gray-500 hover:bg-primary-wash hover:text-navy"
@@ -142,7 +134,7 @@
       </div>
 
       <!-- Previous range stays visible, softly dimmed, while the new one loads -->
-      <div class={`transition-opacity duration-200 motion-reduce:transition-none ${refreshing ? "opacity-60" : ""}`}>
+      <div class={`transition-opacity duration-300 motion-reduce:transition-none ${refreshing ? "opacity-60" : ""}`}>
       <!-- Totals -->
       <div class="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="card p-4">
@@ -241,6 +233,5 @@
         {/each}
       {/if}
       </div>
-    </main>
-  </div>
+  </AdminWorkspacePage>
 {/if}

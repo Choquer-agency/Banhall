@@ -3,6 +3,9 @@
   import { WORKFLOW_STAGE_LABELS } from "../../../../shared/workflowLabels";
   import { WORK_ITEM_KIND_LABELS, type WorkItemKind } from "../../../../shared/workItems";
   import type { Id } from "../../../../convex/_generated/dataModel";
+  import StageBadge from "$lib/components/ui/StageBadge.svelte";
+  import ProjectActivityList from "./ProjectActivityList.svelte";
+  import type { ActivityEntry } from "$lib/workflow/activityPresentation";
   import { formatDue } from "$lib/workflow/due";
 
   type Owner = { label: string; initials: string };
@@ -20,7 +23,9 @@
   };
 
   let {
-    state,
+    // Aliased locally: a binding literally named `state` would shadow the
+    // `$state` rune this component needs for the minute-refresh clock.
+    state: panelState,
     stage = null,
     stageIsFallback = false,
     owner = null,
@@ -44,6 +49,11 @@
     onSendForReview,
     onReassignWork,
     onCancelWork,
+    activityOpen = false,
+    onToggleActivity,
+    activityState = "loading",
+    activityEntries = [],
+    activityTruncated = false,
     titleId,
   }: {
     state: PanelState;
@@ -70,11 +80,30 @@
     onSendForReview?: () => void;
     onReassignWork?: (item: WorkItemSummary) => void;
     onCancelWork?: (item: WorkItemSummary) => void;
+    /** Activity disclosure — owned by the parent so the bounded read-only
+     * activity query subscribes only while the section is actually open. */
+    activityOpen?: boolean;
+    onToggleActivity?: () => void;
+    activityState?: "loading" | "ready" | "error" | "denied";
+    activityEntries?: ActivityEntry[];
+    activityTruncated?: boolean;
     titleId: string;
   } = $props();
 
+  // Relative due copy refreshes each minute while the panel is mounted so a
+  // popover left open across midnight or a long review never shows a stale
+  // "Due today". The panel only exists while the Workflow popover is open,
+  // so the interval is scoped to that lifetime.
+  let now = $state(Date.now());
+  $effect(() => {
+    const timer = setInterval(() => {
+      now = Date.now();
+    }, 60_000);
+    return () => clearInterval(timer);
+  });
+
   const currentHandoff = $derived(workItems.find((item) => item.isCurrentHandoff) ?? null);
-  const handoffDue = $derived(currentHandoff ? formatDue(currentHandoff.dueAt, Date.now()) : null);
+  const handoffDue = $derived(currentHandoff ? formatDue(currentHandoff.dueAt, now) : null);
   const stageLabel = $derived(
     stageIsFallback ? "Legacy status only" : stage ? WORKFLOW_STAGE_LABELS[stage] : "Not assigned"
   );
@@ -87,7 +116,7 @@
   </p>
 </header>
 
-{#if state === "loading"}
+{#if panelState === "loading"}
   <div class="space-y-5 py-5" aria-busy="true">
     <span class="sr-only" role="status">Loading workflow details…</span>
     {#each ["stage", "owner"] as item (item)}
@@ -97,7 +126,7 @@
       </div>
     {/each}
   </div>
-{:else if state === "error"}
+{:else if panelState === "error"}
   <div class="py-5">
     <p class="text-sm leading-relaxed text-red-700" role="alert">
       {errorMessage ?? "Workflow details are temporarily unavailable."}
@@ -105,14 +134,14 @@
     {#if onRetry}
       <button
         type="button"
-        class="mt-4 min-h-11 rounded-lg border border-line px-4 text-sm font-semibold text-navy transition-colors hover:border-primary-selected hover:bg-primary-wash motion-reduce:transition-none"
+        class="mt-4 min-h-11 rounded-lg border border-line px-4 text-sm font-semibold text-navy transition-colors hover:border-primary-selected hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
         onclick={onRetry}
       >
         Try again
       </button>
     {/if}
   </div>
-{:else if state === "denied"}
+{:else if panelState === "denied"}
   <p class="py-5 text-sm leading-relaxed text-ink-secondary">
     Workflow details are not available for this project.
   </p>
@@ -120,7 +149,13 @@
   <dl class="divide-y divide-line-soft">
     <div class="py-4">
       <dt class="text-label text-ink-secondary">Stage</dt>
-      <dd class="mt-1.5 text-sm font-semibold text-ink">{stageLabel}</dd>
+      <dd class="mt-1.5">
+        {#if !stageIsFallback && stage}
+          <StageBadge {stage} dot />
+        {:else}
+          <span class="text-sm font-semibold text-ink">{stageLabel}</span>
+        {/if}
+      </dd>
       {#if stageIsFallback}
         <p class="mt-1 text-xs leading-relaxed text-ink-secondary">
           This project has no stored workflow stage. Available transitions begin from Intake.
@@ -166,9 +201,46 @@
       {#if workTruncated}<p class="mt-1 text-xs text-ink-muted">Showing the first 50 open items plus the current handoff.</p>{/if}
       <div class="mt-2 divide-y divide-line-soft">
         {#each workItems as item (item.workItemId)}
-          <div class="py-3"><div class="flex items-start gap-3"><span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-chrome text-xs font-semibold text-navy">{item.assignee.initials}</span><div class="min-w-0 flex-1"><p class="text-sm font-semibold text-ink">{item.assignee.label} · {WORK_ITEM_KIND_LABELS[item.kind]}</p><p class="mt-0.5 line-clamp-2 text-xs leading-5 text-ink-muted">{item.instructionsPreview}</p>{#if item.dueAt}{@const due = formatDue(item.dueAt, Date.now())}{#if due}<p class="mt-1 text-xs text-ink-muted"><span class="text-data">{due.absolute}</span> · {due.relative}</p>{/if}{/if}</div></div>{#if item.viewerCanManage}<div class="mt-2 flex gap-2 pl-11"><button type="button" class="min-h-11 rounded-lg px-3 text-sm font-semibold text-navy hover:bg-primary-wash" onclick={() => onReassignWork?.(item)}>Reassign</button><button type="button" class="min-h-11 rounded-lg px-3 text-sm font-semibold text-red-700 hover:bg-red-50" onclick={() => onCancelWork?.(item)}>Cancel</button></div>{/if}</div>
+          <div class="py-3"><div class="flex items-start gap-3"><span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-chrome text-xs font-semibold text-navy">{item.assignee.initials}</span><div class="min-w-0 flex-1"><p class="text-sm font-semibold text-ink">{item.assignee.label} · {WORK_ITEM_KIND_LABELS[item.kind]}</p><p class="mt-0.5 line-clamp-2 text-xs leading-5 text-ink-muted">{item.instructionsPreview}</p>{#if item.dueAt}{@const due = formatDue(item.dueAt, now)}{#if due}<p class="mt-1 text-xs text-ink-muted"><span class="text-data">{due.absolute}</span> · {due.relative}</p>{/if}{/if}</div></div>{#if item.viewerCanManage}<div class="mt-2 flex gap-2 pl-11"><button type="button" class="min-h-11 rounded-lg px-3 text-sm font-semibold text-navy hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy" onclick={() => onReassignWork?.(item)}>Reassign</button><button type="button" class="min-h-11 rounded-lg px-3 text-sm font-semibold text-red-700 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy" onclick={() => onCancelWork?.(item)}>Cancel</button></div>{/if}</div>
         {/each}
       </div>
+    </section>
+  {/if}
+
+  {#if onToggleActivity}
+    <section class="mt-4 border-t border-line-soft pt-1" aria-labelledby={`${titleId}-activity`}>
+      <h3 id={`${titleId}-activity`} class="m-0">
+        <button
+          type="button"
+          data-activity-disclosure
+          aria-expanded={activityOpen}
+          aria-controls={`${titleId}-activity-region`}
+          onclick={onToggleActivity}
+          class="flex min-h-11 w-full items-center gap-2 rounded-lg px-1 text-left transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
+        >
+          <span class="text-label">Activity</span>
+          <svg
+            aria-hidden="true"
+            class={`ml-auto size-4 shrink-0 transition-transform motion-reduce:transition-none ${activityOpen ? "rotate-180 text-primary" : "text-ink-faint"}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </h3>
+      {#if activityOpen}
+        <div id={`${titleId}-activity-region`}>
+          <ProjectActivityList
+            state={activityState}
+            entries={activityEntries}
+            truncated={activityTruncated}
+            labelledBy={`${titleId}-activity`}
+          />
+        </div>
+      {/if}
     </section>
   {/if}
 
@@ -180,17 +252,20 @@
 
   <div class="mt-4 grid gap-2 border-t border-line-soft pt-4">
     {#if !workLoading && !workError && canSendForReview && onSendForReview}
-      <button type="button" disabled={!assignable || !pointerHealthy} class="min-h-11 rounded-lg bg-primary px-4 text-left text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-50" onclick={onSendForReview}>Send for internal review</button>
+      <!-- AA on the white plane: lagoon `primary` under white text measures
+           < 4.5:1, so the primary action uses `primary-selected`
+           (design-system "AA pairs on white"). -->
+      <button type="button" disabled={!assignable || !pointerHealthy} class="min-h-11 rounded-lg bg-primary-selected px-4 text-left text-sm font-semibold text-white transition-colors hover:bg-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50 motion-reduce:transition-none" onclick={onSendForReview}>Send for internal review</button>
     {/if}
     {#if !workLoading && !workError && canCreateWork && onAssignWork}
-      <button type="button" disabled={!assignable || !pointerHealthy} class="min-h-11 rounded-lg border border-line px-4 text-left text-sm font-semibold text-navy hover:border-primary-selected hover:bg-primary-wash disabled:opacity-50" onclick={onAssignWork}>Assign work</button>
+      <button type="button" disabled={!assignable || !pointerHealthy} class="min-h-11 rounded-lg border border-line px-4 text-left text-sm font-semibold text-navy hover:border-primary-selected hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50" onclick={onAssignWork}>Assign work</button>
     {/if}
     {#if !assignable && assignableReason}<p class="text-xs leading-relaxed text-ink-secondary">{assignableReason}</p>{/if}
     {#if canChangeStage || canTransferOwner}
       {#if canChangeStage && onChangeStage}
         <button
           type="button"
-          class="min-h-11 rounded-lg border border-line px-4 text-left text-sm font-semibold text-navy transition-colors hover:border-primary-selected hover:bg-primary-wash hover:text-primary-selected motion-reduce:transition-none"
+          class="min-h-11 rounded-lg border border-line px-4 text-left text-sm font-semibold text-navy transition-colors hover:border-primary-selected hover:bg-primary-wash hover:text-primary-selected focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
           onclick={onChangeStage}
         >
           Change stage
@@ -199,7 +274,7 @@
       {#if canTransferOwner && onTransferOwner}
         <button
           type="button"
-          class="min-h-11 rounded-lg border border-line px-4 text-left text-sm font-semibold text-navy transition-colors hover:border-primary-selected hover:bg-primary-wash hover:text-primary-selected motion-reduce:transition-none"
+          class="min-h-11 rounded-lg border border-line px-4 text-left text-sm font-semibold text-navy transition-colors hover:border-primary-selected hover:bg-primary-wash hover:text-primary-selected focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
           onclick={onTransferOwner}
         >
           Transfer ownership

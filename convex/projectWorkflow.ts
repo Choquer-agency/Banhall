@@ -18,7 +18,7 @@ import {
   type TransitionAuthority,
 } from "../shared/workflowTransitions";
 import { MAX_WORKFLOW_NOTE_CHARS } from "../shared/workflowLabels";
-import { workflowStageRank } from "../shared/workflowStages";
+import { patchProjectWorkflowStage } from "./lib/dashboardProjection";
 import { scheduleOwnershipOversightRebuild } from "./oversight";
 
 const transferCandidateRoleValidator = v.union(
@@ -397,9 +397,16 @@ export const setWorkflowStage = mutation({
 
     const now = Date.now();
     const nextVersion = version + 1;
-    await ctx.db.patch(project._id, {
-      workflowStage: args.toStage,
-      workflowStageRank: workflowStageRank(args.toStage),
+    // Centralized stage write (B1 correction): patchProjectWorkflowStage is
+    // the ONLY sanctioned workflowStage writer. It patches stage + frozen
+    // rank and moves the per-client stageCounts bucket in the same
+    // transaction. The FROM bucket is the row's actually-occupied bucket
+    // (workflowStage ?? "legacy") — NOT the "intake" fallback used for
+    // transition authority — so a legacy row entering the workflow moves out
+    // of the "legacy" bucket. Idempotent same-stage no-ops return above and
+    // never touch the company row. No-ops honestly while the company row is
+    // not yet backfilled (stageCounts absent) or the project is uncounted.
+    await patchProjectWorkflowStage(ctx, project, args.toStage, {
       workflowUpdatedAt: now,
       workflowVersion: nextVersion,
     });

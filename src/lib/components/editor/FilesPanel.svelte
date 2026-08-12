@@ -77,6 +77,8 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   import { parseFileToText, SUPPORTED_ACCEPT } from "$lib/parseDocument";
   import { withUploadTimeout } from "$lib/uploads/outboxFlush";
   import Button from "$lib/components/ui/Button.svelte";
+  import Disclosure from "$lib/components/ui/Disclosure.svelte";
+  import DisclosureChevron from "$lib/components/ui/DisclosureChevron.svelte";
   import ProcessingStatusBadge from "$lib/components/upload/ProcessingStatusBadge.svelte";
   import UploadReceiptRow from "$lib/components/upload/UploadReceiptRow.svelte";
   import {
@@ -102,6 +104,11 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
     /** Opened on surfaces that exist because something went wrong. */
     initiallyOpen?: boolean;
   } = $props();
+
+  // Unique per instance so aria-controls stays valid when the panel renders
+  // more than once (e.g. generation-failure card and workbench together).
+  const uid = $props.id();
+  const panelBodyId = `${uid}-files-body`;
 
   // Deliberately a seed, not a binding: capturing the initial value is the
   // point, so a later re-render can't reopen a panel the user just closed.
@@ -426,9 +433,14 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
 {/snippet}
 
 <div class="card">
+  <!-- Disclosure semantics (a11y P0, 2026-08-08): the trigger states its
+       expanded state and names the region it controls; the body animates
+       through the shared Disclosure primitive (design-system rule 8). -->
   <button
     type="button"
     onclick={() => (isOpen = !isOpen)}
+    aria-expanded={isOpen}
+    aria-controls={panelBodyId}
     class="flex w-full items-center justify-between rounded-xl px-5 py-3 text-left transition-colors hover:bg-primary-wash"
   >
     <div class="flex items-center gap-3">
@@ -455,18 +467,10 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
         {/if}
       </div>
     </div>
-    <svg
-      class={`h-4 w-4 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      stroke-width="2"
-    >
-      <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-    </svg>
+    <DisclosureChevron open={isOpen} />
   </button>
 
-  {#if isOpen}
+  <Disclosure id={panelBodyId} open={isOpen}>
     <div class="border-t border-gray-100 px-5 py-3">
       <!-- Pinned source: the interview transcript (so writers can re-read it) -->
       {#if transcript}
@@ -701,7 +705,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
         }}
       />
     </div>
-  {/if}
+  </Disclosure>
 
   <!-- Confirm document replacement (upload first, delete second). -->
   {#if pendingReplace}

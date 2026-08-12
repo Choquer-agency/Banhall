@@ -1,7 +1,5 @@
 <script lang="ts">
-  import AppNav from "$lib/components/ui/AppNav.svelte";
-  import PageBar from "$lib/components/ui/PageBar.svelte";
-  import PageContainer from "$lib/components/ui/PageContainer.svelte";
+  import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import Button from "$lib/components/ui/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
@@ -115,18 +113,10 @@
   }
 </script>
 
-<div class="min-h-screen bg-canvas">
-  <AppNav />
-  <PageBar backHref="/dashboard" backLabel="Dashboard" />
-
-  <PageContainer class="min-w-0 pb-16 pt-6">
-    <header class="max-w-3xl border-b border-line-soft pb-5">
-      <p class="text-label">Administration</p>
-      <h1 class="mt-1 text-display">Resolve project ownership</h1>
-      <p class="mt-2 text-body">
-        These projects could not be matched confidently to a team account. Review each historical consultant label, then confirm the current fallback or assign the correct owner.
-      </p>
-    </header>
+<AdminWorkspacePage
+  title="Resolve project ownership"
+  description="Review projects that could not be matched confidently to a team account, then confirm or assign the accountable owner."
+>
 
     {#if currentUserQ.isLoading || auth.isLoading}
       <div class="flex min-h-48 items-center justify-center" role="status">
@@ -296,5 +286,4 @@
         </div>
       </section>
     {/if}
-  </PageContainer>
-</div>
+ </AdminWorkspacePage>

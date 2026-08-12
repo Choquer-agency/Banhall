@@ -3,6 +3,10 @@ import { render } from "vitest-browser-svelte";
 import { userEvent } from "vitest/browser";
 import { ROLE_DESCRIPTION_NOTE, ROLE_DESCRIPTIONS } from "$lib/roles/roleDescriptions";
 import RoleGuideSheet from "./RoleGuideSheet.svelte";
+// Accepted noise: `svelte.dev/e/derived_inert` console.warn lines here come
+// from bits-ui overlay internals after teardown (attributed 2026-08-06 by
+// per-file bisection; AssignmentComposer/OwnerTransfer/ViewModeToggle suites
+// emit a few for the same reason) — not a product-code teardown leak.
 
 describe("RoleGuideSheet", () => {
   it("renders one role guide dialog and the rollout note once", async () => {

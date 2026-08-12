@@ -3,6 +3,7 @@ import { query, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCurrentUser } from "./lib/auth";
 import { dashboardProjectRow } from "./lib/dashboardProjection";
+import { userDisplayLabel } from "./lib/teamRoster";
 import { DASHBOARD_FACET_LIMIT } from "../shared/dashboardProjection";
 import { WORKFLOW_STAGES } from "../shared/workflowStages";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -40,6 +41,51 @@ function matchesFlatFilters(project: Doc<"projects">, args: FlatFilterArgs) {
   return true;
 }
 
+async function dashboardRowsWithOwnerLabels(
+  ctx: QueryCtx,
+  projects: Doc<"projects">[]
+) {
+  // Bounded per-page current-handoff projection (2026-08-10 amendment lifting
+  // the 2026-08-08 board-card deferral): one deduplicated `workItems` get per
+  // pointered row on the already-bounded page, with assignee labels resolved
+  // in the same user batch as owner labels. Never per-card subscriptions.
+  // Defensive truth: the pointer contract is "one OPEN blocking item per
+  // project" — a stale pointer (missing, non-open, or cross-project item)
+  // projects nothing rather than a wrong "With".
+  const handoffByProject = new Map<Id<"projects">, Doc<"workItems">>();
+  const userIds = new Set<Id<"users">>();
+  for (const project of projects) {
+    if (project.ownerId) userIds.add(project.ownerId);
+    if (!project.currentHandoffId) continue;
+    const item = await ctx.db.get(project.currentHandoffId);
+    if (item && item.status === "open" && item.projectId === project._id) {
+      handoffByProject.set(project._id, item);
+      userIds.add(item.assigneeId);
+    }
+  }
+  const userLabels = new Map<Id<"users">, string>();
+  for (const userId of userIds) {
+    const user = await ctx.db.get(userId);
+    if (user) userLabels.set(userId, userDisplayLabel(user));
+  }
+  return projects.map((project) => {
+    const handoff = handoffByProject.get(project._id);
+    return {
+      ...dashboardProjectRow(project),
+      ownerLabel: project.ownerId ? userLabels.get(project.ownerId) : undefined,
+      currentHandoff: handoff
+        ? {
+            kind: handoff.kind,
+            assigneeId: handoff.assigneeId,
+            assigneeLabel: userLabels.get(handoff.assigneeId) ?? "Unknown team member",
+            blocking: handoff.blocking,
+            dueAt: handoff.dueAt ?? null,
+          }
+        : undefined,
+    };
+  });
+}
+
 async function collectMatchingPage(
   ctx: QueryCtx,
   args: FlatFilterArgs & {
@@ -62,7 +108,7 @@ async function collectMatchingPage(
   const page = result.page.filter((project) => matchesFlatFilters(project, args));
   return {
     ...result,
-    page: page.map(dashboardProjectRow),
+    page: await dashboardRowsWithOwnerLabels(ctx, page),
     scanTruncated: !result.isDone && page.length < result.page.length,
   };
 }
@@ -70,6 +116,11 @@ async function collectMatchingPage(
 export const listCompanies = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, args) => {
+    // Decision D1 (pre-existing read contract, reaffirmed 2026-08-06
+    // correction): firm-wide read visibility for authenticated internal
+    // users — identical to every other dashboard read. Capability hardening
+    // is out of scope for the redesign (D1: "preserve current read
+    // visibility unless separately approved and tested").
     await requireCurrentUser(ctx);
     return await ctx.db
       .query("dashboardCompanies")
@@ -82,12 +133,38 @@ export const listCompanies = query({
   },
 });
 
+/**
+ * One recorded-client-name projection row for the focused client board
+ * (2026-08-06 second amendment). Returns null when no projection row exists
+ * (zero counted projects). Never a durable Client record.
+ */
+export const getCompany = query({
+  args: { companyKey: v.string() },
+  handler: async (ctx, args) => {
+    // Decision D1 (pre-existing read contract, reaffirmed 2026-08-06
+    // correction): firm-wide read visibility for authenticated internal
+    // users — identical to every other dashboard read. Capability hardening
+    // is out of scope for the redesign (D1: "preserve current read
+    // visibility unless separately approved and tested").
+    await requireCurrentUser(ctx);
+    return await ctx.db
+      .query("dashboardCompanies")
+      .withIndex("by_companyKey", (q) => q.eq("companyKey", args.companyKey))
+      .unique();
+  },
+});
+
 export const listCompanyProjects = query({
   args: {
     companyKey: v.string(),
     paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
+    // Decision D1 (pre-existing read contract, reaffirmed 2026-08-06
+    // correction): firm-wide read visibility for authenticated internal
+    // users — identical to every other dashboard read. Capability hardening
+    // is out of scope for the redesign (D1: "preserve current read
+    // visibility unless separately approved and tested").
     await requireCurrentUser(ctx);
     const result = await ctx.db
       .query("projects")
@@ -99,7 +176,47 @@ export const listCompanyProjects = query({
         ...args.paginationOpts,
         numItems: Math.max(1, Math.min(args.paginationOpts.numItems, 100)),
       });
-    return { ...result, page: result.page.map(dashboardProjectRow) };
+    return { ...result, page: await dashboardRowsWithOwnerLabels(ctx, result.page) };
+  },
+});
+
+/**
+ * Per-client stage-ordered projects (2026-08-06 second amendment): paginates
+ * the by_dashboardCompanyKey_and_workflowStageRank_and_updatedAt index
+ * ascending, so Client → Status sub-groups are cut-points of a true server
+ * order, never a client-side sort claim. Caveats the UI must honour:
+ * - Ranks are the FROZEN persisted ranks (`on_hold` 7 before `delivered` 8);
+ *   presentation re-maps complete rank runs into
+ *   WORKFLOW_STAGE_PIPELINE_ORDER (lossless for complete runs; only the last
+ *   loaded run may be incomplete while pagination is unexhausted → `+`).
+ * - Rows with a missing rank sort before all ranked rows; the stageCounts
+ *   backfill Pass 0 verifies rank presence.
+ * - Legacy rows (rank 1000) arrive last as the qualified "Legacy status"
+ *   sub-group.
+ */
+export const listCompanyProjectsByStageRank = query({
+  args: {
+    companyKey: v.string(),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    // Decision D1 (pre-existing read contract, reaffirmed 2026-08-06
+    // correction): firm-wide read visibility for authenticated internal
+    // users — identical to every other dashboard read. Capability hardening
+    // is out of scope for the redesign (D1: "preserve current read
+    // visibility unless separately approved and tested").
+    await requireCurrentUser(ctx);
+    const result = await ctx.db
+      .query("projects")
+      .withIndex("by_dashboardCompanyKey_and_workflowStageRank_and_updatedAt", (q) =>
+        q.eq("dashboardCompanyKey", args.companyKey)
+      )
+      .order("asc")
+      .paginate({
+        ...args.paginationOpts,
+        numItems: Math.max(1, Math.min(args.paginationOpts.numItems, 100)),
+      });
+    return { ...result, page: await dashboardRowsWithOwnerLabels(ctx, result.page) };
   },
 });
 
@@ -114,6 +231,11 @@ export const listFlatProjects = query({
     tagIds: v.optional(v.array(v.id("tags"))),
   },
   handler: async (ctx, args) => {
+    // Decision D1 (pre-existing read contract, reaffirmed 2026-08-06
+    // correction): firm-wide read visibility for authenticated internal
+    // users — identical to every other dashboard read. Capability hardening
+    // is out of scope for the redesign (D1: "preserve current read
+    // visibility unless separately approved and tested").
     await requireCurrentUser(ctx);
     return await collectMatchingPage(ctx, args);
   },
@@ -130,6 +252,11 @@ export const searchProjects = query({
     tagIds: v.optional(v.array(v.id("tags"))),
   },
   handler: async (ctx, args) => {
+    // Decision D1 (pre-existing read contract, reaffirmed 2026-08-06
+    // correction): firm-wide read visibility for authenticated internal
+    // users — identical to every other dashboard read. Capability hardening
+    // is out of scope for the redesign (D1: "preserve current read
+    // visibility unless separately approved and tested").
     await requireCurrentUser(ctx);
     const search = args.search.trim();
     if (!search) return { page: [], isDone: true, continueCursor: "" };
@@ -148,12 +275,11 @@ export const searchProjects = query({
       numItems: Math.max(1, Math.min(args.paginationOpts.numItems, 100)),
     });
     const tagIds = new Set(args.tagIds ?? []);
-    const page = result.page
-      .filter((project) => {
-        if (args.stage === "legacy" && project.workflowStage !== undefined) return false;
-        return tagIds.size === 0 || (project.tagIds ?? []).some((id) => tagIds.has(id));
-      })
-      .map(dashboardProjectRow);
+    const matching = result.page.filter((project) => {
+      if (args.stage === "legacy" && project.workflowStage !== undefined) return false;
+      return tagIds.size === 0 || (project.tagIds ?? []).some((id) => tagIds.has(id));
+    });
+    const page = await dashboardRowsWithOwnerLabels(ctx, matching);
     return { ...result, page, scanTruncated: page.length < result.page.length };
   },
 });
@@ -161,6 +287,11 @@ export const searchProjects = query({
 export const getFacets = query({
   args: {},
   handler: async (ctx) => {
+    // Decision D1 (pre-existing read contract, reaffirmed 2026-08-06
+    // correction): firm-wide read visibility for authenticated internal
+    // users — identical to every other dashboard read. Capability hardening
+    // is out of scope for the redesign (D1: "preserve current read
+    // visibility unless separately approved and tested").
     await requireCurrentUser(ctx);
     const projects = await ctx.db
       .query("projects")
