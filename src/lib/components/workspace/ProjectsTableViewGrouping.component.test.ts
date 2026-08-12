@@ -211,9 +211,8 @@ describe("ProjectsTableView client-name grouping", () => {
     // Intake column is hidden here (exact 0) — the creation affordance is
     // the client-scoped header/lane link semantics; when intake shows, its
     // footer carries the client prefill (covered by the board suite).
-    expect(document.querySelector("[data-hidden-stages-disclosure]")?.textContent).toContain(
-      "9 empty stages hidden"
-    );
+    // Inline hidden-stages disclosure removed (2026-08-12 owner direction).
+    expect(document.querySelector("[data-hidden-stages-disclosure]")).toBeNull();
   });
 
   it("offers the grouping control on the Board toolbar and the client hide-empty switch when grouped", async () => {
@@ -360,15 +359,10 @@ describe("ProjectsTableView client-name grouping", () => {
     await expect.poll(
       () => document.querySelectorAll('section[aria-labelledby^="project-board-"]').length
     ).toBe(1);
-    expect(document.querySelector("[data-hidden-stages-disclosure]")?.textContent).toContain(
-      "9 empty stages hidden"
-    );
     expect(JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}").hideEmptyBoard).toBe(true);
-    // The board's disclosure reveals by turning the option off.
-    (document.querySelector("[data-hidden-stages-disclosure]") as HTMLButtonElement)?.click();
-    await expect.poll(
-      () => document.querySelectorAll('section[aria-labelledby^="project-board-"]').length
-    ).toBe(10);
+    // Inline disclosure removed (2026-08-12): the Display menu switch is the
+    // only reveal control for hidden stages.
+    expect(document.querySelector("[data-hidden-stages-disclosure]")).toBeNull();
   });
 
   it("applies a deep-linked ?hideEmpty=1 without persisting it as a preference", async () => {

@@ -158,25 +158,17 @@ describe("ProjectsBoard", () => {
     expect(scoped?.getAttribute("aria-label")).toContain("Acme & Co");
   });
 
-  it("hide-empty collapses only provably-empty stages and discloses them with a focusable Show control", async () => {
-    const onShowEmpty = vi.fn();
+  it("hide-empty collapses only provably-empty stages with no inline disclosure (2026-08-12 owner direction: the Display menu switch is the only control)", async () => {
     await mountBoard({
       rows: [row({ id: "p1" })],
       stageCounts: { drafting: 1, intake: 2 },
       hideEmpty: true,
       hiddenQualifier: "counts limited to most recent 1,000",
-      onShowEmpty,
     });
 
     const ids = columnSections().map((section) => section.getAttribute("aria-labelledby"));
     expect(ids).toEqual(["project-board-intake", "project-board-drafting"]);
-    const disclosure = document.querySelector<HTMLButtonElement>("[data-hidden-stages-disclosure]");
-    expect(disclosure?.textContent).toContain("8 empty stages hidden · Show");
-    expect(disclosure?.textContent).toContain("counts limited to most recent 1,000");
-    disclosure?.focus();
-    expect(document.activeElement).toBe(disclosure);
-    disclosure?.click();
-    expect(onShowEmpty).toHaveBeenCalledTimes(1);
+    expect(document.querySelector("[data-hidden-stages-disclosure]")).toBeNull();
   });
 
   it("never hides on loaded-rows-zero: without stageCounts the option is inert (fail honest)", async () => {

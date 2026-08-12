@@ -65,7 +65,7 @@
              row hides the visible name, so the text node is the truth). -->
         <span data-assignee class="flex items-center gap-1.5">
           <span class="sr-only">Assigned to {assignee.label}</span>
-          <span class="mywork-avatar-sm flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold" aria-hidden="true">{assignee.initials}</span>
+          <span class="mywork-avatar-sm flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-medium" aria-hidden="true">{assignee.initials}</span>
           <span class="hidden max-w-36 truncate text-xs text-ink-muted sm:inline" aria-hidden="true">{assignee.label}</span>
         </span>
       {/if}

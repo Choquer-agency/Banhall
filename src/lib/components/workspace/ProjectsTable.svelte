@@ -111,7 +111,7 @@
 
 {#snippet ownerValue(row: ProjectsTableRow)}
   <span class="flex min-w-0 items-center gap-2">
-    <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-fir text-[0.625rem] font-semibold text-white" aria-hidden="true">
+    <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-fir text-[0.625rem] font-medium text-white" aria-hidden="true">
       {ownerInitials(row)}
     </span>
     <span class="min-w-0">
@@ -158,7 +158,7 @@
                 data-recent-title={row.title}
                 data-recent-stage={row.workflowStage ?? undefined}
                 data-recent-client={row.clientName || undefined}
-                class="flex min-h-11 min-w-0 flex-col justify-center rounded-sm text-sm font-medium text-ink transition-colors hover:text-primary-selected focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
+                class="flex min-h-11 min-w-0 flex-col justify-center rounded-md text-sm font-medium text-ink transition-colors hover:text-primary-selected focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
               >
                 <span class="truncate">{row.title}</span>
                 {#if columns.clientName}

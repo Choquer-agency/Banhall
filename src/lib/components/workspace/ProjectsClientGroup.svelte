@@ -174,7 +174,7 @@
         class="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
       >
         <span class="text-label shrink-0" aria-hidden="true">Client</span>
-        <span class={`truncate text-sm font-semibold ${open ? "text-primary-selected" : "text-ink"}`}>{displayName}</span>
+        <span class={`truncate text-sm font-medium ${open ? "text-primary-selected" : "text-ink"}`}>{displayName}</span>
         <span data-client-group-count class="shrink-0 text-xs text-ink-muted">· {projectCount} project{projectCount === 1 ? "" : "s"}</span>
       </button>
     </h3>
@@ -265,7 +265,7 @@
                     <a
                       data-lane-more={group.id}
                       href={focusHref}
-                      class="flex min-h-11 items-center rounded-lg px-2 text-xs font-medium text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
+                      class="flex min-h-11 items-center px-2 text-xs font-normal text-ink-muted opacity-70 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
                     >Show {moreCount}{group.countSuffix} more in Focus</a>
                   {/if}
                   <a
@@ -273,7 +273,7 @@
                     data-intake-new-project={group.id === "intake" ? "" : undefined}
                     href={newProjectHref}
                     aria-label={`Add new project${unnamed ? "" : ` for ${displayName}`}. New projects begin in Intake.`}
-                    class="flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-normal text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
+                    class="flex min-h-11 items-center gap-1.5 px-2 text-xs font-normal text-ink-muted opacity-70 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
                   ><span aria-hidden="true" class="text-sm leading-none">+</span> Add new</a>
                 </div>
               </section>
@@ -348,7 +348,7 @@
             type="button"
             disabled={projectsQ.status === "LoadingMore"}
             onclick={() => projectsQ.loadMore(DASHBOARD_PROJECT_PAGE_SIZE)}
-            class="min-h-11 rounded-xl px-3 text-xs font-medium text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50 motion-reduce:transition-none sm:min-h-8"
+            class="min-h-11 rounded-lg px-3 text-xs font-medium text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50 motion-reduce:transition-none sm:min-h-8"
           >{projectsQ.status === "LoadingMore" ? "Loading…" : `Show more — ${displayName}`}</button>
         </div>
       {/if}

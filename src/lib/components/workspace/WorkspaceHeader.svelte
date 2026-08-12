@@ -129,7 +129,7 @@
       onkeydown={handleInputKeydown}
       aria-label="Search projects"
       placeholder="Search projects…"
-      class={`h-8 w-full rounded-[0.625rem] border border-line bg-chrome/70 pl-8 text-[0.8125rem] text-ink placeholder:text-ink-faint ${withHint ? "pr-10" : "pr-3"}`}
+      class={`h-8 w-full rounded-lg border border-line bg-chrome/70 pl-8 text-[0.8125rem] text-ink placeholder:text-ink-faint ${withHint ? "pr-10" : "pr-3"}`}
     />
     {#if withHint}
       <kbd class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 font-sans text-[0.6875rem] font-medium text-ink-faint">{shortcutHint}</kbd>
@@ -143,7 +143,7 @@
   <WorkspaceShellControls tone="light" {onOpenNavigation} {railHidden} {onToggleRail} />
 
   <div class="flex min-w-0 items-baseline gap-2">
-    <h1 class="truncate text-[0.9375rem] font-semibold text-ink">{title}</h1>
+    <h1 class="truncate text-[0.9375rem] font-medium text-ink">{title}</h1>
     {#if count}
       <span class="text-[0.8125rem] text-ink-muted">{count}</span>
     {/if}
@@ -178,7 +178,7 @@
     {#if showNewProject}
       <a
         href={resolve("/project/new")}
-        class="inline-flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-full bg-primary-selected px-3 text-[0.8125rem] font-medium text-white transition-colors hover:bg-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:h-9 sm:rounded-xl sm:px-3.5"
+        class="inline-flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-full bg-primary-selected px-3 text-[0.8125rem] font-medium text-white transition-colors hover:bg-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:h-9 sm:px-3.5"
       >
         <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" d="M12 5v14M5 12h14" /></svg>
         <span class="hidden sm:inline">New project</span>

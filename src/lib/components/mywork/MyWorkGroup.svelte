@@ -38,7 +38,7 @@
   <header class="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line pb-2">
     <h2 id={`my-work-group-${id}`} class="text-title">{label}</h2>
     {#if !loading && !error}
-      <span class="font-mono text-sm tabular-nums text-ink-muted">{count}{hasMore ? "+" : ""}</span>
+      <span class="text-data text-ink-muted">{count}{hasMore ? "+" : ""}</span>
       <span class="sr-only">loaded</span>
     {/if}
   </header>

@@ -1211,13 +1211,13 @@
             aria-expanded={limitOverlayVisible}
             aria-pressed={limitOverlayVisible}
             onclick={() => (limitOverlayVisible = !limitOverlayVisible)}
-            class={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+            class={`inline-flex min-h-8 items-center gap-1.5 rounded-md px-1.5 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none ${
               limitOverlayVisible
-                ? "border-primary bg-primary-wash text-primary-dark"
-                : "border-line bg-white text-ink-secondary hover:border-primary hover:bg-primary-wash"
+                ? "text-primary-dark hover:text-primary-selected"
+                : "text-ink-muted hover:text-ink"
             }`}
           >
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 4v4m6 2v4m-8 2v4" />
             </svg>
@@ -1285,7 +1285,8 @@
     gap: 0.75rem;
     margin: 1rem 0 1.5rem;
     font-family: var(--font-sans);
-    font-size: 0.6875rem;
+    /* em: tracks the fluid .tiptap-editor body size (14px cap). */
+    font-size: 0.78em;
     line-height: 1;
     pointer-events: none;
     user-select: none;

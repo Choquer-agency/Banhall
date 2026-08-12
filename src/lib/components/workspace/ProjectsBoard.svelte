@@ -194,7 +194,7 @@
             data-intake-new-project={column.id === "intake" ? "" : undefined}
             href={newProjectHref}
             aria-label={`Add new project${newProjectClientName ? ` for ${newProjectClientName}` : ""}. New projects begin in Intake.`}
-            class="flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-normal text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
+            class="flex min-h-11 items-center gap-1.5 px-2 text-xs font-normal text-ink-muted opacity-70 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
           >
             <span aria-hidden="true" class="text-sm leading-none">+</span>
             Add new
@@ -202,24 +202,6 @@
         </div>
       </section>
     {/each}
-    {#if hiddenStageCount > 0}
-      <!-- Hidden stages stay one interaction away and in the accessibility
-           tree (Linear's "hidden by display options" idiom). -->
-      <div class="flex h-full shrink-0 snap-start items-start pt-2">
-        <button
-          type="button"
-          data-hidden-stages-disclosure
-          onclick={() => onShowEmpty?.()}
-          class="min-h-11 rounded-lg px-3 text-left text-xs font-medium text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
-        >
-          {hiddenStageCount} empty {hiddenStageCount === 1 ? "stage" : "stages"} hidden · Show
-          {#if hiddenQualifier}
-            <!-- Bound qualifier is information-bearing: muted, never faint. -->
-            <span class="block font-normal text-ink-muted">{hiddenQualifier}</span>
-          {/if}
-        </button>
-      </div>
-    {/if}
   </div>
   </div>
   <!-- Deliberate right-edge continuation cue (live QA 2026-08-07): a subtle

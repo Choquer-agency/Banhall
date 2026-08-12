@@ -190,7 +190,7 @@
     {#if companyQ.isLoading}
       <span class="text-sm text-ink-muted" role="status">Loading client…</span>
     {:else if clientName}
-      <span class="min-w-0 truncate text-sm font-semibold text-ink">{clientName}</span>
+      <span class="min-w-0 truncate text-sm font-medium text-ink">{clientName}</span>
       <span data-client-group-count class="shrink-0 text-xs text-ink-muted">· {company?.projectCount ?? 0} project{(company?.projectCount ?? 0) === 1 ? "" : "s"}</span>
       {#if newProjectHref}
         <!-- Ghost header control (design-system 2026-08-10): size-7
