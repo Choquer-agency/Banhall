@@ -22,6 +22,7 @@
     label,
     class: className = "",
     icon,
+    chip,
     align = "start",
     onValueChange,
   }: {
@@ -34,6 +35,12 @@
     class?: string;
     /** Optional leading glyph inside the chip (e.g. the filter-lines icon). */
     icon?: Snippet;
+    /**
+     * Optional chip content override so the trigger can read as a labeled
+     * control ("Group · Client") instead of echoing the raw option label.
+     * Falls back to the selected item's label.
+     */
+    chip?: Snippet;
     /** Panel alignment along the trigger edge — "end" opens leftward. */
     align?: "start" | "end";
     onValueChange?: (value: string) => void;
@@ -56,7 +63,7 @@
     class={`group inline-flex h-11 min-w-0 cursor-pointer items-center gap-1.5 rounded-full bg-transparent px-3 text-xs font-medium text-ink-secondary transition-colors select-none hover:bg-chrome/70 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:h-7 ${className}`}
   >
     {#if icon}{@render icon()}{/if}
-    <span class="truncate">{selectedLabel}</span>
+    {#if chip}{@render chip()}{:else}<span class="truncate">{selectedLabel}</span>{/if}
     <svg
       class="h-3.5 w-3.5 shrink-0 text-ink-faint transition-transform duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] group-data-[state=open]:rotate-180 motion-reduce:transition-none"
       fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"

@@ -31,8 +31,6 @@ async function mountBoard(
     stageCounts?: Record<string, number>;
     countsApproximate?: boolean;
     hideEmpty?: boolean;
-    hiddenQualifier?: string | null;
-    onShowEmpty?: () => void;
     newProjectClientName?: string | null;
     showCardClient?: boolean;
   },
@@ -149,6 +147,9 @@ describe("ProjectsBoard", () => {
     }
 
     document.body.innerHTML = "";
+    // Client-scoped boards (the per-client lane boards, 2026-08-12) carry
+    // the recorded-name prefill on every creation footer — the wizard's own
+    // `?client=` param, unrelated to the retired board focus param.
     await mountBoard({
       rows: [row({ id: "p2", workflowStage: "intake" })],
       newProjectClientName: "Acme & Co",
@@ -163,7 +164,6 @@ describe("ProjectsBoard", () => {
       rows: [row({ id: "p1" })],
       stageCounts: { drafting: 1, intake: 2 },
       hideEmpty: true,
-      hiddenQualifier: "counts limited to most recent 1,000",
     });
 
     const ids = columnSections().map((section) => section.getAttribute("aria-labelledby"));
@@ -410,9 +410,9 @@ describe("ProjectsBoard", () => {
     expect(columnSections()[0].offsetWidth).toBe(320);
 
     document.body.innerHTML = "";
-    // Client-scoped surfaces (focused board / lanes) suppress the redundant
-    // client line — the surface header already names the client. No other
-    // card field changes and nothing is invented in its place.
+    // Client-scoped boards (per-client lanes) suppress the redundant client
+    // line — the section band already names the client. No other card field
+    // changes and nothing is invented in its place.
     await mountBoard({ rows: [row({ id: "p2" })], showCardClient: false });
     const article = document.querySelector<HTMLElement>("article");
     expect(article?.textContent).not.toContain("Northline Labs");

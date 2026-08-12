@@ -38,9 +38,9 @@
   // - Every creation footer opens the existing wizard. It does not preselect
   //   or mutate the displayed stage; new projects still begin in Intake.
   // - Optional hide-empty: collapses stages whose provided `stageCounts`
-  //   value is 0 AND no row is loaded — never loaded-rows-zero alone. Hidden
-  //   stages stay disclosed by a focusable "N empty stages hidden — Show"
-  //   caption at the track end.
+  //   value is 0 AND no row is loaded — never loaded-rows-zero alone. The
+  //   inline hidden-stages disclosure was removed 2026-08-12 (owner
+  //   direction): the Display menu's hide-empty switch is the only control.
   import { resolve } from "$app/paths";
   import ProjectBoardCard from "$lib/components/workspace/ProjectBoardCard.svelte";
   import BoardColumnHeader from "$lib/components/workspace/BoardColumnHeader.svelte";
@@ -57,32 +57,28 @@
     stageCounts,
     countsApproximate = false,
     hideEmpty = false,
-    hiddenQualifier = null,
-    onShowEmpty,
     newProjectClientName = null,
     showCardClient = true,
     onlyStage = null,
     regionLabel = "Projects board. Scroll horizontally to review every workflow stage.",
+    idPrefix = "project-board",
+    columnHeadingLevel = 2,
   }: {
     rows: ProjectsTableRow[];
     stageCounts?: Record<string, number>;
     countsApproximate?: boolean;
     /**
      * Collapse zero-count stages. Honest criterion only: a stage hides when
-     * `stageCounts` (bounded facets globally; exact per-client counts on a
-     * focused board) reports 0 AND no row is loaded. Without stageCounts the
-     * option is inert — nothing hides (fail honest).
+     * `stageCounts` (bounded facets) reports 0 AND no row is loaded. Without
+     * stageCounts the option is inert — nothing hides (fail honest).
      */
     hideEmpty?: boolean;
-    /** Bound qualifier for the disclosure label (e.g. facet truncation). */
-    hiddenQualifier?: string | null;
-    /** Reveals hidden stages (turns the display option off). */
-    onShowEmpty?: () => void;
-    /** Recorded client name prefill carried by the intake creation footer. */
+    /** Recorded client name prefill carried by the creation footers. */
     newProjectClientName?: string | null;
     /**
-     * Card client line toggle: the focused client board passes false because
-     * its own header already names the client (ProjectBoardCard.showClient).
+     * Card client line toggle: client-scoped boards (the per-client lane
+     * boards) pass false because their section header already names the
+     * client (ProjectBoardCard.showClient).
      */
     showCardClient?: boolean;
     /**
@@ -93,6 +89,14 @@
      */
     onlyStage?: WorkflowStage | "legacy" | null;
     regionLabel?: string;
+    /**
+     * Column heading id prefix. The per-client lane boards pass a
+     * client-scoped prefix so heading ids stay unique when several boards
+     * mount on one page.
+     */
+    idPrefix?: string;
+    /** Column heading level (h2 standalone; h4 inside client sections). */
+    columnHeadingLevel?: 2 | 3 | 4;
   } = $props();
 
   const newProjectHref = $derived(
@@ -134,9 +138,6 @@
           )
         : allColumns
   );
-  // The filter's single-column view is named by the chip row, not the
-  // hidden-stages disclosure.
-  const hiddenStageCount = $derived(onlyStage ? 0 : allColumns.length - columns.length);
 </script>
 
 <!-- Shell wraps the scroll region so the right-edge continuation cue can sit
@@ -159,22 +160,22 @@
            (100cqw = the scrollport content box) so adjacent card BODIES are
            masked instead of rendering as clipped shards down the right edge
            (live QA 2026-08-07); continuation is signalled by the deliberate
-           edge cue below, and on the focused board by the explicit
-           "Stage N of M" selector. From `md` up columns stay the governed
-           fixed 320px. -->
+           edge cue below. From `md` up columns stay the governed fixed
+           320px. -->
       <section
         data-board-column={column.id}
         class={`flex h-full w-[100cqw] shrink-0 snap-start flex-col overflow-hidden rounded-xl border-none bg-canvas shadow-none md:w-[320px] ${paused ? "opacity-90" : ""}`}
-        aria-labelledby={`project-board-${column.id}`}
+        aria-labelledby={`${idPrefix}-${column.id}`}
       >
         <BoardColumnHeader
-          id={`project-board-${column.id}`}
+          id={`${idPrefix}-${column.id}`}
           label={column.label}
           stage={column.id === "legacy" ? null : column.id}
           count={column.count}
           countSuffix={countsApproximate && column.count > 0 ? "+" : ""}
           noneLoaded={column.count > 0 && column.rows.length === 0}
           unverified={countsApproximate}
+          headingLevel={columnHeadingLevel}
         />
 
         <!-- Column body owns its own hidden vertical scroll. Empty columns

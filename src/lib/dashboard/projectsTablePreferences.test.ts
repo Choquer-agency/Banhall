@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PROJECTS_TABLE_PREFERENCES,
-  parseClientFocusParam,
   parseHideEmptyParam,
   parseProjectGroupParam,
   parseProjectLayoutParam,
   parseProjectsTablePreferences,
   serializeProjectsTablePreferences,
-  withClientFocusParam,
   withHideEmptyParam,
   withProjectGroupParam,
   withProjectLayoutParam,
@@ -133,18 +131,5 @@ describe("projects table preferences", () => {
     const url = withHideEmptyParam(new URL("https://banhall.test/projects?layout=board"), true);
     expect(url.searchParams.get("hideEmpty")).toBe("1");
     expect(withHideEmptyParam(url, null).searchParams.get("hideEmpty")).toBeNull();
-  });
-
-  it("parses the client focus param fail-closed and preserves other params", () => {
-    expect(parseClientFocusParam("acme co")).toBe("acme co");
-    expect(parseClientFocusParam("  ")).toBeNull();
-    expect(parseClientFocusParam(null)).toBeNull();
-    const url = withClientFocusParam(
-      new URL("https://banhall.test/projects?layout=board&group=client"),
-      "acme co"
-    );
-    expect(url.searchParams.get("client")).toBe("acme co");
-    expect(url.searchParams.get("group")).toBe("client");
-    expect(withClientFocusParam(url, null).searchParams.get("client")).toBeNull();
   });
 });

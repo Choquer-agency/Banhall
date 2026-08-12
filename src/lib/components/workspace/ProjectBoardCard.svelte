@@ -12,6 +12,7 @@
   // created/updated stamps. No priority is invented. Paused stages keep the
   // dashed-border cue (text label lives on the column chip).
   import { resolve } from "$app/paths";
+  import StageBadge from "$lib/components/ui/StageBadge.svelte";
   import { generationActivityLabel } from "$lib/dashboard/generationActivity";
   import {
     STAGE_CARD_THEMES,
@@ -23,16 +24,24 @@
   let {
     row,
     showClient = true,
+    showStage = false,
   }: {
     row: ProjectsTableRow;
     /**
      * Render the client supporting line. Client-scoped surfaces (client
-     * lanes, the focused client board) pass false because the section/board
-     * header already carries the client name — repeating it on every card is
-     * noise, not context (live QA 2026-08-07). The flat stage-first board
-     * keeps the default: there the card is the only client signal.
+     * lanes) pass false because the section header already carries the
+     * client name — repeating it on every card is noise, not context (live
+     * QA 2026-08-07). The flat stage-first board keeps the default: there
+     * the card is the only client signal.
      */
     showClient?: boolean;
+    /**
+     * Render the labelled stage badge on the card. Stage-column boards keep
+     * the default (the column chip is the labelled stage carrier); a
+     * column-less surface must pass true so stage identity is never
+     * color-only. No current consumer — kept for that contract.
+     */
+    showStage?: boolean;
   } = $props();
 
   const paused = $derived(
@@ -78,6 +87,13 @@
 
   <div data-card-content class="p-0">
     <div class="m-0.5 space-y-1 overflow-hidden rounded-[10px] bg-surface p-2.5 text-xs leading-[1.15rem] text-ink-secondary shadow-[0_0_1px_0_rgba(0,0,0,0.05)]">
+      {#if showStage && row.workflowStage}
+        <!-- Labelled stage carrier for column-less surfaces (text always
+             accompanies the tint; legacy rows keep their qualifier row). -->
+        <div data-card-field="stage" class="flex min-w-0 items-center overflow-hidden">
+          <StageBadge stage={row.workflowStage} shape="square" />
+        </div>
+      {/if}
       {#if showClient}
         <div data-card-field="client" class="flex min-w-0 items-start gap-2 overflow-hidden">
           <svg class="mt-0.5 h-3 w-3 shrink-0 text-ink-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" /></svg>

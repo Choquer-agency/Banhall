@@ -265,6 +265,64 @@ These decisions provide defaults so implementation does not invent product behav
 
 ## Approved amendments
 
+### 2026-08-12 — Client Focus drill-in removed; flat client card lanes; inline hidden-stages disclosure retired
+
+Owner-directed presentation amendment to the client-grouped Projects board.
+No schema, query, mutation, or authorization change; the server projections
+(`dashboard.listCompanies`, `dashboard.listCompanyProjectsByStageRank`) and
+their honesty contracts are untouched.
+
+- **Focus drill-in removed (owner direction).** The focused single-client
+  board (`ProjectsClientFocusBoard`), its `?client=` board deep link, the
+  "All clients" breadcrumb, the lane "Focus" links, and the mobile
+  "Stage N of M" selector are deleted. This supersedes the 2026-08-06
+  second amendment's focused-board clauses (drill-in state, `?client=`
+  deep-link resolution, and the focused board as fallback default). The
+  retired `?client=` param on `/projects` is now ignored — it never
+  resolves to a focused surface. The **`/project/new?client=` wizard
+  prefill is a different, unrelated parameter and remains supported**, as
+  does the client-scoped "+ New project" quick-create on lane/section
+  headers (editable recorded-name prefill; omitted for "No client
+  recorded").
+- **Lanes render the standard stage-column board per client, showing all
+  loaded projects.** Each expanded client lane renders the SAME kanban
+  anatomy as the ungrouped `/projects` board (the shared `ProjectsBoard`
+  component): same-tone stage columns at the governed width, tinted-shell
+  cards (client line suppressed — the section band names the client),
+  horizontal snap scroll with the edge cue, and per-column "+ Add new"
+  creation footers carrying that client's recorded-name prefill (the
+  wizard's own `?client=` param; omitted for "No client recorded"). Columns
+  take natural height — the grouped board's outer vertical scroller owns
+  the vertical axis. Per-client hide-empty honors that client's OWN
+  verified exact `stageCounts` (absent or sum-divergent = nothing hidden,
+  loaded-only counts with honest qualifiers — the existing count ladder).
+  The 2026-08-06 three-card-per-column preview and the "Show N more in
+  Focus" remainder navigation are retired: ALL loaded projects render, and
+  when the server page is bounded the lane ends with an honest in-place
+  "+N more" load-more control (recorded `projectCount` minus loaded rows) —
+  never a navigation. Subscription budget (six live sections, LRU
+  eviction), the collapsed zero-subscription contract, the recorded-name
+  qualifier, and the backfill notice are unchanged.
+- **Inline hidden-stages disclosure retired (all surfaces).** The
+  "N empty stages hidden — Show" affordance is removed from the stage-first
+  board and the client-grouped list: hidden empty stages simply do not
+  render, and the Display menu's persisted "Hide empty stages" switch is
+  the ONLY reveal control. This supersedes the 2026-08-06 second
+  amendment's "always disclosed by a visible, focusable affordance" clause
+  and the matching 2026-08-10 clause. The truth criteria are unchanged
+  (bounded facet counts globally, verified exact per-client counts on
+  client surfaces, never loaded-rows-zero), as is the honest disabled
+  pre-backfill client control. The Display menu's client hide-empty switch
+  remains available in grouped Board mode, where it governs every
+  per-client board's columns at once.
+- **Tests:** superseded contracts rewritten in the same change
+  (`ProjectsTableViewGrouping`, `ProjectsClientGroup(s)` component tests,
+  `projectsTablePreferences` unit tests — focus-param helpers deleted);
+  the wizard `?client=` prefill and lane keyboard reachability remain
+  covered.
+- **Approval:** product owner directed the removal and the lane redesign in
+  the 2026-08-12 request.
+
 ### 2026-08-11 (second) — Review projects created from an existing project
 
 Additive amendment approved from the client meeting (owner top priority).

@@ -10,13 +10,15 @@ import {
 } from "$lib/test/convex-svelte-stub.svelte";
 
 /**
- * Client → Status container (2026-08-06 second amendment): truthful,
- * server-backed sections keyed by recorded client name; inside a section,
- * pipeline-ordered status sub-headers cut from the stage-ranked server
- * order. Pins the honesty contract — exact qualifier copy, the interim
- * backfill notice, "Company" appearing nowhere, exact-stageCounts-only
- * hide-empty with a visible disclosure, lazy per-section subscriptions, and
- * lane presentation for the grouped board.
+ * Client → Status container (2026-08-06 second amendment; Focus drill-in
+ * retired and lanes flattened 2026-08-12): truthful, server-backed sections
+ * keyed by recorded client name; inside a section, pipeline-ordered status
+ * sub-headers cut from the stage-ranked server order (list) or one
+ * horizontal snap row of ALL loaded project cards (lane). Pins the honesty
+ * contract — exact qualifier copy, the interim backfill notice, "Company"
+ * appearing nowhere, exact-stageCounts-only hide-empty with the Display
+ * menu switch as the only reveal control (no inline disclosure), and lazy
+ * per-section subscriptions.
  */
 
 function companyRow(
@@ -87,9 +89,11 @@ describe("ProjectsClientGroups", () => {
 
     await expect.poll(() => groupHeaders().length).toBe(3);
     const headers = groupHeaders().map((button) => button.textContent?.replace(/\s+/g, " ").trim());
-    expect(headers[0]).toBe("Client Acme Labs · 2 projects");
-    expect(headers[1]).toBe("Client Borealis Mining · 1 project");
-    expect(headers[2]).toBe("Client Cormorant Foods · 12 projects");
+    // Counts render in the mono data role (2026-08-12 taste pass): the
+    // number is the visible text, the unit is screen-reader-only.
+    expect(headers[0]).toBe("Client Acme Labs 2 projects");
+    expect(headers[1]).toBe("Client Borealis Mining 1 project");
+    expect(headers[2]).toBe("Client Cormorant Foods 12 projects");
     expect(region()?.textContent).not.toMatch(/\bcompany\b/i);
   });
 
@@ -130,7 +134,7 @@ describe("ProjectsClientGroups", () => {
     );
   });
 
-  it("hides empty statuses only from exact stageCounts, with a visible per-section disclosure", async () => {
+  it("hides empty statuses only from exact stageCounts, with no inline disclosure (2026-08-12: the Display menu switch is the only control)", async () => {
     __setPaginatedRows("dashboard:listCompanies", [
       companyRow("acme", "Acme Labs", 1, { drafting: 1 }),
     ]);
@@ -142,10 +146,7 @@ describe("ProjectsClientGroups", () => {
     await expect.poll(() => groupHeaders().length).toBe(1);
     groupHeaders()[0].click();
     await expect.poll(() => document.querySelectorAll("[data-stage-subgroup]").length).toBe(1);
-    const disclosure = document.querySelector<HTMLButtonElement>("[data-hidden-stages-disclosure]");
-    expect(disclosure?.textContent).toContain("9 empty stages hidden · Show");
-    disclosure?.click();
-    await expect.poll(() => document.querySelectorAll("[data-stage-subgroup]").length).toBe(10);
+    expect(document.querySelector("[data-hidden-stages-disclosure]")).toBeNull();
   });
 
   it("fails honest before backfill: no stageCounts means nothing hidden and loaded-only counts", async () => {
@@ -162,22 +163,21 @@ describe("ProjectsClientGroups", () => {
     expect(document.querySelector("[data-hidden-stages-disclosure]")).toBeNull();
   });
 
-  it("offers client-scoped creation and focus links on each section header", async () => {
+  it("offers client-scoped creation on each section header and never a Focus drill-in (retired 2026-08-12)", async () => {
     __setPaginatedRows("dashboard:listCompanies", [companyRow("acme", "Acme & Co", 1)]);
-    render(ProjectsClientGroups, {
-      focusHref: (companyKey: string) => `/projects?layout=board&group=client&client=${encodeURIComponent(companyKey)}`,
-    });
+    render(ProjectsClientGroups, {});
 
     await expect.poll(() => groupHeaders().length).toBe(1);
     const create = document.querySelector<HTMLAnchorElement>("[data-client-new-project]");
+    // The wizard's own `?client=` prefill param — unrelated to the retired
+    // board focus param — carries the editable recorded name.
     expect(create?.getAttribute("href")).toBe(
       `/project/new?client=${encodeURIComponent("Acme & Co")}`
     );
-    const focus = document.querySelector<HTMLAnchorElement>("[data-client-focus]");
-    expect(focus?.getAttribute("href")).toBe("/projects?layout=board&group=client&client=acme");
+    expect(document.querySelector("[data-client-focus]")).toBeNull();
   });
 
-  it("lane presentation renders stacked client mini-boards with auto-expanded lanes and natural-height columns", async () => {
+  it("lane presentation renders the standard stage-column board once per auto-expanded client", async () => {
     __setPaginatedRows("dashboard:listCompanies", [
       companyRow("acme", "Acme Labs", 1, { drafting: 1 }),
       companyRow("borealis", "Borealis Mining", 1, { intake: 1 }),
@@ -192,18 +192,40 @@ describe("ProjectsClientGroups", () => {
       () => document.querySelectorAll('[data-client-group-presentation="lane"]').length
     ).toBe(2);
     await expect.poll(() => groupHeaders()[0]?.getAttribute("aria-expanded")).toBe("true");
-    // Lane columns: same-tone, no inner vertical scroll (natural height).
+    // Each lane is the REAL board: a per-client horizontal snap region of
+    // same-tone stage columns (identical anatomy to the ungrouped board).
+    const laneBoard = document.querySelector<HTMLElement>(
+      '[data-client-group="acme"] [role="region"][aria-label="Acme Labs board. Scroll horizontally to review every workflow stage."]'
+    );
+    expect(laneBoard).not.toBeNull();
+    expect(laneBoard?.className).toContain("scrollbar-hidden");
+    expect(laneBoard?.className).toContain("snap-x");
     const laneColumn = document.querySelector<HTMLElement>(
-      '[data-client-group-presentation="lane"] section[aria-labelledby*="-lane-"]'
+      '[data-client-group="acme"] [data-board-column="drafting"]'
     );
     expect(laneColumn).not.toBeNull();
-    expect(laneColumn?.className).not.toContain("overflow-y-auto");
     expect(laneColumn?.className).toContain("bg-canvas");
-    // Lane body carries the intake creation footer only via visible groups;
-    // the drafting lane column renders the card.
+    // Hide-empty honors each client's own verified counts: Acme shows only
+    // its drafting column.
+    expect(
+      document.querySelectorAll('[data-client-group="acme"] [data-board-column]')
+    ).toHaveLength(1);
+    // The card renders inside its stage column; the column chip carries
+    // stage identity, so no per-card stage badge is added.
     expect(
       document.querySelector('[data-client-group-presentation="lane"] article a')?.textContent
     ).toContain("Drafting claim");
+    expect(
+      document.querySelector('[data-client-group-presentation="lane"] article [data-card-field="stage"]')
+    ).toBeNull();
+    // Redundant header stage-count chips were dropped with the rework.
+    expect(document.querySelector("[data-client-stage-chips]")).toBeNull();
+    // Creation footer carries the client prefill (wizard's own param).
+    expect(
+      document
+        .querySelector<HTMLAnchorElement>('[data-client-group="acme"] [data-add-new-project="drafting"]')
+        ?.getAttribute("href")
+    ).toBe(`/project/new?client=${encodeURIComponent("Acme Labs")}`);
   });
 
   it("provides a collapse/expand-all control and shows the bounded empty state", async () => {
@@ -257,7 +279,7 @@ describe("ProjectsClientGroups", () => {
     expect(__activeQueryCount("dashboard:listCompanyProjectsByStageRank")).toBeLessThanOrEqual(6);
   });
 
-  it("bounds each lane stage column to a 3-card preview with a truthful remainder link into Focus", async () => {
+  it("renders ALL loaded projects in the lane — the 3-card preview and the Focus remainder link are retired", async () => {
     __setPaginatedRows("dashboard:listCompanies", [
       companyRow("acme", "Acme Labs", 5, { drafting: 5 }),
     ]);
@@ -265,25 +287,18 @@ describe("ProjectsClientGroups", () => {
       "dashboard:listCompanyProjectsByStageRank",
       [1, 2, 3, 4, 5].map((n) => projectRow(`p${n}`, `Drafting claim ${n}`, n * 100, "drafting"))
     );
-    render(ProjectsClientGroups, {
-      presentation: "lanes",
-      focusHref: (companyKey: string) => `/projects?layout=board&group=client&client=${companyKey}`,
-    });
+    render(ProjectsClientGroups, { presentation: "lanes" });
 
     await expect.poll(
       () =>
         document.querySelectorAll('[data-client-group-presentation="lane"] article').length
-    ).toBe(3);
-    // 320px governed column width (2026-08-10 owner direction, was 360px).
-    const laneColumn = document.querySelector<HTMLElement>(
-      '[data-client-group-presentation="lane"] section[aria-labelledby*="-lane-"]'
-    );
-    expect(laneColumn?.className).toContain("w-[320px]");
-    expect(laneColumn?.className).not.toContain("overflow-y-auto");
-    // Truthful remainder: exact count minus the preview, linking to Focus.
-    const more = document.querySelector<HTMLAnchorElement>('[data-lane-more="drafting"]');
-    expect(more?.textContent?.trim()).toBe("Show 2 more in Focus");
-    expect(more?.getAttribute("href")).toBe("/projects?layout=board&group=client&client=acme");
+    ).toBe(5);
+    // Never a navigation out of the lane: no Focus remainder link. The
+    // in-place "+N more" control appears only while the server page is
+    // bounded (this stubbed page is exhausted).
+    expect(document.querySelector("[data-lane-more]")).toBeNull();
+    expect(document.querySelector("[data-client-focus]")).toBeNull();
+    expect(document.querySelector("[data-lane-load-more]")).toBeNull();
   });
 
   it("presents the blank-name section as 'No client recorded' and never prefills the em dash", async () => {

@@ -271,6 +271,11 @@ Recorded anatomy (from the authenticated artifact DOM):
   client lane/section headers (both open the creation wizard; the client
   link carries an editable recorded-name prefill). Column drag/rename and
   card drag-and-drop remain not copied.
+> **Superseded 2026-08-12** (see product-domain amendment): Focus mode is
+> removed — lanes render ALL loaded projects as one horizontal snap card
+> row with an in-place "+N more"; the inline hidden-stages disclosure is
+> retired on every surface. The lane/Focus bullets below are historical.
+
 - **Client lanes (`group=client` board mode)** (2026-08-06, second
   amendment; corrected same date post-review): vertical stack of
   collapsible client sections (A–Z, paginated), each an independent
@@ -486,6 +491,33 @@ Waiting on others are intentionally absent from Home. On this Home surface the m
 is confined to numeric values and numeric bound markers; all labels, dates,
 qualifiers, shortcuts, and prose remain the default sans (Geist). Mobile targets remain at least
 44px.
+
+### 2026-08-12 amendment — client lanes render the standard board; Focus and inline hidden-stages disclosures retired
+
+Owner direction (recorded in the product-domain amendment of the same date;
+presentation only). Supersedes the matching clauses of the 2026-08-06
+client-lane anatomy above:
+
+- **Client lanes = the standard stage-column board per client.** Each
+  expanded `group=client` lane renders the shared `ProjectsBoard` (same-tone
+  columns, tinted-shell cards with the client line suppressed, horizontal
+  snap scroll + edge cue, per-column "+ Add new" footers with the client's
+  recorded-name prefill) scoped to that client's rows and verified
+  `stageCounts`. Columns take natural height inside the grouped board's
+  outer vertical scroller. The three-card preview, the "Show N more in
+  Focus" link, the focused single-client board, and the `?client=` board
+  param are retired; a bounded server page ends with an in-place "+N more"
+  load-more.
+- **Inline "N empty stages hidden — Show" disclosures are retired on all
+  surfaces** (stage-first board and client-grouped list): hidden empty
+  stages simply do not render; the Display menu's persisted hide-empty
+  switch is the only reveal control. Truth criteria unchanged.
+- **Section band tightened.** Client band headers keep the gray-50 band
+  grammar with no radius on the band, name at `font-medium`, the count in
+  the `.text-data` role, and the quick-create as a quiet opacity-only text
+  action. The grouping chip reads as a labeled control ("Group" off,
+  faint "Group ·" + ink "Client" on) with bare "None"/"Client" options
+  under the "Group by" heading.
 
 ## Panel motion (2026-08-10)
 

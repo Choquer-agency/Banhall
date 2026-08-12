@@ -13,11 +13,13 @@ import {
 const PREFS_KEY = "banhall.projectsTablePreferences";
 
 /**
- * Client → Status wiring (2026-08-06 second amendment): the grouping is
- * valid on BOTH layouts. List = client sections → status sub-headers;
- * Board = stacked client lanes with a focused single-client board drill-in
- * (`?client=`), folding to the grouped List below `md`. The recorded-name
- * caveat renders on every client-grouped surface.
+ * Client → Status wiring (2026-08-06 second amendment; Focus drill-in
+ * retired 2026-08-12): the grouping is valid on BOTH layouts. List = client
+ * sections → status sub-headers; Board = stacked client lanes (each a
+ * horizontal row of all loaded project cards), folding to the grouped List
+ * below `md`. The recorded-name caveat renders on every client-grouped
+ * surface. The `?client=` board param is retired and ignored;
+ * `/project/new?client=` remains the wizard's own prefill param.
  */
 function flatRow(id: string) {
   return {
@@ -80,8 +82,6 @@ const listRegion = () =>
   document.querySelector<HTMLElement>('[role="region"][aria-label="Projects list"]');
 const boardRegion = () =>
   document.querySelector<HTMLElement>('[role="region"][aria-label^="Projects board."]');
-const focusRegion = () =>
-  document.querySelector<HTMLElement>("[data-client-focus-board]");
 // The grouping control is ui/GhostPopover — a bits-ui Popover (2026-08-10
 // primitive-first direction): chip trigger opening a portaled option list
 // with the Filters-popover panel anatomy.
@@ -161,9 +161,22 @@ describe("ProjectsTableView client-name grouping", () => {
     await expect.poll(
       () => document.querySelectorAll('[data-client-group-presentation="lane"]').length
     ).toBe(1);
-    // Lane header offers the Focus drill-in and client-scoped creation.
-    expect(document.querySelector("[data-client-focus]")).not.toBeNull();
+    // Lane header keeps the client-scoped quick-create; the Focus drill-in
+    // is retired (2026-08-12) and never renders.
     expect(document.querySelector("[data-client-new-project]")).not.toBeNull();
+    expect(document.querySelector("[data-client-focus]")).toBeNull();
+    // Each expanded lane renders the standard stage-column board scoped to
+    // that client (same anatomy as the ungrouped board).
+    await expect.poll(() =>
+      document.querySelector(
+        '[data-client-group-presentation="lane"] [data-board-column="drafting"]'
+      )
+    ).not.toBeNull();
+    // Labeled grouping chip: faint label + ink value while grouping is on.
+    expect(groupTrigger()?.textContent?.replace(/\s+/g, " ").trim()).toBe("Group · Client");
+    // The Display menu stays available (the client hide-empty switch
+    // governs the per-client boards' stage columns).
+    expect(displayTrigger()).not.toBeNull();
   });
 
   it("folds the grouped Board to the grouped List below md — no mobile swimlanes", async () => {
@@ -189,30 +202,14 @@ describe("ProjectsTableView client-name grouping", () => {
     expect(document.querySelector("[data-grouped-board-fold-note]")).toBeNull();
   });
 
-  it("opens the focused single-client board from ?client= with breadcrumb, caveat, and client-prefilled intake footer", async () => {
-    await mountView("/dashboard?layout=board&group=client&client=northline");
+  it("ignores the retired ?client= board param: no focused board, the stored default view renders", async () => {
+    await mountView("/dashboard?layout=board&client=northline");
 
-    await expect.poll(() => focusRegion()).not.toBeNull();
-    expect(groupedBoardRegion()).toBeNull();
-    expect(focusRegion()?.textContent).toContain("Northline Labs");
-    // Breadcrumb back to all clients (drops only the client param).
-    const breadcrumb = document.querySelector<HTMLAnchorElement>("[data-focus-breadcrumb]");
-    expect(breadcrumb?.textContent).toContain("All clients");
-    expect(breadcrumb?.getAttribute("href")).toContain("group=client");
-    expect(breadcrumb?.getAttribute("href")).not.toContain("client=northline");
-    // Recorded-name caveat carries onto the focused surface.
-    expect(focusRegion()?.textContent).toContain(
-      "Grouped by recorded client name as entered on projects."
-    );
-    // Hide-empty ON by default from exact stageCounts: only drafting renders.
-    await expect.poll(
-      () => document.querySelectorAll('section[aria-labelledby^="project-board-"]').length
-    ).toBe(1);
-    // Intake column is hidden here (exact 0) — the creation affordance is
-    // the client-scoped header/lane link semantics; when intake shows, its
-    // footer carries the client prefill (covered by the board suite).
-    // Inline hidden-stages disclosure removed (2026-08-12 owner direction).
-    expect(document.querySelector("[data-hidden-stages-disclosure]")).toBeNull();
+    // The param is inert (retired 2026-08-12): the flat stage-first board
+    // renders and nothing resembling a focused client surface mounts.
+    await expect.poll(() => boardRegion()).not.toBeNull();
+    expect(document.querySelector("[data-client-focus-board]")).toBeNull();
+    expect(document.querySelector("[data-focus-breadcrumb]")).toBeNull();
   });
 
   it("offers the grouping control on the Board toolbar and the client hide-empty switch when grouped", async () => {
@@ -270,66 +267,6 @@ describe("ProjectsTableView client-name grouping", () => {
     expect(JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}").hideEmptyClientGroups).toBeUndefined();
   });
 
-  it("keeps the client hide-empty control present (honestly stated) in focus mode", async () => {
-    await mountView("/dashboard?layout=board&group=client&client=northline");
-    await expect.poll(() => focusRegion()).not.toBeNull();
-    // Focus mode no longer hides the option irrecoverably: it stays in the
-    // display menu, live because this client has verified counts.
-    await openDisplayMenu();
-    await expect.poll(() =>
-      document.querySelector('[data-hide-empty-switch="client"]')
-    ).not.toBeNull();
-    await expect.poll(() =>
-      document.querySelector('[data-hide-empty-switch-disabled="true"]')
-    ).toBeNull();
-  });
-
-  it("renders the focused board from a bare ?client= deep link instead of staying inert", async () => {
-    await mountView("/dashboard?client=northline");
-    await expect.poll(() => focusRegion()).not.toBeNull();
-    expect(focusRegion()?.textContent).toContain("Northline Labs");
-  });
-
-  it("gives the mobile focused board an explicit Stage N of M indicator and an accessible stage selector", async () => {
-    __setPageUrl("/dashboard?layout=board&group=client&client=northline");
-    seedQueries();
-    // Un-backfilled company: nothing hides, so all ten canonical stages
-    // render and the selector navigates the full track.
-    __setQueryData("dashboard:getCompany", {
-      companyKey: "northline",
-      clientName: "Northline Labs",
-      projectCount: 3,
-      updatedAt: 1,
-    });
-    await browserPage.viewport(390, 844);
-    const screen = await render(ProjectsTableView, {});
-    screen.container.style.cssText = "display:flex;flex-direction:column;height:700px;overflow:hidden;";
-
-    await expect.poll(() => focusRegion()).not.toBeNull();
-    await expect.poll(
-      () => document.querySelectorAll("[data-board-column]").length
-    ).toBe(10);
-    const nav = document.querySelector<HTMLElement>("[data-focus-stage-nav]");
-    expect(nav).not.toBeNull();
-    // Mobile-only presentation nav (the desktop board scrolls freely).
-    expect(nav?.className).toContain("md:hidden");
-    await expect.poll(() =>
-      document.querySelector("[data-focus-stage-indicator]")?.textContent?.trim()
-    ).toBe("Stage 1 of 10");
-    const select = document.querySelector<HTMLSelectElement>("[data-focus-stage-select]");
-    expect(select).not.toBeNull();
-    expect(select!.options).toHaveLength(10);
-    // Selecting a stage scrolls/focuses that column — pure presentation, no
-    // mutation (nothing here calls the server).
-    select!.value = "3";
-    select!.dispatchEvent(new Event("change", { bubbles: true }));
-    await expect.poll(() =>
-      document.querySelector("[data-focus-stage-indicator]")?.textContent?.trim()
-    ).toBe("Stage 4 of 10");
-    const fourth = document.querySelectorAll<HTMLElement>("[data-board-column]")[3];
-    await expect.poll(() => document.activeElement).toBe(fourth.querySelector("header"));
-  });
-
   it("offers the board hide-empty switch on the flat stage-first board, default ON, URL-backed", async () => {
     await mountView("/dashboard?layout=board");
     await expect.poll(() => boardRegion()).not.toBeNull();
@@ -379,10 +316,14 @@ describe("ProjectsTableView client-name grouping", () => {
     await expect.poll(() => groupedListRegion()).not.toBeNull();
 
     expect(groupTrigger()).not.toBeNull();
-    await chooseGroupOption("No grouping");
+    // Labeled-control chip while grouped, panel options are the bare values.
+    expect(groupTrigger()?.textContent?.replace(/\s+/g, " ").trim()).toBe("Group · Client");
+    await chooseGroupOption("None");
 
     await expect.poll(() => listRegion()).not.toBeNull();
     expect(groupedListRegion()).toBeNull();
     expect(JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}").group).toBe("none");
+    // Off state: the chip reads as the bare control label.
+    expect(groupTrigger()?.textContent?.replace(/\s+/g, " ").trim()).toBe("Group");
   });
 });

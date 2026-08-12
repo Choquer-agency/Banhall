@@ -9,11 +9,13 @@
   //
   // Presentations:
   // - "list": collapsed client sections with status sub-headers (L1).
-  // - "lanes": stacked client lanes (each an independent horizontal row of
-  //   stage mini-columns), the grouped Board mode. The first
-  //   AUTO_EXPAND_LANES lanes auto-expand; the rest stay collapsed header
-  //   rows with ZERO subscriptions until expanded (open ? args : "skip").
-  //   One outer vertical scroller owns the page in this mode.
+  // - "lanes": stacked client lanes, each rendering the STANDARD
+  //   stage-column board (ProjectsBoard) scoped to that client — the Focus
+  //   drill-in and per-lane preview caps were retired 2026-08-12 — the
+  //   grouped Board mode. The first AUTO_EXPAND_LANES lanes auto-expand;
+  //   the rest stay collapsed header rows with ZERO subscriptions until
+  //   expanded (open ? args : "skip"). One outer vertical scroller owns the
+  //   page in this mode (lane columns take natural height).
   //
   // Subscription budget (H1 correction 2026-08-06): at most
   // MAX_EXPANDED_SECTIONS sections hold a live per-section query at once —
@@ -57,14 +59,11 @@
   let {
     presentation = "list",
     hideEmpty = true,
-    focusHref = null,
     countsAvailable = $bindable(false),
   }: {
     presentation?: "list" | "lanes";
     /** Client-surface hide-empty preference (exact stageCounts criterion). */
     hideEmpty?: boolean;
-    /** Builds the focused-client board URL for a companyKey, when offered. */
-    focusHref?: ((companyKey: string) => string) | null;
     /**
      * Bindable: true once at least one loaded client has VERIFIED exact
      * stageCounts. The toolbar uses it to disable the hide-empty control
@@ -208,7 +207,6 @@
           presentation={presentation === "lanes" ? "lane" : "list"}
           open={expanded.includes(company.companyKey)}
           onToggle={() => toggleGroup(company.companyKey)}
-          focusHref={focusHref ? focusHref(company.companyKey) : null}
         />
       {/each}
     </div>

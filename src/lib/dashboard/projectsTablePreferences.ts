@@ -10,13 +10,13 @@ export type ProjectColumnId = (typeof PROJECT_COLUMN_IDS)[number];
 export type ProjectTableDensity = "comfortable" | "compact";
 export type ProjectLayoutMode = "board" | "list";
 /**
- * Client → Status grouping projection (2026-08-06 second amendment): valid
- * on BOTH layouts. "client" groups the List into client sections with status
- * sub-headers and the Board into stacked client lanes with a focused
- * single-client drill-in, via the server projections
- * (dashboard.listCompanies / listCompanyProjectsByStageRank — index-backed,
- * paginated). It is a display grouping of free-text client names, never
- * durable Client identity.
+ * Client → Status grouping projection (2026-08-06 second amendment; Focus
+ * drill-in retired 2026-08-12): valid on BOTH layouts. "client" groups the
+ * List into client sections with status sub-headers and the Board into
+ * stacked client lanes (each a horizontal row of all loaded project cards),
+ * via the server projections (dashboard.listCompanies /
+ * listCompanyProjectsByStageRank — index-backed, paginated). It is a display
+ * grouping of free-text client names, never durable Client identity.
  */
 export type ProjectGroupMode = "none" | "client";
 
@@ -137,22 +137,10 @@ export function withHideEmptyParam(url: URL, hideEmpty: boolean | null) {
   return next;
 }
 
-/**
- * Focused-client board param (`?client=<companyKey>`): a recorded-client-name
- * projection key, never a durable Client id. Fail-closed to "no focus" on
- * empty values.
- */
-export function parseClientFocusParam(raw: string | null): string | null {
-  const value = raw?.trim();
-  return value ? value : null;
-}
-
-export function withClientFocusParam(url: URL, companyKey: string | null) {
-  const next = new URL(url);
-  if (companyKey === null) next.searchParams.delete("client");
-  else next.searchParams.set("client", companyKey);
-  return next;
-}
+// The `?client=` board param (focused single-client drill-in) was retired on
+// 2026-08-12 (owner direction): client lanes now show all loaded projects, so
+// the parameter is ignored on /projects. The `/project/new?client=` wizard
+// prefill is a separate, unrelated param and remains supported.
 
 export function serializeProjectsTablePreferences(preferences: ProjectsTablePreferences) {
   return JSON.stringify(preferences);

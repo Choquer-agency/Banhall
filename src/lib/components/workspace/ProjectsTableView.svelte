@@ -22,19 +22,16 @@
   import GhostPopover from "$lib/components/ui/GhostPopover.svelte";
   import BoardFiltersPopover from "$lib/components/workspace/BoardFiltersPopover.svelte";
   import ProjectsDisplayMenu from "$lib/components/workspace/ProjectsDisplayMenu.svelte";
-  import ProjectsClientFocusBoard from "$lib/components/workspace/ProjectsClientFocusBoard.svelte";
   import ProjectsClientGroups from "$lib/components/workspace/ProjectsClientGroups.svelte";
   import ProjectsTable from "$lib/components/workspace/ProjectsTable.svelte";
   import { toProjectsTableRow } from "$lib/workspace/projectRowMapping";
   import { searchShortcutHint } from "$lib/workspace/searchContinuity";
   import {
-    parseClientFocusParam,
     parseHideEmptyParam,
     parseProjectGroupParam,
     parseProjectLayoutParam,
     parseProjectsTablePreferences,
     serializeProjectsTablePreferences,
-    withClientFocusParam,
     withHideEmptyParam,
     withProjectGroupParam,
     withProjectLayoutParam,
@@ -142,9 +139,9 @@
   // contract as `?layout`.
   const urlHideEmpty = $derived(parseHideEmptyParam(page.url.searchParams.get("hideEmpty")));
   let lastAppliedUrlHideEmpty: boolean | null = null;
-  // Focused-client board state is pure URL state (shareable, back/forward
-  // native) — never a stored preference.
-  const clientFocusKey = $derived(parseClientFocusParam(page.url.searchParams.get("client")));
+  // The `?client=` focused-board param was retired 2026-08-12 (owner
+  // direction): lanes show all loaded projects, so the param is ignored
+  // here. `/project/new?client=` remains the wizard's own prefill param.
   // Grouped board folds to the grouped List below `md` (no mobile swimlanes).
   let mdUp = $state(true);
   $effect(() => {
@@ -251,37 +248,20 @@
     return () => window.removeEventListener("keydown", handleShortcut);
   });
 
-  // Client → Status grouping (2026-08-06 second amendment): valid on BOTH
-  // layouts, search-off, server-backed through ProjectsClientGroups /
-  // ProjectsClientFocusBoard. List = client sections with status
-  // sub-headers; Board = stacked client lanes with a focused single-client
-  // board drill-in (`?client=`), folding to the grouped List below `md`.
-  //
-  // `?client=` implies the grouped-board focus state on its own (2026-08-06
-  // correction): a hand-typed /projects?client=… must never be silently
-  // inert, so the focus param wins over the stored layout/group preference
-  // for as long as it is present (URL wins — same doctrine as ?layout).
-  const effectiveGroup = $derived(clientFocusKey !== null ? "client" : preferences.group);
+  // Client → Status grouping (2026-08-06 second amendment; Focus drill-in
+  // retired 2026-08-12): valid on BOTH layouts, search-off, server-backed
+  // through ProjectsClientGroups. List = client sections with status
+  // sub-headers; Board = stacked client lanes, each rendering the standard
+  // stage-column board scoped to that client, folding to the grouped List
+  // below `md`.
+  const effectiveGroup = $derived(preferences.group);
   const grouped = $derived(effectiveGroup === "client" && !q);
-  const focusActive = $derived(grouped && clientFocusKey !== null);
+  /** Desktop grouped Board renders the stacked per-client boards. */
+  const groupedLanes = $derived(grouped && preferences.layout === "board" && mdUp);
   // Availability of VERIFIED exact per-client stageCounts on the currently
   // mounted client surface — drives the honest disabled state of the
   // client hide-empty control (pre-backfill it cannot take effect).
   let clientCountsAvailable = $state(false);
-
-  // Focused-client board URL for a lane/section header (sets the board
-  // layout, preserves the rest of the URL).
-  function focusHref(companyKey: string): string {
-    const url = withClientFocusParam(
-      withProjectGroupParam(withProjectLayoutParam(page.url, "board"), "client"),
-      companyKey
-    );
-    return `${url.pathname}${url.search}`;
-  }
-  const allClientsHref = $derived.by(() => {
-    const url = withClientFocusParam(page.url, null);
-    return `${url.pathname}${url.search}`;
-  });
 
   const facetsQ = useQuery(api.dashboard.getFacets, () => (auth.isAuthenticated ? {} : "skip"));
 
@@ -376,11 +356,7 @@
     }
     // Same in-flight guard + stay-on-route navigation as setLayout below.
     lastAppliedUrlGroup = group;
-    // Leaving the grouping also leaves any focused-client drill-in.
-    const url = withClientFocusParam(
-      withProjectGroupParam(page.url, group),
-      group === "client" ? clientFocusKey : null
-    );
+    const url = withProjectGroupParam(page.url, group);
     goto(`${url.pathname}${url.search}`, {
       replaceState: true,
       noScroll: true,
@@ -461,18 +437,29 @@
         {#if !q}
           <!-- Grouping lives in the right control cluster (owner direction,
                2026-08-10); align="end" opens the panel leftward so it stays
-               on-screen next to the viewport edge. -->
+               on-screen next to the viewport edge. The chip reads as a
+               labeled control (2026-08-12): "Group" when off, faint
+               "Group ·" + ink "Client" when active; panel options are the
+               bare values under the "Group by" heading. -->
           <GhostPopover
             value={effectiveGroup}
             onValueChange={(next) => setGroup(next === "client" ? "client" : "none")}
             items={[
-              { value: "none", label: "No grouping" },
-              { value: "client", label: "Group by client name" },
+              { value: "none", label: "None" },
+              { value: "client", label: "Client" },
             ]}
             ariaLabel="Group projects"
             label="Group by"
             align="end"
-          />
+          >
+            {#snippet chip()}
+              {#if effectiveGroup === "client"}
+                <span class="truncate"><span class="text-ink-faint">Group ·</span> <span class="text-ink">Client</span></span>
+              {:else}
+                <span class="truncate">Group</span>
+              {/if}
+            {/snippet}
+          </GhostPopover>
         {/if}
         <!-- Obvious filter anatomy + placement: Filters lives in the right
              control cluster; chips render in the row below the toolbar. -->
@@ -585,21 +572,13 @@
          loading/error/empty states, pagination, exact qualifier copy, and
          interim backfill notice. Counts stay truthful (recorded-projection
          totals; exact per-client stageCounts once backfilled). -->
-    {#if focusActive && clientFocusKey}
-      <ProjectsClientFocusBoard
-        companyKey={clientFocusKey}
-        hideEmpty={preferences.hideEmptyClientGroups}
-        onShowEmpty={() => setHideEmptyClientGroups(false)}
-        {allClientsHref}
-        bind:countsAvailable={clientCountsAvailable}
-      />
-    {:else if preferences.layout === "board" && mdUp}
-      <!-- Stacked client lanes (desktop grouped board). Below `md` this
-           mode folds to the grouped List — no mobile swimlanes. -->
+    {#if groupedLanes}
+      <!-- Stacked client lanes (desktop grouped board): the standard
+           stage-column board rendered once per client. Below `md` this mode
+           folds to the grouped List — no mobile swimlanes. -->
       <ProjectsClientGroups
         presentation="lanes"
         hideEmpty={preferences.hideEmptyClientGroups}
-        {focusHref}
         bind:countsAvailable={clientCountsAvailable}
       />
     {:else}
@@ -615,7 +594,6 @@
       <ProjectsClientGroups
         presentation="list"
         hideEmpty={preferences.hideEmptyClientGroups}
-        {focusHref}
         bind:countsAvailable={clientCountsAvailable}
       />
     {/if}
@@ -678,8 +656,6 @@
         stageCounts={boardStageCounts}
         countsApproximate={boardCountsApproximate}
         hideEmpty={preferences.hideEmptyBoard}
-        hiddenQualifier={facetsQ.data?.truncated ? "counts limited to most recent 1,000" : null}
-        onShowEmpty={() => setHideEmptyBoard(false)}
       />
     {:else}
       <ProjectsTable {rows} columns={preferences.columns} density={preferences.density} />
