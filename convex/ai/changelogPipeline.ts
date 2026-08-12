@@ -21,9 +21,13 @@ const SUMMARY_MODEL =
   CANDIDATE_MODELS[0].id;
 
 /** First balanced JSON object in a string, or null. */
-function extractJson(
-  text: string
-): { title?: string; kind?: string; body?: string } | null {
+function extractJson(text: string): {
+  title?: string;
+  kind?: string;
+  body?: string;
+  summary?: string;
+  sections?: { new?: string[]; improved?: string[]; fixed?: string[] };
+} | null {
   const start = text.indexOf("{");
   if (start === -1) return null;
   let depth = 0;
@@ -55,18 +59,25 @@ function extractJson(
   return null;
 }
 
+// Structure contract lives in docs/changelog-guidelines.md (2026-08-12):
+// standard categorized sections (New / Improved / Fixed), combined bullets,
+// kind derived from the sections.
 const SYSTEM = `You write release notes for Banhall, an internal tool that turns SR&ED interview transcripts into CRA-ready project description reports. Your readers are SR&ED consultants and writers — smart, busy, NOT programmers.
 
-You receive one day's git commit messages. Produce:
-1. "title": a short headline for the day (max 70 chars, no dates, no jargon — e.g. "Excel uploads and a faster project setup").
-2. "kind": "feature" if the day is mostly new capabilities, "fix" if mostly bug fixes, "mixed" otherwise.
-3. "body": markdown. One or two plain-language sentences on what the day's work means for writers, then a bullet list of the individual changes.
+You receive one day's git commit messages. Produce a JSON object:
+1. "title": a short headline for the day (max 70 chars, no dates, no jargon — e.g. "Excel uploads and a faster project setup"). Lead with the most writer-visible change.
+2. "summary": one or two plain-language sentences on what the day's work means for writers.
+3. "sections": {"new": string[], "improved": string[], "fixed": string[]} — the standard changelog categories:
+   - "new": capabilities that did not exist before.
+   - "improved": existing behavior that got better (design, speed, clarity, workflow smoothness).
+   - "fixed": things that were broken and now work.
+   Use empty arrays for categories with nothing to report.
 
-Rules for the body:
+Rules for every bullet:
 - Translate, don't transcribe. "Harden bulk uploads: cap extracted text" becomes "Large document uploads no longer get stuck — oversized files are trimmed automatically and one bad file won't sink the project."
 - Every bullet describes an effect a writer can see or feel, never the implementation. No file names, function names, schema/table names, model IDs, branch names, or acronyms like SDK/API/UI unless writers use them daily (PD, QA, CRA are fine).
-- Skip commits that have zero writer-visible effect (refactors, test-only changes, tooling, debug helpers) — fold them into a single "Behind-the-scenes reliability work" bullet at most.
-- Group related commits into one bullet.
+- COMBINE: multiple commits serving one change become ONE bullet. Ten polish commits are one "looks cleaner and reads more consistently" bullet, not ten.
+- Skip commits with zero writer-visible effect (refactors, test-only changes, tooling, debug helpers) — at most fold them into a single "Behind-the-scenes reliability work" bullet at the END of "improved".
 - Never invent changes that aren't in the commits.`;
 
 export const publishDay = internalAction({
@@ -105,7 +116,7 @@ export const publishDay = internalAction({
       messages: [
         {
           role: "user",
-          content: `Commits for ${args.workDay}:\n\n${log}\n\nRespond with ONLY a JSON object: {"title": string, "kind": "feature"|"fix"|"mixed", "body": string}`,
+          content: `Commits for ${args.workDay}:\n\n${log}\n\nRespond with ONLY a JSON object: {"title": string, "summary": string, "sections": {"new": string[], "improved": string[], "fixed": string[]}}`,
         },
       ],
     });
@@ -116,13 +127,36 @@ export const publishDay = internalAction({
     // make the model decline — fall back to a plain listing rather than fail.
     const parsed = extractJson(text);
     const title = parsed?.title?.trim() || `Updates for ${args.workDay}`;
+    // Assemble the standard sectioned body (docs/changelog-guidelines.md):
+    // summary, then ### New / ### Improved / ### Fixed — empty sections
+    // are omitted, never rendered as bare headings.
+    const clean = (items?: string[]) =>
+      (items ?? []).map((i) => String(i).trim()).filter(Boolean);
+    const sections: [string, string[]][] = [
+      ["New", clean(parsed?.sections?.new)],
+      ["Improved", clean(parsed?.sections?.improved)],
+      ["Fixed", clean(parsed?.sections?.fixed)],
+    ];
+    const sectionMd = sections
+      .filter(([, items]) => items.length > 0)
+      .map(([label, items]) => `### ${label}\n${items.map((i) => `- ${i}`).join("\n")}`)
+      .join("\n\n");
+    const summary = parsed?.summary?.trim() ?? "";
     const body =
+      [summary, sectionMd].filter(Boolean).join("\n\n") ||
       parsed?.body?.trim() ||
       args.commits.map((c) => `- ${c.subject}`).join("\n");
-    const kind =
-      parsed?.kind === "feature" || parsed?.kind === "fix"
-        ? parsed.kind
-        : "mixed";
+    // Kind derives from the sections (guidelines): feature = new without
+    // fixes, fix = fixes without new, mixed otherwise or on fallback.
+    const hasNew = sections[0][1].length > 0;
+    const hasFixed = sections[2][1].length > 0;
+    const kind = sectionMd
+      ? hasNew && !hasFixed
+        ? ("feature" as const)
+        : hasFixed && !hasNew
+          ? ("fix" as const)
+          : ("mixed" as const)
+      : ("mixed" as const);
 
     // End of the work day, clamped to now — an entry must never be stamped in
     // the future (it would out-run readers' markSeen watermarks and pin the
