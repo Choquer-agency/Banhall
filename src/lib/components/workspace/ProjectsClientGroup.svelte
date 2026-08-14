@@ -37,6 +37,7 @@
     DASHBOARD_PROJECT_PAGE_SIZE,
     DASHBOARD_UNNAMED_COMPANY_KEY,
   } from "../../../../shared/dashboardProjection";
+  import { WORKFLOW_STAGE_PIPELINE_ORDER } from "../../../../shared/workflowStages";
   import Disclosure from "$lib/components/ui/Disclosure.svelte";
   import DisclosureChevron from "$lib/components/ui/DisclosureChevron.svelte";
   import StageBadge from "$lib/components/ui/StageBadge.svelte";
@@ -114,6 +115,25 @@
   const showLoading = $derived(open && !projectsQ.error && projectsQ.status === "LoadingFirstPage");
   // H3 consumer defense: only an internally consistent record is exact.
   const usableStageCounts = $derived(verifiedStageCounts(stageCounts, projectCount));
+  // Attio-inspired repository summary: the collapsed client row still
+  // communicates where its work sits in the pipeline without opening a
+  // per-client subscription. These counts come exclusively from the
+  // already-projected, transactionally maintained stageCounts record.
+  const stageSummary = $derived.by(() => {
+    if (!usableStageCounts) return [];
+    return WORKFLOW_STAGE_PIPELINE_ORDER
+      .map((stage) => ({ stage, count: usableStageCounts[stage] ?? 0 }))
+      .filter((item) => item.count > 0)
+      .slice(0, 3);
+  });
+  const remainingStageCount = $derived.by(() => {
+    if (!usableStageCounts) return 0;
+    return Math.max(
+      0,
+      WORKFLOW_STAGE_PIPELINE_ORDER.filter((stage) => (usableStageCounts[stage] ?? 0) > 0)
+        .length - stageSummary.length
+    );
+  });
   const stageView = $derived(
     visibleStageGroups(
       groupRowsByStageRank(effectiveRows, effectiveExhausted),
@@ -164,42 +184,64 @@
   data-client-group={companyKey}
   data-client-group-presentation={presentation}
   aria-labelledby={`${disclosureId}-heading`}
-  class="border-b border-line-soft"
+  class="border-b border-workspace-rail-line"
 >
   <!-- Below `sm` the header is a two-row grid so the client name wins the
        full first line (live QA 2026-08-07); the quick-create link moves to a
        second action row (standard stacked-toolbar affordance, 44px targets,
        exact labels/hrefs unchanged). From `sm` up `sm:contents` dissolves
        the action wrapper and the header stays the efficient single row. -->
-  <div class="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center bg-gray-50 pr-1 sm:flex sm:min-h-11 sm:gap-2">
-    <h3 id={`${disclosureId}-heading`} class="m-0 min-w-0 sm:flex-1">
+  <div
+    class={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-center pr-1 transition-colors motion-reduce:transition-none ${open ? "bg-primary-wash/70" : "bg-workspace-rail hover:bg-workspace-rail-hover"} sm:h-10 sm:grid-cols-[minmax(13rem,1fr)_6rem_minmax(18rem,1.15fr)_7rem_2.25rem] sm:gap-0`}
+  >
+    <h3 id={`${disclosureId}-heading`} class="m-0 min-w-0 sm:col-span-3">
       <button
         type="button"
         onclick={onToggle}
         aria-expanded={open}
         aria-controls={disclosureId}
-        class="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
+        class="grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy sm:min-h-10 sm:grid-cols-[minmax(13rem,1fr)_6rem_minmax(18rem,1.15fr)]"
       >
-        <span class="text-label shrink-0" aria-hidden="true">Client</span>
-        <span class={`truncate text-sm font-medium ${open ? "text-primary-selected" : "text-ink"}`}>{displayName}</span>
-        <span data-client-group-count class="text-data shrink-0 text-ink-muted">{projectCount}<span class="sr-only">{projectCount === 1 ? " project" : " projects"}</span></span>
+        <span class="flex min-w-0 items-center gap-2.5">
+          <span
+            aria-hidden="true"
+            class={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-[0.6875rem] font-semibold uppercase ${open ? "border-primary/30 bg-surface text-primary-selected" : "border-line bg-surface text-ink-muted"}`}
+          >{displayName.slice(0, 1) || "–"}</span>
+          <span class={`truncate text-[0.8125rem] font-medium ${open ? "text-primary-selected" : "text-ink"}`}>{displayName}</span>
+        </span>
+        <span data-client-group-count class="text-data shrink-0 text-ink-muted sm:pl-2">{projectCount}<span class="sr-only">{projectCount === 1 ? " project" : " projects"}</span></span>
+        <span class="hidden min-w-0 items-center gap-1.5 overflow-hidden sm:flex">
+          {#if stageSummary.length > 0}
+            {#each stageSummary as item (item.stage)}
+              <span class="inline-flex shrink-0 items-center gap-1">
+                <StageBadge stage={item.stage} dot shape="square" />
+                <span class="text-data text-ink-muted">{item.count}</span>
+              </span>
+            {/each}
+            {#if remainingStageCount > 0}
+              <span class="shrink-0 text-xs text-ink-muted">+{remainingStageCount}</span>
+            {/if}
+          {:else}
+            <span class="text-xs text-ink-faint">Stage counts pending</span>
+          {/if}
+        </span>
       </button>
     </h3>
     <!-- Decorative state chevron (rule 7: right edge, down → up when open);
          the section heading button is the real disclosure control. -->
-    <span class="flex h-11 w-8 shrink-0 items-center justify-center sm:order-last" aria-hidden="true">
+    <span class="flex h-11 w-8 shrink-0 items-center justify-center sm:col-start-5 sm:h-10" aria-hidden="true">
       <DisclosureChevron {open} />
     </span>
     <!-- Client-scoped creation stays reachable at every viewport (390px
          included — live QA 2026-08-06): compact "+ New" label below sm,
          full label from sm up, 44px target either way. Quiet text action:
          opacity-only hover, no wash fill (2026-08-12 taste pass). -->
-    <div class="col-span-2 flex items-center gap-2 pb-0.5 pl-1 sm:contents">
+    <div class="col-span-2 flex items-center gap-2 pb-0.5 pl-1 sm:col-span-1 sm:col-start-4 sm:row-start-1 sm:block sm:p-0">
       <a
         data-client-new-project
         href={newProjectHref}
         aria-label={unnamed ? "New project" : `New project — ${displayName}`}
-        class="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center px-2 text-xs font-medium text-ink opacity-70 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
+        class="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center px-2 text-xs font-medium text-ink opacity-70 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:min-h-10 sm:w-full"
       ><span class="sm:hidden">+ New</span><span class="hidden sm:inline">+ New project</span></a>
     </div>
   </div>
@@ -267,7 +309,7 @@
         <div class="px-1.5 py-1.5">
           {#each stageView.groups as group (group.id)}
             <div data-stage-subgroup={group.id} class="mt-1 first:mt-0">
-              <h4 class="flex min-h-8 items-center gap-2 px-2">
+              <h4 class="flex min-h-8 items-center gap-2 border-y border-line-soft bg-gray-50 px-3 first:border-t-0">
                 {#if group.id === "legacy"}
                   <LegacyStatusBadge />
                 {:else}
@@ -280,22 +322,22 @@
               {#if group.rows.length > 0}
                 <ul role="list" class="flex flex-col">
                   {#each group.rows as project (project._id)}
-                    <li class="rounded-lg transition-colors hover:bg-primary-wash focus-within:bg-primary-wash motion-reduce:transition-none">
-                      <div class="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1">
+                    <li class="border-b border-line-soft last:border-b-0 transition-colors hover:bg-primary-wash focus-within:bg-primary-wash motion-reduce:transition-none">
+                      <div class="grid min-h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-3 py-1 sm:min-h-9 sm:grid-cols-[minmax(14rem,1fr)_10rem_7rem]">
                         <a
                           href={resolve("/project/[id]", { id: project._id })}
                           data-recent-title={project.title}
                           data-recent-stage={project.workflowStage ?? undefined}
                           data-recent-client={unnamed ? undefined : clientName}
-                          class="min-w-0 flex-1 basis-40 truncate text-sm font-medium text-ink hover:text-primary-selected focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
+                          class="min-w-0 truncate text-sm font-medium text-ink hover:text-primary-selected focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
                         >{project.title}</a>
                         {#if project.fiscalYearEnd}
                           <span class="hidden shrink-0 text-xs text-ink-muted sm:inline">FY {new Date(project.fiscalYearEnd).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}</span>
                         {/if}
                         {#if !project.workflowStage}
-                          <span data-legacy-status-qualifier class="text-xs text-ink-muted">{project.status} · Legacy status</span>
+                          <span data-legacy-status-qualifier class="col-start-1 text-xs text-ink-muted sm:col-start-auto">{project.status} · Legacy status</span>
                         {/if}
-                        <span class="ml-auto shrink-0 text-xs text-ink-muted">{new Date(project.updatedAt).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}</span>
+                        <span class="shrink-0 justify-self-end text-xs text-ink-muted sm:col-start-3">{new Date(project.updatedAt).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}</span>
                       </div>
                     </li>
                   {/each}

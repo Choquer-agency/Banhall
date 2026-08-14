@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import {
   capContent,
+  normalizeExtractedText,
   getFileExtension,
   isImageFile,
   isSupportedFile,
@@ -125,5 +126,27 @@ describe("truncation is detectable by status derivation", () => {
     expect(
       deriveProcessingStatus({ fileName: "drawings.pdf", content }).status
     ).toBe("ready_truncated");
+  });
+});
+
+describe("normalizeExtractedText", () => {
+  it("collapses Word-export whitespace: CRLF, trailing spaces, newline runs", () => {
+    const raw = "Section A \r\n\r\n\r\n\r\n200   \n\nProject title\t\n\n\n\n\nBody text";
+    expect(normalizeExtractedText(raw)).toBe(
+      "Section A\n\n200\n\nProject title\n\nBody text"
+    );
+  });
+
+  it("replaces non-breaking spaces and trims the ends", () => {
+    expect(normalizeExtractedText("\n\n a\u00A0b \n\n")).toBe("a b");
+  });
+
+  it("is idempotent", () => {
+    const once = normalizeExtractedText("a\n\n\n\nb  \nc");
+    expect(normalizeExtractedText(once)).toBe(once);
+  });
+
+  it("capContent normalizes every ingestion path", () => {
+    expect(capContent("a\r\n\r\n\r\nb   ")).toBe("a\n\nb");
   });
 });

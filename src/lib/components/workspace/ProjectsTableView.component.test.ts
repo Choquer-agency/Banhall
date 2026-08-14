@@ -79,7 +79,7 @@ describe("ProjectsTableView Board/List switch", () => {
   });
 
   it("renders List immediately when List is clicked while the URL already carries layout=board (live-QA regression)", async () => {
-    await mountView("/dashboard?layout=board");
+    await mountView("/dashboard?layout=board&group=none");
     await expect.poll(() => boardRegion()).not.toBeNull();
     expect(modeButton("board")?.getAttribute("aria-pressed")).toBe("true");
 
@@ -101,7 +101,7 @@ describe("ProjectsTableView Board/List switch", () => {
 
   it("still switches back to Board even if page.url never catches up (worst-case shallow-routing staleness)", async () => {
     __setGotoUpdatesPageUrl(false);
-    await mountView("/dashboard?layout=list");
+    await mountView("/dashboard?layout=list&group=none");
     await expect.poll(() => listRegion()).not.toBeNull();
 
     modeButton("board")?.click();
@@ -113,16 +113,16 @@ describe("ProjectsTableView Board/List switch", () => {
   });
 
   it("applies genuine URL changes and migrates the retired grid param to board", async () => {
-    await mountView("/dashboard?layout=board");
+    await mountView("/dashboard?layout=board&group=none");
     await expect.poll(() => boardRegion()).not.toBeNull();
 
     // External navigation (back/forward) to layout=list applies and persists.
-    __setPageUrl("/dashboard?layout=list");
+    __setPageUrl("/dashboard?layout=list&group=none");
     await expect.poll(() => listRegion()).not.toBeNull();
     expect(storedLayout()).toBe("list");
 
     // The retired `grid` value keeps migrating to board.
-    __setPageUrl("/dashboard?layout=grid");
+    __setPageUrl("/dashboard?layout=grid&group=none");
     await expect.poll(() => boardRegion()).not.toBeNull();
     expect(storedLayout()).toBe("board");
   });
@@ -137,7 +137,7 @@ describe("ProjectsTableView workspace search debounce", () => {
   });
 
   async function mountWithExternalSearch(externalSearch: string) {
-    __setPageUrl("/projects?layout=list");
+    __setPageUrl("/projects?layout=list&group=none");
     seedQueries();
     __setPaginatedRows("dashboard:searchProjects", [flatRow("s1")]);
     await browserPage.viewport(1280, 800);

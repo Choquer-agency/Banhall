@@ -51,6 +51,7 @@
     type WorkflowStage,
   } from "../../../../shared/workflowStages";
   import type { ProjectsTableRow } from "./ProjectsTable.svelte";
+  import { setProjectPagingContext } from "$lib/workspace/projectPagingContext";
 
   let {
     rows,
@@ -184,7 +185,16 @@
         <div class="scrollbar-hidden min-h-0 flex-1 space-y-3 overflow-y-auto p-2 pt-0">
           {#if column.rows.length > 0}
             {#each column.rows as row (row.id)}
-              <ProjectBoardCard {row} showClient={showCardClient} />
+              <ProjectBoardCard
+                {row}
+                showClient={showCardClient}
+                onOpen={() =>
+                  setProjectPagingContext({
+                    ids: column.rows.map((r) => r.id),
+                    label: column.label,
+                    bounded: countsApproximate || column.count > column.rows.length,
+                  })}
+              />
             {/each}
           {/if}
           <!-- Obvious-parity footer on every column. This is navigation, not
@@ -195,7 +205,7 @@
             data-intake-new-project={column.id === "intake" ? "" : undefined}
             href={newProjectHref}
             aria-label={`Add new project${newProjectClientName ? ` for ${newProjectClientName}` : ""}. New projects begin in Intake.`}
-            class="flex min-h-11 items-center gap-1.5 px-2 text-xs font-normal text-ink-muted opacity-70 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
+            class="flex min-h-11 items-center gap-1.5 px-2 text-xs font-medium text-ink-muted opacity-70 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
           >
             <span aria-hidden="true" class="text-sm leading-none">+</span>
             Add new

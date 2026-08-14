@@ -43,9 +43,11 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import MyWorkView from "$lib/components/mywork/MyWorkView.svelte";
+  import ShaderBackground from "$lib/components/ui/ShaderBackground.svelte";
   import ProjectsTableView from "$lib/components/workspace/ProjectsTableView.svelte";
   import WorkspaceHeader from "$lib/components/workspace/WorkspaceHeader.svelte";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
+  import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
   import { resolveDashboardView, type DashboardView } from "$lib/dashboard/viewMode";
   import {
     loadRecentProjects,
@@ -53,8 +55,6 @@
     recordRecentProject,
     type RecentProject,
   } from "$lib/workspace/recentProjects";
-  import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
-  import ShaderBackground from "$lib/components/ui/ShaderBackground.svelte";
   import {
     stashWorkspaceSearch,
     stashWorkspaceSearchFocus,
@@ -119,7 +119,7 @@
   // /my-work presents as Home (2026-08-08 amendment) — the canonical URL,
   // WorkspaceGate, /dashboard compatibility, and query semantics are
   // unchanged; only the presentation label moves.
-  const activeLabel = $derived(displayedView === "my_work" ? "Home" : "Projects");
+  const activeLabel = $derived(displayedView === "all_projects" ? "Projects" : "Home");
   // Truthful count in the heading: exact when facets are exhaustive, `N+`
   // when bounded. My work gets no number until its groups can report one.
   const headerCount = $derived.by(() => {
@@ -183,15 +183,9 @@
     header.focusSearch();
   }
 
-  // Home owns its own ⌘K while the header (and its window handler) is not
-  // mounted — same platform-agnostic Meta/Control acceptance.
-  function handleHomeKeydown(event: KeyboardEvent) {
-    if (displayedView !== "my_work") return;
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-      event.preventDefault();
-      focusSearch();
-    }
-  }
+  // ⌘K is owned by the shell command palette (2026-08-13, Attio-research
+  // P0) on every view, Home included — the earlier Home-only handler that
+  // navigated to Projects search is retired so the two cannot double-fire.
 
   $effect(() => {
     recents = loadRecentProjects();
@@ -233,7 +227,7 @@
 
 </script>
 
-<svelte:window onclickcapture={handleWindowClick} onkeydown={handleHomeKeydown} />
+<svelte:window onclickcapture={handleWindowClick} />
 
 <WorkspaceShell
   kind="dashboard"
@@ -249,23 +243,7 @@
   drawerDescription="Navigate between work, projects, and project creation."
 >
   <div class="relative flex min-h-0 min-w-0 flex-col overflow-hidden">
-    {#if displayedView === "my_work" || displayedView === null}
-      <!-- Chrome-less Home (2026-08-10 amendment, Obvious parity): no
-           in-plane toolbar. The rail carries New project + search; only the
-           shell controls float — the drawer hamburger below 1280px and the
-           rail-restore control while the rail is hidden. Both render
-           nothing on an expanded desktop rail. The pending (null) state
-           shares this branch so a refresh of /my-work never flashes the
-           Projects toolbar before the view resolves. -->
-      <div data-home-floating-controls class="absolute left-3 top-2.5 z-20 flex items-center gap-1">
-        <WorkspaceShellControls
-          tone="light"
-          onOpenNavigation={() => (navigationOpen = true)}
-          {railHidden}
-          onToggleRail={() => (railHidden = !railHidden)}
-        />
-      </div>
-    {:else}
+    {#if displayedView === "all_projects"}
       <WorkspaceHeader
         bind:this={header}
         title={activeLabel}
@@ -275,7 +253,21 @@
         onOpenNavigation={() => (navigationOpen = true)}
         {railHidden}
         onToggleRail={() => (railHidden = !railHidden)}
+        showNewProject={false}
       />
+    {:else}
+      <!-- Home's greeting already supplies the page heading. Keep only the
+           controls that are necessary when the desktop rail is hidden or the
+           mobile drawer is the sole navigation surface — never a duplicate
+           full-width title bar. -->
+      <div data-home-shell-controls class="absolute left-3 top-1 z-20 sm:left-4">
+        <WorkspaceShellControls
+          tone="light"
+          onOpenNavigation={() => (navigationOpen = true)}
+          {railHidden}
+          onToggleRail={() => (railHidden = !railHidden)}
+        />
+      </div>
     {/if}
 
     {#if configQ.error}
@@ -284,39 +276,20 @@
       </p>
     {/if}
 
-    <!-- Home is edge-to-edge (the shader band meets the plane edges); the
-         Projects repository keeps the framed gutters. -->
-    <main
-      class={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${displayedView === "all_projects" ? "px-3 pb-3 pt-3 sm:px-4" : ""}`}
-    >
+    <main class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       {#if displayedView === null}
         <!-- Home-shaped skeleton while the rollout decision loads: a
              refresh of /my-work keeps the chrome-less composition instead
              of flashing a toolbar or a bare spinner. -->
         <div class="min-h-0 flex-1 overflow-hidden" role="status" aria-label="Loading workspace">
-          <div class="mx-auto w-full max-w-[46rem] px-4 pt-24 sm:px-6 sm:pt-32">
+          <div class="mx-auto w-full max-w-[44.75rem] px-4 pt-12 sm:px-6">
             <div class="mx-auto h-9 w-72 max-w-full animate-pulse rounded-lg bg-chrome motion-reduce:animate-none"></div>
             <div class="mx-auto mt-3 h-5 w-48 max-w-full animate-pulse rounded-md bg-chrome/70 motion-reduce:animate-none"></div>
             <div class="mt-8 h-32 animate-pulse rounded-xl border border-line-soft bg-chrome/40 motion-reduce:animate-none"></div>
           </div>
         </div>
       {:else if displayedView === "my_work"}
-        <!-- My Work sits directly on the white plane — no framing card.
-             It keeps its queue layout and scrolls inside the bounded shell.
-             Home content is centered inside a `--container-shell` (72rem)
-             boundary (2026-08-08 Obvious-parity amendment): on ultrawide
-             viewports the composition stays deliberately clustered — like
-             Obvious's ~1200px Home sections — instead of stretching edge to
-             edge. The scroll owner stays full width so the scrollbar keeps
-             the viewport edge; Projects (dense repository/board) is exempt. -->
         <div class="relative min-h-0 flex-1 overflow-y-auto">
-          <!-- "Mesh drift" shader band (21st.dev preset, Banhall light
-               family). Lives on the SCROLL OWNER, sized by the container
-               (inset-x-0) — never w-screen, so classic scrollbars can't
-               cause horizontal overflow or off-center content. The canvas
-               renders oversized (preset-demo aspect) and the band crops a
-               high slice of the field; masked to transparent at the bottom.
-               Reduced motion renders one static frame. -->
           <div
             data-home-start-wash
             class="pointer-events-none absolute inset-x-0 top-0 z-0 h-80 overflow-hidden opacity-40 [mask-image:linear-gradient(to_bottom,black_35%,transparent)] sm:h-[24rem]"
@@ -326,7 +299,7 @@
               <ShaderBackground class="h-full w-full" />
             </div>
           </div>
-          <div data-home-boundary class="relative mx-auto w-full max-w-[var(--container-shell)]">
+          <div data-home-boundary class="relative mx-auto w-full max-w-[44.75rem]">
             <MyWorkView recentProjects={recents} />
           </div>
         </div>

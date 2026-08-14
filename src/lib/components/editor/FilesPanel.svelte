@@ -74,7 +74,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   import { api } from "../../../../convex/_generated/api";
   import { categoryMeta } from "$lib/contextCategories";
   import { userErrorMessage } from "$lib/errors";
-  import { parseFileToText, SUPPORTED_ACCEPT } from "$lib/parseDocument";
+  import { parseFileToText, SUPPORTED_ACCEPT, normalizeExtractedText } from "$lib/parseDocument";
   import { withUploadTimeout } from "$lib/uploads/outboxFlush";
   import Button from "$lib/components/ui/Button.svelte";
   import Disclosure from "$lib/components/ui/Disclosure.svelte";
@@ -797,8 +797,9 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
           {:else if previewContentQ.data === undefined}
             <p class="px-6 py-6 text-sm text-gray-400">Loading…</p>
           {:else}
-            <pre class="whitespace-pre-wrap px-6 py-6 font-sans text-sm leading-relaxed text-gray-700">{previewContentQ
-                .data?.content || "No text content."}</pre>
+            <pre class="whitespace-pre-wrap px-6 py-6 font-sans text-sm leading-relaxed text-gray-700">{previewContentQ.data?.content
+                ? normalizeExtractedText(previewContentQ.data.content)
+                : "No text content."}</pre>
           {/if}
         </div>
       </div>
@@ -833,7 +834,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
           </button>
         </div>
         <div class="flex-1 overflow-auto bg-canvas">
-          <pre class="whitespace-pre-wrap px-6 py-6 font-serif text-sm leading-relaxed text-gray-700">{transcript.content}</pre>
+          <pre class="whitespace-pre-wrap px-6 py-6 font-serif text-sm leading-relaxed text-gray-700">{normalizeExtractedText(transcript.content)}</pre>
         </div>
       </div>
     </div>

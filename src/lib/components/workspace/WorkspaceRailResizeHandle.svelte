@@ -77,9 +77,9 @@
   }
 </script>
 
-<!-- 8px hit target straddling the rail edge; the visible 1px line answers
-     hover/drag/focus with the lagoon accent so the affordance is
-     discoverable without being decoration. -->
+<!-- Obvious-style invisible 8px hit target straddling the rail edge. The
+     aside's structural hairline remains visible; the drag line appears only
+     on hover, focus, or active resize. -->
 <!-- WAI-ARIA window-splitter: a FOCUSABLE `role="separator"` with
      aria-valuenow/min/max IS interactive per the APG (svelte's a11y lint
      doesn't model the focusable-separator variant). -->
@@ -104,6 +104,6 @@
 >
   <span
     aria-hidden="true"
-    class={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors motion-reduce:transition-none ${dragging ? "bg-primary" : "bg-shell-line group-hover:bg-primary/60 group-focus-visible:bg-primary"}`}
+    class={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors motion-reduce:transition-none ${dragging ? "bg-primary" : "bg-transparent group-hover:bg-primary/40 group-focus-visible:bg-primary"}`}
   ></span>
 </div>

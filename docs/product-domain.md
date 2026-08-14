@@ -265,6 +265,68 @@ These decisions provide defaults so implementation does not invent product behav
 
 ## Approved amendments
 
+### 2026-08-14 (third) — rail micro-geometry and Home atmosphere restoration
+
+Presentation-only owner direction from the three annotated Home comments and
+live authenticated Attio inspection. No schema, query, mutation, workflow,
+permission, authorization, route, or storage semantics change.
+
+- The desktop workspace rail may use Attio-measured 8px gutters, 28px rows,
+  48px identity placement, and a transparent 24px collapse target. The
+  collapse glyph may crossfade to a library square-arrow glyph; the full rail
+  still hides/restores through the existing persisted preference contract.
+- Admin remains role-gated and server authorization remains authoritative.
+  Its disclosure and all links retain their destinations and keyboard/ARIA
+  behavior; only spacing, sentence-case hierarchy, and icon rhythm change.
+- Home may restore the previously approved 40%-opacity token-derived shader
+  wash behind intake. It is decorative, pointer-inert, aria-hidden, and adds
+  no query, user data, project data, action, or product meaning.
+- Tests cover shader presence/inertness, rail control wiring, and unchanged
+  canonical Home/Projects links. Approval: the product owner requested these
+  refinements on 2026-08-14.
+
+### 2026-08-14 (second) — authenticated rail calibration and List-first ordering
+
+Presentation-only owner direction from the two browser annotations. No schema,
+query, mutation, workflow, permission, authorization, or storage semantics
+change.
+
+- The desktop workspace rail may adopt the measured Obvious 256px default,
+  retain Attio-style full collapse, and narrow its browser-local resize range
+  to 240-288px. Existing persisted widths clamp fail-closed. Navigation,
+  capabilities, and route availability are unchanged.
+- The rail may remove the redundant `Workspace` label and combine New project
+  plus Search into one compact action row. Home, Projects, utilities, admin
+  gating, and current-dashboard escape remain the same actions.
+- The Projects layout toggle orders List before Board. The already-approved
+  client-grouped List default remains authoritative; explicit URL or stored
+  Board selections remain supported.
+- Tests cover the new rail bounds, List-first toggle order, default List
+  parsing, collapse/resize accessibility, and unchanged route behavior.
+- Approval: the product owner explicitly requested Attio/Obvious-exact sidebar
+  calibration and “list first and default” on 2026-08-14.
+
+### 2026-08-14 — Authenticated Attio/Obvious layout-density pass
+
+Presentation-only owner direction. No schema, query, mutation, workflow,
+permission, authorization, or storage semantics change.
+
+- The client-grouped Projects List may expose verified per-client `stageCounts`
+  in each collapsed row so the repository remains informative without opening
+  a per-client subscription. Missing or divergent counts remain explicitly
+  pending; the six-open-section budget and disclosure query gate are unchanged.
+- Home may render one always-visible `/projects` repository navigation card
+  below intake. Device-local recents remain additive and explicitly qualified;
+  the card does not represent a project, pin, server result, template, or
+  activity feed. `With you` remains Home's only operational subscription.
+- The workspace rail may group Home/Projects under a presentation label and
+  move Settings into the utility region. Route availability and server-side
+  authorization remain unchanged.
+- Tests cover the truthful no-recents repository continuation, stage summaries
+  from verified counts, pending-count treatment, and unchanged disclosure/query
+  gating. Approval: the product owner requested the authenticated Attio and
+  Obvious redesign/rethink pass on 2026-08-14.
+
 ### 2026-08-12 — Client Focus drill-in removed; flat client card lanes; inline hidden-stages disclosure retired
 
 Owner-directed presentation amendment to the client-grouped Projects board.
@@ -773,6 +835,49 @@ This amendment supersedes four clauses of the earlier 2026-08-06 amendment and o
 - **Compatibility and migration:** No data migration is required. Existing projects and work-item history remain unchanged; the mutation continues to fail closed when open work exists.
 - **Authorization and tests:** Existing Stage authority remains unchanged. Workflow tests must cover rejection with open work and success after all work is closed.
 - **Approval:** Product owner confirmed this policy on 2026-07-29 and reconfirmed it during the PSOS-12/13/14 remediation review.
+
+### 2026-08-14 — Attio-informed workspace rail is presentation-only
+
+- **Affected ticket/scope:** PSOS-14 presentation follow-up; no backend ticket.
+- **Decision:** the preview workspace may use the authenticated Attio rail's
+  measured 275px frame, 28px row rhythm, global-search/creation control row,
+  grouped navigation, full-width account footer, and animated full collapse.
+  Every visible destination remains an existing Banhall route or action. The
+  Admin group may mirror Attio's Records presentation with a left disclosure
+  chevron and differentiated icon colours; it remains named Admin and does not
+  introduce a Records domain object.
+- **Domain and authorization impact:** none. Admin links remain role-gated;
+  route-side and server-side authorization remain authoritative. Alerts and
+  changelog badges continue to report their existing bounded queries. Project
+  creation still enters Intake through the existing wizard. No CRM Records,
+  Lists, Chats, trial, or onboarding domain concepts are introduced.
+- **Migration and compatibility:** no schema, data, query, mutation, workflow,
+  or permission change. Rail width/collapse remain browser-local presentation
+  preferences; the mobile drawer retains accessible 44px targets. Existing
+  canonical URLs and `?workspace=current` rollback behavior are unchanged.
+- **Tests:** rail preference clamping/persistence, resize/collapse restoration,
+  route links, Admin disclosure, search palette, and account menu are covered
+  by component and signed-in browser verification.
+- **Approval:** product owner requested the sidebar closely match the signed-in
+  Attio reference on 2026-08-14, with Banhall's honest content and behavior.
+
+### 2026-08-14 — Home chrome and transcript-source selector are presentation-only
+
+- **Affected ticket/scope:** PSOS-14 Home presentation follow-up; no backend
+  ticket.
+- **Decision:** Home omits the redundant title toolbar and presents Paste versus
+  Attach file as mutually exclusive input tabs with Paste selected by default.
+  Mobile navigation and desktop rail restoration remain reachable through an
+  unframed control cluster.
+- **Domain impact:** none. Both modes still populate the same browser-local
+  project-intent handoff and open the existing project wizard. No project is
+  created from Home; creation still occurs in Intake under the existing
+  mutation, ownership, permission, and workflow contracts.
+- **Migration and compatibility:** no schema, data, query, mutation, route, or
+  permission change. `.docx` validation/parsing and pasted transcript handling
+  are unchanged. Switching modes does not persist a new preference.
+- **Approval:** product owner requested removal of Home's header and a clear,
+  Paste-default exclusive source selector on 2026-08-14.
 
 ## Amendment process
 

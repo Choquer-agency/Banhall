@@ -86,10 +86,10 @@ values are legacy — replace on touch.
 ## Light bounded workspace (2026-08-06)
 
 The flagged dashboard workspace (`WorkspaceDashboard` on `/my-work` and
-`/projects`) presents a **pure-white working plane inside a fir-railed,
+`/projects`) presents a **pure-white working plane inside a pale-railed,
 viewport-bounded shell** — redesigned 2026-08-06 off the earlier dark plane
 after the recorded baseline audit (dark canvas + low-alpha surfaces produced
-sparse, tiring hierarchy; the fir rail was never the problem):
+sparse, tiring hierarchy):
 
 - **Plane.** `[data-workspace-theme="light"]` in `layout.css` retints only
   `canvas` to `#FFFFFF` for the subtree; every other token inherits base
@@ -97,10 +97,11 @@ sparse, tiring hierarchy; the fir rail was never the problem):
   texture OUT of the bounded workspace — the workspace is a work surface,
   not a document page. This plane is deliberately whiter than the standard
   Ledger canvas (`#F9FCFB`).
-- **Fir rail/drawer unchanged.** `--color-shell` is theme-independent by
-  construction; every `white/N` class there sits on fir. The navigation
-  drawer and rail-anchored portaled menus keep the dark scope (fir surface,
-  white text); content-anchored menus render as white cards.
+- **Pale product rail.** The workspace rail and drawer use the dedicated
+  `workspace-rail*` tokens: near-white material, neutral hairline, quiet
+  hover, and a low-chroma fir selection wash. Fir remains the wordmark,
+  focus, avatar, and primary-action colour. This 2026-08-13 Attio-informed
+  amendment supersedes the earlier dark-fir workspace rail treatment.
 - **Structure comes from bands + hairlines, not boxes.** Group/section
   headers are full-width `gray-50` bands; rows separate with `line-soft`
   hairlines; recessed controls use `chrome`. No box-in-box framing.
@@ -368,20 +369,24 @@ live Obvious evidence (Chrome control unavailable).
   start-project intake, and optional device-local recents. The Loaded now,
   Next actions, Owned by me, and Waiting on others regions do not render on
   Home, and their subscriptions are not kept live invisibly.
-- **Resizable / hidable workspace rail.** The desktop fir rail resizes by
+- **Resizable / hidable workspace rail.** The desktop pale rail resizes by
   pointer drag and keyboard (`WorkspaceRailResizeHandle`: WAI-ARIA
   window-splitter `role="separator"` with truthful `aria-value*`; arrows ±8,
   Shift ±32, Home/End to min/max; 8px hit target over a visible 1px edge;
   pointer capture, `cursor: col-resize`, `user-select: none`, transitions
   suspended during drag via direct CSS-custom-property writes — no per-move
-  re-render). Bounds 220 / 255 / 360; width + hidden persist via
-  `railPreferences.ts` (fail-closed). Hide/show is a ≥300ms
-  grid-template-columns transition (restrained ease-out, reduced-motion
-  instant). The expanded rail owns its collapse control in the identity row,
-  matching the Obvious placement; once hidden, a restore control appears in
-  the content header so the action remains reachable. Showing restores the
-  prior expanded width; the hidden rail is `inert`. The mobile drawer is
-  independent and unchanged.
+  re-render). Bounds 240 / 256 / 288; width + hidden persist via
+  `railPreferences.ts` (fail-closed). Hide/show pairs a ≥300ms
+  grid-template-columns transition with an equal-distance panel translate:
+  the 256px rail exits intact instead of having its rows squeezed or clipped
+  from the right (restrained ease-out, reduced-motion instant). The expanded
+  rail owns its collapse control in the identity row; once hidden, a restore
+  control appears in the content header so the action remains reachable.
+  Both controls use `AnimatedSidebarToggleIcon`: a real icon-library sidebar
+  glyph crossfades and translates into the directional arrow over 200ms on
+  hover/focus, matching the live Attio interaction without copying its SVG
+  paths. Showing restores the prior expanded width; the hidden rail is
+  `inert`. The mobile drawer is independent and unchanged.
 - **Shared disclosure motion (rule 8 made concrete).** `ui/Disclosure.svelte`
   is the sanctioned animated disclosure body: grid-template-rows 0fr↔1fr
   enter **and** exit ≥300ms (the approved intrinsic-height technique; no
@@ -519,6 +524,213 @@ client-lane anatomy above:
   faint "Group ·" + ink "Client" on) with bare "None"/"Client" options
   under the "Group by" heading.
 
+### 2026-08-13 amendment — Attio-research P0: command palette, externalized query state, ghost/chip grammar
+
+Owner direction (Attio dashboard research, recorded proposal of the same
+date). Presentation and navigation only; no domain semantics change. The
+client-grouped List also became the default Projects view this date
+(`DEFAULT_PROJECTS_TABLE_PREFERENCES`), superseding the 2026-08-05
+board-default.
+
+- **Command palette.** `CommandPalette.svelte`, mounted by `WorkspaceShell`
+  on every shell page: ⌘K/Ctrl K toggles a light Ledger panel (bits-ui
+  Command + Dialog, `popIn`/`popOut`, black/40 scrim) with three sections —
+  Go to (rail canonical hrefs + Settings + role-gated `ADMIN_ROUTES` from
+  `$lib/dashboard/adminRoutes`), Projects (the same bounded
+  `dashboard.searchProjects` subscription the Projects view uses, live only
+  while the palette is open with a settled 250ms-debounced query), and
+  Actions (New project — navigation into the wizard). The rail search
+  button opens the palette; the header search field keeps its inline role
+  and Escape focus-continuity, and its kbd hint now names the palette
+  shortcut. The palette portal renders outside the workspace theme scope,
+  so it is light on both shell themes by construction.
+- **Query state is externalized.** The Projects chips row renders whenever
+  the flat view is active (not only when filters exist): a two-tone
+  "Sorted by · <label>" GhostPopover chip (faint verb, ink value — the
+  Group-chip grammar) precedes the existing filter condition chips and the
+  dashed add-filter square. Sort stays flat-browse-only (search is
+  relevance-ordered, grouped surfaces index-ordered); the Display menu
+  keeps its sort section as the complete settings surface.
+- **Ghost-action grammar (named).** Quiet creation/navigation affordances
+  ("+ Add new" column footers, client-band "+ New project") share one
+  anatomy: text-xs `font-medium`, ink-muted-or-ink text, opacity-70 →
+  opacity-100 hover (no wash fill), ≥44px target, navy focus ring.
+- **Radius tiers (named, already in force):** 4–6px (`rounded-md`) chips
+  and palette/menu options; 8px (`rounded-lg`) inputs and small buttons;
+  12px (`rounded-xl`) cards, panels, popovers; full — pill chips and
+  icon-ghost controls. New surfaces pick a tier, never a novel radius.
+- **Empty-state grammar (named, already in force):** pitch line (medium
+  ink) + one muted subline + at most one CTA; ghost affordances may be the
+  CTA. Contract-mandated absences (empty board columns, Home without
+  recents) stay bodyless.
+
+### 2026-08-13 amendment (second) — Attio-research P1: view presets, list-context paging, "With you" Home band
+
+Owner direction (continuation of the same research proposal). Presentation
+and navigation only, except the Home band, which is a recorded partial
+reversal (below).
+
+- **Named view presets.** Browser-local named snapshots of the Projects
+  display axes + flat filters (`viewPresets.ts`, fail-closed re-parse
+  through the canonical preferences parser, ≤12, case-insensitive names).
+  The "View · <name>" chip (Group-chip two-tone grammar) leads the right
+  control cluster; its panel applies/deletes presets and saves the current
+  view. Applying a preset writes the SAME persisted preferences and URL
+  params as the individual controls — never a new URL surface or server
+  feature. "All projects" is the unnamed baseline.
+- **List-context paging.** Opening a project from a Projects surface
+  stashes the bounded loaded page (ids in view order + label + bounded
+  flag) in `projectPagingContext.ts` (in-memory; survives SPA navigation,
+  honestly dies on reload). The project header shows "N of M[+] in
+  <label>" with size-7 ghost prev/next steppers navigating within that
+  list only — zero new subscriptions; the `+` qualifier renders whenever
+  the page was bounded. Producers: flat List rows, board columns (label =
+  stage), the With-you band. Grouped-list rows are not yet producers.
+- **"With you" Home band — partial reversal of 2026-08-10.** Home carries
+  exactly ONE operational band: open work items assigned to the viewer
+  (`myWork.listAssignedToMe`, due-ordered, one bounded subscription,
+  page 5 + in-place "Show more"), as hairline rows (title + due right —
+  overdue `red-700` stays loudest — stage dot-badge + kind · client
+  beneath). When the queue is empty the band renders NOTHING — Home stays
+  quiet. The activity feed and report-snippet previews remain rejected;
+  Loaded now / Next actions / Owned by me / Waiting on others remain
+  absent. This supersedes only the "no operational subscriptions on Home"
+  clause of the 2026-08-10 amendment, and only for this one query.
+- **⌘K consolidation.** Home's view-local ⌘K handler (navigate + focus
+  Projects search) is retired; the shell command palette owns ⌘K on every
+  shell view. The header search field and rail affordance contracts are
+  unchanged.
+- **Record-page pass (Highlights + attribute rows).** The project page's
+  metadata block adopts the Attio record grammar on Ledger tokens:
+  (1) `ProjectHighlights` — a hairline stat band under the title (Stage +
+  "N days in stage", Owner as fir disc + label, With = current handoff
+  assignee + kind · due with overdue `red-700`, Claim period as FYE date),
+  every tile honest with quiet "No X" empties, display-only. It rides the
+  workflow menu's existing `getProjectWorkflowHeader` subscription and
+  promotes the bounded (≤51-row) `getProjectWorkPanel` from menu-open-only
+  to page-standing. (2) The metadata grid becomes attribute ROWS — fixed
+  7.5rem label column + value per row, two columns from `sm`, ~32px rows —
+  with every editing affordance (EditableText ghosts, selects, TagPicker)
+  unchanged. Owner ≠ With ≠ Writer ≠ Creator stays the displayed
+  vocabulary. Attio's count-badged tab pane over the supporting panels is
+  DEFERRED deliberately: the stacked disclosures below the report keep
+  filing-readiness and files one glance away, and tab counts without
+  subscriptions would be dishonest — revisit only with real counts.
+
+### 2026-08-13 amendment (third) — Attio-research P2: density ladder, calculation footer, hover preview
+
+Owner direction (final slice of the research proposal). "Ask Banhall"
+remains sequenced behind the @convex-dev/agent migration.
+
+- **Density ladder (named).** List rows: comfortable = 48px (`min-h-12`),
+  compact = ~36px on pointer-fine (`min-h-9`) with the ≥44px touch contract
+  held by `pointer-coarse:min-h-11` floors on the row AND its title anchor.
+  New dense surfaces pick a tier; no novel row heights.
+- **Calculation footer (flat List only).** A quiet hairline footer of
+  facet-backed counts — total + nonzero per-stage — in `.text-data` mono
+  with the `+` qualifier whenever the facet scan truncated. Hidden under
+  search/filters where whole-repo facets would mislead, and on the Board,
+  whose column headers already carry the counts.
+- **Row hover preview.** List title anchors are bits-ui LinkPreview
+  triggers (300ms open delay, opens on keyboard focus, sanctioned
+  `popIn`/`popOut`): a 288px white card of fields ALREADY in the row's
+  projection — title, mono project #, client, labelled stage badge (legacy
+  rows keep the qualifier), Owner, With (assignee · kind, due), Updated —
+  zero additional queries by construction.
+
+### 2026-08-13 amendment (fourth) — authenticated Attio + Obvious verification
+
+Authenticated product audits verified the P0–P2 direction against the live
+applications rather than introducing a new surface model.
+
+- **Attio evidence retained.** Its company view uses a fine-lined dense
+  attribute grid, explicit sort/filter state, configurable saved views, and
+  calculation footers. Its record view splits editable attributes from an
+  overview/activity plane, and its quick-actions dialog exposes grouped
+  navigation/actions plus persistent keyboard guidance. Banhall keeps the
+  equivalent truthful pieces; the command palette now includes a quiet
+  Navigate / Open / Close key-help footer.
+- **Obvious evidence retained.** Home is a calm prompt-led canvas; Projects
+  is preview-led; project workspaces are independent conversation/artifact
+  panes; and the artifact board is a horizontal, same-tone Kanban with
+  compact cards, filters, saved views, configuration, and per-column add
+  footers. Banhall keeps that spatial grammar in its shell, Home, workbench,
+  and shared board.
+- **Explicit non-copies.** Obvious artifact thumbnails are not added to the
+  Projects repository because live report previews would violate the
+  bounded-subscription contract. Drag-to-mutate board stages remains
+  prohibited by the workflow domain contract. Attio-style count tabs remain
+  deferred until their counts can be truthful without standing queries.
+  Both products' monochrome rails remain references for hierarchy only;
+  Banhall keeps the fir identity plane required by this system.
+
+### 2026-08-14 amendment — repository rows and useful empty-history Home
+
+Owner-directed authenticated Attio/Obvious layout pass; presentation only.
+
+- **Client repository rows.** The default client-grouped Projects List keeps
+  its bounded disclosure/query contract, but a collapsed client row now reads
+  as a table record rather than an empty accordion: initial, client name,
+  project count, and up to three non-zero pipeline stage summaries come from
+  the existing verified `stageCounts` projection. No section query opens until
+  its disclosure opens; absent or divergent counts say `Stage counts pending`.
+  A quiet header row names Client / Projects / Stage mix / Create.
+- **Home continuation.** Home's lower Projects band always renders one honest
+  repository card linking to `/projects`; browser-local recent cards follow
+  when they exist and retain their explicit device-local qualifier. This adds
+  no query, pin, fake project, artifact preview, template, or activity feed.
+  The intake remains the one primary action and the `With you` queue remains
+  the only operational subscription. The greeting uses a compact 22–28px
+  product-heading scale (rather than the earlier 24–32px hero scale), matching
+  Attio's operational hierarchy and keeping the composer as the dominant form.
+- **Rail hierarchy.** Home and Projects sit under a `Workspace` label; Settings
+  moves to the lower utility group. URLs, capabilities, admin gating, and
+  keyboard behavior are unchanged.
+
+### 2026-08-14 amendment (second) — authenticated rail calibration and List-first control
+
+Owner-directed correction from browser annotations, measured against the
+authenticated Attio and Obvious sidebars at the same 1405×1036 viewport.
+Presentation only.
+
+- **Rail geometry.** The desktop rail defaults to 256px (Obvious measured
+  width) and resizes only within 240-288px; Attio's measured rail is 275px.
+  Existing wider persisted values clamp into the new range. The 8px
+  window-splitter target remains keyboard/pointer operable but its internal
+  line is transparent at rest, leaving the structural 1px boundary visible
+  exactly as in Obvious.
+- **Rail composition.** The Banhall identity/collapse row is 28px high, followed
+  by one 32px New-project/Search action row. Home and Projects begin directly
+  beneath it with no redundant `Workspace` eyebrow, matching both references'
+  primary-navigation rhythm. The selected wash is reduced to a near-neutral
+  fir cast; URLs, admin disclosure, utilities, account actions, collapse
+  choreography, and authorization are unchanged.
+- **Projects view control.** List is the first icon and remains the default
+  Projects presentation; Board is second and remains one click away. Both
+  icons use the installed Phosphor family. Explicit stored or URL-selected
+  Board choices remain valid.
+
+### 2026-08-14 amendment (third) — Attio rail micro-geometry and restored Home wash
+
+Owner-directed refinement from the annotated Home screen and a second live
+authenticated Attio measurement pass. Presentation only.
+
+- **Rail micro-geometry.** The expanded rail uses an 8px horizontal gutter.
+  The identity band is 48px so the 24px collapse control lands at y=12; the
+  control is a transparent, zero-radius target aligned 13px from the rail's
+  right edge at the 256px default. The compact action row is 28px high and
+  Home begins at y=98, matching the measured Attio rhythm. Navigation rows
+  remain 28px with the existing 9px capsule radius and use a 6px icon gap.
+- **Collapse choreography.** The resting Phosphor sidebar glyph crossfades
+  into the matching Phosphor square-arrow glyph on hover/focus. The control
+  itself gains no filled hover tile; tooltip, keyboard focus, reduced-motion,
+  full-panel exit, and restore behavior remain intact. No proprietary Attio
+  SVG path is copied.
+- **Home atmosphere.** The existing token-derived WebGL wash returns behind
+  the Home intake at 40% opacity, masked to transparent below the opening
+  band. It is pointer-inert and aria-hidden; the white content plane and
+  centered 44.75rem boundary remain unchanged.
+
 ## Panel motion (2026-08-10)
 
 Floating panels animate with a shadcn-style **pop** (owner direction,
@@ -573,9 +785,60 @@ placeholder chip.
 
 ## Workspace-shell adoption — wizard + report workspace (2026-08-10)
 
+### 2026-08-14 amendment — authenticated Attio rail geometry
+
+The light workspace rail now adopts the measured anatomy of the authenticated
+Attio rail while retaining Banhall's identity, routes, permissions, and product
+language.
+
+- Desktop expanded width defaults to **275px** (240px minimum, 288px maximum).
+  This supersedes the older 255/256px default references below. The existing
+  browser-local width preference remains authoritative after a user resizes it.
+- The identity row is 48px tall; the workspace mark begins at x=12 and the
+  24px collapse control ends 13px from the right edge. Collapse slides the
+  intact panel fully off-canvas over 300ms and expand restores the persisted
+  width. Reduced-motion users receive the same state change without animation.
+- Global controls form one 28px search field plus one 28px square creation
+  action, with an 8px gap and the measured restrained control shadow. Search
+  opens the shell command palette; creation still opens Banhall's existing
+  project wizard.
+- Desktop navigation uses 28px rows, 14/20 medium labels, 16px Phosphor icons,
+  8px outer gutters, 9px selection radii, and a quiet `#F5F5F5` hover/selected
+  wash. Drawer rows retain the 44px touch minimum.
+- The primary stack contains only truthful Banhall destinations/actions. The
+  role-gated Admin group is open by default, uses the same 28px rhythm, and
+  collapses through an accessible disclosure. **2026-08-14 refinement:** this
+  group follows Attio's Records anatomy with the disclosure chevron on the left
+  and one distinct semantic colour tile per destination; the label remains
+  truthfully “Admin.” The account menu is a full-width identity row pinned below
+  the scrolling navigation.
+- Attio trademarks, SVG source, CRM record names, trial prompts, and onboarding
+  content are not copied. Banhall uses its own mark, fir/lagoon token mapping,
+  Phosphor icon family, route inventory, counters, and authorization gates.
+
+Evidence: authenticated reference and same-viewport comparisons under
+`.codex/product-design/attio-sidebar-exact/`; implementation QA is recorded in
+`design-qa.md`.
+
+### 2026-08-14 amendment — Home header removal and transcript-source tabs
+
+- Home renders no full-width workspace toolbar: its greeting is the page
+  heading and the rail already communicates the active destination. A minimal
+  unframed control cluster remains only for mobile drawer access and desktop
+  rail restoration, so removing the bar never traps navigation.
+- The 49px removed toolbar is absorbed into Home's opening top space (`pt-24`)
+  so the greeting and composer keep their established vertical position.
+- Paste and Attach file are one mutually exclusive tablist, not two independent
+  toolbar actions. Paste is selected by default and its transcript textarea is
+  immediately visible. Attach file reveals a single `.docx` chooser panel;
+  selecting the mode itself never launches an unexpected file dialog.
+- Switching modes preserves in-progress text locally but the wizard handoff
+  receives only the active source. Existing `.docx` parsing, drop handling,
+  empty-wizard behavior, and Intake-first creation semantics are unchanged.
+
 Owner direction, from live study of Obvious.ai's project workspace: both
 `/project/new` and the preview-cohort report route now live in the **light
-workspace shell** (fir rail + white plane) instead of the classic dark
+workspace shell** (pale rail + white plane) instead of the classic dark
 AppNav + PageBar ledger bands.
 
 - `/project/new` wraps the existing wizard in `WorkspaceChrome`
@@ -620,7 +883,7 @@ The authenticated admin routes `/admin/usage`, `/admin/reviews`,
 `/admin/brain`, `/admin/models`, `/admin/tags`, `/admin/users`, and
 `/admin/backfill` use `AdminWorkspacePage` over `WorkspaceChrome`:
 
-- The fir rail/drawer keeps the established 255px default desktop width,
+- The pale rail/drawer keeps the measured 256px default desktop width,
   resizable persistence, canonical Home (`/my-work`) and Projects
   (`/projects`) links, compact identity/global actions, device-local recents,
   and account/utility footer. Admin links stay exclusively in `UserMenu`.

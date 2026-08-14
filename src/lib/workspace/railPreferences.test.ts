@@ -14,7 +14,7 @@ describe("clampRailWidth", () => {
   it("clamps into [min, max] and rounds fractional widths", () => {
     expect(clampRailWidth(100)).toBe(RAIL_MIN_WIDTH);
     expect(clampRailWidth(1000)).toBe(RAIL_MAX_WIDTH);
-    expect(clampRailWidth(300.6)).toBe(301);
+    expect(clampRailWidth(272.6)).toBe(273);
     expect(clampRailWidth(RAIL_MIN_WIDTH)).toBe(RAIL_MIN_WIDTH);
     expect(clampRailWidth(RAIL_MAX_WIDTH)).toBe(RAIL_MAX_WIDTH);
   });
@@ -50,8 +50,8 @@ describe("parseRailPreferences (fail-closed)", () => {
   });
 
   it("round-trips through serialize", () => {
-    const serialized = serializeRailPreferences({ width: 312, hidden: true });
-    expect(parseRailPreferences(serialized)).toEqual({ width: 312, hidden: true });
+    const serialized = serializeRailPreferences({ width: 272, hidden: true });
+    expect(parseRailPreferences(serialized)).toEqual({ width: 272, hidden: true });
   });
 
   it("serializes out-of-range widths already clamped", () => {
@@ -64,10 +64,18 @@ describe("parseRailPreferences (fail-closed)", () => {
 
 describe("railWidthForKey (keyboard separator)", () => {
   it("steps ±8 on arrows and ±32 with Shift, clamped", () => {
-    expect(railWidthForKey("ArrowRight", 255, false)).toBe(263);
-    expect(railWidthForKey("ArrowLeft", 255, false)).toBe(247);
-    expect(railWidthForKey("ArrowRight", 255, true)).toBe(287);
-    expect(railWidthForKey("ArrowLeft", 255, true)).toBe(223);
+    expect(railWidthForKey("ArrowRight", RAIL_DEFAULT_WIDTH, false)).toBe(
+      RAIL_DEFAULT_WIDTH + 8
+    );
+    expect(railWidthForKey("ArrowLeft", RAIL_DEFAULT_WIDTH, false)).toBe(
+      RAIL_DEFAULT_WIDTH - 8
+    );
+    expect(railWidthForKey("ArrowRight", RAIL_DEFAULT_WIDTH, true)).toBe(
+      RAIL_MAX_WIDTH
+    );
+    expect(railWidthForKey("ArrowLeft", RAIL_DEFAULT_WIDTH, true)).toBe(
+      RAIL_DEFAULT_WIDTH - 32
+    );
     expect(railWidthForKey("ArrowLeft", RAIL_MIN_WIDTH, true)).toBe(RAIL_MIN_WIDTH);
     expect(railWidthForKey("ArrowRight", RAIL_MAX_WIDTH, false)).toBe(RAIL_MAX_WIDTH);
   });

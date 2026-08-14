@@ -20,7 +20,7 @@ describe("WorkspaceChrome", () => {
     __setQueryData("myWork:getViewConfig", { killSwitch: false, ready: true });
   });
 
-  it("uses the fir workspace rail and gives long utility content an internal vertical scroll owner", async () => {
+  it("uses the pale workspace rail and gives long utility content an internal vertical scroll owner", async () => {
     await browserPage.viewport(1440, 900);
     await render(WorkspaceChrome, { title: "Settings", children: tallContent });
 
@@ -28,7 +28,7 @@ describe("WorkspaceChrome", () => {
     const main = root.querySelector<HTMLElement>("main")!;
     const aside = root.querySelector<HTMLElement>("aside")!;
     expect(Math.round(root.getBoundingClientRect().height)).toBe(window.innerHeight);
-    expect(getComputedStyle(aside).backgroundColor).toBe("rgb(10, 58, 56)");
+    expect(getComputedStyle(aside).backgroundColor).toBe("rgb(251, 251, 251)");
     expect(main.scrollHeight).toBeGreaterThan(main.clientHeight);
     main.scrollTop = 300;
     expect(main.scrollTop).toBeGreaterThan(0);
@@ -46,7 +46,7 @@ describe("WorkspaceChrome", () => {
     expect(document.querySelector('a[href="/my-work"]')).not.toBeNull();
   });
 
-  it("rail search navigates to the Projects board with goto — SPA, not a hard reload", async () => {
+  it("rail search opens the shell command palette in place — no navigation (2026-08-13)", async () => {
     await browserPage.viewport(1440, 900);
     await render(WorkspaceChrome, { title: "Settings", children: tallContent });
 
@@ -54,11 +54,14 @@ describe("WorkspaceChrome", () => {
       .querySelector<HTMLButtonElement>('aside button[aria-label="Search projects"]')!
       .click();
 
+    // The palette dialog mounts (light panel, portal outside the theme
+    // scope); the SPA does not leave the page.
     await expect
-      .poll(() =>
-        __navigationCalls.filter((call) => call.kind === "goto").map((call) => call.url)
-      )
-      .toContain("/projects");
+      .poll(() => document.querySelector('[data-command-root]'))
+      .not.toBeNull();
+    expect(
+      __navigationCalls.filter((call) => call.kind === "goto").map((call) => call.url)
+    ).not.toContain("/projects");
   });
 
   it("autofocuses the modal drawer and layers its 44px account menu above the drawer", async () => {

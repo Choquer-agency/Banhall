@@ -17,7 +17,7 @@
   let {
     title,
     description = null,
-    theme = "dark",
+    theme = "light",
     currentExperienceHref = null,
     currentExperienceLabel = "Current dashboard",
     children,
@@ -79,7 +79,7 @@
   drawerDescription="Navigate between work, projects, and account pages."
 >
   <div class="flex min-h-0 min-w-0 flex-col overflow-hidden">
-    <header class="flex min-h-14 shrink-0 items-center gap-3 border-b border-line-soft px-3 sm:px-5">
+    <header class="flex h-[49px] shrink-0 items-center gap-3 border-b border-workspace-rail-line px-3 sm:px-4">
       <!-- Shared drawer hamburger + desktop rail toggle: one a11y contract,
            owned by WorkspaceShellControls (dedup with WorkspaceHeader). -->
       <WorkspaceShellControls
@@ -89,8 +89,8 @@
         onToggleRail={() => (railHidden = !railHidden)}
       />
       <div class="min-w-0 flex-1">
-        <h1 class="truncate text-base font-medium text-ink">{title}</h1>
-        {#if description}<p class="truncate text-xs text-ink-muted">{description}</p>{/if}
+        <h1 class="truncate text-[0.875rem] font-semibold tracking-[-0.01em] text-ink">{title}</h1>
+        {#if description}<p class="truncate text-[0.6875rem] text-ink-muted">{description}</p>{/if}
       </div>
       {@render actions?.()}
     </header>

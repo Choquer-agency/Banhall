@@ -25,8 +25,12 @@
     row,
     showClient = true,
     showStage = false,
+    onOpen = null,
   }: {
     row: ProjectsTableRow;
+    /** Stash the column's paging context when the card link is followed
+     * (2026-08-13, Attio-research P1). */
+    onOpen?: (() => void) | null;
     /**
      * Render the client supporting line. Client-scoped surfaces (client
      * lanes) pass false because the section header already carries the
@@ -81,6 +85,7 @@
       data-recent-title={row.title}
       data-recent-stage={row.workflowStage ?? undefined}
       data-recent-client={row.clientName || undefined}
+      onclick={() => onOpen?.()}
       class="block min-w-0 flex-1 truncate rounded-md text-[0.8125rem] font-medium leading-5 text-ink after:absolute after:inset-0 after:content-[''] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
     >{row.title}</a>
   </header>

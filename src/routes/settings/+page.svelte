@@ -167,7 +167,7 @@
 </script>
 
 {#snippet settingsContent(showHeading: boolean)}
-    <PageContainer>
+    <PageContainer class={showHeading ? "" : "max-w-3xl! pt-12!"}>
       {#if showHeading}
         <h1 class="text-display">Settings</h1>
         <p class="mt-1 max-w-2xl text-sm text-ink-muted">
@@ -178,9 +178,9 @@
       {#if profileQ.data === undefined || meQ.data === undefined}
         <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
       {:else}
-        <div class="mt-8 grid items-start gap-8 lg:grid-cols-[minmax(20rem,0.85fr)_minmax(0,1.35fr)]">
-          <div class="flex flex-col gap-8">
-            <section class="card p-6">
+        <div class={showHeading ? "mt-8 grid items-start gap-8 lg:grid-cols-[minmax(20rem,0.85fr)_minmax(0,1.35fr)]" : "flex flex-col"}>
+          <div class={showHeading ? "flex flex-col gap-8" : "flex flex-col"}>
+            <section class={showHeading ? "card p-6" : "border-b border-workspace-rail-line pb-8"}>
               <h2 class="text-title">Your name</h2>
               <p class="mt-1 text-sm text-ink-muted">
                 Shown on reports, the team roster, and review history.
@@ -204,7 +204,7 @@
               {/if}
             </section>
 
-            <section id="security" class="card p-6">
+            <section id="security" class={showHeading ? "card p-6" : "border-b border-workspace-rail-line py-8"}>
               <h2 class="text-title">Password</h2>
               <p class="mt-1 text-sm text-ink-muted">
                 Changing your password signs out your other active sessions.
@@ -255,7 +255,7 @@
             </section>
           </div>
 
-          <section class="card p-6">
+          <section class={showHeading ? "card p-6" : "py-8"}>
             <h2 class="text-title">Writing preferences</h2>
             <p class="mt-1 max-w-2xl text-sm text-ink-muted">
               Applied to every report you generate. Never overrides CRA structural

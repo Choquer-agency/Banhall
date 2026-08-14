@@ -17,10 +17,10 @@ describe("HomeStartProject", () => {
     const title = document.querySelector<HTMLInputElement>("[data-home-start-input]")!;
     title.value = "  Solar tracker prototype  ";
     title.dispatchEvent(new InputEvent("input", { bubbles: true }));
-    // Paste entry is an explicit option: the textarea appears once chosen.
-    expect(document.querySelector("[data-home-transcript-input]")).toBeNull();
-    document.querySelector<HTMLButtonElement>("[data-home-transcript-paste]")!.click();
-    await expect.poll(() => document.querySelector("[data-home-transcript-input]")).not.toBeNull();
+    // Paste is the explicit default mode, so its field is ready immediately.
+    expect(
+      document.querySelector("[data-home-transcript-paste]")?.getAttribute("aria-selected")
+    ).toBe("true");
     const transcript = document.querySelector<HTMLTextAreaElement>("[data-home-transcript-input]")!;
     transcript.value = "Interview transcript text";
     transcript.dispatchEvent(new InputEvent("input", { bubbles: true }));
@@ -44,10 +44,8 @@ describe("HomeStartProject", () => {
     const welcome = document.querySelector<HTMLElement>("[data-home-welcome]")!;
     const form = document.querySelector<HTMLElement>("[data-home-start-form]")!;
     expect(centered.className).toContain("mx-auto");
-    // 46rem = Obvious's ~736px prompt column (2026-08-10 spacing pass).
-    expect(centered.className).toContain("max-w-[46rem]");
-    // The shader wash renders in the workspace scroll owner (see
-    // HomeParity), container-width — not inside this component.
+    // 44.75rem = Attio's measured 716px Home composition.
+    expect(centered.className).toContain("max-w-[44.75rem]");
     expect(welcome.className).toContain("text-center");
     expect(form.className).toContain("text-left");
     expect(form.className).toContain("bg-surface");
@@ -64,9 +62,7 @@ describe("HomeStartProject", () => {
 
     // …so the fields inside stay chrome-free: no underline, no hover/focus
     // classes, and the default black focus outline suppressed. The transcript
-    // textarea appears via the explicit Paste option.
-    document.querySelector<HTMLButtonElement>("[data-home-transcript-paste]")!.click();
-    await expect.poll(() => document.querySelector("[data-home-transcript-input]")).not.toBeNull();
+    // textarea is present because Paste is the default mode.
     const title = document.querySelector<HTMLInputElement>("[data-home-start-input]")!;
     const transcript = document.querySelector<HTMLTextAreaElement>("[data-home-transcript-input]")!;
     for (const control of [title, transcript]) {
@@ -82,13 +78,13 @@ describe("HomeStartProject", () => {
     // icon send right; labels remain in the DOM for assistive tech. Quiet by
     // design: no hover treatments inside the box.
     const modeGroup = document.querySelector<HTMLElement>("[data-home-transcript-mode]")!;
-    expect(modeGroup.getAttribute("role")).toBe("group");
+    expect(modeGroup.getAttribute("role")).toBe("tablist");
     const paste = document.querySelector<HTMLButtonElement>("[data-home-transcript-paste]")!;
     const attach = document.querySelector<HTMLButtonElement>("[data-home-transcript-attach]")!;
     expect(paste.textContent).toContain("Paste");
-    expect(paste.getAttribute("aria-pressed")).toBe("true");
+    expect(paste.getAttribute("aria-selected")).toBe("true");
     expect(attach.textContent).toContain("Attach file");
-    expect(attach.getAttribute("aria-pressed")).toBe("false");
+    expect(attach.getAttribute("aria-selected")).toBe("false");
     for (const control of [paste, attach, document.querySelector("[data-home-start-submit]")!]) {
       expect(control.className).not.toContain("hover:");
     }
@@ -98,12 +94,39 @@ describe("HomeStartProject", () => {
     expect(document.querySelector('label[for="home-project-title"]')?.className).toContain("sr-only");
     expect(document.querySelector('label[for="home-transcript"]')?.className).toContain("sr-only");
 
-    // Fixed top offset, no vertical centering (recents stay above the
-    // laptop fold), with the generous top pad (2026-08-10 owner direction).
+    // Removing Home's redundant 49px header must not pull the opening
+    // composition upward; the section absorbs that space as breathing room.
     const section = document.querySelector<HTMLElement>("[data-home-start]")!;
     expect(section.className).not.toContain("justify-center");
     expect(section.className).not.toContain("min-h-");
     expect(section.className).toContain("pt-24");
+  });
+
+  it("switches Paste and Attach file as exclusive input tabs with Paste selected by default", async () => {
+    await render(HomeStartProject, { greeting: "Good morning" });
+
+    const paste = document.querySelector<HTMLButtonElement>("[data-home-transcript-paste]")!;
+    const attach = document.querySelector<HTMLButtonElement>("[data-home-transcript-attach]")!;
+    expect(paste.getAttribute("role")).toBe("tab");
+    expect(attach.getAttribute("role")).toBe("tab");
+    expect(paste.getAttribute("aria-selected")).toBe("true");
+    expect(attach.getAttribute("aria-selected")).toBe("false");
+    expect(document.querySelector("[data-home-transcript-input]")).not.toBeNull();
+    expect(document.querySelector("[data-home-transcript-attach-empty]")).toBeNull();
+
+    attach.click();
+    await expect.poll(() => attach.getAttribute("aria-selected")).toBe("true");
+    expect(paste.getAttribute("aria-selected")).toBe("false");
+    expect(document.querySelector("[data-home-transcript-input]")).toBeNull();
+    expect(document.querySelector("[data-home-transcript-attach-empty]")).not.toBeNull();
+    expect(document.querySelector("[data-home-transcript-browse]")?.textContent).toContain(
+      "Choose file"
+    );
+
+    paste.click();
+    await expect.poll(() => paste.getAttribute("aria-selected")).toBe("true");
+    expect(document.querySelector("[data-home-transcript-input]")).not.toBeNull();
+    expect(document.querySelector("[data-home-transcript-attach-empty]")).toBeNull();
   });
 
   it("keeps empty submission truthful by opening a blank wizard", async () => {

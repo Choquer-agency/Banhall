@@ -140,7 +140,7 @@ describe("ProjectsTableView client-name grouping", () => {
   });
 
   it("applies a genuine URL group change after mount and persists it", async () => {
-    await mountView("/dashboard?layout=list");
+    await mountView("/dashboard?layout=list&group=none");
     await expect.poll(() => listRegion()).not.toBeNull();
 
     // External navigation (back/forward, shared link) to group=client.
@@ -205,9 +205,10 @@ describe("ProjectsTableView client-name grouping", () => {
   it("ignores the retired ?client= board param: no focused board, the stored default view renders", async () => {
     await mountView("/dashboard?layout=board&client=northline");
 
-    // The param is inert (retired 2026-08-12): the flat stage-first board
-    // renders and nothing resembling a focused client surface mounts.
-    await expect.poll(() => boardRegion()).not.toBeNull();
+    // The param is inert (retired 2026-08-12): the default view (client-
+    // grouped board since 2026-08-13) renders and nothing resembling a
+    // focused client surface mounts.
+    await expect.poll(() => groupedBoardRegion()).not.toBeNull();
     expect(document.querySelector("[data-client-focus-board]")).toBeNull();
     expect(document.querySelector("[data-focus-breadcrumb]")).toBeNull();
   });
@@ -268,7 +269,7 @@ describe("ProjectsTableView client-name grouping", () => {
   });
 
   it("offers the board hide-empty switch on the flat stage-first board, default ON, URL-backed", async () => {
-    await mountView("/dashboard?layout=board");
+    await mountView("/dashboard?layout=board&group=none");
     await expect.poll(() => boardRegion()).not.toBeNull();
 
     await openDisplayMenu();
@@ -303,7 +304,7 @@ describe("ProjectsTableView client-name grouping", () => {
   });
 
   it("applies a deep-linked ?hideEmpty=1 without persisting it as a preference", async () => {
-    await mountView("/dashboard?layout=board&hideEmpty=1");
+    await mountView("/dashboard?layout=board&group=none&hideEmpty=1");
     await expect.poll(() => boardRegion()).not.toBeNull();
     await expect.poll(
       () => document.querySelectorAll('section[aria-labelledby^="project-board-"]').length

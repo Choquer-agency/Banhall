@@ -14,6 +14,7 @@
   import { clearAllOutboxes } from "$lib/uploads/attemptOutbox";
   import { api } from "../../../../convex/_generated/api";
   import { displayName } from "$lib/displayName";
+  import { CaretUpDownIcon } from "phosphor-svelte";
   import { toast } from "svelte-sonner";
 
   const auth = useAuth();
@@ -29,15 +30,7 @@
     writer: "Consultant",
   };
 
-  const ADMIN_ROUTES = [
-    { href: "/admin/brain", label: "The Brain" },
-    { href: "/admin/tags", label: "Project tags" },
-    { href: "/admin/reviews", label: "Consultant QA reviews" },
-    { href: "/admin/backfill", label: "Ownership review" },
-    { href: "/admin/users", label: "Users & roles" },
-    { href: "/admin/models", label: "Model preferences" },
-    { href: "/admin/usage", label: "AI usage & cost" },
-  ] as const;
+  import { ADMIN_ROUTES } from "$lib/dashboard/adminRoutes";
 
   const label = $derived(displayName(user, ""));
   const initials = $derived.by(() => {
@@ -58,6 +51,7 @@
     tone = "dark",
     menuTheme = "light",
     menuLayer = "app",
+    triggerVariant = "avatar",
   }: {
     tone?: "dark" | "light";
     /** Portaled menu surface theme — "dark" keeps it inside the workspace dark scope. */
@@ -67,6 +61,8 @@
      * (z-110) while remaining managed by the dialog/dropdown focus scopes.
      */
     menuLayer?: "app" | "drawer";
+    /** Full-width Attio-style identity row inside the workspace rail. */
+    triggerVariant?: "avatar" | "rail";
   } = $props();
 
   let open = $state(false);
@@ -100,17 +96,26 @@
 <DropdownMenu.Root bind:open>
   <DropdownMenu.Trigger
     aria-label="Account menu"
-    class={`flex h-11 w-11 items-center justify-center rounded-full text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:h-8 md:w-8 ${
-      tone === "light"
-        ? open
-          ? "bg-navy text-white"
-          : "bg-chrome text-navy hover:bg-primary-wash"
-        : open
-          ? "bg-white text-navy"
-          : "bg-white/15 text-white hover:bg-white/25"
-    }`}
+    data-user-menu-rail={triggerVariant === "rail" ? "" : undefined}
+    class={triggerVariant === "rail"
+      ? `flex h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-sm font-medium text-ink transition-colors hover:bg-workspace-rail-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir md:h-9 ${open ? "bg-workspace-rail-selected" : ""}`
+      : `flex h-11 w-11 items-center justify-center rounded-full text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:h-8 md:w-8 ${
+          tone === "light"
+            ? open
+              ? "bg-navy text-white"
+              : "bg-chrome text-navy hover:bg-primary-wash"
+            : open
+              ? "bg-white text-navy"
+              : "bg-white/15 text-white hover:bg-white/25"
+        }`}
   >
-    {initials}
+    {#if triggerVariant === "rail"}
+      <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-chrome text-[0.6875rem] font-semibold text-fir">{initials}</span>
+      <span class="min-w-0 flex-1 truncate">{label || "Account"}</span>
+      <CaretUpDownIcon size={14} weight="regular" aria-hidden="true" class="text-ink-muted" />
+    {:else}
+      {initials}
+    {/if}
   </DropdownMenu.Trigger>
   <DropdownMenu.Portal>
     <DropdownMenu.Content

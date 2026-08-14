@@ -71,6 +71,10 @@ describe("WorkspaceHeader", () => {
     expect(document.querySelector("[data-rail-toggle]")?.getAttribute("aria-expanded")).toBe(
       "false"
     );
+    expect(document.querySelector("[data-rail-toggle]")?.getAttribute("data-rail-direction")).toBe(
+      "expand"
+    );
+    expect(document.querySelector("[data-rail-toggle]")?.querySelectorAll("svg")).toHaveLength(2);
 
     document.body.innerHTML = "";
     await render(WorkspaceHeader, baseProps());
@@ -98,19 +102,20 @@ describe("WorkspaceHeader", () => {
     expect(Number.parseFloat(style.transitionDuration)).toBeGreaterThanOrEqual(0.3);
   });
 
-  it("restores focus to the ⌘K invoker on Escape instead of dropping it on body", async () => {
+  it("restores focus to the invoker on Escape instead of dropping it on body", async () => {
     // Live Obvious evidence (2026-08-08): its search dialog returns focus on
     // Escape. The inline field mirrors that continuity for INVOKED focus.
-    await browserPage.viewport(1280, 800);
-    await render(WorkspaceHeader, baseProps());
+    // ⌘K itself now opens the shell-owned command palette (2026-08-13), so
+    // invoked focus is exercised through the exported focusSearch() — the
+    // rail-button path.
+    await browserPage.viewport(1024, 800);
+    const screen = await render(WorkspaceHeader, baseProps());
     const invoker = document.createElement("button");
     invoker.textContent = "external invoker";
     document.body.appendChild(invoker);
     invoker.focus();
 
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true, cancelable: true })
-    );
+    (screen.component as unknown as { focusSearch: () => void }).focusSearch();
     const input = document.querySelector<HTMLInputElement>('input[type="search"]');
     await expect.poll(() => document.activeElement).toBe(input);
 
@@ -147,13 +152,11 @@ describe("WorkspaceHeader", () => {
     expect(document.querySelector('a[href="/project/new"]')).toBeNull();
   });
 
-  it("uses the AA lagoon pair on the New project action (light plane, 2026-08-06)", async () => {
+  it("uses the fir primary action on the Attio-informed light toolbar", async () => {
     await render(WorkspaceHeader, baseProps());
 
-    // `primary-selected` (#087A75) was minted for white text ≥4.5:1; plain
-    // lagoon under white or fir text measures below AA at this size.
     const newProject = document.querySelector<HTMLAnchorElement>('a[href="/project/new"]');
-    expect(newProject?.className).toContain("bg-primary-selected");
+    expect(newProject?.className).toContain("bg-fir");
     expect(newProject?.className).toContain("text-white");
     expect(newProject?.className).not.toContain("text-navy");
   });

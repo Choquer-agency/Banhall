@@ -15,7 +15,9 @@ describe("projects table preferences", () => {
   it("fails closed to the complete default view", () => {
     expect(parseProjectsTablePreferences("not-json")).toEqual(DEFAULT_PROJECTS_TABLE_PREFERENCES);
     expect(parseProjectsTablePreferences(null)).toEqual(DEFAULT_PROJECTS_TABLE_PREFERENCES);
-    expect(DEFAULT_PROJECTS_TABLE_PREFERENCES.group).toBe("none");
+    // 2026-08-13 owner direction: client-grouped List is the default view.
+    expect(DEFAULT_PROJECTS_TABLE_PREFERENCES.layout).toBe("list");
+    expect(DEFAULT_PROJECTS_TABLE_PREFERENCES.group).toBe("client");
   });
 
   it("keeps known values and ignores malformed fields", () => {
@@ -26,7 +28,7 @@ describe("projects table preferences", () => {
     }))).toEqual({
       layout: "list",
       density: "compact",
-      group: "none",
+      group: "client",
       columns: {
         clientName: false,
         stage: true,
@@ -61,11 +63,12 @@ describe("projects table preferences", () => {
     expect(parseProjectsTablePreferences(JSON.stringify({ layout: "board" })).layout).toBe("board");
   });
 
-  it("keeps the client grouping preference and fails closed on unknown groups", () => {
+  it("keeps explicit grouping choices and fails closed to the default on unknown groups", () => {
     expect(parseProjectsTablePreferences(JSON.stringify({ group: "client" })).group).toBe("client");
+    // Explicit flat choice survives; unknown values take the client default.
     expect(parseProjectsTablePreferences(JSON.stringify({ group: "none" })).group).toBe("none");
-    expect(parseProjectsTablePreferences(JSON.stringify({ group: "company" })).group).toBe("none");
-    expect(parseProjectsTablePreferences(JSON.stringify({ group: 4 })).group).toBe("none");
+    expect(parseProjectsTablePreferences(JSON.stringify({ group: "company" })).group).toBe("client");
+    expect(parseProjectsTablePreferences(JSON.stringify({ group: 4 })).group).toBe("client");
   });
 
   it("parses canonical and legacy URL layout values without claiming unknown values", () => {

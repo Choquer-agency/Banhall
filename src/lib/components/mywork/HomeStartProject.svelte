@@ -1,6 +1,12 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
+  import {
+    ArrowUpIcon,
+    ClipboardTextIcon,
+    FileDocIcon,
+    PaperclipIcon,
+  } from "phosphor-svelte";
   import { parseFileToText } from "$lib/parseDocument";
   import { stashProjectStart } from "$lib/workspace/projectIntentHandoff";
 
@@ -14,29 +20,24 @@
   let parsing = $state<string | null>(null);
   let transcriptError = $state("");
   let dragOver = $state(false);
-  // Paste entry is an explicit option (chip in the prompt toolbar) — the
-  // textarea stays hidden until chosen, and stays open while it holds text.
-  let pasteOpen = $state(false);
-  const pasteVisible = $derived(!transcriptFileName && (pasteOpen || transcriptText.trim().length > 0));
-
-  // Segmented toggle: the selected segment mirrors actual content — "Paste"
-  // while the textarea is open, "Attach file" while a parsed file is
-  // attached. Switching from an attached file to Paste keeps the extracted
-  // text editable and only drops the filename.
-  const transcriptMode = $derived<"paste" | "attach" | null>(
-    transcriptFileName ? "attach" : pasteVisible ? "paste" : null
-  );
+  // The two transcript sources are mutually exclusive input modes. Paste is
+  // the predictable default; switching modes preserves in-progress text so a
+  // mistaken click never destroys work, but only the active mode is handed to
+  // the wizard.
+  let transcriptMode = $state<"paste" | "attach">("paste");
 
   function selectPaste() {
     if (transcriptFileName) {
       transcriptFileName = null;
       transcriptError = "";
-    } else if (pasteVisible && !transcriptText.trim()) {
-      pasteOpen = false;
-      return;
     }
-    pasteOpen = true;
+    transcriptMode = "paste";
     queueMicrotask(() => transcriptField?.focus());
+  }
+
+  function selectAttach() {
+    transcriptMode = "attach";
+    transcriptError = "";
   }
 
   const wordCount = $derived(transcriptText.trim().split(/\s+/).filter(Boolean).length);
@@ -57,6 +58,7 @@
       }
       transcriptText = text;
       transcriptFileName = file.name;
+      transcriptMode = "attach";
     } catch {
       transcriptError = `Couldn't read ${file.name}. Try another file.`;
     } finally {
@@ -74,11 +76,19 @@
     event.preventDefault();
     dragOver = false;
     const file = event.dataTransfer?.files[0];
-    if (file) void handleFile(file);
+    if (file) {
+      transcriptMode = "attach";
+      void handleFile(file);
+    }
   }
 
   function startProject() {
-    stashProjectStart({ title, transcriptText, transcriptFileName });
+    stashProjectStart({
+      title,
+      transcriptText:
+        transcriptMode === "paste" || transcriptFileName ? transcriptText : "",
+      transcriptFileName: transcriptMode === "attach" ? transcriptFileName : null,
+    });
     goto(resolve("/project/new"));
   }
 </script>
@@ -91,15 +101,15 @@
      laptop fold), with a generous top pad (2026-08-10 owner direction). The
      shader wash renders in the workspace scroll owner (WorkspaceDashboard) —
      container-width, so classic scrollbars never cause horizontal overflow. -->
-<section data-home-start aria-labelledby="home-start-title" class="relative isolate flex flex-col px-4 pb-8 pt-24 sm:px-6 sm:pb-10 sm:pt-32">
-  <div data-home-start-centered class="mx-auto w-full max-w-[46rem]">
+<section data-home-start aria-labelledby="home-start-title" class="relative isolate flex flex-col px-4 pb-8 pt-24 sm:px-6 sm:pb-10">
+  <div data-home-start-centered class="mx-auto w-full max-w-[44.75rem]">
     <!-- Customer.io Agent-home hierarchy (Mobbin evidence 2026-08-10): the
          greeting IS the headline; the question is the quiet line under it.
          Weight discipline: nothing on Home exceeds font-medium (500) —
          hierarchy comes from size and ink, not boldness. -->
     <header data-home-welcome class="text-center">
-      <p data-home-greeting class="text-hero">{greeting}.</p>
-      <h2 id="home-start-title" class="text-hero-sub mt-2 text-ink-muted">What are we writing today?</h2>
+      <h1 data-home-greeting class="text-hero">{greeting}.</h1>
+      <p id="home-start-title" class="text-hero-sub mt-2 text-ink-muted">What are we writing today?</p>
     </header>
 
     <!-- Prompt-box composition (2026-08-10, Obvious prompt parity): one
@@ -136,10 +146,23 @@
         class="input-chromeless block min-h-10 w-full border-0 bg-transparent px-1.5 text-[0.9375rem] font-medium text-ink outline-none placeholder:text-ink-faint sm:text-base"
       />
 
-      {#if transcriptFileName}
+      {#if transcriptMode === "paste"}
+        <label for="home-transcript" class="sr-only">Interview transcript</label>
+        <textarea
+          id="home-transcript"
+          data-home-transcript-input
+          role="tabpanel"
+          aria-labelledby="home-transcript-paste-tab"
+          bind:this={transcriptField}
+          bind:value={transcriptText}
+          rows="3"
+          placeholder="Paste the interview transcript…"
+          class="input-chromeless mt-1 block min-h-16 w-full resize-none border-0 bg-transparent px-1.5 pb-1 text-[0.8125rem] leading-relaxed text-ink outline-none placeholder:text-ink-faint"
+        ></textarea>
+      {:else if transcriptFileName}
         <div data-home-transcript-file class="mt-1 flex items-center justify-between gap-3 rounded-xl bg-chrome/60 px-3 py-2">
           <span class="flex min-w-0 items-center gap-2.5">
-            <svg class="h-4 w-4 shrink-0 text-ink-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+            <FileDocIcon size={16} weight="regular" aria-hidden="true" class="shrink-0 text-ink-muted" />
             <span class="min-w-0">
               <span class="block truncate text-sm font-medium text-ink">{transcriptFileName}</span>
               <span class="block text-xs text-ink-muted"><span class="font-mono tabular-nums">{wordCount.toLocaleString()}</span> words extracted</span>
@@ -147,17 +170,28 @@
           </span>
           <button type="button" data-home-transcript-remove onclick={removeTranscript} class="min-h-11 shrink-0 rounded-lg px-2 text-xs font-medium text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy sm:min-h-9">Remove</button>
         </div>
-      {:else if pasteVisible}
-        <label for="home-transcript" class="sr-only">Interview transcript</label>
-        <textarea
-          id="home-transcript"
-          data-home-transcript-input
-          bind:this={transcriptField}
-          bind:value={transcriptText}
-          rows="3"
-          placeholder="Paste the interview transcript…"
-          class="input-chromeless mt-1 block min-h-16 w-full resize-none border-0 bg-transparent px-1.5 pb-1 text-[0.8125rem] leading-relaxed text-ink outline-none placeholder:text-ink-faint"
-        ></textarea>
+      {:else}
+        <div
+          id="home-transcript-attach-panel"
+          data-home-transcript-attach-empty
+          role="tabpanel"
+          aria-labelledby="home-transcript-attach-tab"
+          class="mt-1 flex min-h-16 items-center justify-between gap-3 rounded-lg border border-dashed border-line px-3"
+        >
+          <span class="flex min-w-0 items-center gap-2 text-xs text-ink-muted">
+            <PaperclipIcon size={15} weight="regular" aria-hidden="true" class="shrink-0" />
+            <span class="truncate">Word transcript (.docx)</span>
+          </span>
+          <button
+            type="button"
+            data-home-transcript-browse
+            disabled={Boolean(parsing)}
+            onclick={() => fileInput?.click()}
+            class="h-7 shrink-0 rounded-md bg-chrome px-2.5 text-xs font-medium text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-60 pointer-coarse:min-h-11"
+          >
+            Choose file
+          </button>
+        </div>
       {/if}
 
       {#if parsing}<p class="mt-1 px-1.5 text-sm text-ink-secondary" role="status">Reading {parsing}…</p>{/if}
@@ -173,29 +207,35 @@
       <div class="mt-2 flex items-center justify-between gap-2">
         <div
           data-home-transcript-mode
-          role="group"
-          aria-label="Transcript entry"
-          class="flex min-w-0 shrink-0 items-center gap-0.5"
+          role="tablist"
+          aria-label="Transcript input method"
+          class="inline-flex min-w-0 shrink-0 items-center gap-0.5 rounded-lg bg-chrome p-0.5"
         >
           <button
+            id="home-transcript-paste-tab"
             type="button"
+            role="tab"
             data-home-transcript-paste
-            aria-pressed={transcriptMode === "paste"}
+            aria-selected={transcriptMode === "paste"}
+            aria-controls="home-transcript"
             onclick={selectPaste}
-            class={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy active:translate-y-px pointer-coarse:min-h-11 ${transcriptMode === "paste" ? "bg-chrome text-ink" : "text-ink-secondary"}`}
+            class={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11 ${transcriptMode === "paste" ? "bg-surface text-ink shadow-sm" : "text-ink-muted"}`}
           >
-            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zM19.5 14.25v4.5A2.25 2.25 0 0117.25 21H5.25A2.25 2.25 0 013 18.75V6.75A2.25 2.25 0 015.25 4.5h4.5" /></svg>
+            <ClipboardTextIcon size={14} weight="regular" aria-hidden="true" />
             Paste
           </button>
           <button
+            id="home-transcript-attach-tab"
             type="button"
+            role="tab"
             data-home-transcript-attach
             disabled={Boolean(parsing)}
-            aria-pressed={transcriptMode === "attach"}
-            onclick={() => fileInput?.click()}
-            class={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy active:translate-y-px disabled:opacity-60 pointer-coarse:min-h-11 ${transcriptMode === "attach" ? "bg-chrome text-ink" : "text-ink-secondary"}`}
+            aria-selected={transcriptMode === "attach"}
+            aria-controls="home-transcript-attach-panel"
+            onclick={selectAttach}
+            class={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-60 pointer-coarse:min-h-11 ${transcriptMode === "attach" ? "bg-surface text-ink shadow-sm" : "text-ink-muted"}`}
           >
-            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-6.69 6.69a4.5 4.5 0 01-6.364-6.364l8.955-8.955a3 3 0 114.243 4.243l-8.96 8.955a1.5 1.5 0 01-2.12-2.121l8.25-8.25" /></svg>
+            <PaperclipIcon size={14} weight="regular" aria-hidden="true" />
             Attach file
           </button>
         </div>
@@ -206,7 +246,7 @@
           aria-label="Start project"
           class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-selected text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy active:translate-y-px disabled:opacity-60 pointer-coarse:h-11 pointer-coarse:w-11"
         >
-          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m-6 6 6-6 6 6" /></svg>
+          <ArrowUpIcon size={14} weight="bold" aria-hidden="true" />
         </button>
       </div>
       <input
@@ -221,6 +261,18 @@
         }}
       />
     </form>
+
+    <!-- A quiet continuation row keeps an empty Home useful without
+         inventing activity, templates, or another subscription. This is the
+         same section rhythm Attio uses below its composer: one sentence of
+         context and one honest next destination. -->
+    <div data-home-continuation class="mt-4 border-t border-line-soft px-1 pt-4">
+      <div class="min-w-0">
+        <p class="text-sm font-medium text-ink">Start in intake</p>
+        <p class="mt-0.5 text-xs leading-relaxed text-ink-muted">
+          Add a title now; review the transcript and project details before anything is created.
+        </p>
+      </div>
+    </div>
   </div>
 </section>
-

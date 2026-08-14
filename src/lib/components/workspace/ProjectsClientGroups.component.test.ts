@@ -91,10 +91,25 @@ describe("ProjectsClientGroups", () => {
     const headers = groupHeaders().map((button) => button.textContent?.replace(/\s+/g, " ").trim());
     // Counts render in the mono data role (2026-08-12 taste pass): the
     // number is the visible text, the unit is screen-reader-only.
-    expect(headers[0]).toBe("Client Acme Labs 2 projects");
-    expect(headers[1]).toBe("Client Borealis Mining 1 project");
-    expect(headers[2]).toBe("Client Cormorant Foods 12 projects");
+    expect(headers[0]).toContain("Acme Labs 2 projects");
+    expect(headers[1]).toContain("Borealis Mining 1 project");
+    expect(headers[2]).toContain("Cormorant Foods 12 projects");
+    expect(document.querySelector("[data-client-table-header]")?.textContent).toContain("Stage mix");
     expect(region()?.textContent).not.toMatch(/\bcompany\b/i);
+  });
+
+  it("summarizes verified stage counts in collapsed rows without opening project subscriptions", async () => {
+    __setPaginatedRows("dashboard:listCompanies", [
+      companyRow("acme", "Acme Labs", 4, { intake: 2, drafting: 1, internal_review: 1 }),
+    ]);
+    render(ProjectsClientGroups, {});
+
+    await expect.poll(() => groupHeaders().length).toBe(1);
+    const headerText = groupHeaders()[0].textContent?.replace(/\s+/g, " ") ?? "";
+    expect(headerText).toContain("Intake 2");
+    expect(headerText).toContain("Drafting 1");
+    expect(headerText).toContain("Internal review 1");
+    expect(__isQueryActive("dashboard:listCompanyProjectsByStageRank")).toBe(false);
   });
 
   it("expands a section into pipeline-ordered status sub-headers cut from the stage-ranked server order", async () => {

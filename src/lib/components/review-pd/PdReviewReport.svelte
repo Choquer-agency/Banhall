@@ -3,6 +3,11 @@
   Rendered as the main view of a review-mode project until a report exists.
   Strengths / Risks / Suggested strengthening / qualitative score, plus the
   timestamped activity log and the "Generate PD" CTA for a comparison draft.
+
+  Presentation (2026-08-13 redesign): one ledger artifact — score band on top,
+  category sections as gray-50 band headers with hairline-ruled, mono
+  line-numbered rows (the CRA-form grammar). New-UI type rules apply: max
+  font-weight 500, ink/line tokens, primary-selected actions on white.
 -->
 <script lang="ts">
   import { useMutation, useQuery } from "convex-svelte";
@@ -96,8 +101,41 @@
   const resultUnreadable = $derived(resultState.unreadable);
 
   const score = $derived(result?.qualitative_score ?? 0);
-  const band = $derived(
+  // Ring keeps the mid tier; the number/verdict step up to the 700 tier so
+  // the text stays AA on white.
+  const bandStroke = $derived(
     score >= 80 ? "text-green-600" : score >= 60 ? "text-amber-600" : "text-red-600"
+  );
+  const bandText = $derived(
+    score >= 80 ? "text-green-700" : score >= 60 ? "text-amber-700" : "text-red-700"
+  );
+  const verdict = $derived(
+    score >= 80 ? "Strong PD" : score >= 60 ? "Needs attention" : "Significant issues"
+  );
+
+  const sections = $derived(
+    result
+      ? [
+          {
+            key: "strengths",
+            label: "Strengths",
+            dot: "bg-green-500",
+            items: result.strengths,
+          },
+          {
+            key: "risks",
+            label: "Risks / areas to improve",
+            dot: "bg-red-400",
+            items: result.risks,
+          },
+          {
+            key: "suggestions",
+            label: "Suggested strengthening",
+            dot: "bg-amber-400",
+            items: result.suggested_strengthening,
+          },
+        ].filter((s) => s.items.length > 0)
+      : []
   );
 
   // Phase 5: log that the report was opened (once per review per mount).
@@ -131,28 +169,15 @@
   }
 </script>
 
-{#snippet feedbackList(label: string, items: string[], dot: string, text: string)}
-  {#if items.length > 0}
-    <div>
-      <p class="text-label mb-2.5">{label}</p>
-      <ul class="space-y-1.5">
-        {#each items as item, i (i)}
-          <li class={`flex items-start gap-2 text-sm leading-relaxed ${text}`}>
-            <span class={`mt-2 h-1.5 w-1.5 flex-none rounded-full ${dot}`}></span>
-            {item}
-          </li>
-        {/each}
-      </ul>
-    </div>
-  {/if}
-{/snippet}
-
 <div class="flex flex-col gap-6">
-  <div class="flex items-start justify-between gap-4">
-    <div>
-      <p class="text-label">AI PD review</p>
-      <p class="mt-1 text-sm text-gray-500">
-        Feedback on <span class="font-medium text-gray-700">{review.sourceFileName}</span>
+  <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+    <div class="min-w-0">
+      <h2 class="text-label">AI PD review</h2>
+      <p class="mt-1 text-sm text-ink-muted">
+        Feedback on <span class="font-medium text-ink-secondary">{review.sourceFileName}</span
+        >{#if review.status === "completed" && review.completedAt}
+          <span class="text-ink-faint"> · reviewed {formatAt(review.completedAt)}</span>
+        {/if}
       </p>
     </div>
     {#if review.status === "completed"}
@@ -160,7 +185,7 @@
         <button
           type="button"
           onclick={onGenerate}
-          class="inline-flex flex-none items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
+          class="inline-flex h-9 flex-none cursor-pointer items-center gap-2 rounded-lg bg-primary-selected px-3.5 text-sm font-medium text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
         >
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -174,7 +199,7 @@
               <button
                 type="button"
                 disabled
-                class="inline-flex flex-none items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white opacity-50"
+                class="inline-flex h-9 flex-none items-center gap-2 rounded-lg bg-primary-selected px-3.5 text-sm font-medium text-white opacity-60"
               >
                 Generate PD for comparison
               </button>
@@ -186,12 +211,28 @@
   </div>
 
   {#if review.status === "running"}
-    <div class="flex flex-col items-center gap-3 rounded-xl border border-gray-200 bg-white py-14 text-center">
-      <Spinner />
-      <p class="text-sm font-medium text-gray-700">Reviewing the written PD…</p>
-      <p class="text-xs text-gray-400">
-        Checking CRA criteria — uncertainty, systematic investigation, advancement.
-      </p>
+    <!-- Skeleton matches the finished report's shape: score band, section
+         band, ruled rows. -->
+    <div class="card overflow-hidden" role="status" aria-live="polite">
+      <div class="flex items-center gap-5 p-5">
+        <div class="grid h-16 w-16 flex-none place-items-center rounded-full border-2 border-gray-100">
+          <Spinner size="sm" />
+        </div>
+        <div class="min-w-0">
+          <p class="text-sm font-medium text-ink">Reviewing the written PD…</p>
+          <p class="mt-1 text-xs text-ink-muted">
+            Checking CRA criteria: uncertainty, systematic investigation, advancement.
+          </p>
+        </div>
+      </div>
+      <div class="border-t border-line-soft bg-gray-50 px-5 py-2.5">
+        <div class="h-2.5 w-24 animate-pulse rounded bg-gray-200/80 motion-reduce:animate-none"></div>
+      </div>
+      <div class="space-y-3.5 px-5 py-4" aria-hidden="true">
+        <div class="h-2.5 w-full animate-pulse rounded bg-gray-100 motion-reduce:animate-none"></div>
+        <div class="h-2.5 w-5/6 animate-pulse rounded bg-gray-100 motion-reduce:animate-none"></div>
+        <div class="h-2.5 w-2/3 animate-pulse rounded bg-gray-100 motion-reduce:animate-none"></div>
+      </div>
     </div>
   {:else if review.status === "failed"}
     <div class="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
@@ -205,7 +246,7 @@
         type="button"
         onclick={retry}
         disabled={retrying}
-        class="inline-flex flex-none items-center gap-2 rounded-lg bg-red-600 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+        class="inline-flex h-9 flex-none cursor-pointer items-center gap-2 rounded-lg bg-red-600 px-3.5 text-sm font-medium text-white transition-colors hover:bg-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transition-none"
       >
         {#if retrying}
           <Spinner size="sm" class="h-3.5 w-3.5 border-white/40 border-t-white" />
@@ -236,7 +277,7 @@
         type="button"
         onclick={retry}
         disabled={retrying}
-        class="inline-flex flex-none items-center gap-2 rounded-lg bg-amber-600 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
+        class="inline-flex h-9 flex-none cursor-pointer items-center gap-2 rounded-lg bg-amber-600 px-3.5 text-sm font-medium text-white transition-colors hover:bg-amber-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transition-none"
       >
         {#if retrying}
           <Spinner size="sm" class="h-3.5 w-3.5 border-white/40 border-t-white" />
@@ -250,58 +291,75 @@
       </button>
     </div>
   {:else if result}
-    <!-- Score + summary -->
-    <div class="card flex items-start gap-4 p-5">
-      <div class="relative h-14 w-14 flex-none">
-        <svg viewBox="0 0 36 36" class="h-14 w-14 -rotate-90">
-          <circle cx="18" cy="18" r="16" fill="none" class="stroke-gray-100" stroke-width="2" />
-          <circle
-            cx="18" cy="18" r="16" fill="none"
-            class={`${band} transition-[stroke-dashoffset] duration-700 ease-out`}
-            stroke="currentColor" stroke-width="2" stroke-linecap="round"
-            stroke-dasharray={2 * Math.PI * 16}
-            stroke-dashoffset={2 * Math.PI * 16 * (1 - score / 100)}
-          />
-        </svg>
-        <div class="absolute inset-0 flex items-center justify-center">
-          <span class={`text-base font-medium tabular-nums ${band}`}>{score}</span>
+    <!-- One artifact: score band on top, category sections beneath as band
+         headers + hairline-ruled, line-numbered rows (CRA-form grammar). -->
+    <div class="card overflow-hidden">
+      <div class="flex items-start gap-5 p-5">
+        <div class="relative h-16 w-16 flex-none" role="img" aria-label={`Qualitative score ${score} out of 100: ${verdict}`}>
+          <svg viewBox="0 0 36 36" class="h-16 w-16 -rotate-90">
+            <circle cx="18" cy="18" r="16" fill="none" class="stroke-gray-100" stroke-width="2.5" />
+            <circle
+              cx="18" cy="18" r="16" fill="none"
+              class={`${bandStroke} transition-[stroke-dashoffset] duration-700 ease-out motion-reduce:transition-none`}
+              stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+              stroke-dasharray={2 * Math.PI * 16}
+              stroke-dashoffset={2 * Math.PI * 16 * (1 - score / 100)}
+            />
+          </svg>
+          <div class="absolute inset-0 flex items-center justify-center">
+            <span class={`font-mono text-base font-medium tabular-nums ${bandText}`}>{score}</span>
+          </div>
+        </div>
+        <div class="min-w-0">
+          <p class="text-sm font-medium text-ink">
+            {verdict}
+            <span class="ml-1.5 font-mono text-xs font-normal tabular-nums text-ink-faint">{score}/100</span>
+          </p>
+          {#if result.summary}
+            <p class="mt-1.5 text-sm leading-relaxed text-ink-secondary">{result.summary}</p>
+          {/if}
+          {#if result.score_rationale}
+            <p class="mt-1.5 text-xs text-ink-muted">{result.score_rationale}</p>
+          {/if}
         </div>
       </div>
-      <div class="min-w-0">
-        <p class="text-sm font-medium text-gray-900">
-          {score >= 80 ? "Strong PD" : score >= 60 ? "Needs attention" : "Significant issues"}
-          <span class="font-normal text-gray-400"> · /100</span>
-        </p>
-        {#if result.summary}
-          <p class="mt-1.5 text-[13px] leading-relaxed text-gray-600">{result.summary}</p>
-        {/if}
-        {#if result.score_rationale}
-          <p class="mt-1.5 text-xs text-gray-400">{result.score_rationale}</p>
-        {/if}
-      </div>
-    </div>
 
-    <div class="card flex flex-col gap-5 p-4">
-      {@render feedbackList("Strengths", result.strengths, "bg-green-500", "text-gray-700")}
-      {@render feedbackList("Risks / areas to improve", result.risks, "bg-red-400", "text-gray-700")}
-      {@render feedbackList("Suggested strengthening", result.suggested_strengthening, "bg-amber-400", "text-gray-700")}
+      {#each sections as section (section.key)}
+        <section aria-label={section.label}>
+          <div class="flex items-center gap-2 border-t border-line-soft bg-gray-50 px-5 py-2.5">
+            <span class={`h-1.5 w-1.5 flex-none rounded-full ${section.dot}`} aria-hidden="true"></span>
+            <h3 class="text-label">{section.label}</h3>
+            <span class="text-data text-ink-faint">{section.items.length}</span>
+          </div>
+          <ol class="divide-y divide-line-soft">
+            {#each section.items as item, i (i)}
+              <li class="flex items-baseline gap-3 px-5 py-3">
+                <span class="text-data w-5 flex-none text-right text-ink-faint" aria-hidden="true">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <p class="text-sm leading-relaxed text-ink-secondary">{item}</p>
+              </li>
+            {/each}
+          </ol>
+        </section>
+      {/each}
     </div>
   {/if}
 
   <!-- Phase 5: timestamped activity trail -->
   {#if events.length > 0}
     <div>
-      <p class="text-label mb-2.5">Activity</p>
-      <ul class="space-y-1">
+      <h3 class="text-label mb-2.5">Activity</h3>
+      <ul class="space-y-1.5">
         {#each events as e (e._id)}
           <li class="flex items-baseline justify-between gap-3 text-xs">
-            <span class="text-gray-600">
+            <span class="text-ink-secondary">
               {EVENT_LABELS[e.action] ?? e.action}
               {#if e.detail}
-                <span class="text-gray-400"> — {e.detail}</span>
+                <span class="text-ink-muted"> · {e.detail}</span>
               {/if}
             </span>
-            <span class="flex-none tabular-nums text-gray-400">{formatAt(e.at)}</span>
+            <span class="text-data flex-none text-ink-faint">{formatAt(e.at)}</span>
           </li>
         {/each}
       </ul>

@@ -23,10 +23,13 @@ describe("Home work-query removal", () => {
     document.body.innerHTML = "";
   });
 
-  it("does not subscribe to queue or accountability queries", async () => {
+  it("subscribes only to the With-you band's single bounded query (2026-08-13 amendment)", async () => {
     await render(MyWorkView, {});
 
-    expect(__isQueryActive("myWork:listAssignedToMe")).toBe(false);
+    // The one recorded exception: the "With you" band rides
+    // myWork.listAssignedToMe. Every other queue/accountability
+    // subscription stays released on Home.
+    expect(__isQueryActive("myWork:listAssignedToMe")).toBe(true);
     expect(__isQueryActive("myWork:listReviews")).toBe(false);
     expect(__isQueryActive("myWork:listDueSoon")).toBe(false);
     expect(__isQueryActive("myWork:listOwnedByMe")).toBe(false);

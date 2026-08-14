@@ -9,14 +9,15 @@
 </script>
 
 <script lang="ts">
+  import { KanbanIcon, ListBulletsIcon } from "phosphor-svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
 
   let props: ViewModeToggleProps = $props();
   let groupElement: HTMLDivElement | null = $state(null);
 
   const modes: { id: ViewMode; label: string }[] = [
-    { id: "board", label: "Board view" },
     { id: "list", label: "List view" },
+    { id: "board", label: "Board view" },
   ];
 
   function changeMode(next: ViewMode) {
@@ -44,10 +45,9 @@
   }
 </script>
 
-<!-- Board/List segmented control on the theme-aware chrome surface (dark
-     filled pill inside the workspace dark scope). Board is the canonical
-     workflow-stage kanban (product-domain amendment 2026-08-05); List
-     remains one click away.
+<!-- List/Board segmented control on the theme-aware chrome surface. List is
+     the canonical default presentation (owner direction 2026-08-13/14);
+     the workflow-stage Board remains one click away.
      A11y (P0, 2026-08-08 audit): this is a role=group of aria-pressed
      toggle buttons, not a radiogroup/tablist — EVERY control is in the tab
      sequence (the earlier roving tabindex skipped the unselected List
@@ -77,16 +77,9 @@
           }`}
         >
           {#if mode.id === "list"}
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-              <path stroke-linecap="round" d="M10.5 6h9m-9 6h9m-9 6h9" />
-              <circle cx="5.25" cy="6" r="1.5" />
-              <circle cx="5.25" cy="12" r="1.5" />
-              <circle cx="5.25" cy="18" r="1.5" />
-            </svg>
+            <ListBulletsIcon size={16} weight="regular" aria-hidden="true" />
           {:else}
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 4.5h3v15h-3a1.5 1.5 0 01-1.5-1.5V6a1.5 1.5 0 011.5-1.5zm5.25 0h3v10.5h-3V4.5zm5.25 0h3A1.5 1.5 0 0120.25 6v7.5h-4.5V4.5z" />
-            </svg>
+            <KanbanIcon size={16} weight="regular" aria-hidden="true" />
           {/if}
         </button>
       {/snippet}

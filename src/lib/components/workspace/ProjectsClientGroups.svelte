@@ -151,10 +151,13 @@
   <!-- Provenance stays visible at every viewport but compact on phones: the
        backfill notice flows inline with the qualifier below `sm` instead of
        taking its own line (live QA 2026-08-07 — first-viewport chrome). -->
-  <div class="flex shrink-0 flex-wrap items-end justify-between gap-2 px-1 pb-1 pt-2 sm:pt-3">
-    <p data-client-grouping-qualifier class="min-w-0 text-xs text-ink-secondary">
-      {GROUPING_QUALIFIER}
-      <span data-client-grouping-backfill-notice class="text-ink-muted sm:block">{BACKFILL_NOTICE}</span>
+  <div class="flex min-h-10 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-workspace-rail-line px-3 py-1.5">
+    <p data-client-grouping-qualifier class="min-w-0 truncate text-xs text-ink-muted" title={`${GROUPING_QUALIFIER} ${BACKFILL_NOTICE}`}>
+      Client names as entered
+      <span class="mx-1 text-line" aria-hidden="true">·</span>
+      <span class="text-ink-faint">Older projects may be missing</span>
+      <span class="sr-only"> {GROUPING_QUALIFIER}</span>
+      <span data-client-grouping-backfill-notice class="sr-only"> {BACKFILL_NOTICE}</span>
     </p>
     {#if companies.length > 0}
       <div class="flex shrink-0 flex-col items-end">
@@ -196,7 +199,19 @@
     <!-- Band-headed sections stack flush (each closes with its own hairline)
          — ruled divider grammar on the white plane, not stacked outline
          boxes. -->
-    <div class="flex flex-col gap-1 py-2">
+    <div class="flex flex-col">
+      {#if presentation === "list"}
+        <div
+          data-client-table-header
+          class="hidden h-9 grid-cols-[minmax(13rem,1fr)_6rem_minmax(18rem,1.15fr)_7rem_2.25rem] items-center border-b border-workspace-rail-line bg-gray-50 px-3 text-[0.6875rem] font-medium text-ink-muted sm:grid"
+        >
+          <span>Client</span>
+          <span class="pl-2">Projects</span>
+          <span>Stage mix</span>
+          <span class="text-center">Create</span>
+          <span class="sr-only">Open section</span>
+        </div>
+      {/if}
       {#each companies as company (company.companyKey)}
         <ProjectsClientGroup
           companyKey={company.companyKey}

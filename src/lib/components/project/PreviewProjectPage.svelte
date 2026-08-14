@@ -42,6 +42,9 @@
   import FilesPanel from "$lib/components/editor/FilesPanel.svelte";
   import Disclosure from "$lib/components/ui/Disclosure.svelte";
   import DisclosureChevron from "$lib/components/ui/DisclosureChevron.svelte";
+  import { normalizeExtractedText } from "$lib/parseDocument";
+  import { projectPagingPosition } from "$lib/workspace/projectPagingContext";
+  import ProjectHighlights from "$lib/components/project/ProjectHighlights.svelte";
   import FilingReadinessPanel from "$lib/components/evidence/FilingReadinessPanel.svelte";
   import LogsPanel from "$lib/components/editor/LogsPanel.svelte";
   import CommentOverlay from "$lib/components/comments/CommentOverlay.svelte";
@@ -426,6 +429,11 @@
   // grammar as the assistant rail; its own persisted key so the two splits
   // stay independent. No chat is implied anywhere in this state.
   let contextRatio = $state(0.31);
+  // The context pane is closable on desktop (2026-08-13): same open/reopen
+  // grammar as the assistant rail — close control inside the pane, reopen
+  // control at the far left of the page bar, width animating to 0. Persisted
+  // under its own key; the mobile Work/Context switch is independent.
+  let contextOpen = $state(true);
   let mobileIntakeView = $state<"work" | "context">("work");
   // Review-mode projects (client meeting 2026-08-10): the written PD and its
   // feedback report are the focus, so the interview transcript collapses to a
@@ -433,6 +441,13 @@
   // projects keep the always-visible transcript.
   let reviewTranscriptOpen = $state(false);
   const reviewTranscriptBodyId = "review-transcript-body";
+  // Review workbench (2026-08-13): the verdict leads the work pane, so the
+  // metadata grid demotes into a collapsed disclosure. The page bar already
+  // carries the route's h1 title.
+  // List-context paging (2026-08-13, Attio-research P1): position of this
+  // project inside the bounded page the invoking Projects surface stashed.
+  // Recomputed per projectId; null when the reader arrived another way.
+  const pagingPosition = $derived(projectPagingPosition(projectId));
   const transcriptWordCount = $derived(
     transcript?.content
       ? transcript.content.trim().split(/\s+/).filter(Boolean).length
@@ -471,6 +486,7 @@
     if (r) chatRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, parseFloat(r)));
     const c = localStorage.getItem("banhall_intake_context_ratio");
     if (c) contextRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, parseFloat(c)));
+    contextOpen = localStorage.getItem("banhall_intake_context_open") !== "0";
     const savedQa = localStorage.getItem("banhall_qa_open") === "1";
     chatOpen = !savedQa && localStorage.getItem("banhall_chat_open") !== "0";
     qaOpen = savedQa;
@@ -481,6 +497,7 @@
   $effect(() => {
     localStorage.setItem("banhall_chat_ratio", String(chatRatio));
     localStorage.setItem("banhall_intake_context_ratio", String(contextRatio));
+    localStorage.setItem("banhall_intake_context_open", contextOpen ? "1" : "0");
     localStorage.setItem("banhall_chat_open", chatOpen ? "1" : "0");
     localStorage.setItem("banhall_qa_open", qaOpen ? "1" : "0");
     localStorage.setItem("banhall_project_editor_maximized", workspaceMaximized ? "1" : "0");
@@ -916,6 +933,17 @@
   const showFailedGeneration = $derived(
     generation?.status === "failed" && !report && project?.mode !== "review"
   );
+  // The intake workbench renders when no report exists and nothing louder
+  // (generation progress, selection, stepper) owns the page — the same
+  // condition the template gates on, shared so the page-bar reopen control
+  // cannot drift from the state it reopens.
+  const showIntakeWorkbench = $derived(
+    !report &&
+      !isGenerating &&
+      !awaitingSelection &&
+      !showIterativeStepper &&
+      !showFailedGeneration
+  );
 </script>
 
 <svelte:window
@@ -979,45 +1007,55 @@
             await updateTitles({ projectId, title: value.trim() });
           }}
         />
-        <div class="mt-4 grid grid-cols-1 gap-x-8 gap-y-3 text-[13px] sm:grid-cols-2">
-          <div>
-            <span class="text-label block">SR&amp;ED title</span>
-            <EditableText
-              value={project.sredTitle ?? ""}
-              placeholder="Add the formal SR&ED title (finalize at the end)"
-              label="SR&ED title"
-              onSave={async (value) => {
-                await updateTitles({ projectId, sredTitle: value });
-              }}
-            />
+        <!-- Highlights band (2026-08-13, Attio-research P1): the project's
+             load-bearing facts at a glance, honest empties included. -->
+        <div class="mt-4">
+          <ProjectHighlights {projectId} fiscalYearEnd={project.fiscalYearEnd ?? null} />
+        </div>
+        <!-- Attribute rows (same amendment): the Attio record-page grammar —
+             fixed label column + value per row — replacing the stacked
+             label-over-value grid. Editing affordances are unchanged. -->
+        <div class="mt-3 grid grid-cols-1 gap-x-10 text-[13px] sm:grid-cols-2">
+          <div class="grid min-h-8 grid-cols-[7.5rem_minmax(0,1fr)] items-baseline gap-x-3 py-0.5 sm:col-span-2">
+            <span class="text-label">SR&amp;ED title</span>
+            <div class="min-w-0">
+              <EditableText
+                value={project.sredTitle ?? ""}
+                placeholder="Add the formal SR&ED title (finalize at the end)"
+                label="SR&ED title"
+                onSave={async (value) => {
+                  await updateTitles({ projectId, sredTitle: value });
+                }}
+              />
+            </div>
           </div>
-          <div>
-            <span class="text-label block">Client</span>
-            <p class="mt-1 text-gray-800">{project.clientName}</p>
+          <div class="grid min-h-8 grid-cols-[7.5rem_minmax(0,1fr)] items-baseline gap-x-3 py-0.5">
+            <span class="text-label">Client</span>
+            <p class="min-w-0 truncate text-gray-800">{project.clientName}</p>
           </div>
-          <div>
+          <div class="grid min-h-8 grid-cols-[7.5rem_minmax(0,1fr)] items-baseline gap-x-3 py-0.5">
             <!-- Domain truth (product-domain vocabulary): `project.writer` is
                  the writer metadata field, NOT the immutable Creator
                  (`projects.createdBy`). Labelling it "Created by" conflated
                  Writer with Creator; the field now says what it holds. -->
-            <span class="text-label block">Writer</span>
-            <p class="mt-1 text-gray-800">{writerLabel}</p>
+            <span class="text-label">Writer</span>
+            <p class="min-w-0 truncate text-gray-800">{writerLabel}</p>
           </div>
           {#if interviewerLabel}
-            <div>
-              <span class="text-label block">Interviewer</span>
-              <p class="mt-1 text-gray-800">{interviewerLabel}</p>
+            <div class="grid min-h-8 grid-cols-[7.5rem_minmax(0,1fr)] items-baseline gap-x-3 py-0.5">
+              <span class="text-label">Interviewer</span>
+              <p class="min-w-0 truncate text-gray-800">{interviewerLabel}</p>
             </div>
           {/if}
           {#if interviewees.length > 0}
-            <div>
-              <span class="text-label block">Interviewees</span>
-              <p class="mt-1 text-gray-800">{interviewees.join(", ")}</p>
+            <div class="grid min-h-8 grid-cols-[7.5rem_minmax(0,1fr)] items-baseline gap-x-3 py-0.5">
+              <span class="text-label">Interviewees</span>
+              <p class="min-w-0 text-gray-800">{interviewees.join(", ")}</p>
             </div>
           {/if}
-          <div>
-            <span class="text-label block">Created</span>
-            <p class="mt-1 text-gray-800">
+          <div class="grid min-h-8 grid-cols-[7.5rem_minmax(0,1fr)] items-baseline gap-x-3 py-0.5">
+            <span class="text-label">Created</span>
+            <p class="min-w-0 text-gray-800">
               {new Date(project.createdAt).toLocaleDateString("en-US", {
                 year: "numeric",
                 month: "long",
@@ -1025,46 +1063,54 @@
               })}
             </p>
           </div>
-          <div>
-            <span class="text-label block">Fiscal year-end</span>
-            <FiscalYearField
-              {projectId}
-              fiscalYearEnd={project.fiscalYearEnd ?? null}
-            />
+          <div class="grid min-h-8 grid-cols-[7.5rem_minmax(0,1fr)] items-baseline gap-x-3 py-0.5">
+            <span class="text-label">Fiscal year-end</span>
+            <div class="min-w-0">
+              <FiscalYearField
+                {projectId}
+                fiscalYearEnd={project.fiscalYearEnd ?? null}
+              />
+            </div>
           </div>
-          <div>
-            <span class="text-label block">Industry</span>
-            <IndustryField
-              {projectId}
-              industry={project.industry ?? null}
-              canCreate={user?.role === "admin"}
-            />
+          <div class="grid min-h-8 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-0.5">
+            <span class="text-label">Industry</span>
+            <div class="min-w-0">
+              <IndustryField
+                {projectId}
+                industry={project.industry ?? null}
+                canCreate={user?.role === "admin"}
+              />
+            </div>
           </div>
-          <div>
-            <span class="text-label block">Project #</span>
-            <EditableText
-              value={project.projectNumber ?? ""}
-              placeholder="e.g. 2, A, or 2a"
-              label="project number"
-              onSave={saveProjectNumber}
-            />
-            {#if projectNumberError}
-              <p class="mt-1 text-xs text-red-700" role="alert">{projectNumberError}</p>
-            {/if}
+          <div class="grid min-h-8 grid-cols-[7.5rem_minmax(0,1fr)] items-baseline gap-x-3 py-0.5">
+            <span class="text-label">Project #</span>
+            <div class="min-w-0">
+              <EditableText
+                value={project.projectNumber ?? ""}
+                placeholder="e.g. 2, A, or 2a"
+                label="project number"
+                onSave={saveProjectNumber}
+              />
+              {#if projectNumberError}
+                <p class="mt-1 text-xs text-red-700" role="alert">{projectNumberError}</p>
+              {/if}
+            </div>
           </div>
-          <div>
-            <span class="text-label block">Science code</span>
-            <ScienceCodeField
-              {projectId}
-              scienceCode={project.scienceCode ?? null}
-            />
+          <div class="grid min-h-8 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-0.5">
+            <span class="text-label">Science code</span>
+            <div class="min-w-0">
+              <ScienceCodeField
+                {projectId}
+                scienceCode={project.scienceCode ?? null}
+              />
+            </div>
           </div>
           {#if project.sourceProjectId}
             <!-- 2026-08-11 (second) amendment: navigational association only —
                  the review project links to the project it reviews. -->
-            <div>
-              <span class="text-label block">Reviews</span>
-              <p class="mt-1">
+            <div class="grid min-h-8 grid-cols-[7.5rem_minmax(0,1fr)] items-baseline gap-x-3 py-0.5">
+              <span class="text-label">Reviews</span>
+              <p class="min-w-0 truncate">
                 <a
                   href={`/project/${project.sourceProjectId}`}
                   class="text-sm text-primary-selected hover:underline"
@@ -1074,24 +1120,21 @@
               </p>
             </div>
           {/if}
-          <div class="sm:col-span-2">
-            <div class="flex items-center gap-2">
-              <span class="text-label block">Tags</span>
-              {#if tagsSaving}
-                <span class="text-xs text-ink-muted">Saving…</span>
-              {/if}
-            </div>
-            <div class="mt-1.5">
+          <div class="grid min-h-8 grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-x-3 py-0.5 sm:col-span-2">
+            <span class="text-label pt-1.5">
+              Tags{#if tagsSaving}<span class="ml-2 normal-case tracking-normal text-ink-muted">Saving…</span>{/if}
+            </span>
+            <div class="min-w-0">
               <TagPicker
                 {allTags}
                 bind:selectedTagIds
                 label={null}
                 onChange={handleTagsChange}
               />
+              {#if tagError}
+                <p class="mt-1 text-xs text-red-700" role="alert">{tagError}</p>
+              {/if}
             </div>
-            {#if tagError}
-              <p class="mt-1 text-xs text-red-700" role="alert">{tagError}</p>
-            {/if}
           </div>
         </div>
         {#if viewSummary && viewSummary.totalViews > 0}
@@ -1123,7 +1166,7 @@
          (Obvious anatomy: ~54px app bar + 44px project bar). It carries the
          page's SINGLE h1 project title beside the workflow control so every
          generation state keeps one unambiguous main heading (a11y P0). -->
-    <header class="flex min-h-12 shrink-0 items-center gap-2 border-b border-line-soft px-3 sm:px-4">
+    <header class="flex h-[49px] shrink-0 items-center gap-2 border-b border-workspace-rail-line px-3 sm:px-4">
       <WorkspaceShellControls
         tone="light"
         onOpenNavigation={() => (navigationOpen = true)}
@@ -1151,6 +1194,22 @@
             </svg>
           </button>
         {/if}
+        {#if showIntakeWorkbench && !contextOpen}
+          <!-- Same far-left reopen grammar as the assistant rail: the panel
+               that closed comes back from where Obvious puts it. Desktop only —
+               narrow screens keep the Work/Context switch. -->
+          <button
+            type="button"
+            title="Show project context"
+            aria-label="Show project context"
+            onclick={() => (contextOpen = true)}
+            class="hidden size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none lg:flex"
+          >
+            <svg class="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 7C4 5.343 5.343 4 7 4h10c1.657 0 3 1.343 3 3v10c0 1.657-1.343 3-3 3H7c-1.657 0-3-1.343-3-3V7zM15 5v14" />
+            </svg>
+          </button>
+        {/if}
         <ProjectWorkflowMenu {projectId} />
         <span aria-hidden="true" class="hidden h-5 w-px flex-none bg-line-soft sm:block"></span>
         <!-- Single h1 for the route (a11y P0), carried by the thin header. -->
@@ -1171,6 +1230,44 @@
         {/if}
       </div>
       <div class="flex shrink-0 items-center gap-1">
+        {#if pagingPosition}
+          <!-- "N of M in <where>" — flow-state paging over the bounded page
+               the invoking list stashed; count keeps the + qualifier when
+               that page was bounded. No subscriptions: prev/next navigate
+               within the already-loaded id list. -->
+          <span data-paging-context class="hidden items-center gap-0.5 lg:flex">
+            <span class="whitespace-nowrap text-xs text-ink-muted">
+              <span class="text-data">{pagingPosition.index + 1} of {pagingPosition.total}{pagingPosition.bounded ? "+" : ""}</span>
+              in {pagingPosition.label}
+            </span>
+            <button
+              type="button"
+              title="Previous project"
+              aria-label={`Previous project in ${pagingPosition.label}`}
+              disabled={!pagingPosition.prevId}
+              onclick={() => {
+                const id = pagingPosition?.prevId;
+                if (id) void goto(resolve("/project/[id]", { id }));
+              }}
+              class="flex size-7 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent motion-reduce:transition-none"
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
+            </button>
+            <button
+              type="button"
+              title="Next project"
+              aria-label={`Next project in ${pagingPosition.label}`}
+              disabled={!pagingPosition.nextId}
+              onclick={() => {
+                const id = pagingPosition?.nextId;
+                if (id) void goto(resolve("/project/[id]", { id }));
+              }}
+              class="flex size-7 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent motion-reduce:transition-none"
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+            </button>
+          </span>
+        {/if}
         {#if saving}
           <span class="hidden text-xs text-ink-faint sm:inline">Saving…</span>
         {/if}
@@ -1785,7 +1882,7 @@
          explicit Work/Context switches with one pane visible at a time.
          The state stays HONEST: no report and no chat exist here — the
          left pane is source context, never a fabricated conversation. -->
-    {#if !report && !isGenerating && !awaitingSelection && !showIterativeStepper && !showFailedGeneration}
+    {#if showIntakeWorkbench}
       {@const transcriptVisible = !(project.mode === "review" && !transcript?.content?.trim())}
       <div class="flex shrink-0 items-center justify-center gap-0.5 border-b border-line-soft bg-white px-3 py-2 lg:hidden" role="group" aria-label="Project intake pane">
         <button
@@ -1812,10 +1909,12 @@
           class={`${mobileIntakeView === "work" ? "flex" : "hidden"} min-h-0 flex-1 flex-col overflow-y-auto lg:flex`}
         >
           <div class="mx-auto w-full max-w-3xl px-6 py-8">
-            {@render projectMetadata()}
+            <!-- Project attributes live in the persistent left context pane;
+                 this primary plane begins with the actual work, matching the
+                 Attio record/detail split. -->
 
             {#if project.mode === "review" && generation?.status === "failed"}
-              <div class="mt-8 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
+              <div class="mb-8 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
                 <p class="text-sm text-red-700">
                   The comparison draft stopped before it completed. Use “Generate PD for comparison” below to try again.
                 </p>
@@ -1823,20 +1922,16 @@
             {/if}
 
             {#if project.mode === "review" && pdReview}
-              <div class="mt-8">
-                <PdReviewReport
-                  review={pdReview}
-                  hasTranscript={Boolean(transcript?.content?.trim())}
-                  onGenerate={handleGenerateFromReview}
-                />
-              </div>
+              <PdReviewReport
+                review={pdReview}
+                hasTranscript={Boolean(transcript?.content?.trim())}
+                onGenerate={handleGenerateFromReview}
+              />
             {:else if project.mode === "review" && pdReviewQ.data === null}
               <!-- Stranded review project (2026-08-07 flag): no review row
                    exists, so the report block renders nothing and the writer
                    had no recovery path. Offer start/upload here. -->
-              <div class="mt-8">
-                <PdReviewStart projectId={project._id} />
-              </div>
+              <PdReviewStart projectId={project._id} />
             {/if}
 
             {#if transcript && transcriptVisible}
@@ -1902,6 +1997,7 @@
         </main>
 
         <!-- Draggable separator between context and work (desktop only) -->
+        {#if contextOpen}
         <button
           type="button"
           onmousedown={startContextDrag}
@@ -1924,14 +2020,36 @@
         >
           <div class="h-10 w-1 rounded-full bg-gray-300 transition-colors group-hover:bg-primary"></div>
         </button>
+        {/if}
 
         <aside
           aria-label="Project context"
           data-intake-pane="context"
-          class={`${mobileIntakeView === "context" ? "flex" : "hidden"} min-h-0 w-full flex-1 flex-col overflow-hidden bg-white lg:flex lg:w-[var(--context-width)] lg:flex-none lg:border-r lg:border-line-soft ${contextDragging ? "" : "lg:transition-[width] lg:duration-[325ms] lg:ease-out motion-reduce:transition-none"}`}
-          style={`--context-width: ${contextRatio * 100}%`}
+          inert={!contextOpen && mobileIntakeView !== "context"}
+          class={`${mobileIntakeView === "context" ? "flex" : "hidden"} min-h-0 w-full flex-1 flex-col overflow-hidden bg-white lg:flex lg:w-[var(--context-width)] lg:flex-none ${contextOpen ? "lg:border-r lg:border-line-soft" : "lg:opacity-0"} ${contextDragging ? "" : "lg:transition-[width,opacity] lg:duration-[325ms] lg:ease-out motion-reduce:transition-none"}`}
+          style={`--context-width: ${contextOpen ? contextRatio * 100 : 0}%`}
         >
-          <div class="min-h-0 flex-1 overflow-y-auto px-5 py-6">
+          <!-- Pane header: names the surface and carries the close control
+               (assistant-rail grammar). Desktop only — narrow screens close
+               via the Work/Context switch. -->
+          <div class={`hidden shrink-0 items-center justify-between pt-4 lg:flex ${contextOpen ? "px-5" : "lg:px-0"}`}>
+            <h2 class="text-label">Context</h2>
+            <button
+              type="button"
+              title="Close context panel"
+              aria-label="Close project context"
+              onclick={() => (contextOpen = false)}
+              class="flex size-7 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div class={`min-h-0 flex-1 overflow-y-auto py-6 lg:pt-3 ${contextOpen ? "px-5" : "px-5 lg:px-0"}`}>
+            <div data-project-record-details>
+              {@render projectMetadata()}
+            </div>
             <!-- Reachable later: a project with no report still has to show
                  what happened to its uploads. -->
             <FilesPanel {projectId} />
@@ -1968,7 +2086,7 @@
                       {#if transcript}
                         <div class="rounded-lg border border-gray-200 bg-white p-4">
                           <p class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-700">
-                            {transcript.content}
+                            {normalizeExtractedText(transcript.content)}
                           </p>
                         </div>
                       {:else}
@@ -1985,7 +2103,7 @@
                   {#if transcript}
                     <div class="mt-3 rounded-lg border border-gray-200 bg-white p-4">
                       <p class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-700">
-                        {transcript.content}
+                        {normalizeExtractedText(transcript.content)}
                       </p>
                     </div>
                   {:else}

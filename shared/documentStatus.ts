@@ -257,3 +257,22 @@ export function deriveStoredProcessing(row: {
     intake: getFileExtension(row.fileName) === "" ? "pasted" : "file",
   });
 }
+
+/**
+ * Collapse parse artifacts in extracted document/transcript text: CRLF and
+ * NBSP normalization, trailing whitespace per line, and runs of 3+ newlines
+ * down to one blank line. Word-exported forms (T661 PDs especially) carry
+ * page-layout whitespace that reads as noise once flattened to text.
+ *
+ * Applied at ingestion (every parser and paste path flows through
+ * `capContent`) and again at render time, so documents stored before this
+ * existed present clean too. Idempotent by construction.
+ */
+export function normalizeExtractedText(text: string): string {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .replace(/\u00A0/g, " ")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}

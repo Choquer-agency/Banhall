@@ -84,7 +84,7 @@ describe("WorkspaceDashboard viewport containment (real +layout flex context)", 
   });
 
   it("binds the shell to the viewport on Board: no document scroll, lanes own vertical scroll independently", async () => {
-    await mountShell("/dashboard?layout=board");
+    await mountShell("/dashboard?layout=board&group=none");
     await expect.poll(() => boardRegion()).not.toBeNull();
 
     const root = shellRoot();
@@ -121,7 +121,7 @@ describe("WorkspaceDashboard viewport containment (real +layout flex context)", 
   });
 
   it("binds the shell on List: the list region owns vertical scroll, the document does not grow", async () => {
-    await mountShell("/dashboard?layout=list");
+    await mountShell("/dashboard?layout=list&group=none");
     await expect.poll(() => listRegion()).not.toBeNull();
 
     // Covers the sr-only phantom-scroll hazard: the rows' absolutely
@@ -141,7 +141,7 @@ describe("WorkspaceDashboard viewport containment (real +layout flex context)", 
 
   it("honors an explicit route view prop over ?view and gives the rail canonical links carrying ?layout", async () => {
     // A stale ?view=my_work param must not beat the canonical route's view.
-    await mountShell("/projects?layout=list&view=my_work", { view: "all_projects" });
+    await mountShell("/projects?layout=list&group=none&view=my_work", { view: "all_projects" });
     await expect.poll(() => listRegion()).not.toBeNull();
 
     const heading = document.querySelector("header h1");
@@ -153,8 +153,8 @@ describe("WorkspaceDashboard viewport containment (real +layout flex context)", 
     const myWorkLink = anchors.find((a) => a.textContent?.trim() === "Home");
     // Typed canonical routes; ?layout carries through; ?view never leaks
     // onto the canonical URLs (the path encodes the view).
-    expect(projectsLink?.getAttribute("href")).toBe("/projects?layout=list");
-    expect(myWorkLink?.getAttribute("href")).toBe("/my-work?layout=list");
+    expect(projectsLink?.getAttribute("href")).toBe("/projects?layout=list&group=none");
+    expect(myWorkLink?.getAttribute("href")).toBe("/my-work?layout=list&group=none");
     expect(projectsLink?.getAttribute("aria-current")).toBe("page");
   });
 });

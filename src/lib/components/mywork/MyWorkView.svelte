@@ -3,6 +3,7 @@
   import { useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import HomeStartProject from "$lib/components/mywork/HomeStartProject.svelte";
+  import WithYouBand from "$lib/components/mywork/WithYouBand.svelte";
   import RecentProjectsRail from "$lib/components/workspace/RecentProjectsRail.svelte";
   import { greetingForHour, greetingName } from "$lib/mywork/homeGreeting";
   import type { RecentProject } from "$lib/workspace/recentProjects";
@@ -26,5 +27,8 @@
 
 <section aria-label="Home">
   <HomeStartProject {greeting} />
+  <!-- "With you" (2026-08-13 amendment): the one operational band Home
+       carries — open work items assigned to the viewer, due first. -->
+  <WithYouBand />
   <RecentProjectsRail recents={recentProjects} />
 </section>

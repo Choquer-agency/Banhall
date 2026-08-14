@@ -1,8 +1,7 @@
 <script lang="ts">
   // Projects is a read-only repository projection. The default presentation
-  // is the workflow-stage kanban Board (product-domain amendment 2026-08-05:
-  // canonical WORKFLOW_STAGE_PIPELINE_ORDER columns plus the explicitly
-  // qualified Legacy status column), with the sparse List one click away.
+  // is the client-grouped List (owner direction 2026-08-13, reinforced
+  // 2026-08-14); the workflow-stage Board remains one click away.
   // Obvious contributes the interaction borrows — debounced ⌘K search,
   // compact calm toolbar of recessed chrome pills, quiet show-more — while
   // Banhall's bounded queries, canonical stage tones, Owner truth, activity
@@ -12,6 +11,7 @@
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
+  import { MagnifyingGlassIcon, PlusIcon } from "phosphor-svelte";
   import { usePaginatedQuery, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import type { FunctionReturnType } from "convex/server";
@@ -20,6 +20,16 @@
   import ViewModeToggle from "$lib/components/ui/ViewModeToggle.svelte";
   import ProjectsBoard from "$lib/components/workspace/ProjectsBoard.svelte";
   import GhostPopover from "$lib/components/ui/GhostPopover.svelte";
+  import ViewPresetMenu from "$lib/components/workspace/ViewPresetMenu.svelte";
+  import {
+    defaultViewState,
+    deleteViewPreset,
+    loadViewPresets,
+    persistViewPresets,
+    presetMatches,
+    saveViewPreset,
+    type ProjectsViewPreset,
+  } from "$lib/dashboard/viewPresets";
   import BoardFiltersPopover from "$lib/components/workspace/BoardFiltersPopover.svelte";
   import ProjectsDisplayMenu from "$lib/components/workspace/ProjectsDisplayMenu.svelte";
   import ProjectsClientGroups from "$lib/components/workspace/ProjectsClientGroups.svelte";
@@ -47,6 +57,7 @@
   } from "$lib/dashboard/stageFilter";
   import { stageBadgeClasses } from "$lib/workflow/stagePresentation";
   import { WORKFLOW_STAGES, type WorkflowStage } from "../../../../shared/workflowStages";
+  import { WORKFLOW_STAGE_LABELS } from "../../../../shared/workflowLabels";
 
   type FlatResult = FunctionReturnType<typeof api.dashboard.listFlatProjects>;
   type ProjectRow = FlatResult["page"][number];
@@ -344,6 +355,76 @@
     sortBy = value;
   }
 
+  // Named view presets (2026-08-13, Attio-research P1): browser-local named
+  // snapshots of the display axes + flat filters. Applying one writes the
+  // SAME preferences/filter state the view already persists, through the
+  // same URL-sync guards as the individual controls.
+  let viewPresets = $state<ProjectsViewPreset[]>(loadViewPresets());
+  const activePresetName = $derived(
+    viewPresets.find((preset) =>
+      presetMatches(preset, preferences, stage === "all" ? null : stage, filterOwner)
+    )?.name ?? null
+  );
+  // "All projects" chip/row state is truthful: active only when the live
+  // view equals the unnamed baseline, not merely when no preset matches.
+  const defaultViewActive = $derived.by(() => {
+    const base = defaultViewState();
+    return (
+      activePresetName === null &&
+      presetMatches(
+        { name: "", preferences: base.preferences, stage: base.stage, ownerId: base.ownerId, ownerLabel: null },
+        preferences,
+        stage === "all" ? null : stage,
+        filterOwner
+      )
+    );
+  });
+
+  function applyViewState(
+    next: ProjectsTablePreferences,
+    nextStage: string | null,
+    nextOwnerId: string | null,
+    nextOwnerLabel: string | null
+  ) {
+    persistPreferences(next);
+    stage = nextStage ?? "all";
+    filterOwner = nextOwnerId;
+    filterOwnerLabel = nextOwnerLabel;
+    pendingFilters = { stage: false, owner: false };
+    lastAppliedUrlLayout = next.layout;
+    lastAppliedUrlGroup = next.group;
+    lastAppliedUrlHideEmpty = next.hideEmptyBoard;
+    let url = withProjectLayoutParam(page.url, next.layout);
+    url = withProjectGroupParam(url, next.group);
+    url = withHideEmptyParam(url, next.hideEmptyBoard);
+    goto(`${url.pathname}${url.search}`, { replaceState: true, noScroll: true, keepFocus: true });
+  }
+
+  function applyPreset(preset: ProjectsViewPreset) {
+    applyViewState(
+      structuredClone(preset.preferences),
+      preset.stage,
+      preset.ownerId,
+      preset.ownerLabel
+    );
+  }
+
+  function saveCurrentViewAs(name: string) {
+    viewPresets = saveViewPreset(viewPresets, {
+      name,
+      preferences: structuredClone($state.snapshot(preferences)),
+      stage: stage === "all" ? null : stage,
+      ownerId: filterOwner,
+      ownerLabel: filterOwnerLabel,
+    });
+    persistViewPresets(viewPresets);
+  }
+
+  function removePreset(name: string) {
+    viewPresets = deleteViewPreset(viewPresets, name);
+    persistViewPresets(viewPresets);
+  }
+
   function setGroup(group: ProjectGroupMode) {
     persistPreferences({ ...preferences, group });
     // Grouped sections are index-backed only (client name A→Z, stage-rank
@@ -416,24 +497,38 @@
 </script>
 
 <section aria-label="Projects repository" class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-  <div class="shrink-0 border-b border-line-soft py-2">
+  <div class="flex min-h-12 shrink-0 items-center gap-2 border-b border-workspace-rail-line px-2 py-2">
     {#if externalSearch === undefined}
-      <div class="relative mb-2 min-w-0 sm:max-w-[19rem]" role="search">
-        <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+      <div class="relative min-w-0 sm:max-w-[19rem]" role="search">
+        <MagnifyingGlassIcon class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-faint" size={15} weight="regular" aria-hidden="true" />
         <input
           bind:this={searchElement}
           bind:value={searchInput}
           onkeydown={handleSearchKeydown}
           aria-label="Search projects"
           placeholder="Search projects…"
-          class="h-11 w-full rounded-xl border border-line bg-chrome/70 py-2 pl-9 pr-12 text-sm text-ink placeholder:text-ink-faint sm:h-9"
+          class="h-11 w-full rounded-lg border border-workspace-rail-line bg-workspace-control py-2 pl-8 pr-12 text-[0.8125rem] text-ink placeholder:text-ink-faint sm:h-7"
         />
         <kbd class="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 rounded-md border border-line-soft bg-chrome px-1.5 py-0.5 text-[0.625rem] font-medium text-ink-muted sm:inline">{searchShortcutHint()}</kbd>
       </div>
     {/if}
 
-    <div class="grid min-w-0 grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
-      <div class="col-span-2 flex min-w-0 items-center justify-end gap-2 sm:ml-auto">
+    {#if !q}
+      <ViewPresetMenu
+        presets={viewPresets}
+        activeName={activePresetName}
+        defaultActive={defaultViewActive}
+        onApply={applyPreset}
+        onApplyDefault={() => {
+          const base = defaultViewState();
+          applyViewState(base.preferences, base.stage, base.ownerId, null);
+        }}
+        onSaveCurrent={saveCurrentViewAs}
+        onDelete={removePreset}
+      />
+    {/if}
+
+    <div class="ml-auto flex min-w-0 items-center justify-end gap-1.5">
         {#if !q}
           <!-- Grouping lives in the right control cluster (owner direction,
                2026-08-10); align="end" opens the panel leftward so it stays
@@ -499,11 +594,23 @@
           onHideEmptyClientGroupsChange={setHideEmptyClientGroups}
         />
         <ViewModeToggle value={preferences.layout} onChange={setLayout} label="Project layout" />
-      </div>
+        <a
+          href={resolve("/project/new")}
+          class="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg bg-fir px-3 text-[0.8125rem] font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none sm:h-7"
+        >
+          <PlusIcon size={14} weight="bold" aria-hidden="true" />
+          <span class="hidden sm:inline">New project</span>
+          <span class="sr-only sm:hidden">New project</span>
+        </a>
     </div>
   </div>
 
-  {#if !grouped && (selectedStage || filterOwner || pendingFilters.stage || pendingFilters.owner)}
+  <!-- Query-state row (2026-08-13, Attio-research P0): sort and filter
+       state stays externalized as always-visible chips instead of hiding
+       inside the Display/Filters popovers — glanceable truth about why the
+       grid shows what it shows. Sort applies to the flat browse only
+       (search is relevance-ordered; grouped surfaces are index-ordered). -->
+  {#if !grouped && (!q || selectedStage || filterOwner || pendingFilters.stage || pendingFilters.owner)}
     <!-- Obvious filter pill (their markup, 2026-08-10): ONE joined rounded-md
          pill with internal hairline dividers — static field, "equals"
          operator, CLICKABLE value (opens the value popover anchored to this
@@ -529,7 +636,22 @@
         </button>
       </span>
     {/snippet}
-    <div data-active-filters class="flex shrink-0 flex-wrap items-center gap-2 border-b border-line-soft px-2 py-2">
+    <div data-active-filters class="flex min-h-[49px] shrink-0 flex-wrap items-center gap-2 border-b border-workspace-rail-line px-2 py-2">
+      {#if !q}
+        <GhostPopover
+          value={sortBy}
+          items={SORTS}
+          ariaLabel="Sort projects"
+          label="Sort by"
+          class="h-7!"
+          onValueChange={(value) => setSortBy(value as SortBy)}
+        >
+          {#snippet chip()}
+            <span data-sort-chip class="truncate"><span class="text-ink-faint">Sorted by ·</span>
+              <span class="text-ink">{SORTS.find((item) => item.value === sortBy)?.label ?? "Recently edited"}</span></span>
+          {/snippet}
+        </GhostPopover>
+      {/if}
       {#if selectedStage || pendingFilters.stage}
         {@render filterChip("Stage", "stage", selectedStage ? stageChipLabel(stage) : "Select…", !selectedStage, stageValueClass, () => {
           stage = "all";
@@ -555,6 +677,14 @@
       >
         <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" d="M12 7v10M7 12h10" /></svg>
       </button>
+    </div>
+  {/if}
+
+  {#if grouped}
+    <div class="flex min-h-[49px] shrink-0 items-center border-b border-workspace-rail-line px-3 text-[0.75rem] text-ink-muted">
+      <span><span class="text-ink-faint">Grouped by ·</span> Client</span>
+      <span class="mx-2 text-workspace-rail-line" aria-hidden="true">/</span>
+      <span>Projects follow workflow-stage order</span>
     </div>
   {/if}
 
@@ -658,7 +788,34 @@
         hideEmpty={preferences.hideEmptyBoard}
       />
     {:else}
-      <ProjectsTable {rows} columns={preferences.columns} density={preferences.density} />
+      <ProjectsTable
+        {rows}
+        columns={preferences.columns}
+        density={preferences.density}
+        contextLabel={q ? "search results" : selectedStage ? stageFilterLabel(stage) : "Projects"}
+        contextBounded={hasMore}
+      />
+      {#if !q && !filtered && facetsQ.data && rows.length > 0}
+        <!-- Calculation footer (2026-08-13, Attio-research P2): facet-backed
+             per-stage counts under the flat List, count-ladder honest — the
+             `+` qualifier renders whenever the facet scan truncated. Hidden
+             under filters/search where whole-repo facets would mislead. -->
+        <div
+          data-calculation-footer
+          class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-line-soft px-3 py-1.5"
+        >
+          <span class="text-xs text-ink-muted">
+            <span class="text-data">{facetsQ.data.total}{facetsQ.data.truncated ? "+" : ""}</span>
+            projects
+          </span>
+          {#each WORKFLOW_STAGES.filter((s) => (facetsQ.data?.stageCounts?.[s] ?? 0) > 0) as s (s)}
+            <span class="text-xs text-ink-faint">
+              {WORKFLOW_STAGE_LABELS[s]}
+              <span class="text-data text-ink-muted">{facetsQ.data.stageCounts[s]}{facetsQ.data.truncated ? "+" : ""}</span>
+            </span>
+          {/each}
+        </div>
+      {/if}
     {/if}
 
     {#if hasMore}

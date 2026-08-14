@@ -50,10 +50,13 @@
   // color — the tone dot never stands alone (a labelled light stage badge
   // accompanies it at every breakpoint).
   import { resolve } from "$app/paths";
+  import { LinkPreview } from "bits-ui";
+  import { popIn, popOut } from "$lib/motion/panelMotion";
   import Badge from "$lib/components/ui/Badge.svelte";
   import StageBadge from "$lib/components/ui/StageBadge.svelte";
   import { generationActivityLabel } from "$lib/dashboard/generationActivity";
   import { stageBadgeClasses } from "$lib/workflow/stagePresentation";
+  import { setProjectPagingContext } from "$lib/workspace/projectPagingContext";
 
   let {
     rows,
@@ -65,14 +68,47 @@
       updated: true,
     },
     density = "comfortable",
+    contextLabel = "Projects",
+    contextBounded = false,
   }: {
     rows: ProjectsTableRow[];
     columns?: ProjectsTableColumns;
     density?: ProjectTableDensity;
+    /** Where these rows live, for the project header's "N of M in <label>"
+     * paging context (2026-08-13, Attio-research P1). */
+    contextLabel?: string;
+    /** True when more rows existed beyond this loaded page. */
+    contextBounded?: boolean;
   } = $props();
 
-  const rowHeight = $derived(density === "compact" ? "min-h-10" : "min-h-12");
-  const rowPadding = $derived(density === "compact" ? "py-1" : "py-1.5");
+  function stashPagingContext() {
+    setProjectPagingContext({
+      ids: rows.map((row) => row.id),
+      label: contextLabel,
+      bounded: contextBounded,
+    });
+  }
+
+  // Density ladder (2026-08-13, Attio-research P2): compact rows reach the
+  // Attio-density ~36px on pointer-fine devices; the ≥44px touch-target
+  // contract holds via pointer-coarse floors here and on the title anchor.
+  const rowHeight = $derived(
+    density === "compact" ? "min-h-9 pointer-coarse:min-h-11" : "min-h-12"
+  );
+  const rowPadding = $derived(density === "compact" ? "py-0.5" : "py-1.5");
+  const anchorHeight = $derived(
+    density === "compact" ? "min-h-8 pointer-coarse:min-h-11" : "min-h-11"
+  );
+  const desktopGrid = $derived.by(() => {
+    const tracks = ["minmax(14rem,1.5fr)"];
+    if (columns.clientName) tracks.push("minmax(8rem,.8fr)");
+    if (columns.stage) tracks.push("minmax(7rem,.7fr)");
+    if (columns.generationActivity) tracks.push("minmax(8rem,.75fr)");
+    if (columns.owner) tracks.push("minmax(8rem,.75fr)");
+    tracks.push("minmax(8rem,.8fr)");
+    if (columns.updated) tracks.push("6.75rem");
+    return tracks.join(" ");
+  });
 
   function ownerLabel(row: ProjectsTableRow) {
     if (row.owner.kind === "canonical") return row.owner.label;
@@ -145,42 +181,120 @@
      resolve against the initial containing block, escape every overflow
      ancestor, and grow the document (phantom page scroll under the bounded
      shell). -->
-<div role="region" aria-label="Projects list" class="relative min-h-0 flex-1 overflow-y-auto pb-3">
-  <ul aria-label="Projects" class="w-full">
+<div role="region" aria-label="Projects list" class="relative min-h-0 flex-1 overflow-auto">
+  <div
+    role="row"
+    aria-label="Project columns"
+    style={`--projects-table-columns: ${desktopGrid};`}
+    class="sticky top-0 z-10 hidden h-10 min-w-[58rem] grid-cols-[var(--projects-table-columns)] items-center gap-x-3 border-b border-workspace-rail-line bg-workspace-rail px-3 text-[0.6875rem] font-medium text-ink-muted lg:grid"
+  >
+    <span role="columnheader">Project</span>
+    {#if columns.clientName}<span role="columnheader">Client</span>{/if}
+    {#if columns.stage}<span role="columnheader">Stage</span>{/if}
+    {#if columns.generationActivity}<span role="columnheader">AI activity</span>{/if}
+    {#if columns.owner}<span role="columnheader">Owner</span>{/if}
+    <span role="columnheader">With</span>
+    {#if columns.updated}<span role="columnheader">Updated</span>{/if}
+  </div>
+  <ul aria-label="Projects" class="w-full lg:min-w-[58rem]">
     {#each rows as row (row.id)}
-      <li class="border-b border-line-soft last:border-b-0">
-        <div class={`group grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-lg px-2 ${rowHeight} ${rowPadding} transition-colors hover:bg-primary-wash focus-within:bg-primary-wash motion-reduce:transition-none sm:px-2.5 md:grid-cols-[minmax(14rem,1fr)_auto]`}>
+      <li class="border-b border-workspace-rail-line last:border-b-0">
+        <div
+          style={`--projects-table-columns: ${desktopGrid};`}
+          class={`group grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-3 ${rowHeight} ${rowPadding} transition-colors hover:bg-workspace-rail-hover focus-within:bg-workspace-rail-hover motion-reduce:transition-none lg:grid-cols-[var(--projects-table-columns)]`}
+        >
           <div class="flex min-w-0 items-center gap-2.5">
             <span class={`h-2 w-2 shrink-0 rounded-full ${stageDotClass(row)}`} aria-hidden="true"></span>
             <div class="min-w-0">
-              <a
+              <!-- Hover preview (2026-08-13, Attio-research P2): a quiet card
+                   of fields ALREADY in this row's projection — no queries.
+                   LinkPreview opens on hover after 300ms and on keyboard
+                   focus; motion is the sanctioned pop with reduced-motion
+                   fade. -->
+              <LinkPreview.Root openDelay={300}>
+              <LinkPreview.Trigger
                 href={resolve("/project/[id]", { id: row.id })}
                 data-recent-title={row.title}
                 data-recent-stage={row.workflowStage ?? undefined}
                 data-recent-client={row.clientName || undefined}
-                class="flex min-h-11 min-w-0 flex-col justify-center rounded-md text-sm font-medium text-ink transition-colors hover:text-primary-selected focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
+                onclick={stashPagingContext}
+                class={`flex ${anchorHeight} min-w-0 flex-col justify-center rounded-md text-sm font-medium text-ink transition-colors hover:text-primary-selected focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none`}
               >
                 <span class="truncate">{row.title}</span>
                 {#if columns.clientName}
                   <span class="truncate text-xs font-normal text-ink-muted md:hidden">{row.clientName || "No client name"}</span>
                 {/if}
-              </a>
+              </LinkPreview.Trigger>
+              <LinkPreview.Content forceMount side="bottom" align="start" sideOffset={6}>
+                {#snippet child({ props, wrapperProps, open: previewOpen })}
+                  <div {...wrapperProps}>
+                    {#if previewOpen}
+                      <div
+                        {...props}
+                        in:popIn
+                        out:popOut
+                        class="z-[100] w-72 rounded-xl border border-line bg-surface p-3.5 shadow-md outline-none"
+                      >
+                        <div class="flex min-w-0 items-start justify-between gap-2">
+                          <p class="min-w-0 text-sm font-medium leading-5 text-ink">{row.title}</p>
+                          {#if row.projectNumber}
+                            <span class="text-data shrink-0 rounded bg-chrome px-1 py-px text-ink-muted">#{row.projectNumber}</span>
+                          {/if}
+                        </div>
+                        <p class="mt-0.5 truncate text-xs text-ink-muted">{row.clientName || "No client name"}</p>
+                        <div class="mt-2.5 flex flex-wrap items-center gap-2">
+                          {#if row.workflowStage}
+                            <StageBadge stage={row.workflowStage} />
+                          {:else}
+                            <span class="inline-flex items-center gap-1.5">
+                              <Badge status={row.legacyStatus} dot />
+                              <span class="text-[11px] text-ink-faint">Legacy status</span>
+                            </span>
+                          {/if}
+                        </div>
+                        <dl class="mt-2.5 space-y-1 text-xs">
+                          <div class="flex items-baseline gap-2">
+                            <dt class="w-14 shrink-0 text-ink-faint">Owner</dt>
+                            <dd class="min-w-0 truncate text-ink-secondary">{ownerLabel(row)}</dd>
+                          </div>
+                          {#if row.handoff}
+                            <div class="flex items-baseline gap-2">
+                              <dt class="w-14 shrink-0 text-ink-faint">With</dt>
+                              <dd class="min-w-0 truncate text-ink-secondary">
+                                {row.handoff.assigneeLabel} · {row.handoff.kindLabel}{row.handoff.dueDate ? `, due ${row.handoff.dueDate}` : ""}
+                              </dd>
+                            </div>
+                          {/if}
+                          <div class="flex items-baseline gap-2">
+                            <dt class="w-14 shrink-0 text-ink-faint">Updated</dt>
+                            <dd class="text-data min-w-0 text-ink-secondary">{row.updatedDate}</dd>
+                          </div>
+                        </dl>
+                      </div>
+                    {/if}
+                  </div>
+                {/snippet}
+              </LinkPreview.Content>
+              </LinkPreview.Root>
             </div>
           </div>
 
-          <div class="flex min-w-0 items-center justify-end gap-3">
+          <div class="flex min-w-0 items-center justify-end gap-3 lg:contents">
             {#if columns.clientName}
-              <span class="hidden max-w-40 truncate text-xs text-ink-muted xl:block">{row.clientName || "No client name"}</span>
+              <span class="hidden min-w-0 truncate text-xs text-ink-muted lg:block">{row.clientName || "No client name"}</span>
             {/if}
             {#if columns.stage}
-              <span class="hidden lg:inline-flex">{@render stageValue(row)}</span>
+              <span class="hidden min-w-0 lg:inline-flex">{@render stageValue(row)}</span>
             {/if}
             {#if columns.generationActivity}
-              <span class="hidden xl:inline-flex">{@render activityValue(row)}</span>
+              <span class="hidden min-w-0 lg:inline-flex">{@render activityValue(row)}</span>
             {/if}
             {#if columns.owner}
-              <span class="hidden sm:inline-flex">{@render ownerValue(row)}</span>
+              <span class="hidden min-w-0 lg:inline-flex">{@render ownerValue(row)}</span>
             {/if}
+            <span class="hidden min-w-0 truncate text-xs text-ink-muted lg:block">
+              {row.handoff ? row.handoff.assigneeLabel : "—"}
+            </span>
             {#if columns.updated}
               <span class="text-data shrink-0 text-ink-muted">{row.updatedDate}</span>
             {/if}
@@ -193,6 +307,7 @@
               {#if columns.stage}{@render stageValue(row)}{/if}
               {#if columns.generationActivity}{@render activityValue(row)}{/if}
               {#if columns.owner}<span class="sm:hidden">{@render ownerValue(row)}</span>{/if}
+              {#if row.handoff}<span class="text-xs text-ink-muted">With {row.handoff.assigneeLabel}</span>{/if}
             </div>
           {/if}
         </div>

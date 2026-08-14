@@ -7,24 +7,23 @@
  * server-side or domain concern.
  *
  * Contract:
- * - width clamps to [RAIL_MIN_WIDTH, RAIL_MAX_WIDTH]; default 255 (the
- *   recorded Obvious-anatomy rail width).
+ * - width clamps to [RAIL_MIN_WIDTH, RAIL_MAX_WIDTH]; default 275 (the
+ *   authenticated Attio rail's measured width).
  * - hidden is independent of width: showing the rail restores the previously
  *   persisted expanded width.
  * - parse is fail-closed: any malformed/foreign value yields the defaults.
  */
 
-export const RAIL_MIN_WIDTH = 220;
-export const RAIL_DEFAULT_WIDTH = 255;
-export const RAIL_MAX_WIDTH = 360;
+export const RAIL_MIN_WIDTH = 240;
+export const RAIL_DEFAULT_WIDTH = 275;
+export const RAIL_MAX_WIDTH = 288;
 
 /**
- * Icon-only mini-rail width while collapsed (2026-08-11 amendment, Obvious
- * parity): "hidden" now presents as a fixed 64px icon rail, never width 0.
- * The persisted `hidden` key is kept for compatibility and read as
- * "collapsed"; the expanded width preference is untouched by collapsing.
+ * Attio's desktop collapse slides the global rail fully off canvas. The
+ * persisted `hidden` key remains compatible with older builds; expanding
+ * restores the last expanded width.
  */
-export const RAIL_COLLAPSED_WIDTH = 64;
+export const RAIL_COLLAPSED_WIDTH = 0;
 
 /** Arrow-key resize step on the keyboard separator; Shift multiplies. */
 export const RAIL_KEYBOARD_STEP = 8;

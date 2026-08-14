@@ -21,8 +21,9 @@ export {
   getFileExtension,
   isSupportedFile,
   isImageFile,
+  normalizeExtractedText,
 } from "../../shared/documentStatus";
-import { isImageFile } from "../../shared/documentStatus";
+import { isImageFile, normalizeExtractedText } from "../../shared/documentStatus";
 
 export type ParsedFileType =
   | "txt"
@@ -72,8 +73,13 @@ function withDeadline<T>(promise: Promise<T>, deadline: number): Promise<T> {
 }
 
 export function capContent(content: string): string {
-  if (content.length <= MAX_CONTENT_CHARS) return content;
-  return content.slice(0, MAX_CONTENT_CHARS) + CAP_TRUNCATION_MARKER;
+  // Every ingestion path (all parsers, wizard paste, Home transcript handoff)
+  // flows through here, so whitespace normalization lives with the cap:
+  // Word-exported forms carry page-layout newline runs that read as noise
+  // once flattened to text.
+  const normalized = normalizeExtractedText(content);
+  if (normalized.length <= MAX_CONTENT_CHARS) return normalized;
+  return normalized.slice(0, MAX_CONTENT_CHARS) + CAP_TRUNCATION_MARKER;
 }
 
 // ─── Email helpers (shared by .msg, .eml, .mbox) ────────────────────────────

@@ -42,9 +42,12 @@ export type ProjectsTablePreferences = {
 };
 
 export const DEFAULT_PROJECTS_TABLE_PREFERENCES: ProjectsTablePreferences = {
-  layout: "board",
+  // 2026-08-13 owner direction: the client-grouped List is the default
+  // presentation (supersedes the 2026-08-05 board-default amendment). The
+  // Board and flat views remain one toggle away and stored preferences win.
+  layout: "list",
   density: "comfortable",
-  group: "none",
+  group: "client",
   columns: {
     clientName: true,
     stage: true,
@@ -63,15 +66,26 @@ export function parseProjectsTablePreferences(raw: string | null): ProjectsTable
   if (!raw) return structuredClone(DEFAULT_PROJECTS_TABLE_PREFERENCES);
   try {
     const parsed = JSON.parse(raw) as Partial<ProjectsTablePreferences> & { layout?: string };
-    // The workflow-stage Board is the canonical default (product-domain
-    // amendment 2026-08-05). `grid` was a briefly shipped experimental value;
-    // stored copies migrate to board rather than stranding returning users
-    // on a retired layout.
-    const layout = parsed.layout === "list" ? "list" : "board";
+    // Explicit stored choices win; anything unrecognized falls back to the
+    // default (client-grouped List, 2026-08-13 owner direction). `grid` was a
+    // briefly shipped experimental value; stored copies migrate to board
+    // rather than stranding returning users on a retired layout.
+    const rawLayout: string | undefined = parsed.layout;
+    const layout =
+      rawLayout === "board" || rawLayout === "grid"
+        ? "board"
+        : rawLayout === "list"
+          ? "list"
+          : DEFAULT_PROJECTS_TABLE_PREFERENCES.layout;
     const density = parsed.density === "compact" ? "compact" : "comfortable";
-    // Fail closed: anything but the known "client" grouping falls back to the
-    // flat List.
-    const group = parsed.group === "client" ? "client" : "none";
+    // Explicit "none" (flat) is a real stored choice; unknown values fail
+    // closed to the default grouping.
+    const group =
+      parsed.group === "client"
+        ? "client"
+        : parsed.group === "none"
+          ? "none"
+          : DEFAULT_PROJECTS_TABLE_PREFERENCES.group;
     const columns = { ...DEFAULT_PROJECTS_TABLE_PREFERENCES.columns };
     for (const id of PROJECT_COLUMN_IDS) {
       if (typeof parsed.columns?.[id] === "boolean") columns[id] = parsed.columns[id];

@@ -10,7 +10,6 @@ import {
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 import {
-  RAIL_COLLAPSED_WIDTH,
   RAIL_DEFAULT_WIDTH,
   RAIL_MAX_WIDTH,
   RAIL_MIN_WIDTH,
@@ -18,8 +17,8 @@ import {
 } from "$lib/workspace/railPreferences";
 
 /**
- * Desktop rail ergonomics (2026-08-08 amendment; 2026-08-11: collapse
- * renders the 64px icon-only mini rail, never width 0): pointer + keyboard
+ * Desktop rail ergonomics (2026-08-14 Attio refinement: the grid track
+ * closes to width 0 while the intact panel translates off canvas): pointer + keyboard
  * resize on the WAI-ARIA window-splitter separator, persistent
  * collapse/expand from the rail-owned toggle, width/hidden persistence
  * (the `hidden` key now means "collapsed"), and expanded-width restore.
@@ -46,7 +45,7 @@ const railAside = () => document.getElementById("workspace-rail");
 const handle = () => document.querySelector<HTMLElement>("[data-rail-resize-handle]");
 const railToggle = () =>
   [...document.querySelectorAll<HTMLButtonElement>("[data-rail-toggle]")].find(
-    (button) => button.getClientRects().length > 0
+    (button) => button.getClientRects().length > 0 && !button.closest("aside[inert]")
   ) ?? null;
 
 function storedPrefs() {
@@ -94,7 +93,9 @@ describe("Workspace rail resize + hide/show", () => {
     separator.dispatchEvent(
       new KeyboardEvent("keydown", { key: "ArrowLeft", shiftKey: true, bubbles: true })
     );
-    await expect.poll(() => handle()?.getAttribute("aria-valuenow")).toBe(String(RAIL_DEFAULT_WIDTH + 8 - 32));
+    await expect.poll(() => handle()?.getAttribute("aria-valuenow")).toBe(
+      String(RAIL_DEFAULT_WIDTH + 8 - 32)
+    );
     separator.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
     await expect.poll(() => handle()?.getAttribute("aria-valuenow")).toBe(String(RAIL_MAX_WIDTH));
     separator.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
@@ -115,12 +116,14 @@ describe("Workspace rail resize + hide/show", () => {
     const root = shellRoot()!;
 
     separator.dispatchEvent(pointer("pointerdown", 255));
-    separator.dispatchEvent(pointer("pointermove", 305));
+    separator.dispatchEvent(pointer("pointermove", 279));
     // During the drag the shell suspends the grid transition (1:1 tracking)…
     await expect.poll(() => root.hasAttribute("data-rail-resizing")).toBe(true);
     expect(getComputedStyle(root).transitionProperty).toBe("none");
     // …and the live width lands on the CSS custom property directly.
-    expect(root.style.getPropertyValue("--workspace-rail-width").trim()).toBe("305px");
+    expect(root.style.getPropertyValue("--workspace-rail-width").trim()).toBe(
+      `${RAIL_MAX_WIDTH}px`
+    );
 
     // Overshoot far past max: the live width clamps.
     separator.dispatchEvent(pointer("pointermove", 900));
@@ -134,9 +137,9 @@ describe("Workspace rail resize + hide/show", () => {
     await expect.poll(() => handle()?.getAttribute("aria-valuenow")).toBe(String(RAIL_MAX_WIDTH));
   });
 
-  it("collapses to the 64px icon-only mini rail and expands back, restoring the expanded width", async () => {
+  it("collapses fully off canvas and expands back, restoring the expanded width", async () => {
     // Seed a custom persisted width to prove restore-after-expand.
-    localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 320, hidden: false }));
+    localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 272, hidden: false }));
     await mountShell();
     await expect.poll(() => railToggle()).not.toBeNull();
     const root = shellRoot()!;
@@ -144,7 +147,7 @@ describe("Workspace rail resize + hide/show", () => {
     // Persisted width applied on mount.
     await expect
       .poll(() => root.style.getPropertyValue("--workspace-rail-width").trim())
-      .toBe("320px");
+      .toBe("272px");
 
     const toggle = railToggle()!;
     expect(toggle.getAttribute("aria-label")).toBe("Collapse navigation rail");
@@ -153,11 +156,10 @@ describe("Workspace rail resize + hide/show", () => {
 
     toggle.click();
     await expect.poll(() => root.hasAttribute("data-rail-hidden")).toBe(true);
-    // Collapsed rail: still interactive (2026-08-11 mini rail — never
-    // inert), preference persisted under the compatible `hidden` key, and
-    // the rail-owned toggle reports the expand affordance.
-    expect(railAside()?.hasAttribute("inert")).toBe(false);
-    expect(storedPrefs()).toEqual({ width: 320, hidden: true });
+    // Collapsed rail is inert and preference persists under the compatible
+    // `hidden` key; the content header provides the expand affordance.
+    expect(railAside()?.hasAttribute("inert")).toBe(true);
+    expect(storedPrefs()).toEqual({ width: 272, hidden: true });
     await expect
       .poll(() => railToggle()?.getAttribute("aria-label"))
       .toBe("Expand navigation rail");
@@ -166,20 +168,24 @@ describe("Workspace rail resize + hide/show", () => {
     const transition = getComputedStyle(root);
     expect(transition.transitionProperty).toContain("grid-template-columns");
     expect(Number.parseFloat(transition.transitionDuration)).toBeGreaterThanOrEqual(0.3);
-    // The rail column settles at the fixed mini-rail width, never zero.
+    // The grid column settles at 0 while the fixed-width rail panel exits
+    // intact to the left (Attio choreography: no squeezed navigation rows).
     await expect
-      .poll(() => railAside()!.getBoundingClientRect().width, { timeout: 2000 })
-      .toBe(RAIL_COLLAPSED_WIDTH);
-    // No resize separator while collapsed — the mini rail is fixed-width.
+      .poll(() => shellRoot()!.getBoundingClientRect().x - railAside()!.getBoundingClientRect().right, {
+        timeout: 2000,
+      })
+      .toBeGreaterThanOrEqual(-1);
+    expect(railAside()!.getBoundingClientRect().width).toBe(272);
+    // No resize separator while collapsed.
     expect(handle()).toBeNull();
 
     railToggle()!.click();
     await expect.poll(() => root.hasAttribute("data-rail-hidden")).toBe(false);
     // Expanding restores the PREVIOUS expanded width, not the default.
-    expect(storedPrefs()).toEqual({ width: 320, hidden: false });
+    expect(storedPrefs()).toEqual({ width: 272, hidden: false });
     await expect
       .poll(() => railAside()!.getBoundingClientRect().width, { timeout: 2000 })
-      .toBeGreaterThanOrEqual(319);
+      .toBeGreaterThanOrEqual(271);
   });
 
   it("restores persisted collapsed state on mount (preference survives reload)", async () => {
@@ -188,14 +194,17 @@ describe("Workspace rail resize + hide/show", () => {
 
     const root = shellRoot()!;
     await expect.poll(() => root.hasAttribute("data-rail-hidden")).toBe(true);
-    // The mini rail stays interactive from the first frame.
-    expect(railAside()?.hasAttribute("inert")).toBe(false);
+    // Hidden navigation is inert from the first frame.
+    expect(railAside()?.hasAttribute("inert")).toBe(true);
     await expect
       .poll(() => railToggle()?.getAttribute("aria-label"))
       .toBe("Expand navigation rail");
     await expect
-      .poll(() => railAside()!.getBoundingClientRect().width, { timeout: 2000 })
-      .toBe(RAIL_COLLAPSED_WIDTH);
+      .poll(() => shellRoot()!.getBoundingClientRect().x - railAside()!.getBoundingClientRect().right, {
+        timeout: 2000,
+      })
+      .toBeGreaterThanOrEqual(-1);
+    expect(railAside()!.getBoundingClientRect().width).toBe(280);
     // No resize separator while collapsed.
     expect(handle()).toBeNull();
   });

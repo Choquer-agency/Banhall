@@ -4,7 +4,7 @@ import { render } from "vitest-browser-svelte";
 import ViewModeToggle from "./ViewModeToggle.svelte";
 
 describe("ViewModeToggle", () => {
-  it("uses Board and List vocabulary with Board first and supports arrow-key selection", async () => {
+  it("uses List and Board vocabulary with List first and supports arrow-key selection", async () => {
     const onChange = vi.fn();
     await render(ViewModeToggle, {
       value: "board",
@@ -22,8 +22,8 @@ describe("ViewModeToggle", () => {
     // convenience layer on top.
     expect(board.tabIndex).toBe(0);
     expect(list.tabIndex).toBe(0);
-    // Board leads the group — it is the canonical default presentation.
-    expect(board.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // List leads the group because it is the canonical default presentation.
+    expect(list.compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     board.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
     expect(onChange).toHaveBeenCalledWith("list");
