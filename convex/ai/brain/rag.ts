@@ -69,7 +69,10 @@ export const ingestOnComplete = brain.defineOnComplete<DataModel>(
       .query("brainSources")
       .withIndex("by_ragKey", (q) => q.eq("ragKey", entry.key!))
       .first();
-    if (!source) return;
+    if (!source) {
+      if (!error) await brain.deleteAsync(ctx, { entryId: entry.entryId });
+      return;
+    }
 
     if (error) {
       await ctx.db.insert("brainAuditLog", {
@@ -82,13 +85,32 @@ export const ingestOnComplete = brain.defineOnComplete<DataModel>(
       return;
     }
 
+    // Close the revoke-during-embed race. The completion callback and the
+    // governance mutation serialize through Convex transactions: if revoke
+    // committed first, this removes the late vector instead of restoring it;
+    // if completion committed first, revoke observes ragEntryId and removes it.
+    if (source.status !== "approved") {
+      await brain.deleteAsync(ctx, { entryId: entry.entryId });
+      await ctx.db.insert("brainAuditLog", {
+        action: "ingest",
+        sourceId: source._id,
+        actorId: "system",
+        reason:
+          "Discarded completed embedding because the source is no longer approved",
+        at: Date.now(),
+      });
+      return;
+    }
+
     await ctx.db.patch(source._id, { ragEntryId: entry.entryId });
     await ctx.db.insert("brainAuditLog", {
       action: "ingest",
       sourceId: source._id,
       actorId: "system",
-      reason: replacedEntry ? "Re-ingested (replaced prior version)" : "Ingested",
+      reason: replacedEntry
+        ? "Re-ingested (replaced prior version)"
+        : "Ingested",
       at: Date.now(),
     });
-  }
+  },
 );

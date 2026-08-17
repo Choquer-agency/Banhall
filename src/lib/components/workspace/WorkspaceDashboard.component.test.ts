@@ -146,6 +146,13 @@ describe("WorkspaceDashboard viewport containment (real +layout flex context)", 
 
     const heading = document.querySelector("header h1");
     expect(heading?.textContent).toBe("Projects");
+    const pageHeader = document.querySelector<HTMLElement>("[data-workspace-page-header]");
+    expect(pageHeader).not.toBeNull();
+    expect(pageHeader?.className).toContain("h-[49px]");
+    expect(pageHeader?.querySelector('a[href="/project/new"]')).not.toBeNull();
+    expect(
+      document.querySelector('[data-projects-toolbar] a[href="/project/new"]')
+    ).toBeNull();
 
     const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>("nav a"));
     const projectsLink = anchors.find((a) => a.textContent?.trim() === "Projects");

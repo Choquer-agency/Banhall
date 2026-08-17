@@ -30,6 +30,7 @@
     auth.isAuthenticated && isAdmin ? {} : "skip"
   );
   const setUserRole = useMutation(api.users.setUserRole);
+  const setUserDeveloper = useMutation(api.users.setUserDeveloper);
   const setTemporaryPassword = useMutation(api.users.setTemporaryPassword);
 
   // Invite-only membership: create/list/revoke invites (admin only).
@@ -242,6 +243,7 @@
   );
 
   let savingId = $state<string | null>(null);
+  let savingDeveloperId = $state<string | null>(null);
   let error = $state("");
   let roleGuideOpen = $state(false);
   let roleGuideRole = $state<Role>("writer");
@@ -270,6 +272,19 @@
       roleOverrides[userId] = previousRole;
     } finally {
       savingId = null;
+    }
+  }
+
+  async function handleDeveloperChange(userId: Id<"users">, isDeveloper: boolean) {
+    if (savingDeveloperId) return;
+    error = "";
+    savingDeveloperId = userId;
+    try {
+      await setUserDeveloper({ userId, isDeveloper });
+    } catch (cause) {
+      error = userErrorMessage(cause, "Could not update developer access.");
+    } finally {
+      savingDeveloperId = null;
     }
   }
 
@@ -426,7 +441,7 @@
             <div>
               <h2 class="text-title">Team members</h2>
               <p class="mt-1 text-sm text-gray-500">
-                Manage roles, writing preferences, and account recovery.
+                Manage roles, developer tools, writing preferences, and account recovery.
               </p>
             </div>
             <span class="text-data text-gray-400">{users.length} total</span>
@@ -440,6 +455,7 @@
                   <th class="px-4 py-2.5 font-medium">Email</th>
                   <th class="px-4 py-2.5 font-medium">Joined</th>
                   <th class="px-4 py-2.5 font-medium">Role</th>
+                  <th class="px-4 py-2.5 font-medium">Developer</th>
                   <th class="px-4 py-2.5 font-medium">Manage</th>
                 </tr>
               </thead>
@@ -467,6 +483,21 @@
                         />
                         {#if savingId === row._id}
                           <span class="text-xs text-gray-400">Saving…</span>
+                        {/if}
+                      </span>
+                    </td>
+                    <td class="px-4 py-2.5">
+                      <span class="flex min-h-9 items-center gap-2">
+                        <Checkbox
+                          checked={row.isDeveloper}
+                          disabled={savingDeveloperId !== null}
+                          aria-label={`Developer tools for ${row.displayName}`}
+                          onCheckedChange={(checked) => handleDeveloperChange(row._id, checked === true)}
+                        />
+                        {#if savingDeveloperId === row._id}
+                          <span class="text-xs text-gray-400">Saving…</span>
+                        {:else}
+                          <span class="text-xs text-gray-500">{row.isDeveloper ? "Enabled" : "Hidden"}</span>
                         {/if}
                       </span>
                     </td>
@@ -509,7 +540,7 @@
                       rows={6}
                       bind:value={flavorText}
                       placeholder="e.g. Prefer short declarative sentences. Avoid the passive voice."
-                      class="mt-2 block w-full rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                      class="field-control mt-2 block w-full rounded-lg px-3.5 py-2.5 text-sm leading-relaxed text-gray-900 placeholder:text-gray-400"
                     ></textarea>
                     <span
                       class={`mt-1 block text-right text-xs ${flavorTooLong ? "text-red-600" : "text-gray-400"}`}

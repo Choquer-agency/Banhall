@@ -54,7 +54,7 @@
   <Popover.Trigger
     {id}
     {disabled}
-    class={`flex w-full items-center gap-1.5 rounded-lg border border-gray-200 bg-white text-left transition-colors hover:border-gray-300 disabled:opacity-50 data-[state=open]:border-navy ${
+    class={`field-control flex w-full items-center gap-1.5 rounded-lg text-left disabled:opacity-50 ${
       size === "md" ? "h-[42px] px-3.5 text-sm" : "h-8 rounded-md px-2.5 text-xs"
     }`}
   >

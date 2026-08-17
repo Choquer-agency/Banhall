@@ -4,11 +4,11 @@ This directory is the internal source of truth for executing the **Banhall Profe
 
 - **Master product/ticket context:** [`../../futur-board-ticket-breakdown-psos.md`](../../futur-board-ticket-breakdown-psos.md)
 - **Task specifications:** [`tasks/`](tasks/)
-- **Total work items:** 40
+- **Total work items:** 41
 - **Current implementation:** **PSOS-14** — My Work dashboard lanes and dense ledger rows (`in_progress`, development rollout gate).
 - **Separate release-QA item:** **PSOS-04** — mixed-upload processing receipt with per-file statuses (`in_review`)
 - **Next dependency-unlocked implementation:** PSOS-14 is active; PSOS-15 follows after PSOS-14 closes.
-- **Meeting-directed decision ready:** **PSOS-37** — logical project grouping, numbering, and Primary-instance semantics; it may be timeboxed without opening a second implementation.
+- **Meeting-directed decision ready:** **PSOS-37** — logical project grouping, numbering, and Primary-instance semantics; **PSOS-41** captures the separately governed historical Brain ingestion initiative.
 - **Weekly plan:** [`JUL-27-31-WEEKLY-PLAN.md`](JUL-27-31-WEEKLY-PLAN.md)
 - **Queue state:** PSOS-14 is the sole active implementation ticket. Opus 5 planning, Codex verification, implementation, adversarial remediation, and automated validation are complete; development backfill/flag enablement and live Chrome QA remain. Resolve PSOS-37 before PSOS-38 grouping code; PSOS-39 remains timeboxed discovery, and PSOS-40 is strategic backlog.
 
@@ -78,7 +78,7 @@ The first delivery train should proceed as follows:
 7. **Capabilities:** PSOS-26 → PSOS-27 → PSOS-28/29. PSOS-30 remains a decision task unless visibility scope is approved.
 8. **Financial workspace:** PSOS-31 → PSOS-32 → PSOS-33 → PSOS-34.
 9. **Backlog:** PSOS-35 and PSOS-36 only after real usage validates demand.
-10. **July 27 meeting insertion:** disposition PSOS-04 → implement PSOS-08 in dependency order while completing PSOS-37’s product decision. PSOS-38 cannot start before PSOS-37 and normally waits for PSOS-11. PSOS-39 is discovery only; PSOS-40 remains deferred.
+10. **Meeting-directed work:** disposition PSOS-04 → implement PSOS-08 in dependency order while completing PSOS-37’s product decision. PSOS-38 cannot start before PSOS-37 and normally waits for PSOS-11. PSOS-39 is discovery only; PSOS-40 remains deferred; PSOS-41 is the dedicated governed historical-ingestion initiative.
 
 ## Work queue
 
@@ -172,6 +172,12 @@ The first delivery train should proceed as follows:
 | [PSOS-39](tasks/PSOS-39.md) | Discovery: project source-analysis workspace | `not_started` | Discovery; coordinate PSOS-04/06 and existing generation/review work |
 | [PSOS-40](tasks/PSOS-40.md) | Backlog: client repository, historical reports, company chat, and analytics | `deferred` | PSOS-22/23, PSOS-30/31/32 |
 
+### P10 — August 14 historical Brain ingestion
+
+| ID | Work item | Status | Dependencies |
+|---|---|---|---|
+| [PSOS-41](tasks/PSOS-41.md) | Historical Brain ingestion review workspace | `ready` | BNH-42, PSOS-25 governance; discovery may start read-only |
+
 ## Parallel-work exceptions
 
 None. Add an entry before starting more than one PSOS ticket simultaneously:
@@ -188,6 +194,7 @@ None. Add an entry before starting more than one PSOS ticket simultaneously:
 | — | Use this repository queue until Futurlabs ERP exposes ticket creation/editing through MCP. | All | Futur-board MCP is currently read/status-only. |
 | 2026-07-28 | Defer a generic ChatGPT/Claude-like baseline workspace. | PSOS-39 boundary | The July 27 meeting explicitly back-burnered it because API parity and cost are uncertain. Revisit only through an approved, measured experiment. |
 | 2026-07-28 | Require decision-first handling for cross-project test grouping. | PSOS-37/38; PSOS-11/18–23/31 | “Primary/final,” project numbering, branches, outcomes, and accounting scope conflict unless resolved in the domain contract first. |
+| 2026-08-14 | Treat historical Brain ingestion as a dedicated reviewed pipeline, not a feature inside the client repository. | PSOS-41; PSOS-25/31/40 | Keeps source discovery, human association, approval, provenance, and revert boundaries explicit. |
 
 ## Program progress log
 

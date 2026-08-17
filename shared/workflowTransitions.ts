@@ -54,7 +54,7 @@ export const WORKFLOW_TRANSITIONS: readonly WorkflowTransitionRule[] = [
   { from: "drafting", to: "on_hold", authorities: ownerManagerAdmin, requiresNote: true },
   { from: "drafting", to: "abandoned", authorities: ownerManagerAdmin, requiresNote: true },
 
-  { from: "internal_review", to: "revisions", authorities: reviewAuthorities },
+  { from: "internal_review", to: "edits", authorities: reviewAuthorities },
   {
     from: "internal_review",
     to: "ready_for_delivery",
@@ -63,6 +63,17 @@ export const WORKFLOW_TRANSITIONS: readonly WorkflowTransitionRule[] = [
   },
   { from: "internal_review", to: "on_hold", authorities: ownerManagerAdmin, requiresNote: true },
   { from: "internal_review", to: "abandoned", authorities: ownerManagerAdmin, requiresNote: true },
+
+  { from: "edits", to: "internal_review", authorities: ownerManagerAdmin },
+  { from: "edits", to: "client_review", authorities: ownerManagerAdmin },
+  {
+    from: "edits",
+    to: "ready_for_delivery",
+    authorities: ownerManagerAdmin,
+    requirements: ["promoted_branch"],
+  },
+  { from: "edits", to: "on_hold", authorities: ownerManagerAdmin, requiresNote: true },
+  { from: "edits", to: "abandoned", authorities: ownerManagerAdmin, requiresNote: true },
 
   { from: "client_review", to: "revisions", authorities: ownerManagerAdmin },
   {
@@ -107,6 +118,7 @@ export const WORKFLOW_TRANSITIONS: readonly WorkflowTransitionRule[] = [
     authorities: ownerManagerAdmin,
     requirements: ["review_handoff"],
   },
+  { from: "on_hold", to: "edits", authorities: ownerManagerAdmin },
   { from: "on_hold", to: "client_review", authorities: ownerManagerAdmin },
   { from: "on_hold", to: "revisions", authorities: ownerManagerAdmin },
   {

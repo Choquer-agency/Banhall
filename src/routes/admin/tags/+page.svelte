@@ -228,7 +228,7 @@
           if (event.key === "Enter") saveRename();
           if (event.key === "Escape") cancelRename();
         }}
-        class="h-8 w-52 rounded-md border border-navy px-2 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-navy"
+        class="field-control h-8 w-52 rounded-md px-2 text-sm text-gray-900"
       />
       <span class="ml-auto flex items-center gap-2">
         <button
@@ -370,7 +370,7 @@
                 placeholder="e.g. Robotics"
                 disabled={busy}
                 onkeydown={(event) => event.key === "Enter" && handleCreate()}
-                class="h-11 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy disabled:opacity-50"
+                class="field-control h-11 rounded-lg px-3 text-sm text-gray-900 placeholder:text-gray-400 disabled:opacity-50"
               />
             </label>
             <label class="flex flex-col gap-1 text-xs text-gray-500" for="new-tag-kind">

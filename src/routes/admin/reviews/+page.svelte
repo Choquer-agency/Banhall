@@ -3,9 +3,10 @@
   import { resolve } from "$app/paths";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import { goto } from "$app/navigation";
-  import { useQuery } from "convex-svelte";
+  import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
+  import type { Id } from "../../../../convex/_generated/dataModel";
   import BuildStamp from "$lib/components/BuildStamp.svelte";
 
   function scoreColor(n: number) {
@@ -25,9 +26,12 @@
   const styleQ = useQuery(api.learning.getDigestHistory, () =>
     auth.isAuthenticated ? { kind: "draft_style" as const } : "skip"
   );
+  const selectDigest = useMutation(api.learning.selectDigest);
 
   let showCalibrationHistory = $state(false);
   let showStyleHistory = $state(false);
+  let changingDigest = $state<string | null>(null);
+  let digestError = $state<string | null>(null);
 
   function digestDate(ms: number) {
     return new Date(ms).toLocaleString("en-CA", {
@@ -44,11 +48,33 @@
 
   const data = $derived(dataQ.data);
   const calibration = $derived(calibrationQ.data);
-  const activeDigest = $derived(calibration?.[0] ?? null);
-  const digestHistory = $derived(calibration?.slice(1) ?? []);
+  const activeDigest = $derived(
+    calibration?.digests.find((digest) => digest._id === calibration.publishedDigestId) ?? null
+  );
+  const digestHistory = $derived(calibration?.digests ?? []);
   const style = $derived(styleQ.data);
-  const activeStyle = $derived(style?.[0] ?? null);
-  const styleHistory = $derived(style?.slice(1) ?? []);
+  const activeStyle = $derived(
+    style?.digests.find((digest) => digest._id === style.publishedDigestId) ?? null
+  );
+  const styleHistory = $derived(style?.digests ?? []);
+
+  async function changePublishedDigest(
+    kind: "qa_calibration" | "draft_style",
+    digestId: Id<"learningDigests"> | null,
+    expectedSelectionId: Id<"learningDigestSelections"> | null,
+    reason: string
+  ) {
+    if (changingDigest) return;
+    changingDigest = `${kind}:${digestId ?? "disabled"}`;
+    digestError = null;
+    try {
+      await selectDigest({ kind, digestId, expectedSelectionId, reason });
+    } catch (error) {
+      digestError = error instanceof Error ? error.message : "Learning guidance could not be updated.";
+    } finally {
+      changingDigest = null;
+    }
+  }
 </script>
 
 {#if auth.isLoading || !auth.isAuthenticated}
@@ -67,8 +93,8 @@
         </div>
       {:else if data === null}
         <p class="mt-8 text-sm text-gray-400">Sign in to view consultant reviews.</p>
-      {:else if data.rows.length === 0 && data.itemRows.length === 0}
-        <p class="mt-8 text-sm text-gray-400">No consultant reviews or QA item feedback yet.</p>
+      {:else if data.rows.length === 0 && data.itemRows.length === 0 && calibration !== undefined && style !== undefined && calibration.digests.length === 0 && style.digests.length === 0}
+        <p class="mt-8 text-sm text-gray-400">No consultant reviews, QA feedback, or learning candidates yet.</p>
       {:else}
         <!-- Summary -->
         <div class="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -137,33 +163,51 @@
         <div class="mt-10">
           <h2 class="text-xl font-semibold text-navy">Learned QA calibration</h2>
           <p class="mt-1 text-sm text-gray-500">
-            Rules distilled from the feedback below and applied to the AI QA reviewer on
-            every new generation. Calibration only tunes what gets flagged and its severity;
-            CRA structural checks and scoring rules are never changed.
+            Automatic distillation creates candidates only. An administrator must explicitly
+            publish a version before it can affect QA; CRA structural checks and scoring rules
+            are never changed.
           </p>
+
+          {#if digestError}
+            <div class="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">
+              {digestError}
+            </div>
+          {/if}
 
           {#if calibration === undefined}
             <div class="card mt-4 flex items-center justify-center p-8"><Spinner /></div>
-          {:else if !activeDigest}
-            <div class="card mt-4 p-5 text-sm text-gray-400">
-              Nothing learned yet. Calibration starts once consultants have rated enough QA
-              observations (votes or severity changes).
-            </div>
           {:else}
             <div class="card mt-4 p-5">
-              <div class="flex flex-wrap items-baseline justify-between gap-2">
-                <p class="text-sm font-medium text-gray-800">Active calibration</p>
-                <p class="text-xs text-gray-400">
-                  {digestDate(activeDigest.createdAt)} · from {activeDigest.sourceCount}
-                  feedback event(s)
-                </p>
+              <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p class="text-label">Published calibration</p>
+                  {#if activeDigest}
+                    <p class="mt-1 text-data text-gray-500">
+                      {digestDate(activeDigest.createdAt)} · {activeDigest.sourceCount} feedback event(s)
+                    </p>
+                  {:else}
+                    <p class="mt-1 text-sm text-gray-500">
+                      {calibration.explicitlyDisabled ? "Disabled by an administrator." : "No version has been published yet."}
+                    </p>
+                  {/if}
+                </div>
+                {#if activeDigest}
+                  <button
+                    onclick={() => changePublishedDigest("qa_calibration", null, calibration.selectionId, "Disabled from the administrator review page")}
+                    disabled={changingDigest !== null}
+                    class="min-h-11 rounded-lg border border-line px-3 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  >Disable guidance</button>
+                {/if}
               </div>
-              <pre class="mt-3 text-sm whitespace-pre-wrap text-gray-700">{activeDigest.content}</pre>
+              {#if activeDigest}
+                <pre class="mt-4 text-sm whitespace-pre-wrap text-gray-700">{activeDigest.content}</pre>
+              {/if}
             </div>
 
             {#if digestHistory.length > 0}
               <button
                 onclick={() => (showCalibrationHistory = !showCalibrationHistory)}
+                aria-expanded={showCalibrationHistory}
                 class="mt-3 min-h-11 rounded-lg px-2 text-xs text-primary hover:bg-primary-wash hover:underline"
               >
                 {showCalibrationHistory ? "Hide" : "Show"} previous versions ({digestHistory.length})
@@ -171,11 +215,25 @@
               {#if showCalibrationHistory}
                 <div class="mt-3 space-y-3">
                   {#each digestHistory as digest (digest._id)}
-                    <div class="card p-5 opacity-70">
-                      <p class="text-xs text-gray-400">
-                        {digestDate(digest.createdAt)} · from {digest.sourceCount} feedback event(s)
-                      </p>
-                      <pre class="mt-2 text-sm whitespace-pre-wrap text-gray-600">{digest.content}</pre>
+                    <div class={`card p-5 ${digest._id === calibration.publishedDigestId ? "border-primary" : ""}`}>
+                      <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p class="text-data text-gray-500">
+                            {digestDate(digest.createdAt)} · {digest.sourceCount} feedback event(s)
+                          </p>
+                          <p class="mt-1 text-xs font-medium text-gray-500">
+                            {digest._id === calibration.publishedDigestId ? "Published" : "Candidate"}
+                          </p>
+                        </div>
+                        {#if digest._id !== calibration.publishedDigestId && !digest.isPersonal}
+                          <button
+                            onclick={() => changePublishedDigest("qa_calibration", digest._id, calibration.selectionId, "Published after administrator review")}
+                            disabled={changingDigest !== null}
+                            class="min-h-11 rounded-lg bg-primary-selected px-3 text-xs font-semibold text-white hover:bg-primary-dark disabled:opacity-50"
+                          >Publish this version</button>
+                        {/if}
+                      </div>
+                      <pre class="mt-3 text-sm whitespace-pre-wrap text-gray-600">{digest.content}</pre>
                     </div>
                   {/each}
                 </div>
@@ -188,33 +246,51 @@
         <div class="mt-10">
           <h2 class="text-xl font-semibold text-navy">Learned drafting style</h2>
           <p class="mt-1 text-sm text-gray-500">
-            Recurring critiques distilled from consultants' blind option scores and comments,
-            applied to the section drafting agents on every new generation. CRA structure,
-            required phrasing, and banned-word rules always take precedence.
+            Recurring critiques become review candidates. Only an administrator-published
+            version reaches drafting agents; CRA structure, required phrasing, and terminology
+            rules always take precedence.
           </p>
+
+          {#if digestError}
+            <div class="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">
+              {digestError}
+            </div>
+          {/if}
 
           {#if style === undefined}
             <div class="card mt-4 flex items-center justify-center p-8"><Spinner /></div>
-          {:else if !activeStyle}
-            <div class="card mt-4 p-5 text-sm text-gray-400">
-              Nothing learned yet. Style guidance starts once consultants have left enough
-              comments on candidate drafts.
-            </div>
           {:else}
             <div class="card mt-4 p-5">
-              <div class="flex flex-wrap items-baseline justify-between gap-2">
-                <p class="text-sm font-medium text-gray-800">Active style guidance</p>
-                <p class="text-xs text-gray-400">
-                  {digestDate(activeStyle.createdAt)} · from {activeStyle.sourceCount}
-                  consultant critique(s)
-                </p>
+              <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p class="text-label">Published style guidance</p>
+                  {#if activeStyle}
+                    <p class="mt-1 text-data text-gray-500">
+                      {digestDate(activeStyle.createdAt)} · {activeStyle.sourceCount} consultant critique(s)
+                    </p>
+                  {:else}
+                    <p class="mt-1 text-sm text-gray-500">
+                      {style.explicitlyDisabled ? "Disabled by an administrator." : "No version has been published yet."}
+                    </p>
+                  {/if}
+                </div>
+                {#if activeStyle}
+                  <button
+                    onclick={() => changePublishedDigest("draft_style", null, style.selectionId, "Disabled from the administrator review page")}
+                    disabled={changingDigest !== null}
+                    class="min-h-11 rounded-lg border border-line px-3 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  >Disable guidance</button>
+                {/if}
               </div>
-              <pre class="mt-3 text-sm whitespace-pre-wrap text-gray-700">{activeStyle.content}</pre>
+              {#if activeStyle}
+                <pre class="mt-4 text-sm whitespace-pre-wrap text-gray-700">{activeStyle.content}</pre>
+              {/if}
             </div>
 
             {#if styleHistory.length > 0}
               <button
                 onclick={() => (showStyleHistory = !showStyleHistory)}
+                aria-expanded={showStyleHistory}
                 class="mt-3 min-h-11 rounded-lg px-2 text-xs text-primary hover:bg-primary-wash hover:underline"
               >
                 {showStyleHistory ? "Hide" : "Show"} previous versions ({styleHistory.length})
@@ -222,11 +298,25 @@
               {#if showStyleHistory}
                 <div class="mt-3 space-y-3">
                   {#each styleHistory as digest (digest._id)}
-                    <div class="card p-5 opacity-70">
-                      <p class="text-xs text-gray-400">
-                        {digestDate(digest.createdAt)} · from {digest.sourceCount} consultant critique(s)
-                      </p>
-                      <pre class="mt-2 text-sm whitespace-pre-wrap text-gray-600">{digest.content}</pre>
+                    <div class={`card p-5 ${digest._id === style.publishedDigestId ? "border-primary" : ""}`}>
+                      <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p class="text-data text-gray-500">
+                            {digestDate(digest.createdAt)} · {digest.sourceCount} consultant critique(s)
+                          </p>
+                          <p class="mt-1 text-xs font-medium text-gray-500">
+                            {digest._id === style.publishedDigestId ? "Published" : "Candidate"}
+                          </p>
+                        </div>
+                        {#if digest._id !== style.publishedDigestId && !digest.isPersonal}
+                          <button
+                            onclick={() => changePublishedDigest("draft_style", digest._id, style.selectionId, "Published after administrator review")}
+                            disabled={changingDigest !== null}
+                            class="min-h-11 rounded-lg bg-primary-selected px-3 text-xs font-semibold text-white hover:bg-primary-dark disabled:opacity-50"
+                          >Publish this version</button>
+                        {/if}
+                      </div>
+                      <pre class="mt-3 text-sm whitespace-pre-wrap text-gray-600">{digest.content}</pre>
                     </div>
                   {/each}
                 </div>

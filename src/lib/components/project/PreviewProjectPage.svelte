@@ -75,6 +75,12 @@
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
   import { displayName } from "$lib/displayName";
+  import {
+    PROJECT_TYPES,
+    PROJECT_TYPE_LABELS,
+    effectiveProjectType,
+    type ProjectType,
+  } from "../../../../shared/projectTypes";
 
   const auth = useAuth();
   // New-UI shell wiring (2026-08-10): same contract WorkspaceChrome uses —
@@ -144,6 +150,19 @@
   const markProposalApplied = useMutation(api.chatV2.markProposalApplied);
   const updateTitles = useMutation(api.projects.updateProjectTitles);
   const updateProjectNumber = useMutation(api.projects.setProjectNumber);
+  const updateProjectType = useMutation(api.projects.setProjectType);
+  const projectTypeItems = PROJECT_TYPES.map((value) => ({
+    value,
+    label: PROJECT_TYPE_LABELS[value],
+  }));
+  async function saveProjectType(value: string) {
+    if (!PROJECT_TYPES.includes(value as ProjectType)) return;
+    try {
+      await updateProjectType({ projectId, projectType: value as ProjectType });
+    } catch (error) {
+      toast.error(userErrorMessage(error, "The project type could not be updated."));
+    }
+  }
   // Per-company project number / draft letter (2026-08-11 amendment).
   // Mirrors the server rule: "1".."20", a letter "A".."Z", or combined "2A".
   const PROJECT_NUMBER_PATTERN = /^(?:[1-9][0-9]?[A-Z]?|[A-Z])$/;
@@ -421,6 +440,8 @@
   let chatOpen = $state(true);
   let chatFocus = $state(false);
   let mobileWorkspaceView = $state<"report" | "assistant">("report");
+  let projectDetailsOpen = $state(false);
+  const projectDetailsBodyId = "project-details-body";
   // Intake workbench (2026-08-08 Obvious-parity amendment): the NO-REPORT
   // state mirrors the report workbench's split — a persistent left CONTEXT
   // pane (files evidence + interview transcript) beside the primary intake/
@@ -992,30 +1013,48 @@
   <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-canvas" data-report-cohort="preview">
 
     {#snippet projectMetadata()}
-      <div class="mb-6 border-b border-gray-200 pb-5">
-        <!-- headingLevel 2: the workspace bar below AppNav carries the page's
-             single h1 (a11y P0 — one unambiguous main heading per route). -->
-        <EditableText
-          value={project.title}
-          placeholder="Set internal title"
-          variant="heading"
-          headingLevel={2}
-          headingClass="text-xl font-medium tracking-tight text-ink"
-          label="internal project title"
-          required
-          onSave={async (value) => {
-            await updateTitles({ projectId, title: value.trim() });
-          }}
-        />
+      <div data-project-overview class="mb-5 border-b border-line-soft pb-4">
+        <div class="flex min-w-0 items-center gap-3">
+          <!-- headingLevel 2: the workspace bar below AppNav carries the page's
+               single h1 (a11y P0 — one unambiguous main heading per route). -->
+          <div class="min-w-0 flex-1">
+            <EditableText
+              value={project.title}
+              placeholder="Set internal title"
+              variant="heading"
+              headingLevel={2}
+              headingClass="text-xl font-medium tracking-tight text-ink"
+              label="internal project title"
+              required
+              onSave={async (value) => {
+                await updateTitles({ projectId, title: value.trim() });
+              }}
+            />
+          </div>
+          <button
+            data-project-details-toggle
+            type="button"
+            onclick={() => (projectDetailsOpen = !projectDetailsOpen)}
+            aria-expanded={projectDetailsOpen}
+            aria-controls={projectDetailsBodyId}
+            class="flex min-h-9 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-ink-muted transition-colors hover:bg-primary-wash hover:text-primary-selected focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:min-h-11"
+          >
+            Project details
+            <DisclosureChevron open={projectDetailsOpen} tone="neutral" class="size-3.5" />
+          </button>
+        </div>
         <!-- Highlights band (2026-08-13, Attio-research P1): the project's
              load-bearing facts at a glance, honest empties included. -->
-        <div class="mt-4">
+        <div class="mt-3">
           <ProjectHighlights {projectId} fiscalYearEnd={project.fiscalYearEnd ?? null} />
         </div>
         <!-- Attribute rows (same amendment): the Attio record-page grammar —
              fixed label column + value per row — replacing the stacked
-             label-over-value grid. Editing affordances are unchanged. -->
-        <div class="mt-3 grid grid-cols-1 gap-x-10 text-[13px] sm:grid-cols-2">
+             label-over-value grid. Editing affordances are unchanged. The
+             rows are progressively disclosed so the report remains primary. -->
+        <Disclosure id={projectDetailsBodyId} open={projectDetailsOpen}>
+          <div data-project-details class="border-t border-line-soft pt-3">
+            <div class="grid grid-cols-1 gap-x-8 text-[13px] sm:grid-cols-2">
           <div class="grid min-h-8 grid-cols-[7.5rem_minmax(0,1fr)] items-baseline gap-x-3 py-0.5 sm:col-span-2">
             <span class="text-label">SR&amp;ED title</span>
             <div class="min-w-0">
@@ -1097,6 +1136,16 @@
             </div>
           </div>
           <div class="grid min-h-8 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-0.5">
+            <span class="text-label">Project type</span>
+            <SelectInput
+              value={effectiveProjectType(project)}
+              items={projectTypeItems}
+              ariaLabel="Project type"
+              size="sm"
+              onValueChange={saveProjectType}
+            />
+          </div>
+          <div class="grid min-h-8 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-0.5">
             <span class="text-label">Science code</span>
             <div class="min-w-0">
               <ScienceCodeField
@@ -1159,6 +1208,8 @@
             {/each}
           </div>
         {/if}
+          </div>
+        </Disclosure>
       </div>
     {/snippet}
 
@@ -1166,7 +1217,7 @@
          (Obvious anatomy: ~54px app bar + 44px project bar). It carries the
          page's SINGLE h1 project title beside the workflow control so every
          generation state keeps one unambiguous main heading (a11y P0). -->
-    <header class="flex h-[49px] shrink-0 items-center gap-2 border-b border-workspace-rail-line px-3 sm:px-4">
+    <header data-workspace-page-header class="flex h-[49px] shrink-0 items-center gap-2 border-b border-workspace-rail-line px-3 sm:px-4">
       <WorkspaceShellControls
         tone="light"
         onOpenNavigation={() => (navigationOpen = true)}
@@ -1428,9 +1479,9 @@
           >Agent</button>
         </div>
       {/if}
-      <div bind:this={workspaceEl} class={`mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none lg:flex-row-reverse ${workspaceMaximized || chatFocus ? "max-w-full" : "max-w-[var(--container-shell)]"}`}>
-        <div inert={chatFocus} class={`[container-type:inline-size] ${mobileWorkspaceView === "report" && !chatFocus ? "flex" : "hidden"} min-h-0 flex-1 flex-col overflow-y-auto ${chatFocus ? "lg:hidden" : "lg:flex"}`}>
-            <div class={`mx-auto transition-[max-width,padding] duration-[325ms] ease-out motion-reduce:transition-none ${workspaceMaximized ? "max-w-full px-7 py-6" : chatOpen || qaOpen ? "max-w-report px-10 py-10" : "max-w-[var(--container-shell)] px-10 py-10"}`}>
+      <div bind:this={workspaceEl} data-project-workspace class="mx-auto flex min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden transition-[max-width] duration-[325ms] ease-out motion-reduce:transition-none lg:flex-row-reverse">
+        <div inert={chatFocus} class={`[container-type:inline-size] ${mobileWorkspaceView === "report" && !chatFocus ? "flex" : "hidden"} min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto ${chatFocus ? "lg:hidden" : "lg:flex"}`}>
+            <div data-report-surface class={`w-full max-w-full px-4 transition-[padding] duration-[325ms] ease-out motion-reduce:transition-none sm:px-6 ${workspaceMaximized ? "py-5 sm:py-6" : "py-6 sm:py-8"}`}>
               <!-- Project info header -->
               {@render projectMetadata()}
 
@@ -1792,7 +1843,7 @@
             readonly
             onfocus={(event) => event.currentTarget.select()}
             onclick={(event) => event.currentTarget.select()}
-            class="mt-1.5 w-full rounded-lg border border-gray-200 bg-chrome px-3 py-2 font-mono text-xs text-gray-700 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+            class="field-control mt-1.5 w-full rounded-lg px-3 py-2 font-mono text-xs text-gray-700"
           />
           {#if shareError}
             <p class="mt-2 text-sm text-red-700" role="alert">{shareError}</p>

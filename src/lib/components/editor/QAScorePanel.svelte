@@ -832,7 +832,7 @@
             oninput={(e) => (draft = { score: e.currentTarget.value, comment: reviewComment })}
             placeholder="0–100"
             aria-label="Your score out of 100"
-            class="w-20 rounded-lg border border-primary/20 bg-white px-2.5 py-1.5 text-sm font-semibold text-navy outline-none transition-colors placeholder:text-gray-400 focus:border-primary"
+            class="field-control w-20 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-navy placeholder:text-gray-400"
           />
           <span class="text-xs text-gray-400">/ 100</span>
         </div>
@@ -846,7 +846,7 @@
           rows="3"
           required
           placeholder="What worked, what to fix…"
-          class="mt-1 w-full resize-none rounded-lg border border-primary/20 bg-white px-3 py-2 text-sm text-gray-800 outline-none transition-colors placeholder:text-gray-400 focus:border-primary"
+          class="field-control mt-1 w-full resize-none rounded-lg px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400"
         ></textarea>
         <button
           type="button"

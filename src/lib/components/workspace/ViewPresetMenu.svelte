@@ -128,7 +128,7 @@
                   maxlength={MAX_PRESET_NAME_LENGTH}
                   placeholder="Save current view as…"
                   aria-label="New view name"
-                  class="h-8 min-w-0 flex-1 rounded-lg border border-line bg-chrome/50 px-2.5 text-[13px] text-ink placeholder:text-ink-faint"
+                class="field-control h-8 min-w-0 flex-1 rounded-lg px-2.5 text-[13px] text-ink placeholder:text-ink-faint"
                 />
                 <button
                   type="submit"

@@ -29,6 +29,7 @@ describe("projects table preferences", () => {
       layout: "list",
       density: "compact",
       group: "client",
+      clientSort: "project_number",
       columns: {
         clientName: false,
         stage: true,
@@ -113,6 +114,7 @@ describe("projects table preferences", () => {
       layout: "board" as const,
       density: "compact" as const,
       group: "client" as const,
+      clientSort: "updated" as const,
       columns: {
         clientName: true,
         stage: true,

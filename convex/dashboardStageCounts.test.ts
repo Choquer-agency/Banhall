@@ -299,6 +299,54 @@ describe("listCompanyProjectsByStageRank", () => {
     expect(result.isDone).toBe(true);
   });
 
+  it("filters one client by Stage and Owner through compound indexes", async () => {
+    const s = await setup();
+    const secondOwnerId = await s.t.run((ctx) =>
+      ctx.db.insert("users", {
+        authId: "sc-second-writer",
+        role: "writer",
+        firstName: "Sasha",
+        lastName: "Second",
+      })
+    );
+    await insertCountedProject(s, {
+      clientName: "Acme",
+      stage: "drafting",
+      ownerId: s.writerId,
+      title: "Wendy draft",
+    });
+    await insertCountedProject(s, {
+      clientName: "Acme",
+      stage: "intake",
+      ownerId: s.writerId,
+      title: "Wendy intake",
+    });
+    await insertCountedProject(s, {
+      clientName: "Acme",
+      stage: "drafting",
+      ownerId: secondOwnerId,
+      title: "Sasha draft",
+    });
+
+    const stageOnly = await s.admin.query(api.dashboard.listCompanyProjectsByStageRank, {
+      companyKey: "acme",
+      stage: "drafting",
+      paginationOpts,
+    });
+    expect(stageOnly.page.map((row) => row.title).sort()).toEqual([
+      "Sasha draft",
+      "Wendy draft",
+    ]);
+
+    const stageAndOwner = await s.admin.query(api.dashboard.listCompanyProjectsByStageRank, {
+      companyKey: "acme",
+      stage: "drafting",
+      ownerId: s.writerId,
+      paginationOpts,
+    });
+    expect(stageAndOwner.page.map((row) => row.title)).toEqual(["Wendy draft"]);
+  });
+
   it("keeps owner labels and the pre-existing read visibility (any signed-in user, same as listCompanies)", async () => {
     const s = await setup();
     await insertCountedProject(s, { clientName: "Acme", stage: "intake" });

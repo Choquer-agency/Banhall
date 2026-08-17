@@ -179,7 +179,7 @@
                     rows="3"
                     disabled={busy}
                     placeholder="Optional context for this transfer"
-                    class="mt-1.5 w-full resize-y rounded-lg border border-line bg-white px-3 py-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint hover:border-primary focus:border-primary disabled:bg-gray-50 motion-reduce:transition-none"
+                  class="field-control mt-1.5 w-full resize-y rounded-lg px-3 py-2.5 text-sm text-ink placeholder:text-ink-faint disabled:opacity-60"
                   ></textarea>
                 </label>
                 <p class={noteTooLong ? "mt-1 text-right text-xs font-medium text-red-700" : "mt-1 text-right text-xs text-ink-muted"}>

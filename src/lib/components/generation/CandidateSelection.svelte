@@ -471,7 +471,7 @@
             oninput={(event) => onCommentInput(current._id, event.currentTarget.value)}
             rows="3"
             placeholder="Why did you like or dislike this option?"
-            class="w-full resize-none rounded-lg border border-primary/20 bg-white px-3 py-2 text-sm text-gray-800 outline-none transition-colors placeholder:text-gray-400 focus:border-primary"
+            class="field-control w-full resize-none rounded-lg px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400"
           ></textarea>
           <button
             type="submit"

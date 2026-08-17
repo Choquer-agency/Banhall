@@ -10,7 +10,9 @@ const items = [
 describe("SelectInput accessible name", () => {
   it("uses the explicit ariaLabel when provided", async () => {
     await render(SelectInput, { items, value: "updated", ariaLabel: "Sort projects" });
-    expect(document.querySelector('input[aria-label="Sort projects"]')).not.toBeNull();
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Sort projects"]')!;
+    expect(input.classList.contains("field-control")).toBe(true);
+    expect(getComputedStyle(input).borderTopWidth).toBe("0px");
   });
 
   it("falls back to the placeholder for existing callers", async () => {

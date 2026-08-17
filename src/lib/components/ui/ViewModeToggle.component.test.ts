@@ -14,6 +14,12 @@ describe("ViewModeToggle", () => {
 
     const board = document.querySelector<HTMLButtonElement>('[aria-label="Board view"]')!;
     const list = document.querySelector<HTMLButtonElement>('[aria-label="List view"]')!;
+    // Attio/Obvious density: icon-only visually, with explicit accessible
+    // names and tooltips carrying the vocabulary.
+    expect(list.textContent?.trim()).toBe("");
+    expect(board.textContent?.trim()).toBe("");
+    expect(list.querySelector("svg")).not.toBeNull();
+    expect(board.querySelector("svg")).not.toBeNull();
     expect(board.getAttribute("aria-pressed")).toBe("true");
     // A11y P0 (2026-08-08 authenticated audit): this is a role=group of
     // aria-pressed toggle buttons — EVERY control stays in the tab sequence.

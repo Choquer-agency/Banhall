@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { page } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import ProjectBoardCard from "./ProjectBoardCard.svelte";
 import type { ProjectsTableRow } from "./ProjectsTable.svelte";
@@ -33,9 +34,13 @@ describe("ProjectBoardCard", () => {
     expect(card?.className).toContain("rounded-xl");
     expect(card?.className).toContain("shadow-sm");
     expect(card?.className).toContain("cursor-pointer");
+    expect(card?.className).toContain("min-h-40");
+    expect(card!.getBoundingClientRect().height).toBeGreaterThanOrEqual(160);
     const inset = document.querySelector<HTMLElement>("[data-card-content] > div");
     expect(inset?.className).toContain("bg-surface");
     expect(inset?.className).toContain("rounded-[10px]");
+    expect(inset?.className).toContain("flex-1");
+    expect(document.querySelector("[data-card-content]")?.className).toContain("flex-1");
     // No stage chip on the card — the tint + column chip carry stage.
     expect(document.querySelector("[data-card-stage]")).toBeNull();
     expect(document.querySelector("[data-stage-badge]")).toBeNull();
@@ -70,7 +75,13 @@ describe("ProjectBoardCard", () => {
     expect(document.querySelector('[data-card-field="updated"]')?.textContent).toContain(
       "Updated Jul 29, 2026"
     );
-    expect(document.querySelectorAll("[data-card-field] svg")).toHaveLength(4);
+    expect(document.querySelector('[data-card-field="identity"]')?.textContent).toContain(
+      "Writing"
+    );
+    expect(document.querySelector('[data-card-field="identity"]')?.textContent).toContain(
+      "FY not set"
+    );
+    expect(document.querySelectorAll("[data-card-field] svg")).toHaveLength(6);
   });
 
   it("renders the current handoff as With — assignee, kind, and due (2026-08-10 amendment)", async () => {
@@ -137,6 +148,81 @@ describe("ProjectBoardCard", () => {
 
     expect(document.querySelector('[data-card-field="client"]')).toBeNull();
     expect(document.querySelector('[data-card-field="owner"]')).not.toBeNull();
+  });
+
+  it("suppresses the fiscal-year chip when its parent folder supplies the context", async () => {
+    await render(ProjectBoardCard, {
+      row: row({ fiscalYear: 2025 }),
+      showFiscalYear: false,
+    });
+
+    expect(document.querySelector("[data-card-fiscal-year]")).toBeNull();
+    expect(document.querySelector('[data-card-field="identity"]')?.textContent).toContain("Writing");
+    expect(
+      document.querySelector<HTMLElement>("[data-project-board-card]")!.getBoundingClientRect().height
+    ).toBeGreaterThanOrEqual(160);
+  });
+
+  it("keeps Stage and Type together on the same compact metadata row", async () => {
+    await render(ProjectBoardCard, { row: row(), showStage: true });
+
+    const identity = document.querySelector<HTMLElement>('[data-card-field="identity"]');
+    expect(identity?.querySelector('[data-stage-badge="drafting"]')).not.toBeNull();
+    expect(identity?.querySelector("[data-card-project-type]")?.textContent).toContain("Writing");
+    expect(document.querySelector('[data-card-field="stage"]')).toBeNull();
+  });
+
+  it("carries the workflow-stage color into the project title and number", async () => {
+    await render(ProjectBoardCard, {
+      row: row({ projectNumber: "12", workflowStage: "drafting" }),
+    });
+
+    expect(document.querySelector("[data-recent-title]")?.className).toContain("text-blue-700");
+    expect(document.querySelector("[data-card-project-number]")?.className).toContain(
+      "text-blue-700"
+    );
+  });
+
+  it("keeps its complete identity responsive in a narrow card", async () => {
+    await page.viewport(320, 700);
+    const screen = await render(ProjectBoardCard, {
+      row: row({
+        projectNumber: "10A",
+        title: "A long experimental development project title that needs truncation",
+        sredTitle: "A long SR&ED technical title that also needs responsive truncation",
+        clientName: "Acuity Insights with an extended recorded client name",
+        owner: {
+          kind: "canonical",
+          label: "An owner with a longer display name",
+        },
+        handoff: {
+          assigneeLabel: "A reviewer with a longer display name",
+          kindLabel: "Internal review",
+          dueDate: "September 30, 2026",
+        },
+      }),
+    });
+    screen.container.style.width = "240px";
+
+    const card = document.querySelector<HTMLElement>("[data-project-board-card]")!;
+    const number = document.querySelector<HTMLElement>("[data-card-project-number]")!;
+    const title = document.querySelector<HTMLElement>("[data-recent-title]")!;
+    const sredTitle = document.querySelector<HTMLElement>("[data-card-sred-title]")!;
+    expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth);
+    expect(number.className).toContain("rounded-md");
+    expect(number.className).toContain("border");
+    expect(number.className).toContain("bg-surface");
+    expect(number.getAttribute("aria-label")).toBe("Project number 10A");
+    expect(title.className).toContain("truncate");
+    expect(title.scrollWidth).toBeGreaterThan(title.clientWidth);
+    expect(sredTitle.className).toContain("truncate");
+    expect(sredTitle.scrollWidth).toBeGreaterThan(sredTitle.clientWidth);
+    expect(document.querySelector('[data-card-field="client"] span:last-child')?.className).toContain(
+      "line-clamp-2"
+    );
+    expect(document.querySelector('[data-card-field="handoff"] span:last-child')?.className).toContain(
+      "line-clamp-2"
+    );
   });
 
   it("keeps the entire card navigable through the stretched project link", async () => {

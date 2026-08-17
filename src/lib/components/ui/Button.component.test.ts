@@ -44,8 +44,8 @@ describe("Button", () => {
 
     const classes = anchor?.className ?? "";
     for (const token of [...CORE_TOKENS, "min-h-11"]) expect(classes).toContain(token);
-    // Primary variant (default) — matches the removed literals' visual tokens.
-    for (const token of ["bg-primary", "text-white", "hover:bg-primary-dark", "focus-visible:ring-primary"])
+    // Primary variant (default) consumes the theme-aware action role.
+    for (const token of ["bg-action-primary", "text-action-primary-foreground", "hover:bg-action-primary-hover", "focus-visible:ring-action-primary"])
       expect(classes).toContain(token);
   });
 
@@ -58,8 +58,23 @@ describe("Button", () => {
     });
 
     const classes = document.body.querySelector("a")?.className ?? "";
-    for (const token of ["bg-chrome", "text-navy", "border-gray-200", "hover:bg-primary-wash", "min-h-11"])
+    for (const token of ["bg-chrome", "text-ink", "border-line", "hover:bg-primary-wash", "min-h-11"])
       expect(classes).toContain(token);
+  });
+
+  it("maps the default action to accessible brand pairs in light and dark themes", async () => {
+    const lightView = await render(Button, { children: label });
+    const lightButton = document.body.querySelector("button")!;
+    expect(getComputedStyle(lightButton).backgroundColor).toBe("rgb(8, 122, 117)");
+    expect(getComputedStyle(lightButton).color).toBe("rgb(255, 255, 255)");
+    lightView.unmount();
+
+    document.body.setAttribute("data-workspace-theme", "dark");
+    await render(Button, { children: label });
+    const darkButton = document.body.querySelector("button")!;
+    expect(getComputedStyle(darkButton).backgroundColor).toBe("rgb(43, 193, 186)");
+    expect(getComputedStyle(darkButton).color).toBe("rgb(10, 58, 56)");
+    document.body.removeAttribute("data-workspace-theme");
   });
 
   it("keeps the anchor and button class strings identical for the same props (no branch drift)", async () => {

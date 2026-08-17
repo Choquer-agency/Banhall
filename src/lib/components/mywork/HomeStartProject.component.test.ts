@@ -25,6 +25,10 @@ describe("HomeStartProject", () => {
     transcript.value = "Interview transcript text";
     transcript.dispatchEvent(new InputEvent("input", { bubbles: true }));
 
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("[data-home-start-submit]")?.disabled)
+      .toBe(false);
+
     document.querySelector<HTMLFormElement>("[data-home-start-form]")!.requestSubmit();
 
     await expect.poll(() => __navigationCalls.at(-1)?.url).toBe("/project/new");
@@ -44,21 +48,22 @@ describe("HomeStartProject", () => {
     const welcome = document.querySelector<HTMLElement>("[data-home-welcome]")!;
     const form = document.querySelector<HTMLElement>("[data-home-start-form]")!;
     expect(centered.className).toContain("mx-auto");
-    // 44.75rem = Attio's measured 716px Home composition.
-    expect(centered.className).toContain("max-w-[44.75rem]");
+    expect(centered.className).toContain("max-w-[var(--container-home)]");
     expect(welcome.className).toContain("text-center");
     expect(form.className).toContain("text-left");
-    expect(form.className).toContain("bg-surface");
+    expect(form.className).toContain("field-control-shell");
+    expect(form.className).toContain("field-control-shell--surface");
+    expect(getComputedStyle(form).backgroundColor).toBe("rgb(255, 255, 255)");
     // Radius consistency (2026-08-10): containers share the board-card
     // rounded-xl scale.
     expect(form.className).toContain("rounded-xl");
-    // Full-opacity hairline, no hover/focus-within treatment (2026-08-10
-    // owner direction) — the caret and control focus rings carry state.
-    expect(form.className).toContain("border-line");
-    expect(form.className).not.toContain("border-line-soft");
+    // The intake is white with a one-pixel inset surface line; interaction
+    // changes its color without adding an exterior border or shifting layout.
+    expect(getComputedStyle(form).borderTopWidth).toBe("0px");
+    expect(getComputedStyle(form).boxShadow).toContain("1px");
+    expect(form.className).not.toContain("border-line");
     expect(form.className).not.toContain("focus-within:");
     expect(form.className).not.toContain("hover:");
-    expect(form.className).not.toContain("shadow");
 
     // …so the fields inside stay chrome-free: no underline, no hover/focus
     // classes, and the default black focus outline suppressed. The transcript
@@ -88,9 +93,9 @@ describe("HomeStartProject", () => {
     for (const control of [paste, attach, document.querySelector("[data-home-start-submit]")!]) {
       expect(control.className).not.toContain("hover:");
     }
-    expect(
-      document.querySelector('[data-home-start-submit][aria-label="Start project"]')
-    ).not.toBeNull();
+    const submit = document.querySelector<HTMLButtonElement>("[data-home-start-submit]")!;
+    expect(submit.disabled).toBe(true);
+    expect(submit.getAttribute("aria-label")).toContain("Add a project name and transcript");
     expect(document.querySelector('label[for="home-project-title"]')?.className).toContain("sr-only");
     expect(document.querySelector('label[for="home-transcript"]')?.className).toContain("sr-only");
 
@@ -129,10 +134,28 @@ describe("HomeStartProject", () => {
     expect(document.querySelector("[data-home-transcript-attach-empty]")).toBeNull();
   });
 
-  it("keeps empty submission truthful by opening a blank wizard", async () => {
+  it("keeps the composer disabled until title and transcript are present", async () => {
+    await render(HomeStartProject, { greeting: "Good morning" });
+    const submit = document.querySelector<HTMLButtonElement>("[data-home-start-submit]")!;
+    const title = document.querySelector<HTMLInputElement>("[data-home-start-input]")!;
+    const transcript = document.querySelector<HTMLTextAreaElement>("[data-home-transcript-input]")!;
+
+    expect(submit.disabled).toBe(true);
+    title.value = "Project with no source";
+    title.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    expect(submit.disabled).toBe(true);
+
+    transcript.value = "Interview transcript text";
+    transcript.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await expect.poll(() => submit.disabled).toBe(false);
+  });
+
+  it("opens a deliberately blank wizard from the separate intake action", async () => {
     await render(HomeStartProject, { greeting: "Good morning" });
     document.querySelector<HTMLFormElement>("[data-home-start-form]")!.requestSubmit();
+    expect(__navigationCalls).toHaveLength(0);
 
+    document.querySelector<HTMLButtonElement>("[data-home-start-blank]")!.click();
     await expect.poll(() => __navigationCalls.at(-1)?.url).toBe("/project/new");
     expect(takeProjectStart()).toEqual({ title: "", transcriptText: "", transcriptFileName: null });
   });

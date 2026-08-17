@@ -372,7 +372,7 @@
             ? "What would you like it to do? e.g. “add a button to…” (required)"
             : "What went wrong? What were you trying to do? (required)"
           : "Anything else you want to add? e.g. what you were trying to do…"}
-        class="mt-3 w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm text-navy placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+        class="field-control mt-3 w-full resize-none rounded-lg px-3 py-2 text-sm text-navy placeholder:text-gray-400"
       ></textarea>
 
       <p class="mt-2 text-xs text-gray-400">

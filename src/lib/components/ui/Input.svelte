@@ -20,8 +20,9 @@
   <input
     {id}
     bind:value
-    class={`rounded-lg border border-gray-200 bg-surface px-3.5 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy disabled:bg-gray-50 disabled:text-gray-500 ${error ? "border-red-400 focus:border-red-400 focus:ring-red-400" : ""} ${className}`}
     {...rest}
+    aria-invalid={error ? "true" : rest["aria-invalid"]}
+    class={`field-control rounded-lg px-3.5 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 disabled:opacity-60 ${className}`}
   />
   {#if error}
     <p class="text-xs text-red-500">{error}</p>

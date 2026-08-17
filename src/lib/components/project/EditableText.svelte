@@ -31,12 +31,7 @@
   let draft = $state("");
   let saving = $state(false);
   let saveError = $state("");
-  let inputEl: HTMLInputElement | null = $state(null);
   const canSave = $derived(!saving && (!required || draft.trim().length > 0));
-
-  $effect(() => {
-    if (editing) inputEl?.focus();
-  });
 
   function beginEdit() {
     draft = value;
@@ -78,12 +73,11 @@
 {#if editing}
   <div class={`flex items-center gap-1.5 ${variant === "body" ? "mt-1" : ""}`}>
     <input
-      bind:this={inputEl}
       bind:value={draft}
       onkeydown={handleKeydown}
       aria-label={`Edit ${label}`}
       {required}
-      class={`min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-gray-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy ${
+      class={`field-control field-control--quiet min-w-0 flex-1 rounded-md px-2 py-1 text-gray-900 ${
         variant === "heading" ? headingClass : "text-sm"
       }`}
     />

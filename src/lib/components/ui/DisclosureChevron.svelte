@@ -4,16 +4,20 @@
   // the host trigger carries aria-expanded/aria-controls.
   let {
     open,
+    tone = "primary",
     class: className = "",
   }: {
     open: boolean;
+    /** Neutral is reserved for subordinate disclosures whose open state is
+     * already carried by a contrasting surface fill. */
+    tone?: "primary" | "neutral";
     class?: string;
   } = $props();
 </script>
 
 <svg
   data-disclosure-chevron
-  class={`h-4 w-4 shrink-0 transition-transform duration-300 motion-reduce:transition-none ${open ? "rotate-180 text-primary-selected" : "text-ink-faint"} ${className}`}
+  class={`h-4 w-4 shrink-0 transition-transform duration-300 motion-reduce:transition-none ${open ? `rotate-180 ${tone === "neutral" ? "text-ink-secondary" : "text-primary-selected"}` : "text-ink-faint"} ${className}`}
   fill="none"
   viewBox="0 0 24 24"
   stroke="currentColor"

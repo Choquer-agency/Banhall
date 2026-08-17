@@ -3,6 +3,7 @@ export const WORKFLOW_STAGES = [
   "interview_complete",
   "drafting",
   "internal_review",
+  "edits",
   "client_review",
   "revisions",
   "ready_for_delivery",
@@ -24,6 +25,7 @@ export const WORKFLOW_STAGE_PIPELINE_ORDER = [
   "interview_complete",
   "drafting",
   "internal_review",
+  "edits",
   "client_review",
   "revisions",
   "ready_for_delivery",
@@ -49,6 +51,9 @@ const WORKFLOW_STAGE_PERSISTED_RANK: Record<WorkflowStage, number> = {
   interview_complete: 1,
   drafting: 2,
   internal_review: 3,
+  // Additive 2026-08-14 stage. Fractional rank preserves every historical
+  // persisted rank while placing Edits between review and client review.
+  edits: 3.5,
   client_review: 4,
   revisions: 5,
   ready_for_delivery: 6,

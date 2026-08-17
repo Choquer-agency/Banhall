@@ -42,6 +42,7 @@
   import { displayName } from "$lib/displayName";
   import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
   import { page } from "$app/state";
+  import { createRequestId } from "$lib/requestId";
 
   // Jul 17 meeting: transcript + context inputs merged onto one page so
   // writers see every upload slot at once (no more drawings in the
@@ -499,7 +500,7 @@
         prefix = ""
       ): Promise<"stored_text" | "stored_empty" | "failed"> => {
         progress = `Uploading ${file.name}…`;
-        const attemptKey = crypto.randomUUID();
+        const attemptKey = createRequestId();
         try {
           const storageId = await uploadOriginal(file);
           let parsed;
@@ -609,7 +610,7 @@
         // generation as context; the review agent reads it directly).
         progress = `Uploading ${pdDoc.name}…`;
         const storageId = await uploadOriginal(pdDoc.file);
-        const pdAttemptKey = crypto.randomUUID();
+        const pdAttemptKey = createRequestId();
         let documentId: Id<"projectDocuments">;
         try {
           documentId = await withUploadTimeout(
@@ -860,7 +861,7 @@
                       addInterviewee();
                     }
                   }}
-                  class="h-[42px] min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                  class="field-control h-[42px] min-w-0 flex-1 rounded-lg px-3.5 text-sm text-gray-900 placeholder:text-gray-400"
                 />
                 <Button type="button" variant="secondary" onclick={addInterviewee} disabled={!intervieweeDraft.trim()}>
                   Add
@@ -1086,7 +1087,7 @@
                 rows={12}
                 bind:value={transcript}
                 placeholder="Paste the full interview transcript here"
-                class="rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 font-serif text-sm leading-relaxed text-gray-900 placeholder:font-sans placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                class="field-control rounded-lg px-3.5 py-2.5 font-serif text-sm leading-relaxed text-gray-900 placeholder:font-sans placeholder:text-gray-400"
               ></textarea>
             {/if}
             <input

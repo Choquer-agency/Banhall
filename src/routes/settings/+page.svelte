@@ -268,7 +268,7 @@
                 rows={14}
                 bind:value={customInstructions}
                 placeholder={"e.g. Prefer short declarative sentences. Lead each iteration with the hypothesis tested. Avoid the passive voice in the work narrative."}
-                class="mt-2 block w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                class="field-control mt-2 block w-full rounded-lg px-3.5 py-2.5 text-sm leading-relaxed text-ink placeholder:text-ink-faint"
               ></textarea>
               <span
                 class={`mt-1 block text-right text-xs ${preferencesTooLong ? "text-red-600" : "text-ink-faint"}`}

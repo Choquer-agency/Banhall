@@ -51,18 +51,27 @@ describe("WorkspaceRail", () => {
     const myWork = navLink("Home");
     expect(projects?.getAttribute("aria-current")).toBe("page");
     expect(projects?.className).toContain("bg-workspace-rail-selected");
+    expect(projects?.className).toContain("font-semibold");
     expect(projects?.className).toContain("text-ink");
+    expect(projects?.className).toContain("rounded-md");
     expect(projects?.className).not.toContain("text-primary");
     expect(myWork?.getAttribute("aria-current")).toBeNull();
     expect(myWork?.className).toContain("text-ink");
+    expect(myWork?.className).not.toContain("font-semibold");
   });
 
   it("renders the Attio-style workspace identity and collapse control", async () => {
+    __setQueryData("users:getCurrentUser", {
+      role: "admin",
+      name: "Admin Writer",
+    });
     const onToggleRail = vi.fn();
     await render(WorkspaceRail, baseProps({ onToggleRail }));
 
-    const identity = document.querySelector<HTMLAnchorElement>('a[aria-label="Banhall dashboard"]');
-    expect(identity?.textContent).toContain("Banhall");
+    const identity = document.querySelector<HTMLAnchorElement>('a[aria-label="Admin Writer dashboard"]');
+    expect(identity?.textContent).toContain("Admin Writer");
+    expect(identity?.textContent).toContain("Admin");
+    expect(identity?.textContent).not.toContain("Banhall");
 
     const toggle = document.querySelector<HTMLButtonElement>("[data-rail-toggle]");
     expect(toggle?.getAttribute("aria-label")).toBe("Collapse navigation rail");
@@ -88,6 +97,16 @@ describe("WorkspaceRail", () => {
     expect(document.querySelector("[data-rail-toggle]")).toBeNull();
   });
 
+  it("keeps the drawer chrome fixed, scrolls only its links, and starts Admin compact", async () => {
+    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
+    await render(WorkspaceRail, baseProps({ variant: "drawer" }));
+
+    expect(document.querySelector("[data-rail-drawer-header]")?.className).toContain("shrink-0");
+    expect(document.querySelector("[data-rail-scroll]")?.className).toContain("overflow-y-auto");
+    expect(document.querySelector("[data-admin-group-toggle]")?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector("#workspace-admin-links")).toBeNull();
+  });
+
   it("presents Admin as an Attio-style left-chevron group with distinct icon colours", async () => {
     __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
     await render(WorkspaceRail, baseProps());
@@ -98,8 +117,10 @@ describe("WorkspaceRail", () => {
     expect(group?.firstElementChild?.tagName).toBe("svg");
 
     const iconTiles = Array.from(document.querySelectorAll<HTMLElement>("[data-admin-icon-tone]"));
-    expect(iconTiles).toHaveLength(6);
-    expect(new Set(iconTiles.map((tile) => tile.className.match(/bg-[a-z]+-500/)?.[0])).size).toBe(6);
+    expect(iconTiles).toHaveLength(7);
+    expect(new Set(iconTiles.map((tile) => tile.className.match(/bg-[a-z]+-500/)?.[0])).size).toBe(7);
+    expect(document.querySelector('[data-admin-icon-tone="ingestion"] svg')).not.toBeNull();
+    expect(document.querySelector("#workspace-admin-links")?.className).toContain("gap-1");
 
     group?.click();
     await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
@@ -107,10 +128,65 @@ describe("WorkspaceRail", () => {
     expect(document.querySelector("#workspace-admin-links")).toBeNull();
   });
 
+  it("shows only What's new from the utility links for non-developers", async () => {
+    __setQueryData("users:getCurrentUser", {
+      role: "admin",
+      name: "Admin Writer",
+      isDeveloper: false,
+    });
+    await render(WorkspaceRail, baseProps());
+
+    expect(document.querySelector("[data-developer-group-toggle]")).toBeNull();
+    expect(document.querySelector('nav a[href="/alerts"]')).toBeNull();
+    expect(document.querySelector('nav a[href="/requests"]')).toBeNull();
+    expect(document.querySelector('nav a[href="/changelog"]')).not.toBeNull();
+    expect(document.querySelector("[data-workspace-escape]")).toBeNull();
+    expect(document.querySelector("[data-rail-flag-issue]")).toBeNull();
+    expect(document.querySelector('button[aria-label="Settings menu"]')).not.toBeNull();
+  });
+
+  it("shows developer utilities directly for flagged accounts without an accordion", async () => {
+    __setQueryData("users:getCurrentUser", {
+      role: "admin",
+      name: "Admin Writer",
+      isDeveloper: true,
+    });
+    __setQueryData("errorReports:openCount", 6);
+    __setQueryData("changelog:unseenCount", 2);
+    await render(WorkspaceRail, baseProps());
+
+    expect(document.querySelector("[data-developer-group-toggle]")).toBeNull();
+    expect(document.querySelector("[data-rail-utilities]")?.textContent).not.toContain("Developer");
+    expect(document.querySelector('nav a[href="/alerts"]')).not.toBeNull();
+    expect(document.querySelector('nav a[href="/requests"]')).not.toBeNull();
+    expect(document.querySelector('nav a[href="/changelog"]')).not.toBeNull();
+    expect(document.querySelector("[data-workspace-escape]")).not.toBeNull();
+    expect(document.querySelector("[data-rail-flag-issue]")).not.toBeNull();
+  });
+
+  it("moves the Admin records group below the primary workspace links", async () => {
+    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
+    await render(WorkspaceRail, baseProps());
+
+    expect(document.querySelector("[data-rail-admin]")?.className).toContain("mt-5");
+  });
+
+  it("shares the compact rail rhythm with fine-pointer drawers without shrinking touch targets", async () => {
+    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
+    await render(WorkspaceRail, baseProps({ variant: "drawer" }));
+
+    const home = navLink("Home");
+    expect(home?.className).toContain("workspace-rail-row");
+    expect(home?.className).toContain("min-h-11");
+    expect(home?.className).toContain("duration-300");
+    expect(document.querySelector("[data-rail-admin]")?.className).toContain("mt-5");
+  });
+
   it("keeps the component expanded because full collapse is owned by WorkspaceShell", async () => {
+    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
     await render(WorkspaceRail, baseProps({ collapsed: true, onToggleRail: () => {} }));
 
-    expect(document.querySelector('a[aria-label="Banhall dashboard"]')?.textContent).toContain("Banhall");
+    expect(document.querySelector('a[aria-label="Admin Writer dashboard"]')?.textContent).toContain("Admin Writer");
     const toggle = document.querySelector<HTMLButtonElement>("[data-rail-toggle]");
     expect(toggle?.getAttribute("aria-label")).toBe("Collapse navigation rail");
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
@@ -119,9 +195,10 @@ describe("WorkspaceRail", () => {
   });
 
   it("ignores collapsed inside the mobile drawer — the drawer instance always renders expanded", async () => {
+    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
     await render(WorkspaceRail, baseProps({ variant: "drawer", collapsed: true }));
 
-    expect(document.querySelector('a[aria-label="Banhall dashboard"]')?.textContent).toContain("Banhall");
+    expect(document.querySelector('a[aria-label="Admin Writer dashboard"]')?.textContent).toContain("Admin Writer");
     const projects = navLink("Projects");
     expect(projects?.getAttribute("title")).toBeNull();
     expect(projects?.querySelector("span")?.className).not.toContain("sr-only");

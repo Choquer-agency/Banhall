@@ -231,7 +231,7 @@
                       value={selectedOwner(row.projectId)}
                       disabled={busyProjectId !== null}
                       onchange={(event) => setSelectedOwner(row.projectId, event.currentTarget.value)}
-                      class="mt-2 h-11 w-full rounded-lg border border-gray-200 bg-white px-3 text-base text-ink transition-colors hover:border-gray-300 focus-visible:border-navy focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-navy disabled:opacity-50 sm:text-sm"
+                      class="field-control mt-2 h-11 w-full rounded-lg px-3 text-base text-ink disabled:opacity-50 sm:text-sm"
                     >
                       <option value="">Choose a team member</option>
                       {#each rosterItems as member (member.value)}

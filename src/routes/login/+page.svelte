@@ -24,10 +24,11 @@
   let signInAttempt = 0;
   let hydrated = $state(false);
 
-  // The email/password flow is client-only. Keep the native form out of the
-  // server-rendered HTML until Svelte has attached handleSubmit; otherwise a
-  // password manager or fast Enter/click can perform a plain GET /login?
-  // submission, which looks like a flash/reload and never calls Better Auth.
+  // The email/password flow is client-only. Render the real form on the first
+  // paint so there is no intermediate session-check screen, but keep its
+  // native controls disabled until Svelte has attached handleSubmit. This
+  // prevents a password manager or fast Enter/click from submitting a plain
+  // GET /login? before Better Auth is ready.
   onMount(() => {
     hydrated = true;
   });
@@ -45,6 +46,8 @@
 
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
+    if (!hydrated || submitting) return;
+
     error = "";
     submitting = true;
 
@@ -116,18 +119,16 @@
           class="logo-fir -ml-2 mb-8 w-32 lg:hidden"
         />
 
-        {#if !hydrated || auth.isAuthenticated || entering}
+        {#if auth.isAuthenticated || entering}
           <div class="flex min-h-64 flex-col items-center justify-center" aria-live="polite">
             <Spinner />
-            <p class="mt-3 text-sm text-gray-500">
-              {entering || auth.isAuthenticated ? "Signing you in…" : "Checking your session…"}
-            </p>
+            <p class="mt-3 text-sm text-gray-500">Signing you in…</p>
           </div>
         {:else}
           <h1 class="text-2xl font-semibold tracking-tight text-gray-900">Welcome back</h1>
           <p class="mt-1.5 text-sm text-gray-600">Sign in to your account to continue.</p>
 
-          <form onsubmit={handleSubmit} class="mt-8 flex flex-col gap-4">
+          <form onsubmit={handleSubmit} class="mt-8 flex flex-col gap-4" aria-busy={!hydrated || submitting}>
             <Input
               id="email"
               label="Email"
@@ -135,6 +136,7 @@
               bind:value={email}
               placeholder="you@banhall.com"
               autocomplete="email"
+              disabled={!hydrated || submitting}
               required
             />
             <Input
@@ -144,6 +146,7 @@
               bind:value={password}
               placeholder="Enter your password"
               autocomplete="current-password"
+              disabled={!hydrated || submitting}
               required
               minlength={8}
             />
@@ -154,7 +157,7 @@
               </p>
             {/if}
 
-            <Button type="submit" disabled={submitting} class="mt-2 gap-2">
+            <Button type="submit" disabled={!hydrated || submitting} class="mt-2 gap-2">
               {#if submitting}
                 <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
               {/if}

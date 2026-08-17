@@ -120,6 +120,7 @@ export const createReviewProjectRecord = internalMutation({
       ...(source.industry ? { industry: source.industry } : {}),
       ...(source.scienceCode ? { scienceCode: source.scienceCode } : {}),
       mode: "review",
+      projectType: "review",
       sourceProjectId: source._id,
       ownerId: user._id,
       workflowStage: "intake",

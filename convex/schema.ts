@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
+  projectTypeValidator,
   workflowStageValidator,
   workItemKindValidator,
   workItemStatusValidator,
@@ -24,6 +25,9 @@ export default defineSchema({
     image: v.optional(v.string()),
     emailVerificationTime: v.optional(v.number()),
     isAnonymous: v.optional(v.boolean()),
+    // Presentation exposure only. This does not grant a role or capability;
+    // route and mutation authorization remain server-side and authoritative.
+    isDeveloper: v.optional(v.boolean()),
     createdAt: v.optional(v.number()),
   })
     .index("by_email", ["email"])
@@ -97,6 +101,10 @@ export default defineSchema({
     // BNH-39: how the project started — generate a PD from a transcript
     // (default, absent on older projects) or review an existing written PD.
     mode: v.optional(v.union(v.literal("generate"), v.literal("review"))),
+    // 2026-08-14 widen: work-product identity. Legacy rows dual-read from
+    // mode (review => review; otherwise writing) until the dashboard
+    // backfill materializes this optional field.
+    projectType: v.optional(projectTypeValidator),
     // 2026-08-11 (second) amendment — review projects created from an
     // existing project: on a review project, the source project whose report
     // snapshot is under review (review → source). Navigational association
@@ -174,6 +182,12 @@ export default defineSchema({
     // consumers treat this index as complete.
     .index("by_dashboardCompanyKey_and_workflowStageRank_and_updatedAt", [
       "dashboardCompanyKey",
+      "workflowStageRank",
+      "updatedAt",
+    ])
+    .index("by_client_owner_stage_rank_updated", [
+      "dashboardCompanyKey",
+      "ownerId",
       "workflowStageRank",
       "updatedAt",
     ])
@@ -1557,18 +1571,36 @@ export default defineSchema({
 
   learningDigests: defineTable({
     kind: v.union(v.literal("qa_calibration"), v.literal("draft_style")),
-    content: v.string(), // exact prompt block injected into the agent
+    content: v.string(), // immutable candidate prompt block
     sourceCount: v.number(), // feedback rows that informed this digest
     feedbackCutoff: v.number(), // newest feedback updatedAt included
     model: v.string(), // model that produced the digest
     createdAt: v.number(),
-    // Per-writer flavor Phase B prep: absent = global digest (current
-    // behavior); set = digest distilled from ONE writer's feedback only.
-    // No reads use this yet.
+    // Per-writer flavor Phase B prep. Global publication rejects these rows
+    // until per-writer activation semantics are separately approved.
     userId: v.optional(v.id("users")),
   })
     .index("by_kind", ["kind"])
     .index("by_kind_and_userId", ["kind", "userId"]),
+
+  // Append-only publication ledger. Automatic distillation only creates
+  // immutable candidates; an authorized administrator explicitly selects the
+  // one that may affect prompts. Selecting an older digest is a rollback and
+  // selecting null is the operational kill switch.
+  learningDigestSelections: defineTable({
+    kind: v.union(v.literal("qa_calibration"), v.literal("draft_style")),
+    selectedDigestId: v.union(v.id("learningDigests"), v.null()),
+    previousSelectionId: v.optional(v.id("learningDigestSelections")),
+    actorKind: v.union(v.literal("system"), v.literal("user")),
+    actorUserId: v.optional(v.id("users")),
+    action: v.union(
+      v.literal("compatibility_freeze"),
+      v.literal("select"),
+      v.literal("disable")
+    ),
+    reason: v.optional(v.string()),
+    selectedAt: v.number(),
+  }).index("by_kind", ["kind"]),
 
   // ─── Per-writer flavor (Phase A): persistent custom writing instructions ───
   // One row per user; injected as a bounded, lowest-priority block into the
@@ -1639,6 +1671,118 @@ export default defineSchema({
   })
     .index("by_occurredAt", ["occurredAt"])
     .index("by_targetUserId_and_occurredAt", ["targetUserId", "occurredAt"]),
+
+  // ─── BNH-17: OneDrive bulk ingestion (staging, human-in-the-loop) ─────────
+  // The client's historical corpus lives in OneDrive under
+  // `Applications/<Client>/<Fiscal year>/…` — PDs as Word docs in one of ~4
+  // submission folders, interview transcripts under `WIP/Technical/Audio`
+  // (Jun 19 meeting). The Graph delta sync discovers files into
+  // ingestionItems; NOTHING reaches the Brain from here without an explicit
+  // admin approval (the Brain is sacred — same gate as brainSources).
+  //
+  // Item lifecycle: discovered → fetched → extracted → pending_review →
+  // approved | rejected, with `failed` for fetch/extract errors. Admins can
+  // move non-approved rows to `deleted`; that queue action is reversible and
+  // never deletes the OneDrive original. Approval creates a brainSources row
+  // (already approved) and links it back.
+
+  // Singleton delta cursor for the Graph sync ("key" is always "onedrive").
+  // `nextLink` checkpoints a partially walked delta feed so a large initial
+  // crawl resumes mid-walk instead of replaying from the last deltaLink.
+  oneDriveSyncState: defineTable({
+    key: v.string(),
+    deltaLink: v.optional(v.string()),
+    nextLink: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
+
+  // One row per sync run — the admin-visible sync log.
+  oneDriveSyncRuns: defineTable({
+    status: v.union(
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    triggeredBy: v.string(),
+    startedAt: v.number(),
+    completedAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+    discovered: v.number(), // new/changed files seen this run
+    processed: v.number(), // fetched + extracted this run
+    skipped: v.number(), // unsupported type / too large / folder
+    // Heartbeat patched on every progress update — the stale-run guard keys
+    // off this (not startedAt) so healthy long continuation chains aren't
+    // treated as crashed.
+    lastProgressAt: v.optional(v.number()),
+  }).index("by_startedAt", ["startedAt"]),
+
+  ingestionItems: defineTable({
+    driveItemId: v.string(), // Graph item id — stable upsert key
+    path: v.string(), // human-readable path under the sync root
+    name: v.string(),
+    // Inferred from `<root>/<Client>/<Fiscal year>/…` folder convention.
+    clientName: v.optional(v.string()),
+    fiscalYearLabel: v.optional(v.string()), // folder name, e.g. "2025 - Dec 31"
+    fiscalYear: v.optional(v.number()),
+    docKind: v.union(
+      v.literal("pd"), // Word doc in a Submitted/To be submitted folder
+      v.literal("transcript"), // under WIP/Technical/Audio
+      v.literal("supporting"),
+      v.literal("unknown")
+    ),
+    size: v.number(),
+    lastModifiedAt: v.number(),
+    contentHash: v.string(), // Graph quickXorHash, else sha256 of bytes
+    storageId: v.optional(v.id("_storage")), // original bytes once fetched
+    // Short extract preview for list/detail UI. The FULL extracted text lives
+    // in storage (textStorageId) so pair/list queries never read megabytes of
+    // transcript per row (Convex 16MiB read limit).
+    text: v.optional(v.string()),
+    textStorageId: v.optional(v.id("_storage")),
+    extractNote: v.optional(v.string()), // e.g. "pdf — text extraction pending"
+    status: v.union(
+      v.literal("discovered"),
+      v.literal("fetched"),
+      v.literal("pending_review"), // extracted, waiting on the admin
+      v.literal("approved"),
+      v.literal("rejected"),
+      v.literal("failed"),
+      v.literal("deleted")
+    ),
+    error: v.optional(v.string()),
+    // Pair bookkeeping per client+fiscal-year group. Gaps are a feature, not
+    // an error — "we need to get the transcript for this one" (Jun 19).
+    pairGroupKey: v.string(), // `${clientName}::${fiscalYearLabel}`
+    pairStatus: v.optional(
+      v.union(
+        v.literal("paired"),
+        v.literal("missing_transcript"), // PD with no transcript in group
+        v.literal("missing_pd"), // transcript with no PD in group
+        v.literal("ambiguous_pd") // >1 PD candidate — admin picks one
+      )
+    ),
+    brainSourceId: v.optional(v.id("brainSources")), // set on approve
+    reviewedBy: v.optional(v.string()),
+    reviewedAt: v.optional(v.number()),
+    reviewNote: v.optional(v.string()),
+    // Soft deletion keeps review decisions reversible and auditable. Only
+    // terminal queue states can be removed; approved Brain sources are
+    // governed from the Brain admin instead.
+    deletedFromStatus: v.optional(
+      v.union(
+        v.literal("pending_review"),
+        v.literal("rejected"),
+        v.literal("failed")
+      )
+    ),
+    deletedBy: v.optional(v.string()),
+    deletedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_driveItemId", ["driveItemId"])
+    .index("by_status", ["status"])
+    .index("by_pairGroupKey", ["pairGroupKey"])
+    .index("by_pairStatus", ["pairStatus"]),
 
   // Admin-tunable app settings, one row per key. Currently: "defaultModel" —
   // the generation model used when a writer doesn't pick one explicitly.

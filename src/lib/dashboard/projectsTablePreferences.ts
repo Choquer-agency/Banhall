@@ -9,6 +9,7 @@ export const PROJECT_COLUMN_IDS = [
 export type ProjectColumnId = (typeof PROJECT_COLUMN_IDS)[number];
 export type ProjectTableDensity = "comfortable" | "compact";
 export type ProjectLayoutMode = "board" | "list";
+export type ClientProjectSort = "project_number" | "created" | "updated";
 /**
  * Client → Status grouping projection (2026-08-06 second amendment; Focus
  * drill-in retired 2026-08-12): valid on BOTH layouts. "client" groups the
@@ -24,6 +25,8 @@ export type ProjectsTablePreferences = {
   layout: ProjectLayoutMode;
   density: ProjectTableDensity;
   group: ProjectGroupMode;
+  /** Sort inside each loaded Client → Fiscal year section. */
+  clientSort: ClientProjectSort;
   columns: Record<ProjectColumnId, boolean>;
   /**
    * "Hide empty stages" on the global stage-first Board (2026-08-06 second
@@ -48,6 +51,7 @@ export const DEFAULT_PROJECTS_TABLE_PREFERENCES: ProjectsTablePreferences = {
   layout: "list",
   density: "comfortable",
   group: "client",
+  clientSort: "project_number",
   columns: {
     clientName: true,
     stage: true,
@@ -86,6 +90,10 @@ export function parseProjectsTablePreferences(raw: string | null): ProjectsTable
         : parsed.group === "none"
           ? "none"
           : DEFAULT_PROJECTS_TABLE_PREFERENCES.group;
+    const clientSort: ClientProjectSort =
+      parsed.clientSort === "created" || parsed.clientSort === "updated"
+        ? parsed.clientSort
+        : "project_number";
     const columns = { ...DEFAULT_PROJECTS_TABLE_PREFERENCES.columns };
     for (const id of PROJECT_COLUMN_IDS) {
       if (typeof parsed.columns?.[id] === "boolean") columns[id] = parsed.columns[id];
@@ -100,7 +108,7 @@ export function parseProjectsTablePreferences(raw: string | null): ProjectsTable
       typeof parsed.hideEmptyClientGroups === "boolean"
         ? parsed.hideEmptyClientGroups
         : DEFAULT_PROJECTS_TABLE_PREFERENCES.hideEmptyClientGroups;
-    return { layout, density, group, columns, hideEmptyBoard, hideEmptyClientGroups };
+    return { layout, density, group, clientSort, columns, hideEmptyBoard, hideEmptyClientGroups };
   } catch {
     return structuredClone(DEFAULT_PROJECTS_TABLE_PREFERENCES);
   }

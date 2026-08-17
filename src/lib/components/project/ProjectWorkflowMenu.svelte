@@ -25,6 +25,7 @@
   import type { WorkItemSummary } from "./WorkflowDetailsPanel.svelte";
   import { assignmentDefaults, firmDateInputToTimestamp } from "$lib/workflow/assignmentDefaults";
   import { WORK_ITEM_KIND_LABELS } from "../../../../shared/workItems";
+  import { createRequestId as createRequestIdValue } from "$lib/requestId";
 
   type WorkflowHeader = Exclude<
     FunctionReturnType<typeof api.projectWorkflow.getProjectWorkflowHeader>,
@@ -70,7 +71,7 @@
   let actionBusy = $state(false);
   let actionWorkError = $state<string | null>(null);
   let reassignPrefill = $state<Id<"users"> | null>(null);
-  let createRequestId = $state(crypto.randomUUID());
+  let createRequestId = $state(createRequestIdValue());
   let createRequestFingerprint = $state<string | null>(null);
   let composerDefaults = $state(assignmentDefaults("other"));
   let composerWorkflowVersion = $state(0);
@@ -192,7 +193,7 @@
     composerVariant = variant;
     composerDefaults = assignmentDefaults(variant === "review" ? "internal_review" : "other");
     composerWorkflowVersion = header?.workflowVersion ?? 0;
-    createRequestId = crypto.randomUUID();
+    createRequestId = createRequestIdValue();
     createRequestFingerprint = null;
     composerError = null;
     conflict = null;
@@ -303,7 +304,7 @@
       workflowVersion: values.changeStage ? composerWorkflowVersion : null,
     });
     if (createRequestFingerprint && createRequestFingerprint !== fingerprint) {
-      createRequestId = crypto.randomUUID();
+      createRequestId = createRequestIdValue();
     }
     createRequestFingerprint = fingerprint;
     composerBusy = true;
@@ -510,7 +511,7 @@
   stale={composerStale}
   latestWorkflowVersion={header?.workflowVersion ?? null}
   onUseLatest={() => {
-    if (header) { composerWorkflowVersion = header.workflowVersion; composerError = null; createRequestId = crypto.randomUUID(); createRequestFingerprint = null; }
+    if (header) { composerWorkflowVersion = header.workflowVersion; composerError = null; createRequestId = createRequestIdValue(); createRequestFingerprint = null; }
   }}
   initialKind={composerDefaults.kind}
   initialBlocking={composerDefaults.blocking}

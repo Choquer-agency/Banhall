@@ -45,7 +45,7 @@
     <input
       bind:value={note}
       placeholder="Review note (optional)"
-      class="flex-1 rounded-lg border border-gray-200 px-3 py-1.5 text-sm"
+      class="field-control flex-1 rounded-lg px-3 py-1.5 text-sm"
     />
     <button
       disabled={busy}

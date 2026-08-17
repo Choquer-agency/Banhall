@@ -77,7 +77,7 @@
     onkeydown={handleKeyDown}
     placeholder="Add a comment..."
     rows={2}
-    class="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+    class="field-control w-full resize-none rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400"
   ></textarea>
   </label>
 
@@ -104,7 +104,7 @@
         disabled={pending}
         bind:value={suggestedEdit}
         rows={2}
-        class="mt-0.5 w-full resize-none rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+        class="field-control mt-0.5 w-full resize-none rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400"
       ></textarea>
       </label>
       <button

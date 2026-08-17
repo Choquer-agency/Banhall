@@ -89,7 +89,7 @@ describe("Home Obvious-parity presentation", () => {
     await expect.poll(() => document.querySelector("[data-home-boundary]")).not.toBeNull();
     const boundary = document.querySelector<HTMLElement>("[data-home-boundary]")!;
     expect(boundary.className).toContain("mx-auto");
-    expect(boundary.className).toContain("max-w-[44.75rem]");
+    expect(boundary.className).toContain("max-w-[var(--container-home)]");
     // The project-start Home content mounts inside the governed boundary.
     expect(boundary.querySelector("[data-home-start-form]")).not.toBeNull();
     expect(boundary.querySelector('[aria-label="Home"]')).not.toBeNull();

@@ -76,6 +76,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   import { userErrorMessage } from "$lib/errors";
   import { parseFileToText, SUPPORTED_ACCEPT, normalizeExtractedText } from "$lib/parseDocument";
   import { withUploadTimeout } from "$lib/uploads/outboxFlush";
+  import { createRequestId } from "$lib/requestId";
   import Button from "$lib/components/ui/Button.svelte";
   import Disclosure from "$lib/components/ui/Disclosure.svelte";
   import DisclosureChevron from "$lib/components/ui/DisclosureChevron.svelte";
@@ -300,7 +301,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
           ? doc.source
           : ("chat_upload" as const);
       const newId = await storeReplacement({
-        attemptKey: crypto.randomUUID(),
+        attemptKey: createRequestId(),
         file,
         origin,
         source: doc.source,

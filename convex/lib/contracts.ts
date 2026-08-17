@@ -4,6 +4,7 @@ import {
   WORK_ITEM_KINDS,
   WORK_ITEM_STATUSES,
 } from "../../shared/workItems";
+import { PROJECT_TYPES } from "../../shared/projectTypes";
 
 export const domainErrorCodes = [
   "NOT_AUTHENTICATED",
@@ -48,12 +49,17 @@ export const workflowStageValidator = v.union(
   v.literal("interview_complete"),
   v.literal("drafting"),
   v.literal("internal_review"),
+  v.literal("edits"),
   v.literal("client_review"),
   v.literal("revisions"),
   v.literal("ready_for_delivery"),
   v.literal("delivered"),
   v.literal("on_hold"),
   v.literal("abandoned")
+);
+
+export const projectTypeValidator = v.union(
+  ...PROJECT_TYPES.map((projectType) => v.literal(projectType))
 );
 
 export const workItemKindValidator = v.union(

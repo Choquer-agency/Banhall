@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { XIcon } from "phosphor-svelte";
   import type { DashboardView } from "$lib/dashboard/viewMode";
   import WorkspaceRail from "$lib/components/workspace/WorkspaceRail.svelte";
   import WorkspaceRailResizeHandle from "$lib/components/workspace/WorkspaceRailResizeHandle.svelte";
@@ -145,16 +146,17 @@
 
 <Drawer.Root bind:open={navigationOpen} direction="left" shouldScaleBackground={false} autoFocus={true}>
   <Drawer.Content
+    data-workspace-drawer
     data-workspace-theme="light"
-    class="z-[110] h-dvh w-[275px]! max-w-[86vw]! rounded-none! border-r border-workspace-rail-line bg-workspace-rail p-0 text-ink shadow-2xl xl:hidden"
+    class="z-[110] h-dvh w-[min(19rem,calc(100vw-2.5rem))]! max-w-none! rounded-none! border-r border-workspace-rail-line bg-workspace-rail p-0 text-ink shadow-workspace-drawer xl:hidden"
   >
     <Drawer.Title class="sr-only">Workspace navigation</Drawer.Title>
     <Drawer.Description class="sr-only">{drawerDescription}</Drawer.Description>
     <Drawer.Close
       aria-label="Close workspace navigation"
-      class="absolute right-2 top-1.5 z-10 flex h-11 w-11 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-workspace-rail-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none"
+      class="absolute right-2 top-[max(0.375rem,env(safe-area-inset-top))] z-10 flex h-11 w-11 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-workspace-rail-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none"
     >
-      <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+      <XIcon size={20} weight="regular" aria-hidden="true" />
     </Drawer.Close>
     <WorkspaceRail
       variant="drawer"

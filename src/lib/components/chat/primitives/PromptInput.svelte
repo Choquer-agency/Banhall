@@ -57,13 +57,9 @@
 
 <div
   class={cn(
-    // Recessed well with a soft inner shadow; the border + halo warm to
-    // lagoon while the writer is composing (focus-within).
-    // Obvious composer anatomy (2026-08-10): a white bordered box; consumers
-    // may switch to a column layout (textarea row + action row) via class.
-    "flex items-end gap-2 rounded-2xl border border-line bg-surface px-2 py-1.5",
-    "shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition-[border-color,box-shadow]",
-    "focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10",
+    // The shell owns the textarea's focus state. Its inset cue never draws an
+    // exterior line around the composer.
+    "field-control-shell flex items-end gap-2 rounded-2xl px-2 py-1.5",
     "motion-reduce:transition-none",
     className
   )}

@@ -171,6 +171,7 @@ describe("PSOS-07 project workflow schema widen", () => {
       "interview_complete",
       "drafting",
       "internal_review",
+      "edits",
       "client_review",
       "revisions",
       "ready_for_delivery",

@@ -7,6 +7,7 @@ export const WORKFLOW_STAGE_TONES: Record<WorkflowStage, StageTone> = {
   interview_complete: "neutral",
   drafting: "active",
   internal_review: "review",
+  edits: "review",
   client_review: "client",
   revisions: "review",
   ready_for_delivery: "delivery",
@@ -108,6 +109,7 @@ export const STAGE_CARD_THEMES: Record<
     focusWithinBorder: string;
     footerBg: string;
     footerText: string;
+    headerText: string;
     hoverShadow: string;
   }
 > = {
@@ -117,6 +119,7 @@ export const STAGE_CARD_THEMES: Record<
     focusWithinBorder: "focus-within:border-gray-300",
     footerBg: "bg-gray-50",
     footerText: "text-gray-500",
+    headerText: "text-gray-600",
     hoverShadow: "hover:shadow-md hover:shadow-gray-200/70",
   },
   active: {
@@ -125,6 +128,7 @@ export const STAGE_CARD_THEMES: Record<
     focusWithinBorder: "focus-within:border-blue-300",
     footerBg: "bg-blue-50/70",
     footerText: "text-blue-700",
+    headerText: "text-blue-700",
     hoverShadow: "hover:shadow-md hover:shadow-blue-100",
   },
   review: {
@@ -133,6 +137,7 @@ export const STAGE_CARD_THEMES: Record<
     focusWithinBorder: "focus-within:border-amber-300",
     footerBg: "bg-amber-50/70",
     footerText: "text-amber-800",
+    headerText: "text-amber-800",
     hoverShadow: "hover:shadow-md hover:shadow-amber-100",
   },
   client: {
@@ -141,6 +146,7 @@ export const STAGE_CARD_THEMES: Record<
     focusWithinBorder: "focus-within:border-purple-300",
     footerBg: "bg-purple-50/70",
     footerText: "text-purple-700",
+    headerText: "text-purple-700",
     hoverShadow: "hover:shadow-md hover:shadow-purple-100",
   },
   delivery: {
@@ -149,6 +155,7 @@ export const STAGE_CARD_THEMES: Record<
     focusWithinBorder: "focus-within:border-primary/50",
     footerBg: "bg-primary-wash",
     footerText: "text-primary-dark",
+    headerText: "text-navy",
     hoverShadow: "hover:shadow-md hover:shadow-primary/10",
   },
   held: {
@@ -157,6 +164,7 @@ export const STAGE_CARD_THEMES: Record<
     focusWithinBorder: "focus-within:border-violet-300",
     footerBg: "bg-violet-50/70",
     footerText: "text-violet-700",
+    headerText: "text-violet-700",
     hoverShadow: "hover:shadow-md hover:shadow-violet-100",
   },
   paused: {
@@ -165,6 +173,7 @@ export const STAGE_CARD_THEMES: Record<
     focusWithinBorder: "focus-within:border-gray-300",
     footerBg: "bg-gray-50",
     footerText: "text-gray-500",
+    headerText: "text-gray-600",
     hoverShadow: "hover:shadow-md hover:shadow-gray-200/50",
   },
 };

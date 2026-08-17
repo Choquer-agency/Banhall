@@ -14,6 +14,7 @@ import {
   stageCountBucket,
   upsertDashboardCompany,
 } from "./lib/dashboardProjection";
+import { effectiveProjectType } from "../shared/projectTypes";
 
 const BATCH_SIZE = 25;
 
@@ -117,6 +118,7 @@ export const processBatch = internalMutation({
         .first();
       const patch = {
         ...projection,
+        projectType: effectiveProjectType(project),
         dashboardCompanyCounted: true,
         generationActivity,
         lastViewedAt: latestView?.viewedAt,
@@ -126,6 +128,7 @@ export const processBatch = internalMutation({
         project.dashboardFiscalYearRank !== patch.dashboardFiscalYearRank ||
         project.dashboardSearchText !== patch.dashboardSearchText ||
         project.workflowStageRank !== patch.workflowStageRank ||
+        project.projectType !== patch.projectType ||
         project.dashboardCompanyCounted !== true ||
         project.generationActivity !== patch.generationActivity ||
         project.lastViewedAt !== patch.lastViewedAt;

@@ -5,6 +5,7 @@ import ProjectsTableView from "./ProjectsTableView.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import {
+  __activeQueryArgs,
   __resetConvexStub,
   __setPaginatedRows,
   __setQueryData,
@@ -17,8 +18,8 @@ const PREFS_KEY = "banhall.projectsTablePreferences";
  * retired 2026-08-12): the grouping is valid on BOTH layouts. List = client
  * sections → status sub-headers; Board = stacked client lanes (each a
  * horizontal row of all loaded project cards), folding to the grouped List
- * below `md`. The recorded-name caveat renders on every client-grouped
- * surface. The `?client=` board param is retired and ignored;
+ * below `md`. The recorded-name caveat remains screen-reader context without
+ * visible toolbar chrome. The `?client=` board param is retired and ignored;
  * `/project/new?client=` remains the wizard's own prefill param.
  */
 function flatRow(id: string) {
@@ -122,7 +123,7 @@ describe("ProjectsTableView client-name grouping", () => {
     __resetConvexStub();
   });
 
-  it("renders the grouped List with the exact qualifier when the URL carries layout=list&group=client", async () => {
+  it("renders the grouped List without a visible grouping context band", async () => {
     await mountView("/dashboard?layout=list&group=client");
 
     await expect.poll(() => groupedListRegion()).not.toBeNull();
@@ -134,9 +135,41 @@ describe("ProjectsTableView client-name grouping", () => {
     expect(groupedListRegion()?.textContent).toContain(
       "Projects created before grouping was enabled may not appear here."
     );
+    expect(document.querySelector("[data-client-grouping-qualifier]")).toBeNull();
+    expect(document.querySelector("[data-client-grouping-backfill-notice]")).toBeNull();
     // Deep-link contract (same as `layout`): the initial URL drives the view
     // without being written back as a stored preference.
     expect(JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}").group).toBeUndefined();
+  });
+
+  it("keeps Filters available in the grouped List and applies Stage to expanded client queries", async () => {
+    await mountView("/dashboard?layout=list&group=client");
+    await expect.poll(() => groupedListRegion()).not.toBeNull();
+
+    const filters = document.querySelector<HTMLButtonElement>("[data-board-filters-trigger]");
+    expect(filters).not.toBeNull();
+    pointerActivate(filters!);
+    await expect.poll(() =>
+      document.querySelector<HTMLElement>('[data-filter-field="stage"]')
+    ).not.toBeNull();
+    pointerActivate(document.querySelector<HTMLElement>('[data-filter-field="stage"]')!);
+
+    await expect.poll(() =>
+      document.querySelector<HTMLButtonElement>('[data-active-filter-id="stage"] [data-filter-pill-value]')?.textContent?.trim()
+    ).toBe("Select…");
+    pointerActivate(
+      document.querySelector<HTMLButtonElement>('[data-active-filter-id="stage"] [data-filter-pill-value]')!
+    );
+    await expect.poll(() =>
+      document.querySelector<HTMLElement>('[data-filter-value="drafting"]')
+    ).not.toBeNull();
+    pointerActivate(document.querySelector<HTMLElement>('[data-filter-value="drafting"]')!);
+
+    document.querySelector<HTMLButtonElement>("[data-client-group-trigger]")?.click();
+    await expect.poll(() =>
+      __activeQueryArgs("dashboard:listCompanyProjectsByStageRank")
+    ).toContainEqual(expect.objectContaining({ companyKey: "northline", stage: "drafting" }));
+    expect(document.querySelector('[data-active-filter="Stage"]')?.textContent).toContain("Drafting");
   });
 
   it("applies a genuine URL group change after mount and persists it", async () => {
@@ -161,9 +194,9 @@ describe("ProjectsTableView client-name grouping", () => {
     await expect.poll(
       () => document.querySelectorAll('[data-client-group-presentation="lane"]').length
     ).toBe(1);
-    // Lane header keeps the client-scoped quick-create; the Focus drill-in
-    // is retired (2026-08-12) and never renders.
-    expect(document.querySelector("[data-client-new-project]")).not.toBeNull();
+    // Client rows stay focused on hierarchy; creation lives in the global
+    // toolbar and the board's stage footers. Focus remains retired.
+    expect(document.querySelector("[data-client-new-project]")).toBeNull();
     expect(document.querySelector("[data-client-focus]")).toBeNull();
     // Each expanded lane renders the standard stage-column board scoped to
     // that client (same anatomy as the ungrouped board).
@@ -173,7 +206,7 @@ describe("ProjectsTableView client-name grouping", () => {
       )
     ).not.toBeNull();
     // Labeled grouping chip: faint label + ink value while grouping is on.
-    expect(groupTrigger()?.textContent?.replace(/\s+/g, " ").trim()).toBe("Group · Client");
+    expect(groupTrigger()?.textContent?.replace(/\s+/g, " ").trim()).toBe("Client");
     // The Display menu stays available (the client hide-empty switch
     // governs the per-client boards' stage columns).
     expect(displayTrigger()).not.toBeNull();
@@ -285,7 +318,7 @@ describe("ProjectsTableView client-name grouping", () => {
     ).toBe("false");
     await expect.poll(
       () => document.querySelectorAll('section[aria-labelledby^="project-board-"]').length
-    ).toBe(10);
+    ).toBe(11);
 
     boardSwitch?.click();
     await expect.poll(() =>
@@ -318,7 +351,7 @@ describe("ProjectsTableView client-name grouping", () => {
 
     expect(groupTrigger()).not.toBeNull();
     // Labeled-control chip while grouped, panel options are the bare values.
-    expect(groupTrigger()?.textContent?.replace(/\s+/g, " ").trim()).toBe("Group · Client");
+    expect(groupTrigger()?.textContent?.replace(/\s+/g, " ").trim()).toBe("Client");
     await chooseGroupOption("None");
 
     await expect.poll(() => listRegion()).not.toBeNull();

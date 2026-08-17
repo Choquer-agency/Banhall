@@ -1,5 +1,6 @@
 <script module lang="ts">
   import type { WorkflowStage } from "../../../../shared/workflowStages";
+  import type { ProjectType } from "../../../../shared/projectTypes";
   import type { GenerationActivity } from "$lib/dashboard/generationActivity";
   import type { ProjectsTableOwner } from "$lib/dashboard/ownerDisplay";
   import type { ProjectColumnId, ProjectTableDensity } from "$lib/dashboard/projectsTablePreferences";
@@ -14,6 +15,12 @@
      * (2026-08-11 amendment). Optional; absent until assigned.
      */
     projectNumber?: string;
+    /** Formal report title, shown only when distinct from the internal title. */
+    sredTitle?: string;
+    /** Canonical work-product identity (legacy rows are dual-read). */
+    projectType?: ProjectType;
+    /** Fiscal year derived from the recorded fiscal-year-end timestamp. */
+    fiscalYear?: number;
     /** Compatibility text only; never a Client link/object. */
     clientName: string;
     workflowStage?: WorkflowStage;

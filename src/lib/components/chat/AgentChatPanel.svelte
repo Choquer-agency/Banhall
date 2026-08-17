@@ -57,6 +57,7 @@
     type ContextCategoryId,
     categoryMeta,
   } from "$lib/contextCategories";
+  import { createRequestId } from "$lib/requestId";
 
   // Agent-based chat rail (BNH-10 P2) — streaming replacement for ChatPanel.
   // Messages come from the @convex-dev/agent component (token-streamed into
@@ -614,7 +615,7 @@
       );
     }
 
-    const batch = files.map((file) => ({ file, attemptKey: crypto.randomUUID() }));
+    const batch = files.map((file) => ({ file, attemptKey: createRequestId() }));
 
     // Every file appears immediately as its own row, so the user watches the
     // batch resolve instead of waiting for one message at the end.
@@ -1055,7 +1056,7 @@
             const bad = all.filter((f) => !isSupportedFile(f.name));
             if (bad.length) {
               const rejected = bad.map((f) => ({
-                attemptKey: crypto.randomUUID(),
+                attemptKey: createRequestId(),
                 fileName: f.name,
                 fileSizeBytes: f.size,
               }));

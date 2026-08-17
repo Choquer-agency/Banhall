@@ -9,7 +9,7 @@ import { domainError } from "./contracts";
  * function that can be unit-tested on its own (mirroring `snapshotIdsToDelete`).
  */
 
-/** The client generates this with `crypto.randomUUID()`. */
+/** The client generates a UUID-v4-compatible request ID. */
 const ATTEMPT_KEY_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

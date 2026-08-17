@@ -58,6 +58,18 @@ describe("project page rollback-purity boundary", () => {
     }
   });
 
+  it("lets the preview workbench and report surface fill their available width", () => {
+    expect(previewSrc).toContain('data-project-workspace class="mx-auto flex min-h-0 w-full max-w-full');
+    expect(previewSrc).toContain('data-report-surface class={`w-full max-w-full px-4');
+    expect(previewSrc).toContain("min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto");
+  });
+
+  it("keeps secondary project metadata behind an accessible disclosure", () => {
+    expect(previewSrc).toContain("data-project-details-toggle");
+    expect(previewSrc).toContain("aria-expanded={projectDetailsOpen}");
+    expect(previewSrc).toContain("<Disclosure id={projectDetailsBodyId} open={projectDetailsOpen}>");
+  });
+
   it("finds the shared report anchors in both files (guards against file swap/gutting)", () => {
     for (const anchor of SHARED_REPORT_ANCHORS) {
       expect(currentSrc, `shared anchor "${anchor}" missing from CurrentProjectPage.svelte`).toContain(anchor);

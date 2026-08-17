@@ -21,7 +21,8 @@
   // MAX_EXPANDED_SECTIONS sections hold a live per-section query at once —
   // including user toggles, expand-all, and every loaded client page.
   // Opening a section beyond the cap collapses the least-recently-opened one
-  // (its subscription releases to "skip"); the cap is disclosed in the UI.
+  // (its subscription releases to "skip"). The budget stays implementation
+  // detail instead of adding explanatory chrome above the project cards.
   import { usePaginatedQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import type { FunctionReturnType } from "convex/server";
@@ -29,6 +30,8 @@
   import { DASHBOARD_COMPANY_PAGE_SIZE } from "../../../../shared/dashboardProjection";
   import ProjectsClientGroup from "$lib/components/workspace/ProjectsClientGroup.svelte";
   import { verifiedStageCounts } from "$lib/workspace/stageRankGroups";
+  import type { ProjectType } from "../../../../shared/projectTypes";
+  import type { ClientProjectSort } from "$lib/dashboard/projectsTablePreferences";
 
   type CompanyRow = FunctionReturnType<typeof api.dashboard.listCompanies>["page"][number];
 
@@ -59,11 +62,22 @@
   let {
     presentation = "list",
     hideEmpty = true,
+    stage,
+    ownerId,
+    currentAssigneeId,
+    projectType,
+    sortBy = "project_number",
     countsAvailable = $bindable(false),
   }: {
     presentation?: "list" | "lanes";
     /** Client-surface hide-empty preference (exact stageCounts criterion). */
     hideEmpty?: boolean;
+    /** Applied project filters. Client headings remain the stable A-Z index. */
+    stage?: string;
+    ownerId?: string;
+    currentAssigneeId?: string;
+    projectType?: ProjectType;
+    sortBy?: ClientProjectSort;
     /**
      * Bindable: true once at least one loaded client has VERIFIED exact
      * stageCounts. The toolbar uses it to disable the hide-empty control
@@ -88,6 +102,20 @@
   const loadingFirstPage = $derived(companiesQ.status === "LoadingFirstPage");
   const hasMore = $derived(
     companiesQ.status === "CanLoadMore" || companiesQ.status === "LoadingMore"
+  );
+
+  // Board must not paint a collapsed-list frame before its lane bootstrap
+  // effect runs. That intermediate DOM was visible when switching from the
+  // grouped List: client rows rendered collapsed for one frame, then jumped
+  // open as their Board queries mounted. Treat the first K lane keys as open
+  // synchronously; the effect below commits the exact same keys to durable
+  // local disclosure state, so the first and subsequent Board frames match.
+  const visibleExpanded = $derived(
+    presentation === "lanes" && !autoExpanded
+      ? companies
+          .slice(0, Math.min(AUTO_EXPAND_LANES, MAX_EXPANDED_SECTIONS))
+          .map((company) => company.companyKey)
+      : expanded
   );
 
   $effect(() => {
@@ -122,21 +150,6 @@
     }
   }
 
-  const anyExpanded = $derived(expanded.length > 0);
-  const expandAllCount = $derived(Math.min(companies.length, MAX_EXPANDED_SECTIONS));
-  const expandAllCapped = $derived(companies.length > MAX_EXPANDED_SECTIONS);
-
-  function toggleAll() {
-    if (anyExpanded) {
-      expanded = [];
-    } else {
-      // Honest bounded expand: opens the first N sections only — never an
-      // unbounded fan-out of live queries.
-      expanded = companies
-        .slice(0, MAX_EXPANDED_SECTIONS)
-        .map((company) => company.companyKey);
-    }
-  }
 </script>
 
 <div
@@ -144,40 +157,12 @@
   aria-label={presentation === "lanes"
     ? "Projects board grouped by client name"
     : "Projects grouped by client name"}
-  class="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
+  aria-describedby="client-grouping-description"
+  class="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-chrome/25"
 >
-  <!-- Readable-but-quiet: secondary/muted ink tiers (QA 2026-08-06 flagged
-       the faint/faint pairing as under-readable on the near-black canvas). -->
-  <!-- Provenance stays visible at every viewport but compact on phones: the
-       backfill notice flows inline with the qualifier below `sm` instead of
-       taking its own line (live QA 2026-08-07 — first-viewport chrome). -->
-  <div class="flex min-h-10 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-workspace-rail-line px-3 py-1.5">
-    <p data-client-grouping-qualifier class="min-w-0 truncate text-xs text-ink-muted" title={`${GROUPING_QUALIFIER} ${BACKFILL_NOTICE}`}>
-      Client names as entered
-      <span class="mx-1 text-line" aria-hidden="true">·</span>
-      <span class="text-ink-faint">Older projects may be missing</span>
-      <span class="sr-only"> {GROUPING_QUALIFIER}</span>
-      <span data-client-grouping-backfill-notice class="sr-only"> {BACKFILL_NOTICE}</span>
-    </p>
-    {#if companies.length > 0}
-      <div class="flex shrink-0 flex-col items-end">
-        <button
-          type="button"
-          data-toggle-all-groups
-          onclick={toggleAll}
-          class="min-h-11 shrink-0 rounded-lg px-2 text-xs font-medium text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:min-h-8"
-        >{anyExpanded ? "Collapse all" : expandAllCapped ? `Expand first ${expandAllCount}` : "Expand all"}</button>
-        {#if expandAllCapped}
-          <!-- Persistent helper copy is information-bearing: secondary ink
-               (≥4.5:1 at this 11px size), never faint (faint ≈2.6:1 on
-               white — placeholders/disabled only; live QA 2026-08-07). -->
-          <p data-expand-cap-note class="text-[0.6875rem] text-ink-secondary">
-            Up to {MAX_EXPANDED_SECTIONS} sections stay open at once.
-          </p>
-        {/if}
-      </div>
-    {/if}
-  </div>
+  <p id="client-grouping-description" class="sr-only">
+    {GROUPING_QUALIFIER} {BACKFILL_NOTICE}
+  </p>
 
   {#if companiesQ.error}
     <div class="flex flex-1 flex-col items-center justify-center p-8 text-center" role="alert">
@@ -196,22 +181,7 @@
       <p class="mt-1 max-w-md text-xs text-ink-muted">{BACKFILL_NOTICE}</p>
     </div>
   {:else}
-    <!-- Band-headed sections stack flush (each closes with its own hairline)
-         — ruled divider grammar on the white plane, not stacked outline
-         boxes. -->
-    <div class="flex flex-col">
-      {#if presentation === "list"}
-        <div
-          data-client-table-header
-          class="hidden h-9 grid-cols-[minmax(13rem,1fr)_6rem_minmax(18rem,1.15fr)_7rem_2.25rem] items-center border-b border-workspace-rail-line bg-gray-50 px-3 text-[0.6875rem] font-medium text-ink-muted sm:grid"
-        >
-          <span>Client</span>
-          <span class="pl-2">Projects</span>
-          <span>Stage mix</span>
-          <span class="text-center">Create</span>
-          <span class="sr-only">Open section</span>
-        </div>
-      {/if}
+    <div data-client-groups class="flex flex-col gap-2 p-2 sm:p-3">
       {#each companies as company (company.companyKey)}
         <ProjectsClientGroup
           companyKey={company.companyKey}
@@ -219,30 +189,28 @@
           projectCount={company.projectCount}
           stageCounts={company.stageCounts}
           {hideEmpty}
+          {stage}
+          {ownerId}
+          {currentAssigneeId}
+          {projectType}
+          {sortBy}
           presentation={presentation === "lanes" ? "lane" : "list"}
-          open={expanded.includes(company.companyKey)}
+          open={visibleExpanded.includes(company.companyKey)}
           onToggle={() => toggleGroup(company.companyKey)}
         />
       {/each}
     </div>
-    <footer class="flex min-h-12 shrink-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t border-line-soft px-4 py-2">
-      <!-- Truthful pagination footer: how many client names are actually on
-           screen, qualified while more exist beyond the loaded pages. -->
-      <p data-client-pagination-note class="text-xs text-ink-muted" role="status">
-        Showing {companies.length} client name{companies.length === 1 ? "" : "s"}{hasMore
-          ? " — more exist"
-          : ""}
-      </p>
-      {#if hasMore}
+    {#if hasMore}
+      <div class="flex shrink-0 justify-center px-4 pb-4">
         <button
           type="button"
-          class="min-h-11 rounded-xl px-3 text-xs font-medium text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50 motion-reduce:transition-none"
+          class="min-h-11 rounded-lg border border-line-soft bg-surface px-3 text-xs font-medium text-ink-secondary transition-colors duration-[325ms] hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50 motion-reduce:transition-none"
           disabled={companiesQ.status === "LoadingMore"}
           onclick={() => companiesQ.loadMore(DASHBOARD_COMPANY_PAGE_SIZE)}
         >
-          {companiesQ.status === "LoadingMore" ? "Loading…" : "Show more client names"}
+          {companiesQ.status === "LoadingMore" ? "Loading..." : "Show more clients"}
         </button>
-      {/if}
-    </footer>
+      </div>
+    {/if}
   {/if}
 </div>

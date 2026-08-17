@@ -72,8 +72,13 @@ values are legacy — replace on touch.
   The flagged dashboard workspace is the **light bounded workspace** (below)
   and collapses its rail before it can squeeze operational content.
   Only the report workspace (`project/[id]`) keeps a custom dense header.
-- **Report column**: anywhere a report renders (editor, candidate preview,
-  history) uses `max-w-report` (`--container-report`, 1080px) — one knob.
+- **Report column**: candidate preview, history, and the rollback editor use
+  `max-w-report` (`--container-report`, 1080px). The preview project workbench
+  and report surface fill their available pane; responsive 16px/24px gutters
+  replace the old fixed 40px side padding.
+- **Preview project overview**: the internal title and operational highlights
+  remain visible. Secondary editable metadata lives in a collapsed, accessible
+  `Project details` disclosure so it does not compete with the report body.
 - **Global rail**: AppNav + PageBar inner containers are ALWAYS `max-w-7xl`
   (never per-page). Page `<main>` may be narrower for reading width
   (`max-w-3xl/4xl`), centered inside the same gutters; `px-6 pt-12`.
@@ -559,6 +564,10 @@ board-default.
   and palette/menu options; 8px (`rounded-lg`) inputs and small buttons;
   12px (`rounded-xl`) cards, panels, popovers; full — pill chips and
   icon-ghost controls. New surfaces pick a tier, never a novel radius.
+  The pale workspace rail deliberately stays on the tighter tier: 6px rows
+  and rail controls, 5px identity tiles, and 3px coloured Admin icon tiles.
+  Its selected row uses the chrome-toned fir wash plus semibold text so the
+  current location remains distinct from the lighter hover wash.
 - **Empty-state grammar (named, already in force):** pitch line (medium
   ink) + one muted subline + at most one CTA; ghost affordances may be the
   CTA. Contract-mandated absences (empty board columns, Home without
@@ -602,10 +611,13 @@ reversal (below).
   unchanged.
 - **Record-page pass (Highlights + attribute rows).** The project page's
   metadata block adopts the Attio record grammar on Ledger tokens:
-  (1) `ProjectHighlights` — a hairline stat band under the title (Stage +
-  "N days in stage", Owner as fir disc + label, With = current handoff
-  assignee + kind · due with overdue `red-700`, Claim period as FYE date),
-  every tile honest with quiet "No X" empties, display-only. It rides the
+  (1) `ProjectHighlights` is an integrated masthead line under the title, not
+  a nested card. A single top rule separates the stage badge/duration from the
+  title; Owner, With, and Claim period remain plain supporting metadata. It
+  stacks, forms a two-column middle state, then becomes one line at its own
+  28rem and 44rem container thresholds instead of viewport breakpoints.
+  Stage time, current-handoff kind/due, and all explicit "No X" states remain
+  honest and display-only. It rides the
   workflow menu's existing `getProjectWorkflowHeader` subscription and
   promotes the bounded (≤51-row) `getProjectWorkPanel` from menu-open-only
   to page-standing. (2) The metadata grid becomes attribute ROWS — fixed
@@ -669,12 +681,10 @@ applications rather than introducing a new surface model.
 Owner-directed authenticated Attio/Obvious layout pass; presentation only.
 
 - **Client repository rows.** The default client-grouped Projects List keeps
-  its bounded disclosure/query contract, but a collapsed client row now reads
-  as a table record rather than an empty accordion: initial, client name,
-  project count, and up to three non-zero pipeline stage summaries come from
-  the existing verified `stageCounts` projection. No section query opens until
-  its disclosure opens; absent or divergent counts say `Stage counts pending`.
-  A quiet header row names Client / Projects / Stage mix / Create.
+  its bounded disclosure/query contract. The collapsed row is intentionally
+  reduced to initial, client name, client-scoped creation, and a right-edge
+  chevron. Project totals and stage summaries are omitted from the collapsed
+  header. No section query opens until its disclosure opens.
 - **Home continuation.** Home's lower Projects band always renders one honest
   repository card linking to `/projects`; browser-local recent cards follow
   when they exist and retain their explicit device-local qualifier. This adds
@@ -729,7 +739,156 @@ authenticated Attio measurement pass. Presentation only.
 - **Home atmosphere.** The existing token-derived WebGL wash returns behind
   the Home intake at 40% opacity, masked to transparent below the opening
   band. It is pointer-inert and aria-hidden; the white content plane and
-  centered 44.75rem boundary remain unchanged.
+  centered Home boundary remain unchanged by that pass; the later
+  `--container-home` amendment widens it to 50rem.
+
+### 2026-08-14 amendment (fourth) — direct utilities and client-card repository
+
+- **Rail utility hierarchy.** Do not wrap developer utilities in a disclosure
+  or label. Developer accounts receive the five direct utility rows; other
+  accounts receive only What's new. Keep this group separated by one hairline
+  from navigation and Settings. The role-gated Admin group begins with `mt-5`
+  after Home/Projects so record administration reads as a secondary system.
+- **Client repository surface.** The grouped List uses a quiet canvas with
+  restrained rounded client sections. A collapsed section carries initial,
+  name, create action, and right-edge disclosure. Project totals and stage
+  summaries do not render in the collapsed row. Both the identity target and
+  chevron open the section. Client bodies mount and unmount immediately, with
+  no intrinsic-height transition, so large project grids do not make the
+  disclosure feel delayed.
+  An open section retains the same boundary and lays existing project cards in
+  responsive stage-grouped grids. Do not add another qualifier row, column
+  header, global expand toolbar, or loaded-count footer.
+- **Projects controls.** Keep one compact control row. Grouping uses the
+  installed Phosphor stack icon and the active value `Client`; Display uses the
+  Phosphor sliders icon and a stable `Display` label. List/Board is a quiet,
+  icon-only segmented control with List first, tooltips and accessible names,
+  44px touch targets, and the existing pressed-state/keyboard contract.
+  Filters remains available beside Group and Display when Client grouping is
+  active. Applied conditions render in the same joined condition row below the
+  toolbar; do not replace them with a second grouped-view control pattern.
+- **Shared page header.** Every workspace page that has a title bar marks it
+  with `data-workspace-page-header` and uses the established 49px height,
+  hairline bottom border, compact title, and the shell controls. Home is the
+  intentional no-toolbar exception.
+
+### 2026-08-15 amendment — fiscal-folder containment and disclosure motion
+
+- **Fiscal folder anatomy.** In the Client → Fiscal year → Project repository,
+  each fiscal year is one restrained bordered surface. The folder icon and
+  fiscal label lead the header; the disclosure chevron occupies the rightmost
+  column. Open project cards or the stage board stay inside the same boundary
+  below a hairline, so their parentage remains legible without a decorative
+  vertical rule or another nested-card treatment. The unrecorded folder uses a
+  dashed boundary and the explicit `Fiscal year not set` label.
+- **Stable opening.** Do not paint a temporary visual skeleton inside a newly
+  opened client. Keep the loading status available to assistive technology,
+  then reveal the real resolved hierarchy with one 260ms quint-out vertical
+  transition. Fiscal toggles use the shared grid-row `Disclosure` primitive so
+  projects and following folders move continuously rather than snapping.
+  Reduced-motion collapses the reveal to instant; closing the outer client
+  still releases its project subscription immediately.
+
+### 2026-08-15 amendment (second) — nested active color hierarchy
+
+- **Active disclosure dosage.** An open client row uses the stronger lagoon
+  wash and border; its open fiscal folders use a lighter lagoon wash and
+  border. This preserves a visible parent/child hierarchy without introducing
+  a second accent hue. Closed rows remain neutral.
+- **Contextual card identity.** Cards nested inside a labelled fiscal folder
+  omit the redundant fiscal-year chip. Cards without enclosing fiscal context
+  retain the chip so the year remains discoverable.
+
+### 2026-08-16 amendment — neutral fiscal disclosure state
+
+- **Hierarchy color.** The client disclosure owns the lagoon selected state.
+  Its open fiscal folders use `chrome` fill with neutral ink, folder icon,
+  chevron, and standard border so a nested open state cannot be mistaken for
+  another selected client. The folder icon, label, position, and rotated
+  chevron continue to communicate state without relying on color alone.
+- **Disclosure density.** The main client disclosure remains at least 44px tall
+  on narrow touch layouts and tightens to 40px from the small breakpoint. The
+  fiscal-year row remains visually denser so the parent/child hierarchy is
+  preserved.
+- **Client heading.** Client disclosure rows contain the recorded client name
+  and right-edge chevron only. Do not prepend a decorative initial badge.
+
+### 2026-08-16 amendment (second) — semantic primary actions
+
+- **Theme-aware action role.** Shared default Buttons use
+  `action-primary`, `action-primary-hover`, and
+  `action-primary-foreground` tokens. Light pairs the darker selected lagoon
+  with white; dark pairs the brighter lagoon with fir. Button variants use
+  semantic surface, ink, line, and action roles rather than fixed light-theme
+  foreground assumptions.
+- **Projects placement.** The global New project Button sits in the 49px page
+  header. The repository toolbar contains repository controls only; do not
+  repeat the global creation action there.
+
+### 2026-08-16 amendment (third) — compact repository rhythm
+
+- **Card classification row.** When a project card must carry its own labelled
+  Stage, place Stage and project Type in the same wrapping metadata row. A
+  stage-column card still omits the redundant Stage badge.
+- **Fiscal trigger density.** Fiscal-folder disclosure triggers remain 44px on
+  narrow touch layouts and step down to 32px from `sm` upward.
+- **Header distribution.** The Projects title/count and New project action
+  occupy opposite edges of the page header. Center search may appear between
+  them, but its responsive removal must not pull the action toward the title.
+
+### 2026-08-16 amendment (fourth) — project-card baseline geometry
+
+- **Card minimum.** Shared project cards use a 160px minimum height. The white
+  inset content panel grows to fill that baseline, preventing short optional
+  metadata sets from exposing an empty tinted footer. Truthful additional
+  fields can increase the height; content is never clipped to force equality.
+
+### 2026-08-16 amendment (fifth) — stage-colored card headers
+
+- **Card identity color.** A project card's title and project-number chip use
+  the same accessible text hue as its labelled workflow-stage tone: neutral,
+  active, review, client, delivery, held, or paused. The visible Stage label,
+  shell tint, and dashed paused treatment remain, so color is never the only
+  carrier of workflow state.
+
+### 2026-08-16 amendment (sixth) — responsive card identity
+
+- **Project-number badge.** Render the number as a compact monospace badge
+  with an opaque surface, stage-tone border/text, `rounded-md` corners, and an
+  explicit accessible name. It must remain visually separate from the title.
+- **Narrow-card behavior.** Project and SR&ED titles stay on one line and
+  truncate with an ellipsis when the available card width is insufficient.
+  Important people/workflow metadata may wrap to two lines and break long
+  words. Classification chips wrap naturally;
+  icons and the number badge do not shrink. Created and updated dates remain
+  single-line. No card may create horizontal overflow at its minimum container
+  width.
+
+### 2026-08-17 amendment — workspace identity, settings launcher, and header parity
+
+- **Rail identity belongs at the top.** The 48px rail identity band shows the
+  signed-in person's initials, display name, and truthful role label. It keeps
+  the dashboard destination and collapse control, but no longer repeats the
+  Banhall product name; the workspace already supplies that context.
+- **Settings owns the bottom launcher.** The pinned bottom row is a Settings
+  menu, not a second identity row. Its popover contains only `Open Settings`
+  and `Sign out`; the app-bar avatar menu remains the separate compact identity
+  and sign-out surface. This supersedes the 2026-08-14 account-row placement
+  for the light workspace rail.
+- **Selected navigation is visible at a glance.** Active rail rows use the
+  dedicated `workspace-rail-selected` fir-cast wash (`#DFEAE8`) with semibold
+  ink. Idle hover remains the lighter `workspace-rail-hover` wash, so hover and
+  current location cannot be mistaken for each other.
+- **Workspace title bars are one governed component pattern.** Every titled
+  workspace surface uses `data-workspace-page-header`, the shared 49px height,
+  shell controls, compact title, one optional single-line descriptor on the
+  same baseline, and a bottom hairline. The descriptor may disappear where
+  width is insufficient; it never creates a stacked or page-specific title
+  composition. Home remains the intentional no-toolbar exception.
+- **Dense review-sheet file names use medium weight.** Semibold is reserved for
+  section and state hierarchy; filenames remain visually primary through
+  column position and ink contrast without turning every sheet row into a
+  heading.
 
 ## Panel motion (2026-08-10)
 
@@ -767,6 +926,12 @@ canonical label tint on the chip's value segment (legacy stays neutral).
 Multiple conditions join with a quiet faint "AND" label, and the add-filter
 "+" is a dashed faint-grey square (slightly darker on hover) that opens the
 fields list anchored to itself.
+
+In Client grouping, Stage and Owner conditions filter the projects inside each
+expanded client section while the collapsed client-name index remains stable
+and alphabetic. A client with no matching projects states that empty result
+when opened. Do not remove unmatched client headings or claim filtered client
+counts without a server-maintained projection that can prove them.
 
 The grouping control is `ui/GhostPopover` — the reusable chip-triggered
 single-select popover sharing the Filters-popover panel anatomy (small faint
@@ -820,6 +985,21 @@ Evidence: authenticated reference and same-viewport comparisons under
 `.codex/product-design/attio-sidebar-exact/`; implementation QA is recorded in
 `design-qa.md`.
 
+### 2026-08-14 amendment — quiet utilities and wider Home intake
+
+- The rail's primary stack contains Home and Projects only. Settings is pinned
+  as a separated utility above the account row. Developer-only support links
+  live in a collapsed `Developer` disclosure near the bottom and do not render
+  or subscribe for accounts without the additive developer flag.
+- The account popup is intentionally narrow: signed-in identity plus Sign out.
+  It does not duplicate Settings or the Admin destination list already present
+  in the rail.
+- Home uses `--container-home: 50rem` for the greeting, composer, continuation,
+  work queue, and Projects band. The composer submit control is disabled until
+  title and transcript are both present. The continuation row is a full-width
+  `Start a blank project` action into the existing wizard, not explanatory
+  helper copy.
+
 ### 2026-08-14 amendment — Home header removal and transcript-source tabs
 
 - Home renders no full-width workspace toolbar: its greeting is the page
@@ -872,10 +1052,8 @@ history, focus mode, export, financial) are size-7 rounded-full icon-only
 buttons with `title` tooltips, `text-ink-muted` → chrome-wash hover.
 Maximize is phrased "Enter/Exit focus mode" per pane, Obvious's symmetric
 model. Chat messages read at 14px/1.5. The composer textarea carries
-`input-chromeless` PERMANENTLY — the global unlayered
-`textarea:focus-visible` fir ring (layout.css) beats Tailwind's
-`outline-none`, so the chromeless class is the only sanctioned opt-out;
-the composer shell owns focus affordance.
+`input-chromeless` permanently because the recessed composer shell owns its
+inset focus affordance; the textarea must not paint a second field surface.
 
 ### 2026-08-07 amendment — light operational admin shell
 
@@ -928,11 +1106,18 @@ hierarchy is adopted; Obvious's missing modal semantics/focus behavior and
    nonessential movement under `prefers-reduced-motion`.
 9. **Hover fills** on light surfaces use `primary-wash` — never gray washes.
    Destructive hovers stay red; dark-surface hovers stay white/alpha.
-10. **Form controls**: focus/hover NEVER change border width. Pointer focus
-    uses animated border color; keyboard `:focus-visible` additionally uses a
-    two-step canvas/fir halo so focus remains unmistakable without layout shift.
-    Required fields always show a red asterisk on the label (Input component
-    does this automatically from the `required` attr).
+10. **Form controls**: visible text entry, textarea, native select, combobox,
+    and date-picker triggers use `field-control`. They are recessed `chrome`
+    wells with no visible perimeter in any state. Hover changes fill only;
+    pointer focus, keyboard focus, and validation paint inset indicators so no
+    line appears outside the control and layout never shifts. Composite prompt
+    wells use `field-control-shell`; their inner fields use `input-chromeless`.
+    The Home intake uses the recorded `field-control-shell--surface` variant:
+    a white surface with a one-pixel neutral inset line that turns lagoon on
+    hover, focus-within, and transcript drag-over.
+    Floating popup boundaries and checkbox/radio selection controls are a
+    separate structural contract. Required fields always show a red asterisk
+    on the label (Input does this automatically from the `required` attr).
 11. **Icon-only controls get a Tooltip** (shared ui/Tooltip) — launcher
     bubbles, hover actions, locate pins. Never a bare `title=`.
 

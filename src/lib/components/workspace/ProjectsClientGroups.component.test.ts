@@ -15,8 +15,9 @@ import {
  * keyed by recorded client name; inside a section, pipeline-ordered status
  * sub-headers cut from the stage-ranked server order (list) or one
  * horizontal snap row of ALL loaded project cards (lane). Pins the honesty
- * contract — exact qualifier copy, the interim backfill notice, "Company"
- * appearing nowhere, exact-stageCounts-only hide-empty with the Display
+ * contract — grouping/backfill truth remains available to assistive
+ * technology without adding visible explanatory chrome, "Company" appearing
+ * nowhere, exact-stageCounts-only hide-empty with the Display
  * menu switch as the only reveal control (no inline disclosure), and lazy
  * per-section subscriptions.
  */
@@ -65,21 +66,24 @@ describe("ProjectsClientGroups", () => {
     __resetConvexStub();
   });
 
-  it("renders the exact recorded-client-name qualifier and interim backfill notice", async () => {
+  it("keeps grouping truth for assistive technology without visible qualifier chrome", async () => {
     __setPaginatedRows("dashboard:listCompanies", [companyRow("acme", "Acme Labs", 2)]);
     render(ProjectsClientGroups, {});
 
     await expect.poll(() => region()).not.toBeNull();
-    const qualifier = document.querySelector("[data-client-grouping-qualifier]");
-    expect(qualifier?.textContent).toContain(
+    const description = document.getElementById("client-grouping-description");
+    expect(description?.className).toContain("sr-only");
+    expect(description?.textContent).toContain(
       "Grouped by recorded client name as entered on projects. Durable client records are not yet modelled."
     );
-    expect(
-      document.querySelector("[data-client-grouping-backfill-notice]")?.textContent
-    ).toBe("Projects created before grouping was enabled may not appear here.");
+    expect(description?.textContent).toContain(
+      "Projects created before grouping was enabled may not appear here."
+    );
+    expect(document.querySelector("[data-client-grouping-qualifier]")).toBeNull();
+    expect(document.querySelector("[data-client-grouping-backfill-notice]")).toBeNull();
   });
 
-  it("renders one section per recorded client name, in server (A–Z index) order, with truthful counts — and never says Company", async () => {
+  it("renders one quiet section per recorded client name in server order and never says Company", async () => {
     __setPaginatedRows("dashboard:listCompanies", [
       companyRow("acme", "Acme Labs", 2),
       companyRow("borealis", "Borealis Mining", 1),
@@ -89,30 +93,75 @@ describe("ProjectsClientGroups", () => {
 
     await expect.poll(() => groupHeaders().length).toBe(3);
     const headers = groupHeaders().map((button) => button.textContent?.replace(/\s+/g, " ").trim());
-    // Counts render in the mono data role (2026-08-12 taste pass): the
-    // number is the visible text, the unit is screen-reader-only.
-    expect(headers[0]).toContain("Acme Labs 2 projects");
-    expect(headers[1]).toContain("Borealis Mining 1 project");
-    expect(headers[2]).toContain("Cormorant Foods 12 projects");
-    expect(document.querySelector("[data-client-table-header]")?.textContent).toContain("Stage mix");
+    expect(headers).toEqual(["Acme Labs", "Borealis Mining", "Cormorant Foods"]);
+    expect(document.querySelector("[data-client-group-count]")).toBeNull();
+    expect(document.querySelector("[data-client-table-header]")).toBeNull();
     expect(region()?.textContent).not.toMatch(/\bcompany\b/i);
   });
 
-  it("summarizes verified stage counts in collapsed rows without opening project subscriptions", async () => {
+  it("keeps project totals and stage summaries out of collapsed rows without opening subscriptions", async () => {
     __setPaginatedRows("dashboard:listCompanies", [
       companyRow("acme", "Acme Labs", 4, { intake: 2, drafting: 1, internal_review: 1 }),
     ]);
     render(ProjectsClientGroups, {});
 
     await expect.poll(() => groupHeaders().length).toBe(1);
-    const headerText = groupHeaders()[0].textContent?.replace(/\s+/g, " ") ?? "";
-    expect(headerText).toContain("Intake 2");
-    expect(headerText).toContain("Drafting 1");
-    expect(headerText).toContain("Internal review 1");
+    const headerText = groupHeaders()[0].textContent?.replace(/\s+/g, " ").trim() ?? "";
+    expect(headerText).toBe("Acme Labs");
+    expect(headerText).not.toContain("4 projects");
+    expect(headerText).not.toContain("Intake");
+    expect(headerText).not.toContain("Drafting");
+    expect(headerText).not.toContain("Internal review");
     expect(__isQueryActive("dashboard:listCompanyProjectsByStageRank")).toBe(false);
   });
 
-  it("expands a section into pipeline-ordered status sub-headers cut from the stage-ranked server order", async () => {
+  it("opens from the full client row and closes without a disclosure animation delay", async () => {
+    __setPaginatedRows("dashboard:listCompanies", [
+      companyRow("acme", "Acme Labs", 1, { drafting: 1 }),
+    ]);
+    __setPaginatedRows("dashboard:listCompanyProjectsByStageRank", [
+      projectRow("p1", "Drafting claim", 300, "drafting"),
+    ]);
+    render(ProjectsClientGroups, {});
+
+    await expect.poll(() => groupHeaders().length).toBe(1);
+    const chevron = document.querySelector<HTMLButtonElement>("[data-client-group-chevron]")!;
+    expect(chevron.getAttribute("aria-label")).toBe("Expand Acme Labs");
+    expect(document.querySelector("[data-client-group-body]")).toBeNull();
+
+    chevron.click();
+    await expect.poll(() => groupHeaders()[0].getAttribute("aria-expanded")).toBe("true");
+    await expect.poll(() => document.querySelector("[data-fiscal-year-group]")).not.toBeNull();
+    expect(chevron.getAttribute("aria-label")).toBe("Collapse Acme Labs");
+    expect(chevron.className).toContain("duration-[325ms]");
+    expect(chevron.className).not.toContain("hover:bg-workspace-rail-hover");
+    expect(chevron.lastElementChild?.hasAttribute("data-disclosure-chevron")).toBe(true);
+    expect(chevron.className).toContain("grid-cols-[minmax(0,1fr)_1.25rem]");
+    expect(chevron.children).toHaveLength(2);
+    expect(chevron.firstElementChild?.textContent).toBe("Acme Labs");
+    const clientGroup = chevron.closest<HTMLElement>("[data-client-group]");
+    expect(clientGroup?.className).toContain("border-primary/40");
+    expect(clientGroup?.firstElementChild?.className).toContain("bg-primary-wash/75");
+    expect(document.querySelector("[data-client-projects-resolved]")).not.toBeNull();
+    expect(document.querySelector("[data-client-group-body] .animate-pulse")).toBeNull();
+    const fiscalGroup = document.querySelector<HTMLElement>("[data-fiscal-year-group]");
+    const fiscalToggle = fiscalGroup?.querySelector<HTMLButtonElement>("button");
+    expect(fiscalGroup?.classList.contains("border-l")).toBe(false);
+    expect(fiscalGroup?.className).toContain("border-line");
+    expect(fiscalToggle?.className).toContain("bg-chrome/70");
+    expect(fiscalToggle?.className).not.toContain("bg-primary-wash");
+    expect(fiscalToggle?.className).toContain("duration-[240ms]");
+    expect(fiscalToggle?.className).not.toContain("hover:bg-workspace-rail-hover");
+    expect(fiscalToggle?.lastElementChild?.hasAttribute("data-disclosure-chevron")).toBe(true);
+
+    chevron.click();
+    await expect.poll(() => document.querySelector("[data-client-group-body]")).toBeNull();
+    expect(groupHeaders()[0].getAttribute("aria-expanded")).toBe("false");
+    expect(chevron.className).toContain("hover:bg-workspace-rail-hover");
+    expect(__isQueryActive("dashboard:listCompanyProjectsByStageRank")).toBe(false);
+  });
+
+  it("expands a section into fiscal-year folders with stage-labelled cards", async () => {
     __setPaginatedRows("dashboard:listCompanies", [
       companyRow("acme", "Acme Labs", 4, { intake: 1, on_hold: 1, delivered: 1, legacy: 1 }),
     ]);
@@ -131,18 +180,16 @@ describe("ProjectsClientGroups", () => {
     expect(__isQueryActive("dashboard:listCompanyProjectsByStageRank")).toBe(false);
     groupHeaders()[0].click();
 
-    await expect.poll(() => document.querySelectorAll("[data-stage-subgroup]").length).toBe(4);
-    const subgroups = [...document.querySelectorAll<HTMLElement>("[data-stage-subgroup]")].map(
-      (el) => el.getAttribute("data-stage-subgroup")
-    );
-    // Pipeline presentation order re-maps the frozen rank runs: delivered
-    // BEFORE on_hold; the qualified legacy sub-group last.
-    expect(subgroups).toEqual(["intake", "delivered", "on_hold", "legacy"]);
+    await expect.poll(() => document.querySelectorAll("[data-fiscal-year-group]").length).toBe(1);
+    expect(document.querySelector("[data-fiscal-year-group]")?.textContent).toContain("Fiscal 2025");
     expect(__isQueryActive("dashboard:listCompanyProjectsByStageRank")).toBe(true);
-    const titles = [...document.querySelectorAll("[data-client-group] ul li a")].map(
+    const titles = [...document.querySelectorAll("[data-client-group] [data-project-board-card] a")].map(
       (a) => a.textContent?.trim()
     );
-    expect(titles).toEqual(["Intake claim", "Delivered claim", "Paused claim", "Legacy claim"]);
+    expect(titles).toEqual(["Delivered claim", "Intake claim", "Legacy claim", "Paused claim"]);
+    const firstIdentity = document.querySelector<HTMLElement>('[data-card-field="identity"]');
+    expect(firstIdentity?.querySelector("[data-stage-badge]")).not.toBeNull();
+    expect(firstIdentity?.querySelector("[data-card-project-type]")).not.toBeNull();
     // Legacy rows carry the qualifier.
     expect(document.querySelector("[data-legacy-status-qualifier]")?.textContent).toContain(
       "Legacy status"
@@ -160,7 +207,7 @@ describe("ProjectsClientGroups", () => {
 
     await expect.poll(() => groupHeaders().length).toBe(1);
     groupHeaders()[0].click();
-    await expect.poll(() => document.querySelectorAll("[data-stage-subgroup]").length).toBe(1);
+    await expect.poll(() => document.querySelectorAll("[data-fiscal-year-group]").length).toBe(1);
     expect(document.querySelector("[data-hidden-stages-disclosure]")).toBeNull();
   });
 
@@ -173,22 +220,16 @@ describe("ProjectsClientGroups", () => {
 
     await expect.poll(() => groupHeaders().length).toBe(1);
     groupHeaders()[0].click();
-    // All ten canonical stages render; nothing is hidden without exact truth.
-    await expect.poll(() => document.querySelectorAll("[data-stage-subgroup]").length).toBe(10);
+    await expect.poll(() => document.querySelectorAll("[data-fiscal-year-group]").length).toBe(1);
     expect(document.querySelector("[data-hidden-stages-disclosure]")).toBeNull();
   });
 
-  it("offers client-scoped creation on each section header and never a Focus drill-in (retired 2026-08-12)", async () => {
+  it("keeps creation out of client rows and never restores the retired Focus drill-in", async () => {
     __setPaginatedRows("dashboard:listCompanies", [companyRow("acme", "Acme & Co", 1)]);
     render(ProjectsClientGroups, {});
 
     await expect.poll(() => groupHeaders().length).toBe(1);
-    const create = document.querySelector<HTMLAnchorElement>("[data-client-new-project]");
-    // The wizard's own `?client=` prefill param — unrelated to the retired
-    // board focus param — carries the editable recorded name.
-    expect(create?.getAttribute("href")).toBe(
-      `/project/new?client=${encodeURIComponent("Acme & Co")}`
-    );
+    expect(document.querySelector("[data-client-new-project]")).toBeNull();
     expect(document.querySelector("[data-client-focus]")).toBeNull();
   });
 
@@ -210,7 +251,7 @@ describe("ProjectsClientGroups", () => {
     // Each lane is the REAL board: a per-client horizontal snap region of
     // same-tone stage columns (identical anatomy to the ungrouped board).
     const laneBoard = document.querySelector<HTMLElement>(
-      '[data-client-group="acme"] [role="region"][aria-label="Acme Labs board. Scroll horizontally to review every workflow stage."]'
+      '[data-client-group="acme"] [role="region"][aria-label="Acme Labs, Fiscal 2025 board. Scroll horizontally to review every workflow stage."]'
     );
     expect(laneBoard).not.toBeNull();
     expect(laneBoard?.className).toContain("scrollbar-hidden");
@@ -243,7 +284,7 @@ describe("ProjectsClientGroups", () => {
     ).toBe(`/project/new?client=${encodeURIComponent("Acme Labs")}`);
   });
 
-  it("provides a collapse/expand-all control and shows the bounded empty state", async () => {
+  it("keeps expansion local to each client and removes the global expander", async () => {
     __setPaginatedRows("dashboard:listCompanies", [
       companyRow("acme", "Acme Labs", 1),
       companyRow("borealis", "Borealis Mining", 1),
@@ -252,16 +293,13 @@ describe("ProjectsClientGroups", () => {
     render(ProjectsClientGroups, {});
 
     await expect.poll(() => groupHeaders().length).toBe(2);
-    const toggleAll = document.querySelector<HTMLButtonElement>("[data-toggle-all-groups]");
-    expect(toggleAll?.textContent).toContain("Expand all");
-    toggleAll?.click();
-    await expect.poll(() => groupHeaders().every((b) => b.getAttribute("aria-expanded") === "true")).toBe(true);
-    await expect.poll(() =>
-      document.querySelector<HTMLButtonElement>("[data-toggle-all-groups]")?.textContent
-    ).toContain("Collapse all");
+    expect(document.querySelector("[data-toggle-all-groups]")).toBeNull();
+    groupHeaders()[0].click();
+    await expect.poll(() => groupHeaders()[0].getAttribute("aria-expanded")).toBe("true");
+    expect(groupHeaders()[1].getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("caps simultaneously expanded sections at 6 live subscriptions — expand-all, toggles, and load-more included", async () => {
+  it("caps simultaneously expanded sections at 6 live subscriptions through local toggles", async () => {
     __setPaginatedRows(
       "dashboard:listCompanies",
       ["a", "b", "c", "d", "e", "f", "g", "h"].map((key) =>
@@ -272,13 +310,9 @@ describe("ProjectsClientGroups", () => {
     render(ProjectsClientGroups, {});
 
     await expect.poll(() => groupHeaders().length).toBe(8);
-    const toggleAll = document.querySelector<HTMLButtonElement>("[data-toggle-all-groups]");
-    // Honest label: never promises an unbounded "Expand all".
-    expect(toggleAll?.textContent).toContain("Expand first 6");
-    expect(document.querySelector("[data-expand-cap-note]")?.textContent).toContain(
-      "Up to 6 sections stay open at once"
-    );
-    toggleAll?.click();
+    expect(document.querySelector("[data-toggle-all-groups]")).toBeNull();
+    expect(document.querySelector("[data-expand-cap-note]")).toBeNull();
+    for (const header of groupHeaders().slice(0, 6)) header.click();
     await expect.poll(
       () => groupHeaders().filter((b) => b.getAttribute("aria-expanded") === "true").length
     ).toBe(6);
@@ -316,37 +350,32 @@ describe("ProjectsClientGroups", () => {
     expect(document.querySelector("[data-lane-load-more]")).toBeNull();
   });
 
-  it("presents the blank-name section as 'No client recorded' and never prefills the em dash", async () => {
+  it("presents the blank-name section as 'No client recorded' without a row action", async () => {
     __setPaginatedRows("dashboard:listCompanies", [companyRow("￿", "—", 2)]);
     render(ProjectsClientGroups, {});
 
     await expect.poll(() => groupHeaders().length).toBe(1);
     expect(groupHeaders()[0].textContent).toContain("No client recorded");
     expect(groupHeaders()[0].textContent).not.toContain("—");
-    const create = document.querySelector<HTMLAnchorElement>("[data-client-new-project]");
-    // No recorded name exists, so the creation link carries no prefill.
-    expect(create?.getAttribute("href")).toBe("/project/new");
+    expect(document.querySelector("[data-client-new-project]")).toBeNull();
   });
 
-  it("keeps the client-scoped creation link reachable at 390px with a 44px target", async () => {
+  it("keeps the unified client disclosure reachable at 390px with a 44px target", async () => {
     __setPaginatedRows("dashboard:listCompanies", [companyRow("acme", "Acme Labs", 1)]);
     await browserPage.viewport(390, 844);
     render(ProjectsClientGroups, {});
 
     await expect.poll(() => groupHeaders().length).toBe(1);
-    const create = document.querySelector<HTMLAnchorElement>("[data-client-new-project]");
-    expect(create).not.toBeNull();
-    const box = create!.getBoundingClientRect();
-    expect(box.height).toBeGreaterThanOrEqual(44);
-    expect(box.width).toBeGreaterThanOrEqual(44);
-    expect(create!.getAttribute("href")).toBe(
-      `/project/new?client=${encodeURIComponent("Acme Labs")}`
-    );
-    expect(create!.getAttribute("aria-label")).toBe("New project — Acme Labs");
+    const chevron = document.querySelector<HTMLButtonElement>("[data-client-group-chevron]");
+    expect(chevron).not.toBeNull();
+    const chevronBox = chevron!.getBoundingClientRect();
+    expect(chevronBox.height).toBeGreaterThanOrEqual(44);
+    expect(chevronBox.width).toBeGreaterThan(200);
+    expect(chevron!.getAttribute("aria-label")).toBe("Expand Acme Labs");
     await browserPage.viewport(1280, 800);
   });
 
-  it("renders a truthful client pagination footer with the loaded count", async () => {
+  it("removes the loaded-count footer from the client repository", async () => {
     __setPaginatedRows("dashboard:listCompanies", [
       companyRow("acme", "Acme Labs", 1),
       companyRow("borealis", "Borealis Mining", 1),
@@ -354,9 +383,7 @@ describe("ProjectsClientGroups", () => {
     render(ProjectsClientGroups, {});
 
     await expect.poll(() => groupHeaders().length).toBe(2);
-    expect(
-      document.querySelector("[data-client-pagination-note]")?.textContent?.trim()
-    ).toBe("Showing 2 client names");
+    expect(document.querySelector("[data-client-pagination-note]")).toBeNull();
   });
 
   it("shows the bounded empty state with the backfill notice when no groups are loaded", async () => {

@@ -78,11 +78,8 @@
     disabled={disabled || ctx.disabled}
     style={textIndent ? `text-indent: ${textIndent}px` : undefined}
     class={cn(
-      // `input-chromeless` is LOAD-BEARING: layout.css paints an unlayered
-      // fir box-shadow ring on every `textarea:focus-visible`, and Tailwind's
-      // `outline-none` cannot beat it (it's a shadow, in no layer). The
-      // chromeless class is the sanctioned opt-out — the composer shell owns
-      // all focus affordance. Never remove it from this component.
+      // `input-chromeless` is load-bearing: the composer shell owns the single
+      // inset focus affordance, so the textarea must not paint another well.
       "input-chromeless min-h-6 w-full resize-none bg-transparent px-1 py-0 text-base leading-snug text-gray-800 placeholder:text-ink-muted outline-none disabled:opacity-50 md:text-sm",
       className
     )}

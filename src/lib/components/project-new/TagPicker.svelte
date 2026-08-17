@@ -112,7 +112,7 @@
         type="text"
         bind:value={search}
         placeholder="Search tags…"
-        class="tag-search w-full border-b border-gray-200 px-3 py-1.5 text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none"
+        class="field-control w-full rounded-md px-3 py-1.5 text-xs text-gray-900 placeholder:text-gray-400"
       />
       <div class="max-h-56 overflow-y-auto py-1">
         {#each groups as { parent, children } (parent._id)}
@@ -140,11 +140,3 @@
     </div>
   {/if}
 </div>
-
-<style>
-  /* layout.css paints every input's focus border with the primary brand color;
-     this dropdown's search field must stay on the gray ramp instead. */
-  .tag-search:focus {
-    border-color: var(--color-gray-200);
-  }
-</style>

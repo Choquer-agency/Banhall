@@ -40,6 +40,7 @@ The report remains the primary workspace. Workflow controls support the report r
 | **Capability** | A named server-enforced permission to perform an operation. | Planned centralized `roleCapabilities` definitions mapped from stored role presets. | UI visibility is not authorization. Initial presets are fixed; an arbitrary custom permission builder is out of scope. |
 | **Client** | The durable company/account for which claim work is performed. | Planned `clients` row; current `projects.clientName` remains compatibility data until migration. | Do not silently merge similar free-text names. |
 | **Claim period** | The client/fiscal-period container for financial source material and costing work across one or more projects. | Planned `claimPeriods` and `claimPeriodProjects`. | The financial workspace may have a different landing model, but it remains part of the same application and authorization system. |
+| **Project type** | The kind of work product represented by a Project: `writing`, `review`, `background_research`, or `financial`. | Optional `projects.projectType` during widen; legacy `mode: review` reads as `review`, every other legacy row reads as `writing`. | Type does not change workflow authority, ownership, or artifact format by itself. |
 
 ## State model boundaries
 
@@ -60,10 +61,11 @@ Rules for the migration period:
 | `intake` | Project exists but interview/source intake is not confirmed complete. | Project created or conservatively backfilled without a working report. | `interview_complete`, `drafting`, `on_hold`, `abandoned` |
 | `interview_complete` | Required interview/input collection is complete enough to begin drafting. | Human confirms readiness. | `drafting`, `on_hold`, `abandoned` |
 | `drafting` | A consultant is producing or materially editing the report. | Owner or authorized collaborator begins drafting; a report may or may not already exist. | `internal_review`, `client_review`, `ready_for_delivery`, `on_hold`, `abandoned` |
-| `internal_review` | The report is with an internal reviewer or undergoing internal QA. | A review handoff normally exists, but stage and assignment remain separate records. | `revisions`, `ready_for_delivery`, `on_hold`, `abandoned` |
+| `internal_review` | The report is with an internal reviewer or undergoing internal QA. | A review handoff normally exists, but stage and assignment remain separate records. | `edits`, `ready_for_delivery`, `on_hold`, `abandoned` |
+| `edits` | An internal review has returned to the writer and its requested edits are being incorporated. | Reviewer, Owner, Manager, or Admin explicitly returns the work for edits. | `internal_review`, `client_review`, `ready_for_delivery`, `on_hold`, `abandoned` |
 | `client_review` | A client-facing revision is published/shared for client review. | Authorized user deliberately sends/publishes a revision for client review. | `revisions`, `ready_for_delivery`, `on_hold`, `abandoned` |
 | `revisions` | Feedback or identified issues require writer changes. | Review completion, client feedback, or an explicit manual transition. | `internal_review`, `client_review`, `ready_for_delivery`, `on_hold`, `abandoned` |
-| `ready_for_delivery` | Internal work is complete and the exact deliverable is ready for authorized delivery. | A promoted branch exists and filing/readiness requirements applicable to the workflow are satisfied. | `delivered`, `revisions`, `on_hold`, `abandoned` |
+| `ready_for_delivery` (displayed as **Submitted**) | Internal work is complete, internal and client sign-off is complete where applicable, and the exact deliverable is ready for input/delivery. | A promoted branch exists and filing/readiness requirements applicable to the workflow are satisfied. | `delivered`, `revisions`, `on_hold`, `abandoned` |
 | `delivered` | An exact report revision has been confirmed as delivered to the client or used in filing. | Authorized actor records the corresponding production outcome. | `revisions` for reopened work, or `on_hold` only for exceptional administrative correction |
 | `on_hold` | Work is intentionally paused without abandonment. | Authorized actor records a reason. | Any active stage that reflects the resumed work; `abandoned` |
 | `abandoned` | The project will not proceed in its current scope. | Authorized actor records a reason and handles open work items. | No normal next stage; reopening requires Manager/Admin authority and an audit note. |
@@ -94,10 +96,15 @@ Authority labels:
 | `drafting` | `ready_for_delivery` | O, M, A | Requires a promoted branch and applicable readiness checks. |
 | `drafting` | `on_hold` | O, M, A | Reason required. |
 | `drafting` | `abandoned` | O, M, A | Reason required. |
-| `internal_review` | `revisions` | H, O, M, A | Completing review may offer this transition, but user confirms it. |
+| `internal_review` | `edits` | H, O, M, A | Completing review may offer this transition, but user confirms it. |
 | `internal_review` | `ready_for_delivery` | H, O, M, A | Reviewer/owner confirms no revision cycle is required; readiness checks apply. |
 | `internal_review` | `on_hold` | O, M, A | Reason required. |
 | `internal_review` | `abandoned` | O, M, A | Reason required. |
+| `edits` | `internal_review` | O, M, A | Sends the incorporated edits back through internal review. |
+| `edits` | `client_review` | O, M, A | Requires an explicit client-review publish/share action. |
+| `edits` | `ready_for_delivery` | O, M, A | Reviewer/owner confirms the edits are complete; readiness checks apply. |
+| `edits` | `on_hold` | O, M, A | Reason required. |
+| `edits` | `abandoned` | O, M, A | Reason required. |
 | `client_review` | `revisions` | O, M, A | May be suggested when client feedback arrives; no invisible transition initially. |
 | `client_review` | `ready_for_delivery` | O, M, A | Explicit confirmation after client review. |
 | `client_review` | `on_hold` | O, M, A | Reason required. |
@@ -117,6 +124,7 @@ Authority labels:
 | `on_hold` | `interview_complete` | O, M, A | Resume to the stage that truthfully reflects work. |
 | `on_hold` | `drafting` | O, M, A | Resume to the stage that truthfully reflects work. |
 | `on_hold` | `internal_review` | O, M, A | Resume only when the review handoff remains valid or is recreated. |
+| `on_hold` | `edits` | O, M, A | Resume to active post-review editing. |
 | `on_hold` | `client_review` | O, M, A | Resume only when client review is actually active. |
 | `on_hold` | `revisions` | O, M, A | Resume to active revision work. |
 | `on_hold` | `ready_for_delivery` | O, M, A | Re-run applicable readiness checks. |
@@ -143,6 +151,7 @@ Rules:
 - The assignee completes or declines their own item. The assigner, Owner, Manager, or Admin may cancel; Manager/Admin may administratively complete where justified and audited.
 - Reassignment preserves history. It may update the same open item plus an event, but it never overwrites the original assigner/event record.
 - A blocking reassignment atomically updates `projects.currentHandoffId`.
+- A handoff target is a discriminated party: `internal_user` references a real active user; `external_client` references the project/client context plus a human-readable label. External client handoffs must never be implemented as dummy user accounts.
 - Completing/canceling/declining the current handoff atomically clears that pointer unless a replacement handoff is created in the same mutation.
 - Due and overdue states are derived from `dueAt`; no cron continually rewrites work item status merely because time passed.
 
@@ -185,6 +194,16 @@ Rules:
 - Outcome records are immutable. Corrections append a new record linked to the superseded record.
 - Structured non-use reasons should be captured when a branch is abandoned or superseded, with an optional human note.
 - Outcomes are learning signals, not automatic Brain content. Abandoned report content is never auto-ingested. Any learning change still requires the existing governed review, provenance, and revert path.
+
+### Governed behavioral learning amendment (2026-08-17)
+
+- Activity-derived QA calibration and drafting-style digests are immutable learning candidates, not automatically active instructions.
+- Only an administrator with `settings.configure` may publish a global digest, disable global learned guidance, or restore an older reviewed version.
+- Publication, disable, and rollback are append-only selection events. The original candidate content and prior selections remain auditable.
+- Automatic distillation may continue producing candidates while guidance is disabled; it never overrides the administrator's explicit selection.
+- Before the first post-amendment candidate is saved, the system freezes the pre-amendment active digest (or explicit absence) so deployment cannot silently change production behavior.
+- Personal digests cannot be published globally. Per-writer activation requires a separately approved scope and privacy contract.
+- Brain sources remain governed separately. Digest publication does not ingest report content into the Brain or alter deterministic CRA scoring rules.
 
 ## Role and capability matrix
 
@@ -878,6 +897,322 @@ This amendment supersedes four clauses of the earlier 2026-08-06 amendment and o
   are unchanged. Switching modes does not persist a new preference.
 - **Approval:** product owner requested removal of Home's header and a clear,
   Paste-default exclusive source selector on 2026-08-14.
+
+### 2026-08-14 — Developer tools exposure and Home creation paths
+
+- **Affected ticket/scope:** PSOS-14 workspace follow-up and user-profile
+  exposure metadata.
+- **Developer exposure:** `users.isDeveloper` is an optional, additive profile
+  flag managed by administrators. It controls whether the workspace rail shows
+  the developer utilities group (Alerts, Feature requests, What's new, Current
+  dashboard, and Flag issue) and whether their badge queries subscribe. It is
+  not a role, capability, or authorization grant. Route-side and server-side
+  authorization remain authoritative. Existing users without the flag fail
+  closed to no developer utilities.
+- **Home creation paths:** the composer shortcut requires a non-empty internal
+  title and an active transcript source (pasted text or a successfully parsed
+  `.docx`) before it can continue. A separate `Start a blank project` action
+  opens the existing project wizard with an empty browser-local intent. Neither
+  path creates a project from Home; creation still occurs in Intake through the
+  existing mutation and creator-becomes-Owner contract.
+- **Account menu:** the workspace account popup contains identity and sign-out
+  only. Settings remains a persistent rail utility; Admin destinations remain
+  in the role-gated Admin group.
+- **Migration and compatibility:** optional-field schema widening only; no data
+  backfill is required. Administrators may opt existing and future accounts in
+  explicitly. No URL, workflow, project, role, or capability semantics change.
+- **Approval:** product owner requested developer-only utilities, an explicit
+  blank-project path, validated composer submission, and a simplified account
+  menu on 2026-08-14.
+
+### 2026-08-14 (fourth) — direct rail utilities and card-based client repository
+
+- **Affected ticket/scope:** PSOS-14 presentation follow-up; no workflow or
+  backend behavior change.
+- **Rail presentation:** developer utilities are direct links/actions at the
+  bottom of the rail, without a `Developer` label or disclosure. Flagged
+  developer accounts see Alerts, Feature requests, What's new, Current
+  dashboard, and Flag issue. Other authenticated accounts see What's new only.
+  The Admin records group sits lower than the primary Home/Projects links but
+  keeps its existing role gate and disclosure behavior.
+- **Projects presentation:** client grouping keeps the same indexed queries,
+  exact-count validation, six-subscription cap, project creation links, and
+  stage order. Its always-visible grouping explanation, backfill notice,
+  global expand control, column header, and loaded-client footer are removed
+  from the visual canvas. The same qualifier remains attached to the region as
+  screen-reader context. Collapsed client rows show only client identity,
+  client-scoped creation, and a right-edge disclosure; project totals and stage
+  summaries are omitted. The identity and chevron both open the section, and
+  the body mounts or unmounts immediately so the gated section query releases
+  without an exit delay. Each opened client in List mode renders the existing
+  project cards in stage-grouped responsive grids; Board mode continues to use
+  the existing stage-column board. List remains the default and the compact,
+  icon-only List/Board switch remains one click away with accessible names and
+  tooltips.
+- **Header contract:** workspace pages that carry a title bar share the same
+  49px page-header geometry. Home remains the approved exception because its
+  greeting is the page heading.
+- **Migration, authorization, and tests:** no schema, data, query, mutation,
+  route, capability, or workflow change. Component tests cover the developer
+  and non-developer rail variants, local client expansion and subscription cap,
+  card rendering, removed visual chrome, labelled layout switch, and shared
+  page-header contract.
+- **Approval:** product owner requested these rail and Projects corrections in
+  the annotated signed-in workspace on 2026-08-14.
+
+### 2026-08-14 (fifth) — Stage and Owner filters in client grouping
+
+- **Affected ticket/scope:** PSOS-14 Projects repository follow-up.
+- **Decision:** the existing Stage and Owner filter UI remains available when
+  the Projects repository is grouped by recorded client name. Client headings
+  remain the stable, paginated A-Z projection. Filters apply to projects within
+  each expanded section; unmatched client headings are not removed because the
+  current client projection cannot prove an Owner-filtered distinct-client set.
+  An expanded section with no matching rows states the filtered empty result.
+- **Query and schema impact:** `dashboard.listCompanyProjectsByStageRank`
+  accepts optional Stage and Owner filters. Stage-only reads constrain the
+  existing client/stage-rank index. Owner reads use the additive compound index
+  `by_client_owner_stage_rank_updated`; Stage + Owner further constrains that
+  same index. Pagination, frozen stage-rank order, owner labels, and the
+  six-live-section subscription cap remain unchanged. Filtered sections do not
+  reuse unfiltered `dashboardCompanies.projectCount` or `stageCounts` as
+  filtered totals.
+- **Authorization and migration:** read visibility remains D1 (authenticated
+  internal users), with no new capability, mutation, workflow transition, or
+  durable Client concept. The schema change adds one index and requires no data
+  backfill; the development deployment builds it from existing project fields.
+- **Tests:** Convex coverage proves Stage-only and Stage + Owner results;
+  component coverage proves the grouped List exposes Filters and passes the
+  applied condition to its expanded-client query; signed-in browser QA proves
+  the active condition chip and filtered project cards.
+- **Approval:** product owner requested restoration of the missing filter UI
+  and functionality in the Client-grouped List on 2026-08-14.
+
+### 2026-08-14 (sixth) — fiscal repository hierarchy, project types, and workflow language
+
+- **Affected ticket/scope:** PSOS-14 repository follow-up, PSOS-09 workflow
+  contract, PSOS-12 future external-handoff widening, and PSOS-41 historical
+  Brain ingestion discovery.
+- **Repository hierarchy:** the default Projects repository is Client → Fiscal
+  year → Project. The client heading remains a normalized display projection
+  of `projects.clientName`, not a durable Client record. Within each loaded
+  fiscal-year section the default order is project number, with Created and
+  Last updated alternatives. Project-number ordering is natural (`1`, `2`,
+  `2A`, `10`, letters, then unnumbered). Since each open client query remains
+  bounded and paginated, sorting and the fiscal-year sections describe the
+  loaded client page; a continuation control remains visible while more rows
+  exist.
+- **Card identity:** repository cards show the internal title, distinct SR&ED
+  title when present, project number, fiscal year, project type, Stage, Owner,
+  and current handoff when available. Client-scoped sections do not repeat the
+  client name on every card. Created and updated dates remain secondary.
+- **Project types:** `writing`, `review`, `background_research`, and `financial`
+  are the canonical values. `projects.projectType` widens storage; legacy
+  `mode: review` dual-reads as `review` and all other legacy rows dual-read as
+  `writing`. New generate/review projects write the corresponding type.
+  Project type is descriptive and does not silently choose a workflow,
+  artifact format, role, or permission.
+- **Filters:** Stage and Owner remain distinct. Project type and Current
+  assignee are additive repository conditions. Current assignee means the
+  assignee of the validated open blocking current handoff, never the Owner.
+  Conditions are applied to the bounded server page and the surface remains
+  qualified while pagination is incomplete; client headings remain the stable
+  A–Z projection.
+- **Workflow language:** `edits` is a new canonical stage between internal
+  review and the next review/submission step. The stored stage
+  `ready_for_delivery` remains unchanged during compatibility rollout but its
+  product label is **Submitted**. `delivered` remains separate and still
+  requires an exact production outcome; relabelling Submitted never records
+  delivery.
+- **External handoffs:** “With client” is modelled as an `external_client`
+  handoff target in the future work-item widen, not as a fake account. The
+  current implementation continues to create internal-user work items only;
+  external target storage, events, authorization, and UI require a dedicated
+  widen/backfill ticket before writes are enabled.
+- **Migration and compatibility:** additive optional `projectType` plus
+  dual-read fallback; no destructive rewrite. `edits` uses frozen persisted
+  rank `3.5`, between Internal review (`3`) and Client review (`4`), so existing
+  ranks stay untouched. The existing dashboard backfill may materialize the
+  canonical project type, but consumers do not depend on it. No work-item
+  schema change ships from the external-handoff decision.
+- **Authorization and tests:** project read visibility is unchanged. Project
+  type updates use existing internal project access. Workflow mutations apply
+  the amended transition matrix and existing OCC/audit rules. Tests cover
+  dual-read type mapping, fiscal grouping/sorting, card identity, repository
+  conditions, the Edits transition edges, and Submitted presentation.
+- **Approval:** product owner explicitly requested these transcript-derived
+  changes on 2026-08-14.
+
+### 2026-08-14 (seventh) — client and fiscal disclosure hierarchy
+
+- **Affected ticket/scope:** PSOS-14 Projects repository presentation follow-up.
+- **Decision:** Client rows are single, full-width disclosure controls and no
+  longer repeat a client-scoped New project action; the repository toolbar and
+  grouped-board stage footers remain the creation entry points. Open clients
+  present recorded fiscal years as nested folder headers without a decorative
+  vertical rule. Projects without a fiscal year appear last in a visually
+  distinct dashed folder row labelled
+  **Fiscal year not set**.
+- **Motion and performance:** Client and fiscal bodies unmount immediately on
+  close. Opening uses only a short opacity/translate entrance; intrinsic height
+  is not animated, avoiding long or laggy accordion motion for large groups.
+  Reduced-motion users receive no entrance animation.
+- **Domain, authorization, and migration:** presentation only. No query,
+  schema, workflow, permission, project-creation, or durable Client semantics
+  change. The existing global creation route and board-prefilled stage actions
+  are unchanged.
+- **Tests:** component coverage verifies the unified 44px client disclosure,
+  absence of per-client creation actions, independent fiscal disclosure, and
+  the distinct unrecorded-year fallback.
+- **Approval:** product owner requested these hierarchy and transition changes
+  in the annotated Projects repository on 2026-08-14.
+
+### 2026-08-15 — contained fiscal folders and stable loading geometry
+
+- **Affected ticket/scope:** PSOS-14 Projects repository presentation follow-up.
+- **Decision:** Fiscal-year disclosures place the folder icon and label on the
+  left and the disclosure chevron at the right edge. An open fiscal year is one
+  restrained bordered surface: its project cards or stage board remain inside
+  that same folder boundary, separated from the header by a hairline. The
+  unrecorded-year variant retains its dashed boundary and explicit
+  **Fiscal year not set** label.
+- **Motion and loading:** This supersedes only the seventh amendment's
+  fiscal-body immediate-unmount/opacity-only clause. Fiscal bodies use the
+  shared short grid-row disclosure transition so surrounding content moves
+  continuously instead of snapping; closing content becomes inert and
+  unmounts after the transition. A newly opened client paints no visual
+  skeleton. Its real resolved hierarchy enters once with a 260ms eased vertical
+  reveal, collapsing to zero duration for reduced-motion users. Closing the
+  outer client still releases its query immediately and the six-section
+  subscription budget is unchanged.
+- **Domain, authorization, and migration:** presentation only. No query,
+  schema, workflow, permission, project-creation, sorting, pagination, or
+  durable Client semantics change.
+- **Tests:** component coverage verifies the right-edge fiscal chevron,
+  contained folder boundary, shared disclosure motion/inert lifecycle, and
+  absence of a visible first-load skeleton.
+- **Approval:** product owner requested the fiscal-folder containment and
+  stable, skeleton-free opening transition on 2026-08-15.
+
+### 2026-08-15 (second) — disclosure emphasis and contextual fiscal labels
+
+- **Affected ticket/scope:** PSOS-14 Projects repository presentation follow-up.
+- **Decision:** An open client disclosure uses a stronger lagoon wash and
+  boundary than its collapsed state. An open fiscal folder uses a lighter
+  lagoon wash and boundary so the nested active levels remain distinct.
+  Project cards nested inside a fiscal folder omit the repeated fiscal-year
+  chip because the enclosing folder is the labelled context. Cards on
+  ungrouped/global boards retain the fiscal-year chip.
+- **Domain, authorization, and migration:** presentation only. Fiscal-year
+  storage, filtering, grouping, query behavior, workflow, permissions, and
+  durable Client semantics are unchanged.
+- **Tests:** component coverage verifies contextual fiscal-chip suppression
+  in both list and lane folder presentations while the standalone card and
+  board defaults retain it.
+- **Approval:** product owner requested the active disclosure color refinement
+  and removal of repeated FY labels on 2026-08-15.
+
+### 2026-08-16 — distinct fiscal-folder state and simplified client heading
+
+- **Affected ticket/scope:** PSOS-14 Projects repository presentation follow-up.
+- **Decision:** The open client disclosure remains the brand-selected level.
+  Open fiscal folders use the neutral chrome fill, neutral text/icon treatment,
+  and standard boundary instead of repeating the client's lagoon selection
+  color. Client disclosure headings show the recorded client name directly and
+  omit the decorative initial badge; the right-edge chevron remains.
+- **Domain, authorization, and migration:** presentation only. Client-name and
+  fiscal-year projections, grouping, queries, workflows, permissions, and
+  durable Client semantics are unchanged.
+- **Tests:** component coverage verifies the two-column client trigger without
+  the initial badge and the neutral open-folder treatment.
+- **Approval:** product owner requested clearer visual separation between
+  client and fiscal disclosures on 2026-08-16.
+
+### 2026-08-16 (second) — page-level project creation action
+
+- **Affected ticket/scope:** PSOS-14 Projects repository presentation follow-up.
+- **Decision:** The global New project action moves from the repository control
+  row into the Projects page header. The repository row is reserved for view,
+  grouping, filtering, display, and sorting controls. The header action uses
+  the shared Button default variant and its semantic, theme-aware brand role.
+  Existing rail and board-footer creation navigation remains unchanged.
+- **Domain, authorization, and migration:** presentation only. The action still
+  navigates to `/project/new`; intake entry, creator ownership, permissions,
+  queries, workflow, and storage are unchanged.
+- **Tests:** component coverage verifies the header placement, absence from the
+  repository control row, and light/dark default-button brand pairs.
+- **Approval:** product owner requested the page-header placement and
+  theme-aware default action treatment on 2026-08-16.
+
+### 2026-08-16 (third) — compact project classification and header spacing
+
+- **Affected ticket/scope:** PSOS-14 Projects repository presentation follow-up.
+- **Decision:** On column-less project cards, the labelled Stage and project
+  Type share one compact metadata row. Fiscal-folder triggers retain the 44px
+  mobile touch target but use the 32px compact control height from `sm` upward.
+  The page-level New project action remains pinned to the far-right edge of the
+  Projects header, including widths where the centered search field is hidden.
+- **Domain, authorization, and migration:** presentation only. Stage, project
+  type, fiscal year, creation navigation, queries, workflow, permissions, and
+  storage are unchanged.
+- **Tests:** component coverage verifies shared Stage/Type row parentage,
+  responsive fiscal-trigger density, and persistent right-edge header spacing.
+- **Approval:** product owner requested these card-density and header-alignment
+  refinements on 2026-08-16.
+
+### 2026-08-16 (fourth) — stable project-card minimum height
+
+- **Affected ticket/scope:** PSOS-14 Projects repository presentation follow-up.
+- **Decision:** The shared project card has a 160px minimum height across
+  grouped list and stage-board presentations. Its neutral inset panel expands
+  through unused vertical space so cards with fewer optional metadata rows
+  retain the same material anatomy and align with neighboring cards. Cards
+  with additional truthful metadata may still grow beyond the minimum.
+- **Domain, authorization, and migration:** presentation only. Card fields,
+  project data, queries, workflow, permissions, and storage are unchanged.
+- **Tests:** component coverage verifies the minimum rendered geometry for
+  both full and client-scoped card variants.
+- **Approval:** product owner requested consistently aligned default project
+  card heights on 2026-08-16.
+
+### 2026-08-16 (fifth) — stage-colored card identity and LAN-safe request IDs
+
+- **Affected ticket/scope:** PSOS-14 project-card presentation and PSOS-04
+  client request/upload compatibility.
+- **Decision:** Project-card titles and project-number chips use the same
+  labelled workflow-stage tone as the card's status treatment. Text remains a
+  label in addition to color. Client-generated upload attempt and work-item
+  request IDs use the shared UUID-v4-compatible generator: native
+  `crypto.randomUUID()` when available, `crypto.getRandomValues()` on LAN HTTP
+  origins, and a UUID-shaped last-resort fallback for constrained runtimes.
+- **Domain, authorization, and migration:** no schema or data migration. Stage
+  values, transitions, project numbers, request idempotency, UUID validation,
+  permissions, and storage semantics are unchanged.
+- **Tests:** coverage verifies stage-colored title/number classes, native and
+  fallback UUID paths, UUID version/variant format, and absence of direct
+  client-side `crypto.randomUUID()` calls.
+- **Approval:** product owner requested stage-colored card identity and
+  reported the LAN project-view compatibility failure on 2026-08-16.
+
+### 2026-08-16 (sixth) — responsive card identity and project-number badge
+
+- **Affected ticket/scope:** PSOS-14 project-card presentation follow-up.
+- **Decision:** The project number is a distinct, labelled stage-tinted badge
+  with its own opaque surface, border, padding, and monospace treatment so it
+  cannot read as part of the project title. Project and SR&ED titles use
+  single-line ellipsis truncation based on their available card width. Client
+  names, Owners, current handoffs, generation activity, and legacy qualifiers
+  use bounded two-line wrapping at narrow card widths. Short,
+  predictable created/updated dates remain single-line. Classification chips
+  continue wrapping as a group.
+- **Domain, authorization, and migration:** presentation only. Project-number,
+  title, workflow, handoff, query, authorization, and storage semantics are
+  unchanged.
+- **Tests:** browser-component coverage verifies badge semantics, project and
+  SR&ED title truncation, narrow-width containment, two-line metadata wrapping,
+  and absence of horizontal overflow.
+- **Approval:** product owner requested clearer project numbering and complete
+  responsive card behavior on 2026-08-16.
 
 ## Amendment process
 

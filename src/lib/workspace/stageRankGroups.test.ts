@@ -92,8 +92,8 @@ describe("visibleStageGroups", () => {
     const visible = visibleStageGroups(groups, { drafting: 1, intake: 2 }, true);
     expect(visible.hideDisabled).toBe(false);
     expect(visible.groups.map((group) => group.id)).toEqual(["intake", "drafting"]);
-    // 8 canonical zero-count stages hidden; legacy is conditional, not hidden.
-    expect(visible.hiddenCount).toBe(8);
+    // 9 canonical zero-count stages hidden; legacy is conditional, not hidden.
+    expect(visible.hiddenCount).toBe(9);
     // Exact counts carry no + qualifier and no unverified marker.
     expect(visible.groups.every((group) => group.countSuffix === "" && !group.unverified)).toBe(
       true

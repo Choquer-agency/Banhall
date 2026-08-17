@@ -4,12 +4,12 @@
   // with the ^K affordance, and the New project action. On narrow screens
   // search collapses to an icon that reveals a full-width row. The bar
   // shares the content plane (bg-canvas — white in the workspace scope)
-  // with a hairline divider; lagoon carries the primary action using the
-  // AA `primary-selected` + white pair (lagoon `primary` under 13px white
-  // or fir text measures below 4.5:1 — audit 2026-08-06). The decorative
-  // left title tick was removed 2026-08-06 — the title stands alone.
+  // with a hairline divider; the shared Button's theme-aware primary-action
+  // role carries creation in both light and dark scopes. The decorative left
+  // title tick was removed 2026-08-06 — the title stands alone.
   import { resolve } from "$app/paths";
   import { MagnifyingGlassIcon, PlusIcon } from "phosphor-svelte";
+  import Button from "$lib/components/ui/Button.svelte";
   import Disclosure from "$lib/components/ui/Disclosure.svelte";
   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
   import { searchShortcutHint } from "$lib/workspace/searchContinuity";
@@ -124,7 +124,7 @@
       onkeydown={handleInputKeydown}
       aria-label="Search projects"
       placeholder="Search projects…"
-      class={`h-7 w-full rounded-lg border border-workspace-rail-line bg-workspace-control pl-8 text-[0.8125rem] text-ink placeholder:text-ink-faint ${withHint ? "pr-10" : "pr-3"}`}
+      class={`field-control h-7 w-full rounded-lg pl-8 text-[0.8125rem] text-ink placeholder:text-ink-faint ${withHint ? "pr-10" : "pr-3"}`}
     />
     {#if withHint}
       <kbd class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 font-sans text-[0.6875rem] font-medium text-ink-faint">{shortcutHint}</kbd>
@@ -132,7 +132,7 @@
   </div>
 {/snippet}
 
-<header data-workspace-toolbar class="flex h-[49px] shrink-0 items-center gap-2 border-b border-workspace-rail-line bg-canvas px-3 sm:px-4">
+<header data-workspace-toolbar data-workspace-page-header class="flex h-[49px] shrink-0 items-center gap-2 border-b border-workspace-rail-line bg-canvas px-3 sm:px-4">
   <!-- Shared drawer hamburger + desktop rail toggle: one a11y contract,
        owned by WorkspaceShellControls (dedup with WorkspaceChrome). -->
   <WorkspaceShellControls tone="light" {onOpenNavigation} {railHidden} {onToggleRail} />
@@ -153,7 +153,7 @@
     </div>
   </div>
 
-  <div class="ml-auto flex shrink-0 items-center gap-1.5 md:ml-0">
+  <div class="ml-auto flex shrink-0 items-center gap-1.5">
     <button
       type="button"
       aria-label="Search projects"
@@ -174,14 +174,15 @@
     </button>
 
     {#if showNewProject}
-      <a
+      <Button
         href={resolve("/project/new")}
-        class="inline-flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-fir px-3 text-[0.8125rem] font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:h-7 sm:px-3"
+        size="xs"
+        class="gap-1.5 motion-reduce:transition-none"
       >
         <PlusIcon size={15} weight="bold" aria-hidden="true" />
         <span class="hidden sm:inline">New project</span>
         <span class="sr-only sm:hidden">New project</span>
-      </a>
+      </Button>
     {/if}
   </div>
 </header>

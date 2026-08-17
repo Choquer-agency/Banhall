@@ -1,19 +1,17 @@
 <script lang="ts">
-  // One recorded-client-name section of the Client → Status Projects views
-  // (2026-08-06 second amendment; Focus drill-in retired and lanes flattened
-  // 2026-08-12, owner direction). Server-backed and index-backed only:
-  // projects arrive from dashboard.listCompanyProjectsByStageRank in frozen
-  // stage-rank order; the pipeline-ordered sub-groups are a lossless re-map
-  // of complete rank runs (stageRankGroups.ts) — never a client-side sort
-  // presented as truth. This is a display grouping of free-text client
+  // One recorded-client-name section of the Client → Fiscal year → Project
+  // hierarchy (2026-08-14 sixth amendment). Server-backed and index-backed
+  // selection stays bounded; the loaded page is arranged by the explicitly
+  // selected within-year sort and grouped into recorded fiscal-year folders.
+  // This is a display grouping of free-text client
   // names, never durable Client identity: no client pages, no merge
-  // affordances. Creation links are navigation into the existing wizard
-  // with an editable recorded-name prefill (omitted for the "No client
-  // recorded" section — there is no recorded name to prefill).
+  // affordances. Project creation stays in the repository toolbar and board
+  // stage footers rather than repeating an action on every client row.
   //
   // Presentations:
-  // - "list": status sub-headers inside a collapsible section (L1).
-  // - "lane": the REAL stage-column board (ProjectsBoard — identical kanban
+  // - "list": dense project cards inside each fiscal-year folder.
+  // - "lane": the stage-column board inside each fiscal-year folder
+  //   (ProjectsBoard — identical kanban
   //   anatomy to the ungrouped /projects board: same-tone columns,
   //   tinted-shell cards, per-column creation footers with this client's
   //   recorded-name prefill, horizontal snap scroll with the edge cue)
@@ -29,26 +27,26 @@
   // loaded-only counts with + / explicit not-fully-loaded markers). Empty
   // stages simply do not render; the Display menu's hide-empty switch is
   // the only reveal control (2026-08-12 — same decision as the main board).
-  import { resolve } from "$app/paths";
   import { usePaginatedQuery } from "convex-svelte";
   import type { FunctionReturnType } from "convex/server";
   import { api } from "../../../../convex/_generated/api";
+  import { SvelteSet } from "svelte/reactivity";
+  import { quintOut } from "svelte/easing";
+  import { slide } from "svelte/transition";
   import {
     DASHBOARD_PROJECT_PAGE_SIZE,
     DASHBOARD_UNNAMED_COMPANY_KEY,
   } from "../../../../shared/dashboardProjection";
-  import { WORKFLOW_STAGE_PIPELINE_ORDER } from "../../../../shared/workflowStages";
   import Disclosure from "$lib/components/ui/Disclosure.svelte";
   import DisclosureChevron from "$lib/components/ui/DisclosureChevron.svelte";
-  import StageBadge from "$lib/components/ui/StageBadge.svelte";
-  import LegacyStatusBadge from "$lib/components/ui/LegacyStatusBadge.svelte";
+  import { FolderDashedIcon, FolderIcon, FolderOpenIcon } from "phosphor-svelte";
+  import ProjectBoardCard from "$lib/components/workspace/ProjectBoardCard.svelte";
   import ProjectsBoard from "$lib/components/workspace/ProjectsBoard.svelte";
-  import {
-    groupRowsByStageRank,
-    verifiedStageCounts,
-    visibleStageGroups,
-  } from "$lib/workspace/stageRankGroups";
+  import { groupProjectsByFiscalYear } from "$lib/workspace/fiscalYearGroups";
   import { toProjectsTableRow } from "$lib/workspace/projectRowMapping";
+  import { motionDuration } from "$lib/motion";
+  import type { ProjectType } from "../../../../shared/projectTypes";
+  import type { ClientProjectSort } from "$lib/dashboard/projectsTablePreferences";
 
   type CompanyProjectsResult = FunctionReturnType<typeof api.dashboard.listCompanyProjectsByStageRank>;
   type ProjectRow = CompanyProjectsResult["page"][number];
@@ -59,6 +57,11 @@
     projectCount,
     stageCounts,
     hideEmpty = true,
+    stage,
+    ownerId,
+    currentAssigneeId,
+    projectType,
+    sortBy = "project_number",
     presentation = "list",
     open,
     onToggle,
@@ -76,6 +79,12 @@
      */
     stageCounts?: Record<string, number>;
     hideEmpty?: boolean;
+    /** Optional repository filters applied by the indexed section query. */
+    stage?: string;
+    ownerId?: string;
+    currentAssigneeId?: string;
+    projectType?: ProjectType;
+    sortBy?: ClientProjectSort;
     presentation?: "list" | "lane";
     open: boolean;
     onToggle: () => void;
@@ -88,9 +97,20 @@
   const displayName = $derived(unnamed ? "No client recorded" : clientName);
 
   const disclosureId = $derived(`client-group-${encodeURIComponent(companyKey)}`);
+  const filtered = $derived(Boolean(stage || ownerId || currentAssigneeId || projectType));
   const projectsQ = usePaginatedQuery(
     api.dashboard.listCompanyProjectsByStageRank,
-    () => (open ? { companyKey } : "skip"),
+    () =>
+      open
+        ? {
+            companyKey,
+            stage: stage as never,
+            ownerId: ownerId as never,
+            currentAssigneeId: currentAssigneeId as never,
+            projectType,
+            sortBy,
+          }
+        : "skip",
     { initialNumItems: DASHBOARD_PROJECT_PAGE_SIZE }
   );
   const projects = $derived(projectsQ.results as ProjectRow[]);
@@ -98,265 +118,178 @@
   const hasMore = $derived(
     projectsQ.status === "CanLoadMore" || projectsQ.status === "LoadingMore"
   );
-  // Closing releases the subscription instantly (query gates on `open`,
-  // subscription-cap contract unchanged) but the ≥300ms exit animation still
-  // needs content to collapse over — snapshot the last loaded page while
-  // open; the closed body is inert (Disclosure), never tabbable.
-  let lastLoaded = $state<{ rows: ProjectRow[]; exhausted: boolean }>({
-    rows: [],
-    exhausted: false,
-  });
-  $effect(() => {
-    if (open) lastLoaded = { rows: projects, exhausted };
-  });
-  const effectiveRows = $derived(open ? projects : lastLoaded.rows);
-  const effectiveExhausted = $derived(open ? exhausted : lastLoaded.exhausted);
   const showError = $derived(open && Boolean(projectsQ.error));
   const showLoading = $derived(open && !projectsQ.error && projectsQ.status === "LoadingFirstPage");
-  // H3 consumer defense: only an internally consistent record is exact.
-  const usableStageCounts = $derived(verifiedStageCounts(stageCounts, projectCount));
-  // Attio-inspired repository summary: the collapsed client row still
-  // communicates where its work sits in the pipeline without opening a
-  // per-client subscription. These counts come exclusively from the
-  // already-projected, transactionally maintained stageCounts record.
-  const stageSummary = $derived.by(() => {
-    if (!usableStageCounts) return [];
-    return WORKFLOW_STAGE_PIPELINE_ORDER
-      .map((stage) => ({ stage, count: usableStageCounts[stage] ?? 0 }))
-      .filter((item) => item.count > 0)
-      .slice(0, 3);
-  });
-  const remainingStageCount = $derived.by(() => {
-    if (!usableStageCounts) return 0;
-    return Math.max(
-      0,
-      WORKFLOW_STAGE_PIPELINE_ORDER.filter((stage) => (usableStageCounts[stage] ?? 0) > 0)
-        .length - stageSummary.length
-    );
-  });
-  const stageView = $derived(
-    visibleStageGroups(
-      groupRowsByStageRank(effectiveRows, effectiveExhausted),
-      usableStageCounts,
-      hideEmpty
-    )
-  );
-  // Per-client board count truth (same ladder the retired focused board
-  // used): verified exact counts are exact; otherwise loaded-only counts
-  // carry "+" qualifiers until the page exhausts, at which point loaded IS
-  // complete.
-  const laneCountsApproximate = $derived(
-    usableStageCounts === undefined && !effectiveExhausted
-  );
-  // A lane with zero loaded rows still renders the board when verified
-  // counts prove projects exist (BoardColumnHeader then carries the honest
-  // "none loaded yet" qualifier); with no such proof it states the loaded
-  // truth plainly.
-  const laneCountsNonZero = $derived(
-    usableStageCounts !== undefined &&
-      Object.values(usableStageCounts).some((count) => count > 0)
-  );
+  // Client → Fiscal year → Project is the repository hierarchy. The query
+  // remains bounded; sort applies within each loaded fiscal-year section.
+  const fiscalGroups = $derived(groupProjectsByFiscalYear(projects, sortBy));
+  const collapsedFiscalGroups = new SvelteSet<string>();
+  function toggleFiscalGroup(key: string) {
+    if (collapsedFiscalGroups.has(key)) {
+      collapsedFiscalGroups.delete(key);
+    } else {
+      collapsedFiscalGroups.add(key);
+    }
+  }
+  const laneCountsApproximate = $derived(!exhausted);
+  function fiscalStageCounts(rows: ProjectRow[]) {
+    if (!exhausted) return undefined;
+    const counts: Record<string, number> = {};
+    for (const row of rows) {
+      const key = row.workflowStage ?? "legacy";
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }
   // Honest in-place remainder for the bounded lane page: the recorded
   // projection count minus what is actually loaded. Load-more, never a
   // navigation (2026-08-12 — Focus retired).
-  const laneMoreCount = $derived(Math.max(0, projectCount - effectiveRows.length));
-  const newProjectHref = $derived(
-    unnamed
-      ? resolve("/project/new")
-      : `${resolve("/project/new")}?client=${encodeURIComponent(clientName)}`
+  const laneMoreCount = $derived(
+    filtered ? null : Math.max(0, projectCount - projects.length)
   );
 </script>
 
-{#snippet countText(count: number, countSuffix: "" | "+", unverified: boolean)}
-  {count}{countSuffix}{#if unverified && count === 0}<span
-      data-unverified-count
-      class="block text-[0.6875rem] font-normal text-ink-muted"
-    >not fully loaded</span>{/if}
-{/snippet}
-
-<!-- Band-headed section (light workspace redesign 2026-08-06; tightened
-     2026-08-12): the client header is a full-width pale band and the content
-     sits flush on the white plane beneath, closed by a hairline — no rounded
-     outline box and no radius on the band itself (Linear group-band grammar).
-     Header keeps label/name/mono count/stage chips/quick-create and 44px
-     targets at every viewport. -->
+<!-- Each recorded client is one quiet repository section. The restrained
+     outline makes the client boundary legible while the project cards remain
+     the primary content inside it. -->
 <section
   data-client-group={companyKey}
   data-client-group-presentation={presentation}
   aria-labelledby={`${disclosureId}-heading`}
-  class="border-b border-workspace-rail-line"
+  class={`overflow-hidden rounded-lg border bg-surface transition-[border-color,background-color] duration-[325ms] motion-reduce:transition-none ${open ? "border-primary/40" : "border-line-soft"}`}
 >
-  <!-- Below `sm` the header is a two-row grid so the client name wins the
-       full first line (live QA 2026-08-07); the quick-create link moves to a
-       second action row (standard stacked-toolbar affordance, 44px targets,
-       exact labels/hrefs unchanged). From `sm` up `sm:contents` dissolves
-       the action wrapper and the header stays the efficient single row. -->
-  <div
-    class={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-center pr-1 transition-colors motion-reduce:transition-none ${open ? "bg-primary-wash/70" : "bg-workspace-rail hover:bg-workspace-rail-hover"} sm:h-10 sm:grid-cols-[minmax(13rem,1fr)_6rem_minmax(18rem,1.15fr)_7rem_2.25rem] sm:gap-0`}
-  >
-    <h3 id={`${disclosureId}-heading`} class="m-0 min-w-0 sm:col-span-3">
+  <!-- One full-row disclosure avoids competing click targets. The recorded
+       client name stands alone without a decorative initial badge; its
+       chevron stays on the right edge and fiscal-year folders below remain
+       visibly inset one level further. -->
+  <div class={open ? "bg-primary-wash/75" : "bg-surface"}>
+    <h3 id={`${disclosureId}-heading`} class="m-0">
       <button
+        data-client-group-trigger
+        data-client-group-chevron
         type="button"
         onclick={onToggle}
         aria-expanded={open}
         aria-controls={disclosureId}
-        class="grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy sm:min-h-10 sm:grid-cols-[minmax(13rem,1fr)_6rem_minmax(18rem,1.15fr)]"
+        aria-label={`${open ? "Collapse" : "Expand"} ${displayName}`}
+        class={`group/client grid min-h-11 w-full grid-cols-[minmax(0,1fr)_1.25rem] items-center gap-2 px-3 text-left transition-colors duration-[325ms] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:min-h-10 ${open ? "" : "hover:bg-workspace-rail-hover active:bg-chrome"}`}
       >
-        <span class="flex min-w-0 items-center gap-2.5">
-          <span
-            aria-hidden="true"
-            class={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-[0.6875rem] font-semibold uppercase ${open ? "border-primary/30 bg-surface text-primary-selected" : "border-line bg-surface text-ink-muted"}`}
-          >{displayName.slice(0, 1) || "–"}</span>
-          <span class={`truncate text-[0.8125rem] font-medium ${open ? "text-primary-selected" : "text-ink"}`}>{displayName}</span>
+        <span class={`truncate text-[0.8125rem] font-medium ${open ? "text-primary-selected" : "text-ink"}`}>
+          {displayName}
         </span>
-        <span data-client-group-count class="text-data shrink-0 text-ink-muted sm:pl-2">{projectCount}<span class="sr-only">{projectCount === 1 ? " project" : " projects"}</span></span>
-        <span class="hidden min-w-0 items-center gap-1.5 overflow-hidden sm:flex">
-          {#if stageSummary.length > 0}
-            {#each stageSummary as item (item.stage)}
-              <span class="inline-flex shrink-0 items-center gap-1">
-                <StageBadge stage={item.stage} dot shape="square" />
-                <span class="text-data text-ink-muted">{item.count}</span>
-              </span>
-            {/each}
-            {#if remainingStageCount > 0}
-              <span class="shrink-0 text-xs text-ink-muted">+{remainingStageCount}</span>
-            {/if}
-          {:else}
-            <span class="text-xs text-ink-faint">Stage counts pending</span>
-          {/if}
-        </span>
+        <DisclosureChevron {open} class="h-3.5 w-3.5 justify-self-end duration-[325ms] [transition-timing-function:cubic-bezier(0.16,1,0.3,1)]" />
       </button>
     </h3>
-    <!-- Decorative state chevron (rule 7: right edge, down → up when open);
-         the section heading button is the real disclosure control. -->
-    <span class="flex h-11 w-8 shrink-0 items-center justify-center sm:col-start-5 sm:h-10" aria-hidden="true">
-      <DisclosureChevron {open} />
-    </span>
-    <!-- Client-scoped creation stays reachable at every viewport (390px
-         included — live QA 2026-08-06): compact "+ New" label below sm,
-         full label from sm up, 44px target either way. Quiet text action:
-         opacity-only hover, no wash fill (2026-08-12 taste pass). -->
-    <div class="col-span-2 flex items-center gap-2 pb-0.5 pl-1 sm:col-span-1 sm:col-start-4 sm:row-start-1 sm:block sm:p-0">
-      <a
-        data-client-new-project
-        href={newProjectHref}
-        aria-label={unnamed ? "New project" : `New project — ${displayName}`}
-        class="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center px-2 text-xs font-medium text-ink opacity-70 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:min-h-10 sm:w-full"
-      ><span class="sm:hidden">+ New</span><span class="hidden sm:inline">+ New project</span></a>
-    </div>
   </div>
 
-  <!-- Animated enter/exit body (2026-08-08 amendment): the shared Disclosure
-       primitive collapses/reveals over ≥300ms (reduced-motion instant); the
-       closed body is inert and holds ZERO subscriptions (query gates on
-       `open` above — the snapshot rows only feed the exit animation). -->
-  <Disclosure id={disclosureId} open={open}>
-    <div>
+  <!-- Closing still releases the query immediately. The first query does not
+       paint temporary geometry: once real rows resolve, the actual fiscal
+       hierarchy opens as one short, reduced-motion-aware reveal. -->
+  {#if open}
+    <div id={disclosureId} data-client-group-body class="border-t border-line-soft">
       {#if showError}
         <p class="px-4 py-6 text-center text-sm text-ink-muted" role="alert">
           This client group could not be loaded. Collapse and reopen it to retry.
         </p>
       {:else if showLoading}
-        <div class="space-y-1 px-3 py-3" role="status" aria-label={`Loading ${displayName} projects`}>
-          <div class="h-9 animate-pulse rounded-lg bg-chrome motion-reduce:animate-none"></div>
-          <div class="h-9 animate-pulse rounded-lg bg-chrome motion-reduce:animate-none"></div>
-        </div>
-      {:else if effectiveRows.length === 0 && (presentation === "lane" ? !laneCountsNonZero : stageView.groups.every((group) => group.count === 0))}
-        <p class="px-4 py-6 text-center text-sm text-ink-muted">No loaded projects for this client name.</p>
-      {:else if presentation === "lane"}
-        <!-- Lane: the real stage-column board, scoped to this client — the
-             SAME kanban anatomy as the ungrouped /projects board. Hide-empty
-             honors this client's own verified counts (fail honest without
-             them); columns take natural height because the grouped board's
-             outer vertical scroller owns the vertical axis. The section band
-             already names the client, so cards drop their client line; the
-             creation footers carry this client's recorded-name prefill. -->
-        <div class="pt-1">
-          <ProjectsBoard
-            rows={effectiveRows.map(toProjectsTableRow)}
-            stageCounts={usableStageCounts}
-            countsApproximate={laneCountsApproximate}
-            {hideEmpty}
-            newProjectClientName={unnamed ? null : clientName}
-            showCardClient={false}
-            regionLabel={`${displayName} board. Scroll horizontally to review every workflow stage.`}
-            idPrefix={`${disclosureId}-board`}
-            columnHeadingLevel={4}
-          />
-        </div>
-        {#if open && hasMore}
-          <!-- Honest bounded-page remainder: loads more IN PLACE (the
-               recorded count minus loaded rows), never a navigation. -->
-          <div class="flex px-3 pb-2">
-            <button
-              type="button"
-              data-lane-load-more
-              disabled={projectsQ.status === "LoadingMore"}
-              onclick={() => projectsQ.loadMore(DASHBOARD_PROJECT_PAGE_SIZE)}
-              class="min-h-11 px-2 text-xs font-medium text-ink opacity-70 transition-opacity hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none"
-            >{projectsQ.status === "LoadingMore"
-                ? "Loading…"
-                : laneMoreCount > 0
-                  ? `+${laneMoreCount} more`
-                  : "Show more"}</button>
-          </div>
-        {/if}
+        <p data-client-projects-loading class="sr-only" role="status">
+          Loading {displayName} projects.
+        </p>
       {:else}
-        <!-- List: pipeline-ordered status sub-headers cut from the server's
-             stage-rank order. Hidden empty stages simply do not render; the
-             Display menu's hide-empty switch is the only control
-             (2026-08-12). -->
-        <div class="px-1.5 py-1.5">
-          {#each stageView.groups as group (group.id)}
-            <div data-stage-subgroup={group.id} class="mt-1 first:mt-0">
-              <h4 class="flex min-h-8 items-center gap-2 border-y border-line-soft bg-gray-50 px-3 first:border-t-0">
-                {#if group.id === "legacy"}
-                  <LegacyStatusBadge />
-                {:else}
-                  <StageBadge stage={group.id} dot />
-                {/if}
-                <span data-stage-subgroup-count class="text-data text-ink-muted">
-                  {@render countText(group.count, group.countSuffix, group.unverified)}
-                </span>
-              </h4>
-              {#if group.rows.length > 0}
-                <ul role="list" class="flex flex-col">
-                  {#each group.rows as project (project._id)}
-                    <li class="border-b border-line-soft last:border-b-0 transition-colors hover:bg-primary-wash focus-within:bg-primary-wash motion-reduce:transition-none">
-                      <div class="grid min-h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-3 py-1 sm:min-h-9 sm:grid-cols-[minmax(14rem,1fr)_10rem_7rem]">
-                        <a
-                          href={resolve("/project/[id]", { id: project._id })}
-                          data-recent-title={project.title}
-                          data-recent-stage={project.workflowStage ?? undefined}
-                          data-recent-client={unnamed ? undefined : clientName}
-                          class="min-w-0 truncate text-sm font-medium text-ink hover:text-primary-selected focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
-                        >{project.title}</a>
-                        {#if project.fiscalYearEnd}
-                          <span class="hidden shrink-0 text-xs text-ink-muted sm:inline">FY {new Date(project.fiscalYearEnd).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}</span>
+        <div
+          data-client-projects-resolved
+          in:slide={{ duration: motionDuration(260), easing: quintOut, axis: "y" }}
+        >
+          {#if projects.length === 0}
+            <p class="px-4 py-6 text-center text-sm text-ink-muted">
+              {filtered ? "No projects in this client match the active filters." : "No loaded projects for this client name."}
+            </p>
+          {:else}
+            <!-- Explorer hierarchy: Client → Fiscal year → Project. The
+                 client heading is the outer disclosure; every fiscal folder
+                 is one contained surface with its projects inside. -->
+            <div class="space-y-2 bg-canvas/70 px-2 py-2 sm:px-3 sm:py-3">
+              {#each fiscalGroups as fiscalGroup (fiscalGroup.key)}
+                {@const fiscalOpen = !collapsedFiscalGroups.has(fiscalGroup.key)}
+                {@const fiscalBodyId = `${disclosureId}-fy-${fiscalGroup.key}-body`}
+                {@const unrecordedFiscalYear = fiscalGroup.year === null}
+                <section
+                  data-fiscal-year-group={fiscalGroup.key}
+                  data-fiscal-year-kind={unrecordedFiscalYear ? "unrecorded" : "recorded"}
+                  aria-labelledby={`${disclosureId}-fy-${fiscalGroup.key}`}
+                  class={`overflow-hidden rounded-lg border bg-surface transition-colors duration-[240ms] motion-reduce:transition-none ${unrecordedFiscalYear ? "border-dashed border-line" : fiscalOpen ? "border-line" : "border-line-soft"}`}
+                >
+                  <h4 id={`${disclosureId}-fy-${fiscalGroup.key}`} class="m-0">
+                    <button
+                      data-fiscal-year-toggle={fiscalGroup.key}
+                      type="button"
+                      onclick={() => toggleFiscalGroup(fiscalGroup.key)}
+                      aria-expanded={fiscalOpen}
+                      aria-controls={fiscalBodyId}
+                      aria-label={`${fiscalOpen ? "Collapse" : "Expand"} ${fiscalGroup.label}`}
+                      class={`group/fiscal grid min-h-11 w-full grid-cols-[1rem_minmax(0,1fr)_1rem] items-center gap-2 px-3 text-left text-xs font-medium transition-colors duration-[240ms] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:min-h-8 ${unrecordedFiscalYear ? "text-ink-muted" : fiscalOpen ? "text-ink" : "text-ink-secondary"} ${fiscalOpen ? "bg-chrome/70" : "bg-surface hover:bg-workspace-rail-hover active:bg-chrome"}`}
+                    >
+                      {#if unrecordedFiscalYear}
+                        <FolderDashedIcon size={15} weight="regular" class="shrink-0 text-ink-faint" aria-hidden="true" />
+                      {:else if fiscalOpen}
+                        <FolderOpenIcon size={15} weight="regular" class="shrink-0 text-ink-secondary" aria-hidden="true" />
+                      {:else}
+                        <FolderIcon size={15} weight="regular" class="shrink-0 text-ink-muted" aria-hidden="true" />
+                      {/if}
+                      <span class="min-w-0 truncate">{fiscalGroup.label}</span>
+                      <DisclosureChevron open={fiscalOpen} tone="neutral" class="h-3.5 w-3.5 justify-self-end duration-[240ms] [transition-timing-function:cubic-bezier(0.16,1,0.3,1)]" />
+                    </button>
+                  </h4>
+                  <Disclosure id={fiscalBodyId} open={fiscalOpen}>
+                    {#snippet children()}
+                      <div data-fiscal-year-body={fiscalGroup.key} class="border-t border-line-soft bg-canvas/45">
+                        {#if presentation === "lane"}
+                          <div class="py-2">
+                            <ProjectsBoard
+                              rows={fiscalGroup.rows.map(toProjectsTableRow)}
+                              stageCounts={fiscalStageCounts(fiscalGroup.rows)}
+                              countsApproximate={laneCountsApproximate}
+                              {hideEmpty}
+                              newProjectClientName={unnamed ? null : clientName}
+                              showCardClient={false}
+                              showCardFiscalYear={false}
+                              regionLabel={`${displayName}, ${fiscalGroup.label} board. Scroll horizontally to review every workflow stage.`}
+                              idPrefix={`${disclosureId}-fy-${fiscalGroup.key}-board`}
+                              columnHeadingLevel={4}
+                            />
+                          </div>
+                        {:else}
+                          <div role="list" class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-2 p-2.5">
+                            {#each fiscalGroup.rows as project (project._id)}
+                              <div role="listitem">
+                                <ProjectBoardCard row={toProjectsTableRow(project)} showClient={false} showFiscalYear={false} showStage />
+                              </div>
+                            {/each}
+                          </div>
                         {/if}
-                        {#if !project.workflowStage}
-                          <span data-legacy-status-qualifier class="col-start-1 text-xs text-ink-muted sm:col-start-auto">{project.status} · Legacy status</span>
-                        {/if}
-                        <span class="shrink-0 justify-self-end text-xs text-ink-muted sm:col-start-3">{new Date(project.updatedAt).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}</span>
                       </div>
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
+                    {/snippet}
+                  </Disclosure>
+                </section>
+              {/each}
             </div>
-          {/each}
-        </div>
-      {/if}
-      {#if open && !showError && !showLoading && hasMore && presentation === "list"}
-        <div class="border-t border-line-soft px-3 py-2">
-          <button
-            type="button"
-            disabled={projectsQ.status === "LoadingMore"}
-            onclick={() => projectsQ.loadMore(DASHBOARD_PROJECT_PAGE_SIZE)}
-            class="min-h-11 rounded-lg px-3 text-xs font-medium text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50 motion-reduce:transition-none sm:min-h-8"
-          >{projectsQ.status === "LoadingMore" ? "Loading…" : `Show more — ${displayName}`}</button>
+          {/if}
+          {#if hasMore}
+            <div class="border-t border-line-soft px-3 py-2">
+              <button
+                type="button"
+                disabled={projectsQ.status === "LoadingMore"}
+                onclick={() => projectsQ.loadMore(DASHBOARD_PROJECT_PAGE_SIZE)}
+                class="min-h-11 rounded-lg px-3 text-xs font-medium text-ink-muted transition-colors duration-[240ms] hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-50 motion-reduce:transition-none sm:min-h-8"
+              >{projectsQ.status === "LoadingMore"
+                  ? "Loading..."
+                  : laneMoreCount !== null && laneMoreCount > 0
+                    ? `Show ${laneMoreCount} more for ${displayName}`
+                    : `Show more for ${displayName}`}</button>
+            </div>
+          {/if}
         </div>
       {/if}
     </div>
-  </Disclosure>
+  {/if}
 </section>

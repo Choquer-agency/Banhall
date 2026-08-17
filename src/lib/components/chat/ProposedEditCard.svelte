@@ -191,7 +191,7 @@
               }}
               aria-label={`Edit replacement wording ${index + 1}`}
               rows={Math.min(7, Math.max(3, wording.split("\n").length + 1))}
-              class="w-full resize-y rounded-md border border-line bg-white px-2.5 py-2 font-serif text-sm leading-relaxed text-ink outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
+              class="field-control w-full resize-y rounded-md px-2.5 py-2 font-serif text-sm leading-relaxed text-ink"
             ></textarea>
           </label>
         {/each}

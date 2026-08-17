@@ -107,6 +107,7 @@ revert path = flag flip.
 | 2026-07-29 | Final automated gates before remediation review. | 486/486 unit/integration tests, 73/73 component tests (serial Chromium), Svelte check 0/0, Convex TypeScript clean, production build successful, `git diff --check` clean, detector `[]`. |
 | 2026-07-29 | Fable 5 and Codex full-tree review identified roster authorization, object-oracle, durable backfill, readiness verification, terminal reconciliation, retry fingerprint, and abandonment-contract gaps. | All findings traced and remediated; product owner confirmed that abandonment must reject while open work remains, and the canonical contract now records the approved amendment. |
 | 2026-07-29 | Final remediation validation and adversarial rereview. | 492/492 unit/integration tests, 74/74 component tests, Svelte check 0/0, Convex TypeScript and build clean, `git diff --check` clean; final Fable and Codex verdicts **SHIP**. |
+| 2026-08-14 | Applied the approved Client → Fiscal year → Project repository amendment: richer identity cards, current-assignee and project-type filters, and explicit within-year sorting. | All-projects remains bounded and server-selected; loaded client pages are grouped by recorded fiscal year with unrecorded values clearly separated. Historical rows use the approved project-type dual-read fallback until backfill. |
 
 ## Completion record
 

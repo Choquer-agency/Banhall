@@ -180,7 +180,7 @@
           <select
             id="workspace-rollout-member"
             bind:value={selectedUserId}
-            class="h-9 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+            class="field-control h-9 rounded-lg px-3 text-sm text-gray-900"
           >
             <option value="">Select a member…</option>
             {#each members as member (member._id)}

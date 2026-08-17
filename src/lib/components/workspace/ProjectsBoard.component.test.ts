@@ -33,6 +33,7 @@ async function mountBoard(
     hideEmpty?: boolean;
     newProjectClientName?: string | null;
     showCardClient?: boolean;
+    showCardFiscalYear?: boolean;
   },
   { width = 1280, height = 800, harnessHeight = 700 } = {}
 ) {
@@ -84,12 +85,12 @@ describe("ProjectsBoard", () => {
     ).toContain("3+");
   });
 
-  it("renders all ten canonical stages full-width at zero count by default, header-only — no empty-state body box", async () => {
+  it("renders all eleven canonical stages full-width at zero count by default, header-only — no empty-state body box", async () => {
     await mountBoard({ rows: [], stageCounts: {} });
 
     const ids = columnSections().map((section) => section.getAttribute("aria-labelledby"));
     expect(ids).toEqual(WORKFLOW_STAGE_PIPELINE_ORDER.map((stage) => `project-board-${stage}`));
-    expect(WORKFLOW_STAGE_PIPELINE_ORDER).toHaveLength(10);
+    expect(WORKFLOW_STAGE_PIPELINE_ORDER).toHaveLength(11);
     // Legacy is the compatibility column: never advertised when empty.
     expect(document.getElementById("project-board-legacy")).toBeNull();
 
@@ -173,8 +174,8 @@ describe("ProjectsBoard", () => {
 
   it("never hides on loaded-rows-zero: without stageCounts the option is inert (fail honest)", async () => {
     await mountBoard({ rows: [row({ id: "p1" })], hideEmpty: true });
-    // No count source → all ten canonical stages render, nothing hidden.
-    expect(columnSections()).toHaveLength(10);
+    // No count source → all eleven canonical stages render, nothing hidden.
+    expect(columnSections()).toHaveLength(11);
     expect(document.querySelector("[data-hidden-stages-disclosure]")).toBeNull();
   });
 
@@ -418,5 +419,15 @@ describe("ProjectsBoard", () => {
     expect(article?.textContent).not.toContain("Northline Labs");
     expect(article?.textContent).toContain("Project p2");
     expect(article?.textContent).toContain("Olivia Owner");
+  });
+
+  it("can suppress the fiscal-year chip when an enclosing folder already names the year", async () => {
+    await mountBoard({
+      rows: [row({ id: "p1", fiscalYear: 2025 })],
+      showCardFiscalYear: false,
+    });
+
+    expect(document.querySelector("[data-card-fiscal-year]")).toBeNull();
+    expect(document.querySelector('[data-card-field="identity"]')?.textContent).toContain("Writing");
   });
 });

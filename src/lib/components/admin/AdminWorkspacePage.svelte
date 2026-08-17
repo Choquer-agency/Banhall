@@ -14,12 +14,14 @@
     title,
     description = null,
     width = "wide",
+    flush = false,
     children,
     actions,
   }: {
     title: string;
     description?: string | null;
     width?: "wide" | "compact";
+    flush?: boolean;
     children: Snippet;
     actions?: Snippet;
   } = $props();
@@ -65,7 +67,8 @@
     <div
       data-admin-presentation="workspace"
       data-admin-content-width={width}
-      class="w-full px-4 py-6 sm:px-6 sm:py-8"
+      data-admin-content-flush={flush ? "" : undefined}
+      class={flush ? "w-full" : "w-full px-4 py-6 sm:px-6 sm:py-8"}
     >
       {@render children()}
     </div>

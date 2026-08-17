@@ -7,6 +7,7 @@ import {
   type DashboardGenerationActivity,
 } from "../../shared/dashboardProjection";
 import { workflowStageRank, type WorkflowStage } from "../../shared/workflowStages";
+import { effectiveProjectType } from "../../shared/projectTypes";
 import { findActiveGeneration } from "./activeGeneration";
 
 type Ctx = QueryCtx | MutationCtx;
@@ -234,6 +235,7 @@ export function dashboardProjectRow(project: Doc<"projects">) {
     _id: project._id,
     _creationTime: project._creationTime,
     title: project.title,
+    sredTitle: project.sredTitle,
     // 2026-08-11 amendment: pass-through of the per-company project number /
     // draft letter from the raw project doc (no derived/stored projection).
     projectNumber: project.projectNumber,
@@ -245,6 +247,7 @@ export function dashboardProjectRow(project: Doc<"projects">) {
     industry: project.industry,
     scienceCode: project.scienceCode,
     mode: project.mode,
+    projectType: effectiveProjectType(project),
     ownerId: project.ownerId,
     workflowStage: project.workflowStage,
     // Exposed so presentation can fail honest when a row predates the rank

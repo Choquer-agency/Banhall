@@ -308,7 +308,10 @@ New module `convex/uploadAttempts.ts` (mutations/queries) + `convex/lib/uploadAt
 
 **Happy path (per batch):**
 
-1. Client generates `attemptKey = crypto.randomUUID()` per file.
+1. Client generates a UUID-v4-compatible `attemptKey` per file through the
+   shared request-ID helper. Native `crypto.randomUUID()` is preferred; LAN
+   HTTP clients fall back to `crypto.getRandomValues()` while preserving the
+   backend-validated UUID shape.
 2. **Begin:** one batched `recordUploadAttempts({ projectId, attempts: [{attemptKey, fileName, fileSizeBytes, origin, failureCode?}] })` call per batch (max 50 entries; more → `domainError("INVALID_INPUT", …)`). Upsert semantics by `(projectId, attemptKey)`: absent → insert (`in_progress`, or `failed` when `failureCode` is supplied — this is how client-side whitelist rejections and outbox flushes are recorded in the same mutation); present with status `failed`/`in_progress`/`dismissed` → patch back to `in_progress` (or `failed`); present with status **`succeeded` → no-op** (terminal; a late duplicate flush can't resurrect it). Prune runs at the end (§5).
 3. Storage POST + parse (unchanged flow).
 4. **Success:** `uploadDocument` gains optional `attemptKey` (regex-validated). After insert — and equally on the dedupe-hit path — it calls `resolveUploadAttempt(ctx, projectId, attemptKey, documentId)`: patch `{status: "succeeded", documentId, updatedAt}`. Missing attempt row (old client, begin lost to the network) → silently proceed. Resolution in the **same transaction** as the insert is the atomic correlation: the receipt joins `listDocuments` + `listUploadAttempts` and the list query excludes `succeeded`/`dismissed`, so a resolved attempt and its document row can never both render.

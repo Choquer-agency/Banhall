@@ -24,6 +24,7 @@ describe("workflow pipeline order", () => {
       ["interview_complete", 1],
       ["drafting", 2],
       ["internal_review", 3],
+      ["edits", 3.5],
       ["client_review", 4],
       ["revisions", 5],
       ["ready_for_delivery", 6],

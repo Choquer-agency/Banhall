@@ -270,7 +270,7 @@
       {#if totalProjects > 0}
         <div class="relative mt-4">
           <svg class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-          <input bind:value={search} aria-label="Search projects" placeholder="Search company, project, consultant, or interviewer…" class="min-h-11 w-full rounded-md border border-line bg-white py-2 pl-9 pr-3 text-sm text-ink placeholder:text-ink-muted focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy" />
+          <input bind:value={search} aria-label="Search projects" placeholder="Search company, project, consultant, or interviewer…" class="field-control min-h-11 w-full rounded-md py-2 pl-9 pr-3 text-sm text-ink placeholder:text-ink-muted" />
         </div>
 
         <div class="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">

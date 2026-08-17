@@ -253,7 +253,7 @@
         onOpenNavigation={() => (navigationOpen = true)}
         {railHidden}
         onToggleRail={() => (railHidden = !railHidden)}
-        showNewProject={false}
+        showNewProject
       />
     {:else}
       <!-- Home's greeting already supplies the page heading. Keep only the
@@ -299,7 +299,7 @@
               <ShaderBackground class="h-full w-full" />
             </div>
           </div>
-          <div data-home-boundary class="relative mx-auto w-full max-w-[44.75rem]">
+          <div data-home-boundary class="relative mx-auto w-full max-w-[var(--container-home)]">
             <MyWorkView recentProjects={recents} />
           </div>
         </div>

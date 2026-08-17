@@ -1,12 +1,11 @@
 <script lang="ts">
   import { DropdownMenu } from "bits-ui";
+  import { SlidersHorizontalIcon } from "phosphor-svelte";
   import { popIn, popOut } from "$lib/motion/panelMotion";
   import type {
     ProjectColumnId,
     ProjectsTablePreferences,
   } from "$lib/dashboard/projectsTablePreferences";
-
-  type SortBy = "updated" | "created" | "viewed";
 
   let {
     preferences,
@@ -25,15 +24,15 @@
     onHideEmptyClientGroupsChange,
   }: {
     preferences: ProjectsTablePreferences;
-    sortBy: SortBy;
-    sortOptions: readonly { value: SortBy; label: string }[];
+    sortBy: string;
+    sortOptions: readonly { value: string; label: string }[];
     columnOptions: readonly { id: ProjectColumnId; label: string }[];
     showSort: boolean;
     showBoardOptions: boolean;
     showClientOptions: boolean;
     clientCountsAvailable: boolean;
     boardCountsLimited: boolean;
-    onSortChange: (value: SortBy) => void;
+    onSortChange: (value: string) => void;
     onToggleColumn: (id: ProjectColumnId) => void;
     onDensityChange: (value: ProjectsTablePreferences["density"]) => void;
     onHideEmptyBoardChange: (value: boolean) => void;
@@ -66,11 +65,8 @@
     data-projects-display-trigger
     class="inline-flex h-11 min-w-0 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-ink-secondary transition-colors hover:bg-chrome/70 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:h-7"
   >
-    <svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 6.75h15m-15 5.25h15m-15 5.25h15" />
-      <path stroke-linecap="round" d="M8 4.75v4m8 1.25v4m-5 1.25v4" />
-    </svg>
-    <span class="truncate">Display{displaySummary ? ` · ${displaySummary}` : ""}</span>
+    <SlidersHorizontalIcon size={16} weight="regular" aria-hidden="true" class="shrink-0" />
+    <span class="truncate">Display</span>
   </DropdownMenu.Trigger>
 
   <DropdownMenu.Portal>
@@ -103,7 +99,7 @@
           value={sortBy}
           onValueChange={(value) =>
             onSortChange(
-              sortOptions.some((option) => option.value === value) ? (value as SortBy) : "updated"
+              sortOptions.some((option) => option.value === value) ? value : sortOptions[0]?.value ?? "updated"
             )}
         >
           {#each sortOptions as option (option.value)}

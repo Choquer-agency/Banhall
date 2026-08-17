@@ -60,6 +60,7 @@
     hideEmpty = false,
     newProjectClientName = null,
     showCardClient = true,
+    showCardFiscalYear = true,
     onlyStage = null,
     regionLabel = "Projects board. Scroll horizontally to review every workflow stage.",
     idPrefix = "project-board",
@@ -82,6 +83,11 @@
      * client (ProjectBoardCard.showClient).
      */
     showCardClient?: boolean;
+    /**
+     * Fiscal-year chip toggle for boards nested inside a fiscal folder
+     * (ProjectBoardCard.showFiscalYear).
+     */
+    showCardFiscalYear?: boolean;
     /**
      * Active stage filter (Obvious filter anatomy, 2026-08-10): renders ONLY
      * the matching column instead of nine provably-empty neighbours. The
@@ -188,6 +194,7 @@
               <ProjectBoardCard
                 {row}
                 showClient={showCardClient}
+                showFiscalYear={showCardFiscalYear}
                 onOpen={() =>
                   setProjectPagingContext({
                     ids: column.rows.map((r) => r.id),

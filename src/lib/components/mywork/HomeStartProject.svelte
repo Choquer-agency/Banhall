@@ -2,6 +2,7 @@
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import {
+    ArrowRightIcon,
     ArrowUpIcon,
     ClipboardTextIcon,
     FileDocIcon,
@@ -41,10 +42,16 @@
   }
 
   const wordCount = $derived(transcriptText.trim().split(/\s+/).filter(Boolean).length);
+  const hasActiveTranscript = $derived(
+    transcriptMode === "paste"
+      ? transcriptText.trim().length > 0
+      : Boolean(transcriptFileName && transcriptText.trim())
+  );
+  const canStart = $derived(Boolean(title.trim()) && hasActiveTranscript && !parsing);
 
   async function handleFile(file: File) {
     if (!file.name.toLowerCase().endsWith(".docx")) {
-      transcriptError = "Transcripts must be Word (.docx) files — Teams exports are. You can paste the transcript instead.";
+      transcriptError = "Transcripts must be Word (.docx) files. Teams exports are supported, or you can paste the transcript instead.";
       return;
     }
     transcriptError = "";
@@ -83,12 +90,18 @@
   }
 
   function startProject() {
+    if (!canStart) return;
     stashProjectStart({
       title,
       transcriptText:
         transcriptMode === "paste" || transcriptFileName ? transcriptText : "",
       transcriptFileName: transcriptMode === "attach" ? transcriptFileName : null,
     });
+    goto(resolve("/project/new"));
+  }
+
+  function startBlankProject() {
+    stashProjectStart({ title: "", transcriptText: "", transcriptFileName: null });
     goto(resolve("/project/new"));
   }
 </script>
@@ -102,7 +115,7 @@
      shader wash renders in the workspace scroll owner (WorkspaceDashboard) —
      container-width, so classic scrollbars never cause horizontal overflow. -->
 <section data-home-start aria-labelledby="home-start-title" class="relative isolate flex flex-col px-4 pb-8 pt-24 sm:px-6 sm:pb-10">
-  <div data-home-start-centered class="mx-auto w-full max-w-[44.75rem]">
+  <div data-home-start-centered class="mx-auto w-full max-w-[var(--container-home)]">
     <!-- Customer.io Agent-home hierarchy (Mobbin evidence 2026-08-10): the
          greeting IS the headline; the question is the quiet line under it.
          Weight discipline: nothing on Home exceeds font-medium (500) —
@@ -112,18 +125,13 @@
       <p id="home-start-title" class="text-hero-sub mt-2 text-ink-muted">What are we writing today?</p>
     </header>
 
-    <!-- Prompt-box composition (2026-08-10, Obvious prompt parity): one
-         quiet rounded container carries the whole intake. The CONTAINER owns
-         the focus treatment (focus-within border shift) so the fields inside
-         stay chrome-free — no per-input underline, hover, or default black
-         focus outline. Labels stay in the DOM for assistive tech (sr-only);
-         placeholders carry the visible prompt. Still pure wizard navigation. -->
-    <!-- Quiet container: full-opacity hairline, no hover/focus-within
-         treatment (2026-08-10 owner direction) — the caret and control
-         focus rings carry keyboard state. -->
+    <!-- The Home intake is a white working surface. A one-pixel inset line
+         shifts from neutral to lagoon on hover/focus while its title and
+         transcript fields stay chromeless. -->
     <form
       data-home-start-form
-      class={`mt-6 flex flex-col rounded-xl border bg-surface px-3 pb-2.5 pt-4 text-left sm:mt-8 sm:px-4 sm:pb-3 sm:pt-5 ${dragOver ? "border-primary-selected" : "border-line"}`}
+      data-drag-over={dragOver ? "" : undefined}
+      class="field-control-shell field-control-shell--surface mt-6 flex flex-col rounded-xl px-3 pb-2.5 pt-4 text-left sm:mt-8 sm:px-4 sm:pb-3 sm:pt-5"
       onsubmit={(event) => {
         event.preventDefault();
         startProject();
@@ -242,9 +250,10 @@
         <button
           type="submit"
           data-home-start-submit
-          disabled={Boolean(parsing)}
-          aria-label="Start project"
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-selected text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy active:translate-y-px disabled:opacity-60 pointer-coarse:h-11 pointer-coarse:w-11"
+          disabled={!canStart}
+          aria-label={canStart ? "Start project" : "Add a project name and transcript to continue"}
+          title={canStart ? "Start project" : "Add a project name and transcript to continue"}
+          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-selected text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy active:translate-y-px disabled:cursor-not-allowed disabled:bg-chrome disabled:text-ink-faint disabled:opacity-100 pointer-coarse:h-11 pointer-coarse:w-11"
         >
           <ArrowUpIcon size={14} weight="bold" aria-hidden="true" />
         </button>
@@ -266,13 +275,19 @@
          inventing activity, templates, or another subscription. This is the
          same section rhythm Attio uses below its composer: one sentence of
          context and one honest next destination. -->
-    <div data-home-continuation class="mt-4 border-t border-line-soft px-1 pt-4">
-      <div class="min-w-0">
-        <p class="text-sm font-medium text-ink">Start in intake</p>
-        <p class="mt-0.5 text-xs leading-relaxed text-ink-muted">
-          Add a title now; review the transcript and project details before anything is created.
-        </p>
-      </div>
+    <div data-home-continuation class="mt-4 border-t border-line-soft pt-3">
+      <button
+        type="button"
+        data-home-start-blank
+        onclick={startBlankProject}
+        class="group flex min-h-14 w-full items-center justify-between gap-4 rounded-lg px-2 text-left transition-colors hover:bg-chrome/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-16"
+      >
+        <span class="min-w-0">
+          <span class="block text-sm font-medium text-ink">Start a blank project</span>
+          <span class="mt-0.5 block text-xs leading-relaxed text-ink-muted">Open intake and add the project details there.</span>
+        </span>
+        <ArrowRightIcon size={16} weight="regular" aria-hidden="true" class="shrink-0 text-ink-muted transition-transform duration-200 group-hover:translate-x-0.5 motion-reduce:transition-none" />
+      </button>
     </div>
   </div>
 </section>

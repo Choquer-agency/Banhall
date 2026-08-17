@@ -41,6 +41,8 @@ describe("WorkspaceChrome", () => {
     await render(WorkspaceChrome, { title: "Alerts & requests", children: tallContent });
 
     const header = document.querySelector<HTMLElement>("[data-workspace-chrome] header")!;
+    expect(header.hasAttribute("data-workspace-page-header")).toBe(true);
+    expect(header.className).toContain("h-[49px]");
     expect(header.querySelector(".bg-primary.h-5.w-0\\.5")).toBeNull();
     expect(document.querySelector('a[href="/projects"]')).not.toBeNull();
     expect(document.querySelector('a[href="/my-work"]')).not.toBeNull();
@@ -82,7 +84,7 @@ describe("WorkspaceChrome", () => {
       .toBe("Close workspace navigation");
 
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
-    dialog.querySelector<HTMLButtonElement>('button[aria-label="Account menu"]')!.click();
+    dialog.querySelector<HTMLButtonElement>('button[aria-label="Settings menu"]')!.click();
     await expect.poll(() => document.querySelector('[data-menu-layer="drawer"]')).not.toBeNull();
 
     const menu = document.querySelector<HTMLElement>('[data-menu-layer="drawer"]')!;

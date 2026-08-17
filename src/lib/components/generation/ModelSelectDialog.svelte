@@ -97,7 +97,7 @@
                   bind:value={search}
                   placeholder="Search models"
                   autofocus
-                  class="h-8 w-full bg-transparent text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none"
+                  class="input-chromeless h-8 w-full bg-transparent text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none"
                 />
                 <span class="whitespace-nowrap text-xs tabular-nums text-gray-400">
                   {filtered.length} model{filtered.length === 1 ? "" : "s"}

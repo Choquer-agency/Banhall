@@ -205,7 +205,7 @@
               id="financial-file-name"
               bind:value={fileName}
               placeholder="e.g., team-slack-export-2024.txt"
-              class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              class="field-control mt-1 w-full rounded-lg px-3 py-2 text-sm"
             />
           </div>
           <div>
@@ -226,7 +226,7 @@
             bind:value={content}
             rows="8"
             placeholder="Paste Slack export, WhatsApp chat log, git log output, CSV data, etc."
-            class="mt-1 w-full resize-none rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            class="field-control mt-1 w-full resize-none rounded-lg px-3 py-2 font-mono text-sm"
           ></textarea>
         </div>
         {#if !providerReady}
@@ -376,7 +376,7 @@
                           max="24"
                           step="0.25"
                           bind:value={reviewedHours}
-                          class="w-20 rounded-md border border-line-soft px-2 py-1 text-right text-sm"
+                        class="field-control w-20 rounded-md px-2 py-1 text-right text-sm"
                         />
                       {:else}
                         <span>{entry.hours.toFixed(1)}</span>

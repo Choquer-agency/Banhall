@@ -1438,7 +1438,7 @@
             readonly
             onfocus={(event) => event.currentTarget.select()}
             onclick={(event) => event.currentTarget.select()}
-            class="mt-1.5 w-full rounded-lg border border-gray-200 bg-chrome px-3 py-2 font-mono text-xs text-gray-700 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+            class="field-control mt-1.5 w-full rounded-lg px-3 py-2 font-mono text-xs text-gray-700"
           />
           {#if shareError}
             <p class="mt-2 text-sm text-red-700" role="alert">{shareError}</p>

@@ -31,7 +31,6 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import type { Snippet } from "svelte";
   import { api } from "../../../convex/_generated/api";
-  import Button from "$lib/components/ui/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import {
     resolveWorkspaceRouteState,
@@ -65,7 +64,9 @@
   );
 
   $effect(() => {
-    if (!auth.isLoading && !auth.isAuthenticated) goto(resolve("/login"), { replaceState: true });
+    if (!auth.isLoading && !auth.isAuthenticated) {
+      void goto(resolve("/login"), { replaceState: true });
+    }
   });
 
   const accessState = $derived.by<WorkspaceAccessState>(() => {
@@ -90,15 +91,17 @@
   });
 </script>
 
-{#if auth.isLoading}
+{#if auth.isLoading || !auth.isAuthenticated}
   <!-- data-workspace-gate-pending distinguishes the two visually identical
-       spinner branches (auth vs. decision/redirect) so an authenticated
-       visual smoke that stalls on a spinner can attribute the wait (live QA
-       2026-08-07 rollback smoke diagnostics; no behavior change). -->
-  <div class="flex flex-1 items-center justify-center bg-canvas" data-workspace-gate-pending="auth"><Spinner /></div>
-{:else if !auth.isAuthenticated}
-  <div class="flex flex-1 items-center justify-center bg-canvas px-6">
-    <Button href={resolve("/login")} class="min-h-11">Sign in to continue</Button>
+       auth and redirect states without introducing a second sign-in surface.
+       Unauthenticated users are sent directly to the canonical login page. -->
+  <div
+    class="flex flex-1 items-center justify-center bg-canvas"
+    role="status"
+    aria-label={auth.isLoading ? "Checking your session" : "Opening sign in"}
+    data-workspace-gate-pending={auth.isLoading ? "auth" : "redirect"}
+  >
+    <Spinner />
   </div>
 {:else if routeState === "preview" && preview}
   <div class="contents" data-dashboard-experience="preview">

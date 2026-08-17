@@ -22,12 +22,17 @@
   import { WORKFLOW_STAGES, type WorkflowStage } from "../../../../shared/workflowStages";
   import StageBadge from "$lib/components/ui/StageBadge.svelte";
   import { popIn, popOut } from "$lib/motion/panelMotion";
+  import { PROJECT_TYPES, PROJECT_TYPE_LABELS, type ProjectType } from "../../../../shared/projectTypes";
 
   let {
     stage,
     onStageChange,
     ownerId,
     onOwnerChange,
+    currentAssigneeId,
+    onCurrentAssigneeChange,
+    projectType,
+    onProjectTypeChange,
     stageItems,
     onFieldPick,
     open = $bindable(false),
@@ -36,10 +41,14 @@
     onStageChange: (value: string) => void;
     ownerId: string | null;
     onOwnerChange: (value: string, label: string) => void;
+    currentAssigneeId: string | null;
+    onCurrentAssigneeChange: (value: string, label: string) => void;
+    projectType: ProjectType | null;
+    onProjectTypeChange: (value: ProjectType, label: string) => void;
     stageItems: readonly { value: string; label: string }[];
     /** Field chosen from the list — parent renders the pending condition
      *  chip; its value segment opens this popover anchored to it. */
-    onFieldPick: (field: "stage" | "owner") => void;
+    onFieldPick: (field: FieldId) => void;
     open?: boolean;
   } = $props();
 
@@ -49,12 +58,19 @@
     auth.isAuthenticated && open ? {} : "skip"
   );
 
-  const activeCount = $derived((stage !== "all" ? 1 : 0) + (ownerId ? 1 : 0));
+  const activeCount = $derived(
+    (stage !== "all" ? 1 : 0) +
+      (ownerId ? 1 : 0) +
+      (currentAssigneeId ? 1 : 0) +
+      (projectType ? 1 : 0)
+  );
 
-  type FieldId = "stage" | "owner";
+  type FieldId = "stage" | "owner" | "current_assignee" | "project_type";
   const FIELDS: { id: FieldId; label: string }[] = [
     { id: "stage", label: "Stage" },
     { id: "owner", label: "Owner" },
+    { id: "current_assignee", label: "Current assignee" },
+    { id: "project_type", label: "Project type" },
   ];
 
   let activeField = $state<FieldId | null>(null);
@@ -76,6 +92,16 @@
       .map((member) => ({ value: member.id as string, label: member.name }))
       .filter((item) => item.label.toLowerCase().includes(query.trim().toLowerCase()))
   );
+  const projectTypeValues = $derived(
+    PROJECT_TYPES.map((value) => ({ value, label: PROJECT_TYPE_LABELS[value] })).filter(
+      (item) => item.label.toLowerCase().includes(query.trim().toLowerCase())
+    )
+  );
+  const visibleValues = $derived.by(() => {
+    if (activeField === "stage") return stageValues;
+    if (activeField === "project_type") return projectTypeValues;
+    return ownerValues;
+  });
   const activeFieldLabel = $derived(
     FIELDS.find((field) => field.id === activeField)?.label ?? null
   );
@@ -131,6 +157,10 @@
   function pickValue(value: string, label: string) {
     if (activeField === "stage") onStageChange(value);
     else if (activeField === "owner") onOwnerChange(value, label);
+    else if (activeField === "current_assignee") onCurrentAssigneeChange(value, label);
+    else if (activeField === "project_type" && PROJECT_TYPES.includes(value as ProjectType)) {
+      onProjectTypeChange(value as ProjectType, label);
+    }
     open = false;
     scheduleReset();
   }
@@ -174,7 +204,11 @@
               <div class="max-h-64 overflow-y-auto px-1.5 pb-1.5" role="listbox" aria-label={activeField ? `${activeField} values` : "Filter fields"}>
                 {#if activeField === null}
                   {#each visibleFields as field (field.id)}
-                    {@const active = (field.id === "stage" && stage !== "all") || (field.id === "owner" && Boolean(ownerId))}
+                    {@const active =
+                      (field.id === "stage" && stage !== "all") ||
+                      (field.id === "owner" && Boolean(ownerId)) ||
+                      (field.id === "current_assignee" && Boolean(currentAssigneeId)) ||
+                      (field.id === "project_type" && Boolean(projectType))}
                     <button
                       type="button"
                       role="option"
@@ -189,8 +223,14 @@
                     <p class="px-2.5 py-1.5 text-xs text-ink-muted">No matching filters.</p>
                   {/each}
                 {:else}
-                  {#each activeField === "stage" ? stageValues : ownerValues as item (item.value)}
-                    {@const active = activeField === "stage" ? item.value === stage : item.value === ownerId}
+                  {#each visibleValues as item (item.value)}
+                    {@const active = activeField === "stage"
+                      ? item.value === stage
+                      : activeField === "owner"
+                        ? item.value === ownerId
+                        : activeField === "current_assignee"
+                          ? item.value === currentAssigneeId
+                          : item.value === projectType}
                     {@const badgeStage = activeField === "stage" ? stageOf(item.value) : null}
                     <button
                       type="button"
@@ -211,7 +251,7 @@
                     </button>
                   {:else}
                     <p class="px-2.5 py-1.5 text-xs text-ink-muted">
-                      {activeField === "owner" && teamQ.data === undefined ? "Loading team…" : "No matching values."}
+                      {(activeField === "owner" || activeField === "current_assignee") && teamQ.data === undefined ? "Loading team…" : "No matching values."}
                     </p>
                   {/each}
                 {/if}

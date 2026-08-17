@@ -125,7 +125,7 @@
         open = true;
         searchValue = e.currentTarget.value;
       }}
-      class={`w-full border border-gray-200 bg-surface pr-8 text-left font-normal transition-colors placeholder:text-gray-400 hover:border-gray-300 focus:outline-none focus-visible:border-navy focus-visible:ring-1 focus-visible:ring-navy disabled:opacity-50 ${
+      class={`field-control w-full pr-8 text-left font-normal placeholder:text-gray-400 disabled:opacity-50 ${
         size === "md"
           ? "h-11 rounded-lg px-3.5 text-sm"
           : "h-11 rounded-md px-2 text-xs sm:h-9"

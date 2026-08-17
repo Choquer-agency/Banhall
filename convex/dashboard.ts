@@ -2,11 +2,17 @@ import { paginationOptsValidator } from "convex/server";
 import { query, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCurrentUser } from "./lib/auth";
+import { projectTypeValidator } from "./lib/contracts";
 import { dashboardProjectRow } from "./lib/dashboardProjection";
 import { userDisplayLabel } from "./lib/teamRoster";
 import { DASHBOARD_FACET_LIMIT } from "../shared/dashboardProjection";
-import { WORKFLOW_STAGES } from "../shared/workflowStages";
+import {
+  WORKFLOW_STAGES,
+  workflowStageRank,
+  type WorkflowStage,
+} from "../shared/workflowStages";
 import type { Doc, Id } from "./_generated/dataModel";
+import { effectiveProjectType, type ProjectType } from "../shared/projectTypes";
 
 const sortValidator = v.union(
   v.literal("created"),
@@ -17,6 +23,11 @@ const stageFilterValidator = v.union(
   ...WORKFLOW_STAGES.map((stage) => v.literal(stage)),
   v.literal("legacy")
 );
+const clientSortValidator = v.union(
+  v.literal("project_number"),
+  v.literal("created"),
+  v.literal("updated")
+);
 
 type FlatFilterArgs = {
   stage?: (typeof WORKFLOW_STAGES)[number] | "legacy";
@@ -24,6 +35,8 @@ type FlatFilterArgs = {
   industry?: string;
   scienceCode?: string;
   tagIds?: Id<"tags">[];
+  projectType?: ProjectType;
+  currentAssigneeId?: Id<"users">;
 };
 
 function matchesFlatFilters(project: Doc<"projects">, args: FlatFilterArgs) {
@@ -32,6 +45,7 @@ function matchesFlatFilters(project: Doc<"projects">, args: FlatFilterArgs) {
   if (args.ownerId && project.ownerId !== args.ownerId) return false;
   if (args.industry && project.industry !== args.industry) return false;
   if (args.scienceCode && project.scienceCode !== args.scienceCode) return false;
+  if (args.projectType && effectiveProjectType(project) !== args.projectType) return false;
   if (
     args.tagIds?.length &&
     !(project.tagIds ?? []).some((id) => args.tagIds?.includes(id))
@@ -39,6 +53,39 @@ function matchesFlatFilters(project: Doc<"projects">, args: FlatFilterArgs) {
     return false;
   }
   return true;
+}
+
+function projectNumberSortKey(projectNumber: string | undefined) {
+  const normalized = projectNumber?.trim().toUpperCase() ?? "";
+  const numbered = normalized.match(/^([0-9]+)([A-Z]?)$/);
+  if (numbered) {
+    return `0:${Number(numbered[1]).toString().padStart(3, "0")}:${numbered[2]}`;
+  }
+  if (/^[A-Z]$/.test(normalized)) return `1:${normalized}`;
+  return "2:";
+}
+
+function compareClientProjects(
+  a: ReturnType<typeof dashboardProjectRow>,
+  b: ReturnType<typeof dashboardProjectRow>,
+  sortBy: "project_number" | "created" | "updated"
+) {
+  const byFiscal = a.dashboardFiscalYearRank - b.dashboardFiscalYearRank;
+  if (byFiscal) return byFiscal;
+  if (sortBy === "created") {
+    const byCreated = (b.createdAt ?? b._creationTime) - (a.createdAt ?? a._creationTime);
+    if (byCreated) return byCreated;
+  } else if (sortBy === "updated") {
+    const byUpdated = b.updatedAt - a.updatedAt;
+    if (byUpdated) return byUpdated;
+  } else {
+    const byNumber = projectNumberSortKey(a.projectNumber).localeCompare(
+      projectNumberSortKey(b.projectNumber),
+      "en-CA"
+    );
+    if (byNumber) return byNumber;
+  }
+  return a.title.localeCompare(b.title, "en-CA", { sensitivity: "base" });
 }
 
 async function dashboardRowsWithOwnerLabels(
@@ -105,10 +152,16 @@ async function collectMatchingPage(
     numItems: target,
     maximumRowsRead: target * 8,
   });
-  const page = result.page.filter((project) => matchesFlatFilters(project, args));
+  const matching = result.page.filter((project) => matchesFlatFilters(project, args));
+  const projected = await dashboardRowsWithOwnerLabels(ctx, matching);
+  const page = projected.filter(
+    (row) =>
+      !args.currentAssigneeId ||
+      row.currentHandoff?.assigneeId === args.currentAssigneeId
+  );
   return {
     ...result,
-    page: await dashboardRowsWithOwnerLabels(ctx, page),
+    page,
     scanTruncated: !result.isDone && page.length < result.page.length,
   };
 }
@@ -197,6 +250,11 @@ export const listCompanyProjects = query({
 export const listCompanyProjectsByStageRank = query({
   args: {
     companyKey: v.string(),
+    stage: v.optional(stageFilterValidator),
+    ownerId: v.optional(v.id("users")),
+    currentAssigneeId: v.optional(v.id("users")),
+    projectType: v.optional(projectTypeValidator),
+    sortBy: v.optional(clientSortValidator),
     paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
@@ -206,17 +264,56 @@ export const listCompanyProjectsByStageRank = query({
     // is out of scope for the redesign (D1: "preserve current read
     // visibility unless separately approved and tested").
     await requireCurrentUser(ctx);
-    const result = await ctx.db
-      .query("projects")
-      .withIndex("by_dashboardCompanyKey_and_workflowStageRank_and_updatedAt", (q) =>
-        q.eq("dashboardCompanyKey", args.companyKey)
-      )
-      .order("asc")
-      .paginate({
-        ...args.paginationOpts,
-        numItems: Math.max(1, Math.min(args.paginationOpts.numItems, 100)),
-      });
-    return { ...result, page: await dashboardRowsWithOwnerLabels(ctx, result.page) };
+    const rank = args.stage
+      ? workflowStageRank(args.stage === "legacy" ? undefined : args.stage as WorkflowStage)
+      : undefined;
+    const paginationOpts = {
+      ...args.paginationOpts,
+      numItems: Math.max(1, Math.min(args.paginationOpts.numItems, 100)),
+    };
+    const result = args.ownerId
+      ? await ctx.db
+          .query("projects")
+          .withIndex(
+            "by_client_owner_stage_rank_updated",
+            (q) => {
+              const byClientAndOwner = q
+                .eq("dashboardCompanyKey", args.companyKey)
+                .eq("ownerId", args.ownerId);
+              return rank === undefined
+                ? byClientAndOwner
+                : byClientAndOwner.eq("workflowStageRank", rank);
+            }
+          )
+          .order("asc")
+          .paginate(paginationOpts)
+      : await ctx.db
+          .query("projects")
+          .withIndex(
+            "by_dashboardCompanyKey_and_workflowStageRank_and_updatedAt",
+            (q) => {
+              const byClient = q.eq("dashboardCompanyKey", args.companyKey);
+              return rank === undefined ? byClient : byClient.eq("workflowStageRank", rank);
+            }
+          )
+          .order("asc")
+          .paginate(paginationOpts);
+    const rows = await dashboardRowsWithOwnerLabels(ctx, result.page);
+    const page = rows
+      .filter((row) => !args.projectType || row.projectType === args.projectType)
+      .filter(
+        (row) =>
+          !args.currentAssigneeId ||
+          row.currentHandoff?.assigneeId === args.currentAssigneeId
+      );
+    if (args.sortBy) {
+      page.sort((a, b) => compareClientProjects(a, b, args.sortBy!));
+    }
+    return {
+      ...result,
+      page,
+      scanTruncated: page.length < result.page.length,
+    };
   },
 });
 
@@ -229,6 +326,8 @@ export const listFlatProjects = query({
     industry: v.optional(v.string()),
     scienceCode: v.optional(v.string()),
     tagIds: v.optional(v.array(v.id("tags"))),
+    currentAssigneeId: v.optional(v.id("users")),
+    projectType: v.optional(projectTypeValidator),
   },
   handler: async (ctx, args) => {
     // Decision D1 (pre-existing read contract, reaffirmed 2026-08-06
@@ -250,6 +349,8 @@ export const searchProjects = query({
     industry: v.optional(v.string()),
     scienceCode: v.optional(v.string()),
     tagIds: v.optional(v.array(v.id("tags"))),
+    currentAssigneeId: v.optional(v.id("users")),
+    projectType: v.optional(projectTypeValidator),
   },
   handler: async (ctx, args) => {
     // Decision D1 (pre-existing read contract, reaffirmed 2026-08-06
@@ -277,9 +378,15 @@ export const searchProjects = query({
     const tagIds = new Set(args.tagIds ?? []);
     const matching = result.page.filter((project) => {
       if (args.stage === "legacy" && project.workflowStage !== undefined) return false;
+      if (args.projectType && effectiveProjectType(project) !== args.projectType) return false;
       return tagIds.size === 0 || (project.tagIds ?? []).some((id) => tagIds.has(id));
     });
-    const page = await dashboardRowsWithOwnerLabels(ctx, matching);
+    const projected = await dashboardRowsWithOwnerLabels(ctx, matching);
+    const page = projected.filter(
+      (row) =>
+        !args.currentAssigneeId ||
+        row.currentHandoff?.assigneeId === args.currentAssigneeId
+    );
     return { ...result, page, scanTruncated: page.length < result.page.length };
   },
 });

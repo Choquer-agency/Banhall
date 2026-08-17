@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { userEvent } from "vitest/browser";
 import ProjectsClientGroup from "./ProjectsClientGroup.svelte";
 import {
   __resetConvexStub,
@@ -31,7 +32,7 @@ function projectRow(id: string, title: string, workflowStage: string | null = "d
 
 const boardRegion = () =>
   document.querySelector<HTMLElement>(
-    '[role="region"][aria-label="Acme Labs board. Scroll horizontally to review every workflow stage."]'
+    '[role="region"][aria-label="Acme Labs, Fiscal 2025 board. Scroll horizontally to review every workflow stage."]'
   );
 const draftingHeader = () =>
   [...document.querySelectorAll("header")].find((header) =>
@@ -43,9 +44,7 @@ describe("ProjectsClientGroup lane presentation (per-client stage-column board)"
     __resetConvexStub();
   });
 
-  it("marks a verified non-zero stage with no loaded rows as 'none loaded yet'", async () => {
-    // Exhausted server page with zero rows while the verified stageCounts
-    // record still reports two drafting projects (sum === projectCount).
+  it("states the loaded truth when a client page has no rows", async () => {
     __setPaginatedRows("dashboard:listCompanyProjectsByStageRank", []);
     render(ProjectsClientGroup, {
       companyKey: "acme",
@@ -58,18 +57,11 @@ describe("ProjectsClientGroup lane presentation (per-client stage-column board)"
       onToggle: () => {},
     });
 
-    await expect
-      .poll(() => document.querySelector("[data-none-loaded]"))
-      .not.toBeNull();
-    expect(draftingHeader()?.getAttribute("aria-label")).toBe(
-      "Drafting, 2 projects — none loaded yet"
+    await expect.poll(() => document.querySelector("[data-client-group-body]")?.textContent).toContain(
+      "No loaded projects for this client name."
     );
-    expect(draftingHeader()?.textContent).toContain("none loaded yet");
-    // Header band total stays the exact recorded-projection count in the
-    // mono data role.
-    expect(
-      document.querySelector("[data-client-group-count]")?.textContent?.replace(/\s+/g, " ").trim()
-    ).toBe("2 projects");
+    // The compact repository header does not repeat the project total.
+    expect(document.querySelector("[data-client-group-count]")).toBeNull();
   });
 
   it("keeps exact loaded lane counts unqualified", async () => {
@@ -109,8 +101,8 @@ describe("ProjectsClientGroup lane presentation (per-client stage-column board)"
       onToggle: () => {},
     });
 
-    // Same kanban anatomy as the ungrouped board: a horizontal snap region
-    // of same-tone stage columns, labelled per client.
+    expect(document.querySelector('[data-fiscal-year-group="2025"]')?.textContent).toContain("Fiscal 2025");
+    // Same kanban anatomy as the ungrouped board, nested inside fiscal year.
     await expect.poll(() => boardRegion()).not.toBeNull();
     expect(boardRegion()?.className).toContain("scrollbar-hidden");
     expect(boardRegion()?.className).toContain("snap-x");
@@ -124,6 +116,7 @@ describe("ProjectsClientGroup lane presentation (per-client stage-column board)"
     // column chip carries stage identity (no per-card stage badge needed).
     expect(document.querySelector('article [data-card-field="client"]')).toBeNull();
     expect(document.querySelector('article [data-card-field="stage"]')).toBeNull();
+    expect(document.querySelector('article [data-card-fiscal-year]')).toBeNull();
     // The creation footer navigates to the wizard with this client's
     // recorded-name prefill (the wizard's own param — not the retired board
     // focus param).
@@ -138,6 +131,102 @@ describe("ProjectsClientGroup lane presentation (per-client stage-column board)"
     expect(document.querySelector("[data-lane-more]")).toBeNull();
     expect(document.querySelector("[data-hidden-stages-disclosure]")).toBeNull();
     expect(document.querySelector("[data-lane-load-more]")).toBeNull();
+  });
+
+  it("collapses fiscal-year folders independently while keeping the client open", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjectsByStageRank", [
+      projectRow("p1", "Current claim"),
+      {
+        ...projectRow("p2", "Older claim"),
+        fiscalYearEnd: Date.UTC(2024, 11, 31),
+      },
+      {
+        ...projectRow("p3", "Year pending"),
+        fiscalYearEnd: undefined,
+      },
+    ]);
+    render(ProjectsClientGroup, {
+      companyKey: "acme",
+      clientName: "Acme Labs",
+      projectCount: 3,
+      stageCounts: { drafting: 3 },
+      presentation: "list" as const,
+      open: true,
+      onToggle: () => {},
+    });
+
+    const currentToggle = document.querySelector<HTMLButtonElement>(
+      '[data-fiscal-year-toggle="2025"]'
+    );
+    await expect.poll(() => currentToggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector('[data-fiscal-year-body="2025"]')).not.toBeNull();
+    expect(document.querySelector('[data-fiscal-year-body="2024"]')).not.toBeNull();
+    const unrecorded = document.querySelector<HTMLElement>(
+      '[data-fiscal-year-group="unrecorded"]'
+    );
+    expect(unrecorded?.getAttribute("data-fiscal-year-kind")).toBe("unrecorded");
+    expect(unrecorded?.classList.contains("border-l")).toBe(false);
+    expect(unrecorded?.className).toContain("border-dashed");
+    expect(unrecorded?.textContent).toContain("Fiscal year not set");
+    expect(currentToggle?.lastElementChild?.hasAttribute("data-disclosure-chevron")).toBe(true);
+    expect(currentToggle?.className).toContain("grid-cols-[1rem_minmax(0,1fr)_1rem]");
+    expect(currentToggle?.className).toContain("sm:min-h-8");
+    expect(currentToggle?.className).not.toContain("sm:min-h-10");
+    expect(currentToggle?.className).toContain("bg-chrome/70");
+    expect(currentToggle?.className).not.toContain("bg-primary-wash");
+    expect(currentToggle?.querySelector("[data-disclosure-chevron]")?.getAttribute("class")).toContain(
+      "text-ink-secondary"
+    );
+    expect(document.querySelector('article [data-card-fiscal-year]')).toBeNull();
+    const currentDisclosure = currentToggle
+      ?.closest("[data-fiscal-year-group]")
+      ?.querySelector<HTMLElement>("[data-disclosure]");
+    expect(getComputedStyle(currentDisclosure!).transitionProperty).toContain("grid-template-rows");
+
+    await userEvent.click(currentToggle!);
+    expect(currentToggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(currentToggle?.getAttribute("aria-label")).toBe("Expand Fiscal 2025");
+    const closingBody = document.querySelector<HTMLElement>('[data-fiscal-year-body="2025"]');
+    if (closingBody) expect(closingBody.closest("[inert]")).not.toBeNull();
+    await expect.poll(
+      () => document.querySelector('[data-fiscal-year-body="2025"]'),
+      { timeout: 2000 }
+    ).toBeNull();
+    expect(document.querySelector('[data-fiscal-year-body="2024"]')).not.toBeNull();
+    expect(document.querySelector('[data-client-group-trigger]')?.getAttribute("aria-expanded")).toBe(
+      "true"
+    );
+    expect(document.querySelector('[data-client-group-trigger]')?.className).toContain("min-h-11");
+    expect(document.querySelector('[data-client-group-trigger]')?.className).toContain("sm:min-h-10");
+
+    await userEvent.click(currentToggle!);
+    expect(currentToggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector('[data-fiscal-year-body="2025"]')).not.toBeNull();
+  });
+
+  it("keeps the first client load visually quiet, then reveals the real fiscal hierarchy", async () => {
+    render(ProjectsClientGroup, {
+      companyKey: "acme",
+      clientName: "Acme Labs",
+      projectCount: 1,
+      stageCounts: { drafting: 1 },
+      presentation: "list" as const,
+      open: true,
+      onToggle: () => {},
+    });
+
+    const loading = document.querySelector<HTMLElement>("[data-client-projects-loading]");
+    expect(loading?.className).toContain("sr-only");
+    expect(document.querySelector(".animate-pulse")).toBeNull();
+    expect(document.querySelector("[data-fiscal-year-group]")).toBeNull();
+
+    __setPaginatedRows("dashboard:listCompanyProjectsByStageRank", [
+      projectRow("p1", "Current claim"),
+    ]);
+
+    await expect.poll(() => document.querySelector("[data-client-projects-resolved]")).not.toBeNull();
+    await expect.poll(() => document.querySelector('[data-fiscal-year-group="2025"]')).not.toBeNull();
+    expect(document.querySelector("[data-client-projects-loading]")).toBeNull();
   });
 
   it("fails honest without verified counts: nothing hides and loaded-only counts carry qualifiers", async () => {
@@ -156,9 +245,9 @@ describe("ProjectsClientGroup lane presentation (per-client stage-column board)"
       onToggle: () => {},
     });
 
-    // All ten canonical stages render — hide-empty is inert without exact
-    // per-client truth.
-    await expect.poll(() => document.querySelectorAll("[data-board-column]").length).toBe(10);
+    // An exhausted fiscal group derives exact stage counts from its complete
+    // client page, so hide-empty leaves only Drafting.
+    await expect.poll(() => document.querySelectorAll("[data-board-column]").length).toBe(1);
     expect(document.querySelectorAll("article")).toHaveLength(1);
   });
 });

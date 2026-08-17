@@ -236,7 +236,7 @@
               <label class="block text-xs font-medium text-gray-700">
                 Subject legal name
                 <input
-                  class="mt-1 w-full rounded-lg border border-line-soft bg-white px-3 py-2 text-sm focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                  class="field-control mt-1 w-full rounded-lg px-3 py-2 text-sm"
                   bind:value={subjectName}
                   maxlength="200"
                   required
@@ -279,7 +279,7 @@
               <label class="block text-xs font-medium text-gray-700">
                 Source description
                 <textarea
-                  class="mt-1 w-full resize-y rounded-lg border border-line-soft bg-white px-3 py-2 text-sm focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                  class="field-control mt-1 w-full resize-y rounded-lg px-3 py-2 text-sm"
                   bind:value={sourceDescription}
                   rows="2"
                   maxlength="2000"
@@ -399,7 +399,7 @@
           <label class="block text-xs font-medium text-gray-700">
             Reviewer note {canAttest ? "(optional)" : "(required to block or reject evidence)"}
             <textarea
-              class="mt-1 w-full resize-y rounded-lg border border-line-soft bg-white px-3 py-2 text-sm focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+              class="field-control mt-1 w-full resize-y rounded-lg px-3 py-2 text-sm"
               bind:value={reviewNote}
               rows="2"
               maxlength="4000"

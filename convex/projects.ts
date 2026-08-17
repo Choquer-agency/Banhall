@@ -14,7 +14,8 @@ import {
   resolveLiveUserLabel,
   userDisplayLabel,
 } from "./lib/teamRoster";
-import { domainError, sha256 } from "./lib/contracts";
+import { domainError, projectTypeValidator, sha256 } from "./lib/contracts";
+import { effectiveProjectType } from "../shared/projectTypes";
 import { requireCapability } from "./lib/roleCapabilities";
 import { workflowStageRank } from "../shared/workflowStages";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
@@ -216,6 +217,23 @@ export const setProjectNumber = mutation({
   },
 });
 
+/** Additive work-product identity. This does not change workflow or access. */
+export const setProjectType = mutation({
+  args: {
+    projectId: v.id("projects"),
+    projectType: projectTypeValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireInternalProjectAccess(ctx, args.projectId);
+    await ctx.db.patch(args.projectId, {
+      projectType: args.projectType,
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
 /** BNH-35: replace the project's applied tags. */
 export const updateProjectTags = mutation({
   args: {
@@ -386,6 +404,7 @@ export const createProject = mutation({
     scienceCode: v.optional(v.string()),
     // BNH-39: review mode reviews an existing written PD instead of generating.
     mode: v.optional(v.union(v.literal("generate"), v.literal("review"))),
+    projectType: v.optional(projectTypeValidator),
     transcriptContent: v.string(),
     ownerId: v.optional(v.id("users")),
   },
@@ -452,6 +471,7 @@ export const createProject = mutation({
       ...(industry ? { industry } : {}),
       ...(scienceCode ? { scienceCode } : {}),
       ...(args.mode ? { mode: args.mode } : {}),
+      projectType: args.projectType ?? effectiveProjectType({ mode: args.mode }),
       ownerId: writer._id,
       workflowStage: "intake",
       workflowStageRank: workflowStageRank("intake"),

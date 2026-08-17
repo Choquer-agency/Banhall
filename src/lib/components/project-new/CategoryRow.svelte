@@ -168,7 +168,7 @@
               oninput={(e) => onText(e.currentTarget.value)}
               rows={3}
               placeholder="Paste text, notes, or links"
-              class="mt-2 w-full resize-none rounded-lg border border-gray-200 bg-canvas px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+              class="field-control mt-2 w-full resize-none rounded-lg px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400"
             ></textarea>
             {#if value.text.trim()}
               <button

@@ -163,7 +163,7 @@
               <input
                 bind:value={tierDraft}
                 aria-label="Writer tier weight"
-                class="w-16 rounded-lg border border-gray-200 px-2 py-1 text-center text-sm"
+                class="field-control w-16 rounded-lg px-2 py-1 text-center text-sm"
                 inputmode="decimal"
               />
               {#if Number(tierDraft) !== row.writerTier && Number.isFinite(Number(tierDraft))}

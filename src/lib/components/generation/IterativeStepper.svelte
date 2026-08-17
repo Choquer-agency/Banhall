@@ -319,7 +319,7 @@
                 id={`draft-${step.key}`}
                 bind:value={editDraft}
                 rows={Math.min(24, Math.max(10, editDraft.split("\n").length + 2))}
-                class="mt-1.5 w-full resize-y rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 font-serif text-sm leading-relaxed text-gray-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                class="field-control mt-1.5 w-full resize-y rounded-lg px-3.5 py-2.5 font-serif text-sm leading-relaxed text-gray-900"
               ></textarea>
 
               <!-- CRA form-fit meter (live on the edited text) -->
@@ -407,7 +407,7 @@
                     bind:value={guidanceDraft}
                     rows="3"
                     placeholder="e.g. Lead with the load-balancing uncertainty; drop the staffing detail."
-                    class="mt-1.5 w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                    class="field-control mt-1.5 w-full resize-none rounded-lg px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400"
                   ></textarea>
                   <div class="mt-2 flex items-center gap-2">
                     <button

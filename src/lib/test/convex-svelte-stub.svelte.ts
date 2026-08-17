@@ -57,6 +57,13 @@ export function __activeQueryCount(name: string) {
   return getters.filter((getArgs) => getArgs !== undefined && getArgs() !== "skip").length;
 }
 
+/** Current non-skipped arguments for every mounted hook of `name`. */
+export function __activeQueryArgs(name: string) {
+  return (argsGetters.get(name) ?? [])
+    .map((getArgs) => getArgs?.())
+    .filter((args) => args !== undefined && args !== "skip");
+}
+
 function skipped(getArgs: (() => unknown) | undefined) {
   return getArgs !== undefined && getArgs() === "skip";
 }

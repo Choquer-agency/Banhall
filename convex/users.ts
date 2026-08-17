@@ -57,6 +57,7 @@ export const listUsers = query({
       ),
       createdAt: v.optional(v.number()),
       hasAuthAccount: v.boolean(),
+      isDeveloper: v.boolean(),
     }),
   ),
   handler: async (ctx) => {
@@ -72,6 +73,7 @@ export const listUsers = query({
       role: user.role,
       createdAt: user.createdAt,
       hasAuthAccount: Boolean(user.authId),
+      isDeveloper: user.isDeveloper === true,
     }));
   },
 });
@@ -206,6 +208,23 @@ export const setUserRole = mutation({
   },
 });
 
+// Admin-managed developer-tool exposure. This is deliberately separate from
+// roles and capabilities: it only reveals diagnostic/support navigation.
+export const setUserDeveloper = mutation({
+  args: {
+    userId: v.id("users"),
+    isDeveloper: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["admin"]);
+    const target = await ctx.db.get(args.userId);
+    if (!target) domainError("NOT_FOUND", "User not found");
+    await ctx.db.patch(args.userId, { isDeveloper: args.isDeveloper });
+    return null;
+  },
+});
+
 // Run from the CLI to grant a role, e.g.:
 //   npx convex run users:setRole '{"email":"demo@banhall.ca","role":"admin"}'
 export const setRole = internalMutation({
@@ -226,6 +245,27 @@ export const setRole = internalMutation({
       .unique();
     if (!user) throw new Error(`No user with email ${email}`);
     await ctx.db.patch(user._id, { role: args.role });
+    return user._id;
+  },
+});
+
+// CLI helper for initial developer exposure, e.g.:
+//   npx convex run users:setDeveloper '{"email":"developer@example.com","isDeveloper":true}'
+export const setDeveloper = internalMutation({
+  args: {
+    email: v.string(),
+    isDeveloper: v.boolean(),
+  },
+  returns: v.id("users"),
+  handler: async (ctx, args) => {
+    const email = normalizeEmail(args.email);
+    if (!email) throw new Error("A valid email address is required");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .unique();
+    if (!user) throw new Error(`No user with email ${email}`);
+    await ctx.db.patch(user._id, { isDeveloper: args.isDeveloper });
     return user._id;
   },
 });

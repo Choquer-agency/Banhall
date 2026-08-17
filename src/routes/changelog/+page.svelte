@@ -105,13 +105,13 @@
               <input
                 bind:value={title}
                 placeholder="e.g. Excel uploads, single-page project setup"
-                class="block w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink placeholder:text-ink-faint focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                class="field-control block w-full rounded-lg px-3.5 py-2.5 text-sm text-ink placeholder:text-ink-faint"
               />
               <textarea
                 rows={8}
                 bind:value={body}
                 placeholder={"Markdown supported.\n\n- Added X\n- Fixed Y"}
-                class="block w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm leading-relaxed text-ink placeholder:text-ink-faint focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
+                class="field-control block w-full rounded-lg px-3.5 py-2.5 text-sm leading-relaxed text-ink placeholder:text-ink-faint"
               ></textarea>
               <div class="flex items-center justify-between gap-3">
                 <SelectInput

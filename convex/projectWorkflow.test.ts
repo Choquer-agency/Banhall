@@ -105,9 +105,12 @@ async function projectEvents(setup: Setup, projectId: Id<"projects">) {
 }
 
 describe("workflow transition matrix", () => {
-  it("matches the exact approved 41-edge contract", () => {
-    expect(WORKFLOW_TRANSITIONS).toHaveLength(41);
-    expect(new Set(WORKFLOW_TRANSITIONS.map((rule) => `${rule.from}->${rule.to}`)).size).toBe(41);
+  it("matches the exact approved 47-edge contract", () => {
+    expect(WORKFLOW_TRANSITIONS).toHaveLength(47);
+    expect(new Set(WORKFLOW_TRANSITIONS.map((rule) => `${rule.from}->${rule.to}`)).size).toBe(47);
+    expect(findWorkflowTransition("internal_review", "edits")?.authorities).toContain(
+      "handoff_assignee"
+    );
     expect(findWorkflowTransition("ready_for_delivery", "delivered")?.requirements).toContain(
       "delivery_outcome"
     );
@@ -282,7 +285,7 @@ describe("work-item workflow authority", () => {
     })).resolves.toEqual({ status: "updated", version: 2 });
     await expect(setup.other.mutation(api.projectWorkflow.setWorkflowStage, {
       projectId,
-      toStage: "revisions",
+      toStage: "edits",
       expectedVersion: 2,
     })).resolves.toEqual({ status: "updated", version: 3 });
     await expect(setup.other.mutation(api.projectWorkflow.transferOwnership, {

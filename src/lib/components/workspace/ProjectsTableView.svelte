@@ -11,7 +11,7 @@
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
-  import { MagnifyingGlassIcon, PlusIcon } from "phosphor-svelte";
+  import { MagnifyingGlassIcon, StackSimpleIcon } from "phosphor-svelte";
   import { usePaginatedQuery, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import type { FunctionReturnType } from "convex/server";
@@ -46,6 +46,7 @@
     withProjectGroupParam,
     withProjectLayoutParam,
     type ProjectColumnId,
+    type ClientProjectSort,
     type ProjectGroupMode,
     type ProjectLayoutMode,
     type ProjectsTablePreferences,
@@ -58,6 +59,7 @@
   import { stageBadgeClasses } from "$lib/workflow/stagePresentation";
   import { WORKFLOW_STAGES, type WorkflowStage } from "../../../../shared/workflowStages";
   import { WORKFLOW_STAGE_LABELS } from "../../../../shared/workflowLabels";
+  import { PROJECT_TYPE_LABELS, type ProjectType } from "../../../../shared/projectTypes";
 
   type FlatResult = FunctionReturnType<typeof api.dashboard.listFlatProjects>;
   type ProjectRow = FlatResult["page"][number];
@@ -67,6 +69,11 @@
     { value: "updated", label: "Recently edited" },
     { value: "created", label: "Recently created" },
     { value: "viewed", label: "Recently viewed" },
+  ];
+  const CLIENT_SORTS: { value: ClientProjectSort; label: string }[] = [
+    { value: "project_number", label: "Project number" },
+    { value: "created", label: "Recently created" },
+    { value: "updated", label: "Recently updated" },
   ];
   const COLUMN_OPTIONS: { id: ProjectColumnId; label: string }[] = [
     { id: "clientName", label: "Client name" },
@@ -96,21 +103,29 @@
   // captured at pick time so the chip never needs a standing team query.
   let filterOwner = $state<string | null>(null);
   let filterOwnerLabel = $state<string | null>(null);
+  let filterCurrentAssignee = $state<string | null>(null);
+  let filterCurrentAssigneeLabel = $state<string | null>(null);
+  let filterProjectType = $state<ProjectType | null>(null);
   let filtersOpen = $state(false);
   // Popover instance — value mode opens anchored to a condition chip's value
   // segment (Obvious behavior: pick a field, the chip appears immediately,
   // and the value list opens from the chip, not from the Filters button).
   let filtersPopover: {
-    openTo: (field: "stage" | "owner", anchor?: HTMLElement | null) => void;
+    openTo: (field: "stage" | "owner" | "current_assignee" | "project_type", anchor?: HTMLElement | null) => void;
     openFields: (anchor?: HTMLElement | null) => void;
   } | null = $state(null);
   // Fields picked but no value yet — each renders a placeholder condition
   // chip that filters nothing and persists until its value is chosen (via
   // the chip's "Select…" segment) or its × removes it (owner direction,
   // 2026-08-10: picking a field never auto-opens the value list).
-  let pendingFilters = $state<{ stage: boolean; owner: boolean }>({ stage: false, owner: false });
+  let pendingFilters = $state<Record<"stage" | "owner" | "current_assignee" | "project_type", boolean>>({
+    stage: false,
+    owner: false,
+    current_assignee: false,
+    project_type: false,
+  });
 
-  function handleFieldPick(field: "stage" | "owner") {
+  function handleFieldPick(field: "stage" | "owner" | "current_assignee" | "project_type") {
     pendingFilters[field] = true;
   }
   let preferences = $state<ProjectsTablePreferences>(parseProjectsTablePreferences(null));
@@ -284,6 +299,8 @@
             sortBy: (SORTS.some((item) => item.value === sortBy) ? sortBy : "updated") as SortBy,
             stage: selectedStage,
             ownerId: (filterOwner ?? undefined) as never,
+            currentAssigneeId: (filterCurrentAssignee ?? undefined) as never,
+            projectType: filterProjectType ?? undefined,
           }
         : "skip",
     { initialNumItems: DASHBOARD_PROJECT_PAGE_SIZE }
@@ -292,7 +309,13 @@
     api.dashboard.searchProjects,
     () =>
       auth.isAuthenticated && q
-        ? { search: q, stage: selectedStage, ownerId: (filterOwner ?? undefined) as never }
+        ? {
+            search: q,
+            stage: selectedStage,
+            ownerId: (filterOwner ?? undefined) as never,
+            currentAssigneeId: (filterCurrentAssignee ?? undefined) as never,
+            projectType: filterProjectType ?? undefined,
+          }
         : "skip",
     { initialNumItems: DASHBOARD_PROJECT_PAGE_SIZE }
   );
@@ -323,7 +346,9 @@
   // Board column counts stay truthful: facet totals when browsing (marked
   // approximate when the facet scan truncated), loaded-row grouping when a
   // relevance search narrows the set (approximate until exhausted).
-  const filtered = $derived(Boolean(selectedStage || filterOwner));
+  const filtered = $derived(
+    Boolean(selectedStage || filterOwner || filterCurrentAssignee || filterProjectType)
+  );
   const boardStageCounts = $derived(
     q || filtered ? undefined : facetsQ.data?.stageCounts
   );
@@ -353,6 +378,10 @@
 
   function setSortBy(value: SortBy) {
     sortBy = value;
+  }
+
+  function setClientSort(value: ClientProjectSort) {
+    persistPreferences({ ...preferences, clientSort: value });
   }
 
   // Named view presets (2026-08-13, Attio-research P1): browser-local named
@@ -390,7 +419,15 @@
     stage = nextStage ?? "all";
     filterOwner = nextOwnerId;
     filterOwnerLabel = nextOwnerLabel;
-    pendingFilters = { stage: false, owner: false };
+    filterCurrentAssignee = null;
+    filterCurrentAssigneeLabel = null;
+    filterProjectType = null;
+    pendingFilters = {
+      stage: false,
+      owner: false,
+      current_assignee: false,
+      project_type: false,
+    };
     lastAppliedUrlLayout = next.layout;
     lastAppliedUrlGroup = next.group;
     lastAppliedUrlHideEmpty = next.hideEmptyBoard;
@@ -427,14 +464,9 @@
 
   function setGroup(group: ProjectGroupMode) {
     persistPreferences({ ...preferences, group });
-    // Grouped sections are index-backed only (client name A→Z, stage-rank
-    // order within): the flat filters do not apply there, so they reset
-    // rather than silently pretending to filter the groups.
-    if (group === "client") {
-      stage = "all";
-      filterOwner = null;
-      filterOwnerLabel = null;
-    }
+    // Stage and Owner remain applied when moving into Client grouping. Each
+    // expanded client uses the corresponding compound index, while the
+    // collapsed A→Z headings remain the stable repository structure.
     // Same in-flight guard + stay-on-route navigation as setLayout below.
     lastAppliedUrlGroup = group;
     const url = withProjectGroupParam(page.url, group);
@@ -486,6 +518,9 @@
     stage = "all";
     filterOwner = null;
     filterOwnerLabel = null;
+    filterCurrentAssignee = null;
+    filterCurrentAssigneeLabel = null;
+    filterProjectType = null;
   }
 
   function handleSearchKeydown(event: KeyboardEvent & { currentTarget: HTMLInputElement }) {
@@ -497,7 +532,7 @@
 </script>
 
 <section aria-label="Projects repository" class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-  <div class="flex min-h-12 shrink-0 items-center gap-2 border-b border-workspace-rail-line px-2 py-2">
+  <div data-projects-toolbar class="flex min-h-12 shrink-0 items-center gap-2 border-b border-workspace-rail-line bg-canvas px-2 py-2 sm:px-3">
     {#if externalSearch === undefined}
       <div class="relative min-w-0 sm:max-w-[19rem]" role="search">
         <MagnifyingGlassIcon class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-faint" size={15} weight="regular" aria-hidden="true" />
@@ -507,7 +542,7 @@
           onkeydown={handleSearchKeydown}
           aria-label="Search projects"
           placeholder="Search projects…"
-          class="h-11 w-full rounded-lg border border-workspace-rail-line bg-workspace-control py-2 pl-8 pr-12 text-[0.8125rem] text-ink placeholder:text-ink-faint sm:h-7"
+        class="field-control h-11 w-full rounded-lg py-2 pl-8 pr-12 text-[0.8125rem] text-ink placeholder:text-ink-faint sm:h-7"
         />
         <kbd class="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 rounded-md border border-line-soft bg-chrome px-1.5 py-0.5 text-[0.625rem] font-medium text-ink-muted sm:inline">{searchShortcutHint()}</kbd>
       </div>
@@ -547,9 +582,12 @@
             label="Group by"
             align="end"
           >
+            {#snippet icon()}
+              <StackSimpleIcon size={15} weight="regular" aria-hidden="true" />
+            {/snippet}
             {#snippet chip()}
               {#if effectiveGroup === "client"}
-                <span class="truncate"><span class="text-ink-faint">Group ·</span> <span class="text-ink">Client</span></span>
+                <span class="truncate text-ink">Client</span>
               {:else}
                 <span class="truncate">Group</span>
               {/if}
@@ -558,65 +596,69 @@
         {/if}
         <!-- Obvious filter anatomy + placement: Filters lives in the right
              control cluster; chips render in the row below the toolbar. -->
-        {#if !grouped}
-          <BoardFiltersPopover
-            bind:this={filtersPopover}
-            bind:open={filtersOpen}
-            {stage}
-            onStageChange={(value) => {
-              stage = value;
-              pendingFilters.stage = false;
-            }}
-            ownerId={filterOwner}
-            onOwnerChange={(id, label) => {
-              filterOwner = id;
-              filterOwnerLabel = label;
-              pendingFilters.owner = false;
-            }}
-            {stageItems}
-            onFieldPick={handleFieldPick}
-          />
-        {/if}
+        <BoardFiltersPopover
+          bind:this={filtersPopover}
+          bind:open={filtersOpen}
+          {stage}
+          onStageChange={(value) => {
+            stage = value;
+            pendingFilters.stage = false;
+          }}
+          ownerId={filterOwner}
+          onOwnerChange={(id, label) => {
+            filterOwner = id;
+            filterOwnerLabel = label;
+            pendingFilters.owner = false;
+          }}
+          currentAssigneeId={filterCurrentAssignee}
+          onCurrentAssigneeChange={(id, label) => {
+            filterCurrentAssignee = id;
+            filterCurrentAssigneeLabel = label;
+            pendingFilters.current_assignee = false;
+          }}
+          projectType={filterProjectType}
+          onProjectTypeChange={(value) => {
+            filterProjectType = value;
+            pendingFilters.project_type = false;
+          }}
+          {stageItems}
+          onFieldPick={handleFieldPick}
+        />
         <ProjectsDisplayMenu
           {preferences}
-          sortBy={(SORTS.some((item) => item.value === sortBy) ? sortBy : "updated") as SortBy}
-          sortOptions={SORTS}
+          sortBy={grouped ? preferences.clientSort : sortBy}
+          sortOptions={grouped ? CLIENT_SORTS : SORTS}
           columnOptions={COLUMN_OPTIONS}
-          showSort={!q && !grouped}
+          showSort={!q}
           showBoardOptions={!q && preferences.layout === "board" && !grouped}
           showClientOptions={!q && grouped}
           {clientCountsAvailable}
           boardCountsLimited={facetsQ.data?.truncated ?? false}
-          onSortChange={setSortBy}
+          onSortChange={(value) => {
+            if (grouped) setClientSort(value as ClientProjectSort);
+            else setSortBy(value as SortBy);
+          }}
           onToggleColumn={toggleColumn}
           onDensityChange={setDensity}
           onHideEmptyBoardChange={setHideEmptyBoard}
           onHideEmptyClientGroupsChange={setHideEmptyClientGroups}
         />
         <ViewModeToggle value={preferences.layout} onChange={setLayout} label="Project layout" />
-        <a
-          href={resolve("/project/new")}
-          class="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg bg-fir px-3 text-[0.8125rem] font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none sm:h-7"
-        >
-          <PlusIcon size={14} weight="bold" aria-hidden="true" />
-          <span class="hidden sm:inline">New project</span>
-          <span class="sr-only sm:hidden">New project</span>
-        </a>
     </div>
   </div>
 
   <!-- Query-state row (2026-08-13, Attio-research P0): sort and filter
        state stays externalized as always-visible chips instead of hiding
        inside the Display/Filters popovers — glanceable truth about why the
-       grid shows what it shows. Sort applies to the flat browse only
-       (search is relevance-ordered; grouped surfaces are index-ordered). -->
-  {#if !grouped && (!q || selectedStage || filterOwner || pendingFilters.stage || pendingFilters.owner)}
+       grid shows what it shows. Grouped sorting applies inside each loaded
+       Client → Fiscal year section. -->
+  {#if !q || selectedStage || filterOwner || filterCurrentAssignee || filterProjectType || pendingFilters.stage || pendingFilters.owner || pendingFilters.current_assignee || pendingFilters.project_type}
     <!-- Obvious filter pill (their markup, 2026-08-10): ONE joined rounded-md
          pill with internal hairline dividers — static field, "equals"
          operator, CLICKABLE value (opens the value popover anchored to this
          segment), and a small remove button. A just-picked field renders the
          chip immediately with a faint "Select…" placeholder value. -->
-    {#snippet filterChip(field: string, fieldId: "stage" | "owner", value: string, pending: boolean, valueClass: string, onRemove: () => void)}
+    {#snippet filterChip(field: string, fieldId: "stage" | "owner" | "current_assignee" | "project_type", value: string, pending: boolean, valueClass: string, onRemove: () => void)}
       <span data-active-filter={field} data-active-filter-id={fieldId} class="inline-flex items-center rounded-md border border-line bg-surface text-xs shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
         <span class="border-r border-line-soft px-2 py-1 font-medium text-ink-secondary">{field}</span>
         <span class="border-r border-line-soft px-2 py-1 text-ink-faint">equals</span>
@@ -639,16 +681,21 @@
     <div data-active-filters class="flex min-h-[49px] shrink-0 flex-wrap items-center gap-2 border-b border-workspace-rail-line px-2 py-2">
       {#if !q}
         <GhostPopover
-          value={sortBy}
-          items={SORTS}
+          value={grouped ? preferences.clientSort : sortBy}
+          items={grouped ? CLIENT_SORTS : SORTS}
           ariaLabel="Sort projects"
           label="Sort by"
           class="h-7!"
-          onValueChange={(value) => setSortBy(value as SortBy)}
+          onValueChange={(value) => {
+            if (grouped) setClientSort(value as ClientProjectSort);
+            else setSortBy(value as SortBy);
+          }}
         >
           {#snippet chip()}
-            <span data-sort-chip class="truncate"><span class="text-ink-faint">Sorted by ·</span>
-              <span class="text-ink">{SORTS.find((item) => item.value === sortBy)?.label ?? "Recently edited"}</span></span>
+            <span data-sort-chip class="truncate"><span class="text-ink-faint">{grouped ? "Within fiscal year ·" : "Sorted by ·"}</span>
+              <span class="text-ink">{grouped
+                ? CLIENT_SORTS.find((item) => item.value === preferences.clientSort)?.label ?? "Project number"
+                : SORTS.find((item) => item.value === sortBy)?.label ?? "Recently edited"}</span></span>
           {/snippet}
         </GhostPopover>
       {/if}
@@ -669,6 +716,25 @@
           pendingFilters.owner = false;
         })}
       {/if}
+      {#if filterCurrentAssignee || pendingFilters.current_assignee}
+        {#if selectedStage || pendingFilters.stage || filterOwner || pendingFilters.owner}
+          <span data-filter-join class="text-[11px] font-medium text-ink-faint">AND</span>
+        {/if}
+        {@render filterChip("Current assignee", "current_assignee", filterCurrentAssignee ? (filterCurrentAssigneeLabel ?? "Selected assignee") : "Select…", !filterCurrentAssignee, "", () => {
+          filterCurrentAssignee = null;
+          filterCurrentAssigneeLabel = null;
+          pendingFilters.current_assignee = false;
+        })}
+      {/if}
+      {#if filterProjectType || pendingFilters.project_type}
+        {#if selectedStage || pendingFilters.stage || filterOwner || pendingFilters.owner || filterCurrentAssignee || pendingFilters.current_assignee}
+          <span data-filter-join class="text-[11px] font-medium text-ink-faint">AND</span>
+        {/if}
+        {@render filterChip("Project type", "project_type", filterProjectType ? PROJECT_TYPE_LABELS[filterProjectType] : "Select…", !filterProjectType, "", () => {
+          filterProjectType = null;
+          pendingFilters.project_type = false;
+        })}
+      {/if}
       <button
         type="button"
         aria-label="Add filter"
@@ -677,14 +743,6 @@
       >
         <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" d="M12 7v10M7 12h10" /></svg>
       </button>
-    </div>
-  {/if}
-
-  {#if grouped}
-    <div class="flex min-h-[49px] shrink-0 items-center border-b border-workspace-rail-line px-3 text-[0.75rem] text-ink-muted">
-      <span><span class="text-ink-faint">Grouped by ·</span> Client</span>
-      <span class="mx-2 text-workspace-rail-line" aria-hidden="true">/</span>
-      <span>Projects follow workflow-stage order</span>
     </div>
   {/if}
 
@@ -709,6 +767,11 @@
       <ProjectsClientGroups
         presentation="lanes"
         hideEmpty={preferences.hideEmptyClientGroups}
+        stage={selectedStage}
+        ownerId={filterOwner ?? undefined}
+        currentAssigneeId={filterCurrentAssignee ?? undefined}
+        projectType={filterProjectType ?? undefined}
+        sortBy={preferences.clientSort}
         bind:countsAvailable={clientCountsAvailable}
       />
     {:else}
@@ -724,6 +787,11 @@
       <ProjectsClientGroups
         presentation="list"
         hideEmpty={preferences.hideEmptyClientGroups}
+        stage={selectedStage}
+        ownerId={filterOwner ?? undefined}
+        currentAssigneeId={filterCurrentAssignee ?? undefined}
+        projectType={filterProjectType ?? undefined}
+        sortBy={preferences.clientSort}
         bind:countsAvailable={clientCountsAvailable}
       />
     {/if}

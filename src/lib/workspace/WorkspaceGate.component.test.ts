@@ -5,6 +5,7 @@ import WorkspaceGate from "./WorkspaceGate.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+import { __resetAuthState, __setAuthState } from "$lib/test/convex-auth-stub";
 
 /**
  * The shared rollout gate is the single branch point for /dashboard,
@@ -26,6 +27,7 @@ const settle = () => new Promise((resolveSettle) => setTimeout(resolveSettle, 50
 
 describe("WorkspaceGate — canonical route shape (preview snippet + currentHref)", () => {
   beforeEach(() => {
+    __resetAuthState();
     __resetPage();
     __resetNavigation();
     __resetConvexStub();
@@ -43,6 +45,19 @@ describe("WorkspaceGate — canonical route shape (preview snippet + currentHref
     expect(document.querySelector('[data-dashboard-experience="preview"]')).not.toBeNull();
     await settle();
     expect(gotoUrls()).toHaveLength(0);
+  });
+
+  it("redirects signed-out users without rendering an intermediate sign-in page", async () => {
+    __setPageUrl("/projects");
+    __setAuthState({ isAuthenticated: false });
+    await render(WorkspaceGate, {
+      preview: previewMark,
+      currentHref: "/dashboard?view=all_projects",
+    });
+
+    await expect.poll(() => gotoUrls()).toContain("/login");
+    expect(document.body.textContent).not.toContain("Sign in to continue");
+    expect(document.querySelector('[data-workspace-gate-pending="redirect"]')).not.toBeNull();
   });
 
   it("renders a neutral loading state while the decision is pending — no redirect, no preview flash", async () => {
@@ -84,6 +99,7 @@ describe("WorkspaceGate — canonical route shape (preview snippet + currentHref
 
 describe("WorkspaceGate — compatibility route shape (current snippet + previewHref)", () => {
   beforeEach(() => {
+    __resetAuthState();
     __resetPage();
     __resetNavigation();
     __resetConvexStub();
@@ -130,6 +146,7 @@ describe("WorkspaceGate — compatibility route shape (current snippet + preview
 
 describe("WorkspaceGate — two-subtree report shape", () => {
   beforeEach(() => {
+    __resetAuthState();
     __resetPage();
     __resetNavigation();
     __resetConvexStub();

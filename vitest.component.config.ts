@@ -82,6 +82,10 @@ export default defineConfig({
     name: "component",
     include: ["src/**/*.component.test.ts"],
     setupFiles: ["./src/lib/test/component-setup.ts"],
+    // Component suites share one real browser document and several explicit
+    // test registries. Keep files serial so a heavy route mount cannot starve
+    // an unrelated interaction test or leak document state across files.
+    fileParallelism: false,
     browser: {
       enabled: true,
       headless: true,

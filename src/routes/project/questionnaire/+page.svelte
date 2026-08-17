@@ -209,7 +209,7 @@
             oninput={(e) => (answers[currentQuestion.id] = e.currentTarget.value)}
             rows={currentQuestion.rows}
             placeholder={currentQuestion.placeholder}
-            class="w-full resize-none rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            class="field-control w-full resize-none rounded-lg px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400"
           ></textarea>
           <div class="mt-6 flex items-center justify-between">
             <button

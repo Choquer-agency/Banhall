@@ -26,6 +26,12 @@ import type { DataModel } from "./dataModel.js";
  */
 type Env = {
   readonly ANTHROPIC_API_KEY: string | undefined;
+  readonly INGEST_API_KEY: string | undefined;
+  readonly MS_CLIENT_ID: string | undefined;
+  readonly MS_CLIENT_SECRET: string | undefined;
+  readonly MS_DRIVE_ID: string | undefined;
+  readonly MS_ROOT_PATH: string | undefined;
+  readonly MS_TENANT_ID: string | undefined;
   readonly OPENROUTER_API_KEY: string | undefined;
   readonly VOYAGE_API_KEY: string | undefined;
 };

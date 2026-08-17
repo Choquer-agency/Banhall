@@ -1,8 +1,9 @@
 <!--
-  Project Highlights band (2026-08-13, Attio-research P1 record-page pass).
-  A hairline stat band above the attribute rows: Stage (+ time in stage),
-  Owner, With (the current handoff), Claim period. Every tile is honest —
-  absent facts render as quiet "No X" empties, never invented values.
+  Project workflow summary (2026-08-16 redesign, second pass). This is an
+  integrated masthead line, not another card inside the report header. Stage,
+  Owner, current handoff, and claim period reflow from the pane's own width.
+  Every value stays honest: absent facts render as explicit empty states,
+  never invented values.
 
   Subscriptions: `getProjectWorkflowHeader` dedupes with the workflow menu's
   standing subscription; `getProjectWorkPanel` is one bounded (≤51 rows)
@@ -60,54 +61,110 @@
 </script>
 
 {#if header}
-  <div
+  <section
     data-project-highlights
-    class="grid grid-cols-2 border-y border-line-soft lg:grid-cols-4 lg:divide-x lg:divide-line-soft"
+    aria-label="Project workflow summary"
+    class="project-highlights border-t border-line-soft pt-3"
   >
-    <div class="min-w-0 px-1 py-3 lg:px-4 lg:first:pl-1">
-      <p class="text-label">Stage</p>
-      <div class="mt-1.5 flex min-w-0 items-center gap-2">
-        <StageBadge stage={header.workflowStage} />
+    <dl class="highlights-layout">
+      <div data-project-highlight="stage" class="highlight-stage min-w-0">
+        <dt class="sr-only">Stage</dt>
+        <dd class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+          <StageBadge stage={header.workflowStage} shape="square" />
+          {#if timeInStage(header.workflowUpdatedAt)}
+            <span class="truncate text-xs text-ink-muted">
+              {timeInStage(header.workflowUpdatedAt)}
+            </span>
+          {/if}
+        </dd>
       </div>
-      {#if timeInStage(header.workflowUpdatedAt)}
-        <p class="mt-1 truncate text-xs text-ink-muted">{timeInStage(header.workflowUpdatedAt)}</p>
-      {/if}
-    </div>
-    <div class="min-w-0 px-1 py-3 lg:px-4">
-      <p class="text-label">Owner</p>
-      {#if header.owner}
-        <div class="mt-1.5 flex min-w-0 items-center gap-2">
-          <span
-            aria-hidden="true"
-            class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-fir text-[9px] font-medium text-white"
-          >{header.owner.initials}</span>
-          <span class="truncate text-sm font-medium text-ink">{header.owner.label}</span>
-        </div>
-        {#if header.ownerNeedsReview}
-          <p class="mt-1 truncate text-xs text-ink-muted">Ownership under review</p>
+
+      <div data-project-highlight="owner" class="highlight-owner min-w-0">
+        <dt class="text-[0.6875rem] font-medium leading-none text-ink-muted">Owner</dt>
+        {#if header.owner}
+          <dd class="mt-1 flex min-w-0 items-center gap-2">
+            <span
+              aria-hidden="true"
+              class="flex size-5 shrink-0 items-center justify-center rounded-full bg-fir text-[8px] font-semibold text-white"
+            >{header.owner.initials}</span>
+            <div class="min-w-0">
+              <p class="truncate text-[0.8125rem] font-medium leading-5 text-ink">{header.owner.label}</p>
+              {#if header.ownerNeedsReview}
+                <p class="truncate text-[0.6875rem] text-ink-muted">Ownership under review</p>
+              {/if}
+            </div>
+          </dd>
+        {:else}
+          <dd class="mt-1 text-[0.8125rem] leading-5 text-ink-faint">No owner recorded</dd>
         {/if}
-      {:else}
-        <p class="mt-1.5 text-sm text-ink-faint">No owner recorded</p>
-      {/if}
-    </div>
-    <div class="min-w-0 px-1 py-3 lg:px-4">
-      <p class="text-label">With</p>
-      {#if currentHandoff}
-        <p class="mt-1.5 truncate text-sm font-medium text-ink">{currentHandoff.assignee.label}</p>
-        <p class="mt-1 truncate text-xs text-ink-muted" title={handoffDue?.absolute}>
-          {WORK_ITEM_KIND_LABELS[currentHandoff.kind] ?? currentHandoff.kind}{#if handoffDue}{" · "}<span class={handoffDue.overdue ? "font-medium text-red-700" : ""}>{handoffDue.relative}</span>{/if}
-        </p>
-      {:else}
-        <p class="mt-1.5 text-sm text-ink-faint">Nothing in flight</p>
-      {/if}
-    </div>
-    <div class="min-w-0 px-1 py-3 lg:px-4">
-      <p class="text-label">Claim period</p>
-      {#if claimPeriod(fiscalYearEnd)}
-        <p class="mt-1.5 text-sm font-medium text-ink">FYE {claimPeriod(fiscalYearEnd)}</p>
-      {:else}
-        <p class="mt-1.5 text-sm text-ink-faint">No fiscal year-end</p>
-      {/if}
-    </div>
-  </div>
+      </div>
+
+      <div data-project-highlight="handoff" class="highlight-handoff min-w-0">
+        <dt class="text-[0.6875rem] font-medium leading-none text-ink-muted">With</dt>
+        {#if currentHandoff}
+          <dd class="mt-1 min-w-0">
+            <p class="truncate text-[0.8125rem] font-medium leading-5 text-ink">{currentHandoff.assignee.label}</p>
+            <p class="truncate text-[0.6875rem] text-ink-muted" title={handoffDue?.absolute}>
+              {WORK_ITEM_KIND_LABELS[currentHandoff.kind] ?? currentHandoff.kind}{#if handoffDue}{" · "}<span class={handoffDue.overdue ? "font-medium text-red-700" : ""}>{handoffDue.relative}</span>{/if}
+            </p>
+          </dd>
+        {:else}
+          <dd class="mt-1 text-[0.8125rem] leading-5 text-ink-faint">Nothing in flight</dd>
+        {/if}
+      </div>
+
+      <div data-project-highlight="claim-period" class="highlight-claim min-w-0">
+        <dt class="text-[0.6875rem] font-medium leading-none text-ink-muted">Claim period</dt>
+        {#if claimPeriod(fiscalYearEnd)}
+          <dd class="mt-1 text-[0.8125rem] font-medium leading-5 text-ink">FYE {claimPeriod(fiscalYearEnd)}</dd>
+        {:else}
+          <dd class="mt-1 text-[0.8125rem] leading-5 text-ink-faint">No fiscal year-end</dd>
+        {/if}
+      </div>
+    </dl>
+  </section>
 {/if}
+
+<style>
+  .project-highlights {
+    container-type: inline-size;
+  }
+
+  .highlights-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.625rem 1.5rem;
+  }
+
+  @container (min-width: 28rem) {
+    .highlights-layout {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .highlight-stage {
+      grid-column: 1 / -1;
+    }
+
+    .highlight-claim {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @container (min-width: 44rem) {
+    .highlights-layout {
+      grid-template-columns: auto minmax(9rem, 1fr) minmax(9rem, 1fr) auto;
+      align-items: center;
+      column-gap: 1.75rem;
+    }
+
+    .highlight-stage {
+      grid-column: 1;
+      padding-right: 1.75rem;
+      border-right: 1px solid var(--color-line-soft);
+    }
+
+    .highlight-claim {
+      grid-column: 4;
+    }
+  }
+</style>
