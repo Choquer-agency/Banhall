@@ -96,6 +96,12 @@
   let title = $state("");
   let sredTitle = $state(""); // BNH-23: formal SR&ED title
   let clientName = $state("");
+  // Flag 2026-08-14 (Michael): settable at creation, not only post-generation.
+  let projectNumber = $state("");
+  const projectNumberValid = $derived(
+    !projectNumber.trim() ||
+      /^(?:[1-9][0-9]?[A-Za-z]?|[A-Za-z])$/.test(projectNumber.trim())
+  );
   let interviewerUserId = $state("");
   const interviewerName = $derived(
     (teamQ.data ?? []).find((member) => member.id === interviewerUserId)?.name ?? ""
@@ -342,7 +348,12 @@
   // engagements only have a spreadsheet/drawings/an email. Generation still
   // needs at least one source (transcript OR context docs), checked at commit.
   const detailsValid = $derived(
-    Boolean(title.trim() && clientName.trim() && (mode === "review" ? pdDoc : true))
+    Boolean(
+      title.trim() &&
+        clientName.trim() &&
+        projectNumberValid &&
+        (mode === "review" ? pdDoc : true)
+    )
   );
   const canGoNext = $derived(step !== 0 || detailsValid);
 
@@ -472,6 +483,7 @@
           : {}),
         ...(industry ? { industry } : {}),
         ...(scienceCode ? { scienceCode } : {}),
+        ...(projectNumber.trim() ? { projectNumber: projectNumber.trim() } : {}),
         mode,
         transcriptContent: transcript,
       });
@@ -841,6 +853,19 @@
             <Input id="title" label="Internal project title" bind:value={title} placeholder="Project Verdant F2024" required />
             <Input id="sredTitle" label="SR&ED title (optional — finalize later)" bind:value={sredTitle} placeholder="e.g. Development of a multi-home SoC estimation system" />
             <Input id="clientName" label="Client name" bind:value={clientName} placeholder="GreenStem Nurseries Inc." required />
+            <div>
+              <Input
+                id="projectNumber"
+                label="Project number (optional)"
+                bind:value={projectNumber}
+                placeholder="e.g. 1, 2A, or B"
+              />
+              {#if !projectNumberValid}
+                <p class="mt-1 text-xs text-red-700" role="alert">
+                  Use 1–20, a letter A–Z, or combined like 2A.
+                </p>
+              {/if}
+            </div>
             <!-- BNH-22: interviewer selectable from the team roster -->
             <div class="flex flex-col gap-1.5">
               <label for="interviewer" class="text-sm font-medium text-gray-700">Interviewer</label>

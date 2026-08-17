@@ -180,7 +180,32 @@ export const updateProjectScienceCode = mutation({
  * Empty/omitted clears the field. Stored trimmed and uppercased. Not part
  * of the dashboard projection (mirrors updateProjectTags: patch + updatedAt
  * only; no dashboardSearchText/projection field derives from it).
+ * Shared by setProjectNumber and createProject (flag 2026-08-14: the number
+ * should be settable in the creation form, not only after generation).
  */
+function normalizeProjectNumberInput(
+  input: string | undefined
+): string | undefined {
+  const raw = input?.trim().toUpperCase() ?? "";
+  if (!raw) return undefined;
+  // 1–20, a letter A–Z, or a combined form like 2A/14B (owner
+  // clarification 2026-08-11: numbering and lettering compose).
+  if (!/^(?:[1-9][0-9]?[A-Z]?|[A-Z])$/.test(raw)) {
+    domainError(
+      "INVALID_INPUT",
+      "Project number must be 1–20, a letter A–Z, or combined like 2A"
+    );
+  }
+  const numericPart = raw.match(/^[0-9]+/)?.[0];
+  if (numericPart && Number(numericPart) > 20) {
+    domainError(
+      "INVALID_INPUT",
+      "Numbered projects are capped at 20 per company"
+    );
+  }
+  return raw;
+}
+
 export const setProjectNumber = mutation({
   args: {
     projectId: v.id("projects"),
@@ -189,26 +214,7 @@ export const setProjectNumber = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     await requireInternalProjectAccess(ctx, args.projectId);
-    const raw = args.projectNumber?.trim().toUpperCase() ?? "";
-    let projectNumber: string | undefined;
-    if (raw) {
-      // 1–20, a letter A–Z, or a combined form like 2A/14B (owner
-      // clarification 2026-08-11: numbering and lettering compose).
-      if (!/^(?:[1-9][0-9]?[A-Z]?|[A-Z])$/.test(raw)) {
-        domainError(
-          "INVALID_INPUT",
-          "Project number must be 1–20, a letter A–Z, or combined like 2A"
-        );
-      }
-      const numericPart = raw.match(/^[0-9]+/)?.[0];
-      if (numericPart && Number(numericPart) > 20) {
-        domainError(
-          "INVALID_INPUT",
-          "Numbered projects are capped at 20 per company"
-        );
-      }
-      projectNumber = raw;
-    }
+    const projectNumber = normalizeProjectNumberInput(args.projectNumber);
     await ctx.db.patch(args.projectId, {
       projectNumber,
       updatedAt: Date.now(),
@@ -402,6 +408,10 @@ export const createProject = mutation({
     industry: v.optional(v.string()),
     // BNH-54: CRA T4088 line 206 field of science or technology code.
     scienceCode: v.optional(v.string()),
+    // Flag 2026-08-14 (Michael): settable at creation for both Generate PD
+    // and Review PD, not only after generation. Same rules as
+    // setProjectNumber.
+    projectNumber: v.optional(v.string()),
     // BNH-39: review mode reviews an existing written PD instead of generating.
     mode: v.optional(v.union(v.literal("generate"), v.literal("review"))),
     projectType: v.optional(projectTypeValidator),
@@ -436,6 +446,7 @@ export const createProject = mutation({
     if (args.scienceCode?.trim() && !scienceCode) {
       domainError("INVALID_INPUT", "Select a valid CRA science code");
     }
+    const projectNumber = normalizeProjectNumberInput(args.projectNumber);
     const industry = await validatedIndustry(ctx, args.industry);
 
 
@@ -470,6 +481,7 @@ export const createProject = mutation({
       ...(args.fiscalYearEnd ? { fiscalYearEnd: args.fiscalYearEnd } : {}),
       ...(industry ? { industry } : {}),
       ...(scienceCode ? { scienceCode } : {}),
+      ...(projectNumber ? { projectNumber } : {}),
       ...(args.mode ? { mode: args.mode } : {}),
       projectType: args.projectType ?? effectiveProjectType({ mode: args.mode }),
       ownerId: writer._id,
