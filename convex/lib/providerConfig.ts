@@ -74,3 +74,47 @@ export function requireBrainConfigured(): string {
   }
   return key;
 }
+
+// Microsoft Graph app-only access to the client's OneDrive corpus (BNH-17).
+export type GraphConfig = {
+  tenantId: string;
+  clientId: string;
+  clientSecret: string;
+  driveId: string;
+  rootPath: string;
+};
+
+export function graphConfiguration() {
+  const configured = Boolean(
+    env.MS_TENANT_ID?.trim() &&
+      env.MS_CLIENT_ID?.trim() &&
+      env.MS_CLIENT_SECRET?.trim() &&
+      env.MS_DRIVE_ID?.trim()
+  );
+  return {
+    state: configured ? ("configured" as const) : ("unconfigured" as const),
+    message: configured
+      ? "Configured; drive access and consent are verified only by a live sync."
+      : "Microsoft Graph is not configured; OneDrive sync is unavailable (needs MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, MS_DRIVE_ID).",
+  };
+}
+
+export function requireGraphConfigured(): GraphConfig {
+  const tenantId = env.MS_TENANT_ID?.trim();
+  const clientId = env.MS_CLIENT_ID?.trim();
+  const clientSecret = env.MS_CLIENT_SECRET?.trim();
+  const driveId = env.MS_DRIVE_ID?.trim();
+  if (!tenantId || !clientId || !clientSecret || !driveId) {
+    domainError(
+      "PROVIDER_NOT_CONFIGURED",
+      "Microsoft Graph is not configured — OneDrive sync needs MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, and MS_DRIVE_ID"
+    );
+  }
+  return {
+    tenantId,
+    clientId,
+    clientSecret,
+    driveId,
+    rootPath: env.MS_ROOT_PATH?.trim() || "Applications",
+  };
+}

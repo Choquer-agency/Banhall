@@ -55,3 +55,8 @@ data/brain-seed.json
 **/__screenshots__/
 
 # Client PD examples (confidential — templates are CRA forms, fine to track)
+
+# Client uploader kit: filled config holds a live ingest key; logs are per-run artifacts
+scripts/client-uploader/uploader-config.json
+scripts/client-uploader/upload-log.txt
+crawler-manifest.jsonl

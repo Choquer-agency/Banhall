@@ -106,7 +106,7 @@ type ImportSourceArgs = {
   approve?: boolean;
 };
 
-async function importSource(
+export async function importSource(
   ctx: MutationCtx,
   args: ImportSourceArgs,
   actor: string
@@ -283,12 +283,12 @@ export const requeueAllApprovedEmbeds = internalMutation({
   },
 });
 
-/** Internal: the row the ingest action needs (approved/pending only). */
+/** Internal: only an approved row may cross into the vector index. */
 export const getBrainSourceForIngest = internalQuery({
   args: { sourceId: v.id("brainSources") },
   handler: async (ctx, args) => {
     const s = await ctx.db.get(args.sourceId);
-    if (!s || s.status === "revoked") return null;
+    if (!s || s.status !== "approved") return null;
     return {
       title: s.title,
       content: s.content,

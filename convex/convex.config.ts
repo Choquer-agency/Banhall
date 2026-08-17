@@ -20,6 +20,18 @@ const app = defineApp({
     VOYAGE_API_KEY: v.optional(v.string()),
     // OpenRouter gateway for supported generation and research models.
     OPENROUTER_API_KEY: v.optional(v.string()),
+    // Microsoft Graph app-only credentials for the OneDrive corpus sync
+    // (BNH-17). Azure app registration with Files.Read.All application
+    // permission + admin consent; MS_DRIVE_ID is the client's drive.
+    MS_TENANT_ID: v.optional(v.string()),
+    MS_CLIENT_ID: v.optional(v.string()),
+    MS_CLIENT_SECRET: v.optional(v.string()),
+    MS_DRIVE_ID: v.optional(v.string()),
+    // Folder under the drive root to sync (defaults to "Applications").
+    MS_ROOT_PATH: v.optional(v.string()),
+    // Bearer key for the crawler upload endpoint (Path B — no Azure app).
+    // Generate ≥32 random bytes; rotate to revoke: `openssl rand -hex 32`.
+    INGEST_API_KEY: v.optional(v.string()),
   },
 });
 app.use(rag);
