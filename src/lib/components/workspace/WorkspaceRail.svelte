@@ -95,7 +95,7 @@
   // rhythm through the fine-pointer media rule below.
   const rowHeight = $derived(variant === "rail" ? "h-7" : "min-h-11");
   const rowBase = $derived(
-    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md pl-2 pr-1 text-left text-sm font-medium leading-5 tracking-[-0.01em] transition-colors duration-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
+    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md pl-2 pr-1 text-left text-sm font-medium leading-5 tracking-[-0.01em] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
   );
   const idleRow = "text-ink hover:bg-workspace-rail-hover";
   const selectedRow = "bg-workspace-rail-selected font-semibold text-ink";
