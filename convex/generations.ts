@@ -135,8 +135,19 @@ export const getGenerationRecovery = query({
       .query("generationCandidateRuns")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
       .take(10);
+    // Recovery retries insert carried-over run rows directly (bypassing the
+    // per-model uniqueness guard in createCandidateRun), so the same
+    // model+status pair can appear twice — the UI keys its list on that pair
+    // (each_key_duplicate class, Aug 18 audit).
+    const seenModelStatus = new Set<string>();
     const models = runs
       .filter((run) => !run.ghost)
+      .filter((run) => {
+        const key = `${run.model}-${run.status}`;
+        if (seenModelStatus.has(key)) return false;
+        seenModelStatus.add(key);
+        return true;
+      })
       .map((run) => ({
         model: run.model,
         label: modelById(run.model)?.label ?? run.label ?? "Draft model",
@@ -2481,16 +2492,19 @@ export const getCandidateScoreSummary = query({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
-    if (
-      !generation ||
-      !(await getInternalProjectAccessOrNull(ctx, generation.projectId))
-    ) {
-      return null;
-    }
-    const scores = await ctx.db
-      .query("candidateScores")
-      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(20);
+    if (!generation) return null;
+    const access = await getInternalProjectAccessOrNull(ctx, generation.projectId);
+    if (!access) return null;
+    // Only the caller's own scores: the panel is titled "Your score", and two
+    // teammates scoring the same blind option would otherwise produce rows
+    // sharing an optionPosition — the UI keys its table on optionPosition
+    // (each_key_duplicate class, Aug 18 audit).
+    const scores = (
+      await ctx.db
+        .query("candidateScores")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+        .take(100)
+    ).filter((score) => score.userId === access.user._id);
     if (scores.length === 0) return null;
     const selections = await ctx.db
       .query("modelSelections")

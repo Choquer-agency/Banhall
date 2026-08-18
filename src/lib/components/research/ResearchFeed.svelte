@@ -321,7 +321,9 @@
 
             {#if details.session.warnings?.length}
               <ul class="space-y-1 text-xs leading-relaxed text-ink-secondary">
-                {#each details.session.warnings as warning (warning)}
+                <!-- Set guard: rows persisted before the write-time dedupe
+                     (convex/research.ts) can still hold duplicate strings. -->
+                {#each [...new Set(details.session.warnings)] as warning (warning)}
                   <li class="flex gap-1.5"><span class="text-amber-500">•</span><span>{warning}</span></li>
                 {/each}
               </ul>
@@ -352,7 +354,9 @@
                         </div>
                         {#if claim.sourceIds.length}
                           <div class="mt-1.5 flex flex-wrap gap-1.5 pl-0.5">
-                            {#each claim.sourceIds as sourceId (sourceId)}
+                            <!-- Set guard: claims persisted before the
+                                 write-time dedupe can repeat a sourceId. -->
+                            {#each [...new Set(claim.sourceIds)] as sourceId (sourceId)}
                               {@const source = sourcesById.get(sourceId)}
                               {#if source?.canonicalUrl}
                                 <a

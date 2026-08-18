@@ -876,7 +876,22 @@
 
   // Filing-readiness blockers surfaced BEFORE export instead of a raw server
   // error at authorize time (alerts: EVIDENCE_REQUIRED flag, Jul 17).
+  // Deduped by code+message: getFilingReadiness emits one blocker per material
+  // claim, all sharing code and message, and the modal shows no per-claim
+  // detail — duplicates crashed the keyed each (alerts: each_key_duplicate,
+  // Aug 18).
   let readinessBlockers = $state<Array<{ code: string; message: string }>>([]);
+  function dedupeBlockers(
+    blockers: Array<{ code: string; message: string }>
+  ): Array<{ code: string; message: string }> {
+    const seen = new Set<string>();
+    return blockers.filter(({ code, message }) => {
+      const key = `${code}:${message}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
 
   async function handleExport() {
     if (!report) return;
@@ -891,7 +906,7 @@
         reportId: report._id,
       });
       if (readiness && !readiness.ready) {
-        readinessBlockers = readiness.blockers;
+        readinessBlockers = dedupeBlockers(readiness.blockers);
         return;
       }
       const flushedRevision = await flushEditor();
@@ -1897,7 +1912,7 @@
             The official export needs filing evidence in place first:
           </p>
           <ul class="mt-3 flex flex-col gap-2">
-            {#each readinessBlockers as blocker (blocker.code)}
+            {#each readinessBlockers as blocker (`${blocker.code}:${blocker.message}`)}
               <li class="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
                 <svg class="mt-0.5 h-4 w-4 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />

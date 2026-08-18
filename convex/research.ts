@@ -687,7 +687,10 @@ export const saveReviewResult = internalMutation({
         text: claim.text.slice(0, 2_000),
         evidenceKind: claim.evidenceKind,
         support: claim.support,
-        sourceIds: claim.sourceIds.slice(0, 10),
+        // Dedupe: LLM-supplied list, and the UI keys source chips by id — a
+        // repeated citation would crash the keyed each (same
+        // each_key_duplicate class as the warnings dedupe below).
+        sourceIds: Array.from(new Set(claim.sourceIds)).slice(0, 10),
         createdAt: now,
       });
     }
