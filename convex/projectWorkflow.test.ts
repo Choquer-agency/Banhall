@@ -105,20 +105,47 @@ async function projectEvents(setup: Setup, projectId: Id<"projects">) {
 }
 
 describe("workflow transition matrix", () => {
-  it("matches the exact approved 47-edge contract", () => {
-    expect(WORKFLOW_TRANSITIONS).toHaveLength(47);
-    expect(new Set(WORKFLOW_TRANSITIONS.map((rule) => `${rule.from}->${rule.to}`)).size).toBe(47);
+  it("generates the full open matrix with the per-edge policy contract", () => {
+    const fullSize = WORKFLOW_STAGES.length * (WORKFLOW_STAGES.length - 1);
+    expect(WORKFLOW_TRANSITIONS).toHaveLength(fullSize);
+    expect(new Set(WORKFLOW_TRANSITIONS.map((rule) => `${rule.from}->${rule.to}`)).size).toBe(
+      fullSize
+    );
+    // Direct jumps exist (the 2026-08-17 amendment's motivating case).
+    expect(findWorkflowTransition("intake", "internal_review")?.authorities).toEqual([
+      "owner",
+      "manager",
+      "admin",
+    ]);
+    // Preserved policy: H on review completion, fail-closed requirements,
+    // M/A-only terminal-stage exits, audit notes on pauses and reopenings.
     expect(findWorkflowTransition("internal_review", "edits")?.authorities).toContain(
+      "handoff_assignee"
+    );
+    expect(findWorkflowTransition("internal_review", "drafting")?.authorities).not.toContain(
       "handoff_assignee"
     );
     expect(findWorkflowTransition("ready_for_delivery", "delivered")?.requirements).toContain(
       "delivery_outcome"
     );
+    expect(findWorkflowTransition("intake", "delivered")?.requirements).toContain(
+      "delivery_outcome"
+    );
+    expect(findWorkflowTransition("intake", "ready_for_delivery")?.requirements).toContain(
+      "promoted_branch"
+    );
     expect(findWorkflowTransition("delivered", "on_hold")?.authorities).toEqual([
       "manager",
       "admin",
     ]);
+    expect(findWorkflowTransition("delivered", "drafting")?.requiresNote).toBe(true);
+    expect(findWorkflowTransition("abandoned", "drafting")?.authorities).toEqual([
+      "manager",
+      "admin",
+    ]);
     expect(findWorkflowTransition("abandoned", "drafting")?.requiresNote).toBe(true);
+    expect(findWorkflowTransition("intake", "on_hold")?.requiresNote).toBe(true);
+    expect(findWorkflowTransition("on_hold", "internal_review")?.requirements).toBeUndefined();
   });
 
   it("covers every N×N stage pair with success, noop, or the correct typed failure", async () => {
@@ -141,15 +168,15 @@ describe("workflow transition matrix", () => {
           await expect(call).rejects.toThrow(/OUTCOME_REQUIRED|exact delivered/i);
         } else if (transition?.requirements?.includes("promoted_branch")) {
           await expect(call).rejects.toThrow(/INVALID_STATE|promoted report branch/i);
-        } else if (transition?.requirements?.includes("review_handoff")) {
-          await expect(call).rejects.toThrow(/INVALID_STATE|review handoff/i);
         } else if (transition) {
           await expect(call).resolves.toEqual({ status: "updated", version: 1 });
           const stored = await setup.t.run(async (ctx) => ctx.db.get(projectId));
           expect(stored).toMatchObject({ workflowStage: to, workflowVersion: 1 });
           expect(stored?.workflowUpdatedAt).toBeGreaterThanOrEqual(before);
         } else {
-          await expect(call).rejects.toThrow(/INVALID_TRANSITION|not allowed/i);
+          // Open matrix: every from≠to pair must have a transition rule.
+          await call.catch(() => undefined);
+          expect.unreachable(`missing transition ${from} -> ${to}`);
         }
 
         const events = await projectEvents(setup, projectId);
@@ -240,6 +267,54 @@ describe("workflow authorization and validation", () => {
     }
   });
 
+  it("keeps abandoned reopening Manager/Admin-only and scopes H authority to review completion edges", async () => {
+    const setup = await setupFixture();
+    const abandonedProject = await insertProject(setup, { stage: "abandoned" });
+    await expect(
+      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId: abandonedProject,
+        toStage: "drafting",
+        note: "Owner reopen attempt",
+        expectedVersion: 0,
+      })
+    ).rejects.toThrow(/NOT_AUTHORIZED|authority/i);
+    await expect(
+      setup.manager.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId: abandonedProject,
+        toStage: "drafting",
+        note: "Manager reopen",
+        expectedVersion: 0,
+      })
+    ).resolves.toMatchObject({ status: "updated" });
+
+    const reviewProject = await insertProject(setup, { stage: "internal_review" });
+    await setup.owner.mutation(api.workItems.create, {
+      projectId: reviewProject,
+      kind: "internal_review",
+      assigneeId: setup.otherWriterId,
+      blocking: true,
+      instructions: "Review the draft",
+      createRequestId: "h-authority-scope",
+    });
+    const afterCreate = await setup.t.run((ctx) => ctx.db.get(reviewProject));
+    // The active handoff assignee may complete review (→ edits) but has no
+    // authority on any other edge out of internal_review.
+    await expect(
+      setup.other.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId: reviewProject,
+        toStage: "drafting",
+        expectedVersion: afterCreate?.workflowVersion ?? -1,
+      })
+    ).rejects.toThrow(/NOT_AUTHORIZED|authority/i);
+    await expect(
+      setup.other.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId: reviewProject,
+        toStage: "edits",
+        expectedVersion: afterCreate?.workflowVersion ?? -1,
+      })
+    ).resolves.toMatchObject({ status: "updated" });
+  });
+
   it("treats a missing stage as intake and uses a monotonic shared OCC version", async () => {
     const setup = await setupFixture();
     const projectId = await insertProject(setup);
@@ -295,27 +370,16 @@ describe("work-item workflow authority", () => {
     })).rejects.toThrow(/NOT_AUTHORIZED|owner/i);
   });
 
-  it("rejects missing, wrong-kind, closed, and foreign review handoffs", async () => {
+  it("enters internal review without a handoff and revokes H authority once the handoff closes", async () => {
     const setup = await setupFixture();
     const projectId = await insertProject(setup, { stage: "on_hold" });
-    const wrongKind = await setup.owner.mutation(api.workItems.create, {
-      projectId,
-      kind: "other",
-      assigneeId: setup.otherWriterId,
-      blocking: true,
-      instructions: "Other task",
-      createRequestId: "wrong-kind",
-    });
+    // Stage and assignment are separate records (2026-08-17 open-matrix
+    // amendment): no active review handoff is required to enter the stage.
     await expect(setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
       projectId,
       toStage: "internal_review",
-      expectedVersion: 1,
-    })).rejects.toThrow(/review handoff|INVALID_STATE/i);
-    await setup.owner.mutation(api.workItems.cancel, {
-      workItemId: wrongKind.workItemId,
       expectedVersion: 0,
-      reason: "Replace task",
-    });
+    })).resolves.toEqual({ status: "updated", version: 1 });
     const closed = await setup.owner.mutation(api.workItems.create, {
       projectId,
       kind: "internal_review",
@@ -329,11 +393,11 @@ describe("work-item workflow authority", () => {
       expectedVersion: 0,
     });
     const afterClose = await setup.t.run((ctx) => ctx.db.get(projectId));
-    await expect(setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+    await expect(setup.other.mutation(api.projectWorkflow.setWorkflowStage, {
       projectId,
-      toStage: "internal_review",
+      toStage: "edits",
       expectedVersion: afterClose?.workflowVersion ?? -1,
-    })).rejects.toThrow(/review handoff|INVALID_STATE/i);
+    })).rejects.toThrow(/NOT_AUTHORIZED|authority/i);
   });
 });
 

@@ -148,6 +148,25 @@
     customInstructions.length > MAX_INSTRUCTIONS_CHARS
   );
 
+  // Sub-sidebar sections (2026-08-19): the page reads as a real settings
+  // surface — section nav on the left, one section at a time on the right.
+  // Deep links via #security / #writing keep working.
+  type SettingsSection = "account" | "security" | "writing";
+  const SECTIONS: { key: SettingsSection; label: string; hint: string }[] = [
+    { key: "account", label: "Account", hint: "Your name on reports and the roster" },
+    { key: "security", label: "Security", hint: "Password and sessions" },
+    { key: "writing", label: "Writing preferences", hint: "Personal style instructions" },
+  ];
+  let section = $state<SettingsSection>("account");
+  $effect(() => {
+    const hash = window.location.hash.replace("#", "");
+    if (hash === "security" || hash === "writing") section = hash;
+  });
+  function selectSection(next: SettingsSection) {
+    section = next;
+    history.replaceState(null, "", next === "account" ? "#" : `#${next}`);
+  }
+
   async function handleSave() {
     if (saving || preferencesTooLong) return;
     error = "";
@@ -178,9 +197,32 @@
       {#if profileQ.data === undefined || meQ.data === undefined}
         <div class="flex min-h-[40vh] items-center justify-center"><Spinner /></div>
       {:else}
-        <div class={showHeading ? "mt-8 grid items-start gap-8 lg:grid-cols-[minmax(20rem,0.85fr)_minmax(0,1.35fr)]" : "flex flex-col"}>
-          <div class={showHeading ? "flex flex-col gap-8" : "flex flex-col"}>
-            <section class={showHeading ? "card p-6" : "border-b border-workspace-rail-line pb-8"}>
+        <div class={`grid items-start gap-8 md:grid-cols-[11.5rem_minmax(0,1fr)] ${showHeading ? "mt-8" : "pt-2"}`}>
+          <!-- Sub-sidebar: one row per section, workspace-rail rhythm. -->
+          <nav aria-label="Settings sections" class="md:sticky md:top-4">
+            <ul class="flex gap-1 overflow-x-auto md:flex-col md:gap-px">
+              {#each SECTIONS as item (item.key)}
+                <li>
+                  <button
+                    type="button"
+                    aria-current={section === item.key ? "page" : undefined}
+                    onclick={() => selectSection(item.key)}
+                    class={`flex h-8 w-full items-center whitespace-nowrap rounded-md px-2.5 text-left text-sm font-medium transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${
+                      section === item.key
+                        ? "bg-workspace-rail-selected font-semibold text-ink"
+                        : "text-ink-secondary hover:bg-workspace-rail-hover hover:text-ink"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          </nav>
+
+          <div class="flex min-w-0 flex-col">
+            {#if section === "account"}
+            <section class="card max-w-2xl p-6">
               <h2 class="text-title">Your name</h2>
               <p class="mt-1 text-sm text-ink-muted">
                 Shown on reports, the team roster, and review history.
@@ -203,8 +245,8 @@
                 </p>
               {/if}
             </section>
-
-            <section id="security" class={showHeading ? "card p-6" : "border-b border-workspace-rail-line py-8"}>
+            {:else if section === "security"}
+            <section id="security" class="card max-w-2xl p-6">
               <h2 class="text-title">Password</h2>
               <p class="mt-1 text-sm text-ink-muted">
                 Changing your password signs out your other active sessions.
@@ -253,10 +295,9 @@
                 </p>
               {/if}
             </section>
-          </div>
-
-          <section class={showHeading ? "card p-6" : "py-8"}>
-            <h2 class="text-title">Writing preferences</h2>
+            {:else}
+            <section id="writing" class="card p-6">
+              <h2 class="text-title">Writing preferences</h2>
             <p class="mt-1 max-w-2xl text-sm text-ink-muted">
               Applied to every report you generate. Never overrides CRA structural
               requirements, banned-word rules, or length limits.
@@ -295,7 +336,9 @@
                 {error}
               </p>
             {/if}
-          </section>
+            </section>
+            {/if}
+          </div>
         </div>
       {/if}
     </PageContainer>

@@ -597,13 +597,13 @@ describe("project numbering", () => {
       projectNumber: " 2a ",
     });
     let project = await asActor(t, "owner").query(api.projects.getProject, { projectId });
-    expect(project?.projectNumber).toBe("2A");
+    expect(project?.projectNumber).toBe("2a");
     await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
       projectId,
       projectNumber: "14b",
     });
     project = await asActor(t, "owner").query(api.projects.getProject, { projectId });
-    expect(project?.projectNumber).toBe("14B");
+    expect(project?.projectNumber).toBe("14b");
     // combined form still respects the 20 cap
     await expect(
       asActor(t, "owner").mutation(api.projects.setProjectNumber, {
@@ -631,11 +631,11 @@ describe("project numbering", () => {
 
     await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
       projectId,
-      projectNumber: "A",
+      projectNumber: "a",
     });
 
     await expect(getProject(t, projectId)).resolves.toMatchObject({
-      projectNumber: "A",
+      projectNumber: "a",
     });
   });
 
@@ -672,7 +672,7 @@ describe("project numbering", () => {
     });
 
     await expect(getProject(t, projectId)).resolves.toMatchObject({
-      projectNumber: "B",
+      projectNumber: "b",
     });
   });
 
@@ -692,7 +692,7 @@ describe("project numbering", () => {
 
     await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
       projectId,
-      projectNumber: "A",
+      projectNumber: "a",
     });
     await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
       projectId,
@@ -754,5 +754,109 @@ describe("project review unpublishing", () => {
       status: "client_review",
       sharedReportId: reportId,
     });
+  });
+});
+
+describe("project number auto-lettering (meeting 2026-08-18)", () => {
+  async function setupSiblings() {
+    const base = await setup();
+    const siblings = await base.t.run(async (ctx) => {
+      const now = Date.now();
+      const make = (title: string) =>
+        ctx.db.insert("projects", {
+          title,
+          clientName: "Acme",
+          dashboardCompanyKey: "acme",
+          dashboardFiscalYearRank: -2025,
+          status: "review",
+          createdBy: base.ownerId,
+          shareToken: `token-${title}`,
+          createdAt: now,
+          updatedAt: now,
+        });
+      return { a: await make("Acme one"), b: await make("Acme two"), c: await make("Acme three") };
+    });
+    return { ...base, siblings };
+  }
+
+  test("second bare number in the same client+FY gets the next letter", async () => {
+    const { t, siblings } = await setupSiblings();
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId: siblings.a,
+      projectNumber: "1",
+    });
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId: siblings.b,
+      projectNumber: "1",
+    });
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId: siblings.c,
+      projectNumber: "1",
+    });
+    const [a, b, c] = await t.run(async (ctx) => [
+      await ctx.db.get(siblings.a),
+      await ctx.db.get(siblings.b),
+      await ctx.db.get(siblings.c),
+    ]);
+    // On first collision the existing bare "1" is renamed to the explicit
+    // "1a" slot; later applies letter alphabetically (lowercase).
+    expect(a?.projectNumber).toBe("1a");
+    expect(b?.projectNumber).toBe("1b");
+    expect(c?.projectNumber).toBe("1c");
+  });
+
+  test("re-applying the same number to the same project does not self-collide", async () => {
+    const { t, siblings } = await setupSiblings();
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId: siblings.a,
+      projectNumber: "2",
+    });
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId: siblings.a,
+      projectNumber: "2",
+    });
+    const a = await t.run((ctx) => ctx.db.get(siblings.a));
+    expect(a?.projectNumber).toBe("2");
+  });
+
+  test("explicit lettered input is stored as typed", async () => {
+    const { t, siblings } = await setupSiblings();
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId: siblings.a,
+      projectNumber: "1",
+    });
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId: siblings.b,
+      projectNumber: "1d",
+    });
+    const b = await t.run((ctx) => ctx.db.get(siblings.b));
+    expect(b?.projectNumber).toBe("1d");
+  });
+
+  test("a different fiscal year keeps the bare number", async () => {
+    const { t, siblings, ownerId } = await setupSiblings();
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId: siblings.a,
+      projectNumber: "1",
+    });
+    const nextYear = await t.run((ctx) =>
+      ctx.db.insert("projects", {
+        title: "Acme rollover",
+        clientName: "Acme",
+        dashboardCompanyKey: "acme",
+        dashboardFiscalYearRank: -2026,
+        status: "review",
+        createdBy: ownerId,
+        shareToken: "token-rollover",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+    );
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId: nextYear,
+      projectNumber: "1",
+    });
+    const rollover = await t.run((ctx) => ctx.db.get(nextYear));
+    expect(rollover?.projectNumber).toBe("1");
   });
 });

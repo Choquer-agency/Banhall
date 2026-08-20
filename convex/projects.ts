@@ -1,4 +1,10 @@
-import { query, mutation, internalQuery, type MutationCtx } from "./_generated/server";
+import {
+  query,
+  mutation,
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+} from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import {
@@ -28,6 +34,10 @@ import {
   syncProjectDashboardFields,
   upsertDashboardCompany,
 } from "./lib/dashboardProjection";
+import {
+  dashboardCompanyKey,
+  dashboardFiscalYearRank,
+} from "../shared/dashboardProjection";
 
 async function validatedIndustry(
   ctx: MutationCtx,
@@ -177,7 +187,7 @@ export const updateProjectScienceCode = mutation({
  * 2026-08-11 amendment — per-company project numbering. Accepts "1".."20"
  * (final, sequential per company) or a single letter "A".."Z" (uncertain/
  * draft identity, convertible to a number later — a label-only change).
- * Empty/omitted clears the field. Stored trimmed and uppercased. Not part
+ * Empty/omitted clears the field. Stored trimmed and lowercased. Not part
  * of the dashboard projection (mirrors updateProjectTags: patch + updatedAt
  * only; no dashboardSearchText/projection field derives from it).
  * Shared by setProjectNumber and createProject (flag 2026-08-14: the number
@@ -186,14 +196,15 @@ export const updateProjectScienceCode = mutation({
 function normalizeProjectNumberInput(
   input: string | undefined
 ): string | undefined {
-  const raw = input?.trim().toUpperCase() ?? "";
+  const raw = input?.trim().toLowerCase() ?? "";
   if (!raw) return undefined;
-  // 1–20, a letter A–Z, or a combined form like 2A/14B (owner
-  // clarification 2026-08-11: numbering and lettering compose).
-  if (!/^(?:[1-9][0-9]?[A-Z]?|[A-Z])$/.test(raw)) {
+  // 1–20, a letter a–z, or a combined form like 2a/14b (owner
+  // clarification 2026-08-11: numbering and lettering compose; stored
+  // lowercase since 2026-08-19).
+  if (!/^(?:[1-9][0-9]?[a-z]?|[a-z])$/.test(raw)) {
     domainError(
       "INVALID_INPUT",
-      "Project number must be 1–20, a letter A–Z, or combined like 2A"
+      "Project number must be 1–20, a letter a–z, or combined like 2a"
     );
   }
   const numericPart = raw.match(/^[0-9]+/)?.[0];
@@ -206,6 +217,176 @@ function normalizeProjectNumberInput(
   return raw;
 }
 
+/**
+ * Auto-letter duplicate numbers (meeting 2026-08-18): applying a bare "1"
+ * where a "1" (or "1B", …) already exists in the same client + fiscal year
+ * stores the next free letter — the existing bare "1" reads as "1A", the new
+ * one becomes "1B". Explicit lettered input ("1C") is stored as typed. Scope
+ * is company+fiscal-year so a legitimate rollover "1" next year stays "1".
+ */
+async function resolveProjectNumberCollision(
+  ctx: MutationCtx,
+  scope: {
+    dashboardCompanyKey: string | undefined;
+    dashboardFiscalYearRank: number | undefined;
+    excludeProjectId?: Id<"projects">;
+  },
+  normalized: string | undefined
+): Promise<string | undefined> {
+  if (!normalized || !/^[0-9]+$/.test(normalized)) return normalized;
+  if (scope.dashboardCompanyKey === undefined || scope.dashboardFiscalYearRank === undefined) {
+    return normalized;
+  }
+  const siblings = await ctx.db
+    .query("projects")
+    .withIndex("by_dashboardCompanyKey_and_dashboardFiscalYearRank", (q) =>
+      q
+        .eq("dashboardCompanyKey", scope.dashboardCompanyKey!)
+        .eq("dashboardFiscalYearRank", scope.dashboardFiscalYearRank!)
+    )
+    .take(200);
+  const usedLetters = new Set<string>();
+  let bareSibling: (typeof siblings)[number] | null = null;
+  let collides = false;
+  for (const sibling of siblings) {
+    if (sibling._id === scope.excludeProjectId) continue;
+    const number = sibling.projectNumber?.toLowerCase();
+    if (!number) continue;
+    const match = number.match(/^([0-9]+)([a-z]?)$/);
+    if (!match || match[1] !== normalized) continue;
+    collides = true;
+    if (match[2]) {
+      usedLetters.add(match[2]);
+    } else {
+      bareSibling = sibling;
+      usedLetters.add("a"); // the bare number becomes the "a" slot below
+    }
+  }
+  if (!collides) return normalized;
+  // The existing bare sibling is renamed to "<n>a" in the same transaction so
+  // the pair reads 1a/1b instead of 1/1b (owner direction 2026-08-19).
+  if (bareSibling) {
+    await ctx.db.patch(bareSibling._id, {
+      projectNumber: `${normalized}a`,
+      updatedAt: Date.now(),
+    });
+  }
+  for (let i = 0; i < 26; i++) {
+    const letter = String.fromCharCode(97 + i);
+    if (!usedLetters.has(letter)) return `${normalized}${letter}`;
+  }
+  domainError(
+    "INVALID_INPUT",
+    `Every letter for project number ${normalized} is taken in this fiscal year`
+  );
+}
+
+/**
+ * One-time backfill for the 2026-08-19 auto-lettering amendment: find groups
+ * of projects sharing the same bare number within a client + fiscal year and
+ * letter them — earliest createdAt keeps the bare number ("1A" slot), later
+ * ones get the next free letter. Existing lettered numbers are respected and
+ * never rewritten. Dry-run by default:
+ *   npx convex run projects:backfillProjectNumberLetters '{"apply":false}'
+ */
+export const backfillProjectNumberLetters = internalMutation({
+  args: { apply: v.boolean() },
+  returns: v.array(
+    v.object({
+      projectId: v.id("projects"),
+      title: v.string(),
+      clientName: v.string(),
+      from: v.string(),
+      to: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const projects = await ctx.db.query("projects").take(4000);
+    const changes: Array<{
+      projectId: Id<"projects">;
+      title: string;
+      clientName: string;
+      from: string;
+      to: string;
+    }> = [];
+    const record = async (
+      project: (typeof projects)[number],
+      to: string
+    ) => {
+      if (project.projectNumber === to) return;
+      changes.push({
+        projectId: project._id,
+        title: project.title,
+        clientName: project.clientName,
+        from: project.projectNumber!,
+        to,
+      });
+      if (args.apply) {
+        await ctx.db.patch(project._id, { projectNumber: to, updatedAt: Date.now() });
+      }
+    };
+
+    const groups = new Map<string, typeof projects>();
+    for (const project of projects) {
+      if (!project.projectNumber) continue;
+      const lower = project.projectNumber.toLowerCase();
+      const match = lower.match(/^([0-9]+)([a-z]?)$/);
+      if (!match) {
+        // Single letters and anything else: just normalize the casing.
+        await record(project, lower);
+        continue;
+      }
+      const key = `${project.dashboardCompanyKey ?? "?"}::${project.dashboardFiscalYearRank ?? "?"}::${match[1]}`;
+      const group = groups.get(key) ?? [];
+      group.push(project);
+      groups.set(key, group);
+    }
+    for (const group of groups.values()) {
+      const bare = group
+        .filter((project) => /^[0-9]+$/i.test(project.projectNumber!))
+        .sort((a, b) => a.createdAt - b.createdAt);
+      const lettered = group.filter(
+        (project) => !/^[0-9]+$/i.test(project.projectNumber!)
+      );
+      const usedLetters = new Set<string>(
+        lettered
+          .map((project) => project.projectNumber!.toLowerCase().match(/([a-z])$/)?.[1])
+          .filter((letter): letter is string => Boolean(letter))
+      );
+      // Lowercase any lettered numbers stored in the old uppercase form.
+      for (const project of lettered) {
+        await record(project, project.projectNumber!.toLowerCase());
+      }
+      // No collision: a lone bare number stays bare.
+      if (bare.length <= 1 && (bare.length === 0 || lettered.length === 0)) continue;
+      // Collision (or bare + lettered siblings): the earliest bare project
+      // takes the explicit "a" slot; later bares get the next free letters.
+      for (const [index, project] of bare.entries()) {
+        const numeric = project.projectNumber!.toLowerCase();
+        if (index === 0) {
+          if (!usedLetters.has("a")) {
+            usedLetters.add("a");
+            await record(project, `${numeric}a`);
+          }
+          continue;
+        }
+        let assigned: string | null = null;
+        for (let i = 0; i < 26; i++) {
+          const letter = String.fromCharCode(97 + i);
+          if (!usedLetters.has(letter)) {
+            usedLetters.add(letter);
+            assigned = letter;
+            break;
+          }
+        }
+        if (!assigned) continue; // >26 duplicates: leave for a human
+        await record(project, `${numeric}${assigned}`);
+      }
+    }
+    return changes;
+  },
+});
+
 export const setProjectNumber = mutation({
   args: {
     projectId: v.id("projects"),
@@ -213,8 +394,16 @@ export const setProjectNumber = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireInternalProjectAccess(ctx, args.projectId);
-    const projectNumber = normalizeProjectNumberInput(args.projectNumber);
+    const { project } = await requireInternalProjectAccess(ctx, args.projectId);
+    const projectNumber = await resolveProjectNumberCollision(
+      ctx,
+      {
+        dashboardCompanyKey: project.dashboardCompanyKey,
+        dashboardFiscalYearRank: project.dashboardFiscalYearRank,
+        excludeProjectId: project._id,
+      },
+      normalizeProjectNumberInput(args.projectNumber)
+    );
     await ctx.db.patch(args.projectId, {
       projectNumber,
       updatedAt: Date.now(),
@@ -446,7 +635,14 @@ export const createProject = mutation({
     if (args.scienceCode?.trim() && !scienceCode) {
       domainError("INVALID_INPUT", "Select a valid CRA science code");
     }
-    const projectNumber = normalizeProjectNumberInput(args.projectNumber);
+    const projectNumber = await resolveProjectNumberCollision(
+      ctx,
+      {
+        dashboardCompanyKey: dashboardCompanyKey(args.clientName),
+        dashboardFiscalYearRank: dashboardFiscalYearRank(args.fiscalYearEnd),
+      },
+      normalizeProjectNumberInput(args.projectNumber)
+    );
     const industry = await validatedIndustry(ctx, args.industry);
 
 

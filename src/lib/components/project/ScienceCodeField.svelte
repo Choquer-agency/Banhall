@@ -50,7 +50,7 @@
   }
 </script>
 
-<div class="mt-1">
+<div>
   <div class="flex flex-wrap items-center gap-2">
     <SelectInput
       value={scienceCode ?? ""}
@@ -68,11 +68,11 @@
       disabled={saving || suggesting}
       onclick={suggest}
     >
-      <svg aria-hidden="true" class="h-3.5 w-3.5 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+      <svg aria-hidden="true" class="ai-suggest-icon h-3.5 w-3.5 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 3l1.15 3.35a5 5 0 003.15 3.15l3.35 1.15-3.35 1.15a5 5 0 00-3.15 3.15L12 18.3l-1.15-3.35a5 5 0 00-3.15-3.15l-3.35-1.15L7.7 9.5a5 5 0 003.15-3.15L12 3z" />
         <path stroke-linecap="round" stroke-linejoin="round" d="M18.5 3.5v3M20 5h-3M5.5 17.5v3M7 19H4" />
       </svg>
-      {suggesting ? "AI suggesting…" : "AI Suggests"}
+      <span class="ai-suggest-label">{suggesting ? "AI suggesting…" : "AI Suggests"}</span>
     </Button>
   </div>
   {#if suggestionMessage}
@@ -81,3 +81,43 @@
     </p>
   {/if}
 </div>
+
+<style>
+  /* AI affordance: a slow looping multicolor sheen so the suggestion action
+     reads as "special", not another link. The icon keeps a solid violet so
+     it stays visible (background-clip text would blank currentColor). */
+  :global(.ai-suggest-label) {
+    background-image: linear-gradient(
+      90deg,
+      #7c3aed,
+      #db2777,
+      #ea580c,
+      #0d9488,
+      #7c3aed
+    );
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: ai-suggest-sheen 18s linear infinite;
+  }
+
+  :global(.ai-suggest-icon) {
+    color: #7c3aed;
+  }
+
+  @keyframes -global-ai-suggest-sheen {
+    from {
+      background-position: 0% 0;
+    }
+    to {
+      background-position: -300% 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(.ai-suggest-label) {
+      animation: none;
+    }
+  }
+</style>

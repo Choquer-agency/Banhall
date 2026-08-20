@@ -23,7 +23,16 @@
   let {
     projectId,
     fiscalYearEnd = null,
-  }: { projectId: Id<"projects">; fiscalYearEnd?: number | null } = $props();
+    padBottom = false,
+  }: {
+    projectId: Id<"projects">;
+    fiscalYearEnd?: number | null;
+    /**
+     * Reserve air below the band while the host's details disclosure is
+     * open; animates away when it closes so the collapse reads seamless.
+     */
+    padBottom?: boolean;
+  } = $props();
 
   const auth = useAuth();
   let now = $state(Date.now());
@@ -64,12 +73,12 @@
   <section
     data-project-highlights
     aria-label="Project workflow summary"
-    class="project-highlights border-t border-line-soft pt-3"
+    class={`project-highlights border-t border-b border-line-soft pt-4 transition-[padding-bottom,border-color] duration-300 motion-reduce:transition-none ${padBottom ? "pb-4" : "pb-0 [border-bottom-color:transparent]"}`}
   >
     <dl class="highlights-layout">
       <div data-project-highlight="stage" class="highlight-stage min-w-0">
         <dt class="sr-only">Stage</dt>
-        <dd class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+        <dd class="flex min-w-0 flex-col items-start gap-1">
           <StageBadge stage={header.workflowStage} shape="square" />
           {#if timeInStage(header.workflowUpdatedAt)}
             <span class="truncate text-xs text-ink-muted">
@@ -82,17 +91,11 @@
       <div data-project-highlight="owner" class="highlight-owner min-w-0">
         <dt class="text-[0.6875rem] font-medium leading-none text-ink-muted">Owner</dt>
         {#if header.owner}
-          <dd class="mt-1 flex min-w-0 items-center gap-2">
-            <span
-              aria-hidden="true"
-              class="flex size-5 shrink-0 items-center justify-center rounded-full bg-fir text-[8px] font-semibold text-white"
-            >{header.owner.initials}</span>
-            <div class="min-w-0">
-              <p class="truncate text-[0.8125rem] font-medium leading-5 text-ink">{header.owner.label}</p>
-              {#if header.ownerNeedsReview}
-                <p class="truncate text-[0.6875rem] text-ink-muted">Ownership under review</p>
-              {/if}
-            </div>
+          <dd class="mt-1 min-w-0">
+            <p class="truncate text-[0.8125rem] font-medium leading-5 text-ink">{header.owner.label}</p>
+            {#if header.ownerNeedsReview}
+              <p class="truncate text-[0.6875rem] text-ink-muted">Ownership under review</p>
+            {/if}
           </dd>
         {:else}
           <dd class="mt-1 text-[0.8125rem] leading-5 text-ink-faint">No owner recorded</dd>

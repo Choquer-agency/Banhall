@@ -167,6 +167,18 @@
   }
 }
 
+/* Invisible scrollbars app-wide (2026-08-19 owner direction): every surface
+   still scrolls, no visible scrollbar chrome anywhere. */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 /* ─── Rhythm (8px grid) ───────────────────────────────────────────────────────
    page top: py-8 · page-header → content: 24px (mb-6 via .page-header) ·
    between sections: 40px (mt-10) · label → content: 12px (mt-3) ·
@@ -308,9 +320,12 @@ body {
   outline-color: var(--color-primary-light);
 }
 
+[data-workspace-theme="dark"] .field-control:hover:not(:focus):not(:disabled),
+[data-workspace-theme="dark"] .field-control:focus,
 [data-workspace-theme="dark"] .field-control:focus-visible,
+[data-workspace-theme="dark"] .field-control-shell:hover:not(:focus-within),
 [data-workspace-theme="dark"] .field-control-shell:focus-within {
-  box-shadow: inset 0 0 0 2px var(--color-primary-light);
+  box-shadow: inset 0 0 0 1px var(--color-primary-light);
 }
 
 /* ─── bits-ui floating surfaces: enter/exit motion (design rule #8) ────────── */
@@ -378,8 +393,8 @@ body {
 
 .field-control {
   border: 0;
-  background-color: var(--color-chrome);
-  box-shadow: inset 0 0 0 2px transparent;
+  background-color: var(--color-surface);
+  box-shadow: inset 0 0 0 1px var(--color-line);
   transition:
     background-color 300ms ease,
     box-shadow 300ms ease,
@@ -387,13 +402,15 @@ body {
 }
 
 .field-control:hover:not(:focus):not(:disabled) {
-  background-color: var(--color-primary-wash);
+  background-color: var(--color-surface);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
 }
 
 /* Inline edit fields should remain visually still until the user explicitly
    focuses them; merely revealing or hovering the editor is not a focus cue. */
 .field-control.field-control--quiet:hover:not(:focus):not(:disabled) {
-  background-color: var(--color-chrome);
+  background-color: var(--color-surface);
+  box-shadow: inset 0 0 0 1px var(--color-line);
 }
 
 .field-control:focus {
@@ -402,10 +419,12 @@ body {
   box-shadow: inset 0 0 0 1px var(--color-primary);
 }
 
+/* Hover and every focus state share the same 1px lagoon line (Aug 18): a
+   thicker or differently-colored keyboard ring read as a broken border. */
 .field-control:focus-visible {
   border-color: transparent;
   outline: none;
-  box-shadow: inset 0 0 0 2px var(--color-navy);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
 }
 
 .field-control[aria-invalid="true"] {
@@ -414,15 +433,19 @@ body {
 
 .field-control-shell {
   border: 0;
-  background-color: var(--color-chrome);
-  box-shadow: inset 0 0 0 2px transparent;
+  background-color: var(--color-surface);
+  box-shadow: inset 0 0 0 1px var(--color-line);
   transition:
     background-color 300ms ease,
     box-shadow 300ms ease;
 }
 
+.field-control-shell:hover:not(:focus-within) {
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+
 .field-control-shell:focus-within {
-  box-shadow: inset 0 0 0 2px var(--color-navy);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
 }
 
 /* Home-style prompt surfaces sit on the white working plane rather than

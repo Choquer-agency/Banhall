@@ -858,11 +858,11 @@
                 id="projectNumber"
                 label="Project number (optional)"
                 bind:value={projectNumber}
-                placeholder="e.g. 1, 2A, or B"
+                placeholder="e.g. 1, 2a, or b"
               />
               {#if !projectNumberValid}
                 <p class="mt-1 text-xs text-red-700" role="alert">
-                  Use 1–20, a letter A–Z, or combined like 2A.
+                  Use 1–20, a letter a–z, or combined like 2a.
                 </p>
               {/if}
             </div>

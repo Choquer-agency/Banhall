@@ -63,6 +63,7 @@ import type * as financial from "../financial.js";
 import type * as generations from "../generations.js";
 import type * as http from "../http.js";
 import type * as ingestion from "../ingestion.js";
+import type * as ingestionPort from "../ingestionPort.js";
 import type * as ingestionSync from "../ingestionSync.js";
 import type * as invites from "../invites.js";
 import type * as learning from "../learning.js";
@@ -174,6 +175,7 @@ declare const fullApi: ApiFromModules<{
   generations: typeof generations;
   http: typeof http;
   ingestion: typeof ingestion;
+  ingestionPort: typeof ingestionPort;
   ingestionSync: typeof ingestionSync;
   invites: typeof invites;
   learning: typeof learning;

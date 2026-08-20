@@ -72,7 +72,7 @@ Rules for the migration period:
 
 ## Transition matrix
 
-The table lists every allowed transition. Every other edge is disallowed. A mutation must still verify the caller’s project access, role capability, expected project version, and transition-specific requirements.
+**Open matrix (amended 2026-08-17).** Every stage may transition to every other stage; the "Normal next stages" column in the stage table above is descriptive guidance, not an allow-list. A mutation must still verify the caller’s project access, role capability, expected project version, and the per-edge policy below.
 
 Authority labels:
 
@@ -80,59 +80,23 @@ Authority labels:
 - **H** — assignee of the open blocking current handoff
 - **M** — Manager
 - **A** — Admin
-- **D** — delivery authority: Owner, Manager, or Admin, with an exact outcome record
 
-| From | To | Authority | Automation policy and notes |
-|---|---|---|---|
-| `intake` | `interview_complete` | O, M, A | Manual confirmation only in the initial release. |
-| `intake` | `drafting` | O, M, A | Manual shortcut allowed when intake/interview completion is implicit or legacy. |
-| `intake` | `on_hold` | O, M, A | Reason required. |
-| `intake` | `abandoned` | O, M, A | Reason required; all open work items must be completed, declined, or canceled first. |
-| `interview_complete` | `drafting` | O, M, A | May later be suggested after generation starts, but no invisible automatic transition initially. |
-| `interview_complete` | `on_hold` | O, M, A | Reason required. |
-| `interview_complete` | `abandoned` | O, M, A | Reason required. |
-| `drafting` | `internal_review` | O, M, A | “Send for internal review” may atomically create the handoff and offer this transition; user confirms. |
-| `drafting` | `client_review` | O, M, A | Requires an explicit client-review publish/share action. |
-| `drafting` | `ready_for_delivery` | O, M, A | Requires a promoted branch and applicable readiness checks. |
-| `drafting` | `on_hold` | O, M, A | Reason required. |
-| `drafting` | `abandoned` | O, M, A | Reason required. |
-| `internal_review` | `edits` | H, O, M, A | Completing review may offer this transition, but user confirms it. |
-| `internal_review` | `ready_for_delivery` | H, O, M, A | Reviewer/owner confirms no revision cycle is required; readiness checks apply. |
-| `internal_review` | `on_hold` | O, M, A | Reason required. |
-| `internal_review` | `abandoned` | O, M, A | Reason required. |
-| `edits` | `internal_review` | O, M, A | Sends the incorporated edits back through internal review. |
-| `edits` | `client_review` | O, M, A | Requires an explicit client-review publish/share action. |
-| `edits` | `ready_for_delivery` | O, M, A | Reviewer/owner confirms the edits are complete; readiness checks apply. |
-| `edits` | `on_hold` | O, M, A | Reason required. |
-| `edits` | `abandoned` | O, M, A | Reason required. |
-| `client_review` | `revisions` | O, M, A | May be suggested when client feedback arrives; no invisible transition initially. |
-| `client_review` | `ready_for_delivery` | O, M, A | Explicit confirmation after client review. |
-| `client_review` | `on_hold` | O, M, A | Reason required. |
-| `client_review` | `abandoned` | O, M, A | Reason required. |
-| `revisions` | `internal_review` | O, M, A | May create/replace the blocking review handoff in the same transaction. |
-| `revisions` | `client_review` | O, M, A | Requires explicit publish/share action. |
-| `revisions` | `ready_for_delivery` | O, M, A | Readiness checks apply. |
-| `revisions` | `on_hold` | O, M, A | Reason required. |
-| `revisions` | `abandoned` | O, M, A | Reason required. |
-| `ready_for_delivery` | `delivered` | D | Must atomically reference or create `delivered_to_client` or `used_in_filing` for the exact branch/revision. |
-| `ready_for_delivery` | `revisions` | O, M, A | Used when readiness review finds additional changes. |
-| `ready_for_delivery` | `on_hold` | O, M, A | Reason required. |
-| `ready_for_delivery` | `abandoned` | O, M, A | Reason required. |
-| `delivered` | `revisions` | O, M, A | Reopens work; audit note required. Existing outcome remains immutable. |
-| `delivered` | `on_hold` | M, A | Exceptional administrative correction; audit note required. |
-| `on_hold` | `intake` | O, M, A | Resume to the stage that truthfully reflects work. |
-| `on_hold` | `interview_complete` | O, M, A | Resume to the stage that truthfully reflects work. |
-| `on_hold` | `drafting` | O, M, A | Resume to the stage that truthfully reflects work. |
-| `on_hold` | `internal_review` | O, M, A | Resume only when the review handoff remains valid or is recreated. |
-| `on_hold` | `edits` | O, M, A | Resume to active post-review editing. |
-| `on_hold` | `client_review` | O, M, A | Resume only when client review is actually active. |
-| `on_hold` | `revisions` | O, M, A | Resume to active revision work. |
-| `on_hold` | `ready_for_delivery` | O, M, A | Re-run applicable readiness checks. |
-| `on_hold` | `abandoned` | O, M, A | Reason required. |
-| `abandoned` | `intake` | M, A | Explicit reopen with audit note. |
-| `abandoned` | `drafting` | M, A | Explicit reopen with audit note. |
+Per-edge policy is derived from the origin and destination stages:
 
-Same-stage transitions are idempotent no-ops and must not create duplicate audit events. Bulk stage changes follow the same matrix and authority checks per project; partial success must be reported explicitly rather than hidden.
+| Rule | Edges | Policy |
+|---|---|---|
+| Default authority | All edges unless overridden below | O, M, A |
+| Review completion | `internal_review` → `edits`, `internal_review` → `ready_for_delivery` | H additionally authorized (H, O, M, A) |
+| Reopen abandoned | `abandoned` → any stage | M, A only; audit note required |
+| Delivered administrative correction | `delivered` → `on_hold` | M, A only; audit note required |
+| Leaving delivered | `delivered` → any stage | Audit note required; existing outcome records remain immutable |
+| Pausing / abandoning | any stage → `on_hold`, any stage → `abandoned` | Reason (audit note) required; abandoning additionally requires all open work items completed, declined, or canceled first |
+| Delivery outcome | any stage → `delivered` | Must atomically reference or create `delivered_to_client` or `used_in_filing` for the exact branch/revision; fails closed until outcome storage applies |
+| Readiness | any stage → `ready_for_delivery` | Requires a promoted branch and applicable readiness checks; fails closed until branch storage applies |
+
+Entering `internal_review` no longer requires an active internal-review handoff: stage and assignment remain separate records, and "Send for internal review" may still atomically create the handoff and offer the stage change with user confirmation.
+
+Same-stage transitions are idempotent no-ops and must not create duplicate audit events. Bulk stage changes follow the same policy and authority checks per project; partial success must be reported explicitly rather than hidden.
 
 ## Assignment lifecycle
 
@@ -283,6 +247,35 @@ These decisions provide defaults so implementation does not invent product behav
 10. Narrow or remove legacy fields only after measured verification and a dedicated decision.
 
 ## Approved amendments
+
+### 2026-08-17 — Open workflow transition matrix
+
+Domain amendment replacing the 47-edge explicit transition matrix with an
+open matrix: every workflow stage may transition to every other stage,
+with per-edge policy derived from origin/destination (see the rewritten
+"Transition matrix" section).
+
+- **Origin:** in-app flag from mobregon@banhall.com (2026-08-14) on
+  project `k9749p01ks19rmy6nhjgq9yzzn8cem40`: stage changes were limited
+  to adjacent matrix edges (e.g. Intake could not move directly to
+  Internal review), forcing multi-hop workarounds. Product owner directed
+  the fix on 2026-08-17.
+- **What is widened:** all stage-to-stage edges are now allowed, including
+  direct jumps (e.g. `intake` → `internal_review`) and exits from
+  `delivered`/`abandoned` to any stage.
+- **What is preserved:** authority checks (O/M/A default; M/A-only for
+  reopening `abandoned` and for `delivered` → `on_hold`; H on the two
+  internal-review completion edges); audit notes required when entering
+  `on_hold`/`abandoned` and when leaving `delivered`/`abandoned`; the
+  fail-closed `delivery_outcome` and `promoted_branch` requirements; the
+  open-work check before `abandoned`; OCC versioning; append-only
+  `projectEvents` audit records; idempotent same-stage no-ops.
+- **What is removed:** the `review_handoff` requirement on
+  `on_hold` → `internal_review`. Stage and assignment remain separate
+  records; `internal_review` is enterable without an active handoff.
+- **Implementation:** `shared/workflowTransitions.ts` generates the full
+  matrix from these rules; `convex/projectWorkflow.setWorkflowStage` and
+  the stage-change dialog consume it unchanged.
 
 ### 2026-08-14 (third) — rail micro-geometry and Home atmosphere restoration
 
@@ -1213,6 +1206,63 @@ This amendment supersedes four clauses of the earlier 2026-08-06 amendment and o
   and absence of horizontal overflow.
 - **Approval:** product owner requested clearer project numbering and complete
   responsive card behavior on 2026-08-16.
+
+### 2026-08-18 — historical projects ported from OneDrive ingestion
+
+- **Affected ticket/scope:** BNH-17 ingestion follow-up (client meeting
+  2026-08-18): approved historical PDs in the ingestion review queue may be
+  ported into the Projects repository so a client+fiscal-year card exists
+  holding last year's PD (e.g. for QA review when a rollover project starts).
+- **Storage:** `ingestionItems.portedProjectId` / `portedDocumentId` /
+  `portedAt` / `portedBy` (all optional; widen-only, no backfill, no index).
+  No new `projects` field; the association is navigational only, like
+  `projects.sourceProjectId`. `createdBy` and ownership semantics are
+  untouched.
+- **Creation:** `ingestionPort.portItemToProject` (admin-only action) is the
+  one sanctioned writer. Matching is exact-normalized `dashboardCompanyKey`
+  plus fiscal year via the existing dashboard index; ambiguous multi-matches
+  fail closed (D7 — never auto-merge). A created project follows the wizard's
+  insert conventions: the porting admin is Creator and initial Owner, initial
+  stage `intake`, `projectType: "writing"`, creation events (the stage event
+  notes `creation:ingestion-port`) and dashboard company counting in the same
+  transaction. Porting never sets `ready_for_delivery`, `delivered`, or any
+  outcome — historical submission is not evidence of delivery under this
+  system's outcome rules.
+- **Document:** the PD's extracted text becomes a `projectDocuments` row
+  (`source: "ingestion_port"`, `category: "previous_pd"`) with the original
+  bytes copied into a project-owned storage blob. Brain approval remains a
+  separate gate; porting neither requires nor performs Brain ingestion beyond
+  the already-approved source.
+- **Idempotency:** re-porting a ported item is a no-op returning the existing
+  project; a second PD in the same client+fiscal-year group attaches to the
+  same historical project as an additional `previous_pd` document.
+- **Deferred:** `projectNumber`-aware matching, an ambiguity picker,
+  transcript/supporting-document porting, and the submitted/WIP visibility
+  flag that will hide historical cards from the default explorer.
+- **Approval:** product owner asked in the 2026-08-18 meeting for ingested
+  historical PDs to become project cards per client and fiscal year.
+
+### 2026-08-19 — automatic project-number lettering and workspace exposure flags
+
+- **Affected ticket/scope:** follow-ups from the 2026-08-18 client meeting
+  (duplicate project numbers) and 2026-08-19 owner direction (navigation
+  exposure).
+- **Numbering:** amends the 2026-08-11 numbering decision. Applying a bare
+  number that already exists within the same client + fiscal year
+  (dashboardCompanyKey + dashboardFiscalYearRank scope) stores the next free
+  letter automatically: the existing bare "1" reads as the "1A" slot, so the
+  new project stores "1B", then "1C", alphabetically. Explicit lettered input
+  is stored as typed. A different fiscal year is a different scope, so a
+  rollover "1" stays "1". Enforced in `projects.setProjectNumber` and
+  `projects.createProject`; all 26 letters taken fails closed.
+- **Exposure flags:** `users.isOwner` joins `users.isDeveloper` as a
+  presentation-only flag (never a role or capability; distinct from a
+  project's Owner). The admin navigation renders only for admins who are
+  developers or workspace Owners; the Developer and Owner columns on
+  `/admin/users` render for — and their mutations accept — developers and
+  workspace Owners only. Flag issue in the rail is visible to all users.
+- **Approval:** product owner raised duplicate-number distinctness in the
+  2026-08-18 meeting; exposure changes are 2026-08-19 owner direction.
 
 ## Amendment process
 

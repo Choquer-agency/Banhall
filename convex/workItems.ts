@@ -241,6 +241,13 @@ export const create = mutation({
       if (workflowVersion(project) !== args.expectedWorkflowVersion) {
         domainError("STALE_REVISION", "The project workflow changed while you were reviewing it");
       }
+      if (fromStage === "internal_review") {
+        domainError("INVALID_STATE", "This project is already in Internal review");
+      }
+      // This path does not enforce the matrix's requiresNote/requirements:
+      // safe today because no →internal_review edge carries requirements, and
+      // the only requiresNote origins (delivered/abandoned) are blocked above
+      // by the reopen guard. Revisit if either invariant changes.
       const transition = findWorkflowTransition(fromStage, "internal_review");
       const authorized = transition?.authorities.some((authority) =>
         authority === "owner"

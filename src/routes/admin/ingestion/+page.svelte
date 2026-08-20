@@ -14,6 +14,8 @@
     CloudArrowDownIcon,
     DotsThreeIcon,
     FileTextIcon,
+    FolderPlusIcon,
+    ProhibitIcon,
     TrashIcon,
     WarningCircleIcon,
     XIcon,
@@ -21,6 +23,7 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Doc, Id } from "../../../../convex/_generated/dataModel";
   import { useStableQuery } from "$lib/stableQuery.svelte";
+  import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
 
   type Tab = "review" | "gaps" | "approved" | "rejected" | "failed" | "deleted" | "sync";
   type Item = Doc<"ingestionItems">;
@@ -231,6 +234,20 @@
     }
   }
 
+  async function portItem(item: Item) {
+    busyId = item._id;
+    errorMsg = null;
+    try {
+      const result = await client.action(api.ingestionPort.portItemToProject, { itemId: item._id });
+      if (reviewTarget?._id === item._id) closeReview(true);
+      goto(resolve("/project/[id]", { id: result.projectId }));
+    } catch (err) {
+      errorMsg = err instanceof Error ? err.message : String(err);
+    } finally {
+      busyId = null;
+    }
+  }
+
   async function runSync() {
     syncBusy = true;
     errorMsg = null;
@@ -274,6 +291,12 @@
       : cleanLabel(item.clientName) || "Unsorted";
   }
 
+  function fmtDate(ts: number): string {
+    return new Date(ts).toLocaleDateString("en-US", {
+      weekday: "short", month: "short", day: "numeric", year: "numeric",
+    });
+  }
+
   function fmtSize(bytes: number): string {
     if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
     return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -285,12 +308,14 @@
 {/snippet}
 
 {#snippet sheetRow(item: Item, selectable: boolean)}
+  <!-- Google-Sheets density (Aug 18 meeting): single-line 32px rows, no
+       file icon; the full path moves into the cell tooltip. -->
   <div
-    class="grid min-h-14 min-w-[66rem] grid-cols-[2.75rem_minmax(18rem,1.5fr)_minmax(10rem,0.8fr)_8rem_7rem_8rem_4rem_2.75rem] border-b border-line-soft bg-white transition-colors hover:bg-primary-wash/45 motion-reduce:transition-none"
+    class="grid min-h-8 min-w-[66rem] grid-cols-[2.75rem_minmax(18rem,1.5fr)_minmax(10rem,0.8fr)_8rem_7rem_8rem_10rem_4rem_2.75rem] border-b border-line-soft bg-white transition-colors hover:bg-primary-wash/45 motion-reduce:transition-none"
     class:bg-primary-wash={selectedIds.includes(item._id)}
     role="row"
   >
-    <label class="flex min-h-11 items-center justify-center border-r border-line-soft">
+    <label class="flex items-center justify-center border-r border-line-soft">
       {#if selectable}
         <input
           type="checkbox"
@@ -303,20 +328,15 @@
     </label>
     <button
       type="button"
-      class="col-span-6 grid min-w-0 grid-cols-subgrid text-left focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary-selected"
+      class="col-span-7 grid min-w-0 grid-cols-subgrid text-left focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary-selected"
       aria-label={`Review ${item.name}`}
       onclick={() => openReview(item)}
     >
-      <span class="flex min-w-0 items-center gap-3 border-r border-line-soft px-3 py-2">
-        <span class="flex size-8 shrink-0 items-center justify-center rounded-md bg-chrome text-ink-muted">
-          <FileTextIcon size={17} aria-hidden="true" />
-        </span>
-        <span class="min-w-0">
-          <span class="block truncate text-sm font-medium text-ink">{item.name}</span>
-          <span class="mt-0.5 block truncate text-xs text-ink-muted">
-            {item.path.includes("\uFFFD") ? "Path contains unreadable characters" : item.path}
-          </span>
-        </span>
+      <span
+        class="flex min-w-0 items-center border-r border-line-soft px-3 py-1"
+        title={item.path.includes("\uFFFD") ? "Path contains unreadable characters" : item.path}
+      >
+        <span class="truncate text-sm text-ink">{item.name}</span>
       </span>
       <span class="flex min-w-0 items-center gap-1.5 border-r border-line-soft px-3 text-sm text-ink-secondary">
         {#if item.clientName?.includes("\uFFFD")}
@@ -337,13 +357,14 @@
           <span class="text-xs text-ink-faint">—</span>
         {/if}
       </span>
+      <span class="flex items-center border-r border-line-soft px-3 text-xs text-ink-muted">{fmtDate(item._creationTime)}</span>
       <span class="text-data flex items-center px-3 text-ink-muted">{fmtSize(item.size)}</span>
     </button>
 
     <DropdownMenu.Root>
       <DropdownMenu.Trigger
         aria-label={`Options for ${item.name}`}
-        class="flex min-h-11 items-center justify-center border-l border-line-soft text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary-selected disabled:opacity-50 motion-reduce:transition-none"
+        class="flex items-center justify-center border-l border-line-soft text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary-selected disabled:opacity-50 motion-reduce:transition-none"
         disabled={busyId === item._id}
       >
         <DotsThreeIcon size={20} weight="bold" aria-hidden="true" />
@@ -356,6 +377,24 @@
           >
             <ArrowRightIcon size={17} aria-hidden="true" class="shrink-0 text-ink-muted" />Review full file
           </DropdownMenu.Item>
+          {#if item.status === "approved" && item.docKind === "pd"}
+            {#if item.portedProjectId}
+              {@const portedId = item.portedProjectId}
+              <DropdownMenu.Item
+                onSelect={() => goto(resolve("/project/[id]", { id: portedId }))}
+                class="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm text-ink-secondary outline-none transition-colors data-highlighted:bg-primary-wash data-highlighted:text-ink motion-reduce:transition-none"
+              >
+                <ArrowRightIcon size={17} aria-hidden="true" class="shrink-0 text-ink-muted" />Open ported project
+              </DropdownMenu.Item>
+            {:else}
+              <DropdownMenu.Item
+                onSelect={() => portItem(item)}
+                class="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-sm text-ink-secondary outline-none transition-colors data-highlighted:bg-primary-wash data-highlighted:text-ink motion-reduce:transition-none"
+              >
+                <FolderPlusIcon size={17} aria-hidden="true" class="shrink-0 text-ink-muted" />Port to project
+              </DropdownMenu.Item>
+            {/if}
+          {/if}
           {#if item.status === "deleted"}
             <DropdownMenu.Item
               onSelect={() => restoreItem(item)}
@@ -381,7 +420,7 @@
 {#snippet sheetList(rows: Item[], selectable = false)}
   <div class="overflow-x-auto border-t border-line bg-white" role="table" aria-label="OneDrive ingestion files">
     <div
-      class="grid min-h-10 min-w-[66rem] grid-cols-[2.75rem_minmax(18rem,1.5fr)_minmax(10rem,0.8fr)_8rem_7rem_8rem_4rem_2.75rem] items-center border-b border-line-soft bg-gray-50 text-xs font-medium text-ink-muted"
+      class="grid min-h-8 min-w-[66rem] grid-cols-[2.75rem_minmax(18rem,1.5fr)_minmax(10rem,0.8fr)_8rem_7rem_8rem_10rem_4rem_2.75rem] items-center border-b border-line-soft bg-gray-50 text-xs font-medium text-ink-muted"
       role="row"
     >
       <label class="flex h-full items-center justify-center border-r border-line-soft">
@@ -400,6 +439,7 @@
       <span class="border-r border-line-soft px-3" role="columnheader">Fiscal year</span>
       <span class="border-r border-line-soft px-3" role="columnheader">Type</span>
       <span class="border-r border-line-soft px-3" role="columnheader">Pairing</span>
+      <span class="border-r border-line-soft px-3" role="columnheader">Uploaded</span>
       <span class="px-3" role="columnheader">Size</span>
       <span aria-hidden="true"></span>
     </div>
@@ -445,27 +485,57 @@
       </div>
 
       {#if selectedIds.length > 0}
-        <div class="flex min-h-12 flex-wrap items-center gap-2 border-b border-line-soft bg-primary-wash px-3 py-1.5">
-          <p class="mr-auto text-sm font-semibold text-ink">{selectedIds.length} selected</p>
-          <Button type="button" size="sm" variant="secondary" class="min-h-9" onclick={() => selectedItems[0] && openReview(selectedItems[0])}>Review selected</Button>
-          <Button type="button" size="sm" variant="secondary" class="min-h-9" onclick={() => requestBulkAction("reject")}>Reject</Button>
-          <button type="button" class="min-h-9 rounded-lg px-3 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 motion-reduce:transition-none" onclick={() => requestBulkAction("delete")}>Move to Deleted</button>
-          <button type="button" class="min-h-9 rounded-lg px-3 text-sm font-medium text-ink-muted transition-colors hover:bg-white hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none" onclick={clearSelection}>Clear</button>
+        <!-- Gmail-pattern selection toolbar: dismiss + count on the left, then
+             the actions as one quiet icon-button group, destructive last. -->
+        <div class="flex min-h-11 flex-wrap items-center gap-1 border-b border-line-soft bg-primary-wash px-2 py-1">
+          <button
+            type="button"
+            aria-label="Clear selection"
+            class="flex size-8 shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-white hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary motion-reduce:transition-none"
+            onclick={clearSelection}
+          >
+            <XIcon size={16} aria-hidden="true" />
+          </button>
+          <p class="px-1 text-sm font-semibold tabular-nums text-ink">{selectedIds.length} selected</p>
+          <span class="mx-2 h-4 w-px bg-primary/25" aria-hidden="true"></span>
+          <button
+            type="button"
+            class="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-ink-secondary transition-colors hover:bg-white hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary motion-reduce:transition-none"
+            onclick={() => selectedItems[0] && openReview(selectedItems[0])}
+          >
+            <ArrowRightIcon size={15} aria-hidden="true" />Review
+          </button>
+          <button
+            type="button"
+            class="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-ink-secondary transition-colors hover:bg-white hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary motion-reduce:transition-none"
+            onclick={() => requestBulkAction("reject")}
+          >
+            <ProhibitIcon size={15} aria-hidden="true" />Reject
+          </button>
+          <button
+            type="button"
+            class="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-red-600 motion-reduce:transition-none"
+            onclick={() => requestBulkAction("delete")}
+          >
+            <TrashIcon size={15} aria-hidden="true" />Delete
+          </button>
         </div>
       {:else}
-        <div class="flex min-h-12 flex-wrap items-center gap-x-4 gap-y-1 border-b border-line-soft bg-white px-3 py-2">
-          <p class="text-sm font-medium text-ink">
-            {#if tab === "review"}{stats?.pendingReview ?? 0} files waiting for review
-            {:else if tab === "approved"}{stats?.approved ?? 0} approved files
-            {:else if tab === "failed"}{stats?.failed ?? 0} failed files
-            {:else if tab === "deleted"}{stats?.deleted ?? 0} deleted files
+        <div class="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line-soft bg-white px-3 py-1">
+          <p class="text-sm text-ink-secondary">
+            {#if tab === "review"}<span class="font-semibold tabular-nums text-ink">{stats?.pendingReview ?? 0}</span> waiting for review
+            {:else if tab === "approved"}<span class="font-semibold tabular-nums text-ink">{stats?.approved ?? 0}</span> approved
+            {:else if tab === "failed"}<span class="font-semibold tabular-nums text-ink">{stats?.failed ?? 0}</span> failed
+            {:else if tab === "deleted"}<span class="font-semibold tabular-nums text-ink">{stats?.deleted ?? 0}</span> deleted
             {:else}{tabs.find((itemTab) => itemTab.key === tab)?.label}{/if}
           </p>
-          <span class="text-xs text-ink-muted">Select files for bulk actions.</span>
+          {#if tab === "review"}
+            <span class="hidden text-xs text-ink-faint sm:inline">Select rows for bulk actions</span>
+          {/if}
           {#if stats?.graph.state === "configured" && latestRun}
             <span class="ml-auto text-xs text-ink-muted">Last sync {new Date(latestRun.startedAt).toLocaleString("en-CA")}</span>
           {:else if stats?.graph.state !== "configured"}
-            <span class="ml-auto hidden text-xs text-ink-muted md:inline">Sync is unavailable until Microsoft Graph is configured.</span>
+            <span class="ml-auto hidden text-xs text-ink-faint md:inline">Sync unavailable — Microsoft Graph not configured</span>
           {/if}
         </div>
       {/if}
@@ -598,10 +668,14 @@
 
               {#if reviewTarget.status === "pending_review"}
                 <div class="mt-5 space-y-4">
-                  <label class="block text-xs font-medium text-ink-secondary">
-                    Industry <span class="text-red-600">*</span>
-                    <input class="field-control mt-1.5 w-full rounded-lg px-3 py-2.5 text-sm text-ink" bind:value={industry} placeholder="Software / IT" />
-                  </label>
+                  <div>
+                    <label for="ingest-industry" class="block text-xs font-medium text-ink-secondary">
+                      Industry <span class="text-red-600">*</span>
+                    </label>
+                    <!-- Same shared select as /project/new (BNH-10): one source
+                         of truth for industry options and field styling. -->
+                    <IndustrySelect id="ingest-industry" bind:value={industry} canCreate={true} class="mt-1.5" />
+                  </div>
                   <label class="block text-xs font-medium text-ink-secondary">
                     Writer
                     <input class="field-control mt-1.5 w-full rounded-lg px-3 py-2.5 text-sm text-ink" bind:value={writerName} placeholder="Optional" />
@@ -647,6 +721,20 @@
                   <p class="text-sm font-medium capitalize text-ink">{reviewTarget.status.replaceAll("_", " ")}</p>
                   {#if reviewTarget.reviewNote}<p class="mt-1 text-xs leading-relaxed text-ink-muted">{reviewTarget.reviewNote}</p>{/if}
                 </div>
+                {#if reviewTarget.status === "approved" && reviewTarget.docKind === "pd"}
+                  {#if reviewTarget.portedProjectId}
+                    {@const dialogPortedId = reviewTarget.portedProjectId}
+                    <Button type="button" variant="secondary" class="mt-4 min-h-11 w-full justify-center gap-2" onclick={() => goto(resolve("/project/[id]", { id: dialogPortedId }))}>
+                      <ArrowRightIcon size={17} aria-hidden="true" />Open ported project
+                    </Button>
+                  {:else}
+                    <Button type="button" class="mt-4 min-h-11 w-full justify-center gap-2" disabled={busyId === reviewTarget._id} onclick={() => reviewTarget && portItem(reviewTarget)}>
+                      <FolderPlusIcon size={17} aria-hidden="true" />{busyId === reviewTarget._id ? "Porting…" : "Port to project"}
+                    </Button>
+                    <p class="mt-2 text-xs leading-relaxed text-ink-muted">Creates or reuses the {clientLabel(reviewTarget)} fiscal {reviewTarget.fiscalYear ?? "—"} project and attaches this PD to it.</p>
+                  {/if}
+                  {#if errorMsg}<p class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700" role="alert">{errorMsg}</p>{/if}
+                {/if}
               {/if}
             </aside>
           </div>

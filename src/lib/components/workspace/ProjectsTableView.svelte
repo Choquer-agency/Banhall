@@ -33,8 +33,9 @@
   import BoardFiltersPopover from "$lib/components/workspace/BoardFiltersPopover.svelte";
   import ProjectsDisplayMenu from "$lib/components/workspace/ProjectsDisplayMenu.svelte";
   import ProjectsClientGroups from "$lib/components/workspace/ProjectsClientGroups.svelte";
-  import ProjectsTable from "$lib/components/workspace/ProjectsTable.svelte";
+  import ProjectBoardCard from "$lib/components/workspace/ProjectBoardCard.svelte";
   import { toProjectsTableRow } from "$lib/workspace/projectRowMapping";
+  import { setProjectPagingContext } from "$lib/workspace/projectPagingContext";
   import { searchShortcutHint } from "$lib/workspace/searchContinuity";
   import {
     parseHideEmptyParam,
@@ -632,6 +633,7 @@
           showSort={!q}
           showBoardOptions={!q && preferences.layout === "board" && !grouped}
           showClientOptions={!q && grouped}
+          showListFieldOptions={false}
           {clientCountsAvailable}
           boardCountsLimited={facetsQ.data?.truncated ?? false}
           onSortChange={(value) => {
@@ -647,12 +649,12 @@
     </div>
   </div>
 
-  <!-- Query-state row (2026-08-13, Attio-research P0): sort and filter
-       state stays externalized as always-visible chips instead of hiding
-       inside the Display/Filters popovers — glanceable truth about why the
-       grid shows what it shows. Grouped sorting applies inside each loaded
-       Client → Fiscal year section. -->
-  {#if !q || selectedStage || filterOwner || filterCurrentAssignee || filterProjectType || pendingFilters.stage || pendingFilters.owner || pendingFilters.current_assignee || pendingFilters.project_type}
+  <!-- Query-state row (2026-08-13, Attio-research P0; trimmed 2026-08-19):
+       ACTIVE filter state stays externalized as glanceable chips. The row
+       only renders when a filter is applied or pending — sort lives solely
+       in the Display menu (a second always-visible sort chip here read as
+       double sort). -->
+  {#if selectedStage || filterOwner || filterCurrentAssignee || filterProjectType || pendingFilters.stage || pendingFilters.owner || pendingFilters.current_assignee || pendingFilters.project_type}
     <!-- Obvious filter pill (their markup, 2026-08-10): ONE joined rounded-md
          pill with internal hairline dividers — static field, "equals"
          operator, CLICKABLE value (opens the value popover anchored to this
@@ -679,26 +681,6 @@
       </span>
     {/snippet}
     <div data-active-filters class="flex min-h-[49px] shrink-0 flex-wrap items-center gap-2 border-b border-workspace-rail-line px-2 py-2">
-      {#if !q}
-        <GhostPopover
-          value={grouped ? preferences.clientSort : sortBy}
-          items={grouped ? CLIENT_SORTS : SORTS}
-          ariaLabel="Sort projects"
-          label="Sort by"
-          class="h-7!"
-          onValueChange={(value) => {
-            if (grouped) setClientSort(value as ClientProjectSort);
-            else setSortBy(value as SortBy);
-          }}
-        >
-          {#snippet chip()}
-            <span data-sort-chip class="truncate"><span class="text-ink-faint">{grouped ? "Within fiscal year ·" : "Sorted by ·"}</span>
-              <span class="text-ink">{grouped
-                ? CLIENT_SORTS.find((item) => item.value === preferences.clientSort)?.label ?? "Project number"
-                : SORTS.find((item) => item.value === sortBy)?.label ?? "Recently edited"}</span></span>
-          {/snippet}
-        </GhostPopover>
-      {/if}
       {#if selectedStage || pendingFilters.stage}
         {@render filterChip("Stage", "stage", selectedStage ? stageChipLabel(stage) : "Select…", !selectedStage, stageValueClass, () => {
           stage = "all";
@@ -810,9 +792,9 @@
         {/each}
       </div>
     {:else}
-      <div class="space-y-1 py-4" role="status" aria-label="Loading projects">
+      <div class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))] gap-2.5 p-2.5 sm:p-3" role="status" aria-label="Loading projects">
         {#each SKELETON_ITEMS as item (item)}
-          <div class="h-10 animate-pulse rounded-lg bg-chrome motion-reduce:animate-none"></div>
+          <div class="h-40 animate-pulse rounded-xl bg-chrome motion-reduce:animate-none"></div>
         {/each}
       </div>
     {/if}
@@ -856,13 +838,29 @@
         hideEmpty={preferences.hideEmptyBoard}
       />
     {:else}
-      <ProjectsTable
-        {rows}
-        columns={preferences.columns}
-        density={preferences.density}
-        contextLabel={q ? "search results" : selectedStage ? stageFilterLabel(stage) : "Projects"}
-        contextBounded={hasMore}
-      />
+      <!-- Ungrouped List renders the same project cards as the grouped
+           repository (owner direction 2026-08-19) instead of sparse rows,
+           laid out as a responsive auto-fill grid. Column-less surface, so
+           every card carries its labelled stage badge, plus client and
+           fiscal year — here the card is the only context signal. -->
+      <div role="region" aria-label="Projects list" class="min-h-0 flex-1 overflow-y-auto bg-chrome/25">
+        <div role="list" class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,19rem),1fr))] gap-2.5 p-2.5 sm:p-3">
+          {#each rows as row (row.id)}
+            <div role="listitem">
+              <ProjectBoardCard
+                {row}
+                showStage
+                onOpen={() =>
+                  setProjectPagingContext({
+                    ids: rows.map((r) => r.id),
+                    label: q ? "search results" : selectedStage ? stageFilterLabel(stage) : "Projects",
+                    bounded: hasMore,
+                  })}
+              />
+            </div>
+          {/each}
+        </div>
+      </div>
       {#if !q && !filtered && facetsQ.data && rows.length > 0}
         <!-- Calculation footer (2026-08-13, Attio-research P2): facet-backed
              per-stage counts under the flat List, count-ladder honest — the

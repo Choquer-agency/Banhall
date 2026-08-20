@@ -60,7 +60,7 @@
   <Popover.Trigger
     data-ghost-select
     aria-label={ariaLabel}
-    class={`group inline-flex h-11 min-w-0 cursor-pointer items-center gap-1.5 rounded-full bg-transparent px-3 text-xs font-medium text-ink-secondary transition-colors select-none hover:bg-chrome/70 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:h-7 ${className}`}
+    class={`group inline-flex h-11 min-w-0 cursor-pointer items-center gap-1.5 rounded-full bg-transparent px-2.5 text-xs font-medium text-ink-secondary transition-colors select-none hover:bg-chrome/70 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:h-7 ${className}`}
   >
     {#if icon}{@render icon()}{/if}
     {#if chip}{@render chip()}{:else}<span class="truncate">{selectedLabel}</span>{/if}

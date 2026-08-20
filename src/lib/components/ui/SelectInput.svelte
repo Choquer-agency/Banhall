@@ -128,7 +128,7 @@
       class={`field-control w-full pr-8 text-left font-normal placeholder:text-gray-400 disabled:opacity-50 ${
         size === "md"
           ? "h-11 rounded-lg px-3.5 text-sm"
-          : "h-11 rounded-md px-2 text-xs sm:h-9"
+          : "h-11 rounded-md px-2 text-xs sm:h-7"
       } ${selected?.value ? "text-gray-900" : "text-gray-500"}`}
     />
     <Combobox.Trigger
@@ -146,7 +146,7 @@
     <Combobox.Content
       sideOffset={4}
       data-workspace-theme={portalTheme}
-      class="select-pop z-[120] max-h-72 w-[var(--bits-combobox-anchor-width)] min-w-[var(--bits-combobox-anchor-width)] max-w-[32rem] overflow-hidden rounded-md border border-gray-200 bg-surface shadow-lg"
+      class="select-pop z-[150] max-h-72 w-[var(--bits-combobox-anchor-width)] min-w-[var(--bits-combobox-anchor-width)] max-w-[32rem] overflow-hidden rounded-md border border-gray-200 bg-surface shadow-lg"
     >
       <Combobox.Viewport class="max-h-72 overflow-y-auto">
         {#each filteredItems as item (item.value)}
@@ -154,7 +154,7 @@
             value={item.value}
             label={item.label}
             class={`flex cursor-pointer items-center px-2.5 py-1.5 font-normal transition-colors data-highlighted:bg-primary/10 data-highlighted:text-primary-selected data-selected:bg-primary/15 data-selected:font-medium data-selected:text-primary-selected motion-reduce:transition-none ${
-              size === "md" ? "min-h-11 text-sm" : "min-h-11 text-xs sm:min-h-9"
+              size === "md" ? "min-h-11 text-sm" : "min-h-11 text-xs sm:min-h-8"
             } ${item.value ? "text-gray-900" : "text-gray-500"}`}
           >
             {item.label}
@@ -172,7 +172,7 @@
               handleCreate();
             }}
             class={`flex w-full cursor-pointer items-center gap-1.5 px-2.5 py-1.5 text-left font-medium text-primary-selected transition-colors hover:bg-primary/10 motion-reduce:transition-none ${
-              size === "md" ? "min-h-11 text-sm" : "min-h-11 text-xs sm:min-h-9"
+              size === "md" ? "min-h-11 text-sm" : "min-h-11 text-xs sm:min-h-8"
             }`}
           >
             <span aria-hidden="true">+</span>

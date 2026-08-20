@@ -114,13 +114,9 @@ export const listItems = query({
       .withIndex("by_status", (q) => q.eq("status", args.status))
       .order("desc")
       .take(300);
-    // The review UI groups by client + fiscal year; sorting here keeps groups
-    // contiguous without a client-side re-sort of a reactive array.
-    return items.sort((a, b) =>
-      a.pairGroupKey === b.pairGroupKey
-        ? a.name.localeCompare(b.name)
-        : a.pairGroupKey.localeCompare(b.pairGroupKey)
-    );
+    // Newest first (Aug 18 request) — the index walk is already _creationTime
+    // desc; keep it rather than re-sorting into client+FY groups.
+    return items;
   },
 });
 

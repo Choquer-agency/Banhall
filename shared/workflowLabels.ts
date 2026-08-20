@@ -36,7 +36,6 @@ export const WORKFLOW_STAGE_DESCRIPTIONS: Record<WorkflowStage, string> = {
 export const TRANSITION_REQUIREMENT_BLOCKERS: Record<TransitionRequirement, string> = {
   promoted_branch: "Needs a promoted report branch before this stage is available.",
   delivery_outcome: "Needs a recorded delivery or filing outcome before this stage is available.",
-  review_handoff: "Needs an active internal-review handoff before this stage is available.",
 };
 
 export const MAX_WORKFLOW_NOTE_CHARS = 2_000;

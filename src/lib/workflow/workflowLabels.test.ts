@@ -22,18 +22,23 @@ describe("workflow labels and options", () => {
     expect(effectiveWorkflowStage("drafting")).toBe("drafting");
   });
 
-  it("returns only matrix-valid transitions authorized for the viewer", () => {
+  it("offers every other stage the viewer is authorized for", () => {
     const options = workflowStageOptions("drafting", ["owner"]);
     expect(options.map((option) => option.to)).toEqual(
       allowedNextWorkflowStages("drafting")
     );
-    expect(workflowStageOptions("delivered", ["owner"]).map((option) => option.to)).toEqual([
-      "revisions",
-    ]);
-    expect(workflowStageOptions("delivered", ["manager"]).map((option) => option.to)).toEqual([
-      "revisions",
-      "on_hold",
-    ]);
+    expect(options.map((option) => option.to)).toEqual(
+      WORKFLOW_STAGES.filter((stage) => stage !== "drafting")
+    );
+    // Delivered → on_hold stays a Manager/Admin-only administrative correction.
+    expect(workflowStageOptions("delivered", ["owner"]).map((option) => option.to)).toEqual(
+      WORKFLOW_STAGES.filter((stage) => stage !== "delivered" && stage !== "on_hold")
+    );
+    expect(workflowStageOptions("delivered", ["manager"]).map((option) => option.to)).toEqual(
+      WORKFLOW_STAGES.filter((stage) => stage !== "delivered")
+    );
+    // Reopening an abandoned project stays Manager/Admin-only.
+    expect(workflowStageOptions("abandoned", ["owner"])).toEqual([]);
     expect(workflowStageOptions("drafting", [])).toEqual([]);
   });
 
@@ -47,9 +52,7 @@ describe("workflow labels and options", () => {
       /delivery or filing outcome/i
     );
     const resume = workflowStageOptions("on_hold", ["owner"]);
-    expect(resume.find((option) => option.to === "internal_review")?.disabledReason).toMatch(
-      /internal-review handoff/i
-    );
+    expect(resume.find((option) => option.to === "internal_review")?.disabledReason).toBeNull();
   });
 
   it("carries audit-note requirements from the matrix", () => {

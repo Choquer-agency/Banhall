@@ -172,7 +172,7 @@
     aria-label={activeCount ? `Filters — ${activeCount} active` : "Filters"}
     class="inline-flex h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-ink-secondary transition-colors select-none hover:bg-chrome/70 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:h-7"
   >
-    <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" d="M1.833 3.167h12.334M5.833 12.833h4.334M3.833 8h8.334" /></svg>
+    <svg class="h-[15px] w-[15px] shrink-0" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" d="M1.833 3.167h12.334M5.833 12.833h4.334M3.833 8h8.334" /></svg>
     Filters
     {#if activeCount}
       <span data-board-filters-count class="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary-selected px-1 text-[10px] font-medium leading-none text-white">{activeCount}</span>

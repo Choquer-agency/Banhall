@@ -1,4 +1,4 @@
-import type { WorkflowStage } from "./workflowStages";
+import { WORKFLOW_STAGES, type WorkflowStage } from "./workflowStages";
 
 export type TransitionAuthority =
   | "owner"
@@ -6,10 +6,7 @@ export type TransitionAuthority =
   | "manager"
   | "admin";
 
-export type TransitionRequirement =
-  | "delivery_outcome"
-  | "promoted_branch"
-  | "review_handoff";
+export type TransitionRequirement = "delivery_outcome" | "promoted_branch";
 
 export type WorkflowTransitionRule = {
   from: WorkflowStage;
@@ -28,110 +25,45 @@ const reviewAuthorities = [
 ] as const;
 const managerAdmin = ["manager", "admin"] as const;
 
+function transitionRule(from: WorkflowStage, to: WorkflowStage): WorkflowTransitionRule {
+  const authorities =
+    from === "abandoned" || (from === "delivered" && to === "on_hold")
+      ? managerAdmin
+      : from === "internal_review" && (to === "edits" || to === "ready_for_delivery")
+        ? reviewAuthorities
+        : ownerManagerAdmin;
+  const requiresNote =
+    to === "on_hold" || to === "abandoned" || from === "delivered" || from === "abandoned";
+  const requirements: readonly TransitionRequirement[] | undefined =
+    to === "delivered"
+      ? ["delivery_outcome"]
+      : to === "ready_for_delivery"
+        ? ["promoted_branch"]
+        : undefined;
+  return {
+    from,
+    to,
+    authorities,
+    ...(requiresNote ? { requiresNote: true } : {}),
+    ...(requirements ? { requirements } : {}),
+  };
+}
+
 /**
- * Exact transition matrix from docs/product-domain.md. Requirements are data
- * hooks for later tickets; PSOS-09 enforces delivery outcomes by failing closed
- * and records the branch/handoff hooks without enabling automation.
+ * Open transition matrix from docs/product-domain.md (2026-08-17 amendment):
+ * every stage may move to every other stage. Policy is per-edge, not
+ * per-path — pausing/abandoning and any exit from a terminal stage
+ * (`delivered`, `abandoned`) require an audit note; reopening `abandoned`
+ * and the exceptional `delivered` → `on_hold` correction stay
+ * Manager/Admin-only; the handoff assignee keeps authority over the two
+ * internal-review completion edges. Requirements are data hooks: PSOS-09
+ * enforces delivery outcomes by failing closed, and `promoted_branch`
+ * fails closed until branch storage lands.
  */
-export const WORKFLOW_TRANSITIONS: readonly WorkflowTransitionRule[] = [
-  { from: "intake", to: "interview_complete", authorities: ownerManagerAdmin },
-  { from: "intake", to: "drafting", authorities: ownerManagerAdmin },
-  { from: "intake", to: "on_hold", authorities: ownerManagerAdmin, requiresNote: true },
-  { from: "intake", to: "abandoned", authorities: ownerManagerAdmin, requiresNote: true },
-
-  { from: "interview_complete", to: "drafting", authorities: ownerManagerAdmin },
-  { from: "interview_complete", to: "on_hold", authorities: ownerManagerAdmin, requiresNote: true },
-  { from: "interview_complete", to: "abandoned", authorities: ownerManagerAdmin, requiresNote: true },
-
-  { from: "drafting", to: "internal_review", authorities: ownerManagerAdmin },
-  { from: "drafting", to: "client_review", authorities: ownerManagerAdmin },
-  {
-    from: "drafting",
-    to: "ready_for_delivery",
-    authorities: ownerManagerAdmin,
-    requirements: ["promoted_branch"],
-  },
-  { from: "drafting", to: "on_hold", authorities: ownerManagerAdmin, requiresNote: true },
-  { from: "drafting", to: "abandoned", authorities: ownerManagerAdmin, requiresNote: true },
-
-  { from: "internal_review", to: "edits", authorities: reviewAuthorities },
-  {
-    from: "internal_review",
-    to: "ready_for_delivery",
-    authorities: reviewAuthorities,
-    requirements: ["promoted_branch"],
-  },
-  { from: "internal_review", to: "on_hold", authorities: ownerManagerAdmin, requiresNote: true },
-  { from: "internal_review", to: "abandoned", authorities: ownerManagerAdmin, requiresNote: true },
-
-  { from: "edits", to: "internal_review", authorities: ownerManagerAdmin },
-  { from: "edits", to: "client_review", authorities: ownerManagerAdmin },
-  {
-    from: "edits",
-    to: "ready_for_delivery",
-    authorities: ownerManagerAdmin,
-    requirements: ["promoted_branch"],
-  },
-  { from: "edits", to: "on_hold", authorities: ownerManagerAdmin, requiresNote: true },
-  { from: "edits", to: "abandoned", authorities: ownerManagerAdmin, requiresNote: true },
-
-  { from: "client_review", to: "revisions", authorities: ownerManagerAdmin },
-  {
-    from: "client_review",
-    to: "ready_for_delivery",
-    authorities: ownerManagerAdmin,
-    requirements: ["promoted_branch"],
-  },
-  { from: "client_review", to: "on_hold", authorities: ownerManagerAdmin, requiresNote: true },
-  { from: "client_review", to: "abandoned", authorities: ownerManagerAdmin, requiresNote: true },
-
-  { from: "revisions", to: "internal_review", authorities: ownerManagerAdmin },
-  { from: "revisions", to: "client_review", authorities: ownerManagerAdmin },
-  {
-    from: "revisions",
-    to: "ready_for_delivery",
-    authorities: ownerManagerAdmin,
-    requirements: ["promoted_branch"],
-  },
-  { from: "revisions", to: "on_hold", authorities: ownerManagerAdmin, requiresNote: true },
-  { from: "revisions", to: "abandoned", authorities: ownerManagerAdmin, requiresNote: true },
-
-  {
-    from: "ready_for_delivery",
-    to: "delivered",
-    authorities: ownerManagerAdmin,
-    requirements: ["delivery_outcome"],
-  },
-  { from: "ready_for_delivery", to: "revisions", authorities: ownerManagerAdmin },
-  { from: "ready_for_delivery", to: "on_hold", authorities: ownerManagerAdmin, requiresNote: true },
-  { from: "ready_for_delivery", to: "abandoned", authorities: ownerManagerAdmin, requiresNote: true },
-
-  { from: "delivered", to: "revisions", authorities: ownerManagerAdmin, requiresNote: true },
-  { from: "delivered", to: "on_hold", authorities: managerAdmin, requiresNote: true },
-
-  { from: "on_hold", to: "intake", authorities: ownerManagerAdmin },
-  { from: "on_hold", to: "interview_complete", authorities: ownerManagerAdmin },
-  { from: "on_hold", to: "drafting", authorities: ownerManagerAdmin },
-  {
-    from: "on_hold",
-    to: "internal_review",
-    authorities: ownerManagerAdmin,
-    requirements: ["review_handoff"],
-  },
-  { from: "on_hold", to: "edits", authorities: ownerManagerAdmin },
-  { from: "on_hold", to: "client_review", authorities: ownerManagerAdmin },
-  { from: "on_hold", to: "revisions", authorities: ownerManagerAdmin },
-  {
-    from: "on_hold",
-    to: "ready_for_delivery",
-    authorities: ownerManagerAdmin,
-    requirements: ["promoted_branch"],
-  },
-  { from: "on_hold", to: "abandoned", authorities: ownerManagerAdmin, requiresNote: true },
-
-  { from: "abandoned", to: "intake", authorities: managerAdmin, requiresNote: true },
-  { from: "abandoned", to: "drafting", authorities: managerAdmin, requiresNote: true },
-] as const;
+export const WORKFLOW_TRANSITIONS: readonly WorkflowTransitionRule[] =
+  WORKFLOW_STAGES.flatMap((from) =>
+    WORKFLOW_STAGES.filter((to) => to !== from).map((to) => transitionRule(from, to))
+  );
 
 export function findWorkflowTransition(
   from: WorkflowStage,

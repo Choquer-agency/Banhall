@@ -145,8 +145,15 @@
   function viewHref(target: DashboardView): string {
     const url = new URL(page.url);
     url.searchParams.delete("view");
-    const path = target === "all_projects" ? resolve("/projects") : resolve("/my-work");
-    return `${path}${url.search}`;
+    if (target === "all_projects") {
+      // Projects always opens as the client-grouped List (2026-08-19 owner
+      // direction): the params ride the URL so the default view is explicit
+      // and shareable, overriding any stored layout preference.
+      if (!url.searchParams.has("layout")) url.searchParams.set("layout", "list");
+      if (!url.searchParams.has("group")) url.searchParams.set("group", "client");
+      return `${resolve("/projects")}${url.search}`;
+    }
+    return `${resolve("/my-work")}${url.search}`;
   }
 
   function selectView(target: DashboardView) {

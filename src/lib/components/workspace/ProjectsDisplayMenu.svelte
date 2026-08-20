@@ -15,6 +15,7 @@
     showSort,
     showBoardOptions,
     showClientOptions,
+    showListFieldOptions = true,
     clientCountsAvailable,
     boardCountsLimited,
     onSortChange,
@@ -30,6 +31,11 @@
     showSort: boolean;
     showBoardOptions: boolean;
     showClientOptions: boolean;
+    /**
+     * Render the table-only Fields/Density section. Card-based List
+     * surfaces pass false — the toggles have no effect on cards.
+     */
+    showListFieldOptions?: boolean;
     clientCountsAvailable: boolean;
     boardCountsLimited: boolean;
     onSortChange: (value: string) => void;
@@ -50,10 +56,10 @@
     if (showClientOptions && clientCountsAvailable && preferences.hideEmptyClientGroups) {
       return "Empty stages hidden";
     }
-    if (preferences.layout === "list" && visibleColumnCount !== columnOptions.length) {
+    if (showListFieldOptions && preferences.layout === "list" && visibleColumnCount !== columnOptions.length) {
       return `${visibleColumnCount} fields`;
     }
-    if (preferences.layout === "list" && preferences.density === "compact") return "Compact";
+    if (showListFieldOptions && preferences.layout === "list" && preferences.density === "compact") return "Compact";
     if (showSort) return selectedSortLabel;
     return null;
   });
@@ -65,7 +71,7 @@
     data-projects-display-trigger
     class="inline-flex h-11 min-w-0 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-ink-secondary transition-colors hover:bg-chrome/70 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:h-7"
   >
-    <SlidersHorizontalIcon size={16} weight="regular" aria-hidden="true" class="shrink-0" />
+    <SlidersHorizontalIcon size={15} weight="regular" aria-hidden="true" class="shrink-0" />
     <span class="truncate">Display</span>
   </DropdownMenu.Trigger>
 
@@ -81,7 +87,7 @@
               {...props}
               in:popIn
               out:popOut
-              class="z-[100] w-64 overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-md"
+              class="z-[100] w-60 overflow-hidden rounded-xl border border-line bg-surface px-1.5 pb-1.5 shadow-md outline-none"
             >
               {@render menuBody()}
             </div>
@@ -94,7 +100,7 @@
 
 {#snippet menuBody()}
       {#if showSort}
-        <p class="px-2.5 pb-1 pt-2 text-xs font-medium text-ink-muted">Order</p>
+        <p class="px-1.5 pb-0.5 pt-2 text-[11px] font-medium text-ink-faint">Order</p>
         <DropdownMenu.RadioGroup
           value={sortBy}
           onValueChange={(value) =>
@@ -105,7 +111,7 @@
           {#each sortOptions as option (option.value)}
             <DropdownMenu.RadioItem
               value={option.value}
-              class="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm text-ink-secondary outline-none transition-colors data-highlighted:bg-primary-wash data-highlighted:text-ink motion-reduce:transition-none"
+              class="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-ink-secondary outline-none transition-colors data-highlighted:bg-chrome/60 data-highlighted:text-ink motion-reduce:transition-none pointer-coarse:min-h-11"
             >
               <span class="flex h-4 w-4 items-center justify-center rounded-full border border-line" aria-hidden="true">
                 {#if sortBy === option.value}<span class="h-2 w-2 rounded-full bg-primary"></span>{/if}
@@ -118,7 +124,7 @@
 
       {#if showBoardOptions || showClientOptions}
         {#if showSort}<DropdownMenu.Separator class="my-1 h-px bg-line-soft" />{/if}
-        <p class="px-2.5 pb-1 pt-2 text-xs font-medium text-ink-muted">Board</p>
+        <p class="px-1.5 pb-0.5 pt-2 text-[11px] font-medium text-ink-faint">Board</p>
         {#if showBoardOptions}
           <DropdownMenu.CheckboxItem
             checked={preferences.hideEmptyBoard}
@@ -126,7 +132,7 @@
             onCheckedChange={(checked) => onHideEmptyBoardChange(checked)}
             data-hide-empty-switch="board"
             aria-describedby={boardCountsLimited ? "hide-empty-board-note" : undefined}
-            class="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm text-ink-secondary outline-none transition-colors data-highlighted:bg-primary-wash data-highlighted:text-ink motion-reduce:transition-none"
+            class="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-ink-secondary outline-none transition-colors data-highlighted:bg-chrome/60 data-highlighted:text-ink motion-reduce:transition-none pointer-coarse:min-h-11"
           >
             <span class="flex h-4 w-4 items-center justify-center rounded border border-line text-primary-selected">
               {#if preferences.hideEmptyBoard}
@@ -149,7 +155,7 @@
             data-hide-empty-switch="client"
             data-hide-empty-switch-disabled={!clientCountsAvailable ? "true" : undefined}
             aria-describedby={!clientCountsAvailable ? "hide-empty-client-note" : undefined}
-            class="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm text-ink-secondary outline-none transition-colors data-disabled:cursor-not-allowed data-disabled:text-ink-faint data-highlighted:bg-primary-wash data-highlighted:text-ink motion-reduce:transition-none"
+            class="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-ink-secondary outline-none transition-colors data-disabled:cursor-not-allowed data-disabled:text-ink-faint data-highlighted:bg-chrome/60 data-highlighted:text-ink motion-reduce:transition-none pointer-coarse:min-h-11"
           >
             <span class="flex h-4 w-4 items-center justify-center rounded border border-line text-primary-selected">
               {#if preferences.hideEmptyClientGroups}
@@ -166,15 +172,15 @@
         {/if}
       {/if}
 
-      {#if preferences.layout === "list" && !showClientOptions}
+      {#if showListFieldOptions && preferences.layout === "list" && !showClientOptions}
         {#if showSort}<DropdownMenu.Separator class="my-1 h-px bg-line-soft" />{/if}
-        <p class="px-2.5 pb-1 pt-2 text-xs font-medium text-ink-muted">Fields</p>
+        <p class="px-1.5 pb-0.5 pt-2 text-[11px] font-medium text-ink-faint">Fields</p>
         {#each columnOptions as option (option.id)}
           <DropdownMenu.CheckboxItem
             checked={preferences.columns[option.id]}
             closeOnSelect={false}
             onCheckedChange={() => onToggleColumn(option.id)}
-            class="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm text-ink-secondary outline-none transition-colors data-highlighted:bg-primary-wash data-highlighted:text-ink motion-reduce:transition-none"
+            class="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-ink-secondary outline-none transition-colors data-highlighted:bg-chrome/60 data-highlighted:text-ink motion-reduce:transition-none pointer-coarse:min-h-11"
           >
             <span class="flex h-4 w-4 items-center justify-center rounded border border-line text-primary-selected">
               {#if preferences.columns[option.id]}
@@ -185,18 +191,18 @@
           </DropdownMenu.CheckboxItem>
         {/each}
         <DropdownMenu.Separator class="my-1 h-px bg-line-soft" />
-        <p class="px-2.5 pb-1 pt-2 text-xs font-medium text-ink-muted">Density</p>
+        <p class="px-1.5 pb-0.5 pt-2 text-[11px] font-medium text-ink-faint">Density</p>
         <DropdownMenu.RadioGroup
           value={preferences.density}
           onValueChange={(value) => onDensityChange(value === "compact" ? "compact" : "comfortable")}
         >
-          <DropdownMenu.RadioItem value="comfortable" closeOnSelect={false} class="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm text-ink-secondary outline-none transition-colors data-highlighted:bg-primary-wash data-highlighted:text-ink motion-reduce:transition-none">
+          <DropdownMenu.RadioItem value="comfortable" closeOnSelect={false} class="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-ink-secondary outline-none transition-colors data-highlighted:bg-chrome/60 data-highlighted:text-ink motion-reduce:transition-none pointer-coarse:min-h-11">
             <span class="flex h-4 w-4 items-center justify-center rounded-full border border-line" aria-hidden="true">
               {#if preferences.density === "comfortable"}<span class="h-2 w-2 rounded-full bg-primary"></span>{/if}
             </span>
             Comfortable
           </DropdownMenu.RadioItem>
-          <DropdownMenu.RadioItem value="compact" closeOnSelect={false} class="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm text-ink-secondary outline-none transition-colors data-highlighted:bg-primary-wash data-highlighted:text-ink motion-reduce:transition-none">
+          <DropdownMenu.RadioItem value="compact" closeOnSelect={false} class="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-ink-secondary outline-none transition-colors data-highlighted:bg-chrome/60 data-highlighted:text-ink motion-reduce:transition-none pointer-coarse:min-h-11">
             <span class="flex h-4 w-4 items-center justify-center rounded-full border border-line" aria-hidden="true">
               {#if preferences.density === "compact"}<span class="h-2 w-2 rounded-full bg-primary"></span>{/if}
             </span>

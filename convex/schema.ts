@@ -28,6 +28,11 @@ export default defineSchema({
     // Presentation exposure only. This does not grant a role or capability;
     // route and mutation authorization remain server-side and authoritative.
     isDeveloper: v.optional(v.boolean()),
+    // 2026-08-19: workspace Owner exposure (product owner, e.g. Michael).
+    // Same contract as isDeveloper — presentation only, not a role or
+    // capability; distinct from a project's Owner. Reveals the admin
+    // navigation and the Developer/Owner columns on /admin/users.
+    isOwner: v.optional(v.boolean()),
     createdAt: v.optional(v.number()),
   })
     .index("by_email", ["email"])
@@ -1765,6 +1770,13 @@ export default defineSchema({
     reviewedBy: v.optional(v.string()),
     reviewedAt: v.optional(v.number()),
     reviewNote: v.optional(v.string()),
+    // 2026-08-18 amendment — historical projects ported from ingestion.
+    // Navigational association only (like projects.sourceProjectId); widen
+    // fields, no backfill, no index. Set by ingestionPort.portItemToProject.
+    portedProjectId: v.optional(v.id("projects")),
+    portedDocumentId: v.optional(v.id("projectDocuments")),
+    portedAt: v.optional(v.number()),
+    portedBy: v.optional(v.string()),
     // Soft deletion keeps review decisions reversible and auditable. Only
     // terminal queue states can be removed; approved Brain sources are
     // governed from the Brain admin instead.

@@ -15,6 +15,7 @@
     CloudArrowDownIcon,
     FlagIcon,
     FolderSimpleIcon,
+    GearSixIcon,
     HouseIcon,
     LightbulbIcon,
     MagnifyingGlassIcon,
@@ -62,6 +63,9 @@
   const auth = useAuth();
   const userQ = useQuery(api.users.getCurrentUser, () => (auth.isAuthenticated ? {} : "skip"));
   const isDeveloper = $derived(userQ.data?.isDeveloper === true);
+  // Workspace Owner exposure (2026-08-19): reveals admin navigation like
+  // isDeveloper does. Distinct from a project's Owner.
+  const isOwner = $derived(userQ.data?.isOwner === true);
   const openAlertsQ = useQuery(api.errorReports.openCount, () =>
     auth.isAuthenticated && isDeveloper ? {} : "skip"
   );
@@ -72,7 +76,15 @@
   const unseenChangelog = $derived(unseenChangelogQ.data ?? 0);
   const user = $derived(userQ.data);
   const userName = $derived(displayName(user, "Account"));
-  const userRole = $derived(user?.isDeveloper ? "Developer" : user?.role ? ROLE_LABELS[user.role] : "Workspace member");
+  const userRole = $derived(
+    user?.isDeveloper
+      ? "Developer"
+      : user?.isOwner
+        ? "Owner"
+        : user?.role
+          ? ROLE_LABELS[user.role]
+          : "Workspace member"
+  );
   const userInitials = $derived.by(() => {
     if (user?.firstName || user?.lastName) {
       return (((user.firstName?.[0] ?? "") + (user.lastName?.[0] ?? "")).toUpperCase() || "?");
@@ -170,7 +182,7 @@
               href={resolve("/project/new")}
               aria-label="New project"
               onclick={onNavigate}
-              class={`${variant === "rail" ? "h-7 w-7" : "h-11 w-11"} workspace-rail-control flex shrink-0 items-center justify-center rounded-md bg-workspace-control text-ink transition-colors hover:bg-workspace-rail-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`}
+              class={`${variant === "rail" ? "h-7 w-7" : "h-11 w-11"} flex shrink-0 items-center justify-center rounded-md bg-action-primary text-action-primary-foreground transition-colors hover:bg-action-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`}
             >
               <PlusIcon size={16} weight="regular" aria-hidden="true" />
             </a>
@@ -209,7 +221,7 @@
         </a>
       </div>
 
-      {#if userQ.data?.role === "admin"}
+      {#if userQ.data?.role === "admin" && (isDeveloper || isOwner)}
         <div data-rail-admin class="mt-5 flex flex-col gap-[3px] px-2">
           <button
             type="button"
@@ -295,6 +307,20 @@
               <span class="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-none text-white">{unseenChangelog > 99 ? "99+" : unseenChangelog}</span>
             {/if}
           </a>
+          <!-- Flag issue is for every user (2026-08-19): bug reports and
+               feature requests come from the whole team, not just devs. -->
+          <button
+            type="button"
+            data-rail-flag-issue
+            onclick={() => {
+              onNavigate?.();
+              window.dispatchEvent(new CustomEvent("banhall:flag-issue"));
+            }}
+            class={`${rowBase} ${idleRow}`}
+          >
+            <FlagIcon size={16} weight="regular" aria-hidden="true" />
+            <span>Flag issue</span>
+          </button>
           {#if isDeveloper}
             <button
               type="button"
@@ -308,26 +334,31 @@
               <ArrowSquareOutIcon size={16} weight="regular" aria-hidden="true" />
               <span>{currentExperienceLabel}</span>
             </button>
-            <button
-              type="button"
-              data-rail-flag-issue
-              onclick={() => {
-                onNavigate?.();
-                window.dispatchEvent(new CustomEvent("banhall:flag-issue"));
-              }}
-              class={`${rowBase} ${idleRow}`}
-            >
-              <FlagIcon size={16} weight="regular" aria-hidden="true" />
-              <span>Flag issue</span>
-            </button>
           {/if}
         </div>
       </div>
     </div>
   </div>
 
-  <div class="border-t border-workspace-rail-line px-2 pt-2">
-    <UserMenu tone="light" menuTheme="light" menuLayer={variant === "drawer" ? "drawer" : "app"} triggerVariant="rail" />
+  <div class="flex items-center gap-1 border-t border-workspace-rail-line px-2 pt-2">
+    <div class="min-w-0 flex-1">
+      <UserMenu tone="light" menuTheme="light" menuLayer={variant === "drawer" ? "drawer" : "app"} triggerVariant="rail" />
+    </div>
+    <!-- One-click Settings (2026-08-19): straight to the page, no popover hop. -->
+    <Tooltip text="Settings" side="top" delayDuration={300}>
+      {#snippet children({ props })}
+        <a
+          {...props}
+          href={resolve("/settings")}
+          aria-label="Settings"
+          aria-current={pathname.startsWith(resolve("/settings")) ? "page" : undefined}
+          onclick={onNavigate}
+          class={`flex shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors duration-150 ease-out hover:bg-workspace-rail-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${variant === "rail" ? "size-8" : "size-11"} ${pathname.startsWith(resolve("/settings")) ? "bg-workspace-rail-selected text-ink" : ""}`}
+        >
+          <GearSixIcon size={16} weight="regular" aria-hidden="true" />
+        </a>
+      {/snippet}
+    </Tooltip>
   </div>
 </nav>
 

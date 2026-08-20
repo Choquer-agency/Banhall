@@ -195,6 +195,7 @@ None. Add an entry before starting more than one PSOS ticket simultaneously:
 | 2026-07-28 | Defer a generic ChatGPT/Claude-like baseline workspace. | PSOS-39 boundary | The July 27 meeting explicitly back-burnered it because API parity and cost are uncertain. Revisit only through an approved, measured experiment. |
 | 2026-07-28 | Require decision-first handling for cross-project test grouping. | PSOS-37/38; PSOS-11/18–23/31 | “Primary/final,” project numbering, branches, outcomes, and accounting scope conflict unless resolved in the domain contract first. |
 | 2026-08-14 | Treat historical Brain ingestion as a dedicated reviewed pipeline, not a feature inside the client repository. | PSOS-41; PSOS-25/31/40 | Keeps source discovery, human association, approval, provenance, and revert boundaries explicit. |
+| 2026-08-17 | Replace the explicit 47-edge workflow transition matrix with an open matrix (every stage → every other stage) with per-edge policy; remove the `review_handoff` requirement. Recorded as a product-domain amendment. | PSOS-09/10 (supersedes their edge-list clauses) | In-app flag from mobregon@banhall.com: adjacent-only transitions forced multi-hop stage changes. Authority floors, audit notes, fail-closed outcome/branch requirements, and the abandoned open-work gate are preserved. |
 
 ## Program progress log
 

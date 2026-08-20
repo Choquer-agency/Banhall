@@ -339,6 +339,8 @@ export const setWorkflowStage = mutation({
 
     assertExpectedVersion(project, args.expectedVersion);
     const transition = findWorkflowTransition(fromStage, args.toStage);
+    // Open matrix: undefined only for same-stage pairs, which noop above.
+    // Kept as defense-in-depth (and TS narrowing) should the matrix narrow.
     if (!transition) {
       domainError("INVALID_TRANSITION", "This workflow transition is not allowed", {
         from: fromStage,
@@ -364,21 +366,6 @@ export const setWorkflowStage = mutation({
         "INVALID_STATE",
         "A promoted report branch is required before marking this project ready for delivery"
       );
-    }
-    if (transition.requirements?.includes("review_handoff")) {
-      const handoff = await validCurrentHandoff(ctx, project);
-      if (
-        !handoff ||
-        handoff.projectId !== project._id ||
-        handoff.status !== "open" ||
-        handoff.blocking !== true ||
-        handoff.kind !== "internal_review"
-      ) {
-        domainError(
-          "INVALID_STATE",
-          "An active internal-review handoff is required before resuming internal review"
-        );
-      }
     }
     if (args.toStage === "abandoned") {
       const openWork = await ctx.db

@@ -71,7 +71,7 @@
 </script>
 
 {#if editing}
-  <div class={`flex items-center gap-1.5 ${variant === "body" ? "mt-1" : ""}`}>
+  <div class="flex items-center gap-1.5">
     <input
       bind:value={draft}
       onkeydown={handleKeydown}
@@ -131,7 +131,7 @@
     </button>
   </div>
 {:else}
-  <p class="group mt-1 flex w-fit items-center gap-1.5 text-gray-800">
+  <p class="group flex w-fit items-center gap-1.5 text-gray-800">
     {#if value}
       {value}
     {:else}

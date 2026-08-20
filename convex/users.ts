@@ -1,4 +1,9 @@
-import { query, mutation, internalMutation } from "./_generated/server";
+import {
+  query,
+  mutation,
+  internalMutation,
+  type MutationCtx,
+} from "./_generated/server";
 import { v } from "convex/values";
 import { listTeamRoster, userDisplayLabel } from "./lib/teamRoster";
 import {
@@ -58,6 +63,7 @@ export const listUsers = query({
       createdAt: v.optional(v.number()),
       hasAuthAccount: v.boolean(),
       isDeveloper: v.boolean(),
+      isOwner: v.boolean(),
     }),
   ),
   handler: async (ctx) => {
@@ -74,6 +80,7 @@ export const listUsers = query({
       createdAt: user.createdAt,
       hasAuthAccount: Boolean(user.authId),
       isDeveloper: user.isDeveloper === true,
+      isOwner: user.isOwner === true,
     }));
   },
 });
@@ -210,6 +217,19 @@ export const setUserRole = mutation({
 
 // Admin-managed developer-tool exposure. This is deliberately separate from
 // roles and capabilities: it only reveals diagnostic/support navigation.
+// 2026-08-19: managing these flags is itself limited to developers and
+// workspace Owners — plain admins neither see nor change them.
+async function requireFlagManager(ctx: MutationCtx) {
+  const caller = await requireRole(ctx, ["admin"]);
+  if (caller.isDeveloper !== true && caller.isOwner !== true) {
+    domainError(
+      "NOT_AUTHORIZED",
+      "Only developers and workspace owners can change these flags"
+    );
+  }
+  return caller;
+}
+
 export const setUserDeveloper = mutation({
   args: {
     userId: v.id("users"),
@@ -217,10 +237,27 @@ export const setUserDeveloper = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireRole(ctx, ["admin"]);
+    await requireFlagManager(ctx);
     const target = await ctx.db.get(args.userId);
     if (!target) domainError("NOT_FOUND", "User not found");
     await ctx.db.patch(args.userId, { isDeveloper: args.isDeveloper });
+    return null;
+  },
+});
+
+// Workspace Owner exposure (e.g. the product owner). Same presentation-only
+// contract as isDeveloper; distinct from a project's Owner.
+export const setUserOwner = mutation({
+  args: {
+    userId: v.id("users"),
+    isOwner: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireFlagManager(ctx);
+    const target = await ctx.db.get(args.userId);
+    if (!target) domainError("NOT_FOUND", "User not found");
+    await ctx.db.patch(args.userId, { isOwner: args.isOwner });
     return null;
   },
 });
@@ -245,6 +282,27 @@ export const setRole = internalMutation({
       .unique();
     if (!user) throw new Error(`No user with email ${email}`);
     await ctx.db.patch(user._id, { role: args.role });
+    return user._id;
+  },
+});
+
+// CLI helper for workspace Owner exposure, e.g.:
+//   npx convex run users:setOwner '{"email":"owner@example.com","isOwner":true}'
+export const setOwner = internalMutation({
+  args: {
+    email: v.string(),
+    isOwner: v.boolean(),
+  },
+  returns: v.id("users"),
+  handler: async (ctx, args) => {
+    const email = normalizeEmail(args.email);
+    if (!email) throw new Error("A valid email address is required");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .unique();
+    if (!user) throw new Error(`No user with email ${email}`);
+    await ctx.db.patch(user._id, { isOwner: args.isOwner });
     return user._id;
   },
 });

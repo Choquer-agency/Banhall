@@ -31,6 +31,12 @@
   );
   const setUserRole = useMutation(api.users.setUserRole);
   const setUserDeveloper = useMutation(api.users.setUserDeveloper);
+  const setUserOwner = useMutation(api.users.setUserOwner);
+  // Developer/Owner exposure columns are themselves limited to developers and
+  // workspace Owners (2026-08-19); plain admins manage roles only.
+  const canManageFlags = $derived(
+    currentUserQ.data?.isDeveloper === true || currentUserQ.data?.isOwner === true
+  );
   const setTemporaryPassword = useMutation(api.users.setTemporaryPassword);
 
   // Invite-only membership: create/list/revoke invites (admin only).
@@ -244,6 +250,7 @@
 
   let savingId = $state<string | null>(null);
   let savingDeveloperId = $state<string | null>(null);
+  let savingOwnerId = $state<string | null>(null);
   let error = $state("");
   let roleGuideOpen = $state(false);
   let roleGuideRole = $state<Role>("writer");
@@ -285,6 +292,19 @@
       error = userErrorMessage(cause, "Could not update developer access.");
     } finally {
       savingDeveloperId = null;
+    }
+  }
+
+  async function handleOwnerChange(userId: Id<"users">, isOwner: boolean) {
+    if (savingOwnerId) return;
+    error = "";
+    savingOwnerId = userId;
+    try {
+      await setUserOwner({ userId, isOwner });
+    } catch (cause) {
+      error = userErrorMessage(cause, "Could not update owner access.");
+    } finally {
+      savingOwnerId = null;
     }
   }
 
@@ -455,7 +475,10 @@
                   <th class="px-4 py-2.5 font-medium">Email</th>
                   <th class="px-4 py-2.5 font-medium">Joined</th>
                   <th class="px-4 py-2.5 font-medium">Role</th>
-                  <th class="px-4 py-2.5 font-medium">Developer</th>
+                  {#if canManageFlags}
+                    <th class="px-4 py-2.5 font-medium">Owner</th>
+                    <th class="px-4 py-2.5 font-medium">Developer</th>
+                  {/if}
                   <th class="px-4 py-2.5 font-medium">Manage</th>
                 </tr>
               </thead>
@@ -486,21 +509,38 @@
                         {/if}
                       </span>
                     </td>
-                    <td class="px-4 py-2.5">
-                      <span class="flex min-h-9 items-center gap-2">
-                        <Checkbox
-                          checked={row.isDeveloper}
-                          disabled={savingDeveloperId !== null}
-                          aria-label={`Developer tools for ${row.displayName}`}
-                          onCheckedChange={(checked) => handleDeveloperChange(row._id, checked === true)}
-                        />
-                        {#if savingDeveloperId === row._id}
-                          <span class="text-xs text-gray-400">Saving…</span>
-                        {:else}
-                          <span class="text-xs text-gray-500">{row.isDeveloper ? "Enabled" : "Hidden"}</span>
-                        {/if}
-                      </span>
-                    </td>
+                    {#if canManageFlags}
+                      <td class="px-4 py-2.5">
+                        <span class="flex min-h-9 items-center gap-2">
+                          <Checkbox
+                            checked={row.isOwner}
+                            disabled={savingOwnerId !== null}
+                            aria-label={`Workspace owner access for ${row.displayName}`}
+                            onCheckedChange={(checked) => handleOwnerChange(row._id, checked === true)}
+                          />
+                          {#if savingOwnerId === row._id}
+                            <span class="text-xs text-gray-400">Saving…</span>
+                          {:else}
+                            <span class="text-xs text-gray-500">{row.isOwner ? "Owner" : "—"}</span>
+                          {/if}
+                        </span>
+                      </td>
+                      <td class="px-4 py-2.5">
+                        <span class="flex min-h-9 items-center gap-2">
+                          <Checkbox
+                            checked={row.isDeveloper}
+                            disabled={savingDeveloperId !== null}
+                            aria-label={`Developer tools for ${row.displayName}`}
+                            onCheckedChange={(checked) => handleDeveloperChange(row._id, checked === true)}
+                          />
+                          {#if savingDeveloperId === row._id}
+                            <span class="text-xs text-gray-400">Saving…</span>
+                          {:else}
+                            <span class="text-xs text-gray-500">{row.isDeveloper ? "Enabled" : "Hidden"}</span>
+                          {/if}
+                        </span>
+                      </td>
+                    {/if}
                     <!-- Expandable row per design system: chevron at the row's
                          right edge, points down closed → up open, primary when
                          open. -->

@@ -6,7 +6,7 @@ import StageChangeDialog from "./StageChangeDialog.svelte";
 // lines from bits-ui's Dialog internals (forceMount + svelte transition reads
 // a library $derived after teardown) — attributed 2026-08-06 by per-file
 // bisection of the component suite; not a product-code teardown leak.
-import type { WorkflowStageOption } from "../../../../shared/workflowLabels";
+import { workflowStageOptions, type WorkflowStageOption } from "../../../../shared/workflowLabels";
 
 const options: WorkflowStageOption[] = [
   {
@@ -42,6 +42,26 @@ describe("StageChangeDialog", () => {
     });
     expect(document.body.textContent).toContain("Current stage: Legacy status only");
     expect(document.body.textContent).not.toContain("Current stage: Intake");
+  });
+
+  it("renders the full open-matrix option list with fail-closed stages disabled", async () => {
+    // Real options for an owner at intake: all 10 other stages, with the two
+    // storage-gated stages (Submitted, Delivered) disabled with a reason.
+    await render(StageChangeDialog, {
+      open: true,
+      currentStageLabel: "Intake",
+      options: workflowStageOptions("intake", ["owner"]),
+      onSubmit: vi.fn(),
+    });
+    const radios = [...document.body.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
+    expect(radios).toHaveLength(10);
+    const disabled = radios.filter((button) => button.getAttribute("aria-disabled") === "true");
+    expect(disabled.map((button) => button.textContent)).toEqual([
+      expect.stringContaining("Submitted"),
+      expect.stringContaining("Delivered"),
+    ]);
+    const internalReview = radios.find((button) => button.textContent?.includes("Internal review"));
+    expect(internalReview?.getAttribute("aria-disabled")).not.toBe("true");
   });
 
   it("shows supplied options and explains unavailable prerequisites", async () => {

@@ -31,7 +31,7 @@
   }
 </script>
 
-<div class="mt-1">
+<div>
   <IndustrySelect
     value={industry ?? ""}
     size="sm"

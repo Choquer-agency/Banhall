@@ -448,7 +448,7 @@
         workItems={workPanelQ.data?.openItems ?? []}
         workTruncated={workPanelQ.data?.truncated ?? false}
         canCreateWork={workPanelQ.data?.viewer.canCreate ?? false}
-        canSendForReview={Boolean(workPanelQ.data?.viewer.canCreate && header && (header.workflowStage === "drafting" || header.workflowStage === "revisions"))}
+        canSendForReview={Boolean(workPanelQ.data?.viewer.canCreate && header && header.workflowStage !== "internal_review" && header.workflowStage !== "delivered" && header.workflowStage !== "abandoned")}
         assignable={workPanelQ.data?.assignable ?? false}
         assignableReason={workPanelQ.data?.assignableReason ?? null}
         pointerHealthy={workPanelQ.data?.pointerHealthy ?? true}

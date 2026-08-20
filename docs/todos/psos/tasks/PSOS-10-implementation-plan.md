@@ -22,7 +22,7 @@ Make the human workflow legible and safely editable without turning the report w
 3. **Prerequisite-gated transitions remain visible but unavailable.** Matrix-valid transitions that PSOS-09 must currently reject are shown disabled with a plain-language reason:
    - `ready_for_delivery` requires a promoted branch;
    - `delivered` requires an exact delivery/filing outcome;
-   - `on_hold → internal_review` requires an active review handoff.
+   - `on_hold → internal_review` requires an active review handoff. *(Superseded 2026-08-17: the open-matrix amendment removed the `review_handoff` requirement; `internal_review` is enterable without an active handoff.)*
 4. **The server supplies viewer authority.** The client does not independently infer Owner, Manager, Admin, or future handoff-assignee authority. UI filtering is an affordance only; mutations remain authoritative.
 5. **With and Due are truthful empties.** Until PSOS-12 introduces work items and `currentHandoffId`, both values are `null` and render as an em dash. They are never inferred from Owner, Creator, legacy writer, interviewer, stage, or status.
 6. **OCC version is captured when an action opens.** Transfer/stage dialogs submit the version the user reviewed. A stale response shows conflict recovery copy. Mutation result `noop` produces neutral “No change” feedback, never a success message.
@@ -67,7 +67,7 @@ Add `shared/workflowLabels.ts` containing:
 
 - `WORKFLOW_STAGE_LABELS: Record<WorkflowStage, string>`;
 - `WORKFLOW_STAGE_DESCRIPTIONS: Record<WorkflowStage, string>` using the approved domain meanings;
-- `TRANSITION_REQUIREMENT_BLOCKERS` for promoted branch, delivery outcome, and review handoff;
+- `TRANSITION_REQUIREMENT_BLOCKERS` for promoted branch, delivery outcome, and review handoff *(review-handoff blocker removed by the 2026-08-17 open-matrix amendment)*;
 - shared `MAX_WORKFLOW_NOTE_CHARS = 2_000`;
 - `effectiveWorkflowStage(stage)` returning `stage ?? "intake"`;
 - a pure stage-option builder that:
@@ -83,7 +83,7 @@ Add pure due formatting in `src/lib/workflow/due.ts`:
 - output: absolute `en-CA` date, relative text, and overdue boolean;
 - `null` remains `null` and displays as `—`.
 
-Do not alter the 41-edge matrix in `shared/workflowTransitions.ts`.
+Do not alter the 41-edge matrix in `shared/workflowTransitions.ts`. *(Historical constraint for this ticket's scope. The matrix later grew to 47 edges with the 2026-08-14 `edits` stage, and the 2026-08-17 product-domain amendment replaced it with a generated open matrix — every stage to every other stage.)*
 
 ### Phase C — Backend projections and candidate query
 

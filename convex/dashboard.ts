@@ -59,7 +59,14 @@ function projectNumberSortKey(projectNumber: string | undefined) {
   const normalized = projectNumber?.trim().toUpperCase() ?? "";
   const numbered = normalized.match(/^([0-9]+)([A-Z]?)$/);
   if (numbered) {
-    return `0:${Number(numbered[1]).toString().padStart(3, "0")}:${numbered[2]}`;
+    // Letter DESCENDS inside a number group (owner direction 2026-08-19):
+    // the newest duplicate gets the latest letter and should list first, so
+    // 1b sorts before 1a. Inverting the letter keeps one ascending
+    // localeCompare across the whole key. A bare number reads as the "A"
+    // slot and therefore lists last in its group.
+    const letter = numbered[2] || "A";
+    const inverted = String.fromCharCode(65 + (90 - letter.charCodeAt(0)));
+    return `0:${Number(numbered[1]).toString().padStart(3, "0")}:${inverted}`;
   }
   if (/^[A-Z]$/.test(normalized)) return `1:${normalized}`;
   return "2:";

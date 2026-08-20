@@ -1292,6 +1292,12 @@
     user-select: none;
   }
 
+  /* The marker already draws its own divider line; a document <hr>
+     immediately after it read as a doubled rule. */
+  :global(.cra-section-end + hr) {
+    display: none;
+  }
+
   :global(.cra-section-end)::before,
   :global(.cra-section-end)::after {
     content: "";

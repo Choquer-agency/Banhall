@@ -40,6 +40,10 @@ describe("fiscal-year repository grouping", () => {
       "none",
     ]);
     expect(projectNumberKey("2A").localeCompare(projectNumberKey("10"), "en-CA")).toBeLessThan(0);
+    // Newest duplicate letter lists first within its number group.
+    expect(projectNumberKey("1b").localeCompare(projectNumberKey("1a"), "en-CA")).toBeLessThan(0);
+    expect(projectNumberKey("1a").localeCompare(projectNumberKey("2a"), "en-CA")).toBeLessThan(0);
+    expect(projectNumberKey("1c").localeCompare(projectNumberKey("1"), "en-CA")).toBeLessThan(0);
   });
 
   it("supports recently created and recently updated within each year", () => {
