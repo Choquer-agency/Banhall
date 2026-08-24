@@ -20,6 +20,8 @@
      the public-app shell tokens: the product rail is a pale, flat navigation
      surface while fir remains the identity and action colour. */
   --color-workspace-rail: #FBFBFB;
+  --color-workspace-subrail: #F7F8FA;
+  --color-workspace-subrail-hover: #EEF0F3;   /* second rail (page sub-nav): near-rail gray, subtly off the white content (Linear/Notion settings pattern) */
   --color-workspace-rail-line: #EEEFF1;
   --color-workspace-rail-hover: #F5F5F5;
   --color-workspace-rail-selected: #E9F1EF;
@@ -89,6 +91,62 @@
 
 .workspace-rail-control {
   box-shadow: var(--shadow-workspace-control);
+}
+
+/* ─── Workspace page gutters (shared, responsive) ─────────────────────────────
+   One source of truth for the inset of sub-rail pages (Settings, …): the page
+   header, the content pane, and the sub-rail nav all read these variables so
+   their edges line up at every breakpoint. Retune here, never per page.
+     --page-gutter      horizontal inset of header + content
+     --page-gutter-y    top inset of content
+     --subrail-gutter   horizontal inset of the sub-rail nav
+     --subrail-gutter-y top inset of the sub-rail nav */
+:root {
+  --page-gutter: 1rem;
+  --page-gutter-y: 1.5rem;
+  --subrail-gutter: 0.75rem;
+  --subrail-gutter-y: 0.75rem;
+}
+@media (min-width: 40rem) {
+  :root { --page-gutter: 1.5rem; --page-gutter-y: 2rem; }
+}
+@media (min-width: 64rem) {
+  :root { --page-gutter: 2.25rem; --page-gutter-y: 2.25rem; --subrail-gutter: 0.875rem; }
+}
+
+@utility page-gutter {
+  padding-inline: var(--page-gutter);
+}
+@utility page-gutter-y {
+  padding-block-start: var(--page-gutter-y);
+}
+@utility subrail-gutter {
+  padding-inline: var(--subrail-gutter);
+  padding-block-start: var(--subrail-gutter-y);
+}
+
+/* ─── Settings rows ───────────────────────────────────────────────────────────
+   /settings/* pages: heading + help stacked above the form at every
+   breakpoint, a hairline between rows (`divide-y divide-line-soft` on the
+   parent). The form column is capped so inputs stay a readable width on wide
+   screens while the page itself runs full-bleed. */
+@utility settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding-block: 2rem;
+  &:first-child { padding-block-start: 0; }
+}
+@utility settings-row-heading {
+  min-width: 0;
+  max-width: 40rem;
+}
+@utility settings-row-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+  max-width: 40rem;
 }
 
 /* ─── Type roles (use these before reaching for ad-hoc sizes) ─────────────── */

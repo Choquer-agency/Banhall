@@ -51,7 +51,7 @@
   // Buttons can never drift from button-shaped ones. (The `disabled:` base
   // utilities are inert on anchors, which never receive the attribute.)
   const classes = $derived(
-    `inline-flex items-center justify-center rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${sizeStyles[size]} ${variantStyles[variant]} ${className}`
+    `inline-flex items-center justify-center rounded-lg font-medium transition-[color,background-color,border-color,opacity] duration-200 ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${sizeStyles[size]} ${variantStyles[variant]} ${className}`
   );
 </script>
 

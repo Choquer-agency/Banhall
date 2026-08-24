@@ -22,6 +22,7 @@
     currentExperienceLabel = "Current dashboard",
     children,
     actions,
+    subrail,
   }: {
     title: string;
     description?: string | null;
@@ -30,6 +31,13 @@
     currentExperienceLabel?: string;
     children: Snippet;
     actions?: Snippet;
+    /**
+     * Optional page-level sub-navigation (e.g. Settings sections). Rendered as
+     * a full-height column directly beside the workspace rail, spanning the
+     * page header and content, so it reads as a second rail rather than
+     * in-page chrome. Hidden below md — hosts render an inline fallback.
+     */
+    subrail?: Snippet;
   } = $props();
 
   const auth = useAuth();
@@ -78,8 +86,20 @@
   onFocusSearch={focusProjectSearch}
   drawerDescription="Navigate between work, projects, and account pages."
 >
-  <div class="flex min-h-0 min-w-0 flex-col overflow-hidden">
-    <header data-workspace-page-header class="flex h-[49px] shrink-0 items-center gap-3 border-b border-workspace-rail-line px-3 sm:px-4">
+  <div class={`min-h-0 min-w-0 overflow-hidden ${subrail ? "grid grid-rows-[minmax(0,1fr)] md:grid-cols-[auto_minmax(0,1fr)]" : "flex flex-col"}`}>
+    {#if subrail}
+      <aside
+        data-workspace-subrail
+        class="subrail-gutter hidden min-h-0 w-[12.5rem] overflow-y-auto border-r border-workspace-rail-line bg-workspace-subrail md:block"
+      >
+        {@render subrail()}
+      </aside>
+    {/if}
+    <div class="flex min-h-0 min-w-0 flex-col overflow-hidden">
+    <!-- Sub-rail pages: header inset is the shared `page-gutter` variable
+         (layout.css) — same one the content pane uses — so the title and the
+         content's left edge line up at every breakpoint. -->
+    <header data-workspace-page-header class={`flex h-[49px] shrink-0 items-center gap-3 border-b border-workspace-rail-line ${subrail ? "page-gutter" : "px-3 sm:px-4"}`}>
       <!-- Shared drawer hamburger + desktop rail toggle: one a11y contract,
            owned by WorkspaceShellControls (dedup with WorkspaceHeader). -->
       <WorkspaceShellControls
@@ -98,5 +118,6 @@
     <main class="min-h-0 min-w-0 flex-1 overflow-y-auto">
       {@render children()}
     </main>
+    </div>
   </div>
 </WorkspaceShell>
