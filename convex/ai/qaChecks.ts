@@ -4,6 +4,11 @@
  * producing pre-computed facts that get injected into the QA prompt.
  */
 
+import {
+  BANNED_SCAN_TERMS,
+  bannedTermPattern,
+} from "../../shared/bannedWords";
+
 // ─── Check 1: CRA opener detection for 246 P2-P4 ────────────────────────────
 
 const CRA_OPENER_PATTERNS = [
@@ -100,41 +105,8 @@ export function checkBecauseClauses(section242Text: string): BecauseClauseResult
 }
 
 // ─── Check 3: Banned word scan ──────────────────────────────────────────────
-
-const BANNED_WORDS = [
-  "substantially",
-  "significantly",
-  "unique",
-  "innovative",
-  "groundbreaking",
-  "cutting-edge",
-  "state-of-the-art",
-  "robust",
-  "comprehensive",
-  "holistic",
-  "synergy",
-  "leverage",
-  "leveraging",
-  "harness",
-  "harnessing",
-  "revolutionize",
-  "revolutionizing",
-  "transform",
-  "game-changing",
-  "fundamentally",
-  "paradigm",
-  "ecosystem",
-  "pivotal",
-  "seamless",
-  "novel",
-  "pioneering",
-  "revolutionary",
-  "spearheading",
-  "delving",
-  "furthermore",
-  "moreover",
-  "additionally",
-];
+// Term list derived from shared/bannedWords.ts (the scrubber's own tables plus
+// scan-only terms) so the scanner can never diverge from the scrubber.
 
 export interface BannedWordResult {
   found: Array<{
@@ -153,13 +125,13 @@ export function checkBannedWords(
 
   function scanSection(text: string, sectionName: string) {
     const lower = text.toLowerCase();
-    for (const word of BANNED_WORDS) {
-      const regex = new RegExp(`\\b${word.replace(/-/g, "\\-")}\\b`, "gi");
+    for (const word of BANNED_SCAN_TERMS) {
+      const regex = bannedTermPattern(word);
       let match;
       while ((match = regex.exec(lower)) !== null) {
         // Get surrounding context
         const start = Math.max(0, match.index - 30);
-        const end = Math.min(lower.length, match.index + word.length + 30);
+        const end = Math.min(lower.length, match.index + match[0].length + 30);
         const context = "..." + text.slice(start, end).replace(/\n/g, " ") + "...";
         found.push({ word, section: sectionName, context });
       }
