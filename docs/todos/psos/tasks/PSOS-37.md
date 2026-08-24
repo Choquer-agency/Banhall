@@ -108,6 +108,7 @@ Decide whether PSOS-38 may ship before PSOS-11. The default is **no** for final 
 | 2026-07-28 | Start with a decision ticket rather than adding group fields immediately. | The meeting request crosses the canonical Project, Branch, outcome, dashboard-pagination, and client/claim-period contracts. | Claude Code/Fable and Opus planning reviews |
 | 2026-07-28 | Use “Primary instance” in planning, not “final version.” | “Final” already has legacy status, branch-promotion, and delivery meanings. | Planning default; product approval pending |
 | 2026-07-28 | Treat the supplied transcript as direct source evidence. | The full transcript was supplied in this conversation, including timestamps and explicit assignment language. | Product team source |
+| 2026-08-20 | Bare number = submission instance; lettered siblings = experiments/research. Do not convert an existing bare number into `Na` on collision (see PSOS-43). Collapsed dashboard row is a stacked-card on the fiscal-year list, not a second folder. Optional later suffixes such as `1R` remain undecided. | August 20 product walkthrough of live numbering. | Michael Obregon |
 
 ## Work log and evidence
 
@@ -115,6 +116,7 @@ Decide whether PSOS-38 may ship before PSOS-11. The default is **no** for final 
 |---|---|---|
 | 2026-07-28 | July 27 transcript triaged against all 36 existing PSOS tasks and the approved product-domain contract. | No existing task safely owns the cross-project grouping decision. PSOS-18–20 remain the source of truth for future in-project draft alternatives. |
 | 2026-07-28 | Claude Code/Fable and Opus independently reviewed ticket boundaries and semantic conflicts. | Both required decision-first handling. Fable recommended meeting-directed prioritization; Opus emphasized PSOS-11/18/31 dependencies and delivery-data risks. |
+| 2026-08-20 | August 20 transcript added UX evidence for PSOS-38 (stacked-pages icon, expand 1/1a/1b, bare number on top) and numbering semantics for PSOS-43. | Grouping UI still blocked here; collision-lettering fix does not need this ticket to close. |
 
 ## Completion record
 

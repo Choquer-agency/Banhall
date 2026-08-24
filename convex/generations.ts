@@ -1274,6 +1274,7 @@ export const getIterativeSectionInput = internalQuery({
     if (!analysisRow) return null;
     let brainBlock = "";
     let styleGuidance = "";
+    let styleOverrides: Record<string, boolean> | undefined;
     if (brainRow) {
       try {
         const parsed: unknown = JSON.parse(brainRow.content);
@@ -1293,6 +1294,15 @@ export const getIterativeSectionInput = internalQuery({
           ) {
             styleGuidance = parsed.styleGuidance;
           }
+          // PSOS-49: house-style waivers frozen at generation start (absent on
+          // legacy artifacts → default enforcement).
+          if (
+            "styleOverrides" in parsed &&
+            parsed.styleOverrides &&
+            typeof parsed.styleOverrides === "object"
+          ) {
+            styleOverrides = parsed.styleOverrides as Record<string, boolean>;
+          }
         }
       } catch {
         // Malformed artifact: draft without brain/style context.
@@ -1309,6 +1319,7 @@ export const getIterativeSectionInput = internalQuery({
       analysis: analysisRow.content,
       brainBlock,
       styleGuidance,
+      styleOverrides,
       priorSections,
       lengthTarget: generation.lengthTarget ?? "standard",
       projectId: generation.projectId,
@@ -1324,13 +1335,41 @@ export const getPostQaInput = internalQuery({
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return null;
     if ((generation.candidateMode ?? "compare") === "iterative") {
-      const analysisRow = await ctx.db
-        .query("generationArtifacts")
-        .withIndex("by_generationId_and_kind", (q) =>
-          q.eq("generationId", args.generationId).eq("kind", "analysis")
-        )
-        .unique();
+      const [analysisRow, brainRow] = await Promise.all([
+        ctx.db
+          .query("generationArtifacts")
+          .withIndex("by_generationId_and_kind", (q) =>
+            q.eq("generationId", args.generationId).eq("kind", "analysis")
+          )
+          .unique(),
+        ctx.db
+          .query("generationArtifacts")
+          .withIndex("by_generationId_and_kind", (q) =>
+            q.eq("generationId", args.generationId).eq("kind", "brain_blocks")
+          )
+          .unique(),
+      ]);
       if (!analysisRow) return null;
+      // PSOS-49: QA must score under the SAME waivers the sections were
+      // drafted with — the ones frozen into the brain_blocks artifact at
+      // generation start, not the writer's live profile.
+      let styleOverrides: Record<string, boolean> | undefined;
+      if (brainRow) {
+        try {
+          const parsed: unknown = JSON.parse(brainRow.content);
+          if (
+            parsed &&
+            typeof parsed === "object" &&
+            "styleOverrides" in parsed &&
+            parsed.styleOverrides &&
+            typeof parsed.styleOverrides === "object"
+          ) {
+            styleOverrides = parsed.styleOverrides as Record<string, boolean>;
+          }
+        } catch {
+          // Malformed artifact: score under default enforcement.
+        }
+      }
       const sections: Record<IterativeSection, { text: string; model: string }> = {
         s242: { text: "", model: "" },
         s244: { text: "", model: "" },
@@ -1354,6 +1393,7 @@ export const getPostQaInput = internalQuery({
         section244: sections.s244.text,
         section246: sections.s246.text,
         model: sections.s242.model || undefined,
+        styleOverrides,
       };
     }
     // One-shot / compare generations (Jul 17: "regenerate QA panel"): the
@@ -1366,6 +1406,7 @@ export const getPostQaInput = internalQuery({
         section242?: string;
         section244?: string;
         section246?: string;
+        styleOverrides?: Record<string, boolean>;
       };
       if (
         !outputs.analyzer ||
@@ -1387,6 +1428,13 @@ export const getPostQaInput = internalQuery({
         section244: outputs.section244 ?? "",
         section246: outputs.section246 ?? "",
         model: selection?.model ?? undefined,
+        // PSOS-50: waivers frozen into agentOutputs at generation time.
+        // Absent only on legacy generations, where postQa falls back to the
+        // writer's live profile.
+        styleOverrides:
+          outputs.styleOverrides && typeof outputs.styleOverrides === "object"
+            ? outputs.styleOverrides
+            : undefined,
       };
     } catch {
       return null;

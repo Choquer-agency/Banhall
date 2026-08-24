@@ -26,12 +26,17 @@ import {
   buildStyleGuidance,
   compressToFit,
   lengthBudgetBlock,
-  scrubBannedWords,
   toContextDocs,
 } from "./pipeline";
+import { scrubBannedWordsUnlessWaived } from "../../shared/bannedWords";
 import { sectionDeterministicFindings } from "./qaChecks";
 import { sectionMetrics, type LengthTarget, type SectionKey } from "../lib/lineLimits";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
+import {
+  NO_STYLE_OVERRIDES,
+  normalizeStyleOverrides,
+} from "../../shared/styleOverrides";
+import { fetchWriterStyle } from "./writerStyle";
 
 type IterativeSection = "s242" | "s244" | "s246";
 
@@ -124,6 +129,9 @@ export const startIterativeGeneration = internalAction({
       // All wrapped so learning/flavor can NEVER break generation.
       // qaCalibration only feeds the ghost draft's QA agent — section drafts
       // use deterministic checks (the writer is the QA).
+      // Shared per-writer style policy (PSOS-49/50, writerStyle.ts) — started
+      // in parallel with the digest fetch; it swallows its own errors.
+      const writerStylePromise = fetchWriterStyle(ctx, input.requestedBy, log);
       let draftStyle: string | undefined;
       let qaCalibration: string | undefined;
       try {
@@ -145,22 +153,12 @@ export const startIterativeGeneration = internalAction({
       } catch (err) {
         console.error("learning digest fetch failed for generation", genId, err);
       }
-      let writerFlavor: string | undefined;
-      try {
-        if (input.requestedBy) {
-          const flavor = await ctx.runQuery(
-            internal.writerProfiles.getProfileForGeneration,
-            { userId: input.requestedBy }
-          );
-          if (flavor) {
-            writerFlavor = flavor;
-            await log("Applying the requesting writer's personal style preferences.");
-          }
-        }
-      } catch (err) {
-        console.error("writer flavor fetch failed for generation", genId, err);
-      }
-      const styleGuidance = buildStyleGuidance(draftStyle, writerFlavor);
+      const { writerFlavor, styleOverrides } = await writerStylePromise;
+      const styleGuidance = buildStyleGuidance(
+        draftStyle,
+        writerFlavor,
+        styleOverrides ?? NO_STYLE_OVERRIDES
+      );
 
       // Frozen once: analyzer output shared by every section draft.
       await log("Analyzing the transcript (runs once — shared by all sections)…");
@@ -175,8 +173,17 @@ export const startIterativeGeneration = internalAction({
       await ctx.runMutation(internal.generations.saveIterativeArtifacts, {
         generationId: genId,
         analysis: JSON.stringify(analysis),
-        // Documented shape: { blocks: BrainExemplarBlocks, styleGuidance }.
-        brainBlocks: JSON.stringify({ blocks: brainBlocks, styleGuidance }),
+        // Documented shape: { blocks: BrainExemplarBlocks, styleGuidance,
+        // styleOverrides }. Overrides are frozen at generation start (like
+        // styleGuidance) so a mid-generation profile change cannot skew later
+        // sections — INCLUDING the all-false "full enforcement" state, so a
+        // later profile/mode change can never re-score this draft under
+        // waivers it was not written with.
+        brainBlocks: JSON.stringify({
+          blocks: brainBlocks,
+          styleGuidance,
+          styleOverrides: styleOverrides ?? NO_STYLE_OVERRIDES,
+        }),
       });
 
       const created = await ctx.runMutation(
@@ -202,6 +209,7 @@ export const startIterativeGeneration = internalAction({
             ...(qaCalibration ? { qaCalibration } : {}),
             ...(draftStyle ? { draftStyle } : {}),
             ...(writerFlavor ? { writerFlavor } : {}),
+            ...(styleOverrides ? { styleOverrides } : {}),
           }
         );
         await ctx.runMutation(internal.generations.setCandidateRunJob, {
@@ -293,6 +301,9 @@ export const generateSection = internalAction({
         guidanceBlock;
       const budget = lengthBudgetBlock(sectionKey, lengthTarget);
 
+      // PSOS-49: waivers frozen into the generation artifacts at start.
+      const styleOverrides = normalizeStyleOverrides(input.styleOverrides);
+
       const runAgent =
         args.section === "s242"
           ? runSection242Agent
@@ -305,21 +316,24 @@ export const generateSection = internalAction({
         run.model,
         input.brainBlock,
         budget,
-        styleGuidance
+        styleGuidance,
+        styleOverrides
       );
-      let text = scrubBannedWords(raw);
+      let text = scrubBannedWordsUnlessWaived(raw, styleOverrides.bannedWords);
       text = await compressToFit(
         clientFor,
         run.model,
         sectionKey,
         text,
-        lengthTarget
+        lengthTarget,
+        styleOverrides
       );
 
       const metrics = sectionMetrics(text, sectionKey);
       const findings = sectionDeterministicFindings(
         args.section as IterativeSection,
-        text
+        text,
+        styleOverrides
       );
       await ctx.runMutation(internal.generations.completeSectionRun, {
         generationId: args.generationId,

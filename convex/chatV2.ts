@@ -23,7 +23,12 @@ import {
 } from "./lib/auth";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { pruneSnapshots, snapshotAuditFields } from "./lib/snapshots";
-import { applyReplacements, type PMNode } from "./lib/reportEdits";
+import {
+  applyReplacements,
+  scrubBannedWords,
+  type PMNode,
+} from "./lib/reportEdits";
+import { getEffectiveWriterStyle } from "./writerProfiles";
 import { domainError, sha256 } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { proposalPairs } from "../shared/chatProposals";
@@ -241,6 +246,10 @@ export const sendMessage = mutation({
       agentThreadId,
       promptMessageId: messageId,
       reportId: args.reportId,
+      // PSOS-49: the SENDER of this turn — their house-style waivers govern the
+      // reply. Threads are shared per report, so the thread's own userId (its
+      // creator) is the wrong writer for later participants.
+      userId,
     });
 
     return { threadId: agentThreadId, messageId };
@@ -293,7 +302,10 @@ export const applyProposal = mutation({
     if (proposal.kind === "references") {
       domainError("INVALID_INPUT", "Highlights have nothing to apply.");
     }
-    await requireInternalProjectAccess(ctx, proposal.projectId);
+    const { user: applier } = await requireInternalProjectAccess(
+      ctx,
+      proposal.projectId
+    );
     if (proposal.state === "applied") {
       return { applied: true as const, count: 0, alreadyApplied: true as const };
     }
@@ -310,9 +322,31 @@ export const applyProposal = mutation({
       domainError("NOT_FOUND", "Report not found");
     }
 
-    const pairs = proposalPairs(proposal);
+    let pairs = proposalPairs(proposal);
     if (pairs.length === 0) {
       domainError("INVALID_INPUT", "This edit has nothing to replace.");
+    }
+
+    // PSOS-50: proposals are scrubbed (or not) at creation per the SENDER's
+    // banned-words waiver, but threads are shared per report — text entering
+    // the report must also pass the APPLYING user's policy. Re-scrubbing an
+    // already-clean proposal is a no-op (the scrub is idempotent); a waived
+    // applier keeps the proposal verbatim.
+    try {
+      const style = await getEffectiveWriterStyle(ctx, applier._id);
+      if (!style.styleOverrides.bannedWords) {
+        pairs = pairs.map((pair) => ({
+          ...pair,
+          replaceWith: scrubBannedWords(pair.replaceWith),
+        }));
+      }
+    } catch (err) {
+      // Policy lookup must never block an apply; default to scrubbing.
+      console.error("apply-time scrub policy lookup failed", err);
+      pairs = pairs.map((pair) => ({
+        ...pair,
+        replaceWith: scrubBannedWords(pair.replaceWith),
+      }));
     }
 
     let parsed: unknown;

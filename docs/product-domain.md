@@ -1264,6 +1264,123 @@ This amendment supersedes four clauses of the earlier 2026-08-06 amendment and o
 - **Approval:** product owner raised duplicate-number distinctness in the
   2026-08-18 meeting; exposure changes are 2026-08-19 owner direction.
 
+### 2026-08-24 — Per-writer house-style overrides (two-tier writing standard)
+
+Storage **and** generation-behavior amendment — not presentation-only. The
+PD writing standard is now explicitly two-tier, and the house-style tier is
+per-writer overridable.
+
+- **Affected ticket/scope:** PSOS-49. Origin: writer feedback from
+  lrinaldo@banhall.com (2026-08-23, project
+  `k972k8w75nbq658480fe577h6n8d0ve2`) that their "PD Writing Customized
+  Settings" document was silently overridden by the built-in style rules.
+  Industry pattern (Writer.com, Grammarly Business, legal playbook tools)
+  is tiered rules with per-rule overrides; conflicts are resolved before
+  prompt assembly, never delegated to the model.
+- **Tier table:**
+
+  | Tier | Rules | Overridable |
+  |---|---|---|
+  | Locked CRA compliance | Three-line skeleton (242/244/246) and paragraph roles; passive-vs-active uncertainty distinction; because-clause in 242 P5; if/then hypothesis with measurable then-clause; knowledge-first framing in 246; CRA line/word limits (`convex/lib/lineLimits.ts`); no-fabrication/[GAP] rules | Never |
+  | House style | Five categories: `bannedWords`, `paragraphDensity`, `sentenceConstruction`, `repetitionCaps`, `openingClauses` (canonical list in `shared/styleOverrides.ts`) | Per writer, per category |
+
+- **Storage:** `writerProfiles.styleOverrides` (optional object of five
+  booleans; widen-only, no backfill, no index). Legacy rows normalize to
+  all-false — exactly the prior behavior. No other field is repurposed.
+- **Behavior:** when a category is waived on an **enabled** profile, that
+  category's rule text is omitted from drafting/QA/chat prompt assembly;
+  programmatic enforcement is skipped for that writer (`scrubBannedWords`
+  across pipeline/iterative/compression/chat edit tools/research proposals
+  for `bannedWords`; the qaChecks banned scan, repetition count, and CRA
+  opener detection report `WAIVED`); and the QA agent is instructed not to
+  deduct for the waived category while still verifying the underlying CRA
+  content (limitations stated, if/then hypothesis, knowledge-first
+  advancements — only literal phrasing/density/vocabulary is freed). The
+  writer's free-text instructions become authoritative for waived
+  categories and stay lowest-priority elsewhere. Overrides are frozen at
+  generation start for iterative section runs (stored in the generation
+  artifacts JSON); in-flight generations keep the overrides they started
+  with, and the ghost comparison draft receives the same overrides.
+- **Authorization:** none changed — the existing profile-edit permission
+  model applies (writer edits their own profile via settings; admin via
+  `/admin/users`).
+- **Tests:** `shared/styleOverrides.test.ts`, `convex/ai/prompts.test.ts`,
+  `convex/ai/qaChecks.test.ts`, `convex/writerProfiles.test.ts`, plus
+  pipeline `buildStyleGuidance` coverage.
+- **Recorded residual tensions:** (1) the locked CRA-verbiage presence
+  check still expects terms like "technological uncertainty"; a custom
+  document banning those exact terms conflicts by design. (2) The global
+  `draft_style` learning digest is not per-writer; the prompt states writer
+  waivers outrank it for waived categories, but digest content itself is
+  global. (3) Save-time conflict linting of the free-text instructions is a
+  recommended follow-up, not implemented.
+- **Approval:** product owner approved the tiered-override contract in the
+  PSOS-49 implementation request (2026-08-24).
+
+### 2026-08-24 — House-rule governance modes and instruction analysis (PSOS-50)
+
+Storage **and** generation-behavior amendment — not presentation-only.
+Builds directly on the PSOS-49 two-tier standard: each of the five waivable
+house-style categories now carries an org-wide governance mode, the
+house-rule texts are visible in-app to admins, and writers get an
+analyze-my-instructions flow at save time.
+
+- **Affected ticket/scope:** PSOS-50. Origin: product owner direction
+  2026-08-24 following the lrinaldo feedback — admins/owner must be able to
+  see and adjust the rules in-app, and writer preferences should apply
+  without checkbox hunting. Pattern follows Grammarly Business
+  locked-preferences and Writer.com org style guides.
+- **Governance modes (per category):**
+
+  | Mode | Meaning |
+  |---|---|
+  | `writer_choice` (default) | Enforced unless the writer waives it — exactly the PSOS-49 behavior. |
+  | `enforced` | Always enforced; writer waivers are ignored. |
+  | `off` | Waived for everyone — including users with no writer profile and legacy generations with no recorded requester. |
+
+- **Storage:** one new `appSettings` key, `houseStyle.modes` (string JSON);
+  no schema table changes, no backfill. Normalization lives in
+  `shared/styleOverrides.ts` (`normalizeHouseRuleModes` +
+  `resolveEffectiveOverrides`): missing or malformed config always degrades
+  to `writer_choice` — i.e. config-absent is exactly the prior (PSOS-49)
+  behavior, and a corrupt value can never lock writers out or silently
+  disable rules beyond their own toggles.
+- **Behavior:** resolution happens inside
+  `writerProfiles.getProfileForGeneration` (now accepts an optional
+  `userId` and returns **effective** overrides); all generation/chat/QA
+  consumers inherit it, `convex/research.ts` resolves the same way, and
+  iterative generations freeze the effective value at start exactly as
+  PSOS-49 froze writer overrides. Precedence order is now: **locked CRA
+  tier > org mode > writer toggle > house default.** The house-rule prompt
+  texts moved verbatim to `shared/houseRules.ts` (`HOUSE_RULE_TEXTS` +
+  `LOCKED_RULES` catalog); the new admin page `/admin/house-rules` renders
+  the locked CRA tier, each house rule's full text, per-category mode
+  controls, and the banned-word tables (read-only — term-level editing is a
+  recorded follow-up). A new action
+  (`convex/ai/styleAnalysis.ts` `analyzeMyInstructions`) classifies a
+  writer's pasted instructions against the five categories, suggests and
+  pre-ticks waivers for categories the document legislates, and quotes
+  parts conflicting with the locked CRA tier; the settings page renders a
+  ✓/–/🔒 report, with toggles under mode `enforced` locked-unchecked
+  ("Managed by your organization") and mode `off` locked-checked ("Disabled
+  for everyone").
+- **Authorization:** `houseStyle.setModes` and `houseStyle.getConfig` are
+  admin-only (`requireRole`); `houseStyle.getModesForMe` is available to
+  any authenticated user; `analyzeMyInstructions` is authenticated. No
+  existing permission is loosened.
+- **Tests:** `shared/styleOverrides.test.ts` (mode normalization +
+  resolution matrix), `convex/houseStyle.test.ts`,
+  `convex/writerProfiles.test.ts` additions (`enforced` beats a writer
+  waiver; `off` applies with no profile), and `convex/ai/styleAnalysis`
+  prompt/schema unit tests.
+- **Recorded residual notes:** (1) banned-word term editing in-app is
+  deferred (follow-up candidate PSOS-51); the admin tables are read-only.
+  (2) The instruction analysis is advisory LLM output — it suggests and
+  pre-ticks, but never un-ticks a manual choice, and the writer confirms
+  the toggles before anything is saved.
+- **Approval:** product owner directed and approved the governance-mode
+  contract on 2026-08-24 as the follow-on to PSOS-49.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

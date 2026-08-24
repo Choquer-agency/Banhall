@@ -69,6 +69,7 @@ The dashboard may show many independent AI test project rows for one real client
 - **22:14–25:42:** distinct test instances should collapse into one expandable dashboard group.
 - **25:46–27:10:** project numbers such as `01` should support collection, sorting, and financial identification.
 - **27:16–27:37:** the “go with this one” instance should be surfaced first.
+- **August 20 12:06–14:10:** Keep fiscal-year folders. Collapse lettered siblings (`1`, `1a`, `1b`) into **one card**, not a nested folder. Stacked-pages icon; expand to show all versions; unlettered submission stays on top. Michael called this small relative to writer-path solidity.
 
 ## Decision and assumption log
 
@@ -82,6 +83,7 @@ The dashboard may show many independent AI test project rows for one real client
 | Date | Change/evidence | Result |
 |---|---|---|
 | 2026-07-28 | Implementation task extracted from the July 27 transcript. | Blocked safely behind PSOS-37 rather than expanding PSOS-11, PSOS-18, or PSOS-31 implicitly. |
+| 2026-08-20 | UX narrowed: sibling collapse inside existing fiscal-year folders; stacked-pages affordance. | Numbering collision behavior moved to PSOS-43 so grouping UI can stay blocked. |
 
 ## Completion record
 

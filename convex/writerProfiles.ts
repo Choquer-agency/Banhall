@@ -1,16 +1,32 @@
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireCurrentUser, requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { MAX_INSTRUCTIONS_CHARS } from "../shared/writerProfileLimits";
+import {
+  styleOverridesValidator,
+  normalizedStyleOverridesValidator,
+} from "./lib/styleOverrides";
+import {
+  NO_STYLE_OVERRIDES,
+  hasAnyStyleOverride,
+  normalizeStyleOverrides,
+  resolveEffectiveOverrides,
+  type StyleOverrides,
+} from "../shared/styleOverrides";
+import { getHouseRuleModes } from "./houseStyle";
 
 /**
  * Per-writer "flavor" (Phase A): free-text personal writing instructions,
- * injected as a bounded, lowest-priority block into the section-drafting
- * prompts (see convex/ai/pipeline.ts). The prompt framing guarantees CRA
- * structure, phrasing/banned-word rules, and length budgets always win.
+ * injected as a bounded block into the section-drafting prompts (see
+ * convex/ai/pipeline.ts). CRA structure and length budgets always win.
+ * PSOS-49: house-style rules (banned words, density, sentence construction,
+ * repetition caps, literal opening clauses) win by default, but the writer
+ * can waive individual categories via styleOverrides — a waived category's
+ * rule text is removed from the prompts and its scrub/QA enforcement is
+ * skipped, so the writer's instructions govern that area.
  *
  * Roadmap:
  * - Phase B: per-user learning digests — learningDigests now carries an
@@ -24,7 +40,7 @@ import { MAX_INSTRUCTIONS_CHARS } from "../shared/writerProfileLimits";
  */
 
 // Jul 17 meeting: the visible 4k limit was removed so writers can paste their
-// full prompt documents. The shared 60k limit is a backstop against runaway
+// full prompt documents. The shared MAX_INSTRUCTIONS_CHARS limit is a backstop against runaway
 // payloads and keeps both writer/admin clients aligned with server validation.
 
 const profileValidator = v.object({
@@ -33,6 +49,7 @@ const profileValidator = v.object({
   userId: v.id("users"),
   customInstructions: v.string(),
   enabled: v.boolean(),
+  styleOverrides: v.optional(styleOverridesValidator),
   updatedBy: v.id("users"),
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -54,7 +71,10 @@ async function upsertProfile(
   userId: Id<"users">,
   customInstructions: string,
   enabled: boolean,
-  updatedBy: Id<"users">
+  updatedBy: Id<"users">,
+  // undefined = caller did not send the field (e.g. a stale client) — preserve
+  // whatever waivers are stored rather than silently resetting them.
+  styleOverrides: StyleOverrides | undefined
 ) {
   const now = Date.now();
   const existing = await ctx.db
@@ -65,6 +85,7 @@ async function upsertProfile(
     await ctx.db.patch(existing._id, {
       customInstructions,
       enabled,
+      ...(styleOverrides !== undefined ? { styleOverrides } : {}),
       updatedBy,
       updatedAt: now,
     });
@@ -74,6 +95,7 @@ async function upsertProfile(
     userId,
     customInstructions,
     enabled,
+    ...(styleOverrides !== undefined ? { styleOverrides } : {}),
     updatedBy,
     createdAt: now,
     updatedAt: now,
@@ -98,6 +120,7 @@ export const saveMyProfile = mutation({
   args: {
     customInstructions: v.string(),
     enabled: v.boolean(),
+    styleOverrides: v.optional(styleOverridesValidator),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -108,7 +131,10 @@ export const saveMyProfile = mutation({
       user._id,
       customInstructions,
       args.enabled,
-      user._id
+      user._id,
+      args.styleOverrides === undefined
+        ? undefined
+        : normalizeStyleOverrides(args.styleOverrides)
     );
     return null;
   },
@@ -123,6 +149,7 @@ export const listProfiles = query({
       userId: v.id("users"),
       customInstructions: v.string(),
       enabled: v.boolean(),
+      styleOverrides: v.optional(styleOverridesValidator),
       updatedAt: v.number(),
       userName: v.optional(v.string()),
       userEmail: v.optional(v.string()),
@@ -139,6 +166,7 @@ export const listProfiles = query({
           userId: profile.userId,
           customInstructions: profile.customInstructions,
           enabled: profile.enabled,
+          styleOverrides: profile.styleOverrides,
           updatedAt: profile.updatedAt,
           userName: user?.name,
           userEmail: user?.email,
@@ -154,6 +182,7 @@ export const saveProfileForUser = mutation({
     userId: v.id("users"),
     customInstructions: v.string(),
     enabled: v.boolean(),
+    styleOverrides: v.optional(styleOverridesValidator),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -166,27 +195,70 @@ export const saveProfileForUser = mutation({
       args.userId,
       customInstructions,
       args.enabled,
-      admin._id
+      admin._id,
+      args.styleOverrides === undefined
+        ? undefined
+        : normalizeStyleOverrides(args.styleOverrides)
     );
     return null;
   },
 });
 
 /**
- * Pipeline read: the requesting writer's instructions, or null when the
- * profile is missing, disabled, or empty. Called from generateReport inside
- * a try/catch — a failure here must never break generation.
+ * THE effective-style policy (PSOS-49/50): the org's global modes resolved
+ * against the writer's (enabled) profile toggles. "off" waives a category for
+ * everyone — userId absent / profile missing included; "enforced" ignores
+ * writer waivers; "writer_choice" defers to the profile. Shared by generation
+ * (via getProfileForGeneration), research, and proposal-apply paths so the
+ * precedence contract cannot drift per call site.
+ */
+export async function getEffectiveWriterStyle(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users"> | undefined
+): Promise<{ customInstructions: string | null; styleOverrides: StyleOverrides }> {
+  const [modes, profile] = await Promise.all([
+    getHouseRuleModes(ctx),
+    userId
+      ? ctx.db
+          .query("writerProfiles")
+          .withIndex("by_userId", (q) => q.eq("userId", userId))
+          .unique()
+      : Promise.resolve(null),
+  ]);
+  const applyProfile = profile !== null && profile.enabled;
+  const instructions = applyProfile ? profile.customInstructions.trim() : "";
+  const writerOverrides = applyProfile
+    ? normalizeStyleOverrides(profile.styleOverrides)
+    : NO_STYLE_OVERRIDES;
+  return {
+    customInstructions: instructions.length > 0 ? instructions : null,
+    styleOverrides: resolveEffectiveOverrides(modes, writerOverrides),
+  };
+}
+
+/**
+ * Pipeline read: the requesting writer's instructions plus their EFFECTIVE
+ * house-style waivers (see getEffectiveWriterStyle). Returns null only when
+ * there is nothing to apply. Called from generation entry points inside a
+ * try/catch — a failure here must never break generation.
  */
 export const getProfileForGeneration = internalQuery({
-  args: { userId: v.id("users") },
-  returns: v.union(v.string(), v.null()),
+  args: { userId: v.optional(v.id("users")) },
+  returns: v.union(
+    v.object({
+      customInstructions: v.union(v.string(), v.null()),
+      styleOverrides: normalizedStyleOverridesValidator,
+    }),
+    v.null()
+  ),
   handler: async (ctx, args) => {
-    const profile = await ctx.db
-      .query("writerProfiles")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
-      .unique();
-    if (!profile || !profile.enabled) return null;
-    const instructions = profile.customInstructions.trim();
-    return instructions.length > 0 ? instructions : null;
+    const style = await getEffectiveWriterStyle(ctx, args.userId);
+    if (
+      style.customInstructions === null &&
+      !hasAnyStyleOverride(style.styleOverrides)
+    ) {
+      return null;
+    }
+    return style;
   },
 });

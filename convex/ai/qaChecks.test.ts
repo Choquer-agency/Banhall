@@ -3,10 +3,13 @@ import {
   checkBannedWords,
   checkBecauseClauses,
   checkCRAOpeners,
+  checkDashConnectors,
   checkRepetition,
+  runDeterministicChecks,
   sectionDeterministicFindings,
 } from "./qaChecks";
 import { scrubBannedWords } from "../../shared/bannedWords";
+import { normalizeStyleOverrides } from "../../shared/styleOverrides";
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -217,5 +220,109 @@ describe("sectionDeterministicFindings", () => {
     expect(because.some((f) => f.check === "because_clause")).toBe(true);
     const openers = sectionDeterministicFindings("s246", section246Fail);
     expect(openers.filter((f) => f.check === "cra_opener")).toHaveLength(3);
+  });
+});
+
+// ─── PSOS-49: house-style waivers ───────────────────────────────────────────
+
+describe("style-override waivers", () => {
+  const waive = (partial: Record<string, boolean>) =>
+    normalizeStyleOverrides(partial);
+
+  it("sectionDeterministicFindings skips banned words when waived", () => {
+    const findings = sectionDeterministicFindings(
+      "s244",
+      "A novel rollout.",
+      waive({ bannedWords: true })
+    );
+    expect(findings).toEqual([]);
+  });
+
+  it("sectionDeterministicFindings skips openers when waived but keeps BECAUSE", () => {
+    const openers = sectionDeterministicFindings(
+      "s246",
+      section246Fail,
+      waive({ openingClauses: true })
+    );
+    expect(openers.filter((f) => f.check === "cra_opener")).toEqual([]);
+    // The because-clause check is CRA methodology — never waivable.
+    const because = sectionDeterministicFindings(
+      "s242",
+      section242Fail,
+      waive({ openingClauses: true, bannedWords: true, repetitionCaps: true })
+    );
+    expect(because.some((f) => f.check === "because_clause")).toBe(true);
+  });
+
+  it("sectionDeterministicFindings skips repetition flags when waived", () => {
+    const heavy =
+      "Systematic investigation one. Systematic investigation two. Systematic investigation three.";
+    expect(
+      sectionDeterministicFindings("s244", heavy).some(
+        (f) => f.check === "repetition"
+      )
+    ).toBe(true);
+    expect(
+      sectionDeterministicFindings("s244", heavy, waive({ repetitionCaps: true }))
+    ).toEqual([]);
+  });
+
+  it("runDeterministicChecks reports WAIVED per category and drops findings", () => {
+    const dirty242 = section242Pass.replace(
+      "The company operates",
+      "The novel company operates"
+    );
+    const summary = runDeterministicChecks(
+      dirty242,
+      "Section 244.",
+      section246Fail,
+      waive({ bannedWords: true, openingClauses: true, repetitionCaps: true })
+    );
+    expect(summary).toContain("### Banned Word Scan\nWAIVED by writer profile");
+    expect(summary).toContain("### CRA Opener Detection (246 P2-P4)\nWAIVED by writer profile");
+    expect(summary).toContain("### Repetition Count\nWAIVED by writer profile");
+    expect(summary).not.toContain('"novel"');
+    // No opener FAIL lines despite section246Fail having no qualifying openers.
+    expect(summary).not.toContain("FAIL —");
+    // BECAUSE detection still runs (both fixtures' uncertainty sentences pass).
+    expect(summary).toContain("### BECAUSE Clause Detection (242 P5)");
+    expect(summary).toContain("Uncertainties with BECAUSE clauses: 2/2");
+  });
+
+  it("runDeterministicChecks default output is unchanged without waivers", () => {
+    const summary = runDeterministicChecks(
+      section242Pass,
+      "Clean.",
+      section246Pass
+    );
+    expect(summary).not.toContain("WAIVED");
+    expect(summary).toContain("Qualifying openers found: 3/3");
+    expect(summary).toContain("No banned words found.");
+    expect(summary).toContain('"systematic investigation/experimentation"');
+  });
+});
+
+describe("checkDashConnectors", () => {
+  it("attributes em-dash hits to the right section and surfaces them in the deterministic summary", () => {
+    const s244 = "It was hypothesized that if loading fell — then the mass would stay mobile.";
+    const result = checkDashConnectors("Clean 242 text.", s244, "Clean 246 text.");
+    expect(result.found).toHaveLength(1);
+    expect(result.found[0].section).toBe("244");
+
+    const summary = runDeterministicChecks("Clean 242 text.", s244, "Clean 246 text.");
+    expect(summary).toContain("### Dash Connector Scan");
+    expect(summary).toContain('"—" in Section 244');
+  });
+
+  it("is reported per section regardless of style waivers", () => {
+    const waived = normalizeStyleOverrides({
+      bannedWords: true,
+      sentenceConstruction: true,
+      repetitionCaps: true,
+      paragraphDensity: true,
+      openingClauses: true,
+    });
+    const findings = sectionDeterministicFindings("s246", "Through investigation -- it was found.", waived);
+    expect(findings.some((f) => f.check === "dash_connector")).toBe(true);
   });
 });

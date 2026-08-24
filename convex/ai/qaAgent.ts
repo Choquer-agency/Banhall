@@ -2,7 +2,8 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import type { GenerationClient } from "./openrouterCore";
-import { QA_SYSTEM_PROMPT } from "./prompts";
+import { buildQaSystemPrompt } from "./prompts";
+import type { StyleOverrides } from "../../shared/styleOverrides";
 import type { TranscriptAnalysis } from "./analyzerAgent";
 import { runDeterministicChecks } from "./qaChecks";
 import { generateStructured } from "./structured";
@@ -62,13 +63,17 @@ export async function runQAAgent(
   section244: string,
   section246: string,
   model?: string,
-  calibration?: string
+  calibration?: string,
+  styleOverrides?: StyleOverrides,
+  firstPersonRequested: boolean | null = null
 ): Promise<QAScorecard> {
-  // Run deterministic checks first
+  // Run deterministic checks first (waived house-style categories report
+  // "WAIVED" rather than findings — see convex/ai/qaChecks.ts).
   const preComputedChecks = runDeterministicChecks(
     section242,
     section244,
-    section246
+    section246,
+    styleOverrides
   );
 
   // Learning loop: distilled writer feedback on past QA output (see
@@ -79,7 +84,7 @@ export async function runQAAgent(
     : "";
 
   return await generateStructured<QAScorecard>(client, {
-    system: QA_SYSTEM_PROMPT + calibrationBlock,
+    system: buildQaSystemPrompt(styleOverrides, firstPersonRequested) + calibrationBlock,
     user: `Review the following SR&ED report draft.
 
 ${preComputedChecks}

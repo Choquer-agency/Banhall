@@ -29,7 +29,19 @@ import {
 } from "../lib/lineLimits";
 import { sha256 } from "../lib/contracts";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
-import { scrubBannedWords } from "../../shared/bannedWords";
+import {
+  scrubBannedWords,
+  scrubBannedWordsUnlessWaived,
+} from "../../shared/bannedWords";
+import {
+  NO_STYLE_OVERRIDES,
+  normalizeStyleOverrides,
+  type StyleOverrides,
+} from "../../shared/styleOverrides";
+import { styleOverridesValidator } from "../lib/styleOverrides";
+import { waivedCategoryLabels } from "./prompts";
+import { fetchWriterStyle } from "./writerStyle";
+import { detectFirstPersonPreference } from "../../shared/humanProse";
 
 export type { BrainExemplarBlocks };
 
@@ -64,7 +76,7 @@ export async function compressSection(
     model: modelId,
     max_tokens: 4096,
     system:
-      "You compress SR&ED report sections to fit CRA form limits. Preserve every distinct technical claim, uncertainty, iteration, and result; cut repetition, filler, and scene-setting. Never invent content. [GAP: …] markers must be preserved verbatim — never remove or reword them. Keep the same paragraph conventions (blank line between paragraphs). Return ONLY the compressed section text.",
+      "You compress SR&ED report sections to fit CRA form limits. Preserve every distinct technical claim, uncertainty, iteration, and result; cut repetition, filler, and scene-setting. Never invent content. [GAP: …] markers must be preserved verbatim — never remove or reword them. Keep the same paragraph conventions (blank line between paragraphs). Never join clauses with an em dash or a dash stand-in (double hyphen, spaced hyphen); use a colon, semicolon, comma, or period. Return ONLY the compressed section text.",
     messages: [
       {
         role: "user",
@@ -83,19 +95,28 @@ export async function compressSection(
  */
 export function buildStyleGuidance(
   draftStyle?: string,
-  writerFlavor?: string
+  writerFlavor?: string,
+  styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES
 ): string {
+  const waived = waivedCategoryLabels(styleOverrides);
   // Learning loop: recurring writer critiques of past drafts (see
-  // convex/ai/learning.ts). CRA structure/phrasing rules take precedence.
+  // convex/ai/learning.ts). CRA structure/phrasing rules take precedence;
+  // PSOS-49: a writer's waived categories outrank the learned guidance.
   const styleBlock = draftStyle?.trim()
-    ? `\n\n## Style guidance learned from writer feedback on past drafts\nApply where it does not conflict with the required structure, CRA phrasing, or banned-word rules:\n${draftStyle.trim()}`
+    ? `\n\n## Style guidance learned from writer feedback on past drafts\nApply where it does not conflict with the required structure, CRA phrasing, or banned-word rules${
+        waived.length > 0
+          ? ", or with the writer's personal preferences in their waived house-style areas below"
+          : ""
+      }:\n${draftStyle.trim()}`
     : "";
-  // Per-writer flavor (Phase A): the requesting writer's personal preferences,
-  // framed as the LOWEST-priority guidance so it can never override CRA
-  // structure, phrasing rules, the length budget, or the learned style above.
-  // The headers keep the two blocks visually separate.
+  // Per-writer flavor (Phase A + PSOS-49): the requesting writer's personal
+  // preferences. For waived house-style categories they are AUTHORITATIVE;
+  // everywhere else they stay the lowest-priority guidance so they can never
+  // override CRA structure, the remaining house rules, or the length budget.
   const flavorBlock = writerFlavor?.trim()
-    ? `\n\n## Writer's personal style preferences (lowest priority)\nThe requesting writer recorded these personal preferences. Apply them ONLY where\nthey do not conflict with: (1) the required CRA section structure and paragraph\nmandates, (2) CRA phrasing and banned-word rules, (3) the length budget,\n(4) the learned style guidance above. When in conflict, ignore the preference\nsilently.\n\n${writerFlavor.trim()}`
+    ? waived.length > 0
+      ? `\n\n## Writer's personal style preferences\nThe requesting writer recorded these preferences. For the following waived house-style areas they are AUTHORITATIVE and replace the default house rules: ${waived.join("; ")}.\nOutside those areas, apply them ONLY where they do not conflict with: (1) the required CRA section structure and paragraph mandates, (2) the remaining house-style and CRA phrasing rules, (3) the length budget, (4) the learned style guidance above. When in conflict outside the waived areas, ignore the preference silently.\n\n${writerFlavor.trim()}`
+      : `\n\n## Writer's personal style preferences (lowest priority)\nThe requesting writer recorded these personal preferences. Apply them ONLY where\nthey do not conflict with: (1) the required CRA section structure and paragraph\nmandates, (2) CRA phrasing and banned-word rules, (3) the length budget,\n(4) the learned style guidance above. When in conflict, ignore the preference\nsilently.\n\n${writerFlavor.trim()}`
     : "";
   return styleBlock + flavorBlock;
 }
@@ -111,21 +132,23 @@ export async function compressToFit(
   modelId: string,
   key: SectionKey,
   text: string,
-  lengthTarget: LengthTarget
+  lengthTarget: LengthTarget,
+  styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES
 ): Promise<string> {
   let out = text;
   for (const squeeze of [1, 0.85]) {
     if (!sectionMetrics(out, key).overLimit) return out;
-    out = scrubBannedWords(
-      await compressSection(
-        anthropicFor(`generation:compression:${key.slice(1)}`),
-        modelId,
-        key,
-        out,
-        lengthTarget,
-        squeeze
-      )
+    const compressed = await compressSection(
+      anthropicFor(`generation:compression:${key.slice(1)}`),
+      modelId,
+      key,
+      out,
+      lengthTarget,
+      squeeze
     );
+    // PSOS-49: a bannedWords waiver exempts this writer from the scrub —
+    // re-scrubbing here would sneak the house vocabulary back in.
+    out = scrubBannedWordsUnlessWaived(compressed, styleOverrides.bannedWords);
   }
   return out;
 }
@@ -215,7 +238,8 @@ async function runPipelineForModel(
   lengthTarget: LengthTarget = "standard",
   qaCalibration?: string,
   draftStyle?: string,
-  writerFlavor?: string
+  writerFlavor?: string,
+  styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES
 ): Promise<{
   content: string;
   agentOutputs: string;
@@ -229,23 +253,24 @@ async function runPipelineForModel(
     modelId,
     brainExemplars.analyzer
   );
-  const styleGuidance = buildStyleGuidance(draftStyle, writerFlavor);
+  const styleGuidance = buildStyleGuidance(draftStyle, writerFlavor, styleOverrides);
   const [raw242, raw244, raw246] = await Promise.all([
-    runSection242Agent(anthropicFor("generation:section:242"), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget), styleGuidance),
-    runSection244Agent(anthropicFor("generation:section:244"), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget), styleGuidance),
-    runSection246Agent(anthropicFor("generation:section:246"), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget), styleGuidance),
+    runSection242Agent(anthropicFor("generation:section:242"), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget), styleGuidance, styleOverrides),
+    runSection244Agent(anthropicFor("generation:section:244"), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget), styleGuidance, styleOverrides),
+    runSection246Agent(anthropicFor("generation:section:246"), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget), styleGuidance, styleOverrides),
   ]);
-  let section242 = scrubBannedWords(raw242);
-  let section244 = scrubBannedWords(raw244);
-  let section246 = scrubBannedWords(raw246);
+  // PSOS-49: a bannedWords waiver exempts this writer from the mechanical scrub.
+  let section242 = scrubBannedWordsUnlessWaived(raw242, styleOverrides.bannedWords);
+  let section244 = scrubBannedWordsUnlessWaived(raw244, styleOverrides.bannedWords);
+  let section246 = scrubBannedWordsUnlessWaived(raw246, styleOverrides.bannedWords);
 
   // BNH-45 enforcement: still over the form limit after the budgeted draft →
   // compression pass(es) per offending section (part of generation, before
   // the candidate ever lands).
   [section242, section244, section246] = await Promise.all([
-    compressToFit(anthropicFor, modelId, "s242", section242, lengthTarget),
-    compressToFit(anthropicFor, modelId, "s244", section244, lengthTarget),
-    compressToFit(anthropicFor, modelId, "s246", section246, lengthTarget),
+    compressToFit(anthropicFor, modelId, "s242", section242, lengthTarget, styleOverrides),
+    compressToFit(anthropicFor, modelId, "s244", section244, lengthTarget, styleOverrides),
+    compressToFit(anthropicFor, modelId, "s246", section246, lengthTarget, styleOverrides),
   ]);
 
   const metrics = {
@@ -259,7 +284,7 @@ async function runPipelineForModel(
   // have received — losing a full multi-model draft because a scorecard came
   // back malformed is far worse than shipping the draft with no scorecard.
   const [qaSettled, chronologySettled] = await Promise.allSettled([
-    runQAAgent(anthropicFor("generation:qa"), analysis, section242, section244, section246, modelId, qaCalibration),
+    runQAAgent(anthropicFor("generation:qa"), analysis, section242, section244, section246, modelId, qaCalibration, styleOverrides, detectFirstPersonPreference(writerFlavor)),
     runChronologyAgent(anthropicFor("generation:chronology"), analysis, modelId),
   ]);
   if (qaSettled.status === "rejected") {
@@ -296,6 +321,9 @@ async function runPipelineForModel(
       qa: qaScorecard,
       chronology,
       metrics,
+      // PSOS-50: the waivers this draft was written under, frozen so QA
+      // re-runs score the same way (all-false included).
+      styleOverrides,
     }),
     qaScore: qaScorecard?.overall_score ?? null,
     claimDrafts,
@@ -403,6 +431,11 @@ export const generateReport = internalAction({
         status: "running",
         currentStep: "Generating candidate drafts...",
       });
+      // Per-writer flavor (Phase A) + style overrides (PSOS-49/50): shared
+      // policy in writerStyle.ts. Started here so it loads in parallel with
+      // the learning digests (data-independent; it swallows its own errors).
+      const writerStylePromise = fetchWriterStyle(ctx, input.requestedBy, log);
+
       // Learning loop: fetch the active digests once per generation so every
       // candidate drafts and scores under the same learned guidance.
       // Wrapped so learning can NEVER break generation.
@@ -433,24 +466,7 @@ export const generateReport = internalAction({
         console.error("learning digest fetch failed for generation", genId, err);
       }
 
-      // Per-writer flavor (Phase A): the requesting writer's saved personal
-      // preferences, injected as the lowest-priority prompt block. Wrapped so
-      // flavor can NEVER break generation.
-      let writerFlavor: string | undefined;
-      try {
-        if (input.requestedBy) {
-          const flavor = await ctx.runQuery(
-            internal.writerProfiles.getProfileForGeneration,
-            { userId: input.requestedBy }
-          );
-          if (flavor) {
-            writerFlavor = flavor;
-            await log("Applying the requesting writer's personal style preferences.");
-          }
-        }
-      } catch (err) {
-        console.error("writer flavor fetch failed for generation", genId, err);
-      }
+      const { writerFlavor, styleOverrides } = await writerStylePromise;
 
       const candidateLabel =
         candidateModels.length === 1 ? "candidate draft" : "candidate drafts";
@@ -477,6 +493,7 @@ export const generateReport = internalAction({
             ...(qaCalibration ? { qaCalibration } : {}),
             ...(draftStyle ? { draftStyle } : {}),
             ...(writerFlavor ? { writerFlavor } : {}),
+            ...(styleOverrides ? { styleOverrides } : {}),
           }
         );
         await ctx.runMutation(internal.generations.setCandidateRunJob, {
@@ -508,6 +525,7 @@ export const generateCandidate = internalAction({
     qaCalibration: v.optional(v.string()),
     draftStyle: v.optional(v.string()),
     writerFlavor: v.optional(v.string()),
+    styleOverrides: v.optional(styleOverridesValidator),
   },
   handler: async (ctx, args) => {
     const run = await ctx.runMutation(internal.generations.claimCandidateRun, {
@@ -545,7 +563,8 @@ export const generateCandidate = internalAction({
           input.lengthTarget,
           args.qaCalibration,
           args.draftStyle,
-          args.writerFlavor
+          args.writerFlavor,
+          normalizeStyleOverrides(args.styleOverrides)
         );
       const claims = await Promise.all(
         claimDrafts.map(async (claim) => {

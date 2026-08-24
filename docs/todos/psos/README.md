@@ -4,13 +4,15 @@ This directory is the internal source of truth for executing the **Banhall Profe
 
 - **Master product/ticket context:** [`../../futur-board-ticket-breakdown-psos.md`](../../futur-board-ticket-breakdown-psos.md)
 - **Task specifications:** [`tasks/`](tasks/)
-- **Total work items:** 41
+- **Total work items:** 50
 - **Current implementation:** **PSOS-14** — My Work dashboard lanes and dense ledger rows (`in_progress`, development rollout gate).
 - **Separate release-QA item:** **PSOS-04** — mixed-upload processing receipt with per-file statuses (`in_review`)
-- **Next dependency-unlocked implementation:** PSOS-14 is active; PSOS-15 follows after PSOS-14 closes.
-- **Meeting-directed decision ready:** **PSOS-37** — logical project grouping, numbering, and Primary-instance semantics; **PSOS-41** captures the separately governed historical Brain ingestion initiative.
+- **September writer-flow policy:** **PSOS-47** — upload / process / edit hardening; costing stays admin-gated (PSOS-31–34 not for writer exposure in this slice).
+- **Next dependency-unlocked implementation:** PSOS-14 is active; PSOS-15 follows after PSOS-14 closes. After PSOS-14, pull PSOS-42 (multiple transcripts) and PSOS-43 (bare-number submission) before new dashboard chrome.
+- **Meeting-directed decision ready:** **PSOS-37** — logical project grouping, numbering, and Primary-instance semantics; **PSOS-41** captures the separately governed historical Brain ingestion initiative. August 20 added PSOS-42–48.
+- **Writer-feedback item in review:** **PSOS-49** — per-writer house-style overrides for PD generation (`in_review`; added 2026-08-24 from lrinaldo@banhall.com feedback, recorded as the 2026-08-24 product-domain amendment). **PSOS-50** — house-rule governance modes and instruction analysis (`in_review`; product owner direction 2026-08-24 as the follow-on to PSOS-49, recorded as the second 2026-08-24 product-domain amendment).
 - **Weekly plan:** [`JUL-27-31-WEEKLY-PLAN.md`](JUL-27-31-WEEKLY-PLAN.md)
-- **Queue state:** PSOS-14 is the sole active implementation ticket. Opus 5 planning, Codex verification, implementation, adversarial remediation, and automated validation are complete; development backfill/flag enablement and live Chrome QA remain. Resolve PSOS-37 before PSOS-38 grouping code; PSOS-39 remains timeboxed discovery, and PSOS-40 is strategic backlog.
+- **Queue state:** PSOS-14 is the sole active implementation ticket. Opus 5 planning, Codex verification, implementation, adversarial remediation, and automated validation are complete; development backfill/flag enablement and live Chrome QA remain. Resolve PSOS-37 before PSOS-38 grouping code; PSOS-43 may ship numbering-collision behavior without waiting on PSOS-38 UI. PSOS-39 remains timeboxed discovery, PSOS-40/48 are strategic backlog.
 
 ## Operating rules
 
@@ -79,6 +81,7 @@ The first delivery train should proceed as follows:
 8. **Financial workspace:** PSOS-31 → PSOS-32 → PSOS-33 → PSOS-34.
 9. **Backlog:** PSOS-35 and PSOS-36 only after real usage validates demand.
 10. **Meeting-directed work:** disposition PSOS-04 → implement PSOS-08 in dependency order while completing PSOS-37’s product decision. PSOS-38 cannot start before PSOS-37 and normally waits for PSOS-11. PSOS-39 is discovery only; PSOS-40 remains deferred; PSOS-41 is the dedicated governed historical-ingestion initiative.
+11. **August 20 writer-flow slice (PSOS-47):** PSOS-42 (multiple transcripts) and PSOS-43 (bare number = submission) ahead of PSOS-38 collapse UI. PSOS-44 is a small fiscal-folder create shortcut. PSOS-45/46 wait until the writer path is stable. PSOS-48 stays deferred. Costing remains PSOS-31–34 after this slice.
 
 ## Work queue
 
@@ -178,6 +181,25 @@ The first delivery train should proceed as follows:
 |---|---|---|---|
 | [PSOS-41](tasks/PSOS-41.md) | Historical Brain ingestion review workspace | `ready` | BNH-42, PSOS-25 governance; discovery may start read-only |
 
+### P11 — August 20 meeting-directed writer flow
+
+| ID | Work item | Status | Dependencies |
+|---|---|---|---|
+| [PSOS-42](tasks/PSOS-42.md) | Multiple interview transcripts per project | `ready` | Writer-path freeze (PSOS-47); coordinates PSOS-04 |
+| [PSOS-43](tasks/PSOS-43.md) | Bare project number stays the submission instance | `ready` | Coordinates PSOS-37/38 numbering; no grouping UI |
+| [PSOS-44](tasks/PSOS-44.md) | New project from client + fiscal-year folder | `ready` | Wizard `?client=` / `?fye=` already exist |
+| [PSOS-45](tasks/PSOS-45.md) | Writer notes as document-level instructions | `not_started` | Prefer after PSOS-42 |
+| [PSOS-46](tasks/PSOS-46.md) | Writer-identity Brain weight policy | `not_started` | BNH-42; coordinates PSOS-41 |
+| [PSOS-47](tasks/PSOS-47.md) | September writer-flow hardening slice (policy) | `ready` | Constrains queue; not a feature implementation |
+| [PSOS-48](tasks/PSOS-48.md) | Real-time interview coverage coach | `deferred` | After PSOS-47 and costing kickoff, or explicit experiment |
+
+### P12 — August 23 writer feedback
+
+| ID | Work item | Status | Dependencies |
+|---|---|---|---|
+| [PSOS-49](tasks/PSOS-49.md) | Per-writer house-style overrides for PD generation | `in_review` | — |
+| [PSOS-50](tasks/PSOS-50.md) | House-rule governance modes and instruction analysis | `in_review` | PSOS-49 |
+
 ## Parallel-work exceptions
 
 None. Add an entry before starting more than one PSOS ticket simultaneously:
@@ -196,6 +218,7 @@ None. Add an entry before starting more than one PSOS ticket simultaneously:
 | 2026-07-28 | Require decision-first handling for cross-project test grouping. | PSOS-37/38; PSOS-11/18–23/31 | “Primary/final,” project numbering, branches, outcomes, and accounting scope conflict unless resolved in the domain contract first. |
 | 2026-08-14 | Treat historical Brain ingestion as a dedicated reviewed pipeline, not a feature inside the client repository. | PSOS-41; PSOS-25/31/40 | Keeps source discovery, human association, approval, provenance, and revert boundaries explicit. |
 | 2026-08-17 | Replace the explicit 47-edge workflow transition matrix with an open matrix (every stage → every other stage) with per-edge policy; remove the `review_handoff` requirement. Recorded as a product-domain amendment. | PSOS-09/10 (supersedes their edge-list clauses) | In-app flag from mobregon@banhall.com: adjacent-only transitions forced multi-hop stage changes. Authority floors, audit notes, fail-closed outcome/branch requirements, and the abandoned open-work gate are preserved. |
+| 2026-08-20 | Re-engagement continues. Through September, prioritize writer upload/process/edit reliability over new chrome. Costing stays admin-gated. Live interview coaching is backlog. Bare project numbers are the submission instance; letters are experiments. | PSOS-42–48; PSOS-31–34; PSOS-37/38 | August 20 meeting with Michael Obregon, Bryce Choquer, Johnny Nguyen |
 
 ## Program progress log
 
@@ -218,3 +241,4 @@ None. Add an entry before starting more than one PSOS ticket simultaneously:
 | 2026-07-28 | PSOS-09 completed and deployed after mandatory Fable planning and adversarial review. | Exact 41-edge matrix, atomic audited ownership/stage mutations, shared monotonic OCC, typed prerequisite failures, 100-pair matrix coverage, and role/eligibility/idempotency tests shipped. |
 | 2026-07-28 | Claude Code Opus 5 reviewed and planned PSOS-10; product owner approved the dashboard-card interpretation. | **PLAN READY.** Existing company → fiscal-year cards remain; labelled Owner + Stage slots replace the ticket's nonexistent row/column assumption. |
 | 2026-07-28 | PSOS-10 implemented, deployed backend-first to development, reviewed twice, hardened, and validated in installed Chrome. | Final Opus verdict **SHIP**. Four workflow slots, audited transfer/stage dialogs, responsive mobile disclosure, card metadata, server-derived authorities, and shared OCC protection are live in development. |
+| 2026-08-20 | August 20 meeting transcript triaged against the codebase and PSOS queue. | Added PSOS-42–48. Numbering collision rewrite (bare → `Na`) conflicts with Michael’s submission convention (PSOS-43). Multiple transcripts still `.first()` only (PSOS-42). Client uploader kit exists; fiscal `?fye=` prefill exists but is unused from folders. |

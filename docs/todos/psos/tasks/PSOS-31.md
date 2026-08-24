@@ -8,7 +8,7 @@
 - **Started:** —
 - **Completed:** —
 - **Source plan:** [`../../../futur-board-ticket-breakdown-psos.md`](../../../futur-board-ticket-breakdown-psos.md)
-- **Progress note:** Not started.
+- **Progress note:** Not started. August 20 meeting: costing is the next initiative after the current writer tool is solid; first costing UI should be admin-gated like Michael’s existing admin tools (PSOS-47). Do not expose it to the September writer rollout.
 
 > Work this ticket independently. Do not start implementation until every dependency below is complete or explicitly waived in this file. Only one PSOS ticket should normally be `in_progress` at a time.
 

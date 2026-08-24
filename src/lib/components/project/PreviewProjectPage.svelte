@@ -1072,9 +1072,9 @@
           <!-- No top border here: a border on the collapsing body pops at the
                end of the Disclosure exit. The highlights band's own border
                and padding carry the separation in both states. -->
-          <div data-project-details class="pt-1">
-            <div class="grid grid-cols-1 gap-x-8 text-[13px] sm:grid-cols-2">
-          <div class="grid min-h-9 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 sm:col-span-2">
+          <div data-project-details class="@container pt-1">
+            <div class="grid grid-cols-1 gap-x-8 text-[13px] @2xl:grid-cols-2">
+          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)] @2xl:col-span-2">
             <span class="text-label">SR&amp;ED title</span>
             <div class="min-w-0">
               <EditableText
@@ -1087,11 +1087,11 @@
               />
             </div>
           </div>
-          <div class="grid min-h-9 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-1">
+          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
             <span class="text-label">Client</span>
             <p class="min-w-0 truncate text-gray-800">{project.clientName}</p>
           </div>
-          <div class="grid min-h-9 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-1">
+          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
             <!-- Domain truth (product-domain vocabulary): `project.writer` is
                  the writer metadata field, NOT the immutable Creator
                  (`projects.createdBy`). Labelling it "Created by" conflated
@@ -1100,18 +1100,18 @@
             <p class="min-w-0 truncate text-gray-800">{writerLabel}</p>
           </div>
           {#if interviewerLabel}
-            <div class="grid min-h-9 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-1">
+            <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
               <span class="text-label">Interviewer</span>
               <p class="min-w-0 truncate text-gray-800">{interviewerLabel}</p>
             </div>
           {/if}
           {#if interviewees.length > 0}
-            <div class="grid min-h-9 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-1">
+            <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
               <span class="text-label">Interviewees</span>
               <p class="min-w-0 text-gray-800">{interviewees.join(", ")}</p>
             </div>
           {/if}
-          <div class="grid min-h-9 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-1">
+          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
             <span class="text-label">Created</span>
             <p class="min-w-0 text-gray-800">
               {new Date(project.createdAt).toLocaleDateString("en-US", {
@@ -1121,7 +1121,7 @@
               })}
             </p>
           </div>
-          <div class="grid min-h-9 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-1">
+          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
             <span class="text-label">Fiscal year-end</span>
             <div class="min-w-0">
               <FiscalYearField
@@ -1130,7 +1130,7 @@
               />
             </div>
           </div>
-          <div class="grid min-h-9 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-1">
+          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
             <span class="text-label">Industry</span>
             <div class="min-w-0">
               <IndustryField
@@ -1140,7 +1140,7 @@
               />
             </div>
           </div>
-          <div class="grid min-h-9 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-1">
+          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
             <span class="text-label">Project #</span>
             <div class="min-w-0">
               <EditableText
@@ -1154,7 +1154,7 @@
               {/if}
             </div>
           </div>
-          <div class="grid min-h-9 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-1">
+          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
             <span class="text-label">Project type</span>
             <SelectInput
               value={effectiveProjectType(project)}
@@ -1164,7 +1164,7 @@
               onValueChange={saveProjectType}
             />
           </div>
-          <div class="grid min-h-9 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-1">
+          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
             <span class="text-label">Science code</span>
             <div class="min-w-0">
               <ScienceCodeField
@@ -1176,7 +1176,7 @@
           {#if project.sourceProjectId}
             <!-- 2026-08-11 (second) amendment: navigational association only —
                  the review project links to the project it reviews. -->
-            <div class="grid min-h-9 grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-3 py-1">
+            <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
               <span class="text-label">Reviews</span>
               <p class="min-w-0 truncate">
                 <a
@@ -1188,7 +1188,7 @@
               </p>
             </div>
           {/if}
-          <div class="grid min-h-9 grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-x-3 py-1 sm:col-span-2">
+          <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)] @2xl:col-span-2">
             <span class="text-label pt-1.5">
               Tags{#if tagsSaving}<span class="ml-2 normal-case tracking-normal text-ink-muted">Saving…</span>{/if}
             </span>

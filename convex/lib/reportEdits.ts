@@ -199,4 +199,7 @@ export function extractPlainText(contentJson: string): string {
 // Canonical table + implementation: shared/bannedWords.ts — the same scrubber
 // the generation pipeline runs, and the same list the QA scan derives from.
 
-export { scrubBannedWords } from "../../shared/bannedWords";
+export {
+  scrubBannedWords,
+  scrubBannedWordsUnlessWaived,
+} from "../../shared/bannedWords";

@@ -16,6 +16,14 @@
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { ROLE_LABELS, type Role } from "../../../../shared/roles";
   import { MAX_INSTRUCTIONS_CHARS } from "../../../../shared/writerProfileLimits";
+  import {
+    STYLE_OVERRIDE_KEYS,
+    STYLE_OVERRIDE_META,
+    DEFAULT_HOUSE_RULE_MODES,
+    normalizeStyleOverrides,
+    styleOverridesEqual,
+    type StyleOverrides,
+  } from "../../../../shared/styleOverrides";
 
   const ROLE_ITEMS = (Object.entries(ROLE_LABELS) as [Role, string][]).map(
     ([value, label]) => ({ value, label })
@@ -109,6 +117,14 @@
     auth.isAuthenticated && isAdmin ? {} : "skip"
   );
   const saveProfileForUser = useMutation(api.writerProfiles.saveProfileForUser);
+  // PSOS-50: org-level governance of each house-style category. "enforced"
+  // and "off" lock a toggle's DISPLAYED state; the writer's own underlying
+  // choice in `flavorOverrides` is preserved and still what gets saved
+  // (mirrors the /settings treatment).
+  const houseConfigQ = useQuery(api.houseStyle.getConfig, () =>
+    auth.isAuthenticated && isAdmin ? {} : "skip"
+  );
+  const houseModes = $derived(houseConfigQ.data?.modes ?? DEFAULT_HOUSE_RULE_MODES);
   const profileByUserId = $derived(
     new Map((profilesQ.data ?? []).map((p) => [p.userId as string, p]))
   );
@@ -127,13 +143,32 @@
   let passwordError = $state("");
   // Snapshot of the server values the form was seeded from — lets us tell
   // "user typed" apart from "server changed underneath us".
-  let flavorSeed = $state<{ text: string; enabled: boolean } | null>(null);
+  let flavorOverrides = $state<StyleOverrides>(normalizeStyleOverrides());
+  let flavorSeed = $state<{
+    text: string;
+    enabled: boolean;
+    overrides: StyleOverrides;
+  } | null>(null);
+  const overridesEqual = styleOverridesEqual;
+  // Dirty = the draft differs from the seeded snapshot; the flavor Save
+  // button stays disabled until something actually changed.
+  const flavorDirty = $derived(
+    flavorSeed !== null &&
+      (flavorText !== flavorSeed.text ||
+        flavorEnabled !== flavorSeed.enabled ||
+        !overridesEqual(flavorOverrides, flavorSeed.overrides))
+  );
 
   function seedFlavor(userId: Id<"users">) {
     const profile = profileByUserId.get(userId);
     flavorText = profile?.customInstructions ?? "";
     flavorEnabled = profile?.enabled ?? true;
-    flavorSeed = { text: flavorText, enabled: flavorEnabled };
+    flavorOverrides = normalizeStyleOverrides(profile?.styleOverrides);
+    flavorSeed = {
+      text: flavorText,
+      enabled: flavorEnabled,
+      overrides: { ...flavorOverrides },
+    };
   }
 
   function toggleFlavor(userId: Id<"users">) {
@@ -204,19 +239,22 @@
     const profile = profileByUserId.get(userId);
     const serverText = profile?.customInstructions ?? "";
     const serverEnabled = profile?.enabled ?? true;
-    const dirty =
-      flavorText !== flavorSeed.text || flavorEnabled !== flavorSeed.enabled;
+    const serverOverrides = normalizeStyleOverrides(profile?.styleOverrides);
+    const dirty = flavorDirty;
     const serverChanged =
-      serverText !== flavorSeed.text || serverEnabled !== flavorSeed.enabled;
+      serverText !== flavorSeed.text ||
+      serverEnabled !== flavorSeed.enabled ||
+      !overridesEqual(serverOverrides, flavorSeed.overrides);
     if (serverChanged && !dirty) {
       flavorText = serverText;
       flavorEnabled = serverEnabled;
-      flavorSeed = { text: serverText, enabled: serverEnabled };
+      flavorOverrides = { ...serverOverrides };
+      flavorSeed = { text: serverText, enabled: serverEnabled, overrides: serverOverrides };
     }
   });
 
   async function handleFlavorSave(userId: Id<"users">) {
-    if (flavorSaving || flavorTooLong) return;
+    if (flavorSaving || flavorTooLong || !flavorDirty) return;
     flavorError = "";
     flavorSaved = false;
     flavorSaving = true;
@@ -225,9 +263,14 @@
         userId,
         customInstructions: flavorText,
         enabled: flavorEnabled,
+        styleOverrides: { ...flavorOverrides },
       });
       // Saved values are the new baseline — future server changes flow in.
-      flavorSeed = { text: flavorText, enabled: flavorEnabled };
+      flavorSeed = {
+        text: flavorText,
+        enabled: flavorEnabled,
+        overrides: { ...flavorOverrides },
+      };
       flavorSaved = true;
       setTimeout(() => (flavorSaved = false), 2500);
     } catch (cause) {
@@ -588,7 +631,48 @@
                     >
                       {flavorText.length.toLocaleString()} / {MAX_INSTRUCTIONS_CHARS.toLocaleString()} characters
                     </span>
-                    <div class="mt-2 flex items-center justify-between gap-4">
+                    <div class="mt-2">
+                      <p class="text-xs font-medium text-gray-700">Let their instructions override</p>
+                      {#if !flavorEnabled}
+                        <p class="mt-0.5 text-xs text-gray-400">
+                          Overrides only take effect while “Apply to this user's generations” is checked.
+                        </p>
+                      {/if}
+                      <div class={`mt-1.5 flex flex-col gap-1.5 ${flavorEnabled ? "" : "opacity-60"}`}>
+                        {#each STYLE_OVERRIDE_KEYS as key (key)}
+                          {@const mode = houseModes[key]}
+                          <div title={STYLE_OVERRIDE_META[key].description}>
+                            {#if mode === "writer_choice"}
+                              <Checkbox bind:checked={flavorOverrides[key]}>
+                                {#snippet label()}
+                                  <span class="text-xs text-gray-600">{STYLE_OVERRIDE_META[key].label}</span>
+                                {/snippet}
+                              </Checkbox>
+                            {:else}
+                              <!-- Governed org-wide: the checkbox shows the FORCED
+                                   state and is not bound to `flavorOverrides` — the
+                                   writer's own choice is preserved underneath and
+                                   still saved. -->
+                              <Checkbox checked={mode === "off"} disabled>
+                                {#snippet label()}
+                                  <span class="text-xs text-gray-500">{STYLE_OVERRIDE_META[key].label}</span>
+                                {/snippet}
+                              </Checkbox>
+                              <p class="ml-[26px] mt-0.5 text-xs text-gray-400">
+                                {mode === "enforced"
+                                  ? "Always enforced org-wide"
+                                  : "Off for everyone"}
+                                (<a
+                                  class="font-medium text-primary hover:text-primary-dark"
+                                  href={resolve("/admin/house-rules")}
+                                >House rules</a>)
+                              </p>
+                            {/if}
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                    <div class="mt-3 flex flex-wrap items-center justify-between gap-4">
                       <Checkbox bind:checked={flavorEnabled} labelText="Apply to this user's generations" />
                       <span class="flex items-center gap-3">
                         {#if flavorSaved}
@@ -597,8 +681,8 @@
                         <button
                           type="button"
                           onclick={() => handleFlavorSave(expandedUser._id)}
-                          disabled={flavorSaving || flavorTooLong}
-                          class="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+                          disabled={flavorSaving || flavorTooLong || !flavorDirty}
+                          class="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {flavorSaving ? "Saving…" : "Save"}
                         </button>
@@ -616,7 +700,7 @@
                     {#if expandedUser._id === currentUserQ.data?._id}
                       <p class="mt-1 text-sm text-gray-500">
                         Change your own password from
-                        <a class="font-medium text-primary hover:text-primary-dark" href={resolve("/settings#security")}>Settings</a>.
+                        <a class="font-medium text-primary hover:text-primary-dark" href={resolve("/settings/account")}>Settings</a>.
                       </p>
                     {:else if !expandedUser.hasAuthAccount}
                       <p class="mt-1 text-sm text-gray-500">

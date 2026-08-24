@@ -1,6 +1,7 @@
 import { internalAction } from "../_generated/server";
 import { components, internal } from "../_generated/api";
 import { v } from "convex/values";
+import { MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
 import { z } from "zod";
 import {
   Agent,
@@ -11,8 +12,17 @@ import {
 } from "@convex-dev/agent";
 import { anthropic } from "@ai-sdk/anthropic";
 import { MODEL } from "./model";
-import { CHAT_SYSTEM_PROMPT_V2 } from "./prompts";
-import { scrubBannedWords, extractPlainText } from "../lib/reportEdits";
+import { buildChatSystemPromptV2 } from "./prompts";
+import {
+  NO_STYLE_OVERRIDES,
+  hasAnyStyleOverride,
+  normalizeStyleOverrides,
+  type StyleOverrides,
+} from "../../shared/styleOverrides";
+import {
+  scrubBannedWordsUnlessWaived,
+  extractPlainText,
+} from "../lib/reportEdits";
 import { preserveReasoningSignature } from "./reasoningSignature";
 import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
 
@@ -22,76 +32,85 @@ import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
 // calls land as chatProposals rows (see convex/chatV2.ts) instead of a JSON
 // blob regex-parsed out of the reply.
 
-const proposeEdit = createTool({
-  description:
-    "Propose replacing ONE specific passage of the report. targetText must be an exact verbatim substring of the current report.",
-  inputSchema: z.object({
-    targetText: z
-      .string()
-      .min(1)
-      .describe(
-        "The exact substring of the current report to replace — copied character-for-character."
-      ),
-    newText: z
-      .string()
-      .min(1)
-      .describe("The replacement text, fully compliant with the writing rules."),
-  }),
-  execute: async (ctx, input, options): Promise<string> => {
-    if (!ctx.threadId) throw new Error("No thread in tool context");
-    const runtimeCtx = ctx as ToolCtx & { promptMessageId?: string };
-    const result = await ctx.runMutation(internal.chatV2.saveProposal, {
-      agentThreadId: ctx.threadId,
-      toolCallId: options.toolCallId,
-      promptMessageId: runtimeCtx.promptMessageId ?? ctx.messageId,
-      kind: "edit",
-      targetText: input.targetText,
-      newText: scrubBannedWords(input.newText),
-    });
-    if (result.ok) return "Edit proposed — the writer now sees it as a suggestion card.";
-    // A stopped turn is not a recoverable tool error: telling the model to
-    // retry would have it work against the writer's explicit stop.
-    if (result.stopped) return `Stop requested: ${result.reason} Do not retry.`;
-    return `Proposal NOT created: ${result.reason} Re-read the CURRENT REPORT and retry the edit tool with an exact canonical target.`;
-  },
-});
+// PSOS-49: the edit tools scrub banned words unless the writer's profile
+// waives that category, so factories close over the waiver flag. The agent's
+// statically registered tools use the default (scrub on); streamChatReply
+// passes per-call tools built with the requesting writer's actual waivers.
+const makeProposeEdit = (bannedWordsWaived: boolean) =>
+  createTool({
+    description:
+      "Propose replacing ONE specific passage of the report. targetText must be an exact verbatim substring of the current report.",
+    inputSchema: z.object({
+      targetText: z
+        .string()
+        .min(1)
+        .describe(
+          "The exact substring of the current report to replace — copied character-for-character."
+        ),
+      newText: z
+        .string()
+        .min(1)
+        .describe("The replacement text, fully compliant with the writing rules."),
+    }),
+    execute: async (ctx, input, options): Promise<string> => {
+      if (!ctx.threadId) throw new Error("No thread in tool context");
+      const runtimeCtx = ctx as ToolCtx & { promptMessageId?: string };
+      const result = await ctx.runMutation(internal.chatV2.saveProposal, {
+        agentThreadId: ctx.threadId,
+        toolCallId: options.toolCallId,
+        promptMessageId: runtimeCtx.promptMessageId ?? ctx.messageId,
+        kind: "edit",
+        targetText: input.targetText,
+        newText: scrubBannedWordsUnlessWaived(input.newText, bannedWordsWaived),
+      });
+      if (result.ok) return "Edit proposed. The writer now sees it as a suggestion card.";
+      // A stopped turn is not a recoverable tool error: telling the model to
+      // retry would have it work against the writer's explicit stop.
+      if (result.stopped) return `Stop requested: ${result.reason} Do not retry.`;
+      return `Proposal NOT created: ${result.reason} Re-read the CURRENT REPORT and retry the edit tool with an exact canonical target.`;
+    },
+  });
 
-const proposeReplacements = createTool({
-  description:
-    "Propose a multi-instance find/replace across the whole report (e.g. pronoun normalization, terminology swaps). Every occurrence of each find is replaced automatically.",
-  inputSchema: z.object({
-    replacements: z
-      .array(
-        z.object({
-          find: z
-            .string()
-            .min(1)
-            .describe("Exact verbatim substring that recurs in the report."),
-          replaceWith: z.string().describe("Its replacement."),
-        })
-      )
-      .min(1),
-  }),
-  execute: async (ctx, input, options): Promise<string> => {
-    if (!ctx.threadId) throw new Error("No thread in tool context");
-    const runtimeCtx = ctx as ToolCtx & { promptMessageId?: string };
-    const result = await ctx.runMutation(internal.chatV2.saveProposal, {
-      agentThreadId: ctx.threadId,
-      toolCallId: options.toolCallId,
-      promptMessageId: runtimeCtx.promptMessageId ?? ctx.messageId,
-      kind: "replacements",
-      replacements: input.replacements.map((r) => ({
-        find: r.find,
-        replaceWith: scrubBannedWords(r.replaceWith),
-      })),
-    });
-    if (result.ok) {
-      return "Replacement set proposed — the writer now sees it as a suggestion card.";
-    }
-    if (result.stopped) return `Stop requested: ${result.reason} Do not retry.`;
-    return `Proposal NOT created: ${result.reason} Re-read the CURRENT REPORT and retry with exact canonical find text.`;
-  },
-});
+const makeProposeReplacements = (bannedWordsWaived: boolean) =>
+  createTool({
+    description:
+      "Propose a multi-instance find/replace across the whole report (e.g. pronoun normalization, terminology swaps). Every occurrence of each find is replaced automatically.",
+    inputSchema: z.object({
+      replacements: z
+        .array(
+          z.object({
+            find: z
+              .string()
+              .min(1)
+              .describe("Exact verbatim substring that recurs in the report."),
+            replaceWith: z.string().describe("Its replacement."),
+          })
+        )
+        .min(1),
+    }),
+    execute: async (ctx, input, options): Promise<string> => {
+      if (!ctx.threadId) throw new Error("No thread in tool context");
+      const runtimeCtx = ctx as ToolCtx & { promptMessageId?: string };
+      const result = await ctx.runMutation(internal.chatV2.saveProposal, {
+        agentThreadId: ctx.threadId,
+        toolCallId: options.toolCallId,
+        promptMessageId: runtimeCtx.promptMessageId ?? ctx.messageId,
+        kind: "replacements",
+        replacements: input.replacements.map((r) => ({
+          find: r.find,
+          replaceWith: scrubBannedWordsUnlessWaived(
+            r.replaceWith,
+            bannedWordsWaived
+          ),
+        })),
+      });
+      if (result.ok) {
+        return "Replacement set proposed. The writer now sees it as a suggestion card.";
+      }
+      if (result.stopped) return `Stop requested: ${result.reason} Do not retry.`;
+      return `Proposal NOT created: ${result.reason} Re-read the CURRENT REPORT and retry with exact canonical find text.`;
+    },
+  });
 
 const highlightPassages = createTool({
   description:
@@ -193,17 +212,19 @@ const CHAT_THINKING = {
  */
 const CHAT_MAX_OUTPUT_TOKENS = 16384;
 
-const CHAT_TOOLS = {
-  proposeEdit,
-  proposeReplacements,
+const buildChatTools = (bannedWordsWaived: boolean) => ({
+  proposeEdit: makeProposeEdit(bannedWordsWaived),
+  proposeReplacements: makeProposeReplacements(bannedWordsWaived),
   highlightPassages,
   searchBrain,
-};
+});
+
+const CHAT_TOOLS = buildChatTools(false);
 
 export const reportChatAgent = new Agent(components.agent, {
   name: "report-editor",
   languageModel: anthropic(MODEL),
-  instructions: CHAT_SYSTEM_PROMPT_V2,
+  instructions: buildChatSystemPromptV2(),
   tools: CHAT_TOOLS,
   // BNH-16: durably log billed usage for every model step without turning a
   // successful streamed response into a chat failure.
@@ -253,6 +274,10 @@ export const streamChatReply = internalAction({
     agentThreadId: v.string(),
     promptMessageId: v.string(),
     reportId: v.id("reports"),
+    // PSOS-49: the sender of the prompt turn. Their house-style waivers govern
+    // this reply. Optional for scheduler calls queued before this field
+    // existed — absent means default (full) enforcement.
+    userId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
     const startedAt = Date.now();
@@ -269,8 +294,10 @@ export const streamChatReply = internalAction({
     const toolCallIds = new Set<string>();
 
     try {
-      // Explicit annotation breaks api-graph type circularity (TS7006 cascade).
-      const context: {
+      // Explicit annotations break api-graph type circularity (TS7006 cascade).
+      // The sender's profile loads in parallel with the grounding context so
+      // the waiver lookup adds no serial round-trip to time-to-first-token.
+      const contextPromise: Promise<{
         reportContent: string | null;
         agentOutputs: string | null;
         documents: { fileName: string; content: string }[];
@@ -279,10 +306,32 @@ export const streamChatReply = internalAction({
           target: string;
           candidate: string;
         }[];
-      } = await ctx.runQuery(internal.chatV2.getChatContextV2, {
+      }> = ctx.runQuery(internal.chatV2.getChatContextV2, {
         reportId: args.reportId,
         agentThreadId: args.agentThreadId,
       });
+      // PSOS-49/50: the sender's EFFECTIVE house-style waivers + preferences
+      // (org-wide modes apply even for legacy turns with no userId). Never
+      // blocks the reply; a failed lookup means default enforcement.
+      const profilePromise: Promise<{
+        customInstructions: string | null;
+        styleOverrides: StyleOverrides;
+      } | null> = ctx
+        .runQuery(
+          internal.writerProfiles.getProfileForGeneration,
+          args.userId ? { userId: args.userId } : {}
+        )
+        .catch((err: unknown) => {
+          console.error("writer profile fetch failed for chat turn", err);
+          return null;
+        });
+      const [context, writerStyle] = await Promise.all([
+        contextPromise,
+        profilePromise,
+      ]);
+      const styleOverrides = writerStyle
+        ? normalizeStyleOverrides(writerStyle.styleOverrides)
+        : NO_STYLE_OVERRIDES;
 
       const reportText = context.reportContent
         ? extractPlainText(context.reportContent)
@@ -316,7 +365,15 @@ export const streamChatReply = internalAction({
         )
         .join("\n\n");
 
-      const grounding = `# CURRENT REPORT (the only document you may edit)\n${reportText}\n\n# TRANSCRIPT ANALYSIS (source of truth — do not exceed it)\n${analysisText}\n\n# UPLOADED CONTEXT DOCUMENTS\n${docsText}${
+      // The waiver footer in the system prompt points at the writer's own
+      // preferences — inject them so the reference is never dangling. Bounded
+      // like the context documents.
+      const writerPreferencesBlock =
+        hasAnyStyleOverride(styleOverrides) && writerStyle?.customInstructions
+          ? `\n\n# WRITER'S PERSONAL STYLE PREFERENCES (authoritative for the waived house-style areas named in your instructions)\n${writerStyle.customInstructions.slice(0, MAX_INSTRUCTIONS_CHARS)}`
+          : "";
+
+      const grounding = `# CURRENT REPORT (the only document you may edit)\n${reportText}\n\n# TRANSCRIPT ANALYSIS (source of truth — do not exceed it)\n${analysisText}\n\n# UPLOADED CONTEXT DOCUMENTS\n${docsText}${writerPreferencesBlock}${
         editDecisions
           ? `\n\n# PRIOR EDIT DECISIONS (the exact text you proposed and whether the writer accepted/rejected it — your memory for iterating. If they liked a rejected version and want a small change, reuse it with only that change. Context only — never repeat this block in your reply.)\n${editDecisions}`
           : ""
@@ -336,7 +393,8 @@ export const streamChatReply = internalAction({
         { threadId: args.agentThreadId },
         {
           promptMessageId: args.promptMessageId,
-          system: `${CHAT_SYSTEM_PROMPT_V2}\n\n${grounding}`,
+          system: `${buildChatSystemPromptV2(styleOverrides)}\n\n${grounding}`,
+          tools: buildChatTools(styleOverrides.bannedWords),
           providerOptions: { anthropic: CHAT_THINKING },
           maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
           // Must run upstream of the agent's smoothStream — see the module

@@ -9,7 +9,7 @@ describe("UserMenu", () => {
     document.body.innerHTML = "";
   });
 
-  it("turns the rail trigger into a focused Settings and sign-out menu", async () => {
+  it("turns the rail icon into a confirmed sign-out action", async () => {
     __setQueryData("users:getCurrentUser", {
       firstName: "Admin",
       lastName: "Writer",
@@ -22,20 +22,18 @@ describe("UserMenu", () => {
       triggerVariant: "rail",
     });
 
-    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label="Settings menu"]');
-    expect(trigger?.className).toContain("rounded-md");
-    expect(trigger?.className).not.toContain("rounded-lg");
+    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label="Sign out"]');
+    expect(trigger?.className).toContain("rounded-r-md");
+    expect(trigger?.className).not.toContain("hover:bg-red-50");
     trigger?.click();
-    await expect.poll(() => document.querySelector('[data-menu-layer="app"]')).not.toBeNull();
+    await expect.poll(() => document.querySelector('[role="dialog"]')).not.toBeNull();
 
-    const menu = document.querySelector<HTMLElement>('[data-menu-layer="app"]');
-    expect(menu?.className).toContain("rounded-lg");
-    expect(menu?.className).not.toContain("rounded-xl");
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog?.className).toContain("rounded-t-xl");
     expect(document.querySelector("[data-account-menu-identity]")).toBeNull();
-    expect(document.body.textContent).toContain("Open Settings");
+    expect(document.body.textContent).toContain("Sign out?");
     expect(document.body.textContent).toContain("Sign out");
-    expect(document.body.textContent).not.toContain("Administration");
-    expect(document.body.textContent).not.toContain("The Brain");
+    expect(document.body.textContent).toContain("Stay signed in");
   });
 
   it("keeps signed-in identity in the app-bar avatar menu", async () => {

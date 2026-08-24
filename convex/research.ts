@@ -16,7 +16,8 @@ import {
 import { requireInternalProjectAccess, getInternalProjectAccessOrNull } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { requireOpenRouterConfigured } from "./lib/providerConfig";
-import { scrubBannedWords } from "./lib/reportEdits";
+import { scrubBannedWordsUnlessWaived } from "./lib/reportEdits";
+import { getEffectiveWriterStyle } from "./writerProfiles";
 import { researchWorkflowManager } from "./ai/research/manager";
 import {
   MAX_CONTEXT_TEXT,
@@ -706,7 +707,21 @@ export const saveReviewResult = internalMutation({
       });
     }
 
-    const proposedText = scrubBannedWords(args.proposedText).trim();
+    // PSOS-49/50: a bannedWords waiver — from the requesting writer's profile
+    // or an org-wide mode — exempts their research proposals from the scrub.
+    // Shared policy (writerProfiles.getEffectiveWriterStyle); lookup must
+    // never fail the save.
+    let bannedWordsWaived = false;
+    try {
+      const style = await getEffectiveWriterStyle(ctx, session.requestedBy);
+      bannedWordsWaived = style.styleOverrides.bannedWords;
+    } catch (err) {
+      console.error("writer profile fetch failed for research scrub", err);
+    }
+    const proposedText = scrubBannedWordsUnlessWaived(
+      args.proposedText,
+      bannedWordsWaived
+    ).trim();
     let proposalId = session.proposalId;
     if (proposedText && proposedText !== session.selectedText.trim()) {
       if (proposalId) {

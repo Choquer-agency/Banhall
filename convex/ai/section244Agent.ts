@@ -3,7 +3,8 @@
 import { requireTextResponse, type GenerationClient } from "./openrouterCore";
 import { MODEL } from "./model";
 import { sectionAnswerTokenBudget } from "../../shared/generationModels";
-import { SECTION_244_SYSTEM_PROMPT } from "./prompts";
+import { buildSection244SystemPrompt } from "./prompts";
+import type { StyleOverrides } from "../../shared/styleOverrides";
 import type { TranscriptAnalysis } from "./analyzerAgent";
 
 export async function runSection244Agent(
@@ -12,13 +13,14 @@ export async function runSection244Agent(
   model: string = MODEL,
   brainExemplars: string = "",
   lengthBudget: string = "",
-  styleGuidance: string = ""
+  styleGuidance: string = "",
+  styleOverrides?: StyleOverrides
 ): Promise<string> {
   const response = await client.messages.create({
     model,
     max_tokens: sectionAnswerTokenBudget(model),
     thinking: { type: "disabled" },
-    system: SECTION_244_SYSTEM_PROMPT,
+    system: buildSection244SystemPrompt(styleOverrides),
     messages: [
       {
         role: "user",

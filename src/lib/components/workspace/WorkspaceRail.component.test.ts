@@ -141,8 +141,10 @@ describe("WorkspaceRail", () => {
     expect(document.querySelector('nav a[href="/requests"]')).toBeNull();
     expect(document.querySelector('nav a[href="/changelog"]')).not.toBeNull();
     expect(document.querySelector("[data-workspace-escape]")).toBeNull();
-    expect(document.querySelector("[data-rail-flag-issue]")).toBeNull();
-    expect(document.querySelector('button[aria-label="Settings menu"]')).not.toBeNull();
+    expect(document.querySelector("[data-rail-flag-issue]")).not.toBeNull();
+    expect(navLink("Settings")?.getAttribute("href")).toBe("/settings");
+    expect(document.querySelector('button[aria-label="Sign out"]')).not.toBeNull();
+    expect(document.querySelector("[data-rail-account-actions]")?.className).toContain("rounded-md");
   });
 
   it("shows developer utilities directly for flagged accounts without an accordion", async () => {

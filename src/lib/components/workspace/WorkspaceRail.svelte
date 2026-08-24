@@ -105,9 +105,12 @@
   // Attio-density: 28px rows on desktop, 44px minimum in the touch drawer.
   // A drawer opened in a narrow desktop window returns to the compact rail
   // rhythm through the fine-pointer media rule below.
+  // Labels carry translate-y-[0.5px]: Geist caps sit ~0.5px above the
+  // 16px Phosphor glyphs when both are flex-centred, which reads as text
+  // floating high. Measured at 1x and 2x DPR (2026-08-22).
   const rowHeight = $derived(variant === "rail" ? "h-7" : "min-h-11");
   const rowBase = $derived(
-    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md pl-2 pr-1 text-left text-sm font-medium leading-5 tracking-[-0.01em] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
+    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md pl-2 pr-1 [&>svg]:shrink-0 text-left text-sm font-medium leading-5 tracking-[-0.01em] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
   );
   const idleRow = "text-ink hover:bg-workspace-rail-hover";
   const selectedRow = "bg-workspace-rail-selected font-semibold text-ink";
@@ -118,6 +121,7 @@
     { href: "/admin/tags", label: "Project tags", icon: "tag", tone: "bg-orange-500" },
     { href: "/admin/reviews", label: "QA reviews", icon: "reviews", tone: "bg-teal-500" },
     { href: "/admin/users", label: "Users & roles", icon: "users", tone: "bg-sky-500" },
+    { href: "/admin/house-rules", label: "House rules", icon: "reviews", tone: "bg-rose-500" },
     { href: "/admin/models", label: "Model preferences", icon: "models", tone: "bg-violet-500" },
     { href: "/admin/usage", label: "AI usage & cost", icon: "usage", tone: "bg-emerald-500" },
   ] as const;
@@ -207,7 +211,7 @@
           }}
         >
           <HouseIcon size={16} weight="regular" aria-hidden="true" />
-          <span>Home</span>
+          <span class="min-w-0 translate-y-[0.5px] truncate">Home</span>
         </a>
 
         <a
@@ -217,7 +221,7 @@
           onclick={onNavigate}
         >
           <FolderSimpleIcon size={16} weight="regular" aria-hidden="true" />
-          <span>Projects</span>
+          <span class="min-w-0 translate-y-[0.5px] truncate">Projects</span>
         </a>
       </div>
 
@@ -260,7 +264,7 @@
                     {:else if link.icon === "models"}<SlidersHorizontalIcon size={12} weight="bold" aria-hidden="true" />
                     {:else}<ChartBarIcon size={12} weight="bold" aria-hidden="true" />{/if}
                   </span>
-                  <span class="min-w-0 truncate">{link.label}</span>
+                  <span class="min-w-0 translate-y-[0.5px] truncate">{link.label}</span>
                 </a>
               {/each}
             </div>
@@ -280,9 +284,9 @@
               aria-current={pathname.startsWith(resolve("/alerts")) ? "page" : undefined}
             >
               <BellIcon size={16} weight="regular" aria-hidden="true" />
-              <span>Alerts</span>
+              <span class="min-w-0 translate-y-[0.5px] truncate">Alerts</span>
               {#if openAlerts > 0}
-                <span class="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[0.625rem] font-semibold leading-none text-white">{openAlerts > 99 ? "99+" : openAlerts}</span>
+                <span class="ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[0.625rem] font-semibold leading-none text-white">{openAlerts > 99 ? "99+" : openAlerts}</span>
               {/if}
             </a>
             <a
@@ -292,7 +296,7 @@
               aria-current={pathname.startsWith(resolve("/requests")) ? "page" : undefined}
             >
               <LightbulbIcon size={16} weight="regular" aria-hidden="true" />
-              <span>Feature requests</span>
+              <span class="min-w-0 translate-y-[0.5px] truncate">Feature requests</span>
             </a>
           {/if}
           <a
@@ -302,9 +306,9 @@
             aria-current={pathname.startsWith(resolve("/changelog")) ? "page" : undefined}
           >
             <MegaphoneIcon size={16} weight="regular" aria-hidden="true" />
-            <span>What's new</span>
+            <span class="min-w-0 translate-y-[0.5px] truncate">What's new</span>
             {#if unseenChangelog > 0}
-              <span class="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-none text-white">{unseenChangelog > 99 ? "99+" : unseenChangelog}</span>
+              <span class="ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-none text-white">{unseenChangelog > 99 ? "99+" : unseenChangelog}</span>
             {/if}
           </a>
           <!-- Flag issue is for every user (2026-08-19): bug reports and
@@ -319,7 +323,7 @@
             class={`${rowBase} ${idleRow}`}
           >
             <FlagIcon size={16} weight="regular" aria-hidden="true" />
-            <span>Flag issue</span>
+            <span class="min-w-0 translate-y-[0.5px] truncate">Flag issue</span>
           </button>
           {#if isDeveloper}
             <button
@@ -332,7 +336,7 @@
               class={`${rowBase} ${idleRow}`}
             >
               <ArrowSquareOutIcon size={16} weight="regular" aria-hidden="true" />
-              <span>{currentExperienceLabel}</span>
+              <span class="min-w-0 translate-y-[0.5px] truncate">{currentExperienceLabel}</span>
             </button>
           {/if}
         </div>
@@ -340,25 +344,29 @@
     </div>
   </div>
 
-  <div class="flex items-center gap-1 border-t border-workspace-rail-line px-2 pt-2">
-    <div class="min-w-0 flex-1">
-      <UserMenu tone="light" menuTheme="light" menuLayer={variant === "drawer" ? "drawer" : "app"} triggerVariant="rail" />
+  <div class="border-t border-workspace-rail-line px-2 pt-2">
+    <!-- One composite footer surface: Settings owns the active state while
+         sign-out remains an adjacent action inside the same visual group. -->
+    <div
+      data-rail-account-actions
+      class={`flex items-center rounded-md transition-colors duration-150 ease-out motion-reduce:transition-none ${pathname.startsWith(resolve("/settings")) ? "bg-workspace-rail-selected" : "hover:bg-workspace-rail-hover"}`}
+    >
+      <a
+        href={resolve("/settings")}
+        aria-current={pathname.startsWith(resolve("/settings")) ? "page" : undefined}
+        onclick={onNavigate}
+        class={`flex min-w-0 flex-1 items-center gap-2 rounded-l-md px-2 text-left text-sm font-medium text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir ${variant === "rail" ? "h-9" : "h-11"} ${pathname.startsWith(resolve("/settings")) ? "font-semibold" : ""}`}
+      >
+        <GearSixIcon size={16} weight="regular" aria-hidden="true" class="shrink-0" />
+        <span class="min-w-0 flex-1 truncate">Settings</span>
+      </a>
+      <UserMenu
+        tone="light"
+        menuTheme="light"
+        menuLayer={variant === "drawer" ? "drawer" : "app"}
+        triggerVariant="rail"
+      />
     </div>
-    <!-- One-click Settings (2026-08-19): straight to the page, no popover hop. -->
-    <Tooltip text="Settings" side="top" delayDuration={300}>
-      {#snippet children({ props })}
-        <a
-          {...props}
-          href={resolve("/settings")}
-          aria-label="Settings"
-          aria-current={pathname.startsWith(resolve("/settings")) ? "page" : undefined}
-          onclick={onNavigate}
-          class={`flex shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors duration-150 ease-out hover:bg-workspace-rail-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${variant === "rail" ? "size-8" : "size-11"} ${pathname.startsWith(resolve("/settings")) ? "bg-workspace-rail-selected text-ink" : ""}`}
-        >
-          <GearSixIcon size={16} weight="regular" aria-hidden="true" />
-        </a>
-      {/snippet}
-    </Tooltip>
   </div>
 </nav>
 

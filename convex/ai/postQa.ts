@@ -9,12 +9,17 @@
  * from the QA panel for reports that predate this file.
  */
 import { internalAction } from "../_generated/server";
+import { detectFirstPersonPreference } from "../../shared/humanProse";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { clientForModel } from "./providers";
 import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
 import type { TranscriptAnalysis } from "./analyzerAgent";
+import {
+  normalizeStyleOverrides,
+  type StyleOverrides,
+} from "../../shared/styleOverrides";
 
 export const runReportQa = internalAction({
   args: { generationId: v.id("generations") },
@@ -41,16 +46,53 @@ export const runReportQa = internalAction({
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
       });
 
-    // Reviewer calibration digest is optional — never blocks the scorecard.
-    let qaCalibration: string | undefined;
-    try {
-      const digest = await ctx.runQuery(internal.learning.getActiveDigest, {
-        kind: "qa_calibration",
-      });
-      if (digest) qaCalibration = digest.content;
-    } catch (err) {
-      console.error("qa calibration fetch failed for post-QA", args.generationId, err);
-    }
+    // Reviewer calibration digest and (for legacy generations without a
+    // frozen copy) the live style policy load in parallel — both optional,
+    // neither may block the scorecard.
+    const calibrationPromise = (async (): Promise<string | undefined> => {
+      try {
+        const digest = await ctx.runQuery(internal.learning.getActiveDigest, {
+          kind: "qa_calibration",
+        });
+        return digest?.content;
+      } catch (err) {
+        console.error("qa calibration fetch failed for post-QA", args.generationId, err);
+        return undefined;
+      }
+    })();
+    // PSOS-49/50: score under the SAME house-style waivers the sections were
+    // drafted with — frozen at generation time (input.styleOverrides, all-false
+    // included). Only legacy generations predating the freeze fall back to the
+    // live effective policy (org modes apply even without a recorded requester).
+    const stylePromise = (async (): Promise<{
+      overrides: StyleOverrides | undefined;
+      firstPerson: boolean | null;
+    }> => {
+      // Frozen waivers carry no preference text, so first-person intent is
+      // unknown on that path; the QA prompt falls back to report-based detection.
+      if (input.styleOverrides) {
+        return { overrides: normalizeStyleOverrides(input.styleOverrides), firstPerson: null };
+      }
+      try {
+        const profile = await ctx.runQuery(
+          internal.writerProfiles.getProfileForGeneration,
+          input.requestedBy ? { userId: input.requestedBy } : {}
+        );
+        return profile
+          ? {
+              overrides: normalizeStyleOverrides(profile.styleOverrides),
+              firstPerson: detectFirstPersonPreference(profile.customInstructions),
+            }
+          : { overrides: undefined, firstPerson: null };
+      } catch (err) {
+        console.error("writer profile fetch failed for post-QA", args.generationId, err);
+        return { overrides: undefined, firstPerson: null };
+      }
+    })();
+    const [qaCalibration, style] = await Promise.all([
+      calibrationPromise,
+      stylePromise,
+    ]);
 
     try {
       const analysis = JSON.parse(input.analysis) as TranscriptAnalysis;
@@ -64,7 +106,9 @@ export const runReportQa = internalAction({
           input.section244,
           input.section246,
           input.model,
-          qaCalibration
+          qaCalibration,
+          style.overrides,
+          style.firstPerson
         ),
         runChronologyAgent(
           clientFor("generation:post_chronology"),

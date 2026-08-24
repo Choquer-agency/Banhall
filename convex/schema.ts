@@ -6,6 +6,7 @@ import {
   workItemKindValidator,
   workItemStatusValidator,
 } from "./lib/contracts";
+import { styleOverridesValidator } from "./lib/styleOverrides";
 
 export default defineSchema({
   // Auth lives in the Better Auth component (see convex/auth.ts). This app
@@ -1622,13 +1623,19 @@ export default defineSchema({
   }).index("by_kind", ["kind"]),
 
   // ─── Per-writer flavor (Phase A): persistent custom writing instructions ───
-  // One row per user; injected as a bounded, lowest-priority block into the
-  // section-drafting prompts (convex/ai/pipeline.ts). Never overrides CRA
-  // structure, phrasing rules, or length budgets.
+  // One row per user; injected into the section-drafting prompts
+  // (convex/ai/pipeline.ts). Never overrides CRA structure or length budgets.
+  // 2026-08-24 widen (PSOS-49): optional styleOverrides — per-category waivers
+  // of the default house-style rules (shared/styleOverrides.ts). A waived
+  // category means the writer's own instructions govern that area (rule text
+  // omitted from prompts, scrub/QA scans skipped). Legacy rows without the
+  // field normalize to all-false, i.e. the pre-override behavior. Only takes
+  // effect while `enabled` is true.
   writerProfiles: defineTable({
     userId: v.id("users"),
     customInstructions: v.string(),
     enabled: v.boolean(),
+    styleOverrides: v.optional(styleOverridesValidator),
     updatedBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),

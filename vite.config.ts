@@ -5,7 +5,12 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   // Canonical local app URL — use this for development and production previews.
-  server: { port: 3001 },
+  server: {
+    port: 3001,
+    // Let the dev server be reached over Tailscale (IP works by default; MagicDNS
+    // hostnames need an explicit allowlist).
+    allowedHosts: [".ts.net"],
+  },
   preview: { port: 3001 },
   ssr: {
     // Bundle packages that Node cannot load directly during SSR: the auth

@@ -196,3 +196,16 @@ export function scrubBannedWords(text: string): string {
     .replace(/ {2,}/g, " ")
     .trim();
 }
+
+/**
+ * PSOS-49 waiver gate: the ONE way generated/edited text passes the scrub.
+ * A writer whose profile waives the bannedWords category keeps their own
+ * vocabulary; everyone else gets the scrub. Every call site routes through
+ * this so the waiver contract cannot drift per-site.
+ */
+export function scrubBannedWordsUnlessWaived(
+  text: string,
+  bannedWordsWaived: boolean
+): string {
+  return bannedWordsWaived ? text : scrubBannedWords(text);
+}

@@ -8,7 +8,7 @@
 - **Started:** —
 - **Completed:** —
 - **Source:** August 14, 2026 meeting transcript supplied by the product team
-- **Progress note:** Dedicated initiative defined. Discovery and source-access setup may begin; ingestion remains blocked behind human review and the existing Brain approval/provenance controls.
+- **Progress note:** Dedicated initiative defined. Discovery and source-access setup may begin; ingestion remains blocked behind human review and the existing Brain approval/provenance controls. August 20: client uploader zip (`scripts/client-uploader`) was handed to Michael (folder picker, re-open memory, sha256 dedupe). He wants **selective** first ingest, then expand; mapping supporting documents onto individual PDs is still hard because their files are not stored that way. That mapping stays in this ticket’s later phases, not a silent auto-attach.
 
 ## Product outcome
 
