@@ -486,6 +486,124 @@ describe("chat turn lifecycle", () => {
   });
 });
 
+describe("failStaleChatTurns", () => {
+  const MINUTES = 60 * 1000;
+
+  test("fails stuck queued/running turns past the cutoff, leaves fresh and terminal turns", async () => {
+    const { t } = await setup();
+    const base = Date.now();
+    // Stale rows: created (and started) 20 minutes before the sweep runs. A
+    // queued row has no startedAt — it ages from _creationTime.
+    const staleQueuedId = await insertTurn(t, {
+      agentThreadId: "thread-reaper",
+      promptMessageId: "stale-queued",
+      order: 1,
+      status: "queued",
+    });
+    const staleRunningId = await insertTurn(t, {
+      agentThreadId: "thread-reaper",
+      promptMessageId: "stale-running",
+      order: 2,
+      status: "running",
+      startedAt: base,
+    });
+    const completedId = await insertTurn(t, {
+      agentThreadId: "thread-reaper",
+      promptMessageId: "old-completed",
+      order: 3,
+      status: "completed",
+      startedAt: base,
+      endedAt: base + 1_000,
+      stepCount: 2,
+    });
+    const abortedId = await insertTurn(t, {
+      agentThreadId: "thread-reaper",
+      promptMessageId: "old-aborted",
+      order: 4,
+      status: "aborted",
+      startedAt: base,
+      endedAt: base + 1_000,
+    });
+
+    vi.setSystemTime(base + 20 * MINUTES);
+    const freshQueuedId = await insertTurn(t, {
+      agentThreadId: "thread-reaper",
+      promptMessageId: "fresh-queued",
+      order: 5,
+      status: "queued",
+    });
+    const freshRunningId = await insertTurn(t, {
+      agentThreadId: "thread-reaper",
+      promptMessageId: "fresh-running",
+      order: 6,
+      status: "running",
+      startedAt: Date.now(),
+    });
+
+    await expect(
+      t.mutation(internal.chatV2.failStaleChatTurns, { olderThanMinutes: 15 })
+    ).resolves.toEqual({ failed: 2 });
+
+    const statuses = await t.run(async (ctx) => ({
+      staleQueued: (await ctx.db.get(staleQueuedId))?.status,
+      staleRunning: await ctx.db.get(staleRunningId),
+      completed: (await ctx.db.get(completedId))?.status,
+      aborted: (await ctx.db.get(abortedId))?.status,
+      freshQueued: (await ctx.db.get(freshQueuedId))?.status,
+      freshRunning: (await ctx.db.get(freshRunningId))?.status,
+    }));
+    expect(statuses.staleQueued).toBe("failed");
+    expect(statuses.staleRunning?.status).toBe("failed");
+    expect(statuses.staleRunning?.endedAt).toBe(base + 20 * MINUTES);
+    expect(statuses.completed).toBe("completed");
+    expect(statuses.aborted).toBe("aborted");
+    expect(statuses.freshQueued).toBe("queued");
+    expect(statuses.freshRunning).toBe("running");
+  });
+
+  test("a reaped turn refuses late finalization and late tool writes", async () => {
+    const setupResult = await setup();
+    const { result, turn } = await sendQueuedTurn(setupResult);
+    await setupResult.t.mutation(internal.chatV2.markTurnStarted, {
+      agentThreadId: result.threadId,
+      promptMessageId: result.messageId,
+      startedAt: Date.now(),
+    });
+
+    vi.setSystemTime(Date.now() + 20 * MINUTES);
+    await setupResult.t.mutation(internal.chatV2.failStaleChatTurns, {
+      olderThanMinutes: 15,
+    });
+    const reaped = await setupResult.t.run(async (ctx) => await ctx.db.get(turn._id));
+    expect(reaped?.status).toBe("failed");
+
+    // A zombie action that somehow survives cannot resurrect the turn…
+    await expect(
+      setupResult.t.mutation(internal.chatV2.finishTurn, {
+        agentThreadId: result.threadId,
+        promptMessageId: result.messageId,
+        requestedStatus: "completed",
+        endedAt: Date.now(),
+        stepCount: 1,
+      })
+    ).resolves.toEqual({ status: "failed" });
+    // …and its tool calls hit the same stop fence as an aborted turn.
+    await expect(
+      setupResult.t.mutation(internal.chatV2.saveProposal, {
+        agentThreadId: result.threadId,
+        toolCallId: "call-after-reap",
+        promptMessageId: result.messageId,
+        kind: "references",
+        references: ["anything"],
+      })
+    ).resolves.toEqual({
+      ok: false,
+      stopped: true,
+      reason: "The writer stopped this reply.",
+    });
+  });
+});
+
 describe("listTurns", () => {
   test("returns the newest 200 authorized turns in ascending range order", async () => {
     const { t, actor, projectId, reportId } = await setup();

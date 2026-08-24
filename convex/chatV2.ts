@@ -592,6 +592,40 @@ export const finishTurn = internalMutation({
   },
 });
 
+/**
+ * Cron reaper (mirrors generations.failStaleGenerations): finishTurn only
+ * runs from streamChatReply's own success/catch paths, so a hard action death
+ * (deploy restart, timeout, OOM) strands a turn in "queued"/"running" and the
+ * composer ticks "Working…" forever. Fail anything active past the cutoff —
+ * the UI already renders failed turns, and the writer just sends again.
+ * Status-CAS: terminal turns (completed/failed/aborted) are never touched.
+ * `npx convex run chatV2:failStaleChatTurns '{"olderThanMinutes":15}'`
+ */
+export const failStaleChatTurns = internalMutation({
+  args: { olderThanMinutes: v.optional(v.number()) },
+  returns: v.object({ failed: v.number() }),
+  handler: async (ctx, args) => {
+    const cutoff = Date.now() - (args.olderThanMinutes ?? 15) * 60 * 1000;
+    let failed = 0;
+    for (const status of ["queued", "running"] as const) {
+      const turns = await ctx.db
+        .query("chatTurns")
+        .withIndex("by_status", (q) => q.eq("status", status))
+        .take(200);
+      for (const turn of turns) {
+        // Queued rows never got startedAt; age them from creation instead.
+        if ((turn.startedAt ?? turn._creationTime) >= cutoff) continue;
+        await ctx.db.patch(turn._id, {
+          status: "failed",
+          endedAt: Date.now(),
+        });
+        failed += 1;
+      }
+    }
+    return { failed };
+  },
+});
+
 export const saveProposal = internalMutation({
   args: {
     agentThreadId: v.string(),
@@ -736,11 +770,26 @@ export const getChatContextV2 = internalQuery({
     const report = await ctx.db.get(args.reportId);
     if (!report) throw new Error("Report not found");
 
-    const generation = await ctx.db
-      .query("generations")
-      .withIndex("by_projectId", (q) => q.eq("projectId", report.projectId))
-      .order("desc")
-      .first();
+    // Ground on the generation that actually produced THIS report — the
+    // latest project generation can belong to a newer report (or a failed
+    // rerun) and its agentOutputs would describe a different analysis. We
+    // fall back when the report predates generation linking OR its linked
+    // generation stored no agentOutputs, and then only to a completed
+    // generation that has agentOutputs to offer — a best-effort grounding
+    // that can still describe an older draft of this project.
+    let generation = report.generationId
+      ? await ctx.db.get(report.generationId)
+      : null;
+    if (!generation?.agentOutputs) {
+      const completed = await ctx.db
+        .query("generations")
+        .withIndex("by_projectId_and_status", (q) =>
+          q.eq("projectId", report.projectId).eq("status", "completed")
+        )
+        .order("desc")
+        .take(10);
+      generation = completed.find((row) => row.agentOutputs) ?? null;
+    }
 
     const documents = await ctx.db
       .query("projectDocuments")

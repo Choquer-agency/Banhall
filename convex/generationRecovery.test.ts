@@ -221,3 +221,362 @@ describe("generation recovery", () => {
     ).toBeNull();
   });
 });
+
+const MINUTES = 60 * 1000;
+
+async function seedProject(t: ReturnType<typeof convexTest>) {
+  return await t.run(async (ctx) => {
+    const userId = await ctx.db.insert("users", { authId, role: "writer" });
+    const now = Date.now();
+    const projectId = await ctx.db.insert("projects", {
+      title: "Reaper project",
+      clientName: "Client",
+      status: "generating",
+      createdBy: userId,
+      shareToken: "reaper-token",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const transcriptId = await ctx.db.insert("transcripts", {
+      projectId,
+      content: "Interview content",
+      createdAt: now,
+    });
+    return { userId, projectId, transcriptId };
+  });
+}
+
+describe("failStaleGenerations candidate-run terminalization", () => {
+  it("whole-fail also fails in-flight candidate runs so they can't spin forever", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, transcriptId } = await seedProject(t);
+    const ids = await t.run(async (ctx) => {
+      const old = Date.now() - 60 * MINUTES;
+      const generationId = await ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        status: "running",
+        candidateMode: "compare",
+        previousProjectStatus: "draft",
+        startedAt: old,
+      });
+      await ctx.db.patch(projectId, { activeGenerationId: generationId });
+      const runningRunId = await ctx.db.insert("generationCandidateRuns", {
+        generationId,
+        projectId,
+        model: "claude-sonnet-5",
+        label: "Sonnet 5",
+        status: "running",
+        queuedAt: old,
+        startedAt: old,
+      });
+      const queuedRunId = await ctx.db.insert("generationCandidateRuns", {
+        generationId,
+        projectId,
+        model: "google/gemini-3.1-pro-preview",
+        label: "Gemini 3.1 Pro",
+        status: "queued",
+        queuedAt: old,
+      });
+      return { generationId, runningRunId, queuedRunId };
+    });
+
+    await t.mutation(internal.generations.failStaleGenerations, {
+      olderThanMinutes: 30,
+    });
+
+    const state = await t.run(async (ctx) => ({
+      generation: await ctx.db.get(ids.generationId),
+      runningRun: await ctx.db.get(ids.runningRunId),
+      queuedRun: await ctx.db.get(ids.queuedRunId),
+      project: await ctx.db.get(projectId),
+    }));
+    expect(state.generation?.status).toBe("failed");
+    expect(state.runningRun?.status).toBe("failed");
+    expect(state.runningRun?.error).toBe("Timed out before the draft completed.");
+    expect(state.queuedRun?.status).toBe("failed");
+    expect(state.project?.activeGenerationId).toBeUndefined();
+    expect(state.project?.status).toBe("draft");
+  });
+
+  it("settles runs orphaned under an already-terminal generation, not runs under live ones", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, transcriptId } = await seedProject(t);
+    const ids = await t.run(async (ctx) => {
+      const now = Date.now();
+      const old = now - 60 * MINUTES;
+      // Terminal generation (e.g. writer cancel) whose ghost died hard.
+      const failedGenerationId = await ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        status: "failed",
+        candidateMode: "iterative",
+        error: "Cancelled by writer",
+        startedAt: old,
+        completedAt: old,
+      });
+      const orphanRunId = await ctx.db.insert("generationCandidateRuns", {
+        generationId: failedGenerationId,
+        projectId,
+        model: "claude-sonnet-5",
+        label: "Sonnet 5",
+        status: "running",
+        ghost: true,
+        queuedAt: old,
+        startedAt: old,
+      });
+      // Live generation with a slow-but-alive run: whole-fail owns that case;
+      // the orphan sweep must not reach past a non-terminal generation. Fresh
+      // startedAt keeps it out of the whole-fail scan.
+      const liveGenerationId = await ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        status: "awaiting_input",
+        candidateMode: "iterative",
+        startedAt: now,
+      });
+      await ctx.db.patch(projectId, { activeGenerationId: liveGenerationId });
+      const liveRunId = await ctx.db.insert("generationCandidateRuns", {
+        generationId: liveGenerationId,
+        projectId,
+        model: "claude-sonnet-5",
+        label: "Sonnet 5",
+        status: "running",
+        ghost: true,
+        queuedAt: old,
+        startedAt: old,
+      });
+      return { orphanRunId, liveRunId };
+    });
+
+    const result = await t.mutation(internal.generations.failStaleGenerations, {
+      olderThanMinutes: 30,
+    });
+    expect(result.orphanedRuns).toBe(1);
+
+    const state = await t.run(async (ctx) => ({
+      orphan: await ctx.db.get(ids.orphanRunId),
+      live: await ctx.db.get(ids.liveRunId),
+    }));
+    expect(state.orphan?.status).toBe("failed");
+    expect(state.orphan?.error).toBe(
+      "The generation ended before this draft completed."
+    );
+    expect(state.live?.status).toBe("running");
+  });
+
+  it("failGeneration terminalizes in-flight runs alongside the generation", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, transcriptId } = await seedProject(t);
+    const ids = await t.run(async (ctx) => {
+      const now = Date.now();
+      const generationId = await ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        status: "running",
+        candidateMode: "compare",
+        previousProjectStatus: "draft",
+        startedAt: now,
+      });
+      await ctx.db.patch(projectId, { activeGenerationId: generationId });
+      const runId = await ctx.db.insert("generationCandidateRuns", {
+        generationId,
+        projectId,
+        model: "claude-sonnet-5",
+        label: "Sonnet 5",
+        status: "running",
+        queuedAt: now,
+        startedAt: now,
+      });
+      const doneRunId = await ctx.db.insert("generationCandidateRuns", {
+        generationId,
+        projectId,
+        model: "google/gemini-3.1-pro-preview",
+        label: "Gemini 3.1 Pro",
+        status: "succeeded",
+        queuedAt: now,
+        completedAt: now,
+      });
+      return { generationId, runId, doneRunId };
+    });
+
+    await t.mutation(internal.generations.failGeneration, {
+      generationId: ids.generationId,
+      error: "unknown: provider exploded with raw text",
+    });
+
+    const state = await t.run(async (ctx) => ({
+      run: await ctx.db.get(ids.runId),
+      doneRun: await ctx.db.get(ids.doneRunId),
+    }));
+    expect(state.run?.status).toBe("failed");
+    expect(state.run?.error).toBe(
+      "The generation failed before this draft completed."
+    );
+    // Terminal rows are never rewritten (status-CAS).
+    expect(state.doneRun?.status).toBe("succeeded");
+  });
+});
+
+describe("failStalePostQa", () => {
+  it("fails stale passes (including legacy rows with no timestamp) and leaves fresh/terminal ones", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, transcriptId } = await seedProject(t);
+    const ids = await t.run(async (ctx) => {
+      const now = Date.now();
+      const base = {
+        projectId,
+        transcriptId,
+        status: "completed" as const,
+        candidateMode: "iterative" as const,
+        startedAt: now - 120 * MINUTES,
+        completedAt: now - 90 * MINUTES,
+      };
+      const staleId = await ctx.db.insert("generations", {
+        ...base,
+        postQaStatus: "running",
+        postQaStartedAt: now - 20 * MINUTES,
+        progressLog: ["Running the QA scorecard and chronology in the background…"],
+      });
+      const legacyId = await ctx.db.insert("generations", {
+        ...base,
+        postQaStatus: "running",
+      });
+      const freshId = await ctx.db.insert("generations", {
+        ...base,
+        postQaStatus: "running",
+        postQaStartedAt: now - 2 * MINUTES,
+      });
+      const doneId = await ctx.db.insert("generations", {
+        ...base,
+        postQaStatus: "done",
+        postQaStartedAt: now - 40 * MINUTES,
+      });
+      return { staleId, legacyId, freshId, doneId };
+    });
+
+    const result = await t.mutation(internal.generations.failStalePostQa, {
+      olderThanMinutes: 15,
+    });
+    expect(result).toEqual({ failed: 2 });
+
+    const state = await t.run(async (ctx) => ({
+      stale: await ctx.db.get(ids.staleId),
+      legacy: await ctx.db.get(ids.legacyId),
+      fresh: await ctx.db.get(ids.freshId),
+      done: await ctx.db.get(ids.doneId),
+    }));
+    expect(state.stale?.postQaStatus).toBe("failed");
+    expect(state.stale?.progressLog?.at(-1)).toBe(
+      "Post-assembly QA pass timed out — the report is unaffected. Run it again from the QA panel."
+    );
+    expect(state.legacy?.postQaStatus).toBe("failed");
+    expect(state.fresh?.postQaStatus).toBe("running");
+    expect(state.done?.postQaStatus).toBe("done");
+  });
+
+  it("unblocks requestReportQa after clearing a stale pass", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, transcriptId } = await seedProject(t);
+    const staleStartedAt = Date.now() - 20 * MINUTES;
+    const generationId = await t.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        status: "completed",
+        candidateMode: "iterative",
+        postQaStatus: "running",
+        postQaStartedAt: staleStartedAt,
+        startedAt: now - 120 * MINUTES,
+        completedAt: now - 90 * MINUTES,
+      });
+    });
+    const actor = t.withIdentity({ subject: authId });
+
+    // Stuck: the idempotency guard refuses to restart while "running".
+    await actor.mutation(api.generations.requestReportQa, { generationId });
+    const before = await t.run(async (ctx) => await ctx.db.get(generationId));
+    expect(before?.postQaStartedAt).toBe(staleStartedAt);
+
+    await t.mutation(internal.generations.failStalePostQa, {
+      olderThanMinutes: 15,
+    });
+    const reaped = await t.run(async (ctx) => await ctx.db.get(generationId));
+    expect(reaped?.postQaStatus).toBe("failed");
+
+    const requestedAt = Date.now();
+    await actor.mutation(api.generations.requestReportQa, { generationId });
+    const after = await t.run(async (ctx) => await ctx.db.get(generationId));
+    expect(after?.postQaStatus).toBe("running");
+    expect(after?.postQaStartedAt).toBeGreaterThanOrEqual(requestedAt);
+  });
+});
+
+describe("getIterativeState user-safe error projection", () => {
+  it("never ships raw provider text in errors or narration", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, transcriptId } = await seedProject(t);
+    const generationId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const generationId = await ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        status: "awaiting_input",
+        candidateMode: "iterative",
+        error: "unknown: The AI provider rejected the request: RAWSECRET gpt text",
+        progressLog: [
+          "Section-by-section drafting with Sonnet 5.",
+          "✗ Line 244 — Work performed draft failed: unknown: RAWSECRET gpt text.",
+        ],
+        startedAt: now,
+      });
+      await ctx.db.insert("generationSectionRuns", {
+        generationId,
+        projectId,
+        section: "s242",
+        status: "failed",
+        error: "billing: RAWSECRET credit balance is too low",
+        model: "claude-sonnet-5",
+        label: "Sonnet 5",
+        attempt: 1,
+        queuedAt: now,
+      });
+      await ctx.db.insert("generationSectionRuns", {
+        generationId,
+        projectId,
+        section: "s244",
+        status: "failed",
+        error: "Timed out before the section draft completed.",
+        model: "claude-sonnet-5",
+        label: "Sonnet 5",
+        attempt: 1,
+        queuedAt: now,
+      });
+      return generationId;
+    });
+
+    const state = await t
+      .withIdentity({ subject: authId })
+      .query(api.generations.getIterativeState, { generationId });
+
+    expect(state?.error).toBe("The generation did not complete. Try again.");
+    const bySection = new Map(
+      (state?.sectionRuns ?? []).map((run) => [run.section, run])
+    );
+    // Known provider code → its typed copy.
+    expect(bySection.get("s242")?.error).toBe(
+      "The AI provider account cannot accept this request because billing or credits need attention."
+    );
+    // Our own copy (no code prefix) passes through unchanged.
+    expect(bySection.get("s244")?.error).toBe(
+      "Timed out before the section draft completed."
+    );
+    // Narration keeps the failure marker but drops the appended detail.
+    expect(state?.progressLog).toEqual([
+      "Section-by-section drafting with Sonnet 5.",
+      "✗ Line 244 — Work performed draft failed.",
+    ]);
+    expect(JSON.stringify(state)).not.toContain("RAWSECRET");
+  });
+});
