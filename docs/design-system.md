@@ -1154,3 +1154,17 @@ only; no React). Specimens on `/styleguide`; composed in `AgentChatPanel`.
 - `FeedbackBar` — helpful/not-helpful response feedback. Research responses send
   this signal through the existing admin-reviewed Brain feedback queue; feedback
   is never learned automatically.
+
+## Cursor contract (2026-08-23)
+
+Anything clickable reads as clickable. Tailwind v4's preflight leaves
+`button` at `cursor: default`, so `layout.css` carries a global `@layer base`
+cursor contract: enabled buttons, links (`a[href]`), summaries, `label[for]`
+and labels wrapping checkboxes/radios, selects, button/checkbox/radio/file/
+range/color inputs, and interactive ARIA roles (button, link, tab, menuitem*,
+option, switch, checkbox, radio, non-input combobox) all get `cursor:
+pointer`. Disabled controls and `[aria-disabled="true"]` get `not-allowed`.
+Text wells keep the native caret — typeable combobox inputs are explicitly
+excluded. Do not add per-component `cursor-pointer` for these cases; component
+styles override the base layer only for genuinely different cursors (e.g. the
+rail resize handle's `col-resize`, editor drag handles).
