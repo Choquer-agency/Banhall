@@ -195,45 +195,8 @@ export function extractPlainText(contentJson: string): string {
   }
 }
 
-// ─── Banned-word scrub (chat safety net, mirrors the pipeline scrubber) ─────
+// ─── Banned-word scrub (chat safety net) ────────────────────────────────────
+// Canonical table + implementation: shared/bannedWords.ts — the same scrubber
+// the generation pipeline runs, and the same list the QA scan derives from.
 
-const BANNED_REPLACEMENTS: [RegExp, string][] = [
-  [/\bnovel\b/gi, "new"],
-  [/\bpioneering\b/gi, "new"],
-  [/\brevolutionary\b/gi, "new"],
-  [/\bpivotal\b/gi, "critical"],
-  [/\bseamless\b/gi, "smooth"],
-  [/\bsubstantially?\b/gi, "considerably"],
-  [/\bsignificantly?\b/gi, "markedly"],
-  [/\bunique\b/gi, "distinct"],
-  [/\bgroundbreaking\b/gi, "new"],
-  [/\bcutting-edge\b/gi, "advanced"],
-  [/\bstate-of-the-art\b/gi, "current"],
-  [/\bcomprehensive\b/gi, "thorough"],
-  [/\brobust\b/gi, "reliable"],
-  [/\bholistic\b/gi, "complete"],
-  [/\bsynergy\b/gi, "coordination"],
-  [/\bleverage[ds]?\b/gi, "use"],
-  [/\bleveraging\b/gi, "using"],
-  [/\bharness(?:ed|ing)?\b/gi, "use"],
-  [/\brevolutioniz(?:e[ds]?|ing)\b/gi, "change"],
-  [/\btransformative\b/gi, "important"],
-  [/\bgame-changing\b/gi, "important"],
-  [/\bfundamentally\b/gi, ""],
-  [/\bparadigm\b/gi, "approach"],
-  [/\becosystem\b/gi, "environment"],
-  [/\bfurthermore,?\s*/gi, ""],
-  [/\bmoreover,?\s*/gi, ""],
-  [/\badditionally,?\s*/gi, ""],
-  [/\binnovative\b/gi, "new"],
-  [/\bspearheading\b/gi, "leading"],
-  [/\bdelving into\b/gi, "examining"],
-];
-
-export function scrubBannedWords(text: string): string {
-  let result = text;
-  for (const [pattern, replacement] of BANNED_REPLACEMENTS) {
-    result = result.replace(pattern, replacement);
-  }
-  return result.replace(/ {2,}/g, " ").trim();
-}
+export { scrubBannedWords } from "../../shared/bannedWords";

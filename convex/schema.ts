@@ -652,6 +652,10 @@ export default defineSchema({
     postQaStatus: v.optional(
       v.union(v.literal("running"), v.literal("done"), v.literal("failed"))
     ),
+    // When the current post-QA pass flipped to "running" — the stale-pass
+    // reaper's clock. Absent on rows from before the reaper existed (treated
+    // as already stale, since nothing can still be running them).
+    postQaStartedAt: v.optional(v.number()),
     // Overall score from the post-assembly QA pass (one-shot modes carry the
     // score inside agentOutputs.qa instead).
     qaScore: v.optional(v.number()),
@@ -683,7 +687,8 @@ export default defineSchema({
   })
     .index("by_projectId", ["projectId"])
     .index("by_projectId_and_status", ["projectId", "status"])
-    .index("by_status_and_startedAt", ["status", "startedAt"]),
+    .index("by_status_and_startedAt", ["status", "startedAt"])
+    .index("by_postQaStatus", ["postQaStatus"]),
 
   // ─── BNH-15: model A/B testing ─────────────────────────────────────────────
 
@@ -784,7 +789,9 @@ export default defineSchema({
       "agentThreadId",
       "promptMessageId",
     ])
-    .index("by_agentThreadId_and_order", ["agentThreadId", "order"]),
+    .index("by_agentThreadId_and_order", ["agentThreadId", "order"])
+    // Stale-turn reaper: sweep queued/running rows regardless of thread.
+    .index("by_status", ["status"]),
 
   // One row per tool call the assistant makes (proposeEdit / proposeReplacements
   // / highlightPassages). Same lifecycle semantics as chatMessages.proposedEdit.
@@ -1481,7 +1488,10 @@ export default defineSchema({
     createdBy: v.string(),
     createdAt: v.number(),
     completedAt: v.optional(v.number()),
-  }).index("by_projectId", ["projectId"]),
+  })
+    .index("by_projectId", ["projectId"])
+    // Stale-review reaper: running rows older than the cutoff.
+    .index("by_status_and_createdAt", ["status", "createdAt"]),
 
   // BNH-39: timestamped audit trail of the review + reviewer interactions,
   // surfaced on the project card.
@@ -1538,6 +1548,10 @@ export default defineSchema({
     at: v.number(),
   })
     .index("by_source", ["sourceId"])
+    // Approval-time lookup for the distillation stream: the audit row is the
+    // only record of WHEN feedback was decided (the queue row has no
+    // reviewedAt), and freshness must key off approval, not submission.
+    .index("by_feedbackId", ["feedbackId"])
     .index("by_at", ["at"]),
 
   // ─── Learning loop: distilled human-feedback digests injected into agents ───

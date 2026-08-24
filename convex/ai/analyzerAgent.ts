@@ -40,10 +40,13 @@ function buildContextBlock(docs: ContextDoc[]): string {
     (a, b) =>
       CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category)
   );
+  // Unambiguous begin/end delimiters: document content is client-provided
+  // DATA, and CONTEXT_INPUTS_GUIDANCE tells the model never to follow
+  // instructions embedded between a document's markers.
   const sections = sorted
     .map(
       (d) =>
-        `--- [${CATEGORY_LABELS[d.category]}] ${d.fileName} ---\n${d.content}`
+        `--- BEGIN [${CATEGORY_LABELS[d.category]}] ${d.fileName} ---\n${d.content}\n--- END [${CATEGORY_LABELS[d.category]}] ${d.fileName} ---`
     )
     .join("\n\n");
   return `\n\n${CONTEXT_INPUTS_GUIDANCE}\n\n# ATTACHED CONTEXTUAL MATERIALS\n${sections}`;

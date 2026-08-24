@@ -29,54 +29,14 @@ import {
 } from "../lib/lineLimits";
 import { sha256 } from "../lib/contracts";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
+import { scrubBannedWords } from "../../shared/bannedWords";
 
 export type { BrainExemplarBlocks };
 
-/**
- * Programmatic safety net: replace banned words that the LLM self-check may have missed.
- * Case-insensitive, whole-word replacements to avoid corrupting partial matches.
- */
-const BANNED_REPLACEMENTS: [RegExp, string][] = [
-  [/\bnovel\b/gi, "new"],
-  [/\bpioneering\b/gi, "new"],
-  [/\brevolutionary\b/gi, "new"],
-  [/\bpivotal\b/gi, "critical"],
-  [/\bseamless\b/gi, "smooth"],
-  [/\bsubstantially?\b/gi, "considerably"],
-  [/\bsignificantly?\b/gi, "markedly"],
-  [/\bunique\b/gi, "distinct"],
-  [/\bgroundbreaking\b/gi, "new"],
-  [/\bcutting-edge\b/gi, "advanced"],
-  [/\bstate-of-the-art\b/gi, "current"],
-  [/\bcomprehensive\b/gi, "thorough"],
-  [/\brobust\b/gi, "reliable"],
-  [/\bholistic\b/gi, "complete"],
-  [/\bsynergy\b/gi, "coordination"],
-  [/\bleverage[ds]?\b/gi, "use"],
-  [/\bleveraging\b/gi, "using"],
-  [/\bharness(?:ed|ing)?\b/gi, "use"],
-  [/\brevolutioniz(?:e[ds]?|ing)\b/gi, "change"],
-  [/\btransformative\b/gi, "important"],
-  [/\bgame-changing\b/gi, "important"],
-  [/\bfundamentally\b/gi, ""],
-  [/\bparadigm\b/gi, "approach"],
-  [/\becosystem\b/gi, "environment"],
-  [/\bfurthermore,?\s*/gi, ""],
-  [/\bmoreover,?\s*/gi, ""],
-  [/\badditionally,?\s*/gi, ""],
-  [/\binnovative\b/gi, "new"],
-  [/\bspearheading\b/gi, "leading"],
-  [/\bdelving into\b/gi, "examining"],
-];
-
-export function scrubBannedWords(text: string): string {
-  let result = text;
-  for (const [pattern, replacement] of BANNED_REPLACEMENTS) {
-    result = result.replace(pattern, replacement);
-  }
-  // Clean up any double spaces from removals
-  return result.replace(/ {2,}/g, " ").trim();
-}
+// Programmatic safety net behind the LLM self-check. Canonical table +
+// scrubber live in shared/bannedWords.ts (same list the QA scan derives
+// from); re-exported for the iterative flow.
+export { scrubBannedWords };
 
 /** BNH-45: the length-budget instruction appended to each drafter prompt. */
 export function lengthBudgetBlock(section: SectionKey, target: LengthTarget): string {

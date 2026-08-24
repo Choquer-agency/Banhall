@@ -28,6 +28,16 @@ export default defineConfig({
       {
         extends: true,
         test: {
+          name: "shared",
+          // Cross-runtime modules; without this project their tests are
+          // silently skipped (no project matched shared/**).
+          include: ["shared/**/*.test.ts"],
+          environment: "node",
+        },
+      },
+      {
+        extends: true,
+        test: {
           name: "src",
           include: ["src/**/*.test.ts"],
           // Component tests match the include glob above but need a real

@@ -295,6 +295,48 @@ export const completePdReview = internalMutation({
   },
 });
 
+/**
+ * Cron reaper (mirrors generations.failStaleGenerations): runPdReview's catch
+ * handles soft failures, but a hard action death (deploy restart, timeout,
+ * OOM) strands the row in "running" with no catch block left to fail it —
+ * and both startPdReview and retryPdReview refuse while one is running, so
+ * the UI would spin forever. Fail anything running past the cutoff; the
+ * writer retries from the normal failed-review path.
+ * `npx convex run pdReviews:failStalePdReviews '{"olderThanMinutes":15}'`
+ */
+export const failStalePdReviews = internalMutation({
+  args: { olderThanMinutes: v.optional(v.number()) },
+  returns: v.object({ failed: v.number() }),
+  handler: async (ctx, args) => {
+    const cutoff = Date.now() - (args.olderThanMinutes ?? 15) * 60 * 1000;
+    const stale = await ctx.db
+      .query("pdReviews")
+      .withIndex("by_status_and_createdAt", (q) =>
+        q.eq("status", "running").lt("createdAt", cutoff)
+      )
+      .take(100);
+    let failed = 0;
+    for (const review of stale) {
+      const now = Date.now();
+      await ctx.db.patch(review._id, {
+        status: "failed",
+        error: "Timed out before the review completed.",
+        completedAt: now,
+      });
+      await ctx.db.insert("pdReviewEvents", {
+        projectId: review.projectId,
+        reviewId: review._id,
+        actor: "system",
+        action: "review_failed",
+        detail: "Timed out before the review completed.",
+        at: now,
+      });
+      failed += 1;
+    }
+    return { failed };
+  },
+});
+
 export const failPdReview = internalMutation({
   args: {
     reviewId: v.id("pdReviews"),

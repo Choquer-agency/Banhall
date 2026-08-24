@@ -24,7 +24,9 @@ describe("team roster access", () => {
 });
 
 describe("developer-tool exposure", () => {
-  it("is an admin-managed profile flag, not a role or capability", async () => {
+  // 2026-08-19: flag management is limited to developers and workspace
+  // Owners — a plain admin can neither see nor change these flags.
+  it("is a flag-manager-managed profile flag, not a role or capability", async () => {
     const t = convexTest(schema, modules);
     const ids = await t.run(async (ctx) => ({
       admin: await ctx.db.insert("users", {
@@ -32,6 +34,13 @@ describe("developer-tool exposure", () => {
         role: "admin",
         firstName: "Admin",
         email: "admin@example.com",
+      }),
+      owner: await ctx.db.insert("users", {
+        authId: "developer-owner",
+        role: "admin",
+        isOwner: true,
+        firstName: "Owner",
+        email: "owner@example.com",
       }),
       writer: await ctx.db.insert("users", {
         authId: "developer-writer",
@@ -41,6 +50,7 @@ describe("developer-tool exposure", () => {
       }),
     }));
     const admin = t.withIdentity({ subject: "developer-admin" });
+    const owner = t.withIdentity({ subject: "developer-owner" });
     const writer = t.withIdentity({ subject: "developer-writer" });
 
     await expect(
@@ -50,7 +60,14 @@ describe("developer-tool exposure", () => {
       })
     ).rejects.toThrow(/elevated role|admin/i);
 
-    await admin.mutation(api.users.setUserDeveloper, {
+    await expect(
+      admin.mutation(api.users.setUserDeveloper, {
+        userId: ids.writer,
+        isDeveloper: true,
+      })
+    ).rejects.toThrow(/developers and workspace owners/i);
+
+    await owner.mutation(api.users.setUserDeveloper, {
       userId: ids.writer,
       isDeveloper: true,
     });

@@ -222,7 +222,13 @@ export const getSessionDetails = query({
         answer: session.answer ?? null,
         evidenceBoundary: session.evidenceBoundary ?? null,
         warnings: session.warnings ?? [],
-        errorMessage: session.errorMessage ?? null,
+        // Typed, user-safe failure copy (docs/product-domain.md). The stored
+        // errorMessage can embed raw provider text ("gpt: <provider error>")
+        // — it stays on the row for ops and never crosses this boundary.
+        errorMessage:
+          session.status === "failed"
+            ? "Research did not complete. Try running it again."
+            : null,
         feedback: session.feedback ?? null,
       },
       sources,
@@ -234,8 +240,13 @@ export const getSessionDetails = query({
         sourceIds: claim.sourceIds,
       })),
       proposal,
+      // The feed only distinguishes search paths from the reviewer — provider
+      // identity ("gpt"/"perplexity") is ops detail and stays server-side.
       runs: runs.map((run) => ({
-        provider: run.provider,
+        kind:
+          run.provider === "reviewer"
+            ? ("reviewer" as const)
+            : ("search" as const),
         status: run.status,
       })),
     };

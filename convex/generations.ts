@@ -80,7 +80,9 @@ export const getLatestGeneration = query({
       status: generation.status,
       candidateMode: generation.candidateMode ?? "compare",
       currentStep: generation.currentStep,
-      progressLog: generation.progressLog,
+      // Same boundary contract as getIterativeState: raw provider text stays
+      // on the row for ops; only typed copy and authored narration cross.
+      progressLog: (generation.progressLog ?? []).map(userSafeNarration),
       estimatedMs: generation.estimatedMs,
       totalCandidates: generation.totalCandidates,
       candidatesDone: generation.candidatesDone,
@@ -88,7 +90,10 @@ export const getLatestGeneration = query({
       requestedAt: generation.requestedAt,
       startedAt: generation.startedAt,
       completedAt: generation.completedAt,
-      error: generation.error,
+      error: userSafeStoredError(
+        generation.error,
+        "The generation did not complete. Try again."
+      ),
       agentOutputs: generation.agentOutputs,
     };
   },
@@ -979,6 +984,33 @@ export const completeCandidateRun = internalMutation({
   },
 });
 
+/**
+ * A generation going terminal must settle its in-flight candidate runs too:
+ * a run left "running" after a whole-generation failure never gets another
+ * completeCandidateRun (the action is dead or its CAS fence refuses), so it
+ * skews run stats forever and hides from retryFailedCandidates, which only
+ * counts status "failed". Mirrors the ghost-run treatment in
+ * completeCandidateRun. Status-CAS: only queued/running rows are touched.
+ */
+async function terminalizeOrphanedCandidateRuns(
+  ctx: MutationCtx,
+  generationId: Id<"generations">,
+  error: string
+) {
+  const runs = await ctx.db
+    .query("generationCandidateRuns")
+    .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+    .take(10);
+  for (const run of runs) {
+    if (run.status !== "queued" && run.status !== "running") continue;
+    await ctx.db.patch(run._id, {
+      status: "failed",
+      error,
+      completedAt: Date.now(),
+    });
+  }
+}
+
 export const failGeneration = internalMutation({
   args: {
     generationId: v.id("generations"),
@@ -998,6 +1030,11 @@ export const failGeneration = internalMutation({
       error: args.error.slice(0, 500),
       completedAt: Date.now(),
     });
+    await terminalizeOrphanedCandidateRuns(
+      ctx,
+      generation._id,
+      "The generation failed before this draft completed."
+    );
     const project = await ctx.db.get(generation.projectId);
     if (project?.activeGenerationId === generation._id) {
       await ctx.db.patch(project._id, {
@@ -1432,13 +1469,56 @@ export const requestReportQa = mutation({
     // Idempotent: a pass already in flight keeps running across panel
     // close/reopen — never double-spend the API call.
     if (generation.postQaStatus === "running") return null;
-    await ctx.db.patch(generation._id, { postQaStatus: "running" });
+    await ctx.db.patch(generation._id, {
+      postQaStatus: "running",
+      postQaStartedAt: Date.now(),
+    });
     await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
       generationId: generation._id,
     });
     return null;
   },
 });
+
+// ─── User-safe error projection for the iterative stepper ────────────────────
+// Stored run/generation errors are "<code>: <message>" from
+// normalizeProviderError; the "unknown" branch embeds raw provider text, which
+// is ops material, not end-user copy (docs/product-domain.md: failure states
+// use typed, user-safe errors). Raw strings stay on the rows for ops — they
+// are mapped at this query boundary only. Strings without a known code prefix
+// were written by our own mutations (timeouts, cancels, frozen-input) and are
+// already safe copy, except that unrecognized colon-prefixed strings fall back
+// to the generic line to be safe.
+const STORED_ERROR_COPY: Record<string, string> = {
+  billing:
+    "The AI provider account cannot accept this request because billing or credits need attention.",
+  rate_limited:
+    "The AI provider is rate-limiting requests. Try again after the limit resets.",
+  authentication: "The AI provider credentials were rejected by the provider.",
+  model_access:
+    "The configured account does not have access to a required model.",
+  output_limit:
+    "The model ran out of output budget before finishing this step. Retry, or use a different model for this draft.",
+  network: "The AI provider could not be reached from this deployment.",
+} as const;
+
+function userSafeStoredError(
+  error: string | undefined,
+  fallback: string
+): string | null {
+  if (!error) return null;
+  const separator = error.indexOf(":");
+  if (separator <= 0) return error; // our own copy — no provider code prefix
+  const code = error.slice(0, separator);
+  return STORED_ERROR_COPY[code] ?? fallback;
+}
+
+/** Progress narration appends failure details verbatim ("… failed: <error>.").
+ * Strip everything after the failure marker so raw provider text never rides
+ * along; every other narration line is authored copy and passes through. */
+function userSafeNarration(line: string): string {
+  return line.replace(/ failed: .*$/s, " failed.");
+}
 
 /** Live state for the iterative stepper UI. */
 export const getIterativeState = query({
@@ -1482,7 +1562,10 @@ export const getIterativeState = query({
           qa,
           attempt: run.attempt,
           guidance: run.guidance ?? null,
-          error: run.error ?? null,
+          error: userSafeStoredError(
+            run.error,
+            "The section draft did not complete. Regenerate to retry."
+          ),
         },
       ];
     });
@@ -1511,9 +1594,12 @@ export const getIterativeState = query({
       status: generation.status,
       candidateMode: "iterative" as const,
       modelLabel,
-      error: generation.error ?? null,
+      error: userSafeStoredError(
+        generation.error,
+        "The generation did not complete. Try again."
+      ),
       // Narrates the pre-fan-out wait (analyzer + Brain) in the stepper.
-      progressLog: generation.progressLog ?? [],
+      progressLog: (generation.progressLog ?? []).map(userSafeNarration),
       currentStep: generation.currentStep ?? null,
       sectionRuns,
       ghost,
@@ -1770,7 +1856,10 @@ export const approveSectionDraft = mutation({
     await refreshProjectGenerationActivity(ctx, generation.projectId);
     // Every mode ends with a scorecard: run QA + chronology over the
     // assembled sections in the background (feeds the learning loops).
-    await ctx.db.patch(generation._id, { postQaStatus: "running" });
+    await ctx.db.patch(generation._id, {
+      postQaStatus: "running",
+      postQaStartedAt: doneAt,
+    });
     await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
       generationId: generation._id,
     });
@@ -1957,6 +2046,13 @@ export const failStaleGenerations = internalMutation({
         error: "Timed out before generation completed.",
         completedAt: Date.now(),
       });
+      // In-flight candidate runs die with the generation — otherwise they
+      // read "running" forever (skewed stats, invisible to retry).
+      await terminalizeOrphanedCandidateRuns(
+        ctx,
+        generation._id,
+        "Timed out before the draft completed."
+      );
       const project = await ctx.db.get(generation.projectId);
       if (project?.activeGenerationId === generation._id) {
         await ctx.db.patch(project._id, {
@@ -2018,7 +2114,77 @@ export const failStaleGenerations = internalMutation({
       await refreshProjectGenerationActivity(ctx, project._id);
       freed += 1;
     }
-    return { failed, freed };
+
+    // Candidate runs stranded queued/running after their generation already
+    // went terminal (e.g. a hard ghost-draft death after a writer cancel, or
+    // whole-fails from before runs were terminalized in the same mutation).
+    // A run under a live generation is left alone — it may still report back.
+    let orphanedRuns = 0;
+    const queuedRuns = await ctx.db
+      .query("generationCandidateRuns")
+      .withIndex("by_status_and_startedAt", (q) => q.eq("status", "queued"))
+      .take(100);
+    const runningRuns = await ctx.db
+      .query("generationCandidateRuns")
+      .withIndex("by_status_and_startedAt", (q) =>
+        q.eq("status", "running").lt("startedAt", cutoff)
+      )
+      .take(100);
+    for (const run of [...queuedRuns, ...runningRuns]) {
+      // Queued rows carry no startedAt; age them from queuedAt instead.
+      if ((run.startedAt ?? run.queuedAt) >= cutoff) continue;
+      const generation = await ctx.db.get(run.generationId);
+      if (
+        generation &&
+        generation.status !== "completed" &&
+        generation.status !== "failed"
+      ) {
+        continue;
+      }
+      await ctx.db.patch(run._id, {
+        status: "failed",
+        error: "The generation ended before this draft completed.",
+        completedAt: Date.now(),
+      });
+      orphanedRuns += 1;
+    }
+    return { failed, freed, orphanedRuns };
+  },
+});
+
+/**
+ * Cron reaper for the post-assembly QA pass (same failure mode as
+ * failStaleGenerations): postQaStatus flips to "running" before runReportQa is
+ * scheduled, and only saveReportQa ever moves it on — a hard action death
+ * (deploy restart, timeout, OOM) leaves the QA panel spinning forever with the
+ * Run button hidden, because requestReportQa refuses while a pass "is
+ * running". Mark stale passes failed so the writer can re-run them. Rows from
+ * before postQaStartedAt existed carry no timestamp and are treated as stale —
+ * nothing can still be running them.
+ * `npx convex run generations:failStalePostQa '{"olderThanMinutes":15}'`
+ */
+export const failStalePostQa = internalMutation({
+  args: { olderThanMinutes: v.optional(v.number()) },
+  returns: v.object({ failed: v.number() }),
+  handler: async (ctx, args) => {
+    const cutoff = Date.now() - (args.olderThanMinutes ?? 15) * 60 * 1000;
+    const running = await ctx.db
+      .query("generations")
+      .withIndex("by_postQaStatus", (q) => q.eq("postQaStatus", "running"))
+      .take(100);
+    let failed = 0;
+    for (const generation of running) {
+      if ((generation.postQaStartedAt ?? 0) >= cutoff) continue;
+      await ctx.db.patch(generation._id, {
+        postQaStatus: "failed",
+        progressLog: [
+          ...(generation.progressLog ?? []),
+          "Post-assembly QA pass timed out — the report is unaffected. Run it again from the QA panel.",
+        ],
+      });
+      failed += 1;
+    }
+    return { failed };
   },
 });
 

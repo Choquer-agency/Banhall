@@ -20,10 +20,20 @@ import { instrumentedOpenRouter } from "./openrouter";
 import type { GenerationClient } from "./openrouterCore";
 
 
+// Pinned explicitly rather than trusting SDK defaults: the SDK's default
+// 10-minute timeout equals the Convex action limit, so a hung call would
+// consume the entire action budget. The timeout must stay below that limit.
+export const ANTHROPIC_MAX_RETRIES = 2;
+export const ANTHROPIC_TIMEOUT_MS = 8 * 60 * 1000;
+
 export function createAnthropicClient(
   capability: AnthropicCapability
 ): Anthropic {
-  return new Anthropic({ apiKey: requireAnthropicConfigured(capability) });
+  return new Anthropic({
+    apiKey: requireAnthropicConfigured(capability),
+    maxRetries: ANTHROPIC_MAX_RETRIES,
+    timeout: ANTHROPIC_TIMEOUT_MS,
+  });
 }
 
 /**

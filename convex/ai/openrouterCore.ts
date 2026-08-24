@@ -97,6 +97,69 @@ export function toChatCompletions(
   return body;
 }
 
+// Transport retry policy — pure so the fetch loop in openrouter.ts is a thin
+// caller and the decisions test without mocking fetch. 429 and 5xx are
+// gateway/provider transients worth a bounded retry; every other 4xx (auth,
+// billing, validation) fails identically on retry and must fail fast.
+export const OPENROUTER_MAX_RETRIES = 2; // 3 attempts total
+const RETRY_BASE_DELAY_MS = 1_000;
+export const RETRY_MAX_DELAY_MS = 30_000;
+
+/** `undefined` status means the fetch itself failed (no HTTP response). */
+export function shouldRetryStatus(status: number | undefined): boolean {
+  if (status === undefined) return true;
+  return status === 429 || status >= 500;
+}
+
+/**
+ * Backoff for one retry. A numeric `Retry-After` header is the provider's own
+ * estimate — honored, capped so a buggy header cannot stall the action.
+ * Otherwise full jitter over an exponentially growing cap, which decorrelates
+ * concurrent section agents that were rate-limited together. `random` is
+ * injected (returns [0, 1)) so tests pin exact delays.
+ */
+export function retryDelayMs(
+  attempt: number,
+  retryAfterHeader: string | null | undefined,
+  random: () => number
+): number {
+  const header = retryAfterHeader?.trim();
+  if (header) {
+    const seconds = Number(header);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(seconds * 1_000, RETRY_MAX_DELAY_MS);
+    }
+  }
+  const cap = Math.min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * 2 ** attempt);
+  return Math.floor(random() * cap);
+}
+
+/**
+ * AbortSignal.timeout rejects fetch with a TimeoutError (AbortError on older
+ * runtimes). A timed-out attempt already spent its full time budget, so the
+ * transport must not retry it — retrying would overrun the action limit.
+ */
+export function isAbortLikeError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "TimeoutError" || error.name === "AbortError")
+  );
+}
+
+/**
+ * The provider answered but its output could not be decoded into content
+ * blocks (truncation, malformed tool-call JSON, empty completion). A
+ * per-attempt model failure, not a gateway/account failure — structured
+ * generation may spend its single repair attempt on it, unlike auth/billing/
+ * rate-limit errors which must keep failing fast.
+ */
+export class MalformedOutputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MalformedOutputError";
+  }
+}
+
 export type ChatCompletionsResponse = {
   choices?: Array<{
     message?: {
@@ -130,7 +193,7 @@ export function fromChatCompletions(
   // model-generated JSON string. A truncated response would JSON.parse-fail
   // confusingly, so surface length truncation as its own error first.
   if (choice.finish_reason === "length") {
-    throw new Error(
+    throw new MalformedOutputError(
       "OpenRouter response was truncated at the max_tokens limit before completing"
     );
   }
@@ -141,7 +204,7 @@ export function fromChatCompletions(
     try {
       input = JSON.parse(call.function.arguments ?? "");
     } catch {
-      throw new Error(
+      throw new MalformedOutputError(
         `OpenRouter tool call "${call.function.name}" returned malformed JSON arguments`
       );
     }
@@ -156,7 +219,7 @@ export function fromChatCompletions(
     content.push({ type: "text", text: choice.message.content });
   }
   if (content.length === 0) {
-    throw new Error("OpenRouter returned an empty completion");
+    throw new MalformedOutputError("OpenRouter returned an empty completion");
   }
   return { content, stop_reason: choice.finish_reason ?? null };
 }

@@ -120,7 +120,7 @@
     // status); runs only refine the failure detail. No assumptions here about
     // how many researchers the workflow fans out to.
     const status = details?.session.status ?? selectedSummary?.status ?? "queued";
-    const searchRuns = details?.runs.filter((run) => run.provider !== "reviewer") ?? [];
+    const searchRuns = details?.runs.filter((run) => run.kind !== "reviewer") ?? [];
     const failedSearches = searchRuns.filter((run) => run.status === "failed").length;
     const allSearchesFailed = searchRuns.length > 0 && failedSearches === searchRuns.length;
 
