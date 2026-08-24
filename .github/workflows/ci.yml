@@ -14,6 +14,10 @@ jobs:
     name: Typecheck & test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # svelte-kit sync materializes $env/static/public from the environment;
+      # the typecheck needs the member to exist, not a live deployment.
+      PUBLIC_CONVEX_URL: https://placeholder.convex.cloud
     steps:
       - uses: actions/checkout@v4
 
