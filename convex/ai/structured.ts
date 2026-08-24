@@ -1,7 +1,11 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { z } from "zod";
 import { MODEL } from "./model";
-import type { GenerationClient } from "./openrouterCore";
+import {
+  MalformedOutputError,
+  type GenerationClient,
+  type GenerationResponse,
+} from "./openrouterCore";
 
 /**
  * Models sometimes wrap their tool output in a JSON string — occasionally more
@@ -65,20 +69,36 @@ export async function generateStructured<T>(
       attempt === 0
         ? opts.user
         : `${opts.user}\n\nYour previous tool output was invalid: ${validationSummary}. Return the complete tool object and include every required field.`;
-    const res = await client.messages.create({
-      model: opts.model ?? MODEL,
-      max_tokens: opts.maxTokens ?? 8192,
-      system: opts.system,
-      tools: [
-        {
-          name: opts.toolName,
-          description: opts.description,
-          input_schema: opts.schema ?? { type: "object" },
-        },
-      ],
-      tool_choice: { type: "tool", name: opts.toolName },
-      messages: [{ role: "user", content: user }],
-    });
+    let res: GenerationResponse;
+    try {
+      res = await client.messages.create({
+        model: opts.model ?? MODEL,
+        max_tokens: opts.maxTokens ?? 8192,
+        system: opts.system,
+        tools: [
+          {
+            name: opts.toolName,
+            description: opts.description,
+            input_schema: opts.schema ?? { type: "object" },
+          },
+        ],
+        tool_choice: { type: "tool", name: opts.toolName },
+        messages: [{ role: "user", content: user }],
+      });
+    } catch (error) {
+      // The OpenRouter adapter decodes tool-call JSON inside create(), so a
+      // truncated/malformed candidate response throws here instead of
+      // returning an invalid block — the same class of failure as a zod
+      // rejection, so it spends the same single repair attempt. Provider
+      // errors (auth, billing, rate limit) are not repairable by re-prompting
+      // and keep failing fast; the transport already retries rate limits.
+      if (attempt > 0 || !(error instanceof MalformedOutputError)) throw error;
+      validationSummary = error.message;
+      console.warn(
+        `${opts.toolName}: retrying after malformed provider output — ${error.message}`
+      );
+      continue;
+    }
 
     const block = res.content.find((item) => item.type === "tool_use");
     if (!block || block.type !== "tool_use") {

@@ -4,6 +4,11 @@ import {
   fromChatCompletions,
   requireTextResponse,
   openRouterUsage,
+  shouldRetryStatus,
+  retryDelayMs,
+  isAbortLikeError,
+  MalformedOutputError,
+  RETRY_MAX_DELAY_MS,
 } from "./openrouterCore";
 import {
   CANDIDATE_MODELS,
@@ -195,6 +200,102 @@ describe("fromChatCompletions", () => {
     expect(() =>
       fromChatCompletions({ choices: [{ message: { content: "" } }] })
     ).toThrow(/empty completion/);
+  });
+});
+
+describe("shouldRetryStatus", () => {
+  it("retries rate limits, server errors, and network failures", () => {
+    expect(shouldRetryStatus(429)).toBe(true);
+    expect(shouldRetryStatus(500)).toBe(true);
+    expect(shouldRetryStatus(502)).toBe(true);
+    expect(shouldRetryStatus(503)).toBe(true);
+    // No HTTP response at all — the fetch itself failed.
+    expect(shouldRetryStatus(undefined)).toBe(true);
+  });
+
+  it("never retries auth, billing, or validation errors", () => {
+    expect(shouldRetryStatus(400)).toBe(false);
+    expect(shouldRetryStatus(401)).toBe(false);
+    expect(shouldRetryStatus(402)).toBe(false);
+    expect(shouldRetryStatus(403)).toBe(false);
+    expect(shouldRetryStatus(422)).toBe(false);
+  });
+});
+
+describe("retryDelayMs", () => {
+  it("honors a numeric Retry-After header exactly, ignoring jitter", () => {
+    expect(retryDelayMs(0, "7", () => 0.99)).toBe(7_000);
+    expect(retryDelayMs(1, "0", () => 0.99)).toBe(0);
+  });
+
+  it("caps a hostile or oversized Retry-After header", () => {
+    expect(retryDelayMs(0, "120", () => 0)).toBe(RETRY_MAX_DELAY_MS);
+    expect(retryDelayMs(0, "9999999", () => 0)).toBe(RETRY_MAX_DELAY_MS);
+  });
+
+  it("falls back to jitter for HTTP-date, negative, or empty Retry-After", () => {
+    // HTTP-date form is valid per spec but intentionally unparsed — the
+    // jittered backoff is the safe default.
+    expect(retryDelayMs(0, "Wed, 21 Oct 2026 07:28:00 GMT", () => 0.5)).toBe(500);
+    expect(retryDelayMs(0, "-5", () => 0.5)).toBe(500);
+    expect(retryDelayMs(0, "", () => 0.5)).toBe(500);
+    expect(retryDelayMs(0, null, () => 0.5)).toBe(500);
+  });
+
+  it("applies full jitter over an exponentially growing, capped window", () => {
+    // Full jitter: any delay in [0, cap) is legal, including zero.
+    expect(retryDelayMs(0, null, () => 0)).toBe(0);
+    expect(retryDelayMs(0, null, () => 0.999)).toBe(999);
+    // Cap doubles per attempt: 1s, 2s, 4s...
+    expect(retryDelayMs(1, null, () => 0.5)).toBe(1_000);
+    expect(retryDelayMs(2, null, () => 0.5)).toBe(2_000);
+    // ...and never exceeds the global cap however high the attempt count.
+    expect(retryDelayMs(10, null, () => 1)).toBe(RETRY_MAX_DELAY_MS);
+  });
+});
+
+describe("isAbortLikeError", () => {
+  it("recognizes timeout/abort rejections and nothing else", () => {
+    const timeout = new Error("The operation was aborted due to timeout");
+    timeout.name = "TimeoutError";
+    const abort = new Error("This operation was aborted");
+    abort.name = "AbortError";
+    expect(isAbortLikeError(timeout)).toBe(true);
+    expect(isAbortLikeError(abort)).toBe(true);
+    expect(isAbortLikeError(new Error("fetch failed"))).toBe(false);
+    expect(isAbortLikeError("TimeoutError")).toBe(false);
+  });
+});
+
+describe("MalformedOutputError classification", () => {
+  it("marks decode failures retryable but keeps provider errors plain", () => {
+    const decodeFailures = [
+      // Truncated tool JSON at the token limit.
+      {
+        choices: [
+          {
+            message: { tool_calls: [{ function: { name: "submit", arguments: '{"a":' } }] },
+            finish_reason: "length",
+          },
+        ],
+      },
+      // Malformed tool JSON without truncation.
+      {
+        choices: [
+          { message: { tool_calls: [{ function: { name: "submit", arguments: "{broken" } }] } },
+        ],
+      },
+      // Empty completion.
+      { choices: [{ message: { content: "" } }] },
+    ];
+    for (const body of decodeFailures) {
+      expect(() => fromChatCompletions(body)).toThrow(MalformedOutputError);
+    }
+    // A missing choice carries the provider's own error (e.g. moderation) —
+    // not a decode failure, so structured generation must not re-prompt it.
+    expect(() =>
+      fromChatCompletions({ error: { message: "moderation flagged" } })
+    ).not.toThrow(MalformedOutputError);
   });
 });
 
