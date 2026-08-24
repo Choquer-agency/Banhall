@@ -403,6 +403,14 @@ export const submitBrainFeedback = mutation({
   },
 });
 
+/**
+ * Feedback shorter than this carries no promotable knowledge (a bare "thanks"
+ * or emoji). The decision is still recorded; only source nomination is skipped.
+ * Exported: the distillation query (learning.getApprovedBrainFeedbackForDigest)
+ * must count exactly the rows this mutation promotes.
+ */
+export const MIN_PROMOTABLE_FEEDBACK_CHARS = 40;
+
 export const reviewFeedback = mutation({
   args: {
     feedbackId: v.id("brainFeedbackQueue"),
@@ -411,14 +419,73 @@ export const reviewFeedback = mutation({
   },
   handler: async (ctx, args) => {
     const admin = await assertAdmin(ctx);
+    const fb = await ctx.db.get(args.feedbackId);
+    if (!fb) throw new Error("Feedback not found");
+    // Status fence: a decided item is final. The admin UI only renders pending
+    // rows (listFeedbackQueue filters by status), so a second decision can only
+    // come from a stale client — reject it instead of silently rewriting the
+    // recorded decision (and re-nominating a source).
+    if (fb.status !== "pending") {
+      throw new Error(`Feedback already reviewed (${fb.status})`);
+    }
     await ctx.db.patch(args.feedbackId, {
       status: args.decision,
       reviewedBy: admin,
       reviewNote: args.reviewNote,
     });
+
+    // Approved feedback with usable content is routed into the Brain pipeline
+    // instead of being discarded (the pre-existing gap: approve used to only
+    // flip status). It lands PENDING, not approved: approving the feedback
+    // says "this writer signal is valid", not "this exact text, at this
+    // weight/industry, belongs in the retrieval index". The sources queue is
+    // where the admin curates tier/industry/content with the full review pane
+    // — the same reason nominateFromReport never auto-approves — and it keeps
+    // the invariant that every vector-index entry traces to an explicit
+    // approve on a brainSources row. Content-hash dedup (importSource) makes
+    // repeat nomination a no-op.
+    let sourceId: Id<"brainSources"> | undefined;
+    if (args.decision === "approved") {
+      const rule = fb.suggestedRule?.trim();
+      const body = fb.body.trim();
+      const promotable =
+        !!rule || body.length >= MIN_PROMOTABLE_FEEDBACK_CHARS;
+      if (promotable) {
+        const project = fb.projectId ? await ctx.db.get(fb.projectId) : null;
+        sourceId = await importSource(
+          ctx,
+          {
+            kind: "writer_feedback",
+            title: `Writer feedback: ${(rule ?? body).slice(0, 80)}`,
+            industry: project?.industry ?? "general",
+            writerName: fb.fromName,
+            // Conservative default weight; the admin reweights on approval.
+            writerTier: 0.4,
+            docType: "writer_feedback",
+            content: rule ? `Suggested rule: ${rule}\n\n${body}` : body,
+            sourceProjectId: fb.projectId,
+            // Never auto-approve: the nomination lands in the pending queue.
+          },
+          admin
+        );
+        // Learning loop: approved feedback is also distillation signal for the
+        // draft-style digest (immutable candidates, admin publication ledger)
+        // — the governed channel through which feedback reaches prompts. The
+        // delay coalesces a review session's worth of decisions; the action
+        // no-ops when the newest candidate already covers this approval.
+        await ctx.scheduler.runAfter(
+          10 * 60 * 1000,
+          internal.ai.learning.generateDraftStyleDigest,
+          {}
+        );
+      }
+    }
+
     await ctx.db.insert("brainAuditLog", {
       action: args.decision === "approved" ? "approve" : "reject",
       feedbackId: args.feedbackId,
+      // Links the decision to the nominated source (if any) for provenance.
+      sourceId,
       actorId: admin,
       reason: args.reviewNote,
       at: Date.now(),

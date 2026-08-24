@@ -47,6 +47,37 @@ export type BrainSearchOutcome = {
 const RELEVANCE_FLOOR = 0.35;
 
 /**
+ * Relevance gates for the NON-reranked paths (≤k candidates, or a rerank
+ * outage), which previously passed raw hybrid results with no floor at all —
+ * low-relevance exemplars slipped in precisely when the corpus is small.
+ *
+ * Two layers, because raw hybrid `searchScore`s are NOT similarities: the RAG
+ * component assigns position-based RRF scores ((n − i) / n — the top hit scores
+ * 1.0 even on a garbage match), so no searchScore floor can measure relevance
+ * on its own:
+ *  - MIN_VECTOR_SIMILARITY is a true cosine floor applied inside the search
+ *    (`vectorScoreThreshold`): vector candidates below it never enter the
+ *    slate, on every path. Deliberately low — voyage-3 cosine similarity for
+ *    on-topic text runs ≳0.4; 0.3 prunes clear junk without starving a small
+ *    corpus.
+ *  - RAW_SEARCH_FLOOR then trims the tail of the fused slate on the
+ *    non-reranked returns: the bottom of the RRF ordering is where text-only
+ *    stragglers (which bypass the cosine floor) land.
+ */
+const MIN_VECTOR_SIMILARITY = 0.3;
+const RAW_SEARCH_FLOOR = 0.25;
+
+/**
+ * Floor applied whenever the cross-encoder didn't rank (see RAW_SEARCH_FLOOR).
+ * Exported for unit tests.
+ */
+export function applyRawSearchFloor(
+  candidates: BrainExemplar[]
+): BrainExemplar[] {
+  return candidates.filter((c) => c.searchScore >= RAW_SEARCH_FLOOR);
+}
+
+/**
  * Retrieve top-k approved exemplar passages from The Brain (BNH-10). Never
  * throws — infra failure returns `{ exemplars: [], degraded: true }` so The
  * Brain can NEVER break report generation, while callers can still tell an
@@ -97,6 +128,7 @@ export async function searchBrainExemplars(
       query: retrievalQuery,
       searchType: "hybrid",
       limit: 30,
+      vectorScoreThreshold: MIN_VECTOR_SIMILARITY,
       chunkContext: { before: 1, after: 1 },
       ...(filters.length ? { filters: filters as never } : {}),
     });
@@ -181,8 +213,10 @@ export async function searchBrainExemplars(
         console.error("brain rerank failed; falling back to vector order", err);
       }
     }
+    // Non-reranked exit (≤k candidates, or the rerank catch above): apply the
+    // raw-slate floor since RELEVANCE_FLOOR never ran here.
     return {
-      exemplars: pickScienceRouted(candidates, k, scienceCode),
+      exemplars: pickScienceRouted(applyRawSearchFloor(candidates), k, scienceCode),
       degraded: false,
     };
   } catch (err) {
@@ -209,6 +243,14 @@ export const retrieveBrainContext = internalAction({
 });
 
 /**
+ * Defensive per-exemplar cap. Retrieved ranges are normally ~3 chunks (±1
+ * chunk context) and land well under this; the cap only bites on a
+ * pathological over-long chunk, so one exemplar can never flood a section
+ * prompt. Generous on purpose — truncating healthy exemplars costs quality.
+ */
+const MAX_EXEMPLAR_CHARS = 6000;
+
+/**
  * Render exemplars into a prompt block. Framed as REFERENCE PATTERNS, never as
  * facts to copy — the analyzer/section prompts already forbid fabrication, and
  * these gold passages are for structure/voice/CRA-phrasing only.
@@ -224,7 +266,11 @@ export function formatBrainExemplars(exemplars: BrainExemplar[]): string {
       ]
         .filter(Boolean)
         .join(" — ");
-      return `--- REFERENCE PATTERN ${i + 1}${label ? ` (${label})` : ""} ---\n${e.text}`;
+      const text =
+        e.text.length > MAX_EXEMPLAR_CHARS
+          ? `${e.text.slice(0, MAX_EXEMPLAR_CHARS)}\n[… exemplar truncated]`
+          : e.text;
+      return `--- REFERENCE PATTERN ${i + 1}${label ? ` (${label})` : ""} ---\n${text}`;
     })
     .join("\n\n");
   return `\n\n# SIMILAR PAST REPORTS FROM THE BRAIN (reference patterns only)

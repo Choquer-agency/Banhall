@@ -8,6 +8,7 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCapability } from "./lib/roleCapabilities";
+import { MIN_PROMOTABLE_FEEDBACK_CHARS } from "./brain";
 
 /**
  * Learning loop storage + governed publication.
@@ -95,6 +96,44 @@ export const getSectionEditsForDigest = internalQuery({
         editRatio: Math.round(row.editRatio * 100) / 100,
         updatedAt: row.createdAt,
       }));
+  },
+});
+
+/**
+ * Admin-approved writer feedback (BNH-39 conduit) for the draft-style
+ * distillation stream. Promotable rows only — the same bar reviewFeedback
+ * uses to nominate a Brain source — so a "thanks!" approval never counts as
+ * signal. Rejected and pending rows never reach this query (index equality on
+ * status "approved"). updatedAt is the approval moment, recovered from the
+ * decision's audit row: freshness must key off approval, not submission, so
+ * an item approved after a digest run still registers as new signal.
+ */
+export const getApprovedBrainFeedbackForDigest = internalQuery({
+  args: { limit: v.number() },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("brainFeedbackQueue")
+      .withIndex("by_status", (q) => q.eq("status", "approved"))
+      .order("desc")
+      .take(args.limit);
+    const items = [];
+    for (const row of rows) {
+      const rule = row.suggestedRule?.trim();
+      const body = row.body.trim();
+      if (!rule && body.length < MIN_PROMOTABLE_FEEDBACK_CHARS) continue;
+      const decision = await ctx.db
+        .query("brainAuditLog")
+        .withIndex("by_feedbackId", (q) => q.eq("feedbackId", row._id))
+        .order("desc")
+        .first();
+      items.push({
+        suggestedRule: rule ? rule.slice(0, 300) : null,
+        body: body.slice(0, 1000),
+        // Rows decided before audit linking existed fall back to submission.
+        updatedAt: decision?.at ?? row.createdAt,
+      });
+    }
+    return items;
   },
 });
 
