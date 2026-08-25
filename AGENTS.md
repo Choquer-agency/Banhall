@@ -1,21 +1,43 @@
-# Frontend: SvelteKit 2 + Svelte 5 (runes) — NOT React/Next.js
+<!-- bmad:context -->
+<!-- Verified 2026-08-25 against 0e48926. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
 
-The frontend was migrated off Next.js/React on 2026-07-02. Do not write JSX,
-React hooks, or Next.js APIs. **Read `docs/svelte-migration.md` before any
-frontend work** — it has the stack, React→Svelte conventions, convex-svelte
-idioms, and post-cutover gotchas (e.g. exportTemplateDocx is not SSR-safe). Routes
-live in `src/routes/`, components in `src/lib/components/`. Visual work
-follows the design system — tokens in `src/routes/layout.css`, rules in
-`docs/design-system.md`, live at `/styleguide`; use type roles + the
-remapped gray ramp, never ad-hoc hexes. Dev server:
-`npm run dev` (or bun/pnpm) → localhost:3001.
+## Banhall
 
-For project ownership, workflow stages, assignments/current handoffs, report
-branches, production outcomes, notifications, role capabilities, clients, or
-claim-period work, **read `docs/product-domain.md` before planning or editing**.
-It is the canonical domain contract; do not repurpose `projects.createdBy`, mix
-human workflow with generation state, or invent transitions/permissions outside
-that document without recording an approved amendment.
+SR&ED report generation for a consulting firm. SvelteKit 2 + Svelte 5 runes, Tailwind, Convex backend, Claude/OpenRouter via `convex/ai/`. Domain contract in `docs/product-domain.md`, AI target architecture in `docs/ai-architecture-plan.md`, current findings in `docs/ai-engine-audit-2026-08-25.md`. Tickets live in futur-board (BNH-*), not this repo.
+
+## Policy
+
+- Never repurpose `projects.createdBy`, mix human workflow with generation state, or invent transitions/permissions outside `docs/product-domain.md` without recording an approved amendment there.
+- Agents propose, humans apply: no code path may let an AI tool mutate report prose directly; route through `chatProposals` + `applyProposal`.
+- Never hand-edit `convex/_generated/`.
+
+## Where things are
+
+- Convex code: read `convex/_generated/ai/guidelines.md` first; it overrides training-data Convex patterns.
+- Frontend conventions and convex-svelte idioms: `docs/svelte-migration.md`.
+- Design tokens: `src/routes/layout.css`; rules in `docs/design-system.md`; live at `/styleguide`.
+- Changelog entries: `docs/changelog-guidelines.md`.
+
+## Running and verifying
+
+- `npm test` never touches a browser; component tests are `npm run test:component` and need `npx playwright install chromium` once.
+- CI runs only `npm run check` and `npm test`; run `test:component` locally before touching `src/lib/components`.
+- `npm run check` needs `PUBLIC_CONVEX_URL` set to any value; CI uses a placeholder.
+
+## Conventions that differ from defaults
+
+- No JSX, React hooks, or Next.js APIs; Svelte 5 runes only.
+- Use design-system type roles and the remapped gray ramp; never ad-hoc hex values.
+- Max font weight 500 in new or redesigned UI; hierarchy via size and ink color, not bold.
+- Use bits-ui/shadcn-svelte primitives over native `<select>`/`<input>` controls.
+- Active tab = primary fill + white text; inactive hover = primary wash.
+
+## Known pitfalls
+
+- `exportTemplateDocx` is not SSR-safe; import it only inside browser-only code paths.
+- Never add `sveltekit()` to `vitest.component.config.ts`; it pulls `$app`/`$env` and breaks the browser project.
+
+<!-- /bmad:context -->
 
 <!-- convex-ai-start -->
 
