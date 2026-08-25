@@ -2,10 +2,10 @@
 title: 'Proposal apply always snapshots and bumps revision'
 type: 'bugfix'
 created: '2026-08-25'
-status: in-review
+status: done
 baseline_revision: '4e6afe2bb94e13970fa645f0ff3ef798204dcd6a'
 review_loop_iteration: 1
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/convex/_generated/ai/guidelines.md'
   - '{project-root}/docs/svelte-migration.md'
@@ -137,6 +137,22 @@ deferred:
   - Patch findings carried into the amended Tasks (moot this pass, code re-derived): `[low]` JSDoc on `markProposalApplied` must document the fence contract; `[low]` `ReplaceSession.messageId` typed `string` with an `as Id<"chatProposals">` cast; `[low]` mark-applied test file lacked role-denial and snapshot-count assertions.
 - rejected (intent authority or false on inspection): snapshot reason/label semantics, "empty" revision bump, missing research provenance, `applied` early return before report validation, `then(mark, mark)` after a rejected save, `replaced === 0` leaves proposal pending (all mandated by the intent contract); "localRevision never resynced" and "alreadyApplied adopts a foreign revision" (the existing `$effect` resyncs `localRevision` from the live report whenever `pendingSaves === 0`, so behaviour matches the pre-existing autosave design); non-integer `expectedRevisionNumber` validation (matches `updateReportContent` precedent); error-copy specialisation, `pendingSaves` bump during mark, unmounted-component guard, `docs/product-domain.md` update, atomicity of mid-write throws (Convex mutations are transactional); user re-pressing Apply after a stale mark (server `applyProposal` marks the proposal stale when the find strings are gone; no double replace).
 
+### 2026-08-25 — Review pass (loop 2)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7: (high 0, medium 2, low 5)
+- defer: 0
+- reject: 23
+- addressed_findings:
+  - `[medium]` `[patch]` `runFencedProposalMark` installed the raw mark promise as `saveChain`; a rejected mark (STALE_REVISION) left the chain rejected so `flushEditor()` (bare `await saveChain`, used by `onBeforeApply` and `beforeSnapshot`) rethrew the stale mark error until the next autosave. The helper now installs `chain.then(noop, noop)` while still awaiting the raw chain for `onError`; added test "a rejected mark leaves a settled chain"; Design Notes snippet updated to match.
+  - `[medium]` `[patch]` The `provenanceId` cleared assertion ran on a fixture that never had provenance (vacuous). Added `seedProvenance()` inserting a real approved `reportProvenance` row: happy path asserts it is cleared on the report and recorded on the snapshot; stale-revision and already-applied cases assert it is preserved.
+  - `[low]` `[patch]` `pruneSnapshots` after the mark was unobservable. Added a test seeding 55 fresh `manual` snapshots and asserting the stream is trimmed to the 50 cap with the mark's `pre_chat_edit` row retained and the oldest checkpoints dropped.
+  - `[low]` `[patch]` JSDoc said the fence always throws STALE_REVISION but the idempotent already-applied path skips it; documented the exception explicitly.
+  - `[low]` `[patch]` JSDoc did not say that the scrub and unique-target checks remain out of scope for the mark path; added the note.
+  - `[low]` `[patch]` Helper doc comment implied the flush result is the fence; clarified that `getRevision()` is re-read inside the chained callback and added a test where an autosave is queued after the flush and before the mark (mark fences on the autosave's revision).
+  - `[low]` `[patch]` Happy-path test now asserts `updatedAt` moved with the bump.
+- rejected (intent authority or false on inspection): check order NOT_FOUND/INVALID_INPUT before access, already-applied return before report validation (both mandated by the contract's check order; loop-1 rejection stands), snapshot reason/label semantics, redundant `provenanceId`/`updatedAt` patch, `researchSessionId` fields omitted from the snapshot (contract's snapshot tuple is exhaustive), client retry on STALE_REVISION / bespoke `saveError` message (contract prescribes `notifyReplace(userErrorMessage(...))`; `$effect` resync is the recovery path), `replaced > 0` partial-apply gate (preserved by contract), `returns` validator (guidelines do not require it; `applyProposal` precedent has none), `Promise<unknown>` deps type (cosmetic; spec-prescribed), relocating the `as Id<"chatProposals">` cast into `AgentChatPanel`/`ProposalCard` prop types (`ProposalCard` is contract-frozen; cast is documented), page-level component test of the wiring (spec loop-1 amendment deliberately placed evidence at the helper + server resync surfaces; recorded as residual risk), legacy `revisionNumber` undefined with expected 0 (matches `updateReportContent`), autosave capturing `localRevision` at enqueue time (false: `save` reads it inside the chained callback), mark returning 0 regressing the local revision (only reachable on already-applied + deleted report; `$effect` resyncs), legacy `chatMessages` id callers (grep: none), removed silent no-op return (grep: only the two pages call it), `docs/product-domain.md` update, concurrent double-mark (Convex transactions serialise; second sees `applied`), `client_review` share-token actor (unchanged access helper), `pruneSnapshots` collapsing the fresh snapshot (false: sub-hour snapshots are unique buckets; now also covered by the prune test).
+
 ## Design Notes
 
 **Choice: fence, not delete.** `applyProposal` replaces every occurrence of each `find` server-side. The one-by-one flow exists so the writer can accept or keep each instance individually (`replaceAndNext` / `keepOriginalAndNext` in the page components); per-pair `applyProposal` cannot express "keep instance 2, replace instance 3". `ProposalCard.svelte` only forwards `onReviewReplacements`, so nothing there can absorb the difference. Deleting `markProposalApplied` would therefore regress UX; the SPEC's open question is resolved as fence.
@@ -168,7 +184,9 @@ export async function runFencedProposalMark(deps: FencedMarkDeps): Promise<void>
     deps.setRevision(result.revisionNumber);
   };
   const chain = deps.getChain().then(mark, mark);
-  deps.setChain(chain);
+  // Install the settled form: flushEditor() awaits saveChain bare, so a
+  // rejected mark must not poison later apply/snapshot flushes.
+  deps.setChain(chain.then(noop, noop));
   try {
     await chain;
   } catch (err) {
@@ -205,3 +223,31 @@ function markApplied(id: Id<"chatProposals">) {
 - `cd /Users/johnnynguyen/Documents/Repos/Banhall-bmad-loop && npm test -- fencedProposalMark` -- expected: client sequencing cases pass.
 - `cd /Users/johnnynguyen/Documents/Repos/Banhall-bmad-loop && npm test` -- expected: green.
 - `cd /Users/johnnynguyen/Documents/Repos/Banhall-bmad-loop && PUBLIC_CONVEX_URL=http://placeholder npm run check` -- expected: 0 errors (catches the new required arg at both call sites).
+
+## Auto Run Result
+
+**Summary:** `markProposalApplied` is fenced on `expectedRevisionNumber`, mirrors `applyProposal`'s check order, writes a `pre_chat_edit` snapshot ("AI edit reviewed one by one"), bumps `revisionNumber` without touching content, clears `provenanceId`, marks the proposal `applied`, prunes snapshots, and returns the new revision (or the idempotent already-applied shape). Both project pages route the one-by-one flow through the shared `runFencedProposalMark` helper: flush autosave, mark inside `saveChain` with the current `localRevision`, adopt the returned revision, surface errors via `notifyReplace`.
+
+**Files changed:**
+- `convex/chatV2.ts` -- fenced `markProposalApplied` handler + JSDoc contract (fence, idempotent exception, out-of-scope scrub/uniqueness).
+- `convex/chatV2.markProposalApplied.test.ts` -- new convex-test suite: every I/O matrix row, role denial, real-provenance clearing/preservation, `updateReportContent` resync, prune-to-cap.
+- `src/lib/components/project/fencedProposalMark.ts` -- new shared client sequencing helper (installs a settled chain).
+- `src/lib/components/project/fencedProposalMark.test.ts` -- 9 node unit cases for the helper.
+- `src/lib/components/project/CurrentProjectPage.svelte`, `PreviewProjectPage.svelte` -- `markApplied` delegates to the helper; `void markApplied(...)` call sites; `ReplaceSession.messageId` typed `Id<"chatProposals">`.
+
+**Review findings (loop 2):** 7 patched (medium 2, low 5), 0 deferred, 23 rejected, 0 bad_spec, 0 intent_gap. Loop 1: 3 bad_spec (spec amended, code re-derived), 1 deferred.
+
+**Follow-up review recommendation:** true. Patched high 0, medium 2, low 5; score 3*2 + 1*5 = 11 (>= 5).
+
+**Verification performed:**
+- `npx vitest list chatV2.markProposalApplied fencedProposalMark` -- 24 cases listed across both files.
+- `npm test -- chatV2.markProposalApplied fencedProposalMark` -- 24/24 passed.
+- `npm test` -- 106 files, 987 tests passed.
+- `PUBLIC_CONVEX_URL=http://placeholder npm run check` -- 0 errors, 0 warnings.
+
+**Residual risks:**
+- The page wiring of the helper (`flushEditor`, `saveChain`, `localRevision` closures) is verified by inspection and by the helper/server tests, not by a mounted-component test; a regression in how either page feeds the helper would not be caught by `npm test`.
+- Between `setRevision(N+1)` and the subscription reflecting N+1, the existing `$effect` (`pendingSaves === 0`) may briefly write the older revision back before catching up; a keystroke in that window would hit STALE_REVISION once and resync (pre-existing autosave design, acknowledged in Design Notes).
+- The already-applied path returns `report?.revisionNumber ?? 0` without validating the report against the proposal's project (contract-mandated order); only reachable for deleted/moved reports, and `$effect` resync repairs `localRevision`.
+- Client-side replacements remain unscrubbed and unchecked for unique targets (contract "Never"; audit items still open outside CAP-2).
+

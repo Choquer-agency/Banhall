@@ -422,14 +422,97 @@ export const applyProposal = mutation({
 /**
  * Mark applied without re-running the server replace (BNH-30: the writer
  * stepped through the one-by-one replace flow client-side, already autosaved).
+ *
+ * Fence contract (audit CAP-2): `expectedRevisionNumber` is required and must
+ * equal the report's current `revisionNumber`, otherwise `STALE_REVISION` is
+ * thrown and nothing is written. The client flushes its autosave first, so by
+ * the time this runs the report text already carries the accepted
+ * replacements; the mutation therefore never writes `content` (it is not even
+ * accepted as input). It does:
+ *   1. write a `pre_chat_edit` snapshot of the flushed content
+ *      (`sourceRevisionNumber` = the fenced revision), tying the applied
+ *      proposal to the revision it bumped in version history;
+ *   2. bump `revisionNumber` with the content unchanged and clear
+ *      `provenanceId` — the bump invalidates any concurrent editor tab still
+ *      holding the older revision and the cleared provenance forces a fresh
+ *      review, exactly as `updateReportContent` does for a writer edit;
+ *   3. flip the proposal to `applied` and prune snapshots.
+ * All three writes share the mutation transaction: a throw anywhere leaves
+ * the proposal `pending` with no snapshot.
+ *
+ * Returns `{ applied: true, revisionNumber }` with the new revision on
+ * success, or `{ applied: true, alreadyApplied: true, revisionNumber }` with
+ * the current revision when the proposal was already applied (idempotent; no
+ * snapshot, no bump, and the fence is deliberately not checked on this path
+ * because nothing is written). Either way the client adopts `revisionNumber`
+ * as its `localRevision` so the next autosave is fenced correctly.
+ *
+ * Out of scope here (CAP-2 covers snapshot + revision only): the banned-word
+ * scrub and the unique-target check that `applyProposal` performs are not
+ * re-run for client-side replacements.
  */
 export const markProposalApplied = mutation({
-  args: { proposalId: v.id("chatProposals") },
+  args: {
+    proposalId: v.id("chatProposals"),
+    expectedRevisionNumber: v.number(),
+  },
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
-    if (!proposal) return;
+    if (!proposal) domainError("NOT_FOUND", "Proposal not found");
+    if (proposal.kind === "references") {
+      domainError("INVALID_INPUT", "Highlights have nothing to apply.");
+    }
     await requireInternalProjectAccess(ctx, proposal.projectId);
+    const report = await ctx.db.get(proposal.reportId);
+    if (proposal.state === "applied") {
+      return {
+        applied: true as const,
+        alreadyApplied: true as const,
+        revisionNumber: report?.revisionNumber ?? 0,
+      };
+    }
+    if (proposal.state !== "pending") {
+      domainError(
+        "INVALID_INPUT",
+        proposal.state === "stale"
+          ? "This suggestion no longer matches the current report. Ask the assistant to regenerate it."
+          : "This suggestion is no longer available to apply."
+      );
+    }
+    if (!report || report.projectId !== proposal.projectId) {
+      domainError("NOT_FOUND", "Report not found");
+    }
+    const revisionNumber = report.revisionNumber ?? 0;
+    if (args.expectedRevisionNumber !== revisionNumber) {
+      domainError("STALE_REVISION", "The report changed before this edit was marked applied");
+    }
+
+    const now = Date.now();
+    const auditFields = await snapshotAuditFields(ctx, report);
+    await ctx.db.insert("reportSnapshots", {
+      projectId: report.projectId,
+      reportId: report._id,
+      content: report.content,
+      ...auditFields,
+      sourceRevisionNumber: revisionNumber,
+      reason: "pre_chat_edit",
+      label: "AI edit reviewed one by one",
+      createdByRole: "system",
+      createdAt: now,
+    });
+    // CAP-2: content is never written from client input here. The editor
+    // autosave already persisted the accepted replacements through
+    // updateReportContent; this bump only fences concurrent tabs and clears
+    // provenance, leaving content/contentHash untouched.
+    await ctx.db.patch(report._id, {
+      revisionNumber: revisionNumber + 1,
+      provenanceId: undefined,
+      updatedAt: now,
+    });
     await ctx.db.patch(args.proposalId, { state: "applied" });
+    await pruneSnapshots(ctx, report._id);
+
+    return { applied: true as const, revisionNumber: revisionNumber + 1 };
   },
 });
 

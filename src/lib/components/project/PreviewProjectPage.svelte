@@ -68,6 +68,7 @@
     type ExportValidationResult,
   } from "$lib/exportValidation";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
+  import { runFencedProposalMark } from "./fencedProposalMark";
   import { flushOutboxFor } from "$lib/uploads/outboxFlush";
   import { toast } from "svelte-sonner";
   import { comparePairFromSlots, type CandidateModelId } from "../../../../shared/generationModels";
@@ -310,8 +311,9 @@
   type ReplaceMatch = { from: number; to: number; replaceWith: string; text: string };
   type ReplaceSession = {
     pairs: { find: string; replaceWith: string }[];
-    // chatMessages id (legacy chat) or chatProposals id (agent chat).
-    messageId: string;
+    // Always a chatProposals id: only AgentChatPanel -> ProposalCard wires
+    // onReviewReplacements, and it forwards proposal._id.
+    messageId: Id<"chatProposals">;
     cursor: number;
     total: number;
     position: number;
@@ -325,8 +327,21 @@
     setTimeout(() => (replaceNotice = null), 4000);
   }
 
-  function markApplied(id: string) {
-    return markProposalApplied({ proposalId: id as Id<"chatProposals"> });
+  // CAP-2: flush the autosave, then mark inside the save chain with the
+  // flushed revision as the fence, and adopt the bumped revision. Errors are
+  // surfaced here so call sites can fire-and-forget.
+  function markApplied(id: Id<"chatProposals">) {
+    return runFencedProposalMark({
+      flushEditor,
+      getChain: () => saveChain,
+      setChain: (c) => (saveChain = c as Promise<void>),
+      getRevision: () => localRevision,
+      setRevision: (r) => (localRevision = r),
+      mark: (expectedRevisionNumber) =>
+        markProposalApplied({ proposalId: id, expectedRevisionNumber }),
+      onError: (err) =>
+        notifyReplace(userErrorMessage(err, "The suggestion could not be marked applied.")),
+    });
   }
 
   function startReplaceReview(
@@ -348,7 +363,9 @@
     ed.highlightRange(first.from, first.to, first.text);
     replaceSession = {
       pairs,
-      messageId,
+      // The prop is typed string by AgentChatPanel; ProposalCard only ever
+      // forwards proposal._id (see ReplaceSession.messageId).
+      messageId: messageId as Id<"chatProposals">,
       cursor: 0,
       total: matches.length,
       position: 1,
@@ -369,7 +386,7 @@
       replaceSession = { ...sess, cursor, position: sess.position + 1, current: next, replaced };
     } else {
       ed.clearHighlight();
-      if (replaced > 0) markApplied(sess.messageId).catch(() => {});
+      if (replaced > 0) void markApplied(sess.messageId);
       replaceSession = null;
     }
   }
@@ -402,7 +419,7 @@
       replaced++;
     }
     ed.clearHighlight();
-    if (replaced > 0) markApplied(sess.messageId).catch(() => {});
+    if (replaced > 0) void markApplied(sess.messageId);
     replaceSession = null;
   }
 
