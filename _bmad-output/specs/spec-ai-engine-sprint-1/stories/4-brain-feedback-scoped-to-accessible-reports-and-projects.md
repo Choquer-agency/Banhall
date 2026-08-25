@@ -3,7 +3,7 @@ title: 'Brain feedback scoped to accessible reports and projects'
 type: 'bugfix'
 created: '2026-08-25'
 baseline_revision: 'a5b50d774d6e2a72f3524bd8e3a2a55e137f5f2b'
-status: 'blocked'
+status: 'ready-for-dev'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -83,9 +83,3 @@ Access is checked against the project rather than the report because every inter
 - `cd /Users/johnnynguyen/Documents/Repos/Banhall-bmad-loop && npm test -- brainFeedback` -- expected: all existing and new cases pass.
 - `cd /Users/johnnynguyen/Documents/Repos/Banhall-bmad-loop && npm test` -- expected: green.
 - `cd /Users/johnnynguyen/Documents/Repos/Banhall-bmad-loop && PUBLIC_CONVEX_URL=http://placeholder npm run check` -- expected: 0 errors.
-
-## Auto Run Result
-
-Status: blocked
-Blocking condition: no subagents
-Details: Planning completed and the spec passed the READY FOR DEVELOPMENT gate (status was set to ready-for-dev, then in-progress at step-03 with baseline_revision a5b50d774d6e2a72f3524bd8e3a2a55e137f5f2b). Step-03 requires spawning a synchronous implementation subagent, but no Agent/Task tool exists in this runtime (ToolSearch exposes only SendMessage/ListAgents/TaskStop and peer sessions). Per workflow.md "Subagents", the run halts with `no subagents`. No source files were modified; resume from step-03 when a subagent-capable runtime dispatches story 4 (caller should reset status to ready-for-dev).
