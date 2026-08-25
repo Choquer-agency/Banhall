@@ -1,0 +1,84 @@
+- id: "1"
+  title: Internal project access rejects anonymous and role-less users
+  description: >-
+    CAP-1. Make requireInternalProjectAccess mirror getInternalProjectAccessOrNull
+    and add a test proving anonymous cannot call updateReportContent or applyProposal.
+  invoke_dev_with: >-
+    Read _bmad-output/specs/spec-ai-engine-sprint-1/touchpoints.md row CAP-1 first.
+    Do not change public function names. Existing tests in convex/*.test.ts and tests/
+    use convex-test; follow their setup helpers.
+- id: "2"
+  title: Publish-for-review authorized by Owner, Manager, or Admin
+  description: >-
+    CAP-3. Replace requireProjectCreatorOrAdmin in publishForReview with the
+    capability check the domain contract specifies; original creator loses rights
+    after ownership transfer.
+  invoke_dev_with: >-
+    See touchpoints.md row CAP-3. docs/product-domain.md role matrix is authoritative.
+- id: "3"
+  title: Reversible client-edit acceptance and post-write Brain nomination
+  description: >-
+    CAP-4. Snapshot before acceptEdit patches report text; schedule Brain
+    nomination only after the writerReviews write succeeds.
+  invoke_dev_with: >-
+    See touchpoints.md row CAP-4. Reuse the snapshot helper applyProposal uses.
+- id: "4"
+  title: Brain feedback scoped to accessible reports and projects
+  description: >-
+    CAP-5. submitBrainFeedback validates the caller can access the supplied
+    reportId/projectId, reusing the story-1 access helper.
+  invoke_dev_with: See touchpoints.md row CAP-5.
+- id: "5"
+  title: Proposal apply always snapshots and bumps revision
+  description: >-
+    CAP-2. Either fence markProposalApplied with expectedRevisionNumber plus a
+    pre_chat_edit snapshot, or delete it and route the one-by-one flow through
+    applyProposal per pair.
+  invoke_dev_with: >-
+    See touchpoints.md row CAP-2. Open question in SPEC.md: prefer deleting
+    markProposalApplied and routing through applyProposal if ProposalCard.svelte
+    can do so without UX regression; otherwise fence it. Record the choice in the
+    story spec.
+- id: "6"
+  title: Provider retry budget fits the Convex action limit
+  description: >-
+    CAP-6. Anthropic client maxRetries 1 and 4-minute timeout so timeout times
+    attempts stays under 600 seconds.
+  invoke_dev_with: See touchpoints.md row CAP-6. Config-only change; no test required.
+- id: "7"
+  title: Superseded generations and QA gated on report existence
+  description: >-
+    CAP-7. retryFailedCandidates marks the original generation superseded (new
+    status value); requestReportQa returns a typed error when no report exists.
+  invoke_dev_with: >-
+    See touchpoints.md row CAP-7. Extend convex/generationRecovery.test.ts. Check
+    every consumer of generations.status (history, stats, dashboards) handles the
+    new value.
+- id: "8"
+  title: Bounded chat context and safe empty thread reads
+  description: >-
+    CAP-8. contextOptions recentMessages 30 excludeToolMessages on streamText;
+    listProposals bounded to the loaded turn window; listMessages returns [] on a
+    missing thread.
+  invoke_dev_with: See touchpoints.md row CAP-8 and convex/chatTurns.test.ts.
+- id: "9"
+  title: Generation records prompt version, digest ids, and attributable cost
+  description: >-
+    CAP-9. Store promptVersion and learningDigestIds on generations at begin;
+    add generationId, candidateRunId, durationMs to aiUsage with a by_generationId
+    index; expose per-generation cost in getGeneration.
+  invoke_dev_with: >-
+    See touchpoints.md row CAP-9. Schema fields optional; no backfill. Follow
+    convex/_generated/ai/guidelines.md for index naming.
+- id: "10"
+  title: Confirmed Brain unlearn and retry-free embeds on revoked sources
+  description: >-
+    CAP-10. unlearnSource writes an unlearn_confirmed audit row and clears
+    ragEntryId; embedSource no-ops instead of throwing on non-approved rows.
+  invoke_dev_with: See touchpoints.md row CAP-10.
+- id: "11"
+  title: Reaper reads projects by status index
+  description: >-
+    CAP-11. Add projects.by_status index and replace the take(500) scan in the
+    stale-generation reaper.
+  invoke_dev_with: See touchpoints.md row CAP-11.
