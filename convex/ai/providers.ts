@@ -20,11 +20,21 @@ import { instrumentedOpenRouter } from "./openrouter";
 import type { GenerationClient } from "./openrouterCore";
 
 
-// Pinned explicitly rather than trusting SDK defaults: the SDK's default
-// 10-minute timeout equals the Convex action limit, so a hung call would
-// consume the entire action budget. The timeout must stay below that limit.
-export const ANTHROPIC_MAX_RETRIES = 2;
-export const ANTHROPIC_TIMEOUT_MS = 8 * 60 * 1000;
+// Pinned explicitly rather than trusting SDK defaults. The whole retry
+// budget of one `messages.create` call must fit inside one Convex action
+// (600 s): the SDK makes (maxRetries + 1) attempts, each bounded by `timeout`,
+// so a hung call costs at most (ANTHROPIC_MAX_RETRIES + 1) * ANTHROPIC_TIMEOUT_MS
+// plus the SDK's default backoff (<= 8 s); timeout retries carry no response
+// headers, so no `Retry-After` applies on that path. With 1 retry and a
+// 4-minute timeout that is 2 * 240 s = 480 s, leaving room for the action to
+// observe the SDK timeout error and run failGeneration instead of being killed
+// by the platform first. Caveats: a 429/529 response with a `Retry-After`
+// header is honoured verbatim by the SDK and extends the wait by that amount;
+// and this is a per-call budget, so an action issuing several sequential calls
+// is bounded by its own stage count, not here. providers.test.ts pins the
+// invariant.
+export const ANTHROPIC_MAX_RETRIES = 1;
+export const ANTHROPIC_TIMEOUT_MS = 4 * 60 * 1000;
 
 export function createAnthropicClient(
   capability: AnthropicCapability

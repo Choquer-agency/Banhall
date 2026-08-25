@@ -2,13 +2,28 @@
 title: 'Provider retry budget fits the Convex action limit'
 type: 'bugfix'
 created: '2026-08-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'b46bfe969b1aa1d56fe23404a12e52a70778e103'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/convex/_generated/ai/guidelines.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: >-
+      The per-call retry budget does not bound the whole generateCandidate action, which issues several sequential Anthropic stages (analyzer, sections, revision, QA/chronology); two hung stages in one action still exceed 600 s and bypass failGeneration.
+    evidence: |-
+      convex/ai/pipeline.ts:515 runs roughly four sequential provider stages per action; each stage now costs up to 480 s on a hang, so the action-level worst case is still above the Convex limit. Pre-existing and out of the config-only intent of story 6.
+    location: >-
+      convex/ai/pipeline.ts:515
+    severity: medium
+  - summary: >-
+      normalizeProviderError has no branch for the SDK's APIConnectionTimeoutError ("Request timed out."), so a timed-out call is reported to users as "The AI provider rejected the request: Request timed out.".
+    evidence: |-
+      convex/ai/providers.ts normalizeProviderError matches only "network"/"fetch" for the network code; "timed out" falls through to "unknown". Now that timeouts surface inside the action budget this path is reachable; classification is a behavior change outside the config-only intent.
+    location: >-
+      convex/ai/providers.ts:90
+    severity: medium
 ---
 
 <intent-contract>
@@ -61,9 +76,44 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-08-25 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 0, medium 0, low 4)
+- defer: 2: (high 0, medium 2, low 0)
+- reject: 12: (high 0, medium 2, low 10)
+- addressed_findings:
+  - `[low]` `[patch]` Comment claimed backoff is <= 8 s unconditionally; the SDK honours a 429/529 Retry-After header verbatim. Comment now states the 8 s figure applies to the hung-call (timeout) path, which carries no headers, and calls out Retry-After as a caveat.
+  - `[low]` `[patch]` Comment implied the whole action is safe; it now scopes the 480 s claim to a single messages.create call and notes the per-action stage-count caveat.
+  - `[low]` `[patch]` The Convex action limit literal appeared three times in the test file; hoisted a single CONVEX_ACTION_LIMIT_MS at file scope.
+  - `[low]` `[patch]` The timeout-alone assertion was strictly implied by the new attempts x timeout test; removed it and split the tests into "client constructed with the constants" and "constants satisfy the budget invariant", with a comment explaining why the literal 1 / 240_000 pins are kept (they are the acceptance criteria).
+
 ## Verification
 
 **Commands:**
 - `npm test -- convex/ai/providers.test.ts` -- expected: all tests in the file pass, including the new attempts × timeout assertion.
 - `npm run check` -- expected: svelte-check / tsc report no new errors.
 - `git diff --stat` -- expected: exactly `convex/ai/providers.ts` and `convex/ai/providers.test.ts` changed.
+
+## Auto Run Result
+
+**Summary:** `ANTHROPIC_MAX_RETRIES` is now 1 and `ANTHROPIC_TIMEOUT_MS` is 4 minutes, so a hung Anthropic call costs at most 2 x 240 s = 480 s plus default SDK backoff, inside the 600 s Convex action limit. The comment above the constants explains the attempts x timeout reasoning and its caveats; the unit test pins the computed invariant.
+
+**Files changed:**
+- `convex/ai/providers.ts` -- retry/timeout constants retuned; rationale comment rewritten (per-call scope, Retry-After caveat).
+- `convex/ai/providers.test.ts` -- hoisted `CONVEX_ACTION_LIMIT_MS`; one test for client construction with the pinned values, one for the `(maxRetries + 1) * timeout < limit` invariant.
+
+**Review findings:** 4 patches applied (all low), 2 deferred (medium: per-action budget across sequential stages; timeout error classification in `normalizeProviderError`), 12 rejected (OpenRouter budget test, headroom assertion, doc line refs, behavioral SDK retry test, streaming stall, and similar items either excluded by the intent or not caused by this change).
+
+**Follow-up review recommendation:** false. Patched: high 0, medium 0, low 4; score = 3 x 0 + 1 x 4 = 4 (< 5).
+
+**Verification:**
+- `npm test -- convex/ai/providers.test.ts` -- 3 tests passed.
+- `PUBLIC_CONVEX_URL=<placeholder> npm run check` -- 0 errors, 0 warnings.
+- `git diff --stat b46bfe9` -- `convex/ai/providers.ts`, `convex/ai/providers.test.ts`, and this spec only.
+
+**Residual risks:**
+- The 4-minute per-attempt timeout is tighter than the SDK's own sizing heuristic for `max_tokens: 8192` non-streaming calls (~230 s); a legitimately slow section draft can now time out, be retried once, and fail. The value is fixed by the intent (audit CAP-6); watch generation failure rates after deploy.
+- Reducing retries from 2 to 1 means transient 429/529 overload exhausts sooner; the pipeline's model fallback is unchanged.
+- A large `Retry-After` header on a rate-limited response is honoured verbatim by the SDK and is not covered by the invariant test.
+
