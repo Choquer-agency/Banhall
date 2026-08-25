@@ -76,7 +76,8 @@ export const generationStatusValidator = v.union(
   v.literal("awaiting_selection"),
   v.literal("awaiting_input"),
   v.literal("completed"),
-  v.literal("failed")
+  v.literal("failed"),
+  v.literal("superseded")
 );
 
 export const revisionRefValidator = v.object({

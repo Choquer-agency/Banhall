@@ -26,6 +26,12 @@ describe("generation recovery copy", () => {
     expect(copy).not.toMatch(/openrouter|anthropic|exception|request id/i);
   });
 
+  it("describes a superseded generation as replaced by its retry", () => {
+    expect(safeGenerationActivity("superseded", "Recovery started")).toBe(
+      "Replaced by a retry."
+    );
+  });
+
   it("recognizes stale recovery without echoing internals", () => {
     expect(safeGenerationActivity("failed", "Section timed out: convex trace")).toBe(
       "Generation took too long and stopped safely."

@@ -31,7 +31,7 @@ The report remains the primary workspace. Workflow controls support the report r
 | **Work item** | A concrete action requested from a person, with type, assignee, assigner, due date, instructions, blocking status, lifecycle, and completion history. | `workItems` row and immutable `workItemEvents`. | Do not model the work system as one mutable `assignedTo` field. Work items are never hard-deleted during their normal lifecycle. |
 | **Current handoff** | The one open blocking work item that answers “who has the next action on this project?” | `projects.currentHandoffId: Id<"workItems">` as a denormalized pointer maintained transactionally; canonical details remain on `workItems`. | At most one open blocking handoff per project. Multiple open non-blocking work items are allowed. “With” in the UI means the current handoff assignee, not the Owner. |
 | **Workflow stage** | The human production stage of the project. | Planned `projects.workflowStage` and `projects.workflowUpdatedAt`; transitions create immutable `projectEvents`. | Separate from legacy `projects.status` and from AI generation state. Do not infer ownership or assignment from stage. |
-| **Generation state** | Technical lifecycle of an AI generation attempt. | Existing `generations.status`; canonical states are `reserved`, `running`, `awaiting_selection`, `awaiting_input`, `completed`, and `failed`. | A generation failure does not itself determine the human workflow stage. Existing stale/retry fencing remains technical generation behavior. |
+| **Generation state** | Technical lifecycle of an AI generation attempt. | Existing `generations.status`; canonical states are `reserved`, `running`, `awaiting_selection`, `awaiting_input`, `completed`, `failed`, and `superseded` (terminal; a partial generation replaced by a linked retry). | A generation failure does not itself determine the human workflow stage. Existing stale/retry fencing remains technical generation behavior. |
 | **Draft branch** | A persistent, independently editable report alternative, such as a model draft, imported report, manual alternative, or duplicate. | Planned `reportBranches` row pointing to a branch-owned `reports` row; planned `projects.activeBranchId` and `projects.promotedBranchId`. | Branches are not snapshots. Switching branches never changes another branch’s content, revision, chat, comments, research, provenance, or snapshots. |
 | **Snapshot** | Immutable version history inside one branch/report. | Existing `reportSnapshots` and report revision semantics, scoped by `reportId`. | A snapshot is not an independently editable alternative. |
 | **Suggestion** | A proposed change against one branch/report revision. | Existing proposal records scoped to `reportId` and revision/target lineage. | A suggestion is not a branch and cannot silently change its canonical target. |
@@ -1380,6 +1380,41 @@ analyze-my-instructions flow at save time.
   the toggles before anything is saved.
 - **Approval:** product owner directed and approved the governance-mode
   contract on 2026-08-24 as the follow-on to PSOS-49.
+
+### 2026-08-25 — `superseded` generation state and report-gated QA
+
+Domain amendment adding one terminal value, `superseded`, to
+`generations.status`, and gating the writer-facing QA retrigger on the
+existence of a linked report.
+
+- **Origin:** AI engine audit finding 13 (`docs/ai-engine-audit-2026-08-25.md`),
+  SPEC-ai-engine-sprint-1 CAP-7, 2026-08-25. `retryFailedCandidates` marked
+  the reportless partial original `completed`, so it read as a real
+  completion in history and `requestReportQa` accepted it.
+- **What is added:** `superseded` as a terminal generation state written only
+  by `retryFailedCandidates` on the original partial generation. It is never
+  active, never resurrected by pipeline status writes, treated like
+  `completed`/`failed` for run terminalization (ghost late-finish, orphaned
+  run reaper), and excluded from the writer-facing generation history.
+  `requestReportQa` now requires a `reports` row linked by
+  `reports.generationId` and otherwise fails with a typed `INVALID_STATE`.
+- **What is preserved:** the superseded generation keeps its candidates, run
+  rows, and `retryOfGenerationId` chain as attempt history; `getLatestGeneration`
+  ordering, active-generation detection, and model statistics are unchanged.
+  `completedAt` on a superseded row records the moment it was superseded.
+  `getGeneration`/`getGenerationRecovery` still return a superseded row by id;
+  only the history list hides it. Chat grounding (`chatV2` fallback over
+  `completed` generations) no longer considers a superseded partial's
+  `agentOutputs`, which is the intended narrowing.
+- **Migration/compatibility:** additive schema change; no backfill. Earlier
+  partial originals stay `completed` without a report and are now rejected by
+  the QA gate rather than scored. Reports that predate `reports.generationId`
+  (unlinked legacy rows) can no longer retrigger QA from the panel; the gate
+  reads only `reports.by_generationId` by design.
+- **Authorization/test impact:** no permission changes.
+  `convex/generationRecovery.test.ts` covers supersede, history exclusion, QA
+  gating, ghost terminalization, and the status-write no-op.
+- **Approval:** approved via SPEC-ai-engine-sprint-1 (CAP-7), 2026-08-25.
 
 ## Amendment process
 

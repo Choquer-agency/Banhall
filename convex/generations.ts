@@ -183,6 +183,10 @@ export const listGenerations = query({
     const generations = await ctx.db
       .query("generations")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      // A superseded original is attempt history behind its linked retry, not
+      // a completion; it stays out of the writer-facing list. Filter before the
+      // cap so retries never shrink the visible window below 50 rows.
+      .filter((q) => q.neq(q.field("status"), "superseded"))
       .order("desc")
       .take(50);
     return generations.map((generation) => ({
@@ -519,8 +523,10 @@ export const retryFailedCandidates = mutation({
     // Supersede the partial selection state inside the same transaction so the
     // normal active-generation guard can reserve its linked recovery. The
     // original candidates and run rows stay intact as attempt history.
+    // `superseded` (not `completed`) keeps a reportless partial distinguishable
+    // from a real completion.
     await ctx.db.patch(generation._id, {
-      status: "completed",
+      status: "superseded",
       currentStep: "Recovery started",
       completedAt: now,
     });
@@ -812,7 +818,9 @@ export const completeCandidateRun = internalMutation({
     if (
       run.ghost &&
       generation &&
-      (generation.status === "completed" || generation.status === "failed")
+      (generation.status === "completed" ||
+        generation.status === "failed" ||
+        generation.status === "superseded")
     ) {
       await ctx.db.patch(run._id, {
         status: succeeded ? "succeeded" : "failed",
@@ -1509,10 +1517,27 @@ export const requestReportQa = mutation({
     const generation = await ctx.db.get(args.generationId);
     if (!generation) domainError("NOT_FOUND", "Generation not found");
     await requireInternalProjectAccess(ctx, generation.projectId);
-    // Jul 17 meeting: any completed generation can (re)run its QA scorecard —
-    // some projects lost the panel to an error or predate the feature.
+    // Jul 17 meeting: any completed generation with a linked report can (re)run
+    // its QA scorecard — some projects lost the panel to an error or predate
+    // the feature. Reports that predate `reports.generationId` are not linked
+    // and cannot retrigger QA from here (see docs/product-domain.md,
+    // 2026-08-25 amendment).
+    // A superseded partial was replaced by a linked retry; QA belongs to the
+    // retry's report, so this is a state error rather than bad input.
+    if (generation.status === "superseded") {
+      domainError("INVALID_STATE", "This generation was replaced by a retry");
+    }
     if (generation.status !== "completed") {
       domainError("INVALID_INPUT", "The report must be completed before QA can run");
+    }
+    // A completed generation without a linked report (legacy rows, or
+    // pre-`superseded` partial retries) has nothing to score.
+    const report = await ctx.db
+      .query("reports")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      .first();
+    if (!report) {
+      domainError("INVALID_STATE", "This generation has no report to check");
     }
     // Idempotent: a pass already in flight keeps running across panel
     // close/reopen — never double-spend the API call.
@@ -2185,7 +2210,8 @@ export const failStaleGenerations = internalMutation({
       if (
         generation &&
         generation.status !== "completed" &&
-        generation.status !== "failed"
+        generation.status !== "failed" &&
+        generation.status !== "superseded"
       ) {
         continue;
       }
@@ -2306,7 +2332,8 @@ export const updateGenerationStatus = internalMutation({
     if (
       !generation ||
       generation.status === "failed" ||
-      generation.status === "completed"
+      generation.status === "completed" ||
+      generation.status === "superseded"
     ) {
       return;
     }

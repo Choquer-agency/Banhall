@@ -36,9 +36,17 @@ export function runStatusLabel(status: GenerationRunStatus) {
 }
 
 export function safeGenerationActivity(
-  status: "reserved" | "running" | "awaiting_selection" | "awaiting_input" | "completed" | "failed",
+  status:
+    | "reserved"
+    | "running"
+    | "awaiting_selection"
+    | "awaiting_input"
+    | "completed"
+    | "failed"
+    | "superseded",
   currentStep?: string
 ) {
+  if (status === "superseded") return "Replaced by a retry.";
   if (status === "reserved") return "Preparing the project inputs.";
   if (status === "running") return "Generating report drafts.";
   if (status === "awaiting_selection") return "Drafts are ready for review.";

@@ -2,13 +2,21 @@
 title: 'Superseded generations and QA gated on report existence'
 type: 'bugfix'
 created: '2026-08-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '4c309ae95f2c84bda15cddeea2bde50ad218eae0'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/convex/_generated/ai/guidelines.md'
 warnings: ['oversized']
-deferred: []
+deferred:
+  - summary: >-
+      The generation status union is hand-copied in four places (schema, generationStatusValidator, recovery.ts, GenerationStatusChip.svelte) with no shared type or exhaustiveness guard.
+    evidence: |-
+      Pre-existing duplication; generationStatusValidator in convex/lib/contracts.ts has no consumer, and both frontend unions are string literals rather than Doc<"generations">["status"]. The next status addition can drift silently.
+    location: >-
+      src/lib/generation/recovery.ts:39, src/lib/components/generation/GenerationStatusChip.svelte:7, convex/lib/contracts.ts:73
+    severity: low
 ---
 
 <intent-contract>
@@ -96,6 +104,48 @@ deferred: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-25 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 8: (high 0, medium 2, low 6)
+- defer: 1: (high 0, medium 0, low 1)
+- reject: 16
+- addressed_findings:
+  - `[medium]` `[patch]` `listGenerations` filtered `superseded` after `.take(50)`, so retries shrank the visible history window; moved the exclusion into a query `.filter(q.neq(status, "superseded"))` before the cap.
+  - `[medium]` `[patch]` Orphaned-run reaper's `superseded` acceptance had no test; added a `failStaleGenerations` case asserting a stale running run under a superseded generation is failed (`orphanedRuns === 1`) while the live retry's run is untouched.
+  - `[low]` `[patch]` `requestReportQa` comment ("any completed generation can re-run QA") contradicted the new gate; reworded to state the linked-report requirement and the legacy-unlinked-report consequence, and recorded the same in the domain amendment's migration note.
+  - `[low]` `[patch]` `GenerationStatusChip` `superseded` reused the in-flight dot; switched to a muted `bg-white/40` dot and `text-white/80` so a terminal replaced state does not read as generating.
+  - `[low]` `[patch]` `safeGenerationActivity("superseded")` had no test; added one in `src/lib/generation/recovery.test.ts`.
+  - `[low]` `[patch]` Ghost late-finish test only asserted no snapshot; now also asserts no report row, no `candidateId` on the run, status still `superseded`, and `candidatesDone` unchanged.
+  - `[low]` `[patch]` Schema comment said `superseded` is "hidden from history" without noting by-id reads still return it; clarified in `convex/schema.ts` and the domain amendment.
+  - `[low]` `[patch]` Domain amendment omitted the `chatV2` grounding narrowing and the meaning of `completedAt` on a superseded row; both recorded under "What is preserved".
+
+## Auto Run Result
+
+**Summary:** `generations.status` gains a terminal `superseded` value written by `retryFailedCandidates` on the original partial generation. Superseded rows are excluded from `listGenerations` (query-level filter before the 50-row cap), treated as terminal by `updateGenerationStatus`, the ghost late-finish branch of `completeCandidateRun`, and the orphaned-run reaper in `failStaleGenerations`. `requestReportQa` rejects superseded rows (`INVALID_STATE`) and completed rows with no `reports.by_generationId` link (`INVALID_STATE`, "This generation has no report to check"). Frontend status unions and copy extended; domain doc amended.
+
+**Files changed:**
+- `convex/schema.ts` -- add `superseded` literal with terminal/hidden-from-list comment.
+- `convex/lib/contracts.ts` -- mirror the literal in `generationStatusValidator`.
+- `convex/generations.ts` -- `retryFailedCandidates` writes `superseded`; `listGenerations` query-filters it before `take(50)`; terminal guards in `completeCandidateRun`, `failStaleGenerations`, `updateGenerationStatus`; `requestReportQa` superseded check + report-existence gate with updated comment.
+- `convex/generationRecovery.test.ts` -- flipped `completed` -> `superseded` assertion; linked report seeded in the stale-QA test; new cases: pointer move + re-retry rejection, history exclusion, ghost late-finish (with no-side-effect assertions), reaper of stranded run under superseded generation, status-write no-op, QA on superseded, QA on reportless completed, QA on linked completed.
+- `src/lib/generation/recovery.ts` -- union + "Replaced by a retry." copy.
+- `src/lib/generation/recovery.test.ts` -- superseded copy test.
+- `src/lib/components/generation/GenerationStatusChip.svelte` -- union + "AI · Replaced by retry" label with muted dot.
+- `docs/product-domain.md` -- canonical states row + 2026-08-25 approved amendment.
+
+**Review findings:** 8 patches applied (medium 2, low 6), 1 deferred, 16 rejected. Follow-up review score: 3 × 2 + 1 × 6 = 12 (>= 5) -> `followup_review_recommended: true`.
+
+**Verification:**
+- `npm test -- convex/generationRecovery.test.ts src/lib/generation/recovery.test.ts convex/reaperIntegration.test.ts` -- 27 passed.
+- `npm test` -- 106 files, 997 tests passed.
+- `PUBLIC_CONVEX_URL=http://localhost npm run check` -- 0 errors, 0 warnings.
+
+**Residual risks:**
+- Legacy `reports` rows with no `generationId` can no longer retrigger QA from the panel (by design per the Block If clause); documented in the amendment.
+- Pre-existing `completed` partial originals are not backfilled to `superseded` (intent: no backfill); they remain in history and are rejected by the QA gate.
+- Status union duplication across four sites remains (deferred).
 
 ## Design Notes
 

@@ -4,7 +4,14 @@
     candidatesDone = 0,
     candidatesFailed = 0,
   }: {
-    status: "reserved" | "running" | "awaiting_selection" | "awaiting_input" | "completed" | "failed";
+    status:
+      | "reserved"
+      | "running"
+      | "awaiting_selection"
+      | "awaiting_input"
+      | "completed"
+      | "failed"
+      | "superseded";
     candidatesDone?: number;
     candidatesFailed?: number;
   } = $props();
@@ -12,6 +19,10 @@
   const config = $derived.by(() => {
     if (status === "reserved" || status === "running") {
       return { label: "AI · Generating", tone: "bg-white/15 text-white", dot: "bg-white/70" };
+    }
+    if (status === "superseded") {
+      // Terminal and inert: a muted dot so it never reads as in-flight.
+      return { label: "AI · Replaced by retry", tone: "bg-white/15 text-white/80", dot: "bg-white/40" };
     }
     if (status === "failed") {
       return { label: "AI generation needs attention", tone: "bg-white/15 text-white", dot: "bg-red-300" };

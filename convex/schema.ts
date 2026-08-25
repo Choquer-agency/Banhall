@@ -604,7 +604,11 @@ export default defineSchema({
       // review/approval. Writer thinking time is unbounded — never reaped.
       v.literal("awaiting_input"),
       v.literal("completed"),
-      v.literal("failed")
+      v.literal("failed"),
+      // Terminal: a partial generation replaced by a linked retry. Never
+      // active, never resurrected, hidden from `listGenerations` (still
+      // readable by id).
+      v.literal("superseded")
     ),
     requestedAt: v.optional(v.number()),
     requestedBy: v.optional(v.id("users")),

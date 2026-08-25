@@ -108,7 +108,8 @@ describe("generation recovery", () => {
       const originalCandidate = await ctx.db.get(candidateId);
       return { original, retry, retryCandidates, originalCandidate };
     });
-    expect(state.original?.status).toBe("completed");
+    expect(state.original?.status).toBe("superseded");
+    expect(state.original?.completedAt).toBeTypeOf("number");
     expect(state.retry?.retryOfGenerationId).toBe(generationId);
     expect(state.retry?.retryModelIds).toEqual(["google/gemini-3.1-pro-preview"]);
     expect(state.retry?.seededCandidates).toBe(1);
@@ -117,6 +118,150 @@ describe("generation recovery", () => {
     await expect(
       authed.mutation(api.generations.retryFailedCandidates, { generationId })
     ).rejects.toThrow(/partial generation/i);
+  });
+
+  it("moves the project pointer to the retry and refuses to retry the superseded row", async () => {
+    const { t, projectId, generationId } = await setupPartial();
+    const authed = t.withIdentity({ subject: authId });
+    const retryId = await authed.mutation(api.generations.retryFailedCandidates, {
+      generationId,
+    });
+    const project = await t.run(async (ctx) => await ctx.db.get(projectId));
+    expect(project?.activeGenerationId).toBe(retryId);
+    await expect(
+      authed.mutation(api.generations.retryFailedCandidates, { generationId })
+    ).rejects.toThrow(/Only a partial generation can retry failed drafts/);
+    const original = await t.run(async (ctx) => await ctx.db.get(generationId));
+    expect(original?.status).toBe("superseded");
+  });
+
+  it("hides the superseded original from generation history but lists the retry", async () => {
+    const { t, projectId, generationId } = await setupPartial();
+    const authed = t.withIdentity({ subject: authId });
+    const retryId = await authed.mutation(api.generations.retryFailedCandidates, {
+      generationId,
+    });
+    const history = await authed.query(api.generations.listGenerations, { projectId });
+    const ids = history.map((row) => row._id);
+    expect(ids).toContain(retryId);
+    expect(ids).not.toContain(generationId);
+    expect(history.some((row) => row.status === "superseded")).toBe(false);
+  });
+
+  it("terminalizes a ghost run that finishes after the generation was superseded", async () => {
+    const { t, projectId, generationId } = await setupPartial();
+    const authed = t.withIdentity({ subject: authId });
+    await authed.mutation(api.generations.retryFailedCandidates, { generationId });
+    const before = await t.run(async (ctx) => ({
+      candidatesDone: (await ctx.db.get(generationId))?.candidatesDone,
+    }));
+    const ghostRunId = await t.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert("generationCandidateRuns", {
+        generationId,
+        projectId,
+        model: "claude-sonnet-5",
+        label: "Ghost",
+        status: "running",
+        ghost: true,
+        queuedAt: now,
+        startedAt: now,
+      });
+    });
+    await t.mutation(internal.generations.completeCandidateRun, {
+      candidateRunId: ghostRunId,
+      content: "Late ghost draft",
+      agentOutputs: "{}",
+    });
+    const state = await t.run(async (ctx) => {
+      const run = await ctx.db.get(ghostRunId);
+      const original = await ctx.db.get(generationId);
+      const snapshots = await ctx.db
+        .query("reportSnapshots")
+        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+        .take(10);
+      const report = await ctx.db
+        .query("reports")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+        .first();
+      return { run, original, snapshots, report };
+    });
+    expect(state.run?.status).toBe("succeeded");
+    expect(state.run?.completedAt).toBeTypeOf("number");
+    expect(state.snapshots).toHaveLength(0);
+    // No side effects on the superseded row: no report, no counters, no candidate.
+    expect(state.report).toBeNull();
+    expect(state.run?.candidateId).toBeUndefined();
+    expect(state.original?.status).toBe("superseded");
+    expect(state.original?.candidatesDone).toBe(before.candidatesDone);
+  });
+
+  it("reaps a stale run stranded under a superseded generation but leaves live ones alone", async () => {
+    const { t, projectId, generationId } = await setupPartial();
+    const authed = t.withIdentity({ subject: authId });
+    const retryId = await authed.mutation(api.generations.retryFailedCandidates, { generationId });
+    const old = Date.now() - 90 * MINUTES;
+    const { staleRunId, liveRunId } = await t.run(async (ctx) => {
+      const staleRunId = await ctx.db.insert("generationCandidateRuns", {
+        generationId,
+        projectId,
+        model: "claude-sonnet-5",
+        label: "Stranded",
+        status: "running",
+        queuedAt: old,
+        startedAt: old,
+      });
+      const liveRunId = await ctx.db.insert("generationCandidateRuns", {
+        generationId: retryId,
+        projectId,
+        model: "claude-sonnet-5",
+        label: "Live",
+        status: "running",
+        queuedAt: old,
+        startedAt: old,
+      });
+      return { staleRunId, liveRunId };
+    });
+    const result = await t.mutation(internal.generations.failStaleGenerations, {
+      olderThanMinutes: 30,
+    });
+    const state = await t.run(async (ctx) => ({
+      stale: await ctx.db.get(staleRunId),
+      live: await ctx.db.get(liveRunId),
+      retry: await ctx.db.get(retryId),
+    }));
+    expect(result.orphanedRuns).toBe(1);
+    expect(state.stale?.status).toBe("failed");
+    expect(state.stale?.completedAt).toBeTypeOf("number");
+    // The retry is a live generation (reserved/running, freshly started), so
+    // its run is left for the pipeline to report back.
+    expect(state.retry?.status).not.toBe("failed");
+    expect(state.live?.status).toBe("running");
+  });
+
+  it("ignores pipeline status writes against a superseded generation", async () => {
+    const { t, generationId } = await setupPartial();
+    const authed = t.withIdentity({ subject: authId });
+    await authed.mutation(api.generations.retryFailedCandidates, { generationId });
+    await t.mutation(internal.generations.updateGenerationStatus, {
+      generationId,
+      status: "running",
+      currentStep: "Zombie write",
+    });
+    const original = await t.run(async (ctx) => await ctx.db.get(generationId));
+    expect(original?.status).toBe("superseded");
+    expect(original?.currentStep).toBe("Recovery started");
+  });
+
+  it("rejects requestReportQa on a superseded generation", async () => {
+    const { t, generationId } = await setupPartial();
+    const authed = t.withIdentity({ subject: authId });
+    await authed.mutation(api.generations.retryFailedCandidates, { generationId });
+    await expect(
+      authed.mutation(api.generations.requestReportQa, { generationId })
+    ).rejects.toMatchObject({ data: { code: "INVALID_STATE" } });
+    const original = await t.run(async (ctx) => await ctx.db.get(generationId));
+    expect(original?.postQaStatus).toBeUndefined();
   });
 
   it("rejects legacy partial retries whose original model pair cannot be proven", async () => {
@@ -492,6 +637,17 @@ describe("failStalePostQa", () => {
         completedAt: now - 90 * MINUTES,
       });
     });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("reports", {
+        projectId,
+        generationId,
+        content: "Assembled report",
+        version: 1,
+        generatedAt: now,
+        updatedAt: now,
+      });
+    });
     const actor = t.withIdentity({ subject: authId });
 
     // Stuck: the idempotency guard refuses to restart while "running".
@@ -510,6 +666,72 @@ describe("failStalePostQa", () => {
     const after = await t.run(async (ctx) => await ctx.db.get(generationId));
     expect(after?.postQaStatus).toBe("running");
     expect(after?.postQaStartedAt).toBeGreaterThanOrEqual(requestedAt);
+  });
+});
+
+describe("requestReportQa report gate", () => {
+  async function seedCompleted(t: ReturnType<typeof convexTest>) {
+    const { projectId, transcriptId } = await seedProject(t);
+    const generationId = await t.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        status: "completed",
+        candidateMode: "iterative",
+        startedAt: now - 10 * MINUTES,
+        completedAt: now - 5 * MINUTES,
+      });
+    });
+    return { projectId, generationId };
+  }
+
+  it("rejects a completed generation with no linked report and schedules nothing", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId } = await seedCompleted(t);
+    const actor = t.withIdentity({ subject: authId });
+    await expect(
+      actor.mutation(api.generations.requestReportQa, { generationId })
+    ).rejects.toMatchObject({
+      data: { code: "INVALID_STATE", message: "This generation has no report to check" },
+    });
+    const state = await t.run(async (ctx) => {
+      const generation = await ctx.db.get(generationId);
+      const jobs = await ctx.db.system.query("_scheduled_functions").take(10);
+      return { generation, jobs };
+    });
+    expect(state.generation?.postQaStatus).toBeUndefined();
+    expect(state.generation?.postQaStartedAt).toBeUndefined();
+    expect(state.jobs).toHaveLength(0);
+  });
+
+  it("runs QA for a completed generation with a linked report", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, generationId } = await seedCompleted(t);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("reports", {
+        projectId,
+        generationId,
+        content: "Assembled report",
+        version: 1,
+        generatedAt: now,
+        updatedAt: now,
+      });
+    });
+    const requestedAt = Date.now();
+    await t
+      .withIdentity({ subject: authId })
+      .mutation(api.generations.requestReportQa, { generationId });
+    const state = await t.run(async (ctx) => {
+      const generation = await ctx.db.get(generationId);
+      const jobs = await ctx.db.system.query("_scheduled_functions").take(10);
+      return { generation, jobs };
+    });
+    expect(state.generation?.postQaStatus).toBe("running");
+    expect(state.generation?.postQaStartedAt).toBeGreaterThanOrEqual(requestedAt);
+    expect(state.jobs).toHaveLength(1);
+    expect(state.jobs[0]?.name).toBe("ai/postQa:runReportQa");
   });
 });
 
