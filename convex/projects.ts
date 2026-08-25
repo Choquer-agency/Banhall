@@ -945,7 +945,16 @@ export const publishForReview = mutation({
     reportId: v.id("reports"),
   },
   handler: async (ctx, args) => {
-    await requireProjectCreatorOrAdmin(ctx, args.projectId);
+    const project = await ctx.db.get(args.projectId);
+    // Owner is strictly `ownerId` (never `createdBy`), the same owner test
+    // projectWorkflow.workflowAuthorities applies; the handoff assignee is
+    // deliberately not an authority here. Manager/Admin hold `all`.
+    // Authorize before reporting NOT_FOUND so an unauthenticated or
+    // unauthorized caller cannot probe whether a project id exists.
+    await requireCapability(ctx, "project.setStage", {
+      ownedBy: project?.ownerId ? [project.ownerId] : [],
+    });
+    if (!project) domainError("NOT_FOUND", "Project not found");
     const report = await ctx.db.get(args.reportId);
     if (!report || report.projectId !== args.projectId) {
       domainError("NOT_AUTHORIZED", "Report does not belong to this project");

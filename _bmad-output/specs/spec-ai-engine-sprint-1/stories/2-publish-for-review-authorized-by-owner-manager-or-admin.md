@@ -2,14 +2,28 @@
 title: 'Publish-for-review authorized by Owner, Manager, or Admin'
 type: 'bugfix'
 created: '2026-08-25'
-baseline_revision: 'ca165fd0890edd537cc998653ab2c8ea3957e50d'
-status: 'ready-for-dev'
+baseline_revision: 'a2a033ce00fe3d4bbd6c180587d3b56aa94563ad'
+status: 'done'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/convex/_generated/ai/guidelines.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: >-
+      unpublishReview still authorizes by createdBy-or-admin while publishForReview now authorizes by ownerId/Manager/Admin, so a transferred owner can publish but not unpublish and a Manager can publish but not unpublish.
+    evidence: |-
+      convex/projects.ts unpublishReview calls requireProjectCreatorOrAdmin; convex/projects.test.ts "project review unpublishing" pins Manager denial. The intent for CAP-3 names only publishForReview and lists unpublishReview under Never, so the asymmetry is deliberate for this story (see Design Notes) but needs a follow-up story.
+    location: >-
+      convex/projects.ts:unpublishReview
+    severity: medium
+  - summary: >-
+      Frontend canShare gate in CurrentProjectPage.svelte and PreviewProjectPage.svelte still computes publish eligibility as createdBy === user._id || role === "admin", diverging from the backend Owner/Manager/Admin rule.
+    evidence: |-
+      Managers and transferred owners never see the Share control even though publishForReview now permits them; an ex-owner creator (or writer creator on a legacy row without ownerId) sees the control and receives NOT_AUTHORIZED on click. No component test covers who sees the control. The intent lists both Svelte callers under Never, so this is out of scope for CAP-3 and needs a follow-up (derive canShare from ownerId/role or a server-computed capability, plus a component test).
+    location: >-
+      src/lib/components/project/CurrentProjectPage.svelte canShare; src/lib/components/project/PreviewProjectPage.svelte canShare
+    severity: medium
 ---
 
 <intent-contract>
@@ -76,9 +90,42 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-08-25 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3: (high 0, medium 0, low 3)
+- defer: 2: (high 0, medium 2, low 0)
+- reject: 21
+- addressed_findings:
+  - `[low]` `[patch]` Loading the project before the capability check turned publishForReview into an existence oracle (unauthenticated caller with a bogus id got NOT_FOUND instead of NOT_AUTHENTICATED; the previous requireProjectCreatorOrAdmin checked identity first). Reordered: requireCapability runs first with `ownedBy: project?.ownerId ? [...] : []`, then NOT_FOUND. Added test "does not reveal whether a project exists to an unauthenticated caller".
+  - `[low]` `[patch]` Handler comment claimed the check "matches projectWorkflow.workflowAuthorities" although that helper also honors the handoff assignee. Reworded to say only the owner test is shared and the handoff assignee is deliberately not an authority here.
+  - `[low]` `[patch]` Matrix row "Legacy row without ownerId: Manager/Admin still succeed" was only asserted for Manager. Parametrized the legacy-row test over manager and admin.
+
 ## Design Notes
 
 `project.setStage` is reused rather than adding a `report.publishForReview` capability because the domain contract's `client_review` stage row ("Authorized user deliberately sends/publishes a revision for client review") and its role matrix ("Change workflow stage": Own / All / All) already encode exactly Owner, Manager, Admin. Owner is strict `ownerId`: an un-backfilled legacy row (no `ownerId`) is publishable only by Manager/Admin, which matches `workflowAuthorities` and the D2 decision that Owner, not Creator, carries authority. `unpublishReview` remains creator-or-admin because CAP-3 names only publish; the asymmetry (a Manager can publish but not unpublish) is deliberately left for a follow-up story.
+
+## Auto Run Result
+
+**Summary:** `publishForReview` now authorizes by `requireCapability(ctx, "project.setStage", { ownedBy: [project.ownerId] })` (strict Owner, Manager, or Admin) instead of `requireProjectCreatorOrAdmin`. Authorization runs before the `NOT_FOUND` check so callers cannot probe project existence. Name, args, and success side effects are unchanged.
+
+**Files changed:**
+- `convex/projects.ts` -- `publishForReview` guard swapped to capability-based authorization; project loaded once; authorize-then-NOT_FOUND ordering.
+- `convex/projects.test.ts` -- `setup()` fixture gives the primary project `ownerId`; publishing suite rewritten to cover the full I/O matrix (owner/manager/admin allowed, non-owner writer denied, creator denied after `transferOwnership` while new owner succeeds, legacy row without `ownerId` denies writer creator and allows manager and admin, unauthenticated/unmapped, foreign report, missing project NOT_FOUND, no existence oracle for unauthenticated callers).
+
+**Review findings:** 3 patches applied (all low), 2 deferred (medium: `unpublishReview` asymmetry; frontend `canShare` gate divergence), 21 rejected (intent-excluded scope such as handoff assignee, new capability literal, `workflowStage`/`projectEvents` writes, `expectedVersion` guard, status-transition guard, `unpublishReview`/`deleteProject` migration, docs edits, fixture nitpicks, dashboard projection which derives `status` from the project doc at read time).
+
+**Follow-up review recommendation:** false. Patched counts: high 0, medium 0, low 3; score = 3 x 0 + 1 x 3 = 3 (< 5).
+
+**Verification performed:**
+- `npm test -- projects.test` -- 54 tests passed.
+- `npm test` -- 102 files, 938 tests passed.
+- `PUBLIC_CONVEX_URL=http://placeholder npm run check` -- 0 errors, 0 warnings.
+
+**Residual risks:**
+- UI still gates the Share control on `createdBy`/admin (deferred); Managers cannot reach the new permission from the UI until the follow-up lands.
+- `unpublishReview` remains creator-or-admin (deferred); publish/unpublish authority is asymmetric after an ownership transfer.
+- A writer holding only `own` gets `NOT_AUTHORIZED` (not `NOT_FOUND`) for a missing project id, by design of the authorize-first ordering.
 
 ## Verification
 

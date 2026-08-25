@@ -40,6 +40,7 @@ async function setup() {
       clientName: "Client",
       status: "review",
       createdBy: ownerId,
+      ownerId,
       shareToken: "owner-project-token",
       createdAt: now,
       updatedAt: now,
@@ -400,7 +401,8 @@ describe("project duplication", () => {
 
 describe("project review publishing", () => {
   test.each([
-    ["creator", "owner"],
+    ["owner", "owner"],
+    ["non-owner manager", "manager"],
     ["non-owner admin", "admin"],
   ] as const)("allows %s to publish a report", async (_label, actor) => {
     const { t, projectId, reportId } = await setup();
@@ -416,14 +418,11 @@ describe("project review publishing", () => {
     });
   });
 
-  test.each([
-    ["non-owner writer", "writer"],
-    ["non-owner manager", "manager"],
-  ] as const)("denies %s from publishing", async (_label, actor) => {
+  test("denies a non-owner writer from publishing", async () => {
     const { t, projectId, reportId } = await setup();
 
     await expect(
-      asActor(t, actor).mutation(api.projects.publishForReview, {
+      asActor(t, "writer").mutation(api.projects.publishForReview, {
         projectId,
         reportId,
       })
@@ -434,6 +433,72 @@ describe("project review publishing", () => {
     expect(project).toMatchObject({ status: "review" });
     expect(project).not.toHaveProperty("sharedReportId");
   });
+
+  test("denies the creator after ownership transfer and allows the new owner", async () => {
+    const { t, projectId, reportId, writerId } = await setup();
+    await expect(
+      asActor(t, "owner").mutation(api.projectWorkflow.transferOwnership, {
+        projectId,
+        toUserId: writerId,
+        expectedVersion: 0,
+      })
+    ).resolves.toEqual({ status: "updated", version: 1 });
+
+    await expect(
+      asActor(t, "owner").mutation(api.projects.publishForReview, {
+        projectId,
+        reportId,
+      })
+    ).rejects.toMatchObject({
+      data: { code: "NOT_AUTHORIZED" },
+    });
+    let project = await getProject(t, projectId);
+    expect(project).toMatchObject({ status: "review", ownerId: writerId });
+    expect(project).not.toHaveProperty("sharedReportId");
+
+    await asActor(t, "writer").mutation(api.projects.publishForReview, {
+      projectId,
+      reportId,
+    });
+    project = await getProject(t, projectId);
+    expect(project).toMatchObject({
+      sharedReportId: reportId,
+      status: "client_review",
+    });
+  });
+
+  test.each([["manager"], ["admin"]] as const)(
+    "legacy row without ownerId denies the writer creator but allows %s",
+    async (actor) => {
+      const { t, projectId, reportId } = await setup();
+      await t.run(async (ctx) => {
+        await ctx.db.patch(projectId, { ownerId: undefined });
+      });
+
+      await expect(
+        asActor(t, "owner").mutation(api.projects.publishForReview, {
+          projectId,
+          reportId,
+        })
+      ).rejects.toMatchObject({
+        data: { code: "NOT_AUTHORIZED" },
+      });
+      let project = await getProject(t, projectId);
+      expect(project).toMatchObject({ status: "review" });
+      expect(project).not.toHaveProperty("ownerId");
+      expect(project).not.toHaveProperty("sharedReportId");
+
+      await asActor(t, actor).mutation(api.projects.publishForReview, {
+        projectId,
+        reportId,
+      });
+      project = await getProject(t, projectId);
+      expect(project).toMatchObject({
+        sharedReportId: reportId,
+        status: "client_review",
+      });
+    }
+  );
 
   test("denies unauthenticated and unmapped identities", async () => {
     const { t, projectId, reportId } = await setup();
@@ -457,7 +522,8 @@ describe("project review publishing", () => {
   });
 
   test.each([
-    ["creator", "owner"],
+    ["owner", "owner"],
+    ["non-owner manager", "manager"],
     ["non-owner admin", "admin"],
   ] as const)("rejects another project's report for %s", async (_label, actor) => {
     const { t, projectId, otherReportId } = await setup();
@@ -473,6 +539,57 @@ describe("project review publishing", () => {
     const project = await getProject(t, projectId);
     expect(project).toMatchObject({ status: "review" });
     expect(project).not.toHaveProperty("sharedReportId");
+  });
+
+  async function deletedProjectId(
+    t: Awaited<ReturnType<typeof setup>>["t"],
+    projectId: Awaited<ReturnType<typeof setup>>["projectId"]
+  ) {
+    return await t.run(async (ctx) => {
+      const now = Date.now();
+      const id = await ctx.db.insert("projects", {
+        title: "Deleted project",
+        clientName: "Client",
+        status: "review",
+        createdBy: (await ctx.db.get(projectId))!.createdBy,
+        shareToken: "deleted-project-token",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.delete(id);
+      return id;
+    });
+  }
+
+  test("rejects a missing project with NOT_FOUND", async () => {
+    const { t, projectId, reportId } = await setup();
+    const missingProjectId = await deletedProjectId(t, projectId);
+
+    await expect(
+      asActor(t, "admin").mutation(api.projects.publishForReview, {
+        projectId: missingProjectId,
+        reportId,
+      })
+    ).rejects.toMatchObject({
+      data: { code: "NOT_FOUND" },
+    });
+    const project = await getProject(t, projectId);
+    expect(project).toMatchObject({ status: "review" });
+    expect(project).not.toHaveProperty("sharedReportId");
+  });
+
+  test("does not reveal whether a project exists to an unauthenticated caller", async () => {
+    const { t, projectId, reportId } = await setup();
+    const missingProjectId = await deletedProjectId(t, projectId);
+
+    await expect(
+      t.mutation(api.projects.publishForReview, {
+        projectId: missingProjectId,
+        reportId,
+      })
+    ).rejects.toMatchObject({
+      data: { code: "NOT_AUTHENTICATED" },
+    });
   });
 });
 
