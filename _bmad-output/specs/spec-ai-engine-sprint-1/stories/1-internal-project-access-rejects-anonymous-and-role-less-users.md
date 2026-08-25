@@ -2,7 +2,7 @@
 title: 'Internal project access rejects anonymous and role-less users'
 type: 'bugfix'
 created: '2026-08-25'
-status: 'blocked'
+status: 'ready-for-dev'
 baseline_revision: '95819ce6872d9c9a262fc620669791459b151a24'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -78,9 +78,3 @@ deferred: []
 - `cd /Users/johnnynguyen/Documents/Repos/Banhall-bmad-loop && npm test -- reportAuthz` -- expected: all new tests pass.
 - `cd /Users/johnnynguyen/Documents/Repos/Banhall-bmad-loop && npm test` -- expected: green.
 - `cd /Users/johnnynguyen/Documents/Repos/Banhall-bmad-loop && PUBLIC_CONVEX_URL=http://placeholder npm run check` -- expected: 0 errors.
-
-## Auto Run Result
-
-Status: blocked
-Blocking condition: no subagents
-Details: Planning completed and the spec passed the READY FOR DEVELOPMENT gate (status was set to ready-for-dev, then in-progress with baseline_revision 95819ce6872d9c9a262fc620669791459b151a24). Step-03 requires spawning a synchronous implementation subagent, but no Agent/Task tool is available in this runtime (ToolSearch found only SendMessage/ListAgents/TaskStop). Per workflow.md "Subagents", the run halts with `no subagents`. No source files were modified; this spec is ready to resume from step-03 when a subagent-capable runtime dispatches story 1 again (status should be reset to ready-for-dev by the caller, or re-planned).
