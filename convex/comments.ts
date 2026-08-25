@@ -6,6 +6,7 @@ import {
 } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
 import { applyReplacements, type PMNode } from "./lib/reportEdits";
+import { pruneSnapshots, snapshotAuditFields } from "./lib/snapshots";
 
 const COMMENTER_COLORS = [
   "#818CF8",
@@ -173,14 +174,31 @@ export const acceptEdit = mutation({
       );
     }
     const content = JSON.stringify(applied.doc);
+    const now = Date.now();
+    // Recovery checkpoint of the pre-edit prose so accepting a client's
+    // suggestion is reversible through restoreSnapshot (audit CAP-4). Written
+    // only after every validation above has passed.
+    const auditFields = await snapshotAuditFields(ctx, report);
+    await ctx.db.insert("reportSnapshots", {
+      projectId: report.projectId,
+      reportId: report._id,
+      content: report.content,
+      ...auditFields,
+      sourceRevisionNumber: report.revisionNumber ?? 0,
+      reason: "pre_chat_edit",
+      label: "Before client edit",
+      createdByRole: "system",
+      createdAt: now,
+    });
     await ctx.db.patch(report._id, {
       content,
       contentHash: await sha256(content),
       revisionNumber: (report.revisionNumber ?? 0) + 1,
       provenanceId: undefined,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
     await ctx.db.patch(args.commentId, { resolved: true });
+    await pruneSnapshots(ctx, report._id);
   },
 });
 

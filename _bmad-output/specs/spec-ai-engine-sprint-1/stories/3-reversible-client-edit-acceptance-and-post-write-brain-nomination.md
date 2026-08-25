@@ -2,14 +2,42 @@
 title: 'Reversible client-edit acceptance and post-write Brain nomination'
 type: 'bugfix'
 created: '2026-08-25'
-status: 'ready-for-dev'
-baseline_revision: '3a289520199dba35a02b8c1847cd9c14a014cab3'
+status: 'done'
+baseline_revision: '236b0a435867ba2690b6246bdda8c0b9eb42ae75'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/convex/_generated/ai/guidelines.md'
 warnings: [oversized]
-deferred: []
+deferred:
+  - summary: >-
+      submitWriterReview nominates under the reviewer's display name, not the report author's, so a manager/admin rating a writer's report attributes the Brain nomination to the reviewer.
+    evidence: |-
+      convex/reviews.ts derives writerName from the user returned by requireInternalProjectAccess (the caller) and passes it to internal.brain.nominateFromReport. Pre-existing; the story only reorders the schedule call.
+    location: >-
+      convex/reviews.ts:56
+    severity: low
+  - summary: >-
+      Restoring the pre-edit snapshot reverts the client's suggested edit but leaves the comment resolved: true, so the writer gets no signal the edit is gone.
+    evidence: |-
+      restoreSnapshot only rewrites report content/lineage; it never touches comments. Same holds for every other restore path today, so this is a product gap in restore semantics rather than in acceptEdit.
+    location: >-
+      convex/snapshots.ts:261
+    severity: low
+  - summary: >-
+      acceptEdit on an already-resolved comment re-applies the replacement (if the highlight still matches once) and writes another checkpoint.
+    evidence: |-
+      convex/comments.ts acceptEdit has no comment.resolved guard; pre-existing behavior, now also producing a duplicate pre_chat_edit snapshot. Adding a guard changes behavior outside this story's intent.
+    location: >-
+      convex/comments.ts:143
+    severity: low
+  - summary: >-
+      CommentSidebar.svelte and MarginComments.svelte call acceptEdit without catching STALE_REVISION/INVALID_INPUT, so rejections surface as unhandled promise rejections with no user copy.
+    evidence: |-
+      Both callers await the mutation with no .catch or error state, unlike CurrentMyWorkView/WorkspaceRolloutCard which map STALE_REVISION to recovery copy. Pre-existing; Svelte callers are on this story's Never list.
+    location: >-
+      src/lib/components/comments/CommentSidebar.svelte
+    severity: low
 ---
 
 <intent-contract>
@@ -76,6 +104,42 @@ deferred: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-25 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7: (high 0, medium 2, low 5)
+- defer: 4: (high 0, medium 0, low 4)
+- reject: 24
+- addressed_findings:
+  - `[medium]` `[patch]` Snapshot audit lineage (contentHash, generationId, sourceTranscriptId) was unasserted; the happy-path test now seeds a transcript + generation on the report, asserts them on the snapshot, and asserts they return to the report after restoreSnapshot.
+  - `[medium]` `[patch]` pruneSnapshots on the acceptEdit path was unobserved (removing the call kept tests green); added a test seeding 55 manual snapshots + a milestone and asserting the recovery stream is capped at 50, the milestone survives, the oldest row is gone, and the new checkpoint is present.
+  - `[low]` `[patch]` Authorization boundary untested beyond unauthenticated; added a NOT_AUTHORIZED case (authenticated user without internal role) asserting no snapshot/no patch.
+  - `[low]` `[patch]` Cross-project report reference untested; added a NOT_FOUND case (comment.projectId != report.projectId) asserting no snapshot/no patch.
+  - `[low]` `[patch]` Restore round-trip asserted only content; now asserts return value 5, revisionNumber 5, and that pre_chat_edit + pre_restore rows coexist; also asserts contentHash/provenanceId on the post-accept report.
+  - `[low]` `[patch]` writerReviews.test.ts matched scheduled jobs by substring; now exact `brain:nominateFromReport`. Removed the no-op `as Id<"reports">` cast.
+  - `[low]` `[patch]` Fixture highlightFrom/highlightTo offsets are not the real position; added a comment stating they are intentionally unused by acceptEdit.
+
+## Auto Run Result
+
+**Summary:** `acceptEdit` now writes a `pre_chat_edit` / "Before client edit" recovery snapshot (with `snapshotAuditFields` lineage) before patching the report and thins the stream with `pruneSnapshots`, mirroring `applyProposal`; `submitWriterReview` schedules `internal.brain.nominateFromReport` only after the `writerReviews` insert/patch. Two convex-test suites cover both mutations.
+
+**Files changed:**
+- `convex/comments.ts` -- acceptEdit: pre-edit snapshot insert + pruneSnapshots after the patches.
+- `convex/reviews.ts` -- submitWriterReview: nomination scheduling moved below the review row write; return value unchanged.
+- `convex/commentsAcceptEdit.test.ts` -- new: happy path with lineage + restore round-trip, prune retention, STALE_REVISION (0/2+ matches), INVALID_INPUT, NOT_AUTHORIZED, cross-project NOT_FOUND, NOT_AUTHENTICATED.
+- `convex/writerReviews.test.ts` -- new: high/updated/low review persistence and nomination scheduling, missing-report rejection.
+
+**Review findings:** 7 patched (medium 2, low 5), 4 deferred, 24 rejected, 0 intent_gap, 0 bad_spec.
+
+**Follow-up review recommendation:** true. Patched: high 0, medium 2, low 5; score = 3*2 + 1*5 = 11 (>= 5).
+
+**Verification:**
+- `npm test -- commentsAcceptEdit writerReviews` -- 12 passed.
+- `npm test` -- 104 files, 950 tests passed.
+- `PUBLIC_CONVEX_URL=http://placeholder npm run check` -- 0 errors, 0 warnings.
+
+**Residual risks:** Convex commits scheduled jobs only with the mutation, so the CAP-4 reorder is a code-sequence guarantee that no test can discriminate from the prior order (documented in Design Notes). The `pre_chat_edit` reason is shared with AI edits; only `label` distinguishes client-edit checkpoints. Re-submitting a high score schedules another nomination each time (dedup happens in `importSource`). Deferred items listed in frontmatter.
 
 ## Design Notes
 
