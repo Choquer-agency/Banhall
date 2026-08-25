@@ -60,3 +60,6 @@ data/brain-seed.json
 scripts/client-uploader/uploader-config.json
 scripts/client-uploader/upload-log.txt
 crawler-manifest.jsonl
+
+# BMAD rendered skill snapshots
+/_bmad/render/
