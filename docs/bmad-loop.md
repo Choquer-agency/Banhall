@@ -48,3 +48,10 @@ reviewers, fix, commit) → verify → headless retrospective → course-correct
 - `bmad-help` catalog CSV mis-parses rows with commas in descriptions.
 - Every BMAD skill is interview-first; headless means the orchestrator makes
   the calls the skill wants from a human and logs them as assumptions.
+- `bmad-build-auto` insists on spawning its own subagents and HALTs with
+  `no subagents` otherwise. Workflow agents cannot spawn agents, so the
+  orchestrator script spawns build-auto's stages itself: plan (steps 01-02,
+  "Halt after planning") → implement (step-03 handoff verbatim) → four
+  reviewers in parallel (blind-hunter, edge-case-hunter, verification-gap,
+  intent-alignment) → triage (step-04 classify/finalize). `bad_spec` loops
+  back to implement, max 3.
