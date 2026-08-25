@@ -2,7 +2,7 @@
 title: 'Reversible client-edit acceptance and post-write Brain nomination'
 type: 'bugfix'
 created: '2026-08-25'
-status: 'blocked'
+status: 'ready-for-dev'
 baseline_revision: '3a289520199dba35a02b8c1847cd9c14a014cab3'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -87,9 +87,3 @@ The snapshot reuses `reason: "pre_chat_edit"` rather than adding a `pre_client_e
 - `cd /Users/johnnynguyen/Documents/Repos/Banhall-bmad-loop && npm test -- commentsAcceptEdit writerReviews` -- expected: all new tests pass.
 - `cd /Users/johnnynguyen/Documents/Repos/Banhall-bmad-loop && npm test` -- expected: green.
 - `cd /Users/johnnynguyen/Documents/Repos/Banhall-bmad-loop && PUBLIC_CONVEX_URL=http://placeholder npm run check` -- expected: 0 errors.
-
-## Auto Run Result
-
-Status: blocked
-Blocking condition: no subagents
-Details: Planning completed and the spec passed the READY FOR DEVELOPMENT gate (status was set to ready-for-dev, then in-progress at step-03 with baseline_revision 3a289520199dba35a02b8c1847cd9c14a014cab3). Step-03 requires spawning a synchronous implementation subagent, but no Agent/Task tool exists in this runtime (ToolSearch exposes only SendMessage/ListAgents/TaskStop and peer sessions). Per workflow.md "Subagents", the run halts with `no subagents`. No source files were modified; resume from step-03 when a subagent-capable runtime dispatches story 3 (caller should reset status to ready-for-dev).
