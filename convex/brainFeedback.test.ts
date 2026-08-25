@@ -13,26 +13,65 @@ const RULE =
 
 async function setup() {
   const t = convexTest(schema, modules);
-  await t.run(async (ctx) => {
+  const ids = await t.run(async (ctx) => {
     await ctx.db.insert("users", {
       authId: "brain-admin",
       role: "admin",
       name: "Admin",
     });
-    await ctx.db.insert("users", {
+    const writerId = await ctx.db.insert("users", {
       authId: "brain-writer",
       role: "writer",
       name: "Tracy",
     });
+    await ctx.db.insert("users", {
+      authId: "brain-anon",
+      role: "writer",
+      name: "Anon",
+      isAnonymous: true,
+    });
+    await ctx.db.insert("users", { authId: "brain-norole", name: "No Role" });
+    const now = Date.now();
+    const projectId = await ctx.db.insert("projects", {
+      title: "Project A",
+      clientName: "Client A",
+      status: "review",
+      createdBy: writerId,
+      shareToken: "brain-project-a",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const otherProjectId = await ctx.db.insert("projects", {
+      title: "Project B",
+      clientName: "Client B",
+      status: "review",
+      createdBy: writerId,
+      shareToken: "brain-project-b",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const reportId = await ctx.db.insert("reports", {
+      projectId,
+      content: "Report under project A",
+      version: 1,
+      generatedAt: now,
+      updatedAt: now,
+    });
+    return { projectId, otherProjectId, reportId };
   });
   return {
     t,
+    ...ids,
     admin: t.withIdentity({ subject: "brain-admin" }),
     writer: t.withIdentity({ subject: "brain-writer" }),
+    anon: t.withIdentity({ subject: "brain-anon" }),
+    noRole: t.withIdentity({ subject: "brain-norole" }),
   };
 }
 
-async function allRows<T extends "brainSources" | "brainAuditLog">(
+async function allRows<
+  T extends "brainSources" | "brainAuditLog" | "brainFeedbackQueue",
+>(
   t: ReturnType<typeof convexTest>,
   table: T,
 ) {
@@ -258,5 +297,179 @@ describe("brain feedback review routing", () => {
       feedbackId,
       decision: "approved",
     });
+  });
+});
+
+describe("brain feedback scope", () => {
+  async function codeOf(p: Promise<unknown>) {
+    try {
+      await p;
+    } catch (error) {
+      const code = (error as { data?: { code?: string } }).data?.code;
+      if (!code) throw error;
+      return code;
+    }
+    throw new Error("expected rejection");
+  }
+
+  test("unscoped feedback stores no report or project", async () => {
+    const { t, writer } = await setup();
+    const id = await writer.mutation(api.brain.submitBrainFeedback, {
+      body: SUBSTANTIVE_BODY,
+    });
+    const row = await t.run((ctx) => ctx.db.get(id));
+    expect(row).toMatchObject({ status: "pending" });
+    expect(row?.fromUserId).toBeDefined();
+    expect(row?.reportId).toBeUndefined();
+    expect(row?.projectId).toBeUndefined();
+  });
+
+  test("scoped by project stores that projectId", async () => {
+    const { t, writer, projectId } = await setup();
+    const id = await writer.mutation(api.brain.submitBrainFeedback, {
+      body: SUBSTANTIVE_BODY,
+      projectId,
+    });
+    const row = await t.run((ctx) => ctx.db.get(id));
+    expect(row?.projectId).toBe(projectId);
+    expect(row?.reportId).toBeUndefined();
+  });
+
+  test("scoped by report derives projectId from the report", async () => {
+    const { t, writer, projectId, reportId } = await setup();
+    const id = await writer.mutation(api.brain.submitBrainFeedback, {
+      body: SUBSTANTIVE_BODY,
+      reportId,
+    });
+    const row = await t.run((ctx) => ctx.db.get(id));
+    expect(row?.reportId).toBe(reportId);
+    expect(row?.projectId).toBe(projectId);
+  });
+
+  test("report with matching project stores both ids", async () => {
+    const { t, writer, projectId, reportId } = await setup();
+    const id = await writer.mutation(api.brain.submitBrainFeedback, {
+      body: SUBSTANTIVE_BODY,
+      reportId,
+      projectId,
+    });
+    const row = await t.run((ctx) => ctx.db.get(id));
+    expect(row?.reportId).toBe(reportId);
+    expect(row?.projectId).toBe(projectId);
+  });
+
+  test("report paired with a foreign project is NOT_AUTHORIZED", async () => {
+    const { t, writer, otherProjectId, reportId } = await setup();
+    expect(
+      await codeOf(
+        writer.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+          reportId,
+          projectId: otherProjectId,
+        }),
+      ),
+    ).toBe("NOT_AUTHORIZED");
+    expect(await allRows(t, "brainFeedbackQueue")).toHaveLength(0);
+  });
+
+  test("deleted report is NOT_FOUND", async () => {
+    const { t, writer, reportId } = await setup();
+    await t.run((ctx) => ctx.db.delete(reportId));
+    expect(
+      await codeOf(
+        writer.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+          reportId,
+        }),
+      ),
+    ).toBe("NOT_FOUND");
+    expect(await allRows(t, "brainFeedbackQueue")).toHaveLength(0);
+  });
+
+  test("deleted project is NOT_FOUND", async () => {
+    const { t, writer, otherProjectId } = await setup();
+    await t.run((ctx) => ctx.db.delete(otherProjectId));
+    expect(
+      await codeOf(
+        writer.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+          projectId: otherProjectId,
+        }),
+      ),
+    ).toBe("NOT_FOUND");
+    expect(await allRows(t, "brainFeedbackQueue")).toHaveLength(0);
+  });
+
+  test("report whose project was deleted is NOT_FOUND", async () => {
+    const { t, writer, projectId, reportId } = await setup();
+    await t.run((ctx) => ctx.db.delete(projectId));
+    expect(
+      await codeOf(
+        writer.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+          reportId,
+        }),
+      ),
+    ).toBe("NOT_FOUND");
+    expect(await allRows(t, "brainFeedbackQueue")).toHaveLength(0);
+  });
+
+  test("anonymous user scoped by project is NOT_AUTHORIZED", async () => {
+    const { t, anon, projectId } = await setup();
+    expect(
+      await codeOf(
+        anon.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+          projectId,
+        }),
+      ),
+    ).toBe("NOT_AUTHORIZED");
+    expect(await allRows(t, "brainFeedbackQueue")).toHaveLength(0);
+  });
+
+  test("role-less user scoped by report is NOT_AUTHORIZED", async () => {
+    const { t, noRole, reportId } = await setup();
+    expect(
+      await codeOf(
+        noRole.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+          reportId,
+        }),
+      ),
+    ).toBe("NOT_AUTHORIZED");
+    expect(await allRows(t, "brainFeedbackQueue")).toHaveLength(0);
+  });
+
+  test("anonymous user with a deleted report is NOT_AUTHORIZED, not NOT_FOUND", async () => {
+    const { t, anon, reportId } = await setup();
+    await t.run((ctx) => ctx.db.delete(reportId));
+    expect(
+      await codeOf(
+        anon.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+          reportId,
+        }),
+      ),
+    ).toBe("NOT_AUTHORIZED");
+    expect(await allRows(t, "brainFeedbackQueue")).toHaveLength(0);
+  });
+
+  test("unauthenticated scoped submission throws Not authenticated", async () => {
+    const { t, projectId } = await setup();
+    await expect(
+      t.mutation(api.brain.submitBrainFeedback, {
+        body: SUBSTANTIVE_BODY,
+        projectId,
+      }),
+    ).rejects.toThrow(/not authenticated/i);
+    expect(await allRows(t, "brainFeedbackQueue")).toHaveLength(0);
+  });
+
+  test("unauthenticated unscoped submission throws Not authenticated", async () => {
+    const { t } = await setup();
+    await expect(
+      t.mutation(api.brain.submitBrainFeedback, { body: SUBSTANTIVE_BODY }),
+    ).rejects.toThrow(/not authenticated/i);
+    expect(await allRows(t, "brainFeedbackQueue")).toHaveLength(0);
   });
 });

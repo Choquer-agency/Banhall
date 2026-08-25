@@ -2,14 +2,28 @@
 title: 'Brain feedback scoped to accessible reports and projects'
 type: 'bugfix'
 created: '2026-08-25'
-baseline_revision: 'a5b50d774d6e2a72f3524bd8e3a2a55e137f5f2b'
-status: 'ready-for-dev'
+baseline_revision: '838cbcc1c912a06a4cb49dd5851dd800a7562f79'
+status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/convex/_generated/ai/guidelines.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: >-
+      Unscoped brain feedback (no reportId, no projectId) has no internal-role gate, so an anonymous or role-less authenticated account can enqueue feedback.
+    evidence: |-
+      submitBrainFeedback only checks getCurrentUserOrNull on the unscoped path; the intent contract explicitly keeps that path unchanged ("Feedback with neither id keeps today's behavior"), so this is pre-existing and outside CAP-5. Raised by edge-case-hunter and blind-hunter.
+    location: >-
+      convex/brain.ts submitBrainFeedback (unscoped branch)
+    severity: medium
+  - summary: >-
+      body and suggestedRule are stored unbounded, unlike the sibling insert in convex/research.ts which truncates to 40_000 chars.
+    evidence: |-
+      Pre-existing behaviour of the mutation, not introduced by this story; a cap would change the public contract of the queue row.
+    location: >-
+      convex/brain.ts submitBrainFeedback insert
+    severity: low
 ---
 
 <intent-contract>
@@ -72,6 +86,40 @@ deferred: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-25 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7: (high 0, medium 2, low 5)
+- defer: 2: (high 0, medium 1, low 1)
+- reject: 6
+- addressed_findings:
+  - `[medium]` `[patch]` Report lookup and report/project mismatch check ran before the role gate, letting anonymous or role-less accounts probe report existence and report-to-project mapping via NOT_FOUND vs NOT_AUTHORIZED. Added an up-front internal-role gate on the scoped path (before any lookup); unscoped path untouched.
+  - `[medium]` `[patch]` No test observed the anonymous / role-less rejection through this mutation, so the CAP-5 gate could be removed with the suite staying green. Added `brain-anon` and `brain-norole` fixtures and three tests (anon by project, role-less by report, anon + deleted report ordering).
+  - `[low]` `[patch]` Comment overstated "readable by the caller"; reworded to describe the actual guarantee (project exists, caller holds an active internal role).
+  - `[low]` `[patch]` Orphan report (project row deleted) was untested; added "report whose project was deleted is NOT_FOUND".
+  - `[low]` `[patch]` `codeOf` swallowed non-ConvexError rejections into `undefined`; it now rethrows when `data.code` is absent.
+  - `[low]` `[patch]` Redundant `user?.name` optional chain after the `if (!user) throw` guard; dropped.
+  - `[low]` `[patch]` NOT_FOUND / mismatch errors carried no ids; now pass `reportId` / `projectId` through `domainError` details.
+
+## Auto Run Result
+
+**Summary:** `submitBrainFeedback` now resolves its scope before inserting: a `reportId` pins the `projectId`, a supplied `projectId` must agree with it (`NOT_AUTHORIZED`), a missing report or project is `NOT_FOUND`, and any scoped submission requires an active internal role (gated before any lookup) plus `requireInternalProjectAccess` on the resolved project. The unscoped path is unchanged.
+
+**Files changed:**
+- `convex/brain.ts` -- scope resolution, up-front role gate on scoped submissions, resolved `projectId` stored, error details carry ids.
+- `convex/brainFeedback.test.ts` -- project/report/anon/role-less fixtures and a `brain feedback scope` describe covering every matrix row plus role-gate and orphan-report cases.
+
+**Review findings:** 7 patched (medium 2, low 5), 2 deferred, 6 rejected (mismatch-as-INVALID_INPUT, requireCurrentUser on unscoped path, per-project membership check, indexes/cleanup, frontend caller, product-domain doc entry -- all excluded by the intent contract or not this story's surface).
+
+**Follow-up review recommendation:** true. Patched: high 0, medium 2, low 5; score 3*2 + 5 = 11 (>= 5).
+
+**Verification:**
+- `npm test -- brainFeedback` -- 23 passed.
+- `npm test` -- 104 files, 963 tests passed.
+- `PUBLIC_CONVEX_URL=http://placeholder npm run check` -- 0 errors, 0 warnings.
+
+**Residual risks:** access is role-level, not per-project membership (the codebase has no per-project membership model; `requireInternalProjectAccess` is the shared gate). Unscoped feedback still has no role gate (deferred).
 
 ## Design Notes
 

@@ -15,7 +15,8 @@ import { brain } from "./ai/brain/rag";
 import { requireBrainConfigured } from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { extractPlainText } from "./lib/reportEdits";
-import { getCurrentUserOrNull } from "./lib/auth";
+import { getCurrentUserOrNull, requireInternalProjectAccess } from "./lib/auth";
+import { domainError } from "./lib/contracts";
 
 // Serial embed queue with backoff — Voyage 429s on parallel bursts (the 10-PD
 // seed lost 7/10 jobs at maxParallelism ∞). Bulk imports (BNH-17's ~500) drain
@@ -390,11 +391,44 @@ export const submitBrainFeedback = mutation({
   handler: async (ctx, args) => {
     const user = await getCurrentUserOrNull(ctx);
     if (!user) throw new Error("Not authenticated");
+    // Scope resolution (audit CAP-5): a report pins the project; a supplied
+    // projectId must agree with it; any resolved project must exist and the
+    // caller must hold an active internal role (the same gate every internal
+    // project read uses) before feedback can be attached to it.
+    let projectId: Id<"projects"> | undefined = args.projectId;
+    if (args.reportId || args.projectId) {
+      // Gate the role before any lookup so non-internal accounts cannot use
+      // NOT_FOUND vs NOT_AUTHORIZED to probe report or project existence.
+      if (user.isAnonymous === true || !user.role) {
+        domainError(
+          "NOT_AUTHORIZED",
+          "This action requires an active internal role"
+        );
+      }
+    }
+    if (args.reportId) {
+      const report = await ctx.db.get(args.reportId);
+      if (!report) {
+        domainError("NOT_FOUND", "Report not found", {
+          reportId: args.reportId,
+        });
+      }
+      if (args.projectId && args.projectId !== report.projectId) {
+        domainError("NOT_AUTHORIZED", "Report does not belong to that project", {
+          reportId: args.reportId,
+          projectId: args.projectId,
+        });
+      }
+      projectId = report.projectId;
+    }
+    if (projectId) {
+      await requireInternalProjectAccess(ctx, projectId);
+    }
     return await ctx.db.insert("brainFeedbackQueue", {
       fromUserId: user._id,
-      fromName: user?.name,
+      fromName: user.name,
       reportId: args.reportId,
-      projectId: args.projectId,
+      projectId,
       body: args.body,
       suggestedRule: args.suggestedRule,
       status: "pending",
