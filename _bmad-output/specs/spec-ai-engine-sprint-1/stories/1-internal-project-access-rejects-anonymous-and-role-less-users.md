@@ -2,14 +2,30 @@
 title: 'Internal project access rejects anonymous and role-less users'
 type: 'bugfix'
 created: '2026-08-25'
-status: 'ready-for-dev'
-baseline_revision: '95819ce6872d9c9a262fc620669791459b151a24'
+status: 'done'
+baseline_revision: 'a2347c2ac3f717503533f904ffd07dd1eb3cb98f'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/convex/_generated/ai/guidelines.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: >-
+      getProjectAccess still classifies any authenticated user, including anonymous
+      auth records and role-less users, as an internal collaborator.
+    evidence: |-
+      convex/lib/auth.ts getProjectAccess returns { kind: "internal" } for any
+      getCurrentUserOrNull hit with no isAnonymous/role check, so an anonymous
+      Better Auth session without a share token gets internal-level access to
+      reports.getLatestReport, comments.listComments/addComment, and reportViews.
+      Pre-existing and explicitly out of scope for this story (intent: "Never
+      change getProjectAccess client-review semantics"). Note docs/product-domain.md
+      records a 2026-08-06 decision that preserved role-less read visibility on
+      dashboard queries, so a product decision is needed before gating the read
+      branch; the write branch (addComment) is the riskier half.
+    location: >-
+      convex/lib/auth.ts:98-117
+    severity: high
 ---
 
 <intent-contract>
@@ -72,9 +88,42 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-08-25 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (high 0, medium 0, low 6)
+- defer: 1: (high 1, medium 0, low 0)
+- reject: 13
+- addressed_findings:
+  - `[low]` `[patch]` Precedence of the role gate over the project lookup was undocumented and untested; added a test asserting anonymous + deleted project yields NOT_AUTHORIZED.
+  - `[low]` `[patch]` Only `writer` and `undefined` isAnonymous exercised the accept path; added a `manager` fixture with explicit `isAnonymous: false` and a passing updateReportContent test.
+  - `[low]` `[patch]` No manager/admin role covered the gate (a `role === "writer"` regression would pass); covered by the same manager test.
+  - `[low]` `[patch]` applyProposal NOT_FOUND branch of the gate unverified; added a deleted-project test for applyProposal asserting NOT_FOUND and proposal still pending.
+  - `[low]` `[patch]` Anonymous fixture carrying a role was uncommented; added a comment stating it proves isAnonymous wins over a present role.
+  - `[low]` `[patch]` `agentTest.register(t)` was unexplained; added a comment that chatV2.ts imports @convex-dev/agent.
+
 ## Verification
 
 **Commands:**
 - `cd /Users/johnnynguyen/Documents/Repos/Banhall-bmad-loop && npm test -- reportAuthz` -- expected: all new tests pass.
 - `cd /Users/johnnynguyen/Documents/Repos/Banhall-bmad-loop && npm test` -- expected: green.
 - `cd /Users/johnnynguyen/Documents/Repos/Banhall-bmad-loop && PUBLIC_CONVEX_URL=http://placeholder npm run check` -- expected: 0 errors.
+
+## Auto Run Result
+
+**Summary:** `requireInternalProjectAccess` now rejects anonymous auth records (`isAnonymous === true`) and role-less users with the existing `NOT_AUTHORIZED` domain error, after `requireCurrentUser` (so no identity still yields `NOT_AUTHENTICATED`) and before the project lookup (so role holders on a deleted project still get `NOT_FOUND`). This mirrors `getInternalProjectAccessOrNull` and closes audit CAP-1 for every caller of the helper, including `updateReportContent` and `applyProposal`.
+
+**Files changed:**
+- `convex/lib/auth.ts` -- six-line gate added to `requireInternalProjectAccess`.
+- `convex/reportAuthz.test.ts` -- new convex-test suite (11 tests) covering the I/O matrix for `updateReportContent` and `applyProposal`, plus gate-precedence, explicit `isAnonymous: false` manager, and applyProposal NOT_FOUND cases added at review.
+
+**Review findings:** 6 patches applied (all low), 1 deferred (high: `getProjectAccess` still treats anonymous/role-less users as internal; intent forbids touching it), 13 rejected (refactor/extraction suggestions that would change sibling helpers the intent protects, style-only test idioms, assertions outside the matrix, docs update not requested, pre-existing applyProposal check ordering in a caller the intent forbids changing).
+
+**Follow-up review recommendation:** true. Patched counts: high 0, medium 0, low 6; score = 3x0 + 1x6 = 6 (>= 5).
+
+**Verification:**
+- `npm test -- reportAuthz` -- 11/11 passed.
+- `npm test` -- 102 files, 932 tests passed.
+- `PUBLIC_CONVEX_URL=http://placeholder npm run check` -- 0 errors, 0 warnings.
+
+**Residual risks:** The deferred `getProjectAccess` gap means anonymous/role-less sessions retain internal-level read (and `addComment` write) access on the shared-review endpoints until a product decision covers the read branch (see docs/product-domain.md D1 note on role-less read visibility). Any project-scoped endpoint that bypasses `requireInternalProjectAccess` (calling `requireCurrentUser` directly) is not covered by this change.

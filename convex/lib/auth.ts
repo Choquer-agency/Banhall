@@ -46,6 +46,12 @@ export async function requireInternalProjectAccess(
   projectId: Id<"projects">
 ) {
   const user = await requireCurrentUser(ctx);
+  // Same gate as getInternalProjectAccessOrNull: anonymous auth records and
+  // users without a role are never internal collaborators, even though they
+  // are authenticated (audit CAP-1).
+  if (user.isAnonymous === true || !user.role) {
+    domainError("NOT_AUTHORIZED", "This action requires an active internal role");
+  }
   const project = await ctx.db.get(projectId);
   if (!project) domainError("NOT_FOUND", "Project not found");
   return { project, user };
