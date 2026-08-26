@@ -12,6 +12,7 @@
 
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
 import { instrumentedAnthropic } from "./instrument";
 import { clientForModel } from "./providers";
@@ -37,6 +38,7 @@ import {
   normalizeStyleOverrides,
 } from "../../shared/styleOverrides";
 import { fetchWriterStyle } from "./writerStyle";
+import { currentPromptVersion } from "./prompts";
 
 type IterativeSection = "s242" | "s244" | "s246";
 
@@ -56,6 +58,7 @@ export const startIterativeGeneration = internalAction({
   handler: async (ctx, args) => {
     const started = await ctx.runMutation(internal.generations.beginGeneration, {
       generationId: args.generationId,
+      promptVersion: await currentPromptVersion(),
     });
     if (!started) return;
     const input = await ctx.runQuery(internal.generations.getGenerationInput, {
@@ -81,6 +84,7 @@ export const startIterativeGeneration = internalAction({
       clientForModel(ctx, model.id, {
         callSite,
         projectId,
+        generationId: genId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
       });
     // The Brain's retrieval brief always runs on Anthropic Haiku — never the
@@ -89,6 +93,7 @@ export const startIterativeGeneration = internalAction({
       callSite: "generation:retrieval_brief",
       capability: "generation",
       projectId,
+      generationId: genId,
       ...(input.requestedBy ? { userId: input.requestedBy } : {}),
     });
     const log = (line: string) =>
@@ -134,6 +139,7 @@ export const startIterativeGeneration = internalAction({
       const writerStylePromise = fetchWriterStyle(ctx, input.requestedBy, log);
       let draftStyle: string | undefined;
       let qaCalibration: string | undefined;
+      let learningDigestIds: Id<"learningDigests">[] = [];
       try {
         const [qaDigest, styleDigest] = await Promise.all([
           ctx.runQuery(internal.learning.getActiveDigest, {
@@ -150,8 +156,23 @@ export const startIterativeGeneration = internalAction({
             `Applying drafting style learned from ${styleDigest.sourceCount} writer critique(s).`
           );
         }
+        learningDigestIds = [qaDigest, styleDigest]
+          .filter((digest) => digest !== null)
+          .map((digest) => digest._id);
       } catch (err) {
         console.error("learning digest fetch failed for generation", genId, err);
+      }
+      // CAP-9 provenance, recorded outside the fetch guard so a failed fetch
+      // still stamps `[]` (ran without guidance) instead of leaving the field
+      // absent (legacy row). Its own guard keeps a write failure from being
+      // misreported as a fetch failure or breaking generation.
+      try {
+        await ctx.runMutation(internal.generations.recordLearningDigests, {
+          generationId: genId,
+          learningDigestIds,
+        });
+      } catch (err) {
+        console.error("learning digest record failed for generation", genId, err);
       }
       const { writerFlavor, styleOverrides } = await writerStylePromise;
       const styleGuidance = buildStyleGuidance(
@@ -280,6 +301,7 @@ export const generateSection = internalAction({
       clientForModel(ctx, run.model, {
         callSite,
         projectId: input.projectId,
+        generationId: args.generationId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
       });
 

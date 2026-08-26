@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ANALYZER_SYSTEM_PROMPT,
   buildSharedWritingRules,
   buildSection242SystemPrompt,
   buildSection244SystemPrompt,
@@ -231,5 +232,37 @@ describe("prompt dash hygiene", () => {
       expect(findDashConnectors(prompt.replace(RULES_HUMAN_PROSE, "")).map((h) => h.context)).toEqual([]);
       expect(findDashConnectors(prompt).length).toBeLessThanOrEqual(allowed);
     }
+  });
+});
+
+// CAP-9: promptVersion is derived from prompt content, never hand-bumped.
+describe("currentPromptVersion", () => {
+  it("is stable across calls and differs for a modified corpus", async () => {
+    const { currentPromptVersion, promptCorpus } = await import("./prompts");
+    const { sha256 } = await import("../lib/contracts");
+    const first = await currentPromptVersion();
+    const second = await currentPromptVersion();
+    expect(first).toBe(second);
+    expect(first).toMatch(/^sha256:[0-9a-f]{16}$/);
+    expect(first).toBe(`sha256:${(await sha256(promptCorpus())).slice(0, 16)}`);
+    const modified = `sha256:${(await sha256(promptCorpus() + " edited")).slice(0, 16)}`;
+    expect(first).not.toBe(modified);
+  });
+
+  it("covers every default-build generation prompt", async () => {
+    const { promptCorpus } = await import("./prompts");
+    const corpus = promptCorpus();
+    for (const prompt of [
+      ANALYZER_SYSTEM_PROMPT,
+      buildSection242SystemPrompt(),
+      buildSection244SystemPrompt(),
+      buildSection246SystemPrompt(),
+      buildQaSystemPrompt(),
+    ]) {
+      expect(prompt.length).toBeGreaterThan(0);
+      expect(corpus).toContain(prompt);
+    }
+    // Chat is not a generation; its prompt must not move the version.
+    expect(corpus).not.toContain(buildChatSystemPromptV2());
   });
 });

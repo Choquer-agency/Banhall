@@ -476,9 +476,15 @@ export default defineSchema({
     cacheReadInputTokens: v.optional(v.number()),
     costUsd: v.number(),
     createdAt: v.number(),
+    // CAP-9 attribution: which generation / candidate run made the call, and
+    // wall-clock duration of the whole provider call (retries included).
+    generationId: v.optional(v.id("generations")),
+    candidateRunId: v.optional(v.id("generationCandidateRuns")),
+    durationMs: v.optional(v.number()),
   })
     .index("by_createdAt", ["createdAt"])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    .index("by_generationId", ["generationId"]),
 
   transcripts: defineTable({
     projectId: v.id("projects"),
@@ -686,6 +692,14 @@ export default defineSchema({
     // The Haiku-extracted retrieval brief (JSON) behind the section queries —
     // kept for retrieval-quality evals.
     brainRetrievalBrief: v.optional(v.string()),
+    // CAP-9 provenance: content-derived hash of the default-build generation
+    // prompt corpus (see promptCorpus / currentPromptVersion: prompt text, not
+    // the per-generation runtime inputs) and the published learning digests
+    // applied.
+    // `[]` means the fetch completed with no digest published; absent means a
+    // legacy row from before provenance was recorded.
+    promptVersion: v.optional(v.string()),
+    learningDigestIds: v.optional(v.array(v.id("learningDigests"))),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),

@@ -98,6 +98,8 @@ type BrainSearchArgs = {
   userId?: string;
   agentThreadId?: string;
   usageLabel?: string;
+  /** CAP-9: attributes Voyage usage rows to the generation being drafted. */
+  generationId?: Id<"generations">;
 };
 
 export async function searchBrainExemplars(
@@ -139,6 +141,7 @@ export async function searchBrainExemplars(
         ...(args.agentThreadId
           ? { agentThreadId: args.agentThreadId }
           : {}),
+        ...(args.generationId ? { generationId: args.generationId } : {}),
         callSite: `brain:query_embedding${usageSuffix}`,
         model: brainEmbeddingModel.modelId,
         inputTokens: usage.tokens,
@@ -185,6 +188,9 @@ export async function searchBrainExemplars(
             ...(args.userId ? { userId: args.userId } : {}),
             ...(args.agentThreadId
               ? { agentThreadId: args.agentThreadId }
+              : {}),
+            ...(args.generationId
+              ? { generationId: args.generationId }
               : {}),
             callSite: `brain:rerank${usageSuffix}`,
             model: brainRerankModel.modelId,
@@ -236,6 +242,7 @@ export const retrieveBrainContext = internalAction({
     userId: v.optional(v.string()),
     agentThreadId: v.optional(v.string()),
     usageLabel: v.optional(v.string()),
+    generationId: v.optional(v.id("generations")),
   },
   handler: async (ctx, args): Promise<BrainSearchOutcome> => {
     return await searchBrainExemplars(ctx, args);

@@ -2,6 +2,7 @@
 
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
 import { instrumentedAnthropic } from "./instrument";
 import { clientForModel } from "./providers";
@@ -39,7 +40,7 @@ import {
   type StyleOverrides,
 } from "../../shared/styleOverrides";
 import { styleOverridesValidator } from "../lib/styleOverrides";
-import { waivedCategoryLabels } from "./prompts";
+import { currentPromptVersion, waivedCategoryLabels } from "./prompts";
 import { fetchWriterStyle } from "./writerStyle";
 import { detectFirstPersonPreference } from "../../shared/humanProse";
 
@@ -340,6 +341,7 @@ export const generateReport = internalAction({
   handler: async (ctx, args) => {
     const started = await ctx.runMutation(internal.generations.beginGeneration, {
       generationId: args.generationId,
+      promptVersion: await currentPromptVersion(),
     });
     if (!started) return;
     const input = await ctx.runQuery(internal.generations.getGenerationInput, {
@@ -372,6 +374,7 @@ export const generateReport = internalAction({
       callSite: "generation:retrieval_brief",
       capability: "generation",
       projectId,
+      generationId: genId,
       ...(input.requestedBy ? { userId: input.requestedBy } : {}),
     });
     const log = (line: string) =>
@@ -441,6 +444,7 @@ export const generateReport = internalAction({
       // Wrapped so learning can NEVER break generation.
       let qaCalibration: string | undefined;
       let draftStyle: string | undefined;
+      let learningDigestIds: Id<"learningDigests">[] = [];
       try {
         const [qaDigest, styleDigest] = await Promise.all([
           ctx.runQuery(internal.learning.getActiveDigest, {
@@ -462,8 +466,23 @@ export const generateReport = internalAction({
             `Applying drafting style learned from ${styleDigest.sourceCount} writer critique(s).`
           );
         }
+        learningDigestIds = [qaDigest, styleDigest]
+          .filter((digest) => digest !== null)
+          .map((digest) => digest._id);
       } catch (err) {
         console.error("learning digest fetch failed for generation", genId, err);
+      }
+      // CAP-9 provenance, recorded outside the fetch guard so a failed fetch
+      // still stamps `[]` (ran without guidance) instead of leaving the field
+      // absent (legacy row). Its own guard keeps a write failure from being
+      // misreported as a fetch failure or breaking generation.
+      try {
+        await ctx.runMutation(internal.generations.recordLearningDigests, {
+          generationId: genId,
+          learningDigestIds,
+        });
+      } catch (err) {
+        console.error("learning digest record failed for generation", genId, err);
       }
 
       const { writerFlavor, styleOverrides } = await writerStylePromise;
@@ -549,6 +568,8 @@ export const generateCandidate = internalAction({
       clientForModel(ctx, run.model, {
         callSite,
         projectId: run.projectId,
+        generationId: args.generationId,
+        candidateRunId: args.candidateRunId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
       });
     try {

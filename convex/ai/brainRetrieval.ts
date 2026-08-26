@@ -127,6 +127,7 @@ export async function retrieveBrainBlocks(
           docType: "pd",
           projectId: params.projectId,
           usageLabel: r.section,
+          generationId: params.generationId,
         }
       );
       anyDegraded = anyDegraded || outcome.degraded;

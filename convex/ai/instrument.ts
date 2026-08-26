@@ -19,6 +19,11 @@ export type UsageEvent = {
   /** Provider-reported exact cost (OpenRouter). Anthropic path never sets it. */
   costUsd?: number;
   createdAt?: number;
+  /** CAP-9 attribution: set by generation call sites, absent for chat/ingest. */
+  generationId?: Id<"generations">;
+  candidateRunId?: Id<"generationCandidateRuns">;
+  /** Wall-clock duration of the whole provider call, retries included. */
+  durationMs?: number;
 };
 
 /**
@@ -89,6 +94,8 @@ export function instrumentedAnthropic(
     projectId?: Id<"projects">;
     userId?: string;
     brainSourceId?: Id<"brainSources">;
+    generationId?: Id<"generations">;
+    candidateRunId?: Id<"generationCandidateRuns">;
     capability?: AnthropicCapability;
   }
 ): Anthropic {
@@ -99,11 +106,14 @@ export function instrumentedAnthropic(
     get(target, property, receiver) {
       if (property !== "create") return Reflect.get(target, property, receiver);
       return async (...args: unknown[]) => {
+        // Measured around the whole SDK call so retries are included.
+        const startedAt = Date.now();
         const response: unknown = await Reflect.apply(
           originalCreate,
           target,
           args
         );
+        const durationMs = Date.now() - startedAt;
         const usage = anthropicUsage(response);
         const params = args[0];
         const model =
@@ -120,6 +130,11 @@ export function instrumentedAnthropic(
             ...(meta.brainSourceId
               ? { brainSourceId: meta.brainSourceId }
               : {}),
+            ...(meta.generationId ? { generationId: meta.generationId } : {}),
+            ...(meta.candidateRunId
+              ? { candidateRunId: meta.candidateRunId }
+              : {}),
+            durationMs,
             callSite: meta.callSite,
             model,
             inputTokens: usage.inputTokens,

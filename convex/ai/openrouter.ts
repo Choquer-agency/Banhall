@@ -65,6 +65,8 @@ export async function openRouterChatCompletion(
     callSite: string;
     projectId?: Id<"projects">;
     userId?: string;
+    generationId?: Id<"generations">;
+    candidateRunId?: Id<"generationCandidateRuns">;
     headers?: Record<string, string>;
     /** Per-attempt fetch timeout. Defaults to DEFAULT_TIMEOUT_MS. */
     timeoutMs?: number;
@@ -75,6 +77,8 @@ export async function openRouterChatCompletion(
   const maxAttempts = OPENROUTER_MAX_RETRIES + 1;
   let response!: Response;
   let text!: string;
+  // Measured around the whole attempt loop so retries are included.
+  const startedAt = Date.now();
   // Bounded retry with backoff for transient gateway failures (429/5xx/
   // network). Retry decisions and delays are pure functions in
   // openrouterCore.ts; this loop only executes them.
@@ -153,6 +157,9 @@ export async function openRouterChatCompletion(
   await scheduleUsage(ctx, {
     ...(input.projectId ? { projectId: input.projectId } : {}),
     ...(input.userId ? { userId: input.userId } : {}),
+    ...(input.generationId ? { generationId: input.generationId } : {}),
+    ...(input.candidateRunId ? { candidateRunId: input.candidateRunId } : {}),
+    durationMs: Date.now() - startedAt,
     callSite: input.callSite,
     model: input.model,
     inputTokens: usage.inputTokens,
@@ -169,6 +176,8 @@ export function instrumentedOpenRouter(
     callSite: string;
     projectId?: Id<"projects">;
     userId?: string;
+    generationId?: Id<"generations">;
+    candidateRunId?: Id<"generationCandidateRuns">;
   }
 ): GenerationClient {
   return {

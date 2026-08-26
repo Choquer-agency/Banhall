@@ -164,6 +164,10 @@ const usageArgs = {
   // valid it wins over the PRICING estimate.
   costUsd: v.optional(v.number()),
   createdAt: v.optional(v.number()),
+  // CAP-9 attribution (optional: chat / ingest calls have no generation).
+  generationId: v.optional(v.id("generations")),
+  candidateRunId: v.optional(v.id("generationCandidateRuns")),
+  durationMs: v.optional(v.number()),
 };
 
 /** Persist one provider response's billed usage. */
@@ -234,6 +238,13 @@ export const logUsage = internalMutation({
               cacheReadInputTokens
             ),
       createdAt: args.createdAt ?? Date.now(),
+      ...(args.generationId ? { generationId: args.generationId } : {}),
+      ...(args.candidateRunId ? { candidateRunId: args.candidateRunId } : {}),
+      ...(args.durationMs !== undefined &&
+      Number.isFinite(args.durationMs) &&
+      args.durationMs >= 0
+        ? { durationMs: args.durationMs }
+        : {}),
     });
     return null;
   },

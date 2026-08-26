@@ -58,6 +58,8 @@ export function clientForModel(
     callSite: string;
     projectId?: Id<"projects">;
     userId?: string;
+    generationId?: Id<"generations">;
+    candidateRunId?: Id<"generationCandidateRuns">;
   }
 ): GenerationClient {
   if (gatewayForModel(modelId) === "openrouter") {

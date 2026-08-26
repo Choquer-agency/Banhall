@@ -109,6 +109,17 @@ export const getGeneration = query({
     ) {
       return null;
     }
+    // CAP-9: attributable cost, summed from the indexed aiUsage rows.
+    let costUsd = 0;
+    let usageCalls = 0;
+    for await (const row of ctx.db
+      .query("aiUsage")
+      .withIndex("by_generationId", (q) =>
+        q.eq("generationId", generation._id)
+      )) {
+      costUsd += row.costUsd;
+      usageCalls += 1;
+    }
     return {
       _id: generation._id,
       projectId: generation.projectId,
@@ -124,6 +135,10 @@ export const getGeneration = query({
       startedAt: generation.startedAt,
       completedAt: generation.completedAt,
       agentOutputs: generation.agentOutputs,
+      promptVersion: generation.promptVersion,
+      learningDigestIds: generation.learningDigestIds,
+      costUsd,
+      usageCalls,
     };
   },
 });
@@ -606,7 +621,13 @@ export const retryFailedCandidates = mutation({
 // ─── Internal functions used by the pipeline action ──────────────────────────
 
 export const beginGeneration = internalMutation({
-  args: { generationId: v.id("generations") },
+  args: {
+    generationId: v.id("generations"),
+    // CAP-9: content-derived prompt version, known before the fence. Required
+    // so a call site that forgets it fails the type check instead of writing
+    // a row indistinguishable from a legacy one.
+    promptVersion: v.string(),
+  },
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation || generation.status !== "reserved") return false;
@@ -616,9 +637,31 @@ export const beginGeneration = internalMutation({
       status: "running",
       currentStep: "Preparing frozen project sources...",
       startedAt: Date.now(),
+      promptVersion: args.promptVersion,
     });
     await refreshProjectGenerationActivity(ctx, generation.projectId);
     return true;
+  },
+});
+
+/**
+ * CAP-9: record which published learning digests a generation ran under.
+ * `[]` is stored deliberately so "ran with no digest" is distinguishable from
+ * a legacy row where the field is absent. Missing generation is a no-op.
+ */
+export const recordLearningDigests = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    learningDigestIds: v.array(v.id("learningDigests")),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) return null;
+    await ctx.db.patch(generation._id, {
+      learningDigestIds: args.learningDigestIds,
+    });
+    return null;
   },
 });
 

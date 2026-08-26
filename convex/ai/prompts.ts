@@ -35,6 +35,7 @@ import {
   RULES_BANNED_SELF_CHECK,
 } from "../../shared/houseRules";
 import { RULES_HUMAN_PROSE } from "../../shared/humanProse";
+import { sha256 } from "../lib/contracts";
 
 // ─── AGENT 1: TRANSCRIPT ANALYZER ───────────────────────────────────────────
 
@@ -662,3 +663,36 @@ A rejection means "refine this," NOT "give up." The writer often rejects simply 
 - Only when the request is genuinely ambiguous should you ask a brief clarifying question; and even then, offer 2–3 concrete options so they can just pick one.`;
 }
 
+
+// ─── CAP-9: content-derived prompt version ──────────────────────────────────
+
+const PROMPT_CORPUS_SEPARATOR = "\n\n=====\n\n";
+
+/**
+ * The default-build generation prompt corpus. Any edit to a generation prompt
+ * changes this text, and therefore currentPromptVersion(); identical prompt
+ * text always yields the identical version.
+ *
+ * Scope: the drafting pipeline's system prompts built with default arguments
+ * (analyzer, sections 242/244/246, QA), which transitively cover the shared
+ * house rules and human-prose rules they interpolate. Deliberately excluded:
+ * per-generation runtime inputs (style overrides, writer flavor, waived
+ * categories, learning digests -- the latter are recorded separately as
+ * `learningDigestIds`), the chat prompt (chat has no generation), and the
+ * PD-review / context-inputs guidance. The version therefore fingerprints the
+ * prompt *text*, not the exact prompt sent for one generation.
+ */
+export function promptCorpus(): string {
+  return [
+    ANALYZER_SYSTEM_PROMPT,
+    buildSection242SystemPrompt(),
+    buildSection244SystemPrompt(),
+    buildSection246SystemPrompt(),
+    buildQaSystemPrompt(),
+  ].join(PROMPT_CORPUS_SEPARATOR);
+}
+
+/** `sha256:<16 hex>` of promptCorpus(); stored on generations.promptVersion. */
+export async function currentPromptVersion(): Promise<string> {
+  return `sha256:${(await sha256(promptCorpus())).slice(0, 16)}`;
+}

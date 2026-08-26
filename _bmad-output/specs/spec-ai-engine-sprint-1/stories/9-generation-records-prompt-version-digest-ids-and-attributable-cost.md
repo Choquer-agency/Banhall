@@ -2,9 +2,10 @@
 title: 'Generation records prompt version, digest ids, and attributable cost'
 type: 'feature'
 created: '2026-08-26'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'de2c649e7a06d24ea83a5c1563cd7e4899059c76'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/convex/_generated/ai/guidelines.md'
   - '{project-root}/_bmad-output/specs/spec-ai-engine-sprint-1/SPEC.md'
@@ -99,6 +100,51 @@ deferred: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-26 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 8: (high 0, medium 4, low 4)
+- defer: 0
+- reject: 18
+- addressed_findings:
+  - `[medium]` `[patch]` `recordLearningDigests` sat inside the digest-fetch `try`, so a fetch failure left `learningDigestIds` absent (indistinguishable from a legacy row) and a write failure was logged as "fetch failed". Moved the record call outside the fetch guard in `convex/ai/pipeline.ts` and `convex/ai/iterative.ts`: ids collected in a local, `[]` on fetch failure, own `try/catch` with a "record failed" message.
+  - `[low]` `[patch]` `beginGeneration.promptVersion` was optional and spread only when truthy, so a forgetful call site or an empty string would silently produce a legacy-looking row. Made the arg required (`v.string()`) and patched unconditionally in `convex/generations.ts`; both action call sites are now enforced by the type check.
+  - `[medium]` `[patch]` Anthropic wrapper attribution (`generationId`/`candidateRunId`/`durationMs` on the scheduled `logUsage` payload) was never executed by a test. Added `convex/ai/instrument.test.ts` driving the real proxy with a stubbed SDK client.
+  - `[medium]` `[patch]` OpenRouter attribution and the retry-inclusive `durationMs` passed the retry-loop suite unobserved. Extended `convex/ai/openrouterRetryLoop.test.ts` with a 429→200 case asserting both ids and `durationMs` across the loop, plus an unattributed case.
+  - `[medium]` `[patch]` Brain retrieval attribution (Voyage embedding + rerank rows) was unverified. Added `convex/ai/brain/retrieveAttribution.test.ts` driving `searchBrainExemplars` with stubbed search/rerank and asserting `generationId` on both rows.
+  - `[low]` `[patch]` `logUsage` sanitisation of negative / non-finite `durationMs` had no test. Added a case to `convex/generationAttribution.test.ts`.
+  - `[low]` `[patch]` `currentPromptVersion` test was self-referential. Added a case asserting the corpus contains each constituent generation prompt and excludes the chat prompt.
+  - `[low]` `[patch]` `promptCorpus()` scope (what is and is not hashed) and the `generations.promptVersion` schema comment did not say the value fingerprints default-build prompt text rather than the exact per-generation prompt. Documented in `convex/ai/prompts.ts` and `convex/schema.ts`.
+
+## Auto Run Result
+
+**Summary:** CAP-9 provenance and attribution. `generations` gains `promptVersion` (content-derived `sha256:<16 hex>` of the default-build generation prompt corpus, written at the `reserved -> running` fence) and `learningDigestIds` (recorded once the digest fetch settles, `[]` when nothing is published or the fetch failed). `aiUsage` gains `generationId`, `candidateRunId`, `durationMs` with a `by_generationId` index; both provider wrappers measure `durationMs` around the whole call (retries included) and forward the ids from every generation call site (candidate runs, iterative section runs, retrieval brief, post-QA, Brain embedding/rerank). `getGeneration` additionally returns `promptVersion`, `learningDigestIds`, `costUsd`, `usageCalls`.
+
+**Files changed:**
+- `convex/schema.ts` -- optional `aiUsage` attribution fields + `by_generationId`; `generations.promptVersion` / `learningDigestIds`.
+- `convex/aiUsage.ts` -- `logUsage` accepts and persists the attribution fields (`durationMs` only when finite and `>= 0`).
+- `convex/generations.ts` -- `beginGeneration` requires `promptVersion`; new `recordLearningDigests`; `getGeneration` sums indexed usage and exposes provenance.
+- `convex/ai/prompts.ts` -- `promptCorpus()` and `currentPromptVersion()` with documented scope.
+- `convex/ai/instrument.ts`, `convex/ai/openrouter.ts`, `convex/ai/providers.ts` -- ids threaded through meta; `durationMs` measured in the wrappers.
+- `convex/ai/pipeline.ts`, `convex/ai/iterative.ts`, `convex/ai/postQa.ts` -- pass `promptVersion` at begin, record digest ids outside the fetch guard, attribute every client factory.
+- `convex/ai/brain/retrieve.ts`, `convex/ai/brainRetrieval.ts` -- `generationId` carried onto Voyage usage rows.
+- Tests: `convex/generationAttribution.test.ts` (new), `convex/ai/instrument.test.ts` (new), `convex/ai/brain/retrieveAttribution.test.ts` (new), `convex/ai/prompts.test.ts`, `convex/ai/openrouterRetryLoop.test.ts`.
+
+**Review findings:** 8 patched (0 high, 4 medium, 4 low), 0 deferred, 18 rejected (intent-scoped exclusions such as cost UI, role gating, `candidateRunId` index, post-QA re-run versioning, backfill; spec-directed choices such as the `sha256:` prefix and the `lib/contracts` hash helper; and non-issues such as streaming duration with no streaming callers, NaN `costUsd` already sanitised, and section runs living in `generationSectionRuns` rather than `generationCandidateRuns`).
+
+**Follow-up review recommendation:** true. Patched by severity: high 0, medium 4, low 4; score = 3 x 4 + 1 x 4 = 16 (threshold 5).
+
+**Verification:**
+- `npm test -- generationAttribution prompts instrument openrouterRetryLoop retrieveAttribution` -- 5 files, 51 tests passed.
+- `npm test` -- 109 files, 1027 tests passed.
+- `PUBLIC_CONVEX_URL=http://placeholder npm run check` -- 0 errors, 0 warnings.
+
+**Residual risks:**
+- `generateReport` / `startIterativeGeneration` are still not driven end-to-end by a test; the `promptVersion` hand-off is enforced by the now-required mutation arg, but the `recordLearningDigests` wiring is verified by inspection only.
+- `promptVersion` fingerprints default-build prompt text; per-generation runtime inputs (style overrides, writer flavor, waivers) are not part of the hash by design.
+- `getGeneration` scans every `aiUsage` row for the generation on each reactive evaluation; row counts are bounded by provider calls per generation, but a long compare-mode run re-evaluates on every logged call.
+- Historical generations (pre-deploy) report `costUsd: 0`, `usageCalls: 0` because no backfill was performed.
 
 ## Design Notes
 

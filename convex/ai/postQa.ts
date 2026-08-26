@@ -43,6 +43,7 @@ export const runReportQa = internalAction({
       clientForModel(ctx, input.model ?? "", {
         callSite,
         projectId: input.projectId,
+        generationId: args.generationId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
       });
 

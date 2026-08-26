@@ -105,6 +105,48 @@ describe("openRouterChatCompletion retry loop", () => {
     });
   });
 
+  it("forwards CAP-9 attribution and measures durationMs across the retry loop", async () => {
+    const { ctx, runAfter } = fakeCtx();
+    let now = 5_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    fetchMock
+      .mockImplementationOnce(async () => {
+        now += 100;
+        return jsonResponse(429, { error: { message: "rate limited" } }, { "retry-after": "0" });
+      })
+      .mockImplementationOnce(async () => {
+        now += 300;
+        return jsonResponse(200, successBody);
+      });
+
+    await openRouterChatCompletion(ctx, {
+      ...baseInput,
+      generationId: "gen_1" as never,
+      candidateRunId: "run_1" as never,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(runAfter).toHaveBeenCalledTimes(1);
+    const payload = runAfter.mock.calls[0][2] as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      generationId: "gen_1",
+      candidateRunId: "run_1",
+      costUsd: 0.0012,
+    });
+    // Both attempts are inside the measured window.
+    expect(payload.durationMs).toBe(400);
+  });
+
+  it("omits attribution keys when the input carries no generation", async () => {
+    const { ctx, runAfter } = fakeCtx();
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, successBody));
+    await openRouterChatCompletion(ctx, baseInput);
+    const payload = runAfter.mock.calls[0][2] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("generationId");
+    expect(payload).not.toHaveProperty("candidateRunId");
+    expect(typeof payload.durationMs).toBe("number");
+  });
+
   it("honors a numeric Retry-After header for the backoff delay", async () => {
     const { ctx } = fakeCtx();
     fetchMock
