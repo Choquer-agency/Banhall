@@ -148,3 +148,41 @@ Counts by severity across the four reviews: **P0: 4, P1: 9, P2: 12, P3/low: 10.*
 ## Things to preserve
 
 Frozen inputs with hashes; claim-mutation CAS fencing on every action; proposal-not-edit chat tools with human apply, pre-edit snapshots and applier-policy re-scrub; admin-gated Brain with revoke path and late-completion fence; append-only digest publication ledger with kill switch and rollback; OCC on report saves, workflow, and snapshots; real token streaming with three stop fences and a stale-turn reaper; partial-failure recovery UI; per-call usage instrumentation.
+
+---
+
+## Sprint 1 outcome (2026-08-25, branch bmad-loop)
+
+Eleven stories (`_bmad-output/specs/spec-ai-engine-sprint-1`, CAP-1..CAP-11), range `a2347c2..fca23fd`, retrospective verdict accepted-with-open-items. Status per ranked finding; the closing commit is the story commit on `bmad-loop`.
+
+| # | Status | Commit | Note |
+|---|---|---|---|
+| 1 | partial | `4cdfaca` | `requireInternalProjectAccess` rejects anonymous/role-less callers (CAP-1). `getProjectAccess` still returns internal for those identities, so `comments.addComment` remains callable anonymously; product call pending (story 1 deferred, high). |
+| 2 | closed | `6692365` | `markProposalApplied` requires `expectedRevisionNumber`, writes a `pre_chat_edit` snapshot, bumps revision (CAP-2). Scrub/uniqueness stay out of scope by intent. |
+| 3 | open | | Sprint 2 trusted-context work; untouched. |
+| 4 | open | | No total input budget; untouched. |
+| 5 | open | | No de-identification; untouched. |
+| 6 | open | | PED still unstored, `brainProvenance` still write-only, no evals. Version provenance (finding 19) is closed separately. |
+| 7 | partial | `30a3057` | `maxRetries: 1`, 240 s timeout, 480 s < 600 s per `messages.create` (CAP-6). Per-action budget across sequential stages (`pipeline.ts:515`) and timeout classification in `normalizeProviderError` deferred (story 6). |
+| 8 | open | | Provenance still cleared on every human edit; untouched. |
+| 9 | open | | No `reviewDecisions`; untouched. |
+| 10 | open | | QA still advisory; untouched. |
+| 11 | partial | `870c4fe` | `publishForReview` uses `requireCapability("project.setStage")` with the capability check before NOT_FOUND (CAP-3). `unpublishReview`, `projects.ts:1032`, and the `canShare` gate in both project pages still key on `createdBy`/admin (story 2 deferred, medium). |
+| 12 | partial | `9bb8425` | Chat history capped at 30 messages excluding tool messages; `listProposals` bounded to the loaded turn window (CAP-8). No per-user/project budget, no rate limit, `getChatContextV2` still collects all document bodies. |
+| 13 | closed | `a22fe5f` | Original generation becomes `superseded`; hidden from `listGenerations`; `requestReportQa` returns `INVALID_STATE` on a reportless generation (CAP-7). `modelStats` does not filter superseded candidates (open question). |
+| 14 | partial | `186dc57` | `unlearn_confirmed` audit row, `ragEntryId` cleared after confirmed delete, `embedSource` no-ops on non-approved rows, `revokeSource` idempotent (CAP-10). Failed vector delete leaves `ragEntryId` set with no retry; no reconciliation sweep (story 10 deferred). |
+| 15 | open | | Digest signal provenance and diversity gate untouched. |
+| 16 | open | | Negative-signal path still a stub. |
+| 17 | open | | Compare mode still re-runs analyzer per candidate; no caching. |
+| 18 | closed | `8813063` | `aiUsage` carries `generationId`, `candidateRunId`, `durationMs` with `by_generationId`; `getGeneration` sums `costUsd` and `usageCalls` (CAP-9). |
+| 19 | closed | `8813063` | `beginGeneration` records `promptVersion` (sha256 of the prompt corpus) and `learningDigestIds` in both pipelines (CAP-9). |
+| 20 | closed | `ef44e75` | `acceptEdit` writes a `pre_chat_edit` snapshot before patching; restore proven; Brain nomination scheduled after the `writerReviews` insert (CAP-4). |
+| 21 | open | | Review artifacts not pinned to revision/hash. |
+| 22 | closed | `9bb8425` | `listProposals` bounded; `listMessages` returns an empty page on a missing thread (CAP-8). |
+| 23 | open | | No regenerate/retry on turns; untouched. |
+| 24 | open | | No report branches or production outcomes. |
+| 25 | partial | `fca23fd` | Reaper sweeps `projects.by_status_and_updatedAt` uncapped (CAP-11). `generations.ts` split (now 2822 lines) and `progressLog` rewrite remain open. |
+
+Also closed from T1, not in the ranked table: `submitBrainFeedback` validates caller access to `reportId`/`projectId` (CAP-5, `467dbad`). Unscoped feedback still has no role gate (story 4 deferred).
+
+Follow-ups with owners and file anchors are in `_bmad-output/specs/spec-ai-engine-sprint-1/RETROSPECTIVE.md` (action items 1-9); the Sprint 1 checklist above is otherwise superseded by this table.

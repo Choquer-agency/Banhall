@@ -2,7 +2,7 @@
 
 **Status:** Active reference  
 **Created:** 2026-08-17  
-**Last updated:** 2026-08-17  
+**Last updated:** 2026-08-25 (Sprint 1 outcome notes under Phases 1 and 9)  
 **Basis:** Repository audit, Claude Code Fable 5 review, Codex adversarial review, Pi test audit, Anthropic agent/context/tool guidance, OWASP LLM risks, NIST AI RMF Generative AI Profile, and Convex scheduling guidance.
 
 ## Executive summary
@@ -141,6 +141,8 @@ Primary files:
 - A revoked source cannot be returned after the governance mutation commits and the bounded read-time fence runs.
 - Reconciliation eventually removes every stale/orphan entry.
 - Admin audit distinguishes requested revocation from confirmed erasure.
+
+> **2026-08-25 (branch `bmad-loop`, commit `186dc57`, CAP-10):** items 6 and 7 are done: `unlearnSource` clears `ragEntryId` only after the vector delete succeeds and writes an `unlearn_confirmed` audit row distinct from `revoke`; `embedSource` no-ops on non-approved rows and `revokeSource` is idempotent. Items 1-5, 8, 9 (versioned jobs, stale-completion rejection, reconciliation sweep, visibility) remain open; a failed delete still leaves `ragEntryId` set with no retry. Tests: `convex/brainUnlearn.test.ts`.
 
 ---
 
@@ -459,6 +461,8 @@ Track:
 
 - Every consequential write is authorized at the final mutation boundary.
 - Audit records identify the exact resulting revision or transition.
+
+> **2026-08-25 (branch `bmad-loop`):** item 2 done (`4cdfaca`, CAP-1): `requireInternalProjectAccess` rejects anonymous and role-less users. Item 6 done (`467dbad`, CAP-5): `submitBrainFeedback` validates report/project access. Item 5 partial (`6692365`, CAP-2): `markProposalApplied` is revision-fenced and snapshotted, so an applied proposal names the exact revision. Item 3 partial: `updateReportContent`, `applyProposal`, `publishForReview` (`870c4fe`, CAP-3) enforce authority at the mutation; `getProjectAccess` still grants internal access to anonymous identities (`comments.addComment`), and `unpublishReview` still keys on `createdBy`. Items 1 and 4 (`report.editProse` helper, visibility vs edit) remain Sprint 2.
 
 ---
 

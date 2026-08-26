@@ -36,6 +36,8 @@ SR&ED report generation for a consulting firm. SvelteKit 2 + Svelte 5 runes, Tai
 
 - `exportTemplateDocx` is not SSR-safe; import it only inside browser-only code paths.
 - Never add `sveltekit()` to `vitest.component.config.ts`; it pulls `$app`/`$env` and breaks the browser project.
+- `tests/chatProposals.test.ts` is a bun-only harness (`bun:test`) that `npm test`/CI never runs and that fails on the baseline; put backend tests under `convex/**/*.test.ts` and confirm with `npx vitest list <file>` (story 5 loop 1, spec-ai-engine-sprint-1: tests landed there and looked green because `npm test -- chatProposals` matched nothing).
+- When changing one Convex handler's missing-row branch, do not paste it into sibling handlers: `listMessages`'s empty-page return was copied into the `abortStreaming` mutation, which must throw (story 8 triage, spec-ai-engine-sprint-1).
 
 <!-- /bmad:context -->
 
