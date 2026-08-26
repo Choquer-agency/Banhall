@@ -89,7 +89,12 @@ export const listMessages = query({
   },
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.threadId);
-    if (!thread) throw new Error("Thread not found");
+    // A stale subscription (thread deleted, id no longer mapped) must render
+    // as an empty conversation, not an error. Same shape as the happy path;
+    // no component read for an unknown thread.
+    if (!thread) {
+      return { page: [], isDone: true, continueCursor: "", streams: undefined };
+    }
     await requireInternalProjectAccess(ctx, thread.projectId);
 
     const paginated = await listUIMessages(ctx, components.agent, {
@@ -104,19 +109,54 @@ export const listMessages = query({
   },
 });
 
-/** All proposals for a thread — reactive source for edit/highlight cards. */
+/**
+ * Proposals for the turns in [startOrder, endOrder] — reactive source for
+ * edit/highlight cards. Window-bounded like listTurns so the read doesn't grow
+ * with thread age (CAP-8): resolve the turns in the window, then each turn's
+ * proposals by promptMessageId. Ascending createdAt, ties by _creationTime.
+ */
 export const listProposals = query({
-  args: { threadId: v.string() },
+  args: {
+    threadId: v.string(),
+    startOrder: v.number(),
+    endOrder: v.number(),
+  },
   handler: async (ctx, args) => {
+    if (args.startOrder > args.endOrder) return [];
+
     const thread = await threadRow(ctx, args.threadId);
     if (!thread) return [];
     if (!(await getInternalProjectAccessOrNull(ctx, thread.projectId))) return [];
 
-    return await ctx.db
-      .query("chatProposals")
-      .withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", args.threadId))
-      .order("asc")
-      .collect();
+    const turns = await ctx.db
+      .query("chatTurns")
+      .withIndex("by_agentThreadId_and_order", (q) =>
+        q
+          .eq("agentThreadId", args.threadId)
+          .gte("order", args.startOrder)
+          .lte("order", args.endOrder)
+      )
+      .order("desc")
+      .take(200);
+
+    const perTurn = await Promise.all(
+      turns.map((turn) =>
+        ctx.db
+          .query("chatProposals")
+          .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+            q
+              .eq("agentThreadId", args.threadId)
+              .eq("promptMessageId", turn.promptMessageId)
+          )
+          .collect()
+      )
+    );
+    return perTurn
+      .flat()
+      .sort(
+        (a, b) =>
+          a.createdAt - b.createdAt || a._creationTime - b._creationTime
+      );
   },
 });
 

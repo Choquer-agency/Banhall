@@ -843,7 +843,13 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_agentThreadId", ["agentThreadId"])
-    .index("by_agentThreadId_and_toolCallId", ["agentThreadId", "toolCallId"]),
+    .index("by_agentThreadId_and_toolCallId", ["agentThreadId", "toolCallId"])
+    // Window-bounded proposal reads: listProposals resolves turns first, then
+    // each turn's proposals through its promptMessageId (CAP-8).
+    .index("by_agentThreadId_and_promptMessageId", [
+      "agentThreadId",
+      "promptMessageId",
+    ]),
 
   chatMessages: defineTable({
     threadId: v.id("chatThreads"),

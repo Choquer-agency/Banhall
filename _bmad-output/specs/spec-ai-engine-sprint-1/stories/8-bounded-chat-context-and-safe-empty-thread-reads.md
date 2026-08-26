@@ -2,9 +2,10 @@
 title: 'Bounded chat context and safe empty thread reads'
 type: 'bugfix'
 created: '2026-08-26'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '5135f00614a0092a2a3bb739d449963c91919a96'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/convex/_generated/ai/guidelines.md'
 warnings: ['oversized']
@@ -106,3 +107,39 @@ deferred: []
 ## Spec Change Log
 
 ## Review Triage Log
+### 2026-08-26 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 0, medium 1, low 3)
+- defer: 0
+- reject: 17
+- addressed_findings:
+  - `[medium]` `[patch]` `abortStreaming` had the `listMessages` empty-page replacement pasted into its missing-thread branch (mutation returned a pagination object instead of throwing, with a subscription comment that made no sense in a mutation; violates the Never clause on turn lifecycle mutations). Restored `throw new Error("Thread not found")` in `convex/chatV2.ts`.
+  - `[low]` `[patch]` No test covered `abortStreaming` on an unknown thread. Added `describe("abortStreaming")` in `convex/chatTurns.test.ts` asserting the throw.
+  - `[low]` `[patch]` `proposalsQ` in `AgentChatPanel.svelte` referenced `startOrder`/`endOrder` ~110 lines before their declaration (worked only because the args closure is lazy). Moved `proposalsQ` and the dependent `grouped` derived below `turnsQ`; removed the "evaluated lazily" caveat from the comment.
+  - `[low]` `[patch]` Docblock promised `createdAt` ties break by `_creationTime` but no test exercised a tie. Added a `listProposals` case with three proposals sharing `createdAt` on one turn.
+
+## Auto Run Result
+
+**Summary:** CAP-8 shipped. `reportChatAgent.streamText` now passes `contextOptions: CHAT_CONTEXT_OPTIONS` (`recentMessages: 30`, `excludeToolMessages: true`, exported from `convex/ai/chatAgentV2.ts`). `listProposals` takes `startOrder`/`endOrder`, resolves the turns in that window via `chatTurns.by_agentThreadId_and_order`, and gathers each turn's proposals via the new `chatProposals.by_agentThreadId_and_promptMessageId` index, sorted by `createdAt` then `_creationTime`. `listMessages` returns an empty page for a thread with no `agentChatThreads` row. `AgentChatPanel.svelte` passes the `listTurns` window to `listProposals`.
+
+**Files changed:**
+- `convex/ai/chatAgentV2.ts` — export `CHAT_CONTEXT_OPTIONS`; pass it as `contextOptions` at the `streamText` call site.
+- `convex/chatV2.ts` — `listMessages` empty page on missing thread; window-bounded `listProposals`.
+- `convex/schema.ts` — additive `by_agentThreadId_and_promptMessageId` index on `chatProposals`.
+- `src/lib/components/chat/AgentChatPanel.svelte` — `listProposals` subscribed with `startOrder`/`endOrder`, skipped while `startOrder < 0`.
+- `convex/chatTurns.test.ts` — `CHAT_CONTEXT_OPTIONS`, `listProposals`, `listMessages`, `abortStreaming` describes.
+
+**Review findings:** 4 patched (medium 1, low 3), 0 deferred, 17 rejected (legacy pre-`chatTurns` proposals dropped is accepted in Design Notes; per-turn `Promise.all`, `take(200)`, and source-inspection verification of the call site are prescribed by the contract; remaining items were style, speculative, or pre-existing behaviour the contract keeps).
+
+**Follow-up review recommendation:** true — patched counts: high 0, medium 1, low 3; score 3×1 + 3 = 6 (≥ 5).
+
+**Verification:**
+- `npm test -- chatTurns` — 26 passed.
+- `npm test -- turnParts` — 46 passed.
+- `npm run check` — 0 errors, 0 warnings.
+
+**Residual risks:**
+- Proposals with no matching `chatTurns` row or no `promptMessageId` (pre-2026-07-28 dev data) are no longer returned; no migration by design.
+- The call-site wiring of `contextOptions` is verified by a source-text regex test, which is brittle to reformatting and does not exercise runtime; a follow-up could replace it with a `streamText` spy through `@convex-dev/agent/test`.
+- Model no longer sees prior tool calls/results; refinement prompts rely on the proposal summary that `getChatContextV2` injects.

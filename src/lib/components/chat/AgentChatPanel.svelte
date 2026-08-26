@@ -222,10 +222,6 @@
   );
   const messages = $derived(ui.results);
 
-  const proposalsQ = useQuery(api.chatV2.listProposals, () =>
-    selectedThreadId ? { threadId: selectedThreadId } : "skip"
-  );
-
   const researchSessionsQ = useQuery(api.research.listSessions, () => ({ reportId }));
   const hasResearch = $derived((researchSessionsQ.data?.length ?? 0) > 0);
 
@@ -320,12 +316,6 @@
   let pillWidth = $state(0);
   let chatContainer: ChatContainer | null = $state(null);
 
-  // Proposal→message association lives in $lib/chat/turnParts so the exact
-  // toolCallId match and its legacy fallbacks stay unit-testable.
-  const grouped = $derived(
-    correlateProposals(messages ?? [], proposalsQ.data ?? [])
-  );
-
   // Durable turn timing ("Worked for 12s"). The agent component's UIMessage
   // can't express it: its _creationTime is enqueue time and is regenerated on
   // every streaming re-derive, so the app records start/end itself. Scoped to
@@ -344,6 +334,20 @@
     if (!selectedThreadId || startOrder < 0) return "skip";
     return { threadId: selectedThreadId, startOrder, endOrder };
   });
+
+  // Same window as listTurns: proposals only attach to loaded messages, and
+  // the newest turn is always loaded (newest-first, 80 items), so the
+  // latest-proposal auto-scroll sees the same tail as before.
+  const proposalsQ = useQuery(api.chatV2.listProposals, () => {
+    if (!selectedThreadId || startOrder < 0) return "skip";
+    return { threadId: selectedThreadId, startOrder, endOrder };
+  });
+
+  // Proposal→message association lives in $lib/chat/turnParts so the exact
+  // toolCallId match and its legacy fallbacks stay unit-testable.
+  const grouped = $derived(
+    correlateProposals(messages ?? [], proposalsQ.data ?? [])
+  );
 
   // The reply shares its prompt's order, so order is the join key.
   const timingByOrder = $derived.by(() => {
