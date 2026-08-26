@@ -68,6 +68,9 @@ async function contextualizeChunks(
 /**
  * Embed one approved brainSources row into the RAG (BNH-10). Scheduled by
  * `approveSource` / `importPdPair` — only ever runs on approved knowledge.
+ * A row that is revoked, still pending, or deleted by the time the job runs
+ * is skipped with a warning and NOT retried: the workpool retries thrown
+ * actions, and a non-approved source will never become embeddable by waiting.
  * Same `key` re-ingest replaces the prior version; `contentHash` dedups.
  */
 export const embedSource = internalAction({
@@ -77,7 +80,13 @@ export const embedSource = internalAction({
       internal.brain.getBrainSourceForIngest,
       { sourceId: args.sourceId }
     );
-    if (!src) throw new Error("brainSource not found for ingest");
+    if (!src) {
+      console.warn(
+        "brain embed skipped: source missing or not approved",
+        args.sourceId
+      );
+      return;
+    }
 
     const importance = Math.max(0, Math.min(1, src.writerTier));
 

@@ -2,16 +2,30 @@
 title: 'Confirmed Brain unlearn and retry-free embeds on revoked sources'
 type: 'feature'
 created: '2026-08-26'
-status: 'ready-for-dev'
-baseline_revision: '8813063e06dbcbc7f6c4f96fc0edce0e11f2cd77'
+status: 'done'
+baseline_revision: 'c9ca6c452fbe1e609e71c1e918cc7be4764194b0'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/convex/_generated/ai/guidelines.md'
   - '{project-root}/_bmad-output/specs/spec-ai-engine-sprint-1/SPEC.md'
 warnings:
   - oversized
-deferred: []
+deferred:
+  - summary: >-
+      A failed unlearnSource delete (component error, or deleting an entry the RAG already replaced/removed) leaves ragEntryId set, writes no audit row, and is never retried.
+    evidence: |-
+      unlearnSource awaits brain.delete then confirmUnlearn with no try/catch; the component's deleteSync ends in ctx.db.delete(entryId), which throws for a missing entry. The intent explicitly forbids retry/reconciliation of a failed unlearn (Never clause), so the row shows "in brain" with no unlearn_failed record. Pre-existing before this story (ragEntryId was never cleared at all); surfaced by the review.
+    location: >-
+      convex/brain.ts unlearnSource / confirmUnlearn
+    severity: medium
+  - summary: >-
+      Re-embed paths (reweightSource, requeueAllApprovedEmbeds) leave ragEntryId pointing at a deleted or replaced vector until ingestOnComplete lands, and forever if the re-embed fails.
+    evidence: |-
+      requeueAllApprovedEmbeds schedules the delete-only unlearn without sourceId (per intent) and reweightSource re-ingests by key, replacing the entry; neither updates ragEntryId, so hasEntry and a revoke issued in that window act on a stale id. Pre-existing.
+    location: >-
+      convex/brain.ts requeueAllApprovedEmbeds / reweightSource
+    severity: low
 ---
 
 <intent-contract>
@@ -94,6 +108,47 @@ deferred: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-26 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (high 0, medium 2, low 4)
+- defer: 2: (high 0, medium 1, low 1)
+- reject: 12
+- addressed_findings:
+  - `[medium]` `[patch]` `revokeSource` had no status guard, so a second revoke scheduled a second delete and a duplicate `unlearn_confirmed` row. Added an idempotent no-op on already-revoked rows (same-stage transition rule from docs/product-domain.md) plus a test.
+  - `[medium]` `[patch]` `unlearnSource` was never executed by any test (delete then confirm handoff unverified). Added tests that spy `brain.delete` and drain the scheduled job after `revokeSource` (asserts delete called with the entry id, `ragEntryId` cleared, `revoke` then `unlearn_confirmed` rows, `hasEntry: false`), the no-`sourceId` requeue path (no audit row, no patch), and a failed delete (no confirmation, error propagates).
+  - `[low]` `[patch]` `expect(result ?? undefined).toBeUndefined()` masked what was asserted; replaced with `expect(result).toBeNull()`.
+  - `[low]` `[patch]` Audit label `revoke: "Revoked (unlearned)"` overstated revoke now that erasure is confirmed separately; renamed to "Revoked (unlearn requested)".
+  - `[low]` `[patch]` Comment in `revokeSource` claimed `hasEntry` reflects the index for all rows; reworded to the revoked-row claim it actually supports.
+  - `[low]` `[patch]` `convex/ai/brain/rag.ts` header still said "revoke = deleteByKey"; updated to delete-by-entry-id + `unlearn_confirmed`.
+
+## Auto Run Result
+
+**Summary:** Revoking or permanently removing an embedded Brain source now confirms its own erasure: `unlearnSource` deletes the vector, then calls the new `confirmUnlearn` internal mutation, which clears `ragEntryId` (only if it still equals the deleted entry) and writes an `unlearn_confirmed` audit row. `embedSource` returns with a `console.warn` instead of throwing on a missing/non-approved source, so the workpool no longer retries revoked sources. `revokeSource` is idempotent on already-revoked rows.
+
+**Files changed:**
+- `convex/schema.ts` -- adds `unlearn_confirmed` to the `brainAuditLog.action` union.
+- `convex/brain.ts` -- `confirmUnlearn` internalMutation; `unlearnSource` takes optional `sourceId` and confirms after the delete; `revokeSource`/`removeSourcePermanently` pass `sourceId`; `revokeSource` no-ops on already-revoked rows.
+- `convex/ai/brain/ingest.ts` -- `embedSource` warns and returns on a null source; doc comment updated.
+- `convex/ai/brain/rag.ts` -- header comment describes delete-by-entry-id + confirmation.
+- `src/routes/admin/brain/+page.svelte` -- audit labels for `revoke` (reworded) and `unlearn_confirmed`.
+- `convex/brainUnlearn.test.ts` -- new: 13 tests covering scheduling, idempotent revoke, `unlearnSource` end to end (spied `brain.delete`), `confirmUnlearn` rows, and `embedSource` skips.
+
+**Review findings:** 6 patched (2 medium, 4 low), 2 deferred, 12 rejected, 0 bad_spec, 0 intent_gap.
+
+**Follow-up review recommendation:** true. Patched: high 0, medium 2, low 4; score = 3*2 + 1*4 = 10 (>= 5).
+
+**Verification:**
+- `npm test -- brainUnlearn` -- 13 passed.
+- `npm test -- brainFeedback learning` -- 34 passed (2 files).
+- `npm test` -- 110 files, 1040 tests passed.
+- `PUBLIC_CONVEX_URL=http://placeholder npm run check` -- 0 errors, 0 warnings.
+
+**Residual risks:**
+- A failed vector delete (including deleting an entry the component already removed) is not retried or audited, per the intent's Never clause; see `deferred`.
+- Re-embed paths still leave `ragEntryId` stale until completion; see `deferred`.
+- The end-to-end test mocks `brain.delete`; the RAG component's own delete semantics are not exercised in tests.
 
 ## Design Notes
 

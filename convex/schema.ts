@@ -1563,7 +1563,10 @@ export default defineSchema({
       v.literal("reject"),
       v.literal("revoke"),
       v.literal("reweight"),
-      v.literal("revert")
+      v.literal("revert"),
+      // Written by `confirmUnlearn` after the vector delete resolved: the
+      // erasure actually happened, not merely was requested.
+      v.literal("unlearn_confirmed")
     ),
     sourceId: v.optional(v.id("brainSources")),
     feedbackId: v.optional(v.id("brainFeedbackQueue")),

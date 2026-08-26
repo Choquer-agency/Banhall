@@ -18,9 +18,10 @@
     ingest: "Imported",
     approve: "Approved",
     reject: "Rejected",
-    revoke: "Revoked (unlearned)",
+    revoke: "Revoked (unlearn requested)",
     reweight: "Reweighted",
     revert: "Reverted",
+    unlearn_confirmed: "Erasure confirmed",
   };
 
   const auth = useAuth();

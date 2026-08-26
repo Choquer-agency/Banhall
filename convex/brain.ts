@@ -254,6 +254,7 @@ export const removeSourcePermanently = internalMutation({
     if (s.ragEntryId) {
       await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
         ragEntryId: s.ragEntryId,
+        sourceId: args.sourceId,
       });
     }
     await ctx.db.delete(args.sourceId);
@@ -333,6 +334,10 @@ export const revokeSource = mutation({
     const admin = await assertAdmin(ctx);
     const s = await ctx.db.get(args.sourceId);
     if (!s) throw new Error("Source not found");
+    // Same-stage transition is an idempotent no-op (docs/product-domain.md):
+    // a second revoke must not write a duplicate audit row or schedule a
+    // second delete (and later a duplicate unlearn_confirmed) for the entry.
+    if (s.status === "revoked") return;
     await ctx.db.patch(args.sourceId, { status: "revoked" });
     await ctx.db.insert("brainAuditLog", {
       action: "revoke",
@@ -341,19 +346,64 @@ export const revokeSource = mutation({
       reason: args.reason,
       at: Date.now(),
     });
+    // ragEntryId is NOT cleared here: it clears in confirmUnlearn once the
+    // vector is actually gone, so a revoked row's `hasEntry` reflects whether
+    // its vector is still in the index.
     if (s.ragEntryId) {
       await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
         ragEntryId: s.ragEntryId,
+        sourceId: args.sourceId,
       });
     }
   },
 });
 
-/** Deleting from the RAG needs an action (component delete runs in actions). */
+/**
+ * Deleting from the RAG needs an action (component delete runs in actions).
+ * When `sourceId` is present this is an erasure (revoke / permanent removal)
+ * and the delete is confirmed via `confirmUnlearn`; without it (re-embed from
+ * `requeueAllApprovedEmbeds`) only the vector delete runs.
+ */
 export const unlearnSource = internalAction({
-  args: { ragEntryId: v.string() },
+  args: {
+    ragEntryId: v.string(),
+    sourceId: v.optional(v.id("brainSources")),
+  },
   handler: async (ctx, args) => {
     await brain.delete(ctx, { entryId: args.ragEntryId as never });
+    if (args.sourceId) {
+      // Same-file call: annotate the return to break the TS circularity.
+      const confirmed: Promise<null> = ctx.runMutation(
+        internal.brain.confirmUnlearn,
+        { sourceId: args.sourceId, ragEntryId: args.ragEntryId }
+      );
+      await confirmed;
+    }
+  },
+});
+
+/**
+ * Record that the vector delete for `ragEntryId` resolved. Clears the row's
+ * `ragEntryId` only when it still points at the deleted entry, so a re-ingest
+ * that landed a newer entry in between is not clobbered. The audit row is
+ * written even when the source row is gone (removeSourcePermanently path).
+ */
+export const confirmUnlearn = internalMutation({
+  args: { sourceId: v.id("brainSources"), ragEntryId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const s = await ctx.db.get(args.sourceId);
+    if (s && s.ragEntryId === args.ragEntryId) {
+      await ctx.db.patch(args.sourceId, { ragEntryId: undefined });
+    }
+    await ctx.db.insert("brainAuditLog", {
+      action: "unlearn_confirmed",
+      sourceId: args.sourceId,
+      actorId: "system",
+      reason: `vector entry ${args.ragEntryId} deleted from the brain`,
+      at: Date.now(),
+    });
+    return null;
   },
 });
 
