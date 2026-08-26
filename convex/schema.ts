@@ -163,6 +163,7 @@ export default defineSchema({
   })
     .index("by_createdBy", ["createdBy"])
     .index("by_status", ["status"])
+    .index("by_status_and_updatedAt", ["status", "updatedAt"])
     .index("by_shareToken", ["shareToken"])
     .index("by_industry", ["industry"])
     .index("by_ownerId", ["ownerId"])

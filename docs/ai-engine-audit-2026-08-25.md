@@ -120,7 +120,7 @@ Counts by severity across the four reviews: **P0: 4, P1: 9, P2: 12, P3/low: 10.*
 - Chat `contextOptions: { recentMessages: 30, excludeToolMessages: true }`; bound `listProposals`; return `[]` from `listMessages`. (`chatAgentV2.ts:391`, `chatV2.ts:84-121`)
 - Record `promptVersion` + `learningDigestIds` on generations; add `generationId`/`candidateRunId`/`durationMs` to `aiUsage` with `by_generationId` index. (`pipeline.ts`, `iterative.ts`, `aiUsage.ts`, `schema.ts`)
 - `unlearn_confirmed` audit action; clear `ragEntryId`; `embedSource` no-ops on non-approved rows. (`brain.ts:352`, `ingest.ts:80`)
-- `projects.by_status` index; drop `take(500)` scan. (`schema.ts`, `generations.ts:2158`)
+- ~~`projects.by_status` index; drop `take(500)` scan.~~ Done: `projects.by_status_and_updatedAt` index, uncapped indexed sweep. (`schema.ts`, `generations.ts`)
 
 ### Sprint 2: trusted context + measurement (M, ~2-3 weeks)
 

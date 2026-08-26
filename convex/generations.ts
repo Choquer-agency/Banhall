@@ -2204,12 +2204,19 @@ export const failStaleGenerations = internalMutation({
     // Also free projects orphaned in "generating" with no live generation —
     // e.g. the client dies between createProject and requestGeneration, or a
     // legacy failure predates the activeGenerationId cleanup. Without this the
-    // project stays locked on a generation that never existed.
-    const projects = await ctx.db.query("projects").take(500);
+    // project stays locked on a generation that never existed. The read is
+    // indexed (status = "generating", updatedAt < cutoff) and deliberately
+    // uncapped so no orphan is left behind a row ceiling (CAP-11); the range
+    // only holds stranded rows, since healthy in-flight projects refresh
+    // updatedAt. Patching a row moves it out of the range (new status, newer
+    // updatedAt), so the iteration cannot re-visit or skip candidates.
+    const staleProjects = ctx.db
+      .query("projects")
+      .withIndex("by_status_and_updatedAt", (q) =>
+        q.eq("status", "generating").lt("updatedAt", cutoff)
+      );
     let freed = 0;
-    for (const project of projects) {
-      if (project.status !== "generating") continue;
-      if (project.updatedAt > cutoff) continue;
+    for await (const project of staleProjects) {
       const active = await findActiveGeneration(ctx, project, [
         "reserved",
         "running",

@@ -2,13 +2,28 @@
 title: 'Reaper reads projects by status index'
 type: 'bugfix'
 created: '2026-08-26'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '2ad494cc3f0dbb9b433a1b5c4a4585a6377c408a'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/convex/_generated/ai/guidelines.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: >-
+      A generation reserved on a project already stuck in "generating" records previousProjectStatus "generating", so every restore site (including the orphan sweep) re-locks the project instead of freeing it.
+    evidence: |-
+      convex/generations.ts:367 stores project.status verbatim and reserveGeneration only guards on findActiveGeneration, not project.status; schema.ts:645 allows "generating" in the union. All seven `previousProjectStatus ?? "draft"` restores would stamp status "generating" with a fresh updatedAt, so the sweep counts it as freed and re-visits it every cron pass. Pre-existing; body untouched by this story.
+    location: >-
+      convex/generations.ts:367, convex/generations.ts:2232
+    severity: medium
+  - summary: >-
+      failStaleGenerations JSDoc only describes the stranded-generation pass and omits the orphaned-project and candidate-run sweeps.
+    evidence: |-
+      convex/generations.ts:2090-2094 docstring predates both sweeps; ops reads it before running the mutation manually.
+    location: >-
+      convex/generations.ts:2090
+    severity: low
 ---
 
 <intent-contract>
@@ -77,6 +92,42 @@ deferred: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-26 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (high 0, medium 0, low 6)
+- defer: 2: (high 0, medium 1, low 1)
+- reject: 14
+- addressed_findings:
+  - `[low]` `[patch]` Sweep comment claimed the range stays small because only in-flight projects are generating, contradicting the bug it fixes; reworded to say the range holds only stranded rows and the read is deliberately uncapped, and noted why patching rows mid-iteration cannot re-visit or skip candidates.
+  - `[low]` `[patch]` `docs/ai-engine-audit-2026-08-25.md` still listed the CAP-11 item as open under the old `by_status` name; marked done with the real index name.
+  - `[low]` `[patch]` No test covered restoration to the last generation's `previousProjectStatus`; added "restores a stale orphaned project to its last generation's previousProjectStatus" (failed generation with `review`).
+  - `[low]` `[patch]` `insertProject` used a non-deterministic random `shareToken` that the 520-row test overrode; replaced with a module-level counter.
+  - `[low]` `[patch]` 520-row test never asserted `updatedAt` advanced; now asserts every freed row has `updatedAt > stale`.
+  - `[low]` `[patch]` Live-generation test never asserted `updatedAt` unchanged; now asserts it equals the seeded stale value.
+
+## Auto Run Result
+
+**Summary:** Added the compound `projects.by_status_and_updatedAt` index and rewrote the orphaned-project sweep in `failStaleGenerations` to iterate `status = "generating", updatedAt < cutoff` through that index with `for await` and no row cap, removing the `take(500)` ceiling (CAP-11). Loop body, sibling reapers, cron, and other `projects` read sites are untouched.
+
+**Files changed:**
+- `convex/schema.ts` -- adds `.index("by_status_and_updatedAt", ["status", "updatedAt"])` on `projects`.
+- `convex/generations.ts` -- orphan sweep reads via the new index, uncapped `for await`; in-memory status/updatedAt guards removed; comment updated.
+- `convex/generationRecovery.test.ts` -- new `describe("failStaleGenerations orphaned-project sweep")` with five cases: 520 orphans freed, previousProjectStatus restore, fresh/non-generating untouched, live generation untouched, healthy deployment `freed === 0`.
+- `docs/ai-engine-audit-2026-08-25.md` -- CAP-11 sprint-1 line marked done with the actual index name.
+
+**Review findings:** patches applied 6 (all low); deferred 2 (previousProjectStatus "generating" relock loop, medium; stale `failStaleGenerations` JSDoc, low); rejected 14 (cap/`take` re-introduction, `.lte` boundary, `.collect()`, dropping `by_status`, batching the activity refresh, and fixture/style nits are all excluded or prescribed by the intent contract).
+
+**Follow-up review recommendation:** true. Patched: high 0, medium 0, low 6; score = 3*0 + 6 = 6 (>= 5).
+
+**Verification:**
+- `npm test -- convex/generationRecovery.test.ts` -- 25 passed.
+- `npm test` -- 110 files, 1045 tests passed.
+- `PUBLIC_CONVEX_URL=http://localhost npm run check` -- 0 errors, 0 warnings.
+- `grep -n 'take(500)' convex/generations.ts` -- no output.
+
+**Residual risks:** The sweep is uncapped by contract; `convex-test` does not enforce production transaction read/write limits, so a very large orphan backlog (thousands) would still be bounded only by Convex's per-mutation ceilings. Row at exactly `updatedAt === cutoff` is now excluded until the next pass (contract prescribes `.lt`).
 
 ## Design Notes
 

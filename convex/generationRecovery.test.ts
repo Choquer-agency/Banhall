@@ -3,6 +3,8 @@ import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
+import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 
 const modules = import.meta.glob("./**/*.ts");
 const authId = "recovery-user";
@@ -560,6 +562,181 @@ describe("failStaleGenerations candidate-run terminalization", () => {
     );
     // Terminal rows are never rewritten (status-CAS).
     expect(state.doneRun?.status).toBe("succeeded");
+  });
+});
+
+describe("failStaleGenerations orphaned-project sweep", () => {
+  let orphanCounter = 0;
+  async function insertProject(
+    ctx: MutationCtx,
+    userId: Id<"users">,
+    overrides: Partial<Doc<"projects">>
+  ) {
+    const now = Date.now();
+    return await ctx.db.insert("projects", {
+      title: "Orphan",
+      clientName: "Client",
+      status: "generating",
+      createdBy: userId,
+      shareToken: `orphan-${orphanCounter++}`,
+      createdAt: now,
+      updatedAt: now,
+      ...overrides,
+    });
+  }
+
+  it("frees more than 500 stale orphaned projects in a single call", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", { authId, role: "writer" });
+      const stale = Date.now() - 60 * MINUTES;
+      const projectIds = [];
+      for (let i = 0; i < 520; i++) {
+        projectIds.push(
+          await insertProject(ctx, userId, { updatedAt: stale })
+        );
+      }
+      return { projectIds, stale };
+    });
+
+    const result = await t.mutation(internal.generations.failStaleGenerations, {
+      olderThanMinutes: 30,
+    });
+    expect(result.freed).toBe(520);
+
+    const statuses = await t.run(async (ctx) => {
+      const rows = await Promise.all(ids.projectIds.map((id) => ctx.db.get(id)));
+      return rows.map((row) => ({
+        status: row?.status,
+        activeGenerationId: row?.activeGenerationId,
+        updatedAt: row?.updatedAt ?? 0,
+      }));
+    });
+    expect(statuses.every((row) => row.status === "draft")).toBe(true);
+    expect(statuses.every((row) => row.activeGenerationId === undefined)).toBe(true);
+    expect(statuses.every((row) => row.updatedAt > ids.stale)).toBe(true);
+  });
+
+  it("restores a stale orphaned project to its last generation's previousProjectStatus", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, transcriptId } = await seedProject(t);
+    await t.run(async (ctx) => {
+      const stale = Date.now() - 60 * MINUTES;
+      await ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        status: "failed",
+        candidateMode: "iterative",
+        previousProjectStatus: "review",
+        startedAt: stale,
+      });
+      await ctx.db.patch(projectId, { activeGenerationId: undefined, updatedAt: stale });
+    });
+
+    const result = await t.mutation(internal.generations.failStaleGenerations, {
+      olderThanMinutes: 30,
+    });
+    expect(result.freed).toBe(1);
+
+    const project = await t.run(async (ctx) => ctx.db.get(projectId));
+    expect(project?.status).toBe("review");
+    expect(project?.activeGenerationId).toBeUndefined();
+  });
+
+  it("leaves fresh generating projects and stale non-generating projects untouched", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", { authId, role: "writer" });
+      const stale = Date.now() - 60 * MINUTES;
+      const fresh = Date.now();
+      const freshGenerating = await insertProject(ctx, userId, { updatedAt: fresh });
+      const staleDraft = await insertProject(ctx, userId, {
+        status: "draft",
+        updatedAt: stale,
+      });
+      const staleReview = await insertProject(ctx, userId, {
+        status: "review",
+        updatedAt: stale,
+      });
+      const staleClientReview = await insertProject(ctx, userId, {
+        status: "client_review",
+        updatedAt: stale,
+      });
+      const staleFinal = await insertProject(ctx, userId, {
+        status: "final",
+        updatedAt: stale,
+      });
+      return { freshGenerating, staleDraft, staleReview, staleClientReview, staleFinal, stale, fresh };
+    });
+
+    const result = await t.mutation(internal.generations.failStaleGenerations, {
+      olderThanMinutes: 30,
+    });
+    expect(result.freed).toBe(0);
+
+    const rows = await t.run(async (ctx) => ({
+      freshGenerating: await ctx.db.get(ids.freshGenerating),
+      staleDraft: await ctx.db.get(ids.staleDraft),
+      staleReview: await ctx.db.get(ids.staleReview),
+      staleClientReview: await ctx.db.get(ids.staleClientReview),
+      staleFinal: await ctx.db.get(ids.staleFinal),
+    }));
+    expect(rows.freshGenerating?.status).toBe("generating");
+    expect(rows.freshGenerating?.updatedAt).toBe(ids.fresh);
+    expect(rows.staleDraft?.status).toBe("draft");
+    expect(rows.staleDraft?.updatedAt).toBe(ids.stale);
+    expect(rows.staleReview?.status).toBe("review");
+    expect(rows.staleReview?.updatedAt).toBe(ids.stale);
+    expect(rows.staleClientReview?.status).toBe("client_review");
+    expect(rows.staleClientReview?.updatedAt).toBe(ids.stale);
+    expect(rows.staleFinal?.status).toBe("final");
+    expect(rows.staleFinal?.updatedAt).toBe(ids.stale);
+  });
+
+  it("leaves a stale generating project alone when a live generation exists", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, transcriptId } = await seedProject(t);
+    const stale = Date.now() - 60 * MINUTES;
+    const generationId = await t.run(async (ctx) => {
+      const generationId = await ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        status: "running",
+        candidateMode: "iterative",
+        previousProjectStatus: "draft",
+        startedAt: Date.now(),
+      });
+      await ctx.db.patch(projectId, {
+        activeGenerationId: generationId,
+        updatedAt: stale,
+      });
+      return generationId;
+    });
+
+    const result = await t.mutation(internal.generations.failStaleGenerations, {
+      olderThanMinutes: 30,
+    });
+    expect(result.freed).toBe(0);
+
+    const project = await t.run(async (ctx) => ctx.db.get(projectId));
+    expect(project?.status).toBe("generating");
+    expect(project?.activeGenerationId).toBe(generationId);
+    expect(project?.updatedAt).toBe(stale);
+  });
+
+  it("reports freed 0 when no project is generating", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", { authId, role: "writer" });
+      await insertProject(ctx, userId, {
+        status: "draft",
+        updatedAt: Date.now() - 60 * MINUTES,
+      });
+    });
+    const result = await t.mutation(internal.generations.failStaleGenerations, {
+      olderThanMinutes: 30,
+    });
+    expect(result.freed).toBe(0);
   });
 });
 
