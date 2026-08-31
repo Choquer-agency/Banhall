@@ -39,7 +39,7 @@
 
 <header class="sticky top-0 z-50 w-full">
   <nav class="w-full bg-navy">
-    <div class={`relative mx-auto flex h-13 w-full items-center px-6 ${width}`}>
+    <div class={`relative mx-auto flex h-13 w-full items-center page-gutter ${width}`}>
       <!-- Logo — standalone, left -->
       <!-- Explicit h-13: the logo image bleeds with negative margins, which
            previously let this focus stop collapse to zero height (a11y P0,

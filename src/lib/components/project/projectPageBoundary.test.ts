@@ -70,6 +70,16 @@ describe("project page rollback-purity boundary", () => {
     expect(previewSrc).toContain("<Disclosure id={projectDetailsBodyId} open={projectDetailsOpen}>");
   });
 
+  it("keeps workflow editing in the Stage highlight instead of the project header", () => {
+    expect(previewSrc).not.toContain("<ProjectWorkflowMenu");
+  });
+
+  it("presents project type as immutable project identity", () => {
+    expect(previewSrc).toContain("{PROJECT_TYPE_LABELS[effectiveProjectType(project)]}");
+    expect(previewSrc).not.toContain("api.projects.setProjectType");
+    expect(previewSrc).not.toContain('ariaLabel="Project type"');
+  });
+
   it("finds the shared report anchors in both files (guards against file swap/gutting)", () => {
     for (const anchor of SHARED_REPORT_ANCHORS) {
       expect(currentSrc, `shared anchor "${anchor}" missing from CurrentProjectPage.svelte`).toContain(anchor);

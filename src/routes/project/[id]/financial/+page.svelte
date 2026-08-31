@@ -189,7 +189,7 @@
     />
     <PageBar backHref={`/project/${projectId}`} backLabel="Back to report" />
 
-    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 px-6 pt-12 pb-8">
+    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 page-gutter page-gutter-y pb-8">
       <h2 class="text-display">Financial Analysis</h2>
       <p class="mt-1 text-sm text-gray-500">
         Extract draft timesheet entries from source data, then approve or correct every entry before it contributes to financial totals.

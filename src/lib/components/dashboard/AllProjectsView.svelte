@@ -244,7 +244,7 @@
   <div class="flex flex-1 flex-col bg-canvas">
     {#if isAdmin}
       <div class="border-b border-line-soft bg-white">
-        <nav aria-label="Admin" class="mx-auto flex w-full max-w-[var(--container-shell)] items-center justify-center gap-1 px-6 py-1.5">
+        <nav aria-label="Admin" class="mx-auto flex w-full max-w-[var(--container-shell)] items-center justify-center gap-1 page-gutter py-1.5">
           {#each ADMIN_ROUTES as route (route.href)}
             <a href={resolve(route.href)} class="rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-primary-wash hover:text-navy">{route.label}</a>
           {/each}
@@ -252,7 +252,7 @@
       </div>
     {/if}
 
-    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 px-6 pt-12 pb-8">
+    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 page-gutter page-gutter-y pb-8">
       <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 class="text-display">Projects</h2>

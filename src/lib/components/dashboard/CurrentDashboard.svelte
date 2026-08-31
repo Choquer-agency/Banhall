@@ -55,11 +55,11 @@
 <div class="flex flex-1 flex-col bg-canvas">
   <AppNav />
   {#if configQ.error}<p class="border-b border-amber-200 bg-amber-50 px-6 py-2 text-center text-sm text-amber-950" role="status">My work is temporarily unavailable. All projects remains available.</p>{/if}
-  <div class="border-b border-line bg-white"><div class="mx-auto flex min-h-12 w-full max-w-[var(--container-shell)] items-center px-6"><nav aria-label="Dashboard view" class="flex rounded-lg bg-chrome p-1"><button type="button" class={`min-h-11 rounded-md px-4 text-sm font-semibold ${displayedView === "my_work" ? "bg-white text-navy shadow-sm" : "text-ink-muted hover:text-navy"}`} aria-current={displayedView === "my_work" ? "page" : undefined} onclick={() => selectView("my_work")} disabled={!myWorkAvailable}>My work</button><button type="button" class={`min-h-11 rounded-md px-4 text-sm font-semibold ${displayedView === "all_projects" ? "bg-white text-navy shadow-sm" : "text-ink-muted hover:text-navy"}`} aria-current={displayedView === "all_projects" ? "page" : undefined} onclick={() => selectView("all_projects")}>All projects</button></nav></div></div>
+  <div class="border-b border-line bg-white"><div class="mx-auto flex min-h-12 w-full max-w-[var(--container-shell)] items-center page-gutter"><nav aria-label="Dashboard view" class="flex rounded-lg bg-chrome p-1"><button type="button" class={`min-h-11 rounded-md px-4 text-sm font-semibold ${displayedView === "my_work" ? "bg-white text-navy shadow-sm" : "text-ink-muted hover:text-navy"}`} aria-current={displayedView === "my_work" ? "page" : undefined} onclick={() => selectView("my_work")} disabled={!myWorkAvailable}>My work</button><button type="button" class={`min-h-11 rounded-md px-4 text-sm font-semibold ${displayedView === "all_projects" ? "bg-white text-navy shadow-sm" : "text-ink-muted hover:text-navy"}`} aria-current={displayedView === "all_projects" ? "page" : undefined} onclick={() => selectView("all_projects")}>All projects</button></nav></div></div>
   {#if displayedView === null}
     <div class="flex flex-1 items-center justify-center"><Spinner /></div>
   {:else if displayedView === "my_work"}
-    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 px-6 py-12"><CurrentMyWorkView /></main>
+    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 page-gutter page-gutter-y pb-12"><CurrentMyWorkView /></main>
   {:else}
     <AllProjectsView />
   {/if}

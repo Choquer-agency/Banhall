@@ -144,7 +144,7 @@
     <AppNav breadcrumbs={[{ label: "Self-serve questionnaire" }]} />
     <PageBar backHref="/dashboard" backLabel="Back" />
 
-    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 px-6 pt-12 pb-8">
+    <main class="mx-auto w-full max-w-[var(--container-shell)] flex-1 page-gutter page-gutter-y pb-8">
       <!-- Focused one-question-at-a-time flow keeps a reading-width column
            inside the shared shell. -->
       <div class="mx-auto w-full max-w-2xl">

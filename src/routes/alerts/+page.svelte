@@ -47,7 +47,7 @@
 </script>
 
 {#snippet alertsContent(showHeading: boolean)}
-    <main class={`w-full flex-1 ${showHeading ? "mx-auto max-w-[var(--container-shell)] px-6 pt-12" : "px-4 pt-6 sm:px-6"} pb-8`}>
+    <main class={`w-full flex-1 page-gutter page-gutter-y ${showHeading ? "mx-auto max-w-[var(--container-shell)]" : ""} pb-8`}>
       <!-- Alert rows read best at a threads-list width inside the shared shell. -->
       <div class={`w-full ${showHeading ? "mx-auto max-w-3xl" : ""}`}>
       <div class={`flex items-center ${showHeading ? "justify-between" : "justify-end"}`}>

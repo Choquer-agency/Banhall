@@ -96,10 +96,10 @@
       </aside>
     {/if}
     <div class="flex min-h-0 min-w-0 flex-col overflow-hidden">
-    <!-- Sub-rail pages: header inset is the shared `page-gutter` variable
-         (layout.css) — same one the content pane uses — so the title and the
-         content's left edge line up at every breakpoint. -->
-    <header data-workspace-page-header class={`flex h-[49px] shrink-0 items-center gap-3 border-b border-workspace-rail-line ${subrail ? "page-gutter" : "px-3 sm:px-4"}`}>
+    <!-- Header inset is the shared `page-gutter` variable (layout.css) — same
+         one the content panes use — so the title and the content's left edge
+         line up at every breakpoint. -->
+    <header data-workspace-page-header class="page-gutter flex h-[49px] shrink-0 items-center gap-3 border-b border-workspace-rail-line">
       <!-- Shared drawer hamburger + desktop rail toggle: one a11y contract,
            owned by WorkspaceShellControls (dedup with WorkspaceHeader). -->
       <WorkspaceShellControls

@@ -86,7 +86,7 @@
           {@render sectionNav("rail")}
         {/snippet}
         {#snippet children()}
-          <PageContainer class="max-w-none! page-gutter! page-gutter-y! pb-12!">
+          <PageContainer class="max-w-none! pb-12!">
             <div class="mb-6 md:hidden">{@render sectionNav("inline")}</div>
             {@render pageContent()}
           </PageContainer>

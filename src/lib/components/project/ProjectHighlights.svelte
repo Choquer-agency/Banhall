@@ -5,18 +5,19 @@
   Every value stays honest: absent facts render as explicit empty states,
   never invented values.
 
-  Subscriptions: `getProjectWorkflowHeader` dedupes with the workflow menu's
-  standing subscription; `getProjectWorkPanel` is one bounded (≤51 rows)
-  per-project query, promoted from menu-open-only to the page so the band's
-  "With" tile stays live. Domain truth: Owner ≠ current handoff ≠ Creator
-  (product-domain vocabulary); the band displays, never mutates.
+  Subscriptions: `getProjectWorkflowHeader` dedupes with the embedded workflow
+  menu's standing subscription; `getProjectWorkPanel` is one bounded (≤51
+  rows) per-project query, promoted from menu-open-only to the page so the
+  band's "With" tile stays live. Domain truth: Owner ≠ current handoff ≠
+  Creator (product-domain vocabulary). The Stage value is the one workflow
+  control; the other highlights remain read-only.
 -->
 <script lang="ts">
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
-  import StageBadge from "$lib/components/ui/StageBadge.svelte";
+  import ProjectWorkflowMenu from "$lib/components/project/ProjectWorkflowMenu.svelte";
   import { formatDue } from "$lib/workflow/due";
   import { WORK_ITEM_KIND_LABELS } from "../../../../shared/workItems";
 
@@ -79,7 +80,7 @@
       <div data-project-highlight="stage" class="highlight-stage min-w-0">
         <dt class="sr-only">Stage</dt>
         <dd class="flex min-w-0 flex-col items-start gap-1">
-          <StageBadge stage={header.workflowStage} shape="square" />
+          <ProjectWorkflowMenu {projectId} triggerVariant="highlight" />
           {#if timeInStage(header.workflowUpdatedAt)}
             <span class="truncate text-xs text-ink-muted">
               {timeInStage(header.workflowUpdatedAt)}

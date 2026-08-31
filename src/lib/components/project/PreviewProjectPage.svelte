@@ -58,7 +58,6 @@
   import IndustryField from "$lib/components/project/IndustryField.svelte";
   import FiscalYearField from "$lib/components/project/FiscalYearField.svelte";
   import ScienceCodeField from "$lib/components/project/ScienceCodeField.svelte";
-  import ProjectWorkflowMenu from "$lib/components/project/ProjectWorkflowMenu.svelte";
   import ExportValidationDialog from "$lib/components/export/ExportValidationDialog.svelte";
   import {
     canonicalizeExportPreflight,
@@ -76,10 +75,8 @@
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
   import { displayName } from "$lib/displayName";
   import {
-    PROJECT_TYPES,
     PROJECT_TYPE_LABELS,
     effectiveProjectType,
-    type ProjectType,
   } from "../../../../shared/projectTypes";
 
   const auth = useAuth();
@@ -150,19 +147,6 @@
   const markProposalApplied = useMutation(api.chatV2.markProposalApplied);
   const updateTitles = useMutation(api.projects.updateProjectTitles);
   const updateProjectNumber = useMutation(api.projects.setProjectNumber);
-  const updateProjectType = useMutation(api.projects.setProjectType);
-  const projectTypeItems = PROJECT_TYPES.map((value) => ({
-    value,
-    label: PROJECT_TYPE_LABELS[value],
-  }));
-  async function saveProjectType(value: string) {
-    if (!PROJECT_TYPES.includes(value as ProjectType)) return;
-    try {
-      await updateProjectType({ projectId, projectType: value as ProjectType });
-    } catch (error) {
-      toast.error(userErrorMessage(error, "The project type could not be updated."));
-    }
-  }
   // Per-company project number / draft letter (2026-08-11 amendment).
   // Mirrors the server rule: "1".."20", a letter "A".."Z", or combined "2A".
   const PROJECT_NUMBER_PATTERN = /^(?:[1-9][0-9]?[A-Z]?|[A-Z])$/;
@@ -1156,13 +1140,9 @@
           </div>
           <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
             <span class="text-label">Project type</span>
-            <SelectInput
-              value={effectiveProjectType(project)}
-              items={projectTypeItems}
-              ariaLabel="Project type"
-              size="sm"
-              onValueChange={saveProjectType}
-            />
+            <p class="min-w-0 truncate text-gray-800">
+              {PROJECT_TYPE_LABELS[effectiveProjectType(project)]}
+            </p>
           </div>
           <div class="grid min-h-9 grid-cols-[6.5rem_minmax(0,1fr)] items-center gap-x-3 py-1 @md:grid-cols-[7.5rem_minmax(0,1fr)]">
             <span class="text-label">Science code</span>
@@ -1280,8 +1260,6 @@
             </svg>
           </button>
         {/if}
-        <ProjectWorkflowMenu {projectId} />
-        <span aria-hidden="true" class="hidden h-5 w-px flex-none bg-line-soft sm:block"></span>
         <!-- Single h1 for the route (a11y P0), carried by the thin header. -->
         <h1 data-project-heading class="min-w-0 truncate text-sm font-medium text-ink max-sm:sr-only">
           {project.title}

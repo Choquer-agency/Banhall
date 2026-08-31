@@ -69,7 +69,7 @@
      The surface caps at the global rail width — canvas shows beyond it. -->
 <div bind:this={barEl} class="sticky top-[54px] z-40 -mt-px w-full">
   <div
-    class={`relative mx-auto flex h-11 w-full items-center justify-between gap-2 rounded-b-xl border-x border-b px-3 transition-colors duration-300 sm:gap-3 sm:px-6 ${
+    class={`relative mx-auto flex h-11 w-full items-center justify-between gap-2 rounded-b-xl border-x border-b page-gutter transition-colors duration-300 sm:gap-3 ${
       scrolled ? "border-line-soft bg-white" : "border-transparent bg-transparent"
     } ${width}`}
   >

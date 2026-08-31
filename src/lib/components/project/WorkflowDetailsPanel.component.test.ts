@@ -7,19 +7,26 @@ const baseProps = {
   titleId: "workflow-title",
   state: "ready" as const,
   stage: "on_hold" as const,
-  owner: { label: "Admin Writer", initials: "AW" },
 };
 
 describe("WorkflowDetailsPanel", () => {
-  it("shows Stage, Owner, With, and Due after handoff storage ships", async () => {
-    await render(WorkflowDetailsPanel, baseProps);
+  it("leads with the status action without repeating project summary facts", async () => {
+    const onChangeStage = vi.fn();
+    await render(WorkflowDetailsPanel, {
+      ...baseProps,
+      canChangeStage: true,
+      onChangeStage,
+    });
 
-    const labels = [...document.body.querySelectorAll("dt")].map((node) => node.textContent?.trim());
-    expect(labels).toEqual(["Stage", "Owner", "With", "Due"]);
+    const status = document.body.querySelector<HTMLButtonElement>("[data-workflow-stage-action]")!;
     expect(document.body.textContent).toContain("On hold");
-    expect(document.body.textContent).toContain("Admin Writer");
-    expect(document.body.textContent).toContain("No current handoff");
-    expect(document.body.textContent).toContain("Not set");
+    expect(status.textContent).toContain("Change");
+    expect(document.body.textContent).not.toContain("Admin Writer");
+    expect(document.body.textContent).not.toContain("No current handoff");
+    expect(document.body.textContent).not.toContain("Not set");
+    expect(document.body.querySelector("dl")).toBeNull();
+    await userEvent.click(status);
+    expect(onChangeStage).toHaveBeenCalledOnce();
   });
 
   it("renders the canonical labelled StageBadge for stored stages, plain text for fallbacks", async () => {
@@ -90,12 +97,10 @@ describe("WorkflowDetailsPanel", () => {
       ...baseProps,
       stage: "intake",
       stageIsFallback: true,
-      owner: null,
     });
 
     expect(document.body.textContent).toContain("Legacy status only");
-    expect(document.body.textContent).toContain("transitions begin from Intake");
-    expect(document.body.textContent).toContain("Not assigned");
+    expect(document.body.textContent).toContain("Changes begin from Intake");
     expect(document.body.textContent).not.toContain("—");
   });
 
@@ -111,11 +116,11 @@ describe("WorkflowDetailsPanel", () => {
       onTransferOwner,
     });
 
-    const buttons = [...document.body.querySelectorAll<HTMLButtonElement>("button")];
-    expect(buttons.map((button) => button.textContent?.trim())).toEqual([
-      "Change stage",
-      "Transfer ownership",
-    ]);
+    const status = document.body.querySelector<HTMLButtonElement>("[data-workflow-stage-action]")!;
+    const transfer = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Transfer owner"
+    )!;
+    const buttons = [status, transfer];
     for (const button of buttons) {
       expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     }
@@ -233,7 +238,7 @@ describe("WorkflowDetailsPanel", () => {
       state: "loading",
     });
     expect(document.body.querySelector('[aria-busy="true"]')).not.toBeNull();
-    expect(document.body.textContent).toContain("Loading workflow details");
+    expect(document.body.textContent).toContain("Loading workflow");
     loading.unmount();
 
     const onRetry = vi.fn();
@@ -258,7 +263,7 @@ describe("WorkflowDetailsPanel", () => {
       ...baseProps,
       state: "denied",
     });
-    expect(document.body.textContent).toContain("not available for this project");
+    expect(document.body.textContent).toContain("controls are not available for this project");
     expect(document.body.textContent).not.toContain("Try again");
   });
 });

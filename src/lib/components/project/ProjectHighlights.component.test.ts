@@ -10,10 +10,18 @@ function seedHighlights({ owner = true }: { owner?: boolean } = {}) {
     workflowUpdatedAt: Date.now() - 19 * 86_400_000,
     owner: owner ? { initials: "DW", label: "Demo Writer" } : null,
     ownerNeedsReview: false,
+    stageIsFallback: false,
+    workflowVersion: 1,
+    viewerAuthorities: ["owner"],
   });
   __setQueryData("workItems:getProjectWorkPanel", {
     currentHandoffId: null,
     openItems: [],
+    viewer: { canCreate: true, canCreateFinancial: false },
+    assignable: true,
+    assignableReason: null,
+    pointerHealthy: true,
+    truncated: false,
   });
 }
 
@@ -41,6 +49,9 @@ describe("ProjectHighlights", () => {
     expect(summary.textContent).toContain("Demo Writer");
     expect(summary.textContent).toContain("Nothing in flight");
     expect(summary.textContent).toContain("FYE Dec 31, 2025");
+    expect(
+      document.querySelector('button[aria-label="Change workflow stage, current stage Drafting"]')
+    ).not.toBeNull();
   });
 
   it("recomposes from its own width instead of the viewport", async () => {

@@ -38,7 +38,13 @@
     stageOptions: WorkflowStageOption[];
   };
 
-  let { projectId }: { projectId: Id<"projects"> } = $props();
+  let {
+    projectId,
+    triggerVariant = "header",
+  }: {
+    projectId: Id<"projects">;
+    triggerVariant?: "header" | "highlight";
+  } = $props();
 
   const auth = useAuth();
   let menuOpen = $state(false);
@@ -163,11 +169,15 @@
   const actionStale = $derived(
     forcedStale || Boolean(baseline && header && header.workflowVersion !== baseline.version)
   );
-  const triggerAriaLabel = $derived(
-    header?.ownerNeedsReview
-      ? "Workflow details, ownership needs administrator review"
-      : "Workflow details"
-  );
+  const triggerAriaLabel = $derived.by(() => {
+    if (header?.ownerNeedsReview) {
+      return "Workflow details, ownership needs administrator review";
+    }
+    if (triggerVariant === "highlight" && summaryStageLabel) {
+      return `${canChangeStage ? "Change" : "View"} workflow stage, current stage ${summaryStageLabel}`;
+    }
+    return "Workflow details";
+  });
 
   function snapshotBaseline() {
     if (!header || !summaryStageLabel) return null;
@@ -399,12 +409,17 @@
 <Popover.Root bind:open={menuOpen}>
   <Popover.Trigger
     aria-label={triggerAriaLabel}
-    class="group flex h-7 min-h-7 items-center gap-1 rounded-full py-0.5 pl-1 pr-1.5 text-xs font-medium text-ink-secondary transition-colors hover:bg-chrome/60 hover:text-ink data-[state=open]:bg-chrome/60 data-[state=open]:text-ink motion-reduce:transition-none pointer-coarse:min-h-11"
+    class={triggerVariant === "highlight"
+      ? "group -ml-1 flex min-h-7 max-w-full items-center gap-1 rounded-md px-1 py-0.5 text-xs font-medium text-ink-secondary transition-colors hover:bg-chrome/60 hover:text-ink data-[state=open]:bg-chrome/60 data-[state=open]:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11 pointer-coarse:px-2"
+      : "group flex h-7 min-h-7 items-center gap-1 rounded-full py-0.5 pl-1 pr-1.5 text-xs font-medium text-ink-secondary transition-colors hover:bg-chrome/60 hover:text-ink data-[state=open]:bg-chrome/60 data-[state=open]:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11"}
   >
     <!-- The stage badge IS the workflow control (2026-08-10 owner feedback:
          a separate "Workflow" label pill was pointless next to the badge). -->
     {#if header && !header.stageIsFallback}
-      <StageBadge stage={header.workflowStage} />
+      <StageBadge
+        stage={header.workflowStage}
+        shape={triggerVariant === "highlight" ? "square" : "pill"}
+      />
     {:else}
       <span class="px-1.5">Workflow</span>
     {/if}
@@ -431,13 +446,12 @@
       collisionPadding={12}
       aria-labelledby={titleId}
       onEscapeKeydown={(event) => event.stopPropagation()}
-      class="z-[100] max-h-[min(28rem,calc(100dvh-6rem))] w-[min(22rem,calc(100vw-1.5rem))] overflow-y-auto rounded-xl border border-line bg-white p-4 text-ink shadow-lg outline-none"
+      class="z-[100] max-h-[min(32rem,calc(100dvh-6rem))] w-[min(25rem,calc(100vw-1.5rem))] overflow-y-auto rounded-xl border border-line bg-white p-4 text-ink shadow-lg outline-none"
     >
       <WorkflowDetailsPanel
         state={panelState}
         stage={header?.workflowStage ?? null}
         stageIsFallback={header?.stageIsFallback ?? false}
-        owner={header?.owner ?? null}
         ownerNeedsReview={header?.ownerNeedsReview ?? false}
         errorMessage={workflowError}
         {canChangeStage}

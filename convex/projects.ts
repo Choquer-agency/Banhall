@@ -412,23 +412,6 @@ export const setProjectNumber = mutation({
   },
 });
 
-/** Additive work-product identity. This does not change workflow or access. */
-export const setProjectType = mutation({
-  args: {
-    projectId: v.id("projects"),
-    projectType: projectTypeValidator,
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    await requireInternalProjectAccess(ctx, args.projectId);
-    await ctx.db.patch(args.projectId, {
-      projectType: args.projectType,
-      updatedAt: Date.now(),
-    });
-    return null;
-  },
-});
-
 /** BNH-35: replace the project's applied tags. */
 export const updateProjectTags = mutation({
   args: {

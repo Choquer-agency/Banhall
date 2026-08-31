@@ -42,7 +42,7 @@
     <AppNav breadcrumbs={[{ label: title }]} />
     <PageBar backHref="/dashboard" backLabel="Back" {actions} />
 
-    <main class={`mx-auto w-full ${contentWidth} px-6 pb-10 pt-12`}>
+    <main class={`mx-auto w-full ${contentWidth} page-gutter page-gutter-y pb-10`}>
       <header class="border-b border-line-soft pb-5">
         <h1 class="text-display">{title}</h1>
         {#if description}<p class="mt-2 text-body">{description}</p>{/if}
@@ -68,7 +68,7 @@
       data-admin-presentation="workspace"
       data-admin-content-width={width}
       data-admin-content-flush={flush ? "" : undefined}
-      class={flush ? "w-full" : "w-full px-4 py-6 sm:px-6 sm:py-8"}
+      class={flush ? "w-full" : "w-full page-gutter page-gutter-y pb-8"}
     >
       {@render children()}
     </div>

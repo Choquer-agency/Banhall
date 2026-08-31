@@ -82,7 +82,7 @@
 </script>
 
 {#snippet changelogContent(showHeading: boolean)}
-    <main class={`w-full flex-1 ${showHeading ? "mx-auto max-w-[var(--container-shell)] px-6 pt-12" : "px-4 pt-6 sm:px-6"} pb-10`}>
+    <main class={`w-full flex-1 page-gutter page-gutter-y ${showHeading ? "mx-auto max-w-[var(--container-shell)]" : ""} pb-10`}>
       <div class={`w-full ${showHeading ? "mx-auto max-w-3xl" : ""}`}>
         <div class={`flex flex-wrap items-start gap-4 ${showHeading ? "justify-between" : "justify-end"}`}>
           {#if showHeading}

@@ -731,7 +731,7 @@
       {/if}
     {/snippet}
     {#snippet children()}
-    <main class="mx-auto w-full max-w-[var(--container-shell)] px-6 pt-8 pb-8">
+    <main class="mx-auto w-full max-w-[var(--container-shell)] page-gutter page-gutter-y pb-8">
       <!-- Step indicator — segment bar: two labeled progress segments, the
            ledger idiom (a rule that fills) instead of numbered circles. -->
       <div class="mx-auto mb-6 w-full max-w-sm">
