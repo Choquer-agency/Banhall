@@ -1,84 +1,307 @@
 - id: "1"
-  title: Internal project access rejects anonymous and role-less users
+  title: Internal role gate rejects anonymous and role-less callers
   description: >-
-    CAP-1. Make requireInternalProjectAccess mirror getInternalProjectAccessOrNull
-    and add a test proving anonymous cannot call updateReportContent or applyProposal.
+    CAP-1. Make requireInternalProjectAccess decide identically to
+    getInternalProjectAccessOrNull so anonymous and role-less identities are
+    refused across every existing helper-guarded mutation, query, and action.
+  done_checkpoint: true
   invoke_dev_with: >-
-    Read _bmad-output/specs/spec-ai-engine-sprint-1/touchpoints.md row CAP-1 first.
-    Do not change public function names. Existing tests in convex/*.test.ts and tests/
-    use convex-test; follow their setup helpers.
+    Read SPEC.md CAP-1, touchpoints.md row CAP-1, and the Story 1 caller
+    inventory first. Dependencies: none; this story must land before stories
+    3, 6, and 9, which reuse the helper. Scope: all current direct and
+    transitive requireInternalProjectAccess callers inherit the tightened rule:
+    60 public mutations, four privileged public queries, and the two public
+    project-copy/review actions recorded at gate G-11. Dashboard reads guarded
+    only by requireCurrentUser and client share-token flows are unchanged.
+    Acceptance: (1) direct helper parity for no/unmapped identity, stored
+    anonymous with or without a role, mapped role-less, and writer/manager/admin;
+    (2) updateReportContent and applyProposal rejection tests assert complete
+    report/proposal rows and snapshot ids unchanged, with owner or elevated
+    positive controls; (3) smoke-test the four queries and two actions listed
+    in CAP-1 for typed stored-anonymous and role-less rejection; (4) preserve
+    NOT_FOUND for an eligible actor and missing project. Gates G-1, G-2, G-4,
+    and G-11 are source-verified in the approved Story 1 spec and inventory;
+    recheck them if source changes before implementation. Do not rename public
+    functions. Tests go in new convex/reportAuthz.test.ts.
 - id: "2"
-  title: Publish-for-review authorized by Owner, Manager, or Admin
+  title: Publish-for-review authorized by current Owner, Manager, or Admin
   description: >-
-    CAP-3. Replace requireProjectCreatorOrAdmin in publishForReview with the
-    capability check the domain contract specifies; original creator loses rights
-    after ownership transfer.
+    CAP-3. Replace the creator-or-admin check in publishForReview with the
+    role capability check per recorded decision D-2; the original creator is
+    denied once they no longer hold an eligible role.
+  spec_checkpoint: true
   invoke_dev_with: >-
-    See touchpoints.md row CAP-3. docs/product-domain.md role matrix is authoritative.
+    Read SPEC.md CAP-3 and decision D-2, plus touchpoints.md row CAP-3.
+    Dependencies: none, but run after story 1 so the test setup is shared.
+    Acceptance: after ownership transfer, new Owner can publish; Manager can
+    publish; Admin can publish; original creator with none of those roles on
+    the project is rejected; a signed-in internal user holding a project role
+    G-1 identifies as ineligible (any internal role other than Owner,
+    Manager, Admin; if G-1 finds none exists, record that and drop the case)
+    is rejected; anonymous is rejected; no write on rejection (project status
+    and report fields unchanged).
+    Never read projects.createdBy for this decision. Verify (G-1): the
+    capability constant in shared/capabilities.ts and requireCapability
+    signature; docs/product-domain.md role matrix is authoritative if names
+    differ. Extend convex/projects.test.ts (existence unverified).
 - id: "3"
-  title: Reversible client-edit acceptance and post-write Brain nomination
+  title: Brain feedback scoped to accessible, matching report and project
   description: >-
-    CAP-4. Snapshot before acceptEdit patches report text; schedule Brain
-    nomination only after the writerReviews write succeeds.
+    CAP-5. submitBrainFeedback rejects inaccessible reportId or projectId,
+    a report whose projectId differs from the supplied projectId, and
+    callers without an internal role.
   invoke_dev_with: >-
-    See touchpoints.md row CAP-4. Reuse the snapshot helper applyProposal uses.
+    Read SPEC.md CAP-5 and touchpoints.md row CAP-5. Dependency: story 1 must
+    be complete; reuse its helper for the role and project check. Acceptance,
+    each rejected before any write: (1) reportId caller cannot read;
+    (2) projectId caller cannot access; (3) reportId whose projectId differs
+    from supplied projectId; (4) caller with no internal role. Positive
+    control: internal-role caller with matching accessible pair succeeds and
+    the feedback row is written. Tests in convex/brainFeedback.test.ts
+    (existence unverified; create if absent).
 - id: "4"
-  title: Brain feedback scoped to accessible reports and projects
+  title: Client-edit acceptance snapshots before patch and is restorable
   description: >-
-    CAP-5. submitBrainFeedback validates the caller can access the supplied
-    reportId/projectId, reusing the story-1 access helper.
-  invoke_dev_with: See touchpoints.md row CAP-5.
+    CAP-4 part a. acceptEdit writes a report snapshot in the same mutation
+    before patching text so restoring it returns the exact pre-accept prose.
+  invoke_dev_with: >-
+    Read SPEC.md CAP-4(a) and touchpoints.md row CAP-4a. Dependencies: none.
+    Acceptance: (1) after acceptEdit a snapshot exists whose content equals
+    the report text immediately before the accept; (2) restoring that
+    snapshot through the existing restore path returns that text exactly;
+    (3) if the patch fails the snapshot is not persisted (same transaction).
+    Verify (G-10): existing snapshot kinds in convex/snapshots.ts; reuse one
+    if it fits, else add one new kind value (allowed by the schema
+    constraint) and record the choice. Reuse the snapshot writer applyProposal
+    uses where possible. New test for acceptEdit (file name at planning's
+    discretion).
 - id: "5"
-  title: Proposal apply always snapshots and bumps revision
+  title: Brain nomination only after writer review row is persisted
   description: >-
-    CAP-2. Either fence markProposalApplied with expectedRevisionNumber plus a
-    pre_chat_edit snapshot, or delete it and route the one-by-one flow through
-    applyProposal per pair.
+    CAP-4 part b. submitWriterReview enqueues Brain nomination only after
+    the writerReviews insert succeeds, passing the persisted row id.
   invoke_dev_with: >-
-    See touchpoints.md row CAP-2. Open question in SPEC.md: prefer deleting
-    markProposalApplied and routing through applyProposal if ProposalCard.svelte
-    can do so without UX regression; otherwise fence it. Record the choice in the
-    story spec.
+    Read SPEC.md CAP-4(b) and touchpoints.md row CAP-4b. Dependencies: none.
+    Acceptance: (1) on success the nomination is scheduled after the insert
+    and receives the inserted review id; (2) when the insert fails
+    (validation or thrown error) no nomination is scheduled and no
+    writerReviews row exists; (3) existing callers unchanged. Verify (G-5,
+    G-4): whether the nomination site is a mutation (scheduling is
+    transactional with the insert, so ordering plus passing the persisted id
+    satisfies the criterion) or an action (must await the mutation first);
+    and how the test harness can assert scheduled functions, for example the
+    _scheduled_functions system table under convex-test. New test for
+    submitWriterReview.
 - id: "6"
-  title: Provider retry budget fits the Convex action limit
+  title: markProposalApplied gains full apply parity with applyProposal
   description: >-
-    CAP-6. Anthropic client maxRetries 1 and 4-minute timeout so timeout times
-    attempts stays under 600 seconds.
-  invoke_dev_with: See touchpoints.md row CAP-6. Config-only change; no test required.
+    CAP-2 per decision D-1. Keep the public one-by-one path and give it the
+    same authorization recheck, pre_chat_edit snapshot, revision fence, atomic
+    content plus status write, and revision bump as applyProposal.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Read SPEC.md CAP-2 and decision D-1, plus touchpoints.md row CAP-2.
+    Dependency: story 1 complete (authorization helper). Do not delete
+    markProposalApplied; do not leave the design choice open. Acceptance:
+    (1) one-by-one apply yields proposal applied, a pre_chat_edit snapshot
+    equal to the content just before the apply, and revisionNumber
+    incremented by exactly one, all in one mutation; (2) second call with the
+    same expectedRevisionNumber is rejected with a typed stale-revision error
+    and leaves status, content, revision, and snapshot count unchanged;
+    (3) authorization is rechecked inside the mutation; (4) no sequence of
+    public calls yields applied without snapshot and bump. If the current
+    function only flips status while the client writes content separately,
+    move the content write for that proposal inside it. A shared internal
+    helper with applyProposal is allowed, not required. Frontend: only
+    src/lib/components/chat/ProposalCard.svelte changes; it passes
+    expectedRevisionNumber (A-5) and shows the stale error without crashing;
+    one-by-one UX otherwise identical. Add a component regression test for
+    the one-by-one flow and run npm run test:component locally (CI does not
+    run it). Backend tests in tests/chatProposals.test.ts (existence
+    unverified). Verify (G-2): every caller of markProposalApplied.
 - id: "7"
-  title: Superseded generations and QA gated on report existence
+  title: Provider retry budget proven to fit the action limit
   description: >-
-    CAP-7. retryFailedCandidates marks the original generation superseded (new
-    status value); requestReportQa returns a typed error when no report exists.
+    CAP-6. Set the Anthropic client used by generateCandidate to maxRetries 1
+    with a timeout that satisfies the budget inequality (4-minute target),
+    and add a deterministic test over the imported configuration.
   invoke_dev_with: >-
-    See touchpoints.md row CAP-7. Extend convex/generationRecovery.test.ts. Check
-    every consumer of generations.status (history, stats, dashboards) handles the
-    new value.
+    Read SPEC.md CAP-6, assumptions A-2 and A-4, and touchpoints.md row CAP-6.
+    Dependencies: none. The normative requirement is the inequality, not the
+    numbers. Acceptance: (1) the provider module exports named constants
+    timeoutMs, maxRetries, sequentialCallsPerGenerateCandidate (calls),
+    reservedNonRequestMs, actionLimitMs; (2) reservedNonRequestMs is a
+    conservative named reserve covering maximum SDK retry backoff plus all
+    remaining non-request action work, at least 60000 unless source evidence
+    recorded at planning justifies another number; (3) a unit test imports
+    the actual config (no literals copied into the test) and asserts
+    calls * (maxRetries + 1) * timeoutMs + reservedNonRequestMs <
+    actionLimitMs; (4) the test asserts maxRetries === 1; (5) the test
+    asserts timeoutMs === 240000 only when calls === 1 and the verified
+    actionLimitMs and reservedNonRequestMs make it satisfy the inequality;
+    otherwise lower timeoutMs until the inequality holds and assert the
+    lowered value instead. Not merely a config change. Verify (G-6, G-5):
+    Anthropic SDK backoff semantics and ceiling (feeds the reserve); the
+    number of sequential calls in generateCandidate; the Convex action limit
+    (target 600000). Widen scope to other clients only if planning confirms
+    they run in the same action budget. Test file at planning's discretion.
 - id: "8"
-  title: Bounded chat context and safe empty thread reads
+  title: Superseded generations and typed QA refusal without a report
   description: >-
-    CAP-8. contextOptions recentMessages 30 excludeToolMessages on streamText;
-    listProposals bounded to the loaded turn window; listMessages returns [] on a
-    missing thread.
-  invoke_dev_with: See touchpoints.md row CAP-8 and convex/chatTurns.test.ts.
-- id: "9"
-  title: Generation records prompt version, digest ids, and attributable cost
-  description: >-
-    CAP-9. Store promptVersion and learningDigestIds on generations at begin;
-    add generationId, candidateRunId, durationMs to aiUsage with a by_generationId
-    index; expose per-generation cost in getGeneration.
+    CAP-7. retryFailedCandidates marks the original generation superseded
+    (new status value) and requestReportQa returns a typed error for any
+    generation without a report.
+  spec_checkpoint: true
   invoke_dev_with: >-
-    See touchpoints.md row CAP-9. Schema fields optional; no backfill. Follow
-    convex/_generated/ai/guidelines.md for index naming.
+    Read SPEC.md CAP-7, assumption A-1, and touchpoints.md row CAP-7.
+    Dependencies: none. Acceptance: (1) after retryFailedCandidates the
+    original has status superseded and the new generation continues;
+    (2) history and stats readers exclude superseded (not completed, failed,
+    or in progress); (3) retryFailedCandidates on a superseded generation is
+    rejected; (4) requestReportQa on a generation with no report, including
+    superseded, throws ConvexError with a stable code field and writes
+    nothing. Schema: add superseded to generations.status union only;
+    supersededBy is optional and only if a consumer needs it (record if
+    added). Audit every consumer of generations.status (history, stats,
+    dashboards, reaper) for the new value. Extend
+    convex/generationRecovery.test.ts (existence unverified).
+- id: "9"
+  title: Bounded chat context, windowed proposals, empty reads on missing threads
+  description: >-
+    CAP-8. Cap model context at 30 non-tool messages, bound listProposals to
+    the loaded turn window, and return [] for nonexistent or deleted threads
+    while still erroring on unauthorized reads.
+  invoke_dev_with: >-
+    Read SPEC.md CAP-8 and decision D-5, plus touchpoints.md row CAP-8.
+    Dependency: story 1 complete (authorization semantics for the
+    unauthorized case). Acceptance: (1) the streamText call uses a context
+    options constant with recentMessages 30 and tool messages excluded; test
+    asserts the constant and, if the agent library exposes it, that a thread
+    of 35 messages with 5 tool messages yields at most 30 non-tool messages;
+    (2) listProposals accepts the same optional window arguments as
+    listTurns with identical defaults and returns only proposals whose turn
+    is in that window; a proposal on a turn outside the window is absent;
+    (3) listMessages and listProposals return [] for a nonexistent or
+    deleted thread; (4) an existing thread the caller cannot access still
+    throws the existing authorization error, not []; (5) existing callers
+    keep an unchanged call shape (no new required args, source compatible);
+    their results are intentionally bounded by the default listTurns window
+    and may omit proposals on turns outside it, which is the intended change,
+    not a regression. Verify (G-5, G-2): agent library contextOptions field
+    names; listTurns window args. Extend
+    convex/chatTurns.test.ts (existence unverified).
 - id: "10"
-  title: Confirmed Brain unlearn and retry-free embeds on revoked sources
+  title: Generations record prompt version hash and learning digest ids
   description: >-
-    CAP-10. unlearnSource writes an unlearn_confirmed audit row and clears
-    ragEntryId; embedSource no-ops instead of throwing on non-approved rows.
-  invoke_dev_with: See touchpoints.md row CAP-10.
+    CAP-9 part a. New generations store promptVersion (hash of the stable
+    prompt program) and learningDigestIds (union of digests sent in provider
+    payloads); aiUsage rows carry generationId, candidateRunId, durationMs
+    with a by_generationId index.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Read SPEC.md CAP-9, decision D-4, assumption A-3, and touchpoints.md row
+    CAP-9a. Dependencies: none; story 11 depends on this. Acceptance: (1) a
+    generation created after the change has promptVersion equal to a
+    deterministic hash of the stable prompt program (static system
+    templates, instructions, relevant prompt configuration; excludes runtime
+    project, report, transcript, and digest content), written at creation or
+    before the first provider call; two generations on the same prompt
+    program with different project content share the hash, and a changed
+    template changes it; record the hashed input list and algorithm;
+    (2) learningDigestIds is the deduplicated union of digest ids whose
+    content is included in any provider request payload for the generation,
+    recorded or updated immediately before each payload is handed to the
+    provider SDK (expected anchors: assembly sites in pipeline.ts and
+    iterative.ts), growing across a multi-call generation and final at
+    terminal status; a digest fetched but not sent is absent; empty array
+    when none; (3) every provider call made on behalf of a generation that
+    returns usage writes an aiUsage row with generationId, candidateRunId
+    when applicable, and durationMs, including calls whose generation later
+    fails or is retried; calls that return no usage write no row and no
+    synthetic zero-token rows are written; (4) legacy rows are untouched and
+    readers tolerate absent fields. Schema: optional fields only plus index
+    by_generationId following existing naming. No backfill. Verify (G-7):
+    aiUsage cost field and unit. Tests in tests/aiUsage.test.ts (existence
+    unverified).
 - id: "11"
-  title: Reaper reads projects by status index
+  title: getGeneration exposes attributable cost with legacy null semantics
   description: >-
-    CAP-11. Add projects.by_status index and replace the take(500) scan in the
-    stale-generation reaper.
-  invoke_dev_with: See touchpoints.md row CAP-11.
+    CAP-9 part b. getGeneration returns cost as the sum of recorded aiUsage
+    rows keyed by generationId for tracked generations and null for legacy
+    ones.
+  invoke_dev_with: >-
+    Read SPEC.md CAP-9 and decision D-4, plus touchpoints.md row CAP-9b.
+    Dependency: story 10 complete. cost is strictly the sum of recorded
+    aiUsage cost rows for the generation; it documents recorded attributable
+    cost, not exact total provider spend or invoice completeness, and the
+    field documentation says so. Acceptance: (1) tracked generation
+    (promptVersion present) with usage rows returns cost equal to the sum
+    of those rows in the unit stored on aiUsage, including failed and
+    retried call rows; (2) tracked generation with no rows returns cost 0;
+    (3) legacy generation returns promptVersion, learningDigestIds, and
+    cost all null, never 0; (4) an in-flight tracked generation returns the
+    sum so far and learningDigestIds as recorded so far; (5) any caller
+    authorized to read the generation sees the fields, and an Admin can read
+    them for any generation. Aggregate via the by_generationId index inside
+    the query; confirm the per-generation row count is bounded by the
+    pipeline (G-7). Do not add UI. Tests alongside story 10.
+- id: "12"
+  title: Confirmed unlearn with failure evidence and retry-free embeds
+  description: >-
+    CAP-10. unlearnSource writes unlearn_confirmed only after confirmed or
+    already-absent erasure, keeps evidence on failure, is idempotent, and
+    embedSource never restores or retries a revoked source.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Read SPEC.md CAP-10 and touchpoints.md row CAP-10. Dependencies: none.
+    Acceptance, one test each: (a) live ragEntryId and confirmed erasure:
+    exactly one unlearn_confirmed audit row, ragEntryId cleared, source not
+    approved; (b) remote reports already absent, or source never had
+    ragEntryId: same outcome as (a); (c) erasure fails: no unlearn_confirmed
+    row, ragEntryId retained, source not approved and not servable, error
+    surfaced to caller, failure evidence recorded (existing audit action if
+    one fits, else the optional unlearn_failed value; record the choice);
+    (d) second revoke after (a): no error, no remote call, no second
+    unlearn_confirmed row; (e) embedSource on missing, revoked, or otherwise
+    non-approved source returns normally, writes no ragEntryId, schedules no
+    retry; (f) embed completing remotely after revoke: source not approved,
+    entry not served, no embedding retry; the completion path runs
+    compensating erasure of the newly created remote entry; if compensation
+    confirms deletion or already-absent, ragEntryId is not written and
+    status is unchanged; if compensation fails, retain the remote id as
+    evidence (ragEntryId, or the planning-gated additive evidence field if
+    G-8 finds ragEntryId unsuitable), keep the source non-approved and
+    non-servable, record failure evidence via the same mechanism as (c), and
+    schedule or surface deletion-only remediation; never write
+    unlearn_confirmed for that late entry until compensation is confirmed.
+    Test (f) in both branches: compensation succeeds and compensation fails.
+    Mirror the late-completion fence in convex/ai/brain/rag.ts for the
+    status check. Do not invent remote API details; verify (G-8) how the RAG
+    client signals confirmed and already absent, which deletion call the
+    compensation path reuses, and whether ragEntryId can hold the orphaned
+    id without being read as servable. Schema: brainAuditLog action adds
+    unlearn_confirmed; unlearn_failed optional; evidence field optional and
+    planning-gated. Tests in convex/brainFeedback.test.ts or a new brain
+    test file.
+- id: "13"
+  title: Reaper walks every eligible project by index in bounded pages
+  description: >-
+    CAP-11. Add a projects index on status and replace the take(500) scan
+    with paged, cursor-continued iteration over eligible statuses so every
+    project is reached without an unbounded transaction.
+  invoke_dev_with: >-
+    Read SPEC.md CAP-11 and decision D-6, plus touchpoints.md row CAP-11.
+    Dependency (hard): story 8 must be complete so the reaper's status
+    handling already accounts for superseded; do not start before it lands. Acceptance: (1) projects has an index
+    on status named per the existing by_* convention; (2) the reaper reads
+    eligible statuses through that index with cursor or last-key
+    continuation at a fixed, test-overridable page size, one page per
+    transaction, until exhausted; (3) deterministic test seeds more than 500
+    eligible projects each with a stale generation, or seeds a small set
+    with page size overridden below the seed count, and asserts every stale
+    generation is reaped, non-eligible projects are untouched, and no single
+    transaction reads more than one page; (4) take(500) is gone. Verify
+    (G-5, G-9): which pagination primitive is valid inside the reaper's
+    function type per convex/_generated/ai/guidelines.md; the eligible
+    status set; existing projects indexes. New reaper test at planning's
+    discretion.
