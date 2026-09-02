@@ -1346,3 +1346,333 @@ describe("generation entry handoffs through the real actions", () => {
     expect(rows[0]?.durationMs).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe("getGeneration attributable cost", () => {
+  async function seedUsage(
+    t: ReturnType<typeof convexTest>,
+    rows: Array<{
+      generationId?: Id<"generations">;
+      projectId?: Id<"projects">;
+      callSite: string;
+      costUsd: number;
+      createdAt: number;
+    }>,
+  ) {
+    await t.run(async (ctx) => {
+      for (const row of rows) {
+        await ctx.db.insert("aiUsage", {
+          ...(row.generationId ? { generationId: row.generationId } : {}),
+          ...(row.projectId ? { projectId: row.projectId } : {}),
+          callSite: row.callSite,
+          model: "claude-sonnet-5",
+          inputTokens: 10,
+          outputTokens: 2,
+          costUsd: row.costUsd,
+          createdAt: row.createdAt,
+        });
+      }
+    });
+  }
+
+  it("sums every recorded usage row, including failed and retried calls, and ignores other generations' rows", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await insertProjectFixture(t);
+    const digestId = await insertDigest(t, {
+      kind: "draft_style",
+      content: "STYLE",
+      ordinal: 900,
+    });
+    const { generationId, otherGenerationId } = await t.run(async (ctx) => {
+      const generationId = await ctx.db.insert("generations", {
+        projectId: fixture.projectId,
+        transcriptId: fixture.transcriptId,
+        status: "completed",
+        promptVersion: PROMPT_VERSION,
+        learningDigestIds: [digestId],
+        startedAt: fixture.now,
+        completedAt: fixture.now,
+      });
+      const otherGenerationId = await ctx.db.insert("generations", {
+        projectId: fixture.projectId,
+        transcriptId: fixture.transcriptId,
+        status: "completed",
+        promptVersion: RETRY_PROMPT_VERSION,
+        learningDigestIds: [],
+        startedAt: fixture.now,
+        completedAt: fixture.now,
+      });
+      return { generationId, otherGenerationId };
+    });
+    await seedUsage(t, [
+      { generationId, callSite: "generation:analyzer", costUsd: 0.25, createdAt: 1 },
+      // A call whose generation later failed, and a retried call: both are
+      // recorded spend and must count.
+      { generationId, callSite: "generation:failed-attempt", costUsd: 0.5, createdAt: 2 },
+      { generationId, callSite: "generation:retry-attempt", costUsd: 0.125, createdAt: 3 },
+      // Noise that must not contribute.
+      { generationId: otherGenerationId, callSite: "generation:other", costUsd: 99, createdAt: 4 },
+      { callSite: "chat", costUsd: 42, createdAt: 5 },
+      // Same project, no generationId: aggregating by project instead of by
+      // generation would pull this in, so its absence from the sum is the
+      // assertion that the query keys on by_generationId.
+      {
+        projectId: fixture.projectId,
+        callSite: "chat",
+        costUsd: 13,
+        createdAt: 6,
+      },
+    ]);
+
+    const view = await t
+      .withIdentity({ subject: AUTH_ID })
+      .query(api.generations.getGeneration, { generationId });
+    expect(view?.cost).toBe(0.875);
+    expect(view?.promptVersion).toBe(PROMPT_VERSION);
+    expect(view?.learningDigestIds).toEqual([digestId]);
+
+    const otherView = await t
+      .withIdentity({ subject: AUTH_ID })
+      .query(api.generations.getGeneration, {
+        generationId: otherGenerationId,
+      });
+    expect(otherView?.cost).toBe(99);
+    expect(otherView?.learningDigestIds).toEqual([]);
+  });
+
+  it("still sums recorded rows for a tracked generation that failed", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await insertProjectFixture(t);
+    const digestId = await insertDigest(t, {
+      kind: "qa_calibration",
+      content: "CAL",
+      ordinal: 920,
+    });
+    // Spend recorded before the generation died is still attributable spend:
+    // the query must not gate the sum on a terminal-success status.
+    const failedId = await t.run((ctx) =>
+      ctx.db.insert("generations", {
+        projectId: fixture.projectId,
+        transcriptId: fixture.transcriptId,
+        status: "failed",
+        promptVersion: PROMPT_VERSION,
+        learningDigestIds: [digestId],
+        startedAt: fixture.now,
+        completedAt: fixture.now,
+        error: "provider failed",
+      }),
+    );
+    await seedUsage(t, [
+      { generationId: failedId, callSite: "generation:analyzer", costUsd: 0.25, createdAt: 1 },
+      { generationId: failedId, callSite: "generation:section:242", costUsd: 0.5, createdAt: 2 },
+    ]);
+
+    const view = await t
+      .withIdentity({ subject: AUTH_ID })
+      .query(api.generations.getGeneration, { generationId: failedId });
+    expect(view?.status).toBe("failed");
+    expect(view?.cost).toBe(0.75);
+    expect(view?.promptVersion).toBe(PROMPT_VERSION);
+    expect(view?.learningDigestIds).toEqual([digestId]);
+  });
+
+  it("reports zero, not null, for a tracked generation with no usage rows", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await insertProjectFixture(t);
+    const generationId = await t.run((ctx) =>
+      ctx.db.insert("generations", {
+        projectId: fixture.projectId,
+        transcriptId: fixture.transcriptId,
+        status: "completed",
+        promptVersion: PROMPT_VERSION,
+        learningDigestIds: [],
+        startedAt: fixture.now,
+        completedAt: fixture.now,
+      }),
+    );
+
+    const view = await t
+      .withIdentity({ subject: AUTH_ID })
+      .query(api.generations.getGeneration, { generationId });
+    expect(view?.cost).toBe(0);
+    expect(view?.cost).not.toBeNull();
+    expect(view?.promptVersion).toBe(PROMPT_VERSION);
+    expect(view?.learningDigestIds).toEqual([]);
+  });
+
+  it("returns null provenance for a legacy generation even when usage rows exist", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await insertProjectFixture(t);
+    const legacyId = await t.run((ctx) =>
+      ctx.db.insert("generations", {
+        projectId: fixture.projectId,
+        transcriptId: fixture.transcriptId,
+        status: "completed",
+        startedAt: fixture.now,
+        completedAt: fixture.now,
+      }),
+    );
+    await seedUsage(t, [
+      { generationId: legacyId, callSite: "generation:legacy", costUsd: 7, createdAt: 1 },
+    ]);
+
+    const view = await t
+      .withIdentity({ subject: AUTH_ID })
+      .query(api.generations.getGeneration, { generationId: legacyId });
+    expect(view).not.toBeNull();
+    expect(view?.promptVersion).toBeNull();
+    expect(view?.learningDigestIds).toBeNull();
+    expect(view?.cost).toBeNull();
+  });
+
+  it("treats a new-format reservation as untracked until beginGeneration stamps the hash", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await insertProjectFixture(t);
+    const generationId = await t
+      .withIdentity({ subject: AUTH_ID })
+      .mutation(api.generations.requestGeneration, {
+        projectId: fixture.projectId,
+        transcriptId: fixture.transcriptId,
+        candidateMode: "single",
+        singleModelId: "claude-sonnet-5",
+      });
+    const reserved = await t.run((ctx) => ctx.db.get(generationId));
+    expect(reserved).toMatchObject({ status: "reserved", learningDigestIds: [] });
+    expect(reserved?.promptVersion).toBeUndefined();
+
+    const view = await t
+      .withIdentity({ subject: AUTH_ID })
+      .query(api.generations.getGeneration, { generationId });
+    expect(view?.promptVersion).toBeNull();
+    expect(view?.learningDigestIds).toBeNull();
+    expect(view?.cost).toBeNull();
+
+    // Assert the stamp actually landed so a failed handoff (e.g. the project
+    // not pointing at this reservation) does not surface later as a confusing
+    // promptVersion mismatch.
+    await expect(
+      t.mutation(internal.generations.beginGeneration, {
+        generationId,
+        promptVersion: PROMPT_VERSION,
+      }),
+    ).resolves.toBe(true);
+    const stamped = await t
+      .withIdentity({ subject: AUTH_ID })
+      .query(api.generations.getGeneration, { generationId });
+    expect(stamped?.promptVersion).toBe(PROMPT_VERSION);
+    expect(stamped?.learningDigestIds).toEqual([]);
+    expect(stamped?.cost).toBe(0);
+  });
+
+  it("reports the partial sum and partially grown digest union while a generation is in flight", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await insertProjectFixture(t);
+    const [firstDigestId, secondDigestId] = await Promise.all([
+      insertDigest(t, { kind: "qa_calibration", content: "CAL", ordinal: 910 }),
+      insertDigest(t, { kind: "draft_style", content: "STYLE", ordinal: 911 }),
+    ]);
+    const generationId = await t.run((ctx) =>
+      ctx.db.insert("generations", {
+        projectId: fixture.projectId,
+        transcriptId: fixture.transcriptId,
+        status: "running",
+        promptVersion: PROMPT_VERSION,
+        learningDigestIds: [],
+        startedAt: fixture.now,
+      }),
+    );
+    await t.mutation(internal.generations.unionLearningDigestIds, {
+      generationId,
+      digestIds: [firstDigestId],
+    });
+    await seedUsage(t, [
+      { generationId, callSite: "generation:brief", costUsd: 0.2, createdAt: 1 },
+    ]);
+
+    const midFlight = await t
+      .withIdentity({ subject: AUTH_ID })
+      .query(api.generations.getGeneration, { generationId });
+    expect(midFlight?.status).toBe("running");
+    expect(midFlight?.cost).toBe(0.2);
+    expect(midFlight?.learningDigestIds).toEqual([firstDigestId]);
+
+    await t.mutation(internal.generations.unionLearningDigestIds, {
+      generationId,
+      digestIds: [secondDigestId],
+    });
+    await seedUsage(t, [
+      { generationId, callSite: "generation:section:242", costUsd: 0.3, createdAt: 2 },
+    ]);
+    const later = await t
+      .withIdentity({ subject: AUTH_ID })
+      .query(api.generations.getGeneration, { generationId });
+    expect(later?.cost).toBeCloseTo(0.5, 10);
+    expect(later?.learningDigestIds).toEqual([firstDigestId, secondDigestId]);
+  });
+
+  it("serves an admin who did not create the project and still returns null for unauthorized callers", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await insertProjectFixture(t);
+    const generationId = await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        authId: "generation-attribution-admin",
+        role: "admin",
+        name: "Attribution Admin",
+      });
+      await ctx.db.insert("users", {
+        authId: "generation-attribution-anon",
+        name: "Anonymous Visitor",
+        isAnonymous: true,
+      });
+      await ctx.db.insert("users", {
+        authId: "generation-attribution-roleless",
+        name: "Role-less User",
+      });
+      return await ctx.db.insert("generations", {
+        projectId: fixture.projectId,
+        transcriptId: fixture.transcriptId,
+        status: "completed",
+        promptVersion: PROMPT_VERSION,
+        learningDigestIds: [],
+        startedAt: fixture.now,
+        completedAt: fixture.now,
+      });
+    });
+    await seedUsage(t, [
+      { generationId, callSite: "generation:analyzer", costUsd: 1.5, createdAt: 1 },
+    ]);
+
+    const project = await t.run((ctx) => ctx.db.get(fixture.projectId));
+    expect(project?.createdBy).toBe(fixture.userId);
+
+    const asAdmin = await t
+      .withIdentity({ subject: "generation-attribution-admin" })
+      .query(api.generations.getGeneration, { generationId });
+    expect(asAdmin?.cost).toBe(1.5);
+    expect(asAdmin?.promptVersion).toBe(PROMPT_VERSION);
+    expect(asAdmin?.learningDigestIds).toEqual([]);
+
+    for (const subject of [
+      "generation-attribution-anon",
+      "generation-attribution-roleless",
+      "generation-attribution-unmapped",
+    ]) {
+      expect(
+        await t
+          .withIdentity({ subject })
+          .query(api.generations.getGeneration, { generationId }),
+      ).toBeNull();
+    }
+    expect(
+      await t.query(api.generations.getGeneration, { generationId }),
+    ).toBeNull();
+
+    // A generation id that no longer resolves returns null for the whole
+    // document, exactly as before this story.
+    await t.run((ctx) => ctx.db.delete(generationId));
+    expect(
+      await t
+        .withIdentity({ subject: AUTH_ID })
+        .query(api.generations.getGeneration, { generationId }),
+    ).toBeNull();
+  });
+});

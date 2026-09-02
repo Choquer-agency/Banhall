@@ -85,3 +85,27 @@ source_spec: `10-generations-record-prompt-version-hash-and-learning-digest-ids.
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260901-192212-7e0e; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
+
+### DW-12: getGeneration now takes a read dependency on the whole aiUsage by_generationId range, so every scheduled logUsage insert invalidates the live GenerationProgress subscription and re-pushes the full gen
+origin: spec-deferred 30e515bd62ef
+location: convex/generations.ts:180
+source_spec: `11-getgeneration-exposes-attributable-cost-with-legacy-null-semantics.md`
+severity: medium
+reason: src/lib/components/generation/GenerationProgress.svelte:19 subscribes to api.generations.getGeneration for the duration of a run, and logUsage is scheduled per provider call (tens per generation). The in-query sum is required by this story's intent ("computed inside the same query", partial sum while in flight), so it is not fixable here; a stored running total on the generation row, or a separate cost query the progress card does not subscribe to, would remove the churn.
+status: open
+
+### DW-13: Per-generation dollar cost is now readable by any internal role while the aggregate usageReport stays admin-gated, and the widening is recorded only in this story file, not in docs/product-domain.md.
+origin: spec-deferred 17d0f20a8246
+location: docs/product-domain.md
+source_spec: `11-getgeneration-exposes-attributable-cost-with-legacy-null-semantics.md`
+severity: medium
+reason: getInternalProjectAccessOrNull (convex/lib/auth.ts:33-42) admits writer, manager, and admin for any project, whereas convex/aiUsage.ts gates usageReport behind usageViewerOrNull. The story forbids adding a gate, so the code is correct as specified, but the domain contract should say who may see spend at generation granularity.
+status: open
+
+### DW-14: No function in convex/generations.ts declares a returns validator, so the convex-lint hook warns on every edit to the file.
+origin: spec-deferred 8dea7e53e38b
+location: convex/generations.ts
+source_spec: `11-getgeneration-exposes-attributable-cost-with-legacy-null-semantics.md`
+severity: low
+reason: Pre-existing and file-wide, not introduced by this story; adding one to getGeneration alone would have been a non-additive change outside scope. Worth a focused pass over the file.
+status: open

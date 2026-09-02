@@ -163,6 +163,28 @@ export const getGeneration = query({
     ) {
       return null;
     }
+    // D-4: a non-empty promptVersion is the sole "tracked" marker. Legacy rows
+    // and reservations not yet stamped by beginGeneration read as untracked and
+    // return null for all three provenance fields — never 0, which would be
+    // indistinguishable from a tracked generation that has cost nothing yet.
+    // promptVersion is hoisted so the check narrows it to `string`, keeping the
+    // returned type `string | null` with no impossible `undefined` for callers.
+    const promptVersion = generation.promptVersion;
+    const tracked = typeof promptVersion === "string" && promptVersion.length > 0;
+    // Every aiUsage row keyed to this generation, un-truncated: rows from calls
+    // that later failed, timed out, or were retried all count, and rows keep
+    // landing while the generation is in flight. Bounded by the pipeline's
+    // generation-owned provider calls (low hundreds at worst), so a single
+    // collect() stays well inside query read limits; truncating would
+    // silently under-report.
+    const usage = tracked
+      ? await ctx.db
+          .query("aiUsage")
+          .withIndex("by_generationId", (q) =>
+            q.eq("generationId", generation._id)
+          )
+          .collect()
+      : null;
     return {
       _id: generation._id,
       projectId: generation.projectId,
@@ -178,6 +200,22 @@ export const getGeneration = query({
       startedAt: generation.startedAt,
       completedAt: generation.completedAt,
       agentOutputs: generation.agentOutputs,
+      /** Deployment-level prompt program hash, or null for untracked rows. */
+      promptVersion: tracked ? promptVersion : null,
+      /** Learned-guidance ids recorded so far, or null for untracked rows. */
+      learningDigestIds: tracked ? (generation.learningDigestIds ?? []) : null,
+      /** Recorded attributable cost in US dollars: the sum of `costUsd` over
+       * the `aiUsage` rows recorded against this generation. Individual rows
+       * may themselves be estimated from token counts (`logUsage` falls back to
+       * `estimateCostUsd` when the provider reports no cost), so this is
+       * recorded attributable cost, not exact total provider spend, and makes
+       * no claim of invoice completeness — unrecorded or unattributed calls are
+       * simply absent. `null` means the generation is untracked, not that it
+       * cost nothing. The tracked marker, not the emptiness of the usage read,
+       * is what decides null-vs-0. */
+      cost: tracked
+        ? (usage ?? []).reduce((total, row) => total + row.costUsd, 0)
+        : null,
     };
   },
 });
