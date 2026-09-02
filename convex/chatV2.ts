@@ -53,6 +53,46 @@ const chatTurnStatusValidator = v.union(
   v.literal("aborted")
 );
 
+const turnWindowArgs = {
+  startOrder: v.optional(v.number()),
+  endOrder: v.optional(v.number()),
+};
+
+const DEFAULT_TURN_START_ORDER = 0;
+const DEFAULT_TURN_END_ORDER = Number.MAX_SAFE_INTEGER;
+const TURN_WINDOW_LIMIT = 200;
+
+function resolveTurnWindow(args: {
+  startOrder?: number;
+  endOrder?: number;
+}) {
+  return {
+    startOrder: args.startOrder ?? DEFAULT_TURN_START_ORDER,
+    endOrder: args.endOrder ?? DEFAULT_TURN_END_ORDER,
+  };
+}
+
+async function loadNewestTurns(
+  ctx: QueryCtx,
+  args: {
+    agentThreadId: string;
+    startOrder: number;
+    endOrder: number;
+  }
+) {
+  const turns = await ctx.db
+    .query("chatTurns")
+    .withIndex("by_agentThreadId_and_order", (q) =>
+      q
+        .eq("agentThreadId", args.agentThreadId)
+        .gte("order", args.startOrder)
+        .lte("order", args.endOrder)
+    )
+    .order("desc")
+    .take(TURN_WINDOW_LIMIT);
+  return turns.reverse();
+}
+
 /** Resolve a component thread id to our mapping row (or null). */
 async function threadRow(ctx: QueryCtx | MutationCtx, agentThreadId: string) {
   return await ctx.db
@@ -90,7 +130,14 @@ export const listMessages = query({
   },
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.threadId);
-    if (!thread) throw new Error("Thread not found");
+    if (!thread) {
+      return {
+        page: [],
+        isDone: true,
+        continueCursor: "",
+        streams: undefined,
+      };
+    }
     await requireInternalProjectAccess(ctx, thread.projectId);
 
     const paginated = await listUIMessages(ctx, components.agent, {
@@ -105,46 +152,81 @@ export const listMessages = query({
   },
 });
 
-/** All proposals for a thread — reactive source for edit/highlight cards. */
+/**
+ * Proposals linked to the newest turns in an inclusive order window.
+ *
+ * Empty only when no thread mapping exists; an existing thread the caller may
+ * not read throws the typed NOT_AUTHENTICATED / NOT_AUTHORIZED error, like
+ * listMessages. Proposals without a promptMessageId anchor (legacy rows) are
+ * never returned because their window membership cannot be proven.
+ */
 export const listProposals = query({
-  args: { threadId: v.string() },
+  args: {
+    threadId: v.string(),
+    ...turnWindowArgs,
+  },
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.threadId);
     if (!thread) return [];
-    if (!(await getInternalProjectAccessOrNull(ctx, thread.projectId))) return [];
+    await requireInternalProjectAccess(ctx, thread.projectId);
 
-    return await ctx.db
-      .query("chatProposals")
-      .withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", args.threadId))
-      .order("asc")
-      .collect();
+    const window = resolveTurnWindow(args);
+    if (window.startOrder > window.endOrder) return [];
+
+    const turns = await loadNewestTurns(ctx, {
+      agentThreadId: args.threadId,
+      ...window,
+    });
+    const promptMessageIds = [
+      ...new Set(turns.map((turn) => turn.promptMessageId)),
+    ];
+    const proposalsByTurn = await Promise.all(
+      promptMessageIds.map(async (promptMessageId) =>
+        ctx.db
+          .query("chatProposals")
+          .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+            q
+              .eq("agentThreadId", args.threadId)
+              .eq("promptMessageId", promptMessageId)
+          )
+          .order("asc")
+          .collect()
+      )
+    );
+
+    // Same order the by_agentThreadId index yields: creation time, then id.
+    // Plain code-point comparison keeps the tie-break locale-independent.
+    return proposalsByTurn.flat().sort((left, right) => {
+      const creationTimeDifference = left._creationTime - right._creationTime;
+      if (creationTimeDifference !== 0) return creationTimeDifference;
+      if (left._id === right._id) return 0;
+      return left._id < right._id ? -1 : 1;
+    });
   },
 });
 
+/**
+ * Turn timing rows in the same inclusive newest-200 window as listProposals.
+ * Unlike listProposals this stays empty-on-unauthorized: it is a metadata
+ * feed for UI timing badges and its callers never surface query errors.
+ */
 export const listTurns = query({
   args: {
     threadId: v.string(),
-    startOrder: v.number(),
-    endOrder: v.number(),
+    ...turnWindowArgs,
   },
   handler: async (ctx, args) => {
-    if (args.startOrder > args.endOrder) return [];
+    const window = resolveTurnWindow(args);
+    if (window.startOrder > window.endOrder) return [];
 
     const thread = await threadRow(ctx, args.threadId);
     if (!thread) return [];
     if (!(await getInternalProjectAccessOrNull(ctx, thread.projectId))) return [];
 
-    const turns = await ctx.db
-      .query("chatTurns")
-      .withIndex("by_agentThreadId_and_order", (q) =>
-        q
-          .eq("agentThreadId", args.threadId)
-          .gte("order", args.startOrder)
-          .lte("order", args.endOrder)
-      )
-      .order("desc")
-      .take(200);
-    return turns.reverse();
+    return await loadNewestTurns(ctx, {
+      agentThreadId: args.threadId,
+      ...window,
+    });
   },
 });
 

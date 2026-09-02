@@ -225,7 +225,7 @@ args: {
 
 Behavior:
 
-- Resolve `threadRow`, return `[]` when missing/inaccessible using the same policy as `listProposals`.
+- Resolve `threadRow`, return `[]` when missing or inaccessible. (`listProposals` later diverged: it returns `[]` only for a missing mapping and throws the typed authorization error for an existing thread; `listTurns` keeps the empty-on-unauthorized policy.)
 - Reject `startOrder > endOrder`.
 - Query `chatTurns` through `by_agentThreadId_and_order`, equality on `threadId`, inclusive `gte(startOrder)` and `lte(endOrder)`, descending, `.take(200)`, then reverse the bounded result before returning it. This always keeps the newest loaded turns; orders older than the 200-turn metadata window use the historical no-duration fallback.
 - This is reactive and bounded to the orders already loaded by message pagination; it does not collect a whole thread. Convex queries must use indexes and bounded reads (`convex/_generated/ai/guidelines.md:242-256`).

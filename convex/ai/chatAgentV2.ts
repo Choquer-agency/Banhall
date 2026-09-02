@@ -8,6 +8,7 @@ import {
   createTool,
   stepCountIs,
   saveMessage,
+  type ContextOptions,
   type ToolCtx,
 } from "@convex-dev/agent";
 import { anthropic } from "@ai-sdk/anthropic";
@@ -212,6 +213,19 @@ const CHAT_THINKING = {
  */
 const CHAT_MAX_OUTPUT_TOKENS = 16384;
 
+/**
+ * Model-history bound for report chat (audit finding 22): the newest 30
+ * non-tool message rows up to and including the prompt. Rows, not turns, so
+ * roughly fifteen exchanges. Applied only at the streamText call so the Agent
+ * constructor keeps library defaults; frozen so nothing widens it at runtime.
+ */
+export const CHAT_CONTEXT_OPTIONS = Object.freeze(
+  {
+    recentMessages: 30,
+    excludeToolMessages: true,
+  } satisfies ContextOptions
+);
+
 const buildChatTools = (bannedWordsWaived: boolean) => ({
   proposeEdit: makeProposeEdit(bannedWordsWaived),
   proposeReplacements: makeProposeReplacements(bannedWordsWaived),
@@ -407,7 +421,10 @@ export const streamChatReply = internalAction({
             }
           },
         },
-        { saveStreamDeltas: true }
+        {
+          saveStreamDeltas: true,
+          contextOptions: CHAT_CONTEXT_OPTIONS,
+        }
       );
       await result.consumeStream();
       await ctx.runMutation(internal.chatV2.finishTurn, {

@@ -843,6 +843,13 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_agentThreadId", ["agentThreadId"])
+    // Exact per-turn proposal reads for chatV2.listProposals, which joins
+    // proposals to the chatTurns window through promptMessageId. Rows without
+    // that anchor (legacy) are unreachable from the windowed read by design.
+    .index("by_agentThreadId_and_promptMessageId", [
+      "agentThreadId",
+      "promptMessageId",
+    ])
     .index("by_agentThreadId_and_toolCallId", ["agentThreadId", "toolCallId"]),
 
   chatMessages: defineTable({

@@ -81,6 +81,14 @@ interface ThreadRow extends BaseRow {
   agentThreadId?: string;
 }
 
+interface TurnRow extends BaseRow {
+  agentThreadId: string;
+  promptMessageId: string;
+  order: number;
+  status: "queued" | "running" | "completed" | "failed" | "aborted";
+  stepCount: number;
+}
+
 interface AuditRow extends BaseRow {
   projectId: string;
   contentHash?: string;
@@ -125,6 +133,7 @@ interface TestTables {
   reports: ReportRow[];
   chatThreads: ThreadRow[];
   agentChatThreads: ThreadRow[];
+  chatTurns: TurnRow[];
   chatMessages: MessageRow[];
   chatProposals: ProposalRow[];
   reportSnapshots: SnapshotRow[];
@@ -138,22 +147,38 @@ interface TestTables {
 type TestRow = TestTables[keyof TestTables][number];
 type IndexQuery = {
   eq: (field: string, value: unknown) => IndexQuery;
+  gte: (field: string, value: number) => IndexQuery;
+  lte: (field: string, value: number) => IndexQuery;
 };
 
 class QueryBuilder {
   constructor(private rows: TestRow[]) {}
 
   withIndex(_indexName: string, build: (query: IndexQuery) => IndexQuery) {
-    const clauses: Array<{ field: string; value: unknown }> = [];
+    const predicates: Array<(row: TestRow) => boolean> = [];
     const query: IndexQuery = {
       eq: (field, value) => {
-        clauses.push({ field, value });
+        predicates.push((row) => Reflect.get(row, field) === value);
+        return query;
+      },
+      gte: (field, value) => {
+        predicates.push((row) => {
+          const fieldValue = Reflect.get(row, field);
+          return typeof fieldValue === "number" && fieldValue >= value;
+        });
+        return query;
+      },
+      lte: (field, value) => {
+        predicates.push((row) => {
+          const fieldValue = Reflect.get(row, field);
+          return typeof fieldValue === "number" && fieldValue <= value;
+        });
         return query;
       },
     };
     build(query);
     this.rows = this.rows.filter((row) =>
-      clauses.every((clause) => Reflect.get(row, clause.field) === clause.value)
+      predicates.every((predicate) => predicate(row))
     );
     return this;
   }
@@ -196,6 +221,7 @@ class FakeDb {
       tables.reports,
       tables.chatThreads,
       tables.agentChatThreads,
+      tables.chatTurns,
       tables.chatMessages,
       tables.chatProposals,
       tables.reportSnapshots,
@@ -394,6 +420,7 @@ async function createFixture(role: Role, userId = "reviewer"): Promise<Fixture> 
     _id: "proposal",
     _creationTime: 30,
     agentThreadId: "agent-thread",
+    promptMessageId: "prompt-message",
     projectId,
     reportId,
     kind: "edit",
@@ -427,6 +454,17 @@ async function createFixture(role: Role, userId = "reviewer"): Promise<Fixture> 
         agentThreadId: "agent-thread",
         projectId,
         reportId,
+      },
+    ],
+    chatTurns: [
+      {
+        _id: "chat-turn",
+        _creationTime: 29,
+        agentThreadId: "agent-thread",
+        promptMessageId: "prompt-message",
+        order: 0,
+        status: "completed",
+        stepCount: 0,
       },
     ],
     chatMessages: [message],
@@ -520,13 +558,13 @@ describe("proposal access", () => {
     ).resolves.toHaveLength(1);
   });
 
-  test("hides proposals from an anonymous caller", async () => {
+  test("rejects an anonymous proposal reader", async () => {
     const fixture = await createFixture("writer");
     fixture.ctx.auth.getUserIdentity = async () => null;
 
     await expect(
       v2List(fixture.ctx, { threadId: "agent-thread" })
-    ).resolves.toEqual([]);
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
   });
 });
 
