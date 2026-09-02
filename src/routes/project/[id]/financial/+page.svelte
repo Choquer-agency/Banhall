@@ -12,6 +12,7 @@
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { userErrorMessage } from "$lib/errors";
+  import { hasCapability } from "../../../../../shared/capabilities";
 
   const FILE_TYPES = [
     { value: "slack_export", label: "Slack Export" },
@@ -40,6 +41,14 @@
   );
   const capabilitiesQ = useQuery(api.providerReadiness.getCapabilities, () =>
     auth.isAuthenticated ? {} : "skip"
+  );
+  // financial.read is Manager/Admin only (capability matrix, decision D5).
+  // The server enforces it; this only chooses the honest empty state.
+  const meQ = useQuery(api.users.getCurrentUser, () =>
+    auth.isAuthenticated ? {} : "skip"
+  );
+  const canReadFinancial = $derived(
+    meQ.data === undefined ? null : hasCapability(meQ.data?.role, "financial.read")
   );
 
   const uploadData = useMutation(api.financial.uploadAndScheduleFinancialData);
@@ -195,6 +204,14 @@
         Extract draft timesheet entries from source data, then approve or correct every entry before it contributes to financial totals.
       </p>
 
+      {#if canReadFinancial === false}
+        <div class="card mt-6 p-5">
+          <h3 class="text-sm font-medium text-gray-900">Financial data is limited to managers and administrators</h3>
+          <p class="mt-2 text-sm text-gray-500">
+            Timesheets, extracted hours, and financial summaries are not part of the Consultant role. Ask a manager to review this project's financial data.
+          </p>
+        </div>
+      {:else}
       <!-- Upload form -->
       <div class="card mt-6 p-5">
         <h3 class="text-sm font-semibold text-gray-900">Upload Data</h3>
@@ -439,6 +456,7 @@
             </table>
           </div>
         </div>
+      {/if}
       {/if}
     </main>
   </div>

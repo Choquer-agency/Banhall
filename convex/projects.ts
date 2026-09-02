@@ -14,6 +14,7 @@ import {
   requireInternalProjectAccess,
   requireProjectCreatorOrAdmin,
   requireCurrentUser,
+  requireRole,
 } from "./lib/auth";
 import {
   getTeamRosterMemberOrNull,
@@ -447,6 +448,11 @@ export const updateProjectFiscalYear = mutation({
 /**
  * Bulk edit from the dashboard selection: set the company name and/or
  * set/clear the fiscal year-end across many projects at once.
+ *
+ * Scope follows the role matrix: a Consultant (writer) edits only projects
+ * they currently own (projects.ownerId); Manager and Admin edit all. Rows
+ * outside the actor's scope are counted as skipped and never touched.
+ * projects.createdBy is not consulted.
  */
 export const bulkUpdateProjects = mutation({
   args: {
@@ -457,7 +463,7 @@ export const bulkUpdateProjects = mutation({
   },
   returns: v.object({ updated: v.number(), skipped: v.number() }),
   handler: async (ctx, args) => {
-    await requireCurrentUser(ctx);
+    const user = await requireRole(ctx, ["writer", "manager", "admin"]);
     const clientName = args.clientName?.trim();
     if (args.clientName !== undefined && !clientName) {
       domainError("INVALID_INPUT", "Company name cannot be empty");
@@ -475,9 +481,14 @@ export const bulkUpdateProjects = mutation({
     const now = Date.now();
     let updated = 0;
     let skipped = 0;
+    const editsAll = user.role === "manager" || user.role === "admin";
     for (const projectId of projectIds) {
       const project = await ctx.db.get(projectId);
       if (!project) {
+        skipped++;
+        continue;
+      }
+      if (!editsAll && project.ownerId !== user._id) {
         skipped++;
         continue;
       }
@@ -928,7 +939,13 @@ export const publishForReview = mutation({
     reportId: v.id("reports"),
   },
   handler: async (ctx, args) => {
-    await requireProjectCreatorOrAdmin(ctx, args.projectId);
+    // CAP-3 / decision D-2: publishing is authorized by the caller's current
+    // role on the project (Owner via ownerId, or any Manager/Admin), never by
+    // projects.createdBy. Both checks run before any write.
+    const { project } = await requireInternalProjectAccess(ctx, args.projectId);
+    await requireCapability(ctx, "project.setStage", {
+      ownedBy: project.ownerId ? [project.ownerId] : [],
+    });
     const report = await ctx.db.get(args.reportId);
     if (!report || report.projectId !== args.projectId) {
       domainError("NOT_AUTHORIZED", "Report does not belong to this project");
@@ -944,7 +961,12 @@ export const publishForReview = mutation({
 export const unpublishReview = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    const { project } = await requireProjectCreatorOrAdmin(ctx, args.projectId);
+    // Same authority as publishForReview (CAP-3 / D-2): current Owner,
+    // Manager, or Admin; createdBy is not consulted.
+    const { project } = await requireInternalProjectAccess(ctx, args.projectId);
+    await requireCapability(ctx, "project.setStage", {
+      ownedBy: project.ownerId ? [project.ownerId] : [],
+    });
     await ctx.db.patch(args.projectId, {
       sharedReportId: undefined,
       status: project.status === "client_review" ? "review" : project.status,

@@ -36,6 +36,7 @@
 
   const REASON_LABELS: Record<string, string> = {
     pre_chat_edit: "Before AI edit",
+    pre_client_edit: "Before client edit",
     manual: "Edit checkpoint",
     periodic: "Auto-save",
     pre_restore: "Before restore",

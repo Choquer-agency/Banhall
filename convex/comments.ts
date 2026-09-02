@@ -4,8 +4,10 @@ import {
   getProjectAccess,
   requireInternalProjectAccess,
 } from "./lib/auth";
+import { requireReportEditAccess } from "./lib/roleCapabilities";
 import { domainError, sha256 } from "./lib/contracts";
 import { applyReplacements, type PMNode } from "./lib/reportEdits";
+import { pruneSnapshots, snapshotAuditFields } from "./lib/snapshots";
 
 const COMMENTER_COLORS = [
   "#818CF8",
@@ -145,7 +147,8 @@ export const acceptEdit = mutation({
     if (!comment.suggestedEdit) {
       domainError("INVALID_INPUT", "This comment has no suggested edit");
     }
-    await requireInternalProjectAccess(ctx, comment.projectId);
+    // Accepting a client suggestion rewrites report prose: report.editProse.
+    await requireReportEditAccess(ctx, comment.projectId);
     const report = await ctx.db.get(comment.reportId);
     if (!report || report.projectId !== comment.projectId) {
       domainError("NOT_FOUND", "The commented report revision is unavailable");
@@ -173,14 +176,33 @@ export const acceptEdit = mutation({
       );
     }
     const content = JSON.stringify(applied.doc);
+    const revisionNumber = report.revisionNumber ?? 0;
+    const now = Date.now();
+    // Sprint 1 story 4 (CAP-4a): checkpoint the pre-accept content in the same
+    // transaction, ahead of the report patch, so an accepted client edit is
+    // restorable through the ordinary snapshot restore path. The replacement
+    // checks above throw before this insert, so a rejected accept persists no
+    // snapshot.
+    await ctx.db.insert("reportSnapshots", {
+      projectId: report.projectId,
+      reportId: report._id,
+      content: report.content,
+      ...(await snapshotAuditFields(ctx, report)),
+      sourceRevisionNumber: revisionNumber,
+      reason: "pre_client_edit",
+      label: "Before client edit",
+      createdByRole: "system",
+      createdAt: now,
+    });
     await ctx.db.patch(report._id, {
       content,
       contentHash: await sha256(content),
-      revisionNumber: (report.revisionNumber ?? 0) + 1,
+      revisionNumber: revisionNumber + 1,
       provenanceId: undefined,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
     await ctx.db.patch(args.commentId, { resolved: true });
+    await pruneSnapshots(ctx, report._id);
   },
 });
 

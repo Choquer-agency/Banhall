@@ -604,7 +604,11 @@ export default defineSchema({
       // review/approval. Writer thinking time is unbounded — never reaped.
       v.literal("awaiting_input"),
       v.literal("completed"),
-      v.literal("failed")
+      v.literal("failed"),
+      // Sprint 1 story 8 (CAP-7): a partial generation whose failed
+      // candidates were retried into a linked recovery generation. Terminal;
+      // excluded from history and stats; never "completed" without a report.
+      v.literal("superseded")
     ),
     requestedAt: v.optional(v.number()),
     requestedBy: v.optional(v.id("users")),
@@ -1167,6 +1171,10 @@ export default defineSchema({
     content: v.string(),
     reason: v.union(
       v.literal("pre_chat_edit"),
+      // Sprint 1 story 4 (CAP-4a): taken in the same transaction as
+      // comments.acceptEdit, so accepting a client's suggested edit is
+      // restorable to the exact pre-accept text.
+      v.literal("pre_client_edit"),
       v.literal("manual"),
       v.literal("periodic"),
       v.literal("pre_restore"),

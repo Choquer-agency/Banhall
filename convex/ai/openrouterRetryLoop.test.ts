@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ActionCtx } from "../_generated/server";
 import { openRouterChatCompletion, OpenRouterError } from "./openrouter";
-import { fromChatCompletions } from "./openrouterCore";
+import { fromChatCompletions, OPENROUTER_MAX_RETRIES } from "./openrouterCore";
 
 const successBody = {
   choices: [
@@ -72,12 +72,13 @@ afterEach(() => {
 });
 
 describe("openRouterChatCompletion retry loop", () => {
-  it("survives 429, 429 then succeeds on the third attempt, logging usage once", async () => {
+  it("CAP-6: pins one retry (two attempts total) to share the generateCandidate action budget", () => {
+    expect(OPENROUTER_MAX_RETRIES).toBe(1);
+  });
+
+  it("survives a 429 then succeeds on the second attempt, logging usage once", async () => {
     const { ctx, runAfter, runMutation } = fakeCtx();
     fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse(429, { error: { message: "rate limited" } }, { "retry-after": "0" })
-      )
       .mockResolvedValueOnce(
         jsonResponse(429, { error: { message: "rate limited" } }, { "retry-after": "0" })
       )
@@ -85,7 +86,7 @@ describe("openRouterChatCompletion retry loop", () => {
 
     const result = await openRouterChatCompletion(ctx, baseInput);
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     // The 200 body parses through the same adapter the agents use.
     const parsed = fromChatCompletions(result);
     expect(parsed.content).toEqual([
@@ -145,7 +146,7 @@ describe("openRouterChatCompletion retry loop", () => {
     expect(runAfter).toHaveBeenCalledTimes(1);
   });
 
-  it("gives up after 3 attempts of 429 and surfaces the status without logging usage", async () => {
+  it("gives up after the retry budget (2 attempts) of 429 and surfaces the status without logging usage", async () => {
     const { ctx, runAfter, runMutation } = fakeCtx();
     fetchMock.mockImplementation(async () =>
       jsonResponse(429, { error: { message: "still rate limited" } }, { "retry-after": "0" })
@@ -157,19 +158,20 @@ describe("openRouterChatCompletion retry loop", () => {
     expect(error).toBeInstanceOf(OpenRouterError);
     expect(error.status).toBe(429);
     expect(error.message).toContain("still rate limited");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // Attempt count tracks the exported policy, not a number copied here.
+    expect(fetchMock).toHaveBeenCalledTimes(OPENROUTER_MAX_RETRIES + 1);
     expect(runAfter).not.toHaveBeenCalled();
     expect(runMutation).not.toHaveBeenCalled();
   });
 
-  it("gives up after 3 attempts when the network keeps failing", async () => {
+  it("gives up after the retry budget (2 attempts) when the network keeps failing", async () => {
     const { ctx, runAfter } = fakeCtx();
     fetchMock.mockRejectedValue(new TypeError("fetch failed: DNS"));
 
     await expect(openRouterChatCompletion(ctx, baseInput)).rejects.toThrow(
       /DNS/
     );
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(OPENROUTER_MAX_RETRIES + 1);
     expect(runAfter).not.toHaveBeenCalled();
   });
 

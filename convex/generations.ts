@@ -16,6 +16,7 @@ import {
   requireInternalProjectAccess,
   requireRole,
 } from "./lib/auth";
+import { requireReportEditAccess } from "./lib/roleCapabilities";
 import { domainError, sha256 } from "./lib/contracts";
 import {
   requireAnthropicConfigured,
@@ -35,6 +36,61 @@ import { defaultModelId } from "./appSettings";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { sectionMetrics } from "./lib/lineLimits";
 import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
+
+// ─── Generation status helpers ───────────────────────────────────────────────
+
+/** Statuses `findActiveGeneration` treats as live: the project stays fenced on
+ * the generation and the dashboard shows activity for it. */
+const ACTIVE_GENERATION_STATUSES = [
+  "reserved",
+  "running",
+  "awaiting_selection",
+  "awaiting_input",
+] as const;
+
+/** Terminal statuses: nothing may resurrect the row, and candidate runs left
+ * stranded under it are settled by the reaper. `superseded` (CAP-7) is
+ * terminal without a report: a partial compare generation whose failed drafts
+ * were retried into a linked recovery generation. */
+function isTerminalGenerationStatus(status: Doc<"generations">["status"]) {
+  return status === "completed" || status === "failed" || status === "superseded";
+}
+
+/** A generation the project page, history list, and dashboard may surface.
+ * `superseded` rows are attempt history only — the recovery generation that
+ * replaced them (its `retryOfGenerationId` points back here) is the one that
+ * continues, so they are never the latest, active, completed, or failed run. */
+type VisibleGeneration = Doc<"generations"> & {
+  status: Exclude<Doc<"generations">["status"], "superseded">;
+};
+function isVisibleGeneration(
+  generation: Doc<"generations">
+): generation is VisibleGeneration {
+  return generation.status !== "superseded";
+}
+
+const GENERATION_HISTORY_LIMIT = 50;
+
+/** Newest-first visible generations for a project. The scan stops at `limit`
+ * visible rows; every superseded row it skips is paired with a newer recovery
+ * row, so the extra reads are bounded by the project's retry count. */
+async function visibleGenerations(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  limit: number
+): Promise<VisibleGeneration[]> {
+  const visible: VisibleGeneration[] = [];
+  for await (const generation of ctx.db
+    .query("generations")
+    .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+    .order("desc")) {
+    if (!isVisibleGeneration(generation)) continue;
+    visible.push(generation);
+    if (visible.length >= limit) break;
+  }
+  return visible;
+}
+
 /**
  * Requires internal project access. Strips internal agentOutputs.
  */
@@ -44,11 +100,9 @@ export const getLatestGeneration = query({
     const access = await getInternalProjectAccessOrNull(ctx, args.projectId);
     if (!access) return null;
 
-    const generation = await ctx.db
-      .query("generations")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .order("desc")
-      .first();
+    // Newest non-superseded row: after a partial retry the linked recovery
+    // generation is the latest, never the superseded original (CAP-7).
+    const [generation] = await visibleGenerations(ctx, args.projectId, 1);
     if (!generation) return null;
     // Which model's draft the writer chose — visible to everyone (the blind
     // A/B test is over; model identity is shown to all users).
@@ -180,11 +234,13 @@ export const listGenerations = query({
   handler: async (ctx, args) => {
     if (!(await getInternalProjectAccessOrNull(ctx, args.projectId))) return [];
 
-    const generations = await ctx.db
-      .query("generations")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .order("desc")
-      .take(50);
+    // History excludes superseded rows (CAP-7): they are neither completed
+    // nor failed attempts, just the pre-retry half of a recovery generation.
+    const generations = await visibleGenerations(
+      ctx,
+      args.projectId,
+      GENERATION_HISTORY_LIMIT
+    );
     return generations.map((generation) => ({
       _id: generation._id,
       status: generation.status,
@@ -296,12 +352,7 @@ async function reserveGeneration(
   // Anthropic is always required (retrieval brief + ghost draft run on it).
   requireAnthropicConfigured("generation");
 
-  const active = await findActiveGeneration(ctx, project, [
-    "reserved",
-    "running",
-    "awaiting_selection",
-    "awaiting_input",
-  ]);
+  const active = await findActiveGeneration(ctx, project, ACTIVE_GENERATION_STATUSES);
   if (active) {
     domainError("GENERATION_ACTIVE", "A generation is already active for this project");
   }
@@ -477,6 +528,12 @@ export const retryFailedCandidates = mutation({
     if ((generation.candidateMode ?? "compare") !== "compare") {
       domainError("INVALID_INPUT", "Only comparison drafts support model-specific retry");
     }
+    if (generation.status === "superseded") {
+      domainError(
+        "INVALID_STATE",
+        "This generation was already superseded by a recovery run"
+      );
+    }
     if (generation.status !== "awaiting_selection") {
       domainError("INVALID_STATE", "Only a partial generation can retry failed drafts");
     }
@@ -518,9 +575,13 @@ export const retryFailedCandidates = mutation({
     const now = Date.now();
     // Supersede the partial selection state inside the same transaction so the
     // normal active-generation guard can reserve its linked recovery. The
-    // original candidates and run rows stay intact as attempt history.
+    // original candidates and run rows stay intact as attempt history, but the
+    // row itself is terminal without a report (CAP-7): history, stats, and the
+    // project page skip it, and QA can never be requested on it. The link runs
+    // the other way — the recovery row's retryOfGenerationId — so no
+    // supersededBy pointer is stored.
     await ctx.db.patch(generation._id, {
-      status: "completed",
+      status: "superseded",
       currentStep: "Recovery started",
       completedAt: now,
     });
@@ -809,11 +870,7 @@ export const completeCandidateRun = internalMutation({
     // run row — otherwise it reads "running" forever and skews run stats. If
     // the generation completed, the comparison draft still becomes the
     // promised version-history snapshot; on cancel/failure it is discarded.
-    if (
-      run.ghost &&
-      generation &&
-      (generation.status === "completed" || generation.status === "failed")
-    ) {
+    if (run.ghost && generation && isTerminalGenerationStatus(generation.status)) {
       await ctx.db.patch(run._id, {
         status: succeeded ? "succeeded" : "failed",
         qaScore: args.qaScore,
@@ -1509,6 +1566,16 @@ export const requestReportQa = mutation({
     const generation = await ctx.db.get(args.generationId);
     if (!generation) domainError("NOT_FOUND", "Generation not found");
     await requireInternalProjectAccess(ctx, generation.projectId);
+    // CAP-7: QA scores a report. A generation without one — a superseded
+    // partial, a failed run, or a legacy row whose report was deleted — has
+    // nothing to review, so refuse before any write or schedule.
+    const report = await ctx.db
+      .query("reports")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      .first();
+    if (!report) {
+      domainError("INVALID_STATE", "This generation has no report to review");
+    }
     // Jul 17 meeting: any completed generation can (re)run its QA scorecard —
     // some projects lost the panel to an error or predate the feature.
     if (generation.status !== "completed") {
@@ -1695,6 +1762,9 @@ export const approveSectionDraft = mutation({
       ctx,
       args.generationId
     );
+    // report.editProse: approving a section writes report prose (and the
+    // final approval assembles the report).
+    await requireReportEditAccess(ctx, generation.projectId);
     if (generation.status !== "awaiting_input") {
       domainError("INVALID_STATE", "No section is awaiting review right now");
     }
@@ -2026,6 +2096,14 @@ export const setGenerationEstimate = internalMutation({
  */
 export const failStaleGenerations = internalMutation({
   args: { olderThanMinutes: v.optional(v.number()) },
+  // Declared so the function's type never depends on handler inference: the
+  // handler schedules a sibling function from this module, and inferring the
+  // return type through that reference would be circular.
+  returns: v.object({
+    failed: v.number(),
+    orphanedRuns: v.number(),
+    projectSweepJobId: v.id("_scheduled_functions"),
+  }),
   handler: async (ctx, args) => {
     const cutoff = Date.now() - (args.olderThanMinutes ?? 30) * 60 * 1000;
     const reserved = await ctx.db
@@ -2136,32 +2214,14 @@ export const failStaleGenerations = internalMutation({
     // Also free projects orphaned in "generating" with no live generation —
     // e.g. the client dies between createProject and requestGeneration, or a
     // legacy failure predates the activeGenerationId cleanup. Without this the
-    // project stays locked on a generation that never existed.
-    const projects = await ctx.db.query("projects").take(500);
-    let freed = 0;
-    for (const project of projects) {
-      if (project.status !== "generating") continue;
-      if (project.updatedAt > cutoff) continue;
-      const active = await findActiveGeneration(ctx, project, [
-        "reserved",
-        "running",
-        "awaiting_selection",
-        "awaiting_input",
-      ]);
-      if (active) continue;
-      const lastGeneration = await ctx.db
-        .query("generations")
-        .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
-        .order("desc")
-        .first();
-      await ctx.db.patch(project._id, {
-        activeGenerationId: undefined,
-        status: lastGeneration?.previousProjectStatus ?? "draft",
-        updatedAt: Date.now(),
-      });
-      await refreshProjectGenerationActivity(ctx, project._id);
-      freed += 1;
-    }
+    // project stays locked on a generation that never existed. The sweep walks
+    // the projects.by_status index one bounded page per transaction (CAP-11),
+    // so it runs as its own self-continuing job rather than inline here.
+    const projectSweepJobId: Id<"_scheduled_functions"> = await ctx.scheduler.runAfter(
+      0,
+      internal.generations.freeOrphanedGeneratingProjects,
+      { cutoff }
+    );
 
     // Candidate runs stranded queued/running after their generation already
     // went terminal (e.g. a hard ghost-draft death after a writer cancel, or
@@ -2182,13 +2242,7 @@ export const failStaleGenerations = internalMutation({
       // Queued rows carry no startedAt; age them from queuedAt instead.
       if ((run.startedAt ?? run.queuedAt) >= cutoff) continue;
       const generation = await ctx.db.get(run.generationId);
-      if (
-        generation &&
-        generation.status !== "completed" &&
-        generation.status !== "failed"
-      ) {
-        continue;
-      }
+      if (generation && !isTerminalGenerationStatus(generation.status)) continue;
       await ctx.db.patch(run._id, {
         status: "failed",
         error: "The generation ended before this draft completed.",
@@ -2196,7 +2250,80 @@ export const failStaleGenerations = internalMutation({
       });
       orphanedRuns += 1;
     }
-    return { failed, freed, orphanedRuns };
+    return { failed, orphanedRuns, projectSweepJobId };
+  },
+});
+
+/** Page size for the orphaned-project sweep: one page of `projects` in
+ * "generating" per transaction. Tests override it through `pageSize`. */
+export const STALE_PROJECT_SWEEP_PAGE_SIZE = 100;
+
+/**
+ * One page of the orphaned-project sweep (CAP-11): walk projects stuck in
+ * "generating" through the by_status index, free every one that is older than
+ * `cutoff` and has no live generation, then schedule the next page with the
+ * continuation cursor. Each invocation reads at most one page, so the sweep
+ * reaches every eligible project without a fixed cap or an unbounded
+ * transaction. Scheduled by failStaleGenerations; also runnable directly:
+ * `npx convex run generations:freeOrphanedGeneratingProjects '{"cutoff":<ms>}'`
+ */
+export const freeOrphanedGeneratingProjects = internalMutation({
+  args: {
+    cutoff: v.number(),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    pageSize: v.optional(v.number()),
+  },
+  returns: v.object({
+    freed: v.number(),
+    scanned: v.number(),
+    isDone: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const pageSize = Math.max(
+      1,
+      Math.floor(args.pageSize ?? STALE_PROJECT_SWEEP_PAGE_SIZE)
+    );
+    const { page, isDone, continueCursor } = await ctx.db
+      .query("projects")
+      .withIndex("by_status", (q) => q.eq("status", "generating"))
+      .paginate({ numItems: pageSize, cursor: args.cursor ?? null });
+    let freed = 0;
+    for (const project of page) {
+      if (project.updatedAt > args.cutoff) continue;
+      const active = await findActiveGeneration(
+        ctx,
+        project,
+        ACTIVE_GENERATION_STATUSES
+      );
+      if (active) continue;
+      const lastGeneration = await ctx.db
+        .query("generations")
+        .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+        .order("desc")
+        .first();
+      await ctx.db.patch(project._id, {
+        activeGenerationId: undefined,
+        status: lastGeneration?.previousProjectStatus ?? "draft",
+        updatedAt: Date.now(),
+      });
+      await refreshProjectGenerationActivity(ctx, project._id);
+      freed += 1;
+    }
+    if (!isDone) {
+      // Freed rows have left the "generating" index range, but the cursor is
+      // an index position rather than an offset, so the next page resumes
+      // exactly after the last row read here.
+      await ctx.scheduler.runAfter(
+        0,
+        internal.generations.freeOrphanedGeneratingProjects,
+        {
+          cutoff: args.cutoff,
+          cursor: continueCursor,
+          ...(args.pageSize !== undefined ? { pageSize: args.pageSize } : {}),
+        }
+      );
+    }
+    return { freed, scanned: page.length, isDone };
   },
 });
 
@@ -2303,13 +2430,7 @@ export const updateGenerationStatus = internalMutation({
     // land inside the pipeline's multi-mutation setup window, after which the
     // action's own "running" patch would zombie the row while the project
     // pointer is already cleared.
-    if (
-      !generation ||
-      generation.status === "failed" ||
-      generation.status === "completed"
-    ) {
-      return;
-    }
+    if (!generation || isTerminalGenerationStatus(generation.status)) return;
     const updates: Record<string, unknown> = { status: args.status };
     if (args.currentStep !== undefined) updates.currentStep = args.currentStep;
     if (args.agentOutputs !== undefined)
@@ -2458,7 +2579,8 @@ export const selectReportCandidate = mutation({
     ) {
       domainError("NOT_AUTHORIZED", "Candidate does not belong to this generation");
     }
-    const { project, user } = await requireInternalProjectAccess(
+    // report.editProse: selecting a candidate creates the project's report.
+    const { project, user } = await requireReportEditAccess(
       ctx,
       candidate.projectId
     );

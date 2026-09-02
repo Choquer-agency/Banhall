@@ -46,7 +46,7 @@ export const submitWriterReview = mutation({
   },
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
-    if (!report) throw new Error("Report not found");
+    if (!report) domainError("NOT_FOUND", "Report not found");
 
     const { user } = await requireInternalProjectAccess(ctx, report.projectId);
 
@@ -56,17 +56,6 @@ export const submitWriterReview = mutation({
 
     const writerName = userDisplayLabel(user);
 
-    // Learning loop (auto-nomination): a highly rated report is candidate
-    // Brain knowledge. Nominates into the PENDING queue only; the admin still
-    // approves every entry, and content-hash dedup makes re-submits no-ops.
-    if (score >= 85) {
-      await ctx.scheduler.runAfter(0, internal.brain.nominateFromReport, {
-        reportId: args.reportId,
-        writerName,
-        score,
-      });
-    }
-
     const existing = await ctx.db
       .query("writerReviews")
       .withIndex("by_user_report", (q) =>
@@ -74,6 +63,7 @@ export const submitWriterReview = mutation({
       )
       .first();
 
+    let reviewId: Id<"writerReviews">;
     if (existing) {
       await ctx.db.patch(existing._id, {
         score,
@@ -82,21 +72,38 @@ export const submitWriterReview = mutation({
         writerName,
         updatedAt: now,
       });
-      return existing._id;
+      reviewId = existing._id;
+    } else {
+      reviewId = await ctx.db.insert("writerReviews", {
+        projectId: report.projectId,
+        reportId: args.reportId,
+        reportVersion: report.version,
+        userId: user._id,
+        writerName,
+        score,
+        comment,
+        aiScore: args.aiScore,
+        createdAt: now,
+        updatedAt: now,
+      });
     }
 
-    return await ctx.db.insert("writerReviews", {
-      projectId: report.projectId,
-      reportId: args.reportId,
-      reportVersion: report.version,
-      userId: user._id,
-      writerName,
-      score,
-      comment,
-      aiScore: args.aiScore,
-      createdAt: now,
-      updatedAt: now,
-    });
+    // Learning loop (auto-nomination): a highly rated report is candidate
+    // Brain knowledge. Nominates into the PENDING queue only; the admin still
+    // approves every entry, and content-hash dedup makes re-submits no-ops.
+    // CAP-4b: scheduled only after the review row is persisted, carrying its
+    // id. Scheduler calls inside a mutation commit atomically with it, so a
+    // rejected or failed write can never leave a nomination behind.
+    if (score >= 85) {
+      await ctx.scheduler.runAfter(0, internal.brain.nominateFromReport, {
+        reportId: args.reportId,
+        writerName,
+        score,
+        reviewId,
+      });
+    }
+
+    return reviewId;
   },
 });
 

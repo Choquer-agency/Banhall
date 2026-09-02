@@ -76,7 +76,10 @@ export const generationStatusValidator = v.union(
   v.literal("awaiting_selection"),
   v.literal("awaiting_input"),
   v.literal("completed"),
-  v.literal("failed")
+  v.literal("failed"),
+  // Sprint 1 story 8 (CAP-7): terminal state of a partial generation whose
+  // failed candidates were retried into a linked recovery generation.
+  v.literal("superseded")
 );
 
 export const revisionRefValidator = v.object({

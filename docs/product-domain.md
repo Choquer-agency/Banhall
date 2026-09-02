@@ -31,7 +31,7 @@ The report remains the primary workspace. Workflow controls support the report r
 | **Work item** | A concrete action requested from a person, with type, assignee, assigner, due date, instructions, blocking status, lifecycle, and completion history. | `workItems` row and immutable `workItemEvents`. | Do not model the work system as one mutable `assignedTo` field. Work items are never hard-deleted during their normal lifecycle. |
 | **Current handoff** | The one open blocking work item that answers “who has the next action on this project?” | `projects.currentHandoffId: Id<"workItems">` as a denormalized pointer maintained transactionally; canonical details remain on `workItems`. | At most one open blocking handoff per project. Multiple open non-blocking work items are allowed. “With” in the UI means the current handoff assignee, not the Owner. |
 | **Workflow stage** | The human production stage of the project. | Planned `projects.workflowStage` and `projects.workflowUpdatedAt`; transitions create immutable `projectEvents`. | Separate from legacy `projects.status` and from AI generation state. Do not infer ownership or assignment from stage. |
-| **Generation state** | Technical lifecycle of an AI generation attempt. | Existing `generations.status`; canonical states are `reserved`, `running`, `awaiting_selection`, `awaiting_input`, `completed`, and `failed`. | A generation failure does not itself determine the human workflow stage. Existing stale/retry fencing remains technical generation behavior. |
+| **Generation state** | Technical lifecycle of an AI generation attempt. | Existing `generations.status`; canonical states are `reserved`, `running`, `awaiting_selection`, `awaiting_input`, `completed`, `failed`, and `superseded` (2026-09-01 amendment). | A generation failure does not itself determine the human workflow stage. Existing stale/retry fencing remains technical generation behavior. |
 | **Draft branch** | A persistent, independently editable report alternative, such as a model draft, imported report, manual alternative, or duplicate. | Planned `reportBranches` row pointing to a branch-owned `reports` row; planned `projects.activeBranchId` and `projects.promotedBranchId`. | Branches are not snapshots. Switching branches never changes another branch’s content, revision, chat, comments, research, provenance, or snapshots. |
 | **Snapshot** | Immutable version history inside one branch/report. | Existing `reportSnapshots` and report revision semantics, scoped by `reportId`. | A snapshot is not an independently editable alternative. |
 | **Suggestion** | A proposed change against one branch/report revision. | Existing proposal records scoped to `reportId` and revision/target lineage. | A suggestion is not a branch and cannot silently change its canonical target. |
@@ -1435,6 +1435,52 @@ the authority for report architecture.
   custom architecture.
 - **Approval:** product owner approved on 2026-09-01 ("Lets allow this";
   "The only rule we need is the word count for each line").
+
+### 2026-09-01 (second) — `superseded` generation state and capability enforcement at the mutation boundary
+
+Technical-state amendment plus enforcement of cells the matrix already
+approved. Origin: AI engine sprint 1 (`_bmad-output/specs/spec-ai-engine-sprint-1`,
+stories 2 through 8 and 13) and the 2026-09-01 audit.
+
+- **Generation state:** `generations.status` gains `superseded`. Set only by
+  `retryFailedCandidates` on an `awaiting_selection` comparison generation when
+  a linked recovery generation is reserved (link: the recovery row's
+  `retryOfGenerationId`). Terminal. Excluded from generation history and from
+  latest/active/completed/failed/in-progress readers and stats. Never carries a
+  report, so post-assembly QA cannot be requested on it. Replaces the previous
+  behavior of marking the original `completed` without a report.
+- **Publish for client review:** `publishForReview` and `unpublishReview`
+  authorize on the current Owner (`projects.ownerId`), Manager, or Admin via
+  the `project.setStage` capability. `createdBy` is not consulted. A legacy row
+  without `ownerId` can be published only by a Manager or Admin until ownership
+  is backfilled. `deleteProject` is unchanged (still creator-or-admin) pending a
+  separate decision.
+- **Report prose (`report.editProse`):** enforced at every prose-writing
+  mutation (`updateReportContent`, `applyProposal`, `markProposalApplied`,
+  `acceptEdit`, `restoreSnapshot`, `approveSectionDraft`,
+  `selectReportCandidate`). "Own" for a Consultant means the project's
+  `ownerId` or an OPEN work item on the project assigned to them (the matrix's
+  "assigned collaboration contexts"). Managers and Admins: all.
+- **Financial data (`financial.read` / `financial.write`):** enforced on the
+  financial queries (empty result for Consultants) and mutations (typed
+  `NOT_AUTHORIZED`), per decision D5. The financial page shows an explicit
+  permission state for Consultants.
+- **Bulk project edits:** `bulkUpdateProjects` requires an active internal
+  role and updates only projects the actor owns unless the actor is a Manager
+  or Admin; other selected projects are counted as skipped.
+- **Reversibility:** `acceptEdit` writes a `pre_client_edit` snapshot and
+  `markProposalApplied` writes the content, a `pre_chat_edit` snapshot, and the
+  revision bump in one transaction with an `expectedRevisionNumber` fence.
+- **Authorization:** no new capability cells; existing cells are now enforced
+  where they were previously UI-only.
+- **Tests:** `convex/projects.test.ts`, `convex/projectAccess.test.ts`,
+  `convex/reportEditAccess.test.ts`, `convex/chatProposals.test.ts`,
+  `convex/comments.test.ts`, `convex/reviews.test.ts`,
+  `convex/brainFeedback.test.ts`, `convex/generationRecovery.test.ts`,
+  `convex/generationReaper.test.ts`, `convex/ai/providers.test.ts`.
+- **Approval:** proposed 2026-09-01 from the approved sprint spec; awaiting
+  product-owner confirmation of the `superseded` state name and of the
+  legacy-row publish consequence.
 
 ## Amendment process
 

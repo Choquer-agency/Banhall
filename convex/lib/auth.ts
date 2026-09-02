@@ -109,7 +109,11 @@ export async function getProjectAccess(
   const user = await getCurrentUserOrNull(ctx);
   const project = await ctx.db.get(projectId);
   if (!project) return { kind: "denied" };
-  if (user) {
+  // Internal access requires an eligible internal actor: the same rule as
+  // getInternalProjectAccessOrNull / requireInternalProjectAccess. A stored
+  // anonymous record or a mapped user without a role is not internal; such a
+  // caller falls through to the share-token check like any client reviewer.
+  if (user && user.isAnonymous !== true && user.role) {
     return { kind: "internal", project, user };
   }
   if (

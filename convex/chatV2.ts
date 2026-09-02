@@ -23,6 +23,7 @@ import {
 } from "./lib/auth";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { pruneSnapshots, snapshotAuditFields } from "./lib/snapshots";
+import { requireReportEditAccess } from "./lib/roleCapabilities";
 import {
   applyReplacements,
   scrubBannedWords,
@@ -302,7 +303,8 @@ export const applyProposal = mutation({
     if (proposal.kind === "references") {
       domainError("INVALID_INPUT", "Highlights have nothing to apply.");
     }
-    const { user: applier } = await requireInternalProjectAccess(
+    // report.editProse: applying a proposal writes report prose.
+    const { user: applier } = await requireReportEditAccess(
       ctx,
       proposal.projectId
     );
@@ -420,16 +422,113 @@ export const applyProposal = mutation({
 });
 
 /**
- * Mark applied without re-running the server replace (BNH-30: the writer
- * stepped through the one-by-one replace flow client-side, already autosaved).
+ * Reject editor content the same way `reports.updateReportContent` does
+ * (empty or over the size cap), plus the editor-document shape check
+ * `applyProposal` runs before it will operate on stored content: what this
+ * path persists must be a JSON object the next apply can parse.
+ */
+function assertEditorDocument(content: string): void {
+  if (!content.trim() || content.length > 1_000_000) {
+    domainError(
+      "INVALID_INPUT",
+      "Report content is empty or exceeds 1,000,000 characters"
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    domainError("INVALID_INPUT", "The report content is not valid editor JSON");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    domainError(
+      "INVALID_INPUT",
+      "The report content is not a valid editor document"
+    );
+  }
+}
+
+/**
+ * One-by-one apply (BNH-30): the writer stepped through the replacements
+ * client-side and submits the resulting document here. Sprint 1 story 6
+ * (CAP-2, D-1): this is the same transaction shape as `applyProposal` —
+ * authorization recheck, `pre_chat_edit` snapshot of the content as it stands
+ * before the edit, revision fence, content + status written together, revision
+ * bumped by one. The client holds autosave for the whole stepping session, so
+ * no content reaches the report for that proposal outside this mutation. No
+ * banned-word scrub: the writer authored the final document.
  */
 export const markProposalApplied = mutation({
-  args: { proposalId: v.id("chatProposals") },
+  args: {
+    proposalId: v.id("chatProposals"),
+    content: v.string(),
+    expectedRevisionNumber: v.number(),
+  },
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
-    if (!proposal) return;
-    await requireInternalProjectAccess(ctx, proposal.projectId);
+    if (!proposal) domainError("NOT_FOUND", "Proposal not found");
+    // report.editProse: this path writes the final document content.
+    await requireReportEditAccess(ctx, proposal.projectId);
+    const report = await ctx.db.get(proposal.reportId);
+    if (!report || report.projectId !== proposal.projectId) {
+      domainError("NOT_FOUND", "Report not found");
+    }
+    if (proposal.state === "applied") {
+      return {
+        applied: true as const,
+        alreadyApplied: true as const,
+        revisionNumber: report.revisionNumber ?? 0,
+      };
+    }
+    if (proposal.kind === "references") {
+      domainError("INVALID_INPUT", "Highlights have nothing to apply.");
+    }
+    if (proposal.state !== "pending") {
+      domainError(
+        "INVALID_INPUT",
+        proposal.state === "stale"
+          ? "This suggestion no longer matches the current report. Ask the assistant to regenerate it."
+          : "This suggestion is no longer available to apply."
+      );
+    }
+    assertEditorDocument(args.content);
+    const revisionNumber = report.revisionNumber ?? 0;
+    if (args.expectedRevisionNumber !== revisionNumber) {
+      domainError(
+        "STALE_REVISION",
+        "The report changed before this save completed"
+      );
+    }
+
+    const now = Date.now();
+    const auditFields = await snapshotAuditFields(ctx, report);
+    await ctx.db.insert("reportSnapshots", {
+      projectId: report.projectId,
+      reportId: report._id,
+      content: report.content,
+      ...auditFields,
+      sourceRevisionNumber: revisionNumber,
+      reason: "pre_chat_edit",
+      label: "Before AI edit",
+      createdByRole: "system",
+      createdAt: now,
+    });
+    await ctx.db.patch(report._id, {
+      content: args.content,
+      contentHash: await sha256(args.content),
+      revisionNumber: revisionNumber + 1,
+      // Any writer edit requires a new provenance review for the exact revision.
+      provenanceId: undefined,
+      updatedAt: now,
+    });
     await ctx.db.patch(args.proposalId, { state: "applied" });
+    await pruneSnapshots(ctx, report._id);
+
+    return {
+      applied: true as const,
+      alreadyApplied: false as const,
+      revisionNumber: revisionNumber + 1,
+    };
   },
 });
 

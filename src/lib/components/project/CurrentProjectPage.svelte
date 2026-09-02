@@ -220,21 +220,44 @@
   };
   let replaceSession = $state<ReplaceSession | null>(null);
   let replaceNotice = $state<string | null>(null);
+  // Sprint 1 story 6 (CAP-2): while a replace session is active, autosave is
+  // held and the latest editor JSON parks here (see handleEditorUpdate). The
+  // session exit writes it through markProposalApplied, which snapshots the
+  // pre-session content, fences on the revision, writes content + status and
+  // bumps the revision in one transaction — no content for that proposal ever
+  // reaches the report without its snapshot.
+  let sessionDraftJson: string | null = null;
+  // The in-flight session exit: stepper handlers bail while it runs and
+  // flushEditor awaits it.
+  let finishingReplace: Promise<void> | null = null;
   function notifyReplace(msg: string) {
     replaceNotice = msg;
     setTimeout(() => (replaceNotice = null), 4000);
   }
 
-  function markApplied(id: string) {
-    return markProposalApplied({ proposalId: id as Id<"chatProposals"> });
+  function markApplied(id: string, content: string, expectedRevisionNumber: number) {
+    return markProposalApplied({
+      proposalId: id as Id<"chatProposals">,
+      content,
+      expectedRevisionNumber,
+    });
   }
 
-  function startReplaceReview(
+  async function startReplaceReview(
     pairs: { find: string; replaceWith: string }[],
     messageId: string
   ) {
+    // Close any session still open and persist pending typing through the
+    // normal save path first, so the pre_chat_edit snapshot taken at this
+    // session's exit equals the document exactly as it stands now. A standing
+    // save error stays visible in the header; it does not block the review.
+    try {
+      await flushEditor();
+    } catch {
+      /* surfaced via saveError */
+    }
     const ed = editorRef;
-    if (!ed || !report) return;
+    if (!ed || !report || replaceSession || finishingReplace) return;
     const matches = ed.findReplaceMatches(pairs);
     if (matches.length === 0) {
       notifyReplace(
@@ -242,10 +265,9 @@
       );
       return;
     }
-    // Snapshot once so the whole stepping pass can be undone.
-    createSnapshot({ reportId: report._id, reason: "manual" }).catch(() => {});
     const first = matches[0];
     ed.highlightRange(first.from, first.to, first.text);
+    sessionDraftJson = null;
     replaceSession = {
       pairs,
       messageId,
@@ -257,10 +279,71 @@
     };
   }
 
+  /**
+   * The single exit for every replace session. Order matters: the flush runs
+   * while autosave is still held, so the latest visible document lands in
+   * sessionDraftJson instead of a plain save; only then is the hold released.
+   * With at least one replacement the document is written through
+   * markProposalApplied (snapshot + revision fence + content + status, one
+   * transaction). With none, anything typed during the session takes the
+   * normal save path. Never rejects: failures surface via notifyReplace.
+   */
+  function finishReplaceSession(sess: ReplaceSession): Promise<void> {
+    if (finishingReplace) return finishingReplace;
+    const run = async () => {
+      try {
+        const ed = editorRef;
+        ed?.clearHighlight();
+        // Capture while replaceSession is still set (autosave held).
+        await ed?.flushPendingSave();
+        const draft = sessionDraftJson;
+        sessionDraftJson = null;
+        replaceSession = null;
+        if (sess.replaced > 0) {
+          if (draft === null) {
+            notifyReplace(
+              "The replaced text is still in the editor but could not be captured for saving. Make any edit to save it."
+            );
+            return;
+          }
+          pendingSaves += 1;
+          saving = true;
+          saveError = "";
+          const apply = async () => {
+            const result = await markApplied(sess.messageId, draft, localRevision);
+            localRevision = result.revisionNumber;
+          };
+          saveChain = saveChain.then(apply, apply);
+          try {
+            await saveChain;
+          } catch (error) {
+            // A stale revision or a rejected write must not crash the page:
+            // the header keeps the persistent save error, the stepper shows
+            // the notice, and the text stays in the editor.
+            const message = userErrorMessage(error, "The replacements could not be saved.");
+            saveError = message;
+            notifyReplace(message);
+          } finally {
+            pendingSaves -= 1;
+            saving = pendingSaves > 0;
+          }
+        } else if (draft !== null) {
+          await handleEditorUpdate(draft);
+        }
+      } catch (error) {
+        notifyReplace(userErrorMessage(error, "The replacements could not be saved."));
+      } finally {
+        finishingReplace = null;
+      }
+    };
+    finishingReplace = run();
+    return finishingReplace;
+  }
+
   function advanceReplace(cursor: number, addedReplaced: number) {
     const sess = replaceSession;
     const ed = editorRef;
-    if (!sess || !ed) return;
+    if (!sess || !ed || finishingReplace) return;
     const next =
       ed.findReplaceMatches(sess.pairs).find((m) => m.from >= cursor) ?? null;
     const replaced = sess.replaced + addedReplaced;
@@ -268,30 +351,28 @@
       ed.highlightRange(next.from, next.to, next.text);
       replaceSession = { ...sess, cursor, position: sess.position + 1, current: next, replaced };
     } else {
-      ed.clearHighlight();
-      if (replaced > 0) markApplied(sess.messageId).catch(() => {});
-      replaceSession = null;
+      void finishReplaceSession({ ...sess, replaced });
     }
   }
 
   function replaceAndNext() {
     const sess = replaceSession;
     const ed = editorRef;
-    if (!sess?.current || !ed) return;
+    if (!sess?.current || !ed || finishingReplace) return;
     ed.replaceRange(sess.current.from, sess.current.to, sess.current.replaceWith);
     advanceReplace(sess.current.from + sess.current.replaceWith.length, 1);
   }
 
   function keepOriginalAndNext() {
     const sess = replaceSession;
-    if (!sess?.current) return;
+    if (!sess?.current || finishingReplace) return;
     advanceReplace(sess.current.to, 0);
   }
 
   function replaceAllRemaining() {
     const sess = replaceSession;
     const ed = editorRef;
-    if (!sess || !ed) return;
+    if (!sess || !ed || finishingReplace) return;
     let cursor = sess.current ? sess.current.from : sess.cursor;
     let replaced = sess.replaced;
     for (let i = 0; i < 5000; i++) {
@@ -301,14 +382,13 @@
       cursor = m.from + m.replaceWith.length;
       replaced++;
     }
-    ed.clearHighlight();
-    if (replaced > 0) markApplied(sess.messageId).catch(() => {});
-    replaceSession = null;
+    void finishReplaceSession({ ...sess, replaced });
   }
 
   function endReplaceReview() {
-    editorRef?.clearHighlight();
-    replaceSession = null;
+    const sess = replaceSession;
+    if (!sess || finishingReplace) return;
+    void finishReplaceSession(sess);
   }
 
   /** Jump to the exact paragraph identified by the QA agent's [P#] marker. */
@@ -457,6 +537,12 @@
 
 
   async function handleEditorUpdate(json: string) {
+    // CAP-2: a replace session holds autosave. Park the latest document here;
+    // finishReplaceSession writes it when the session ends.
+    if (replaceSession) {
+      sessionDraftJson = json;
+      return;
+    }
     if (!report) return;
     const reportId = report._id;
     pendingSaves += 1;
@@ -487,6 +573,10 @@
     }
   }
   async function flushEditor(): Promise<number> {
+    // A replace session holds autosave, so "everything visible is persisted"
+    // starts with closing that session through its transactional write.
+    if (finishingReplace) await finishingReplace;
+    else if (replaceSession) await finishReplaceSession(replaceSession);
     await editorRef?.flushPendingSave();
     await saveChain;
     if (saveError) throw new Error(saveError);

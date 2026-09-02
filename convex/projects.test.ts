@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
+import { dashboardCompanyKey } from "../shared/dashboardProjection";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -11,6 +12,8 @@ const authIds = {
   writer: "auth-writer",
   manager: "auth-manager",
   admin: "auth-admin",
+  // Mapped, signed in, but holds no internal role.
+  roleless: "auth-roleless",
 } as const;
 
 type Actor = keyof typeof authIds;
@@ -34,12 +37,18 @@ async function setup() {
       authId: authIds.admin,
       role: "admin",
     });
+    const rolelessId = await ctx.db.insert("users", {
+      authId: authIds.roleless,
+    });
     const now = Date.now();
+    // Each project starts with its creator as the accountable Owner
+    // (ownerId). Authorization reads ownerId, never createdBy.
     const projectId = await ctx.db.insert("projects", {
       title: "Owner project",
       clientName: "Client",
       status: "review",
       createdBy: ownerId,
+      ownerId,
       shareToken: "owner-project-token",
       createdAt: now,
       updatedAt: now,
@@ -49,6 +58,7 @@ async function setup() {
       clientName: "Other client",
       status: "review",
       createdBy: writerId,
+      ownerId: writerId,
       shareToken: "other-project-token",
       createdAt: now,
       updatedAt: now,
@@ -72,6 +82,7 @@ async function setup() {
       writerId,
       managerId,
       adminId,
+      rolelessId,
       projectId,
       otherProjectId,
       reportId,
@@ -400,8 +411,9 @@ describe("project duplication", () => {
 
 describe("project review publishing", () => {
   test.each([
-    ["creator", "owner"],
-    ["non-owner admin", "admin"],
+    ["the current Owner", "owner"],
+    ["a non-owner manager", "manager"],
+    ["a non-owner admin", "admin"],
   ] as const)("allows %s to publish a report", async (_label, actor) => {
     const { t, projectId, reportId } = await setup();
 
@@ -417,10 +429,11 @@ describe("project review publishing", () => {
   });
 
   test.each([
-    ["non-owner writer", "writer"],
-    ["non-owner manager", "manager"],
+    ["a non-owner writer", "writer"],
+    ["a mapped user without a role", "roleless"],
   ] as const)("denies %s from publishing", async (_label, actor) => {
     const { t, projectId, reportId } = await setup();
+    const before = await getProject(t, projectId);
 
     await expect(
       asActor(t, actor).mutation(api.projects.publishForReview, {
@@ -431,6 +444,7 @@ describe("project review publishing", () => {
       data: { code: "NOT_AUTHORIZED" },
     });
     const project = await getProject(t, projectId);
+    expect(project).toEqual(before);
     expect(project).toMatchObject({ status: "review" });
     expect(project).not.toHaveProperty("sharedReportId");
   });
@@ -457,8 +471,9 @@ describe("project review publishing", () => {
   });
 
   test.each([
-    ["creator", "owner"],
-    ["non-owner admin", "admin"],
+    ["the current Owner", "owner"],
+    ["a non-owner manager", "manager"],
+    ["a non-owner admin", "admin"],
   ] as const)("rejects another project's report for %s", async (_label, actor) => {
     const { t, projectId, otherReportId } = await setup();
 
@@ -476,13 +491,175 @@ describe("project review publishing", () => {
   });
 });
 
+// Story 2 (CAP-3, decision D-2): publish-for-review is authorized by the
+// caller's current role on the project (Owner via ownerId, Manager, or
+// Admin), never by projects.createdBy. After an ownership transfer the
+// creator keeps createdBy but loses the authority that used to ride on it.
+// The internal role enum is writer | manager | admin, so "an internal role
+// that is none of Owner, Manager, Admin" is exactly a writer who is not the
+// current Owner: the original-creator case below.
+describe("publishForReview authority", () => {
+  async function setupTransferred() {
+    const fixture = await setup();
+    const { t, projectId, ownerId, writerId } = fixture;
+    // Transfer: the "writer" actor becomes the accountable Owner while the
+    // creator (the "owner" actor) remains createdBy with only the writer role.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(projectId, { ownerId: writerId });
+    });
+    const before = await getProject(t, projectId);
+    expect(before).toMatchObject({
+      createdBy: ownerId,
+      ownerId: writerId,
+      status: "review",
+    });
+    expect(before).not.toHaveProperty("sharedReportId");
+    return { ...fixture, before };
+  }
+
+  test.each([
+    ["the new Owner", "writer"],
+    ["a manager", "manager"],
+    ["an admin", "admin"],
+  ] as const)("allows %s to publish after ownership transfer", async (_label, actor) => {
+    const { t, projectId, reportId } = await setupTransferred();
+
+    await asActor(t, actor).mutation(api.projects.publishForReview, {
+      projectId,
+      reportId,
+    });
+
+    await expect(getProject(t, projectId)).resolves.toMatchObject({
+      sharedReportId: reportId,
+      status: "client_review",
+    });
+  });
+
+  test.each([
+    ["the original creator (a writer who is no longer Owner)", "owner"],
+    ["a mapped user without a role", "roleless"],
+  ] as const)("rejects %s with NOT_AUTHORIZED and writes nothing", async (_label, actor) => {
+    const { t, projectId, reportId, before } = await setupTransferred();
+
+    await expect(
+      asActor(t, actor).mutation(api.projects.publishForReview, {
+        projectId,
+        reportId,
+      })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+
+    const after = await getProject(t, projectId);
+    expect(after).toEqual(before);
+    expect(after).toMatchObject({ status: "review" });
+    expect(after).not.toHaveProperty("sharedReportId");
+  });
+
+  test("rejects an anonymous caller with NOT_AUTHENTICATED and writes nothing", async () => {
+    const { t, projectId, reportId, before } = await setupTransferred();
+
+    await expect(
+      t.mutation(api.projects.publishForReview, { projectId, reportId })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
+
+    const after = await getProject(t, projectId);
+    expect(after).toEqual(before);
+    expect(after).toMatchObject({ status: "review" });
+    expect(after).not.toHaveProperty("sharedReportId");
+  });
+
+  test("never falls back to createdBy when the project has no Owner", async () => {
+    // A legacy row with no ownerId: the creator holds no Owner claim, so only
+    // a Manager or Admin may publish.
+    const { t, projectId, reportId, ownerId } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(projectId, { ownerId: undefined });
+    });
+    const before = await getProject(t, projectId);
+    expect(before).toMatchObject({ createdBy: ownerId });
+    expect(before).not.toHaveProperty("ownerId");
+
+    await expect(
+      asActor(t, "owner").mutation(api.projects.publishForReview, {
+        projectId,
+        reportId,
+      })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+    await expect(getProject(t, projectId)).resolves.toEqual(before);
+
+    await asActor(t, "manager").mutation(api.projects.publishForReview, {
+      projectId,
+      reportId,
+    });
+    await expect(getProject(t, projectId)).resolves.toMatchObject({
+      sharedReportId: reportId,
+      status: "client_review",
+    });
+  });
+
+  test.each([
+    ["the new Owner", "writer"],
+    ["a manager", "manager"],
+    ["an admin", "admin"],
+  ] as const)("allows %s to unpublish after ownership transfer", async (_label, actor) => {
+    const { t, projectId, reportId } = await setupTransferred();
+    await asActor(t, "writer").mutation(api.projects.publishForReview, {
+      projectId,
+      reportId,
+    });
+
+    await asActor(t, actor).mutation(api.projects.unpublishReview, { projectId });
+
+    const project = await getProject(t, projectId);
+    expect(project).toMatchObject({ status: "review" });
+    expect(project).not.toHaveProperty("sharedReportId");
+  });
+
+  test.each([
+    ["the original creator (a writer who is no longer Owner)", "owner"],
+    ["a mapped user without a role", "roleless"],
+  ] as const)("unpublishReview rejects %s and writes nothing", async (_label, actor) => {
+    const { t, projectId, reportId } = await setupTransferred();
+    await asActor(t, "writer").mutation(api.projects.publishForReview, {
+      projectId,
+      reportId,
+    });
+    const published = await getProject(t, projectId);
+    expect(published).toMatchObject({
+      status: "client_review",
+      sharedReportId: reportId,
+    });
+
+    await expect(
+      asActor(t, actor).mutation(api.projects.unpublishReview, { projectId })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+    await expect(getProject(t, projectId)).resolves.toEqual(published);
+  });
+
+  test("unpublishReview rejects an anonymous caller and writes nothing", async () => {
+    const { t, projectId, reportId } = await setupTransferred();
+    await asActor(t, "writer").mutation(api.projects.publishForReview, {
+      projectId,
+      reportId,
+    });
+    const published = await getProject(t, projectId);
+
+    await expect(
+      t.mutation(api.projects.unpublishReview, { projectId })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
+    await expect(getProject(t, projectId)).resolves.toEqual(published);
+  });
+});
+
 describe("bulk project edits", () => {
   const fyEnd = Date.parse("2025-03-31T00:00:00Z");
 
-  test("sets company name and fiscal year-end across projects", async () => {
+  test.each([
+    ["a manager", "manager"],
+    ["an admin", "admin"],
+  ] as const)("%s sets company name and fiscal year-end across every selected project", async (_label, actor) => {
     const { t, projectId, otherProjectId } = await setup();
 
-    const result = await asActor(t, "writer").mutation(
+    const result = await asActor(t, actor).mutation(
       api.projects.bulkUpdateProjects,
       {
         projectIds: [projectId, otherProjectId],
@@ -495,11 +672,56 @@ describe("bulk project edits", () => {
     await expect(getProject(t, projectId)).resolves.toMatchObject({
       clientName: "Acme Manufacturing",
       fiscalYearEnd: fyEnd,
+      dashboardCompanyKey: dashboardCompanyKey("Acme Manufacturing"),
     });
     await expect(getProject(t, otherProjectId)).resolves.toMatchObject({
       clientName: "Acme Manufacturing",
       fiscalYearEnd: fyEnd,
+      dashboardCompanyKey: dashboardCompanyKey("Acme Manufacturing"),
     });
+  });
+
+  test("a writer updates only the projects they own and skips the rest untouched", async () => {
+    const { t, projectId, otherProjectId } = await setup();
+    // "writer" owns otherProjectId; projectId belongs to the "owner" actor.
+    const notOwned = await getProject(t, projectId);
+
+    const result = await asActor(t, "writer").mutation(
+      api.projects.bulkUpdateProjects,
+      {
+        projectIds: [projectId, otherProjectId],
+        clientName: "  Acme Manufacturing  ",
+        fiscalYearEnd: fyEnd,
+      }
+    );
+
+    expect(result).toEqual({ updated: 1, skipped: 1 });
+    await expect(getProject(t, otherProjectId)).resolves.toMatchObject({
+      clientName: "Acme Manufacturing",
+      fiscalYearEnd: fyEnd,
+      dashboardCompanyKey: dashboardCompanyKey("Acme Manufacturing"),
+    });
+    await expect(getProject(t, projectId)).resolves.toEqual(notOwned);
+  });
+
+  test("rejects a mapped user without a role before any write", async () => {
+    const { t, projectId, otherProjectId } = await setup();
+    const before = await Promise.all([
+      getProject(t, projectId),
+      getProject(t, otherProjectId),
+    ]);
+
+    await expect(
+      asActor(t, "roleless").mutation(api.projects.bulkUpdateProjects, {
+        projectIds: [projectId, otherProjectId],
+        clientName: "Nope",
+        fiscalYearEnd: fyEnd,
+      })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+
+    await expect(
+      Promise.all([getProject(t, projectId), getProject(t, otherProjectId)])
+    ).resolves.toEqual(before);
   });
 
   test("leaves omitted fields untouched", async () => {
@@ -717,8 +939,9 @@ describe("project numbering", () => {
 
 describe("project review unpublishing", () => {
   test.each([
-    ["creator", "owner"],
-    ["non-owner admin", "admin"],
+    ["the current Owner", "owner"],
+    ["a non-owner manager", "manager"],
+    ["a non-owner admin", "admin"],
   ] as const)("allows %s to unpublish a report", async (_label, actor) => {
     const { t, projectId, reportId } = await setup();
     await asActor(t, "owner").mutation(api.projects.publishForReview, {
@@ -736,24 +959,41 @@ describe("project review unpublishing", () => {
   });
 
   test.each([
-    ["non-owner writer", "writer"],
-    ["non-owner manager", "manager"],
+    ["a non-owner writer", "writer"],
+    ["a mapped user without a role", "roleless"],
   ] as const)("denies %s from unpublishing", async (_label, actor) => {
     const { t, projectId, reportId } = await setup();
     await asActor(t, "owner").mutation(api.projects.publishForReview, {
       projectId,
       reportId,
     });
+    const published = await getProject(t, projectId);
 
     await expect(
       asActor(t, actor).mutation(api.projects.unpublishReview, { projectId })
     ).rejects.toMatchObject({
       data: { code: "NOT_AUTHORIZED" },
     });
-    await expect(getProject(t, projectId)).resolves.toMatchObject({
+    const project = await getProject(t, projectId);
+    expect(project).toEqual(published);
+    expect(project).toMatchObject({
       status: "client_review",
       sharedReportId: reportId,
     });
+  });
+
+  test("denies unauthenticated callers", async () => {
+    const { t, projectId, reportId } = await setup();
+    await asActor(t, "owner").mutation(api.projects.publishForReview, {
+      projectId,
+      reportId,
+    });
+    const published = await getProject(t, projectId);
+
+    await expect(
+      t.mutation(api.projects.unpublishReview, { projectId })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
+    await expect(getProject(t, projectId)).resolves.toEqual(published);
   });
 });
 

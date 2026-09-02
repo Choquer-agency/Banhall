@@ -101,7 +101,10 @@ export function toChatCompletions(
 // caller and the decisions test without mocking fetch. 429 and 5xx are
 // gateway/provider transients worth a bounded retry; every other 4xx (auth,
 // billing, validation) fails identically on retry and must fail fast.
-export const OPENROUTER_MAX_RETRIES = 2; // 3 attempts total
+// One retry (CAP-6): OpenRouter candidates run inside the same
+// generateCandidate action budget as the Anthropic client (providers.ts), so
+// the attempt count matches ANTHROPIC_MAX_RETRIES.
+export const OPENROUTER_MAX_RETRIES = 1; // 2 attempts total
 const RETRY_BASE_DELAY_MS = 1_000;
 export const RETRY_MAX_DELAY_MS = 30_000;
 

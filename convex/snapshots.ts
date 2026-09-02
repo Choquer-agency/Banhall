@@ -5,6 +5,7 @@ import {
   getInternalProjectAccessOrNull,
   requireInternalProjectAccess,
 } from "./lib/auth";
+import { requireReportEditAccess } from "./lib/roleCapabilities";
 import {
   pruneSnapshots,
   snapshotAuditFields,
@@ -267,7 +268,8 @@ export const restoreSnapshot = mutation({
   handler: async (ctx, args) => {
     const snapshot = await ctx.db.get(args.snapshotId);
     if (!snapshot) domainError("NOT_FOUND", "Snapshot not found");
-    await requireInternalProjectAccess(ctx, snapshot.projectId);
+    // Restoring rewrites report prose: same report.editProse gate as saves.
+    await requireReportEditAccess(ctx, snapshot.projectId);
     const report = await ctx.db.get(args.targetReportId);
     if (!report || report.projectId !== snapshot.projectId) {
       domainError("NOT_AUTHORIZED", "Restore target belongs to another project");

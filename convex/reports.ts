@@ -8,6 +8,7 @@ import {
   requireInternalProjectAccess,
   requireRole,
 } from "./lib/auth";
+import { requireReportEditAccess } from "./lib/roleCapabilities";
 import {
   assertBoundedCitations,
   claimCitationValidator,
@@ -48,7 +49,9 @@ export const updateReportContent = mutation({
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
     if (!report) domainError("NOT_FOUND", "Report not found");
-    await requireInternalProjectAccess(ctx, report.projectId);
+    // report.editProse (matrix: Consultant = own, Manager/Admin = all) is
+    // enforced at this final mutation boundary, not only in the UI.
+    await requireReportEditAccess(ctx, report.projectId);
     const revisionNumber = report.revisionNumber ?? 0;
     if (args.expectedRevisionNumber !== revisionNumber) {
       domainError("STALE_REVISION", "The report changed before this save completed");

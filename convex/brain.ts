@@ -8,14 +8,19 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { Workpool } from "@convex-dev/workpool";
 import { components, internal } from "./_generated/api";
 import { brain } from "./ai/brain/rag";
 import { requireBrainConfigured } from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { extractPlainText } from "./lib/reportEdits";
-import { getCurrentUserOrNull } from "./lib/auth";
+import {
+  getCurrentUserOrNull,
+  requireInternalProjectAccess,
+  requireRole,
+} from "./lib/auth";
+import { domainError } from "./lib/contracts";
 
 // Serial embed queue with backoff — Voyage 429s on parallel bursts (the 10-PD
 // seed lost 7/10 jobs at maxParallelism ∞). Bulk imports (BNH-17's ~500) drain
@@ -207,6 +212,11 @@ export const nominateFromReport = internalMutation({
     reportId: v.id("reports"),
     writerName: v.optional(v.string()),
     score: v.number(),
+    // CAP-4b: the persisted writerReviews row this nomination came from.
+    // Optional (additive) so jobs queued before the field existed still
+    // validate; recorded in the actor string so the audit trail links back
+    // to the review that triggered the nomination.
+    reviewId: v.optional(v.id("writerReviews")),
   },
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
@@ -232,7 +242,9 @@ export const nominateFromReport = internalMutation({
         sourceProjectId: report.projectId,
         // Never auto-approve: the nomination lands in the pending queue.
       },
-      `auto-nominate:score-${args.score}`
+      `auto-nominate:score-${args.score}${
+        args.reviewId ? `:review-${args.reviewId}` : ""
+      }`
     );
   },
 });
@@ -380,6 +392,15 @@ export const reweightSource = mutation({
 
 // ─── Writer → admin feedback conduit (BNH-39) ───────────────────────────────
 
+/** Input bounds for submitBrainFeedback; oversize payloads are INVALID_INPUT. */
+export const MAX_BRAIN_FEEDBACK_BODY_CHARS = 10_000;
+export const MAX_BRAIN_FEEDBACK_RULE_CHARS = 1_000;
+
+/**
+ * CAP-5: feedback may only reference a report and project the caller can
+ * access, and the two must belong together. Every check below runs before
+ * the insert, so a rejected call writes nothing.
+ */
 export const submitBrainFeedback = mutation({
   args: {
     body: v.string(),
@@ -388,15 +409,56 @@ export const submitBrainFeedback = mutation({
     projectId: v.optional(v.id("projects")),
   },
   handler: async (ctx, args) => {
-    const user = await getCurrentUserOrNull(ctx);
-    if (!user) throw new Error("Not authenticated");
+    // Scope. A supplied projectId is checked first through the CAP-1 helper,
+    // which refuses anonymous and role-less callers before any lookup; a
+    // supplied reportId must exist and belong to that project. With only a
+    // reportId, access is checked against the report's own project, which is
+    // then stored on the row so the admin queue always carries the project.
+    // With neither id, an active internal role is still required.
+    let user: Doc<"users">;
+    let projectId: Id<"projects"> | undefined;
+    if (args.projectId) {
+      ({ user } = await requireInternalProjectAccess(ctx, args.projectId));
+      projectId = args.projectId;
+      if (args.reportId) {
+        const report = await ctx.db.get(args.reportId);
+        if (!report) domainError("NOT_FOUND", "Report not found");
+        if (report.projectId !== args.projectId) {
+          domainError("NOT_AUTHORIZED", "Report does not belong to this project");
+        }
+      }
+    } else if (args.reportId) {
+      const report = await ctx.db.get(args.reportId);
+      if (!report) domainError("NOT_FOUND", "Report not found");
+      ({ user } = await requireInternalProjectAccess(ctx, report.projectId));
+      projectId = report.projectId;
+    } else {
+      user = await requireRole(ctx, ["writer", "manager", "admin"]);
+    }
+
+    const body = args.body.trim();
+    if (!body) domainError("INVALID_INPUT", "Feedback body is required");
+    if (body.length > MAX_BRAIN_FEEDBACK_BODY_CHARS) {
+      domainError(
+        "INVALID_INPUT",
+        `Feedback body must be at most ${MAX_BRAIN_FEEDBACK_BODY_CHARS} characters`
+      );
+    }
+    const suggestedRule = args.suggestedRule?.trim() || undefined;
+    if (suggestedRule && suggestedRule.length > MAX_BRAIN_FEEDBACK_RULE_CHARS) {
+      domainError(
+        "INVALID_INPUT",
+        `Suggested rule must be at most ${MAX_BRAIN_FEEDBACK_RULE_CHARS} characters`
+      );
+    }
+
     return await ctx.db.insert("brainFeedbackQueue", {
       fromUserId: user._id,
-      fromName: user?.name,
+      fromName: user.name,
       reportId: args.reportId,
-      projectId: args.projectId,
-      body: args.body,
-      suggestedRule: args.suggestedRule,
+      projectId,
+      body,
+      suggestedRule,
       status: "pending",
       createdAt: Date.now(),
     });

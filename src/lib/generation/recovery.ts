@@ -35,15 +35,27 @@ export function runStatusLabel(status: GenerationRunStatus) {
   }
 }
 
-export function safeGenerationActivity(
-  status: "reserved" | "running" | "awaiting_selection" | "awaiting_input" | "completed" | "failed",
-  currentStep?: string
-) {
+/** Mirrors the `generations.status` union in convex/schema.ts. */
+export type GenerationStatus =
+  | "reserved"
+  | "running"
+  | "awaiting_selection"
+  | "awaiting_input"
+  | "completed"
+  | "failed"
+  | "superseded";
+
+export function safeGenerationActivity(status: GenerationStatus, currentStep?: string) {
   if (status === "reserved") return "Preparing the project inputs.";
   if (status === "running") return "Generating report drafts.";
   if (status === "awaiting_selection") return "Drafts are ready for review.";
   if (status === "awaiting_input") return "Waiting for your section review.";
   if (status === "completed") return "Generation completed.";
+  // CAP-7: a partial generation whose failed drafts were retried into a linked
+  // recovery generation; that recovery run is the one to watch.
+  if (status === "superseded") {
+    return "This attempt was replaced by a retry of its failed drafts.";
+  }
   if (currentStep?.toLowerCase().includes("timed out")) {
     return "Generation took too long and stopped safely.";
   }

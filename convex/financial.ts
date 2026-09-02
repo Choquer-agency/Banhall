@@ -9,9 +9,9 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import {
-  getInternalProjectAccessOrNull,
-  requireInternalProjectAccess,
-} from "./lib/auth";
+  getFinancialReadAccessOrNull,
+  requireFinancialWriteAccess,
+} from "./lib/roleCapabilities";
 import { domainError } from "./lib/contracts";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 
@@ -92,7 +92,8 @@ export const uploadAndScheduleFinancialData = mutation({
     content: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireInternalProjectAccess(ctx, args.projectId);
+    // financial.write: Managers and Admins only (matrix; decision D5).
+    await requireFinancialWriteAccess(ctx, args.projectId);
     requireAnthropicConfigured("financial");
     const fileName = args.fileName.trim();
     const content = args.content.trim();
@@ -125,7 +126,7 @@ export const uploadAndScheduleFinancialData = mutation({
 export const listUploads = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    if (!(await getInternalProjectAccessOrNull(ctx, args.projectId))) return [];
+    if (!(await getFinancialReadAccessOrNull(ctx, args.projectId))) return [];
     const uploads = await ctx.db
       .query("financialUploads")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -147,7 +148,7 @@ export const listUploads = query({
 export const getTimesheetEntries = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    if (!(await getInternalProjectAccessOrNull(ctx, args.projectId))) return [];
+    if (!(await getFinancialReadAccessOrNull(ctx, args.projectId))) return [];
     return await ctx.db
       .query("timesheetEntries")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -158,7 +159,7 @@ export const getTimesheetEntries = query({
 export const getFinancialSummary = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
-    if (!(await getInternalProjectAccessOrNull(ctx, args.projectId))) return null;
+    if (!(await getFinancialReadAccessOrNull(ctx, args.projectId))) return null;
     return await ctx.db
       .query("financialSummaries")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -257,7 +258,7 @@ export const reviewTimesheetEntry = mutation({
   handler: async (ctx, args) => {
     const entry = await ctx.db.get(args.entryId);
     if (!entry) domainError("NOT_FOUND", "Timesheet entry not found");
-    const { user } = await requireInternalProjectAccess(ctx, entry.projectId);
+    const { user } = await requireFinancialWriteAccess(ctx, entry.projectId);
     const hours = args.hours ?? entry.hours;
     if (!Number.isFinite(hours) || hours < 0 || hours > 24) {
       domainError("INVALID_INPUT", "Reviewed hours must be between 0 and 24");
@@ -305,7 +306,7 @@ export const deleteUpload = mutation({
   handler: async (ctx, args) => {
     const upload = await ctx.db.get(args.uploadId);
     if (!upload) return;
-    await requireInternalProjectAccess(ctx, upload.projectId);
+    await requireFinancialWriteAccess(ctx, upload.projectId);
     const entries = await ctx.db
       .query("timesheetEntries")
       .withIndex("by_uploadId", (q) => q.eq("uploadId", args.uploadId))

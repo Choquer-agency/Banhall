@@ -32,7 +32,9 @@ async function setup() {
   };
 }
 
-async function allRows<T extends "brainSources" | "brainAuditLog">(
+async function allRows<
+  T extends "brainSources" | "brainAuditLog" | "brainFeedbackQueue",
+>(
   t: ReturnType<typeof convexTest>,
   table: T,
 ) {
@@ -258,5 +260,278 @@ describe("brain feedback review routing", () => {
       feedbackId,
       decision: "approved",
     });
+  });
+});
+
+// ─── CAP-5 (story 3): feedback scoped to an accessible, matching pair ────────
+
+/** Typed domain-error code of a rejected call, or a marker for other outcomes. */
+async function errorCode(call: () => Promise<unknown>): Promise<string> {
+  try {
+    await call();
+  } catch (error) {
+    const data = (error as { data?: unknown }).data;
+    if (data && typeof data === "object" && "code" in data) {
+      return String((data as { code: unknown }).code);
+    }
+    return `UNTYPED: ${(error as Error).message}`;
+  }
+  return "NO_ERROR";
+}
+
+async function scopeSetup() {
+  const t = convexTest(schema, modules);
+  const ids = await t.run(async (ctx) => {
+    const now = Date.now();
+    const writerId = await ctx.db.insert("users", {
+      authId: "scope-writer",
+      role: "writer",
+      name: "Tracy",
+    });
+    // Mapped and signed in, but holds no internal role.
+    await ctx.db.insert("users", { authId: "scope-roleless", name: "Rory" });
+    const projectId = await ctx.db.insert("projects", {
+      title: "Alloy fatigue PD",
+      clientName: "Acme Metals",
+      status: "review",
+      createdBy: writerId,
+      ownerId: writerId,
+      shareToken: "scope-token-a",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const otherProjectId = await ctx.db.insert("projects", {
+      title: "Sensor firmware PD",
+      clientName: "Beta Devices",
+      status: "review",
+      createdBy: writerId,
+      ownerId: writerId,
+      shareToken: "scope-token-b",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const reportId = await ctx.db.insert("reports", {
+      projectId,
+      content: "{}",
+      version: 1,
+      generatedAt: now,
+      updatedAt: now,
+    });
+    const otherReportId = await ctx.db.insert("reports", {
+      projectId: otherProjectId,
+      content: "{}",
+      version: 1,
+      generatedAt: now,
+      updatedAt: now,
+    });
+    // A report id that resolves to nothing.
+    const missingReportId = await ctx.db.insert("reports", {
+      projectId,
+      content: "{}",
+      version: 1,
+      generatedAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.delete(missingReportId);
+    return {
+      writerId,
+      projectId,
+      otherProjectId,
+      reportId,
+      otherReportId,
+      missingReportId,
+    };
+  });
+  return {
+    t,
+    ...ids,
+    writer: t.withIdentity({ subject: "scope-writer" }),
+    roleless: t.withIdentity({ subject: "scope-roleless" }),
+    // No JWT at all.
+    noIdentity: t,
+  };
+}
+
+type ScopeFixture = Awaited<ReturnType<typeof scopeSetup>>;
+
+async function feedbackCount(f: ScopeFixture) {
+  return (await allRows(f.t, "brainFeedbackQueue")).length;
+}
+
+describe("submitBrainFeedback scope", () => {
+  test("a reportId that resolves to nothing is rejected before any write", async () => {
+    const f = await scopeSetup();
+    const before = await feedbackCount(f);
+    expect(
+      await errorCode(() =>
+        f.writer.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+          reportId: f.missingReportId,
+        }),
+      ),
+    ).toBe("NOT_FOUND");
+    // Same outcome when the (accessible) project is supplied alongside it.
+    expect(
+      await errorCode(() =>
+        f.writer.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+          reportId: f.missingReportId,
+          projectId: f.projectId,
+        }),
+      ),
+    ).toBe("NOT_FOUND");
+    expect(await feedbackCount(f)).toBe(before);
+  });
+
+  test("a projectId the caller cannot access is rejected before any write", async () => {
+    const f = await scopeSetup();
+    const before = await feedbackCount(f);
+    expect(
+      await errorCode(() =>
+        f.roleless.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+          projectId: f.projectId,
+        }),
+      ),
+    ).toBe("NOT_AUTHORIZED");
+    expect(
+      await errorCode(() =>
+        f.noIdentity.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+          projectId: f.projectId,
+        }),
+      ),
+    ).toBe("NOT_AUTHENTICATED");
+    // The pair can be internally consistent and still inaccessible.
+    expect(
+      await errorCode(() =>
+        f.roleless.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+          reportId: f.reportId,
+          projectId: f.projectId,
+        }),
+      ),
+    ).toBe("NOT_AUTHORIZED");
+    expect(await feedbackCount(f)).toBe(before);
+  });
+
+  test("a report that belongs to a different project than the supplied projectId is rejected before any write", async () => {
+    const f = await scopeSetup();
+    const before = await feedbackCount(f);
+    let caught: unknown;
+    try {
+      await f.writer.mutation(api.brain.submitBrainFeedback, {
+        body: SUBSTANTIVE_BODY,
+        reportId: f.otherReportId,
+        projectId: f.projectId,
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect((caught as { data?: { code?: string; message?: string } }).data).toMatchObject({
+      code: "NOT_AUTHORIZED",
+      message: "Report does not belong to this project",
+    });
+    expect(await feedbackCount(f)).toBe(before);
+  });
+
+  test("a caller without an internal role is rejected even with no ids", async () => {
+    const f = await scopeSetup();
+    const before = await feedbackCount(f);
+    expect(
+      await errorCode(() =>
+        f.roleless.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+        }),
+      ),
+    ).toBe("NOT_AUTHORIZED");
+    expect(
+      await errorCode(() =>
+        f.noIdentity.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+        }),
+      ),
+    ).toBe("NOT_AUTHENTICATED");
+    // A bare reportId does not rescue a role-less caller either.
+    expect(
+      await errorCode(() =>
+        f.roleless.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+          reportId: f.reportId,
+        }),
+      ),
+    ).toBe("NOT_AUTHORIZED");
+    expect(await feedbackCount(f)).toBe(before);
+  });
+
+  test("positive control: a writer with a matching accessible pair is recorded with both ids", async () => {
+    const f = await scopeSetup();
+    const before = await feedbackCount(f);
+    const feedbackId = await f.writer.mutation(api.brain.submitBrainFeedback, {
+      body: `  ${SUBSTANTIVE_BODY}  `,
+      suggestedRule: `  ${RULE}  `,
+      reportId: f.reportId,
+      projectId: f.projectId,
+    });
+    expect(await feedbackCount(f)).toBe(before + 1);
+    const row = await f.t.run((ctx) => ctx.db.get(feedbackId));
+    expect(row).toMatchObject({
+      fromUserId: f.writerId,
+      fromName: "Tracy",
+      reportId: f.reportId,
+      projectId: f.projectId,
+      // Stored trimmed.
+      body: SUBSTANTIVE_BODY,
+      suggestedRule: RULE,
+      status: "pending",
+    });
+  });
+
+  test("with only a reportId, the report's own project is stored on the row", async () => {
+    const f = await scopeSetup();
+    const feedbackId = await f.writer.mutation(api.brain.submitBrainFeedback, {
+      body: SUBSTANTIVE_BODY,
+      reportId: f.otherReportId,
+    });
+    const row = await f.t.run((ctx) => ctx.db.get(feedbackId));
+    expect(row).toMatchObject({
+      reportId: f.otherReportId,
+      projectId: f.otherProjectId,
+    });
+  });
+
+  test("input bounds: an empty body, an oversize body, or an oversize rule is INVALID_INPUT with no write", async () => {
+    const f = await scopeSetup();
+    const before = await feedbackCount(f);
+    expect(
+      await errorCode(() =>
+        f.writer.mutation(api.brain.submitBrainFeedback, { body: "   " }),
+      ),
+    ).toBe("INVALID_INPUT");
+    expect(
+      await errorCode(() =>
+        f.writer.mutation(api.brain.submitBrainFeedback, {
+          body: "x".repeat(10_001),
+          projectId: f.projectId,
+        }),
+      ),
+    ).toBe("INVALID_INPUT");
+    expect(
+      await errorCode(() =>
+        f.writer.mutation(api.brain.submitBrainFeedback, {
+          body: SUBSTANTIVE_BODY,
+          suggestedRule: "r".repeat(1_001),
+          projectId: f.projectId,
+        }),
+      ),
+    ).toBe("INVALID_INPUT");
+    expect(await feedbackCount(f)).toBe(before);
+    // Exactly at the bounds is accepted.
+    await f.writer.mutation(api.brain.submitBrainFeedback, {
+      body: "x".repeat(10_000),
+      suggestedRule: "r".repeat(1_000),
+      projectId: f.projectId,
+    });
+    expect(await feedbackCount(f)).toBe(before + 1);
   });
 });

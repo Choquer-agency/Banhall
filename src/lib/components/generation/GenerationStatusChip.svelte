@@ -1,10 +1,12 @@
 <script lang="ts">
+  import type { GenerationStatus } from "$lib/generation/recovery";
+
   let {
     status,
     candidatesDone = 0,
     candidatesFailed = 0,
   }: {
-    status: "reserved" | "running" | "awaiting_selection" | "awaiting_input" | "completed" | "failed";
+    status: GenerationStatus;
     candidatesDone?: number;
     candidatesFailed?: number;
   } = $props();
@@ -32,6 +34,11 @@
         tone: "bg-white/15 text-white",
         dot: "bg-white/70",
       };
+    }
+    // CAP-7: the pre-retry half of a recovery generation. The project page
+    // follows the recovery run instead, so this only shows for exact-id views.
+    if (status === "superseded") {
+      return { label: "AI · Replaced by retry", tone: "bg-white/15 text-white", dot: "bg-white/70" };
     }
     return { label: "AI · Generation complete", tone: "bg-white/15 text-white", dot: "bg-white/70" };
   });
