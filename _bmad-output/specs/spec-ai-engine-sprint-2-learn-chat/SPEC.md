@@ -1,3 +1,5 @@
+> **Reconciled 2026-09-01 against `main` 0ece1f0.** Drafted on branch `bmad-loop` (b39b434); all eight capabilities are still open on `main`. See `.memlog.md`. Re-verify every anchor at planning time.
+
 ---
 id: SPEC-ai-engine-sprint-2-learn-chat
 companions:

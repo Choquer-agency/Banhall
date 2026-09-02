@@ -1,6 +1,6 @@
 # Touchpoints (epic 2A)
 
-Anchors from `docs/ai-engine-audit-2026-08-25.md` and the sprint-1 retrospective, as of `b39b434` on `bmad-loop`. Lines drift; grep the symbol.
+Anchors from `docs/ai-engine-audit-2026-08-25.md` and the sprint-1 retrospective, as of `b39b434` on `bmad-loop`; reconciled against `main` 0ece1f0 on 2026-09-01 (line numbers not re-derived). Lines drift; grep the symbol.
 
 | CAP | Primary edit | Reference | Tests |
 |---|---|---|---|

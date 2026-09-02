@@ -1,3 +1,5 @@
+> **Reconciled 2026-09-01 against `main` 0ece1f0.** Drafted on branch `bmad-loop` (b39b434), whose Sprint 1 code was superseded by `main`. CAP-6 is already shipped; see `.memlog.md`. Re-verify every anchor at planning time.
+
 ---
 id: SPEC-ai-engine-sprint-2-boundary
 companions:
@@ -16,7 +18,7 @@ sources:
 
 ## Why
 
-A mandate to meet: plan Phase 2 (trusted context) is the audit's remaining P0 and has not started. Client content still sits inside the system prompt in chat, trust is granted by an upload category field, generation input has no total budget, and no injection test exists. Alongside it, the review layer still lets QA stay advisory, lets stage transitions skip any review record, and enforces `report.editProse` nowhere. Sprint 1 closed the cheap gaps; this epic closes the structural ones on the backend boundary.
+A mandate to meet: plan Phase 2 (trusted context) is the audit's remaining P0 and has not started. Client content still sits inside the system prompt in chat, trust is granted by an upload category field, generation input has no total budget, and no injection test exists. Alongside it, the review layer still lets QA stay advisory, lets stage transitions skip any review record, and, until Sprint 1 landed `requireReportEditAccess` (4ea1bb9), enforced `report.editProse` nowhere; CAP-6 is therefore already done on `main` (see .memlog.md, 2026-09-01). Sprint 1 closed the cheap gaps; this epic closes the structural ones on the backend boundary.
 
 ## Capabilities
 

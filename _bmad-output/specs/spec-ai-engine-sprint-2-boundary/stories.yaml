@@ -2,16 +2,21 @@
   title: Shared pre-edit snapshot writer
   description: >-
     CAP-1. Add writePreEditSnapshot to convex/lib/snapshots.ts and route the three
-    pre_chat_edit sites through it; behavior unchanged.
+    pre-edit snapshot sites through it (applyProposal and markProposalApplied in
+    convex/chatV2.ts write reason pre_chat_edit; acceptEdit in convex/comments.ts
+    writes reason pre_client_edit); the writer takes the reason; behavior unchanged.
+  spec_checkpoint: true
   invoke_dev_with: >-
     Read touchpoints.md row CAP-1. Retro finding A1 from spec-ai-engine-sprint-1.
-    Pure refactor; existing tests must pass unchanged.
+    Pure refactor; existing tests (chatProposals.test.ts, comments.test.ts) must pass
+    unchanged. Anchors on main: chatV2.ts:399, chatV2.ts:511, comments.ts:192.
 - id: "2"
   title: Trusted-context module for generation input
   description: >-
     CAP-2. New convex/ai/trustedContext.ts with context classes, per-source and total
     budgets, BEGIN/END transcript markers, guidance always emitted, truncation
     recorded on generationSources; analyzer uses it.
+  spec_checkpoint: true
   invoke_dev_with: >-
     Read touchpoints.md row CAP-2 and docs/ai-architecture-plan.md Phase 2. Keep
     prompts.test.ts snapshots passing or update with a reason. Budget defaults per
@@ -21,6 +26,7 @@
   description: >-
     CAP-3. writer_notes trust applies only when the uploader held an internal role at
     upload time; record uploaderRole on projectDocuments at upload.
+  spec_checkpoint: true
   invoke_dev_with: >-
     Read touchpoints.md row CAP-3. Depends on story 2's module. Missing uploader = client trust.
 - id: "4"
@@ -29,29 +35,26 @@
     CAP-4. Policy-only system prompt; one labeled user-role evidence message with
     provenance headers; doc count and evidence budget capped and logged; stable
     system prefix for caching.
+  spec_checkpoint: true
   invoke_dev_with: >-
     Read touchpoints.md row CAP-4. Do not edit AgentChatPanel.svelte or turnParts.ts
     (owned by epic 2B). Use the trustedContext module from story 2 for budgeting.
+    Run only after spec-ai-engine-sprint-1b story 9 (CAP-8 chat context bounds)
+    has landed on main; both touch convex/chatV2.ts and convex/ai/chatAgentV2.ts.
 - id: "5"
   title: Injection boundary test suite
   description: >-
     CAP-5. Deterministic fixtures (instruction overrides, tool-call requests, role
     spoofing) through the generation and chat builders; assert delimited data blocks
     and guidance presence.
+  spec_checkpoint: true
   invoke_dev_with: Read touchpoints.md row CAP-5. Fixtures as plain .txt under convex/ai/__fixtures__/injection/.
-- id: "6"
-  title: requireReportEditAccess enforces report.editProse
-  description: >-
-    CAP-6. One helper in convex/lib/auth.ts called by every prose-writing mutation;
-    assigned consultant passes, unrelated consultant fails NOT_AUTHORIZED.
-  invoke_dev_with: >-
-    Read touchpoints.md row CAP-6 and docs/product-domain.md role matrix. Helper must
-    compose with requireInternalProjectAccess from sprint 1 (story 1 there), not replace it.
 - id: "7"
   title: reviewDecisions required to leave internal_review
   description: >-
     CAP-7. New table written atomically with the stage event; transition fails with
     a typed error without a decision.
+  spec_checkpoint: true
   invoke_dev_with: >-
     Read touchpoints.md row CAP-7. Add an optional decision arg to setWorkflowStage
     rather than a second mutation; document the new error code in docs/product-domain.md.
@@ -60,6 +63,7 @@
   description: >-
     CAP-8. Persist deterministic QA findings as rows; because_clause and CRA
     methodology blocking; QA_BLOCKING in getFilingReadiness and publishForReview.
+  spec_checkpoint: true
   invoke_dev_with: >-
     Read touchpoints.md row CAP-8. Open question in SPEC.md resolved as absolute
     (no waiver). Do not restyle the QA rail; read-side may show the blocking flag.
@@ -68,12 +72,14 @@
   description: >-
     CAP-9. Add revisionNumber and contentHash to writerReviews, qaItemFeedback,
     pdReviews; type writerReviews.userId as v.id("users").
+  spec_checkpoint: true
   invoke_dev_with: Read touchpoints.md row CAP-9. Optional fields; old rows tolerate absence.
 - id: "10"
   title: Analyzer once per generation with prompt caching
   description: >-
     CAP-10. Compare mode stores analysis in generationArtifacts and reuses it per
     candidate; cache_control on system prompt and transcript for Anthropic models.
+  spec_checkpoint: true
   invoke_dev_with: >-
     Read touchpoints.md row CAP-10. iterative.ts already does analyzer-once; mirror it.
     Prove one analyzer call for two candidates with a stubbed client.
@@ -82,4 +88,7 @@
   description: >-
     CAP-11. sendMessage refuses when project 24h aiUsage cost exceeds an
     appSettings budget or the user has too many queued turns.
+  spec_checkpoint: true
   invoke_dev_with: Read touchpoints.md row CAP-11. Typed error codes; defaults generous (e.g. $50/day, 3 queued).
+    Run only after spec-ai-engine-sprint-1b story 9 (CAP-8 chat context bounds)
+    has landed on main; both touch convex/chatV2.ts and convex/ai/chatAgentV2.ts.
