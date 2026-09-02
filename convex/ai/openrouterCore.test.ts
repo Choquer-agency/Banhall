@@ -317,22 +317,35 @@ describe("openRouterUsage", () => {
     });
   });
 
-  it("omits costUsd when absent or invalid and tolerates garbage", () => {
+  it("omits costUsd when absent and rejects missing or wholly malformed usage", () => {
     expect(openRouterUsage({ usage: { prompt_tokens: 10, completion_tokens: 5 } })).toEqual({
       inputTokens: 10,
       outputTokens: 5,
       cacheReadInputTokens: 0,
     });
-    expect(openRouterUsage({})).toEqual({
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadInputTokens: 0,
-    });
+    expect(openRouterUsage({})).toBeNull();
+    expect(openRouterUsage({ usage: {} })).toBeNull();
+    expect(
+      openRouterUsage({
+        usage: { prompt_tokens_details: { cached_tokens: 10 } },
+      })
+    ).toBeNull();
+    expect(openRouterUsage({ usage: { cost: 0.25 } })).toBeNull();
     expect(
       openRouterUsage({
         usage: { prompt_tokens: -5, completion_tokens: NaN, cost: -1 },
       })
-    ).toEqual({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 });
+    ).toBeNull();
+  });
+
+  it("preserves explicit zero counters as genuine usage", () => {
+    expect(
+      openRouterUsage({ usage: { prompt_tokens: 0, completion_tokens: 0 } })
+    ).toEqual({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadInputTokens: 0,
+    });
   });
 
   it("never reports cached tokens above prompt tokens", () => {
@@ -343,8 +356,8 @@ describe("openRouterUsage", () => {
         prompt_tokens_details: { cached_tokens: 500 },
       },
     });
-    expect(usage.inputTokens).toBe(0);
-    expect(usage.cacheReadInputTokens).toBe(100);
+    expect(usage?.inputTokens).toBe(0);
+    expect(usage?.cacheReadInputTokens).toBe(100);
   });
 });
 

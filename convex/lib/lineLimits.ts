@@ -27,6 +27,8 @@ export const LENGTH_TARGETS = {
   standard: 0.88,
   full: 1.0,
 } as const;
+export const WORD_BUDGET_USABLE_LINE_FACTOR = 0.9;
+export const WORD_BUDGET_WORDS_PER_LINE = 8.5;
 export type LengthTarget = keyof typeof LENGTH_TARGETS;
 
 export type SectionKey = keyof typeof LINE_LIMITS;
@@ -242,6 +244,12 @@ export function sectionMetrics(text: string, section: SectionKey): SectionMetric
  * Empirical: this corpus runs ~8.5 words per 78-char line; paragraph breaks
  * eat ~10% of the line budget. */
 export function wordBudget(section: SectionKey, target: LengthTarget): number {
-  const usableLines = LINE_LIMITS[section] * LENGTH_TARGETS[target] * 0.9;
-  return Math.min(Math.round(usableLines * 8.5), WORD_CAPS[section]);
+  const usableLines =
+    LINE_LIMITS[section] *
+    LENGTH_TARGETS[target] *
+    WORD_BUDGET_USABLE_LINE_FACTOR;
+  return Math.min(
+    Math.round(usableLines * WORD_BUDGET_WORDS_PER_LINE),
+    WORD_CAPS[section]
+  );
 }

@@ -15,7 +15,10 @@ import {
   type AnthropicCapability,
 } from "../lib/providerConfig";
 import { gatewayForModel } from "../../shared/generationModels";
-import { instrumentedAnthropic } from "./instrument";
+import {
+  instrumentedAnthropic,
+  type GenerationAttribution,
+} from "./instrument";
 import { instrumentedOpenRouter } from "./openrouter";
 import type { GenerationClient } from "./openrouterCore";
 
@@ -98,6 +101,7 @@ export function clientForModel(
     callSite: string;
     projectId?: Id<"projects">;
     userId?: string;
+    attribution?: GenerationAttribution;
   }
 ): GenerationClient {
   if (gatewayForModel(modelId) === "openrouter") {

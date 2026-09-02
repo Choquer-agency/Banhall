@@ -20,6 +20,7 @@ import {
   normalizeStyleOverrides,
   type StyleOverrides,
 } from "../../shared/styleOverrides";
+import type { Id } from "../_generated/dataModel";
 
 export const runReportQa = internalAction({
   args: { generationId: v.id("generations") },
@@ -39,22 +40,34 @@ export const runReportQa = internalAction({
 
     // Routed by the report's model gateway (may be an OpenRouter model;
     // undefined model → Anthropic default via gatewayForModel fallback).
-    const clientFor = (callSite: string) =>
+    const clientFor = (
+      callSite: string,
+      learningDigestIds?: Id<"learningDigests">[]
+    ) =>
       clientForModel(ctx, input.model ?? "", {
         callSite,
         projectId: input.projectId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+        attribution: {
+          generationId: args.generationId,
+          ...(learningDigestIds?.length ? { learningDigestIds } : {}),
+        },
       });
 
     // Reviewer calibration digest and (for legacy generations without a
     // frozen copy) the live style policy load in parallel — both optional,
     // neither may block the scorecard.
-    const calibrationPromise = (async (): Promise<string | undefined> => {
+    const calibrationPromise = (async (): Promise<
+      | { content: string; digestId: Id<"learningDigests"> }
+      | undefined
+    > => {
       try {
         const digest = await ctx.runQuery(internal.learning.getActiveDigest, {
           kind: "qa_calibration",
         });
-        return digest?.content;
+        return digest?.content.trim()
+          ? { content: digest.content, digestId: digest._id }
+          : undefined;
       } catch (err) {
         console.error("qa calibration fetch failed for post-QA", args.generationId, err);
         return undefined;
@@ -89,7 +102,7 @@ export const runReportQa = internalAction({
         return { overrides: undefined, firstPerson: null };
       }
     })();
-    const [qaCalibration, style] = await Promise.all([
+    const [calibration, style] = await Promise.all([
       calibrationPromise,
       stylePromise,
     ]);
@@ -100,13 +113,16 @@ export const runReportQa = internalAction({
       // a perfectly good chronology, and vice versa.
       const [qaSettled, chronologySettled] = await Promise.allSettled([
         runQAAgent(
-          clientFor("generation:post_qa"),
+          clientFor(
+            "generation:post_qa",
+            calibration ? [calibration.digestId] : undefined
+          ),
           analysis,
           input.section242,
           input.section244,
           input.section246,
           input.model,
-          qaCalibration,
+          calibration?.content,
           style.overrides,
           style.firstPerson
         ),

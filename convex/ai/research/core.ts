@@ -366,7 +366,20 @@ export function parseOpenRouterResearchResponse(body: unknown): OpenRouterResear
       : {};
   // Shared extractor: subtracts cached tokens from prompt_tokens so research
   // rows report inputTokens consistently with every other OpenRouter call.
-  const shared = openRouterUsage(body as ChatCompletionsResponse);
+  // Research result metadata remains total for its existing callers. Missing
+  // provider token counts become local zero metadata here (the generation
+  // transport independently suppresses synthetic aiUsage rows), but a
+  // provider-reported cost is kept even when the counters are absent.
+  const reportedCost =
+    typeof usage.cost === "number" && Number.isFinite(usage.cost) && usage.cost >= 0
+      ? usage.cost
+      : undefined;
+  const shared = openRouterUsage(body as ChatCompletionsResponse) ?? {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadInputTokens: 0,
+    ...(reportedCost !== undefined ? { costUsd: reportedCost } : {}),
+  };
   return {
     ...(typeof record.id === "string" ? { responseId: record.id } : {}),
     text: cap(message.content, 100_000),

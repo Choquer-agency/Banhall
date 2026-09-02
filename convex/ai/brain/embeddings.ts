@@ -17,12 +17,14 @@ import { voyage } from "@ai-sdk/voyage";
  * (the old vectors are not comparable to the new ones).
  */
 export const BRAIN_EMBEDDING_DIMENSION = 1024;
+export const BRAIN_EMBEDDING_MODEL_ID = "voyage-3-large";
 
-export const brainEmbeddingModel = voyage.embedding("voyage-3-large");
+export const brainEmbeddingModel = voyage.embedding(BRAIN_EMBEDDING_MODEL_ID);
 
 /**
  * Cross-encoder reranker for retrieval's second stage (P2 quality layer).
  * Hybrid search casts a wide net (limit 30); the reranker re-scores
  * query↔chunk pairs jointly and keeps only the truly relevant top-k.
  */
-export const brainRerankModel = voyage.reranking("rerank-2.5");
+export const BRAIN_RERANK_MODEL_ID = "rerank-2.5";
+export const brainRerankModel = voyage.reranking(BRAIN_RERANK_MODEL_ID);

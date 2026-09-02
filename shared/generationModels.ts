@@ -88,6 +88,13 @@ export const CANDIDATE_MODELS = [
 export type CandidateModelId = (typeof CANDIDATE_MODELS)[number]["id"];
 export type ModelGateway = (typeof CANDIDATE_MODELS)[number]["gateway"];
 
+export const UNKNOWN_MODEL_GATEWAY: ModelGateway = "anthropic";
+export const RANDOM_COMPARISON_GATEWAY: ModelGateway = "anthropic";
+export const SECTION_ANSWER_TOKEN_BUDGETS = {
+  anthropic: 8192,
+  openrouter: 4096,
+} as const;
+
 /**
  * Every OpenRouter model must declare `reasoning` and `maxCompletionTokens`.
  *
@@ -121,7 +128,7 @@ export function modelById(id: string) {
 
 /** Unknown ids route to Anthropic — preserves behavior for legacy rows. */
 export function gatewayForModel(id: string): ModelGateway {
-  return modelById(id)?.gateway ?? "anthropic";
+  return modelById(id)?.gateway ?? UNKNOWN_MODEL_GATEWAY;
 }
 
 /**
@@ -133,7 +140,7 @@ export function gatewayForModel(id: string): ModelGateway {
  * `finish_reason: "length"` with no answer. 4x is the empirically validated
  * factor — the whole pipeline completes with room to spare at that budget.
  */
-const REASONING_TOKEN_MULTIPLIER = 4;
+export const REASONING_TOKEN_MULTIPLIER = 4;
 
 /**
  * The output budget to actually send for `id`, given the agent's answer
@@ -145,7 +152,7 @@ const REASONING_TOKEN_MULTIPLIER = 4;
  * answer budget because the gateway adapter applies its own larger multiplier.
  */
 export function sectionAnswerTokenBudget(id: string): number {
-  return gatewayForModel(id) === "anthropic" ? 8192 : 4096;
+  return SECTION_ANSWER_TOKEN_BUDGETS[gatewayForModel(id)];
 }
 
 export function maxTokensWithReasoningHeadroom(
@@ -178,7 +185,7 @@ export function comparePairFromSlots(
   if (picked.length === 0) return undefined;
   if (picked.length === 2) return picked;
   const rest = CANDIDATE_MODELS.filter(
-    (m) => m.id !== picked[0] && m.gateway === "anthropic"
+    (m) => m.id !== picked[0] && m.gateway === RANDOM_COMPARISON_GATEWAY
   );
   return [picked[0], rest[Math.floor(Math.random() * rest.length)].id];
 }

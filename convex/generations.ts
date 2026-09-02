@@ -389,6 +389,7 @@ async function reserveGeneration(
     status: "reserved",
     requestedAt: now,
     requestedBy,
+    learningDigestIds: [],
     lengthTarget,
     candidateMode,
     singleModelId,
@@ -661,19 +662,82 @@ export const retryFailedCandidates = mutation({
 // ─── Internal functions used by the pipeline action ──────────────────────────
 
 export const beginGeneration = internalMutation({
-  args: { generationId: v.id("generations") },
+  args: {
+    generationId: v.id("generations"),
+    promptVersion: v.string(),
+  },
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation || generation.status !== "reserved") return false;
+    if (
+      generation.learningDigestIds !== undefined &&
+      !/^sha256:[0-9a-f]{64}$/.test(args.promptVersion)
+    ) {
+      throw new Error("Invalid promptVersion hash");
+    }
     const project = await ctx.db.get(generation.projectId);
     if (!project || project.activeGenerationId !== generation._id) return false;
     await ctx.db.patch(generation._id, {
       status: "running",
+      // A present digest array is the new-reservation marker. Legacy reserved
+      // rows remain valid and are deliberately not retroactively attributed.
+      ...(generation.learningDigestIds !== undefined
+        ? { promptVersion: args.promptVersion }
+        : {}),
       currentStep: "Preparing frozen project sources...",
       startedAt: Date.now(),
     });
     await refreshProjectGenerationActivity(ctx, generation.projectId);
     return true;
+  },
+});
+
+/**
+ * Record the exact learning digests disclosed in one provider payload.
+ * The read + union + patch is one Convex transaction, so concurrent candidate
+ * handoffs converge through optimistic retry instead of overwriting each
+ * other. Terminal generations remain writable here because post-assembly QA
+ * is generation-owned and may legitimately disclose a newer calibration.
+ */
+export const unionLearningDigestIds = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    digestIds: v.array(v.id("learningDigests")),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) {
+      throw new Error("Generation not found for learning digest handoff");
+    }
+    if (
+      generation.promptVersion === undefined ||
+      generation.learningDigestIds === undefined
+    ) {
+      // A legacy row (neither field) is a deliberate no-op. Either field
+      // present without the other is a provenance state the entry actions
+      // never produce, so say so rather than dropping the ids silently.
+      if (generation.learningDigestIds !== undefined) {
+        console.warn(
+          `Learning digest handoff for generation ${generation._id} arrived before its prompt version was stamped; ids were not recorded.`
+        );
+      } else if (generation.promptVersion !== undefined) {
+        console.warn(
+          `Learning digest handoff for generation ${generation._id} found a prompt version without a digest union array; ids were not recorded.`
+        );
+      }
+      return null;
+    }
+    const next = [
+      ...new Set([...generation.learningDigestIds, ...args.digestIds]),
+    ].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    if (
+      next.length !== generation.learningDigestIds.length ||
+      next.some((id, index) => id !== generation.learningDigestIds?.[index])
+    ) {
+      await ctx.db.patch(generation._id, { learningDigestIds: next });
+    }
+    return null;
   },
 });
 
@@ -1331,6 +1395,7 @@ export const getIterativeSectionInput = internalQuery({
     if (!analysisRow) return null;
     let brainBlock = "";
     let styleGuidance = "";
+    let draftStyleDigestId: Id<"learningDigests"> | undefined;
     let styleOverrides: Record<string, boolean> | undefined;
     if (brainRow) {
       try {
@@ -1350,6 +1415,14 @@ export const getIterativeSectionInput = internalQuery({
             typeof parsed.styleGuidance === "string"
           ) {
             styleGuidance = parsed.styleGuidance;
+          }
+          if (
+            "draftStyleDigestId" in parsed &&
+            typeof parsed.draftStyleDigestId === "string"
+          ) {
+            draftStyleDigestId =
+              ctx.db.normalizeId("learningDigests", parsed.draftStyleDigestId) ??
+              undefined;
           }
           // PSOS-49: house-style waivers frozen at generation start (absent on
           // legacy artifacts → default enforcement).
@@ -1376,6 +1449,7 @@ export const getIterativeSectionInput = internalQuery({
       analysis: analysisRow.content,
       brainBlock,
       styleGuidance,
+      draftStyleDigestId,
       styleOverrides,
       priorSections,
       lengthTarget: generation.lengthTarget ?? "standard",

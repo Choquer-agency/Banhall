@@ -2,7 +2,12 @@ import { internalAction, type ActionCtx } from "../../_generated/server";
 import { v } from "convex/values";
 import { rerank } from "ai";
 import type { Id } from "../../_generated/dataModel";
-import { brain, BRAIN_NAMESPACE, type BrainEntryMetadata } from "./rag";
+import {
+  brain,
+  BRAIN_FILTER_NAMES,
+  BRAIN_NAMESPACE,
+  type BrainEntryMetadata,
+} from "./rag";
 import { brainEmbeddingModel, brainRerankModel } from "./embeddings";
 import { scheduleUsage } from "../instrument";
 import { voyageTokenCount } from "../providers";
@@ -44,7 +49,7 @@ export type BrainSearchOutcome = {
 };
 
 /** Rerank scores below this are noise — better zero exemplars than wrong ones. */
-const RELEVANCE_FLOOR = 0.35;
+export const BRAIN_RERANK_RELEVANCE_FLOOR = 0.35;
 
 /**
  * Relevance gates for the NON-reranked paths (≤k candidates, or a rerank
@@ -64,8 +69,50 @@ const RELEVANCE_FLOOR = 0.35;
  *    non-reranked returns: the bottom of the RRF ordering is where text-only
  *    stragglers (which bypass the cosine floor) land.
  */
-const MIN_VECTOR_SIMILARITY = 0.3;
-const RAW_SEARCH_FLOOR = 0.25;
+export const BRAIN_MIN_VECTOR_SIMILARITY = 0.3;
+export const BRAIN_RAW_SEARCH_FLOOR = 0.25;
+export const BRAIN_SEARCH_LIMIT = 30;
+export const BRAIN_SEARCH_DEFAULT_K = 4;
+export const BRAIN_CHUNK_CONTEXT = { before: 1, after: 1 } as const;
+export const BRAIN_RERANK_TOP_N_CAP = 12;
+export const BRAIN_RERANK_MAX_RETRIES = 1;
+export const BRAIN_SEARCH_PROGRAM = {
+  searchType: "hybrid",
+  filterNames: BRAIN_FILTER_NAMES,
+  filters: {
+    industryApproved: "industryApproved",
+    documentType: "docType",
+  },
+  rerankTrigger: {
+    left: "candidate-count",
+    comparator: "greater-than",
+    right: "requested-k",
+  },
+  writerTierBlend: {
+    rerankCoefficient: 0.6,
+    writerTierCoefficient: 0.4,
+    defaultWriterTier: 0.4,
+  },
+  scienceLabelScaffold: {
+    separator: "\n\n",
+    prefix: "CRA T4088 line 206: ",
+  },
+} as const;
+
+export const BRAIN_EXEMPLAR_SCAFFOLDS = {
+  blockPrefix:
+    "\n\n# SIMILAR PAST REPORTS FROM THE BRAIN (reference patterns only)\nThese are gold-standard passages from past approved SR&ED reports in this industry.\nUse them ONLY as a guide to structure, voice, and CRA phrasing. NEVER copy their\nfacts, company details, or technical claims into this report — every claim here\nmust come from THIS project's transcript and materials.\n\n",
+  itemPrefix: "--- REFERENCE PATTERN ",
+  itemLabelOpen: " (",
+  itemLabelClose: ")",
+  itemSuffix: " ---\n",
+  labelSeparator: " — ",
+  scienceLabelPrefix: "CRA ",
+  writerLabelPrefix: "writer: ",
+  truncationSuffix: "\n[… exemplar truncated]",
+  itemSeparator: "\n\n",
+  labelOrder: ["title", "scienceCode", "writerName"],
+} as const;
 
 /**
  * Floor applied whenever the cross-encoder didn't rank (see RAW_SEARCH_FLOOR).
@@ -74,7 +121,22 @@ const RAW_SEARCH_FLOOR = 0.25;
 export function applyRawSearchFloor(
   candidates: BrainExemplar[]
 ): BrainExemplar[] {
-  return candidates.filter((c) => c.searchScore >= RAW_SEARCH_FLOOR);
+  return candidates.filter(
+    (candidate) => candidate.searchScore >= BRAIN_RAW_SEARCH_FLOOR
+  );
+}
+
+export function shouldRerankBrainCandidates(
+  candidateCount: number,
+  requestedK: number
+): boolean {
+  // The comparator is manifest data even though only the production-supported
+  // branch is accepted here. Changing the routing rule therefore changes both
+  // request behavior and the prompt-program hash.
+  return (
+    BRAIN_SEARCH_PROGRAM.rerankTrigger.comparator === "greater-than" &&
+    candidateCount > requestedK
+  );
 }
 
 /**
@@ -104,16 +166,24 @@ export async function searchBrainExemplars(
   ctx: ActionCtx,
   args: BrainSearchArgs
 ): Promise<BrainSearchOutcome> {
-  const k = args.k ?? 4;
+  const k = args.k ?? BRAIN_SEARCH_DEFAULT_K;
   const usageSuffix = args.usageLabel ? `:${args.usageLabel}` : "";
-  const filters: { name: "industryApproved" | "docType"; value: unknown }[] = [];
+  const filters: {
+    name: (typeof BRAIN_SEARCH_PROGRAM.filterNames)[number];
+    value: unknown;
+  }[] = [];
   if (args.industry) {
     filters.push({
-      name: "industryApproved",
+      name: BRAIN_SEARCH_PROGRAM.filters.industryApproved,
       value: { industry: args.industry, approved: true },
     });
   }
-  if (args.docType) filters.push({ name: "docType", value: args.docType });
+  if (args.docType) {
+    filters.push({
+      name: BRAIN_SEARCH_PROGRAM.filters.documentType,
+      value: args.docType,
+    });
+  }
 
   try {
     const scienceCode = normalizeCraScienceCode(args.scienceCode);
@@ -121,15 +191,15 @@ export async function searchBrainExemplars(
       throw new Error("Invalid CRA field of science or technology code");
     }
     const retrievalQuery = scienceCode
-      ? `${args.query}\n\nCRA T4088 line 206: ${scienceCodeLabel(scienceCode)}`
+      ? `${args.query}${BRAIN_SEARCH_PROGRAM.scienceLabelScaffold.separator}${BRAIN_SEARCH_PROGRAM.scienceLabelScaffold.prefix}${scienceCodeLabel(scienceCode)}`
       : args.query;
     const { results, entries, usage } = await brain.search(ctx, {
       namespace: BRAIN_NAMESPACE,
       query: retrievalQuery,
-      searchType: "hybrid",
-      limit: 30,
-      vectorScoreThreshold: MIN_VECTOR_SIMILARITY,
-      chunkContext: { before: 1, after: 1 },
+      searchType: BRAIN_SEARCH_PROGRAM.searchType,
+      limit: BRAIN_SEARCH_LIMIT,
+      vectorScoreThreshold: BRAIN_MIN_VECTOR_SIMILARITY,
+      chunkContext: BRAIN_CHUNK_CONTEXT,
       ...(filters.length ? { filters: filters as never } : {}),
     });
     if (usage.tokens > 0) {
@@ -169,14 +239,14 @@ export async function searchBrainExemplars(
     // relevance floor, blend the writer tier back in (rerank is tier-blind),
     // cap chunks per source PD for diversity, and take the top k.
     // Falls back to first-stage order — reranking must never break retrieval.
-    if (candidates.length > k) {
+    if (shouldRerankBrainCandidates(candidates.length, k)) {
       try {
         const rerankResult = await rerank({
           model: brainRerankModel,
           query: retrievalQuery,
           documents: candidates.map((c) => c.text),
-          topN: Math.min(12, candidates.length),
-          maxRetries: 1,
+          topN: Math.min(BRAIN_RERANK_TOP_N_CAP, candidates.length),
+          maxRetries: BRAIN_RERANK_MAX_RETRIES,
         });
         const rerankTokens = voyageTokenCount(rerankResult.response.body);
         if (rerankTokens !== null) {
@@ -195,13 +265,20 @@ export async function searchBrainExemplars(
           console.error("Voyage rerank response omitted billed token usage");
         }
         const { ranking } = rerankResult;
-        const floored = ranking.filter((r) => r.score >= RELEVANCE_FLOOR);
+        const floored = ranking.filter(
+          (ranked) => ranked.score >= BRAIN_RERANK_RELEVANCE_FLOOR
+        );
         const blended = floored
           .map((r) => ({
             ...candidates[r.originalIndex],
             rerankScore: r.score,
             // Writer quality re-enters after reranking: score × (0.6 + 0.4·tier)
-            score: r.score * (0.6 + 0.4 * (candidates[r.originalIndex].writerTier ?? 0.4)),
+            score:
+              r.score *
+              (BRAIN_SEARCH_PROGRAM.writerTierBlend.rerankCoefficient +
+                BRAIN_SEARCH_PROGRAM.writerTierBlend.writerTierCoefficient *
+                  (candidates[r.originalIndex].writerTier ??
+                    BRAIN_SEARCH_PROGRAM.writerTierBlend.defaultWriterTier)),
           }))
           .sort((a, b) => b.score - a.score);
         // May return < k, or none — floor over filler.
@@ -248,7 +325,7 @@ export const retrieveBrainContext = internalAction({
  * pathological over-long chunk, so one exemplar can never flood a section
  * prompt. Generous on purpose — truncating healthy exemplars costs quality.
  */
-const MAX_EXEMPLAR_CHARS = 6000;
+export const BRAIN_MAX_EXEMPLAR_CHARS = 6000;
 
 /**
  * Render exemplars into a prompt block. Framed as REFERENCE PATTERNS, never as
@@ -259,25 +336,29 @@ export function formatBrainExemplars(exemplars: BrainExemplar[]): string {
   if (!exemplars.length) return "";
   const blocks = exemplars
     .map((e, i) => {
-      const label = [
-        e.title,
-        e.scienceCode ? `CRA ${scienceCodeLabel(e.scienceCode)}` : null,
-        e.writerName ? `writer: ${e.writerName}` : null,
-      ]
+      const labels = {
+        title: e.title ?? null,
+        scienceCode: e.scienceCode
+          ? `${BRAIN_EXEMPLAR_SCAFFOLDS.scienceLabelPrefix}${scienceCodeLabel(e.scienceCode)}`
+          : null,
+        writerName: e.writerName
+          ? `${BRAIN_EXEMPLAR_SCAFFOLDS.writerLabelPrefix}${e.writerName}`
+          : null,
+      };
+      const label = BRAIN_EXEMPLAR_SCAFFOLDS.labelOrder
+        .map((key) => labels[key])
         .filter(Boolean)
-        .join(" — ");
+        .join(BRAIN_EXEMPLAR_SCAFFOLDS.labelSeparator);
       const text =
-        e.text.length > MAX_EXEMPLAR_CHARS
-          ? `${e.text.slice(0, MAX_EXEMPLAR_CHARS)}\n[… exemplar truncated]`
+        e.text.length > BRAIN_MAX_EXEMPLAR_CHARS
+          ? `${e.text.slice(0, BRAIN_MAX_EXEMPLAR_CHARS)}${BRAIN_EXEMPLAR_SCAFFOLDS.truncationSuffix}`
           : e.text;
-      return `--- REFERENCE PATTERN ${i + 1}${label ? ` (${label})` : ""} ---\n${text}`;
+      return `${BRAIN_EXEMPLAR_SCAFFOLDS.itemPrefix}${i + 1}${
+        label
+          ? `${BRAIN_EXEMPLAR_SCAFFOLDS.itemLabelOpen}${label}${BRAIN_EXEMPLAR_SCAFFOLDS.itemLabelClose}`
+          : ""
+      }${BRAIN_EXEMPLAR_SCAFFOLDS.itemSuffix}${text}`;
     })
-    .join("\n\n");
-  return `\n\n# SIMILAR PAST REPORTS FROM THE BRAIN (reference patterns only)
-These are gold-standard passages from past approved SR&ED reports in this industry.
-Use them ONLY as a guide to structure, voice, and CRA phrasing. NEVER copy their
-facts, company details, or technical claims into this report — every claim here
-must come from THIS project's transcript and materials.
-
-${blocks}`;
+    .join(BRAIN_EXEMPLAR_SCAFFOLDS.itemSeparator);
+  return `${BRAIN_EXEMPLAR_SCAFFOLDS.blockPrefix}${blocks}`;
 }

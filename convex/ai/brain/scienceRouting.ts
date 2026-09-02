@@ -1,7 +1,10 @@
 import type { CraScienceCode } from "../../../shared/craScienceCodes";
 
 /** Max chunks from one source PD in a result set (MMR-lite source diversity). */
-const PER_ENTRY_CAP = 2;
+export const BRAIN_SCIENCE_ROUTING = {
+  strategy: "exact-science-code-first-then-cross-code-fallback",
+  perEntryCap: 2,
+} as const;
 
 type ScienceRoutable = {
   entryId: string;
@@ -38,7 +41,7 @@ export function pickScienceRouted<T extends ScienceRoutable>(
   for (const group of groups) {
     for (const candidate of group) {
       const count = perEntry.get(candidate.entryId) ?? 0;
-      if (count >= PER_ENTRY_CAP) continue;
+      if (count >= BRAIN_SCIENCE_ROUTING.perEntryCap) continue;
       perEntry.set(candidate.entryId, count + 1);
       picked.push(candidate);
       if (picked.length >= k) return picked;

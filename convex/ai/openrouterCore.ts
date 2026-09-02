@@ -60,6 +60,21 @@ export type ChatCompletionsBody = {
   tool_choice?: { type: "function"; function: { name: string } };
 };
 
+export const OPENROUTER_CONVERSION = {
+  systemRole: "system",
+  systemPosition: "before-user-messages",
+  systemInclusion: "truthy-string",
+  originalMessageOrder: "preserve",
+  toolType: "function",
+  toolNameSource: "name",
+  toolDescriptionSource: "description-if-nonblank",
+  toolSchemaSource: "input_schema-to-parameters",
+  toolChoiceType: "function",
+  usageRequest: { include: true },
+  thinkingRule: "omit-anthropic-thinking-control",
+  maxTokensRule: "apply-registered-model-reasoning-headroom",
+} as const;
+
 export function toChatCompletions(
   params: GenerationMessageParams
 ): ChatCompletionsBody {
@@ -71,26 +86,30 @@ export function toChatCompletions(
     // maxTokens for one gateway.
     max_tokens: maxTokensWithReasoningHeadroom(params.model, params.max_tokens),
     messages: [
-      ...(params.system
-        ? [{ role: "system" as const, content: params.system }]
+      ...(OPENROUTER_CONVERSION.systemInclusion === "truthy-string" &&
+      params.system
+        ? [{ role: OPENROUTER_CONVERSION.systemRole, content: params.system }]
         : []),
       ...params.messages,
     ],
-    usage: { include: true },
+    usage: OPENROUTER_CONVERSION.usageRequest,
   };
   if (params.tools?.length) {
     body.tools = params.tools.map((tool) => ({
-      type: "function",
+      type: OPENROUTER_CONVERSION.toolType,
       function: {
         name: tool.name,
-        ...(tool.description ? { description: tool.description } : {}),
+        ...(OPENROUTER_CONVERSION.toolDescriptionSource ===
+          "description-if-nonblank" && tool.description
+          ? { description: tool.description }
+          : {}),
         parameters: tool.input_schema as Record<string, unknown>,
       },
     }));
   }
   if (params.tool_choice) {
     body.tool_choice = {
-      type: "function",
+      type: OPENROUTER_CONVERSION.toolChoiceType,
       function: { name: params.tool_choice.name },
     };
   }
@@ -258,24 +277,29 @@ export function openRouterUsage(body: ChatCompletionsResponse): {
   outputTokens: number;
   cacheReadInputTokens: number;
   costUsd?: number;
-} {
+} | null {
   const usage = body.usage;
-  const count = (value: unknown): number =>
+  if (!usage || typeof usage !== "object") return null;
+  const count = (value: unknown): number | null =>
     typeof value === "number" && Number.isFinite(value) && value >= 0
       ? value
-      : 0;
-  const promptTokens = count(usage?.prompt_tokens);
+      : null;
+  const promptTokens = count(usage.prompt_tokens);
+  const completionTokens = count(usage.completion_tokens);
+  const cachedTokens = count(usage.prompt_tokens_details?.cached_tokens);
+  const cost = count(usage.cost);
+  if (promptTokens === null && completionTokens === null) {
+    return null;
+  }
+  const prompt = promptTokens ?? 0;
   const cached = Math.min(
-    count(usage?.prompt_tokens_details?.cached_tokens),
-    promptTokens
+    cachedTokens ?? 0,
+    prompt
   );
-  const cost = usage?.cost;
   return {
-    inputTokens: promptTokens - cached,
-    outputTokens: count(usage?.completion_tokens),
+    inputTokens: prompt - cached,
+    outputTokens: completionTokens ?? 0,
     cacheReadInputTokens: cached,
-    ...(typeof cost === "number" && Number.isFinite(cost) && cost >= 0
-      ? { costUsd: cost }
-      : {}),
+    ...(cost !== null ? { costUsd: cost } : {}),
   };
 }

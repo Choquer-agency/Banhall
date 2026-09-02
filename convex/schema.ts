@@ -465,6 +465,9 @@ export default defineSchema({
   // ─── BNH-16: per-call AI token usage + estimated cost ───────────────────────
   aiUsage: defineTable({
     projectId: v.optional(v.id("projects")),
+    generationId: v.optional(v.id("generations")),
+    candidateRunId: v.optional(v.id("generationCandidateRuns")),
+    durationMs: v.optional(v.number()),
     userId: v.optional(v.string()),
     writerName: v.optional(v.string()),
     agentThreadId: v.optional(v.string()),
@@ -478,7 +481,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_createdAt", ["createdAt"])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    .index("by_generationId", ["generationId"]),
 
   transcripts: defineTable({
     projectId: v.id("projects"),
@@ -612,6 +616,12 @@ export default defineSchema({
     ),
     requestedAt: v.optional(v.number()),
     requestedBy: v.optional(v.id("users")),
+    // Stable deployment-level prompt program and the exact learned guidance
+    // disclosed through generation-owned provider calls. Optional for legacy
+    // rows; learningDigestIds presence marks a reservation created after this
+    // provenance contract shipped.
+    promptVersion: v.optional(v.string()),
+    learningDigestIds: v.optional(v.array(v.id("learningDigests"))),
     lengthTarget: v.optional(
       v.union(v.literal("concise"), v.literal("standard"), v.literal("full"))
     ),

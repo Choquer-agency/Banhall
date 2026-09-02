@@ -23,6 +23,7 @@ import { candidateModelsForMode } from "./model";
 import { normalizeProviderError } from "./providers";
 import { retrieveBrainBlocks } from "./brainRetrieval";
 import {
+  beginTrackedGeneration,
   buildStyleGuidance,
   compressToFit,
   lengthBudgetBlock,
@@ -37,14 +38,18 @@ import {
   normalizeStyleOverrides,
 } from "../../shared/styleOverrides";
 import { fetchWriterStyle } from "./writerStyle";
+import type { Id } from "../_generated/dataModel";
+import {
+  ITERATIVE_PROMPT_SCAFFOLDS,
+  ITERATIVE_SECTION_TITLES,
+} from "./promptDefinitions";
 
 type IterativeSection = "s242" | "s244" | "s246";
 
-const SECTION_TITLES: Record<IterativeSection, string> = {
-  s242: "Line 242 — Uncertainty",
-  s244: "Line 244 — Work performed",
-  s246: "Line 246 — Advancement",
-};
+const SECTION_TITLES: Record<IterativeSection, string> =
+  ITERATIVE_SECTION_TITLES;
+
+export { ITERATIVE_PROMPT_SCAFFOLDS } from "./promptDefinitions";
 
 /**
  * One-time setup for an iterative generation: analyzer + Brain retrieval +
@@ -54,10 +59,7 @@ const SECTION_TITLES: Record<IterativeSection, string> = {
 export const startIterativeGeneration = internalAction({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
-    const started = await ctx.runMutation(internal.generations.beginGeneration, {
-      generationId: args.generationId,
-    });
-    if (!started) return;
+    if (!(await beginTrackedGeneration(ctx, args.generationId))) return;
     const input = await ctx.runQuery(internal.generations.getGenerationInput, {
       generationId: args.generationId,
     });
@@ -75,13 +77,20 @@ export const startIterativeGeneration = internalAction({
     const contextDocs = toContextDocs(input.contextDocs);
     // Iterative mode uses single-model semantics: the explicitly selected
     // model, defaulting to Sonnet.
-    const model = candidateModelsForMode("single", input.singleModelId)[0];
+    const model = candidateModelsForMode("iterative", input.singleModelId)[0];
     // Routed by the selected model's gateway (Anthropic direct / OpenRouter).
-    const clientFor = (callSite: string) =>
+    const clientFor = (
+      callSite: string,
+      learningDigestIds?: Id<"learningDigests">[]
+    ) =>
       clientForModel(ctx, model.id, {
         callSite,
         projectId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+        attribution: {
+          generationId: genId,
+          ...(learningDigestIds?.length ? { learningDigestIds } : {}),
+        },
       });
     // The Brain's retrieval brief always runs on Anthropic Haiku — never the
     // candidate model.
@@ -90,6 +99,7 @@ export const startIterativeGeneration = internalAction({
       capability: "generation",
       projectId,
       ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+      attribution: { generationId: genId },
     });
     const log = (line: string) =>
       ctx.runMutation(internal.generations.appendProgress, {
@@ -134,6 +144,8 @@ export const startIterativeGeneration = internalAction({
       const writerStylePromise = fetchWriterStyle(ctx, input.requestedBy, log);
       let draftStyle: string | undefined;
       let qaCalibration: string | undefined;
+      let draftStyleDigestId: Id<"learningDigests"> | undefined;
+      let qaCalibrationDigestId: Id<"learningDigests"> | undefined;
       try {
         const [qaDigest, styleDigest] = await Promise.all([
           ctx.runQuery(internal.learning.getActiveDigest, {
@@ -143,9 +155,13 @@ export const startIterativeGeneration = internalAction({
             kind: "draft_style",
           }),
         ]);
-        if (qaDigest) qaCalibration = qaDigest.content;
-        if (styleDigest) {
+        if (qaDigest?.content.trim()) {
+          qaCalibration = qaDigest.content;
+          qaCalibrationDigestId = qaDigest._id;
+        }
+        if (styleDigest?.content.trim()) {
           draftStyle = styleDigest.content;
+          draftStyleDigestId = styleDigest._id;
           await log(
             `Applying drafting style learned from ${styleDigest.sourceCount} writer critique(s).`
           );
@@ -182,6 +198,7 @@ export const startIterativeGeneration = internalAction({
         brainBlocks: JSON.stringify({
           blocks: brainBlocks,
           styleGuidance,
+          ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
           styleOverrides: styleOverrides ?? NO_STYLE_OVERRIDES,
         }),
       });
@@ -208,6 +225,8 @@ export const startIterativeGeneration = internalAction({
             brainExemplars: brainBlocks,
             ...(qaCalibration ? { qaCalibration } : {}),
             ...(draftStyle ? { draftStyle } : {}),
+            ...(qaCalibrationDigestId ? { qaCalibrationDigestId } : {}),
+            ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
             ...(writerFlavor ? { writerFlavor } : {}),
             ...(styleOverrides ? { styleOverrides } : {}),
           }
@@ -239,14 +258,17 @@ export const startIterativeGeneration = internalAction({
 });
 
 /** Prompt block carrying writer-approved prior sections as canonical context. */
-function priorSectionsBlock(
+export function priorSectionsBlock(
   priorSections: Array<{ section: IterativeSection; text: string }>
 ): string {
   if (priorSections.length === 0) return "";
   const body = priorSections
-    .map((p) => `### ${SECTION_TITLES[p.section]} (APPROVED)\n${p.text}`)
-    .join("\n\n");
-  return `\n\n## Approved prior sections (canonical — the writer has reviewed and edited these; align terminology, chronology, and claims with them; do not contradict them)\n${body}`;
+    .map(
+      (p) =>
+        `${ITERATIVE_PROMPT_SCAFFOLDS.approvedPriorSections.itemTitlePrefix}${SECTION_TITLES[p.section]}${ITERATIVE_PROMPT_SCAFFOLDS.approvedPriorSections.itemTitleSuffix}${p.text}`
+    )
+    .join(ITERATIVE_PROMPT_SCAFFOLDS.approvedPriorSections.separator);
+  return `${ITERATIVE_PROMPT_SCAFFOLDS.approvedPriorSections.prefix}${body}`;
 }
 
 /** Draft (or redraft) one section, fenced by its durable section-run row. */
@@ -276,11 +298,18 @@ export const generateSection = internalAction({
       return;
     }
     // Routed by the section run's model gateway.
-    const clientFor = (callSite: string) =>
+    const clientFor = (
+      callSite: string,
+      learningDigestIds?: Id<"learningDigests">[]
+    ) =>
       clientForModel(ctx, run.model, {
         callSite,
         projectId: input.projectId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+        attribution: {
+          generationId: args.generationId,
+          ...(learningDigestIds?.length ? { learningDigestIds } : {}),
+        },
       });
 
     try {
@@ -291,7 +320,7 @@ export const generateSection = internalAction({
       // Extra guidance rides on the styleGuidance param (established pattern
       // from the writer-flavor work) so agent signatures stay unchanged.
       const guidanceBlock = run.guidance
-        ? `\n\n## Writer guidance for this regeneration (high priority)\n${run.guidance}`
+        ? `${ITERATIVE_PROMPT_SCAFFOLDS.regenerationGuidance.prefix}${run.guidance}`
         : "";
       const styleGuidance =
         input.styleGuidance +
@@ -311,7 +340,12 @@ export const generateSection = internalAction({
             ? runSection244Agent
             : runSection246Agent;
       const raw = await runAgent(
-        clientFor(`generation:section:${args.section.slice(1)}`),
+        clientFor(
+          `generation:section:${args.section.slice(1)}`,
+          input.draftStyleDigestId && input.styleGuidance.trim()
+            ? [input.draftStyleDigestId]
+            : undefined
+        ),
         analysis,
         run.model,
         input.brainBlock,

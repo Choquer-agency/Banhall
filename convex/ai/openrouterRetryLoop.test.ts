@@ -6,6 +6,7 @@
  * by stubbing setTimeout, so backoff behavior is asserted without waiting.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Id, TableNames } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { openRouterChatCompletion, OpenRouterError } from "./openrouter";
 import { fromChatCompletions, OPENROUTER_MAX_RETRIES } from "./openrouterCore";
@@ -38,6 +39,10 @@ function fakeCtx() {
     runMutation,
   } as unknown as ActionCtx;
   return { ctx, runAfter, runMutation };
+}
+
+function testId<TableName extends TableNames>(value: string): Id<TableName> {
+  return value as Id<TableName>;
 }
 
 const baseInput = {
@@ -103,6 +108,133 @@ describe("openRouterChatCompletion retry loop", () => {
       outputTokens: 5,
       cacheReadInputTokens: 2,
       costUsd: 0.0012,
+    });
+  });
+
+  it("unions one call's digests before its retry loop and attributes one candidate usage row", async () => {
+    const { ctx, runAfter, runMutation } = fakeCtx();
+    const generationId = testId<"generations">("openrouter-generation");
+    const candidateRunId = testId<"generationCandidateRuns">(
+      "openrouter-candidate",
+    );
+    const digestId = testId<"learningDigests">("openrouter-digest");
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(
+          429,
+          { error: { message: "rate limited" } },
+          { "retry-after": "0" },
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse(200, successBody));
+    vi.spyOn(Date, "now")
+      .mockReturnValueOnce(100)
+      .mockReturnValue(250);
+
+    await openRouterChatCompletion(ctx, {
+      ...baseInput,
+      attribution: {
+        generationId,
+        candidateRunId,
+        learningDigestIds: [digestId],
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(runMutation).toHaveBeenCalledTimes(1);
+    expect(runMutation.mock.calls[0][1]).toEqual({
+      generationId,
+      digestIds: [digestId],
+    });
+    expect(runMutation.mock.invocationCallOrder[0]).toBeLessThan(
+      fetchMock.mock.invocationCallOrder[0],
+    );
+    expect(runAfter).toHaveBeenCalledTimes(1);
+    expect(runAfter.mock.calls[0][2]).toMatchObject({
+      generationId,
+      candidateRunId,
+      durationMs: 150,
+      inputTokens: 8,
+      outputTokens: 5,
+    });
+  });
+
+  it("keeps an explicit all-zero usage object as a genuine response", async () => {
+    const { ctx, runAfter } = fakeCtx();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        choices: [{ message: { content: "zero" }, finish_reason: "stop" }],
+        usage: {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          cost: 0,
+          prompt_tokens_details: { cached_tokens: 0 },
+        },
+      }),
+    );
+
+    await openRouterChatCompletion(ctx, baseInput);
+
+    expect(runAfter).toHaveBeenCalledTimes(1);
+    expect(runAfter.mock.calls[0][2]).toMatchObject({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadInputTokens: 0,
+      costUsd: 0,
+    });
+  });
+
+  it.each([
+    ["absent", undefined],
+    ["empty", {}],
+    [
+      "wholly malformed",
+      { prompt_tokens: "bad", completion_tokens: -1, cost: Number.NaN },
+    ],
+  ])("does not synthesize usage for a successful response with %s usage", async (_label, usage) => {
+    const { ctx, runAfter } = fakeCtx();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        choices: [
+          { message: { content: "no usage" }, finish_reason: "stop" },
+        ],
+        ...(usage === undefined ? {} : { usage }),
+      }),
+    );
+
+    await openRouterChatCompletion(ctx, baseInput);
+
+    expect(runAfter).not.toHaveBeenCalled();
+  });
+
+  it("schedules genuine usage before downstream tool decoding fails", async () => {
+    const { ctx, runAfter } = fakeCtx();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: "broken-tool",
+                  function: { name: "submit", arguments: "{" },
+                },
+              ],
+            },
+            finish_reason: "tool_calls",
+          },
+        ],
+        usage: { prompt_tokens: 6, completion_tokens: 2 },
+      }),
+    );
+
+    const response = await openRouterChatCompletion(ctx, baseInput);
+    expect(runAfter).toHaveBeenCalledTimes(1);
+    expect(() => fromChatCompletions(response)).toThrow(/malformed JSON/);
+    expect(runAfter.mock.calls[0][2]).toMatchObject({
+      inputTokens: 6,
+      outputTokens: 2,
     });
   });
 
@@ -172,6 +304,44 @@ describe("openRouterChatCompletion retry loop", () => {
       /DNS/
     );
     expect(fetchMock).toHaveBeenCalledTimes(OPENROUTER_MAX_RETRIES + 1);
+    expect(runAfter).not.toHaveBeenCalled();
+  });
+
+  it("retains the digest handoff but writes no usage when every transport attempt fails", async () => {
+    const { ctx, runAfter, runMutation } = fakeCtx();
+    const generationId = testId<"generations">("failed-openrouter-generation");
+    const digestId = testId<"learningDigests">("failed-openrouter-digest");
+    fetchMock.mockRejectedValue(new TypeError("fetch failed: offline"));
+
+    await expect(
+      openRouterChatCompletion(ctx, {
+        ...baseInput,
+        attribution: { generationId, learningDigestIds: [digestId] },
+      }),
+    ).rejects.toThrow(/offline/);
+
+    expect(fetchMock).toHaveBeenCalledTimes(OPENROUTER_MAX_RETRIES + 1);
+    expect(runMutation).toHaveBeenCalledTimes(1);
+    expect(runAfter).not.toHaveBeenCalled();
+  });
+
+  it("does not start the OpenRouter retry loop when the required digest union fails", async () => {
+    const { ctx, runAfter, runMutation } = fakeCtx();
+    runMutation.mockRejectedValueOnce(new Error("digest union unavailable"));
+
+    await expect(
+      openRouterChatCompletion(ctx, {
+        ...baseInput,
+        attribution: {
+          generationId: testId<"generations">("openrouter-union-failure"),
+          learningDigestIds: [
+            testId<"learningDigests">("openrouter-union-failure-digest"),
+          ],
+        },
+      }),
+    ).rejects.toThrow("digest union unavailable");
+
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(runAfter).not.toHaveBeenCalled();
   });
 

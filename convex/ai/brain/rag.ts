@@ -27,6 +27,7 @@ import { brainEmbeddingModel, BRAIN_EMBEDDING_DIMENSION } from "./embeddings";
  * negative signal, never mixed into exemplar retrieval.)
  */
 export const BRAIN_NAMESPACE = "brain";
+export const BRAIN_FILTER_NAMES = ["industryApproved", "docType"] as const;
 // NOTE: rag requires a value for EVERY declared filterName on every add, so we
 // only declare filters we set on 100% of entries. `craOutcome` is intentionally
 // NOT a filter (CRA rejections live in their own namespace); it's kept in
@@ -51,7 +52,7 @@ export const brain = new RAG<BrainFilters, BrainEntryMetadata>(components.rag, {
   textEmbeddingModel: brainEmbeddingModel,
   embeddingDimension: BRAIN_EMBEDDING_DIMENSION,
   // Max 16 filter fields per vector index — we use 2 (both set on every entry).
-  filterNames: ["industryApproved", "docType"],
+  filterNames: [...BRAIN_FILTER_NAMES],
 });
 
 /**

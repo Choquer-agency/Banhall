@@ -10,14 +10,49 @@ import { generateStructured } from "./structured";
 import { qaScorecardSchema } from "../../shared/qaScorecard";
 import type { z } from "zod";
 
-function numberParagraphs(text: string): string {
+export const QA_REQUEST = {
+  userScaffold: {
+    prefix: "Review the following SR&ED report draft.\n\n",
+    checksHeading: "",
+    analysisHeading: "\n\n## Original Transcript Analysis\n",
+    section242Heading:
+      "\n\n## Section 242 — Scientific/Technological Uncertainty\n",
+    section244Heading: "\n\n## Section 244 — Work Performed\n",
+    section246Heading:
+      "\n\n## Section 246 — Scientific/Technological Advancement\n",
+    runtimeSentinels: [
+      "{{runtime.deterministicChecks}}",
+      "{{runtime.transcriptAnalysis}}",
+      "{{runtime.section242}}",
+      "{{runtime.section244}}",
+      "{{runtime.section246}}",
+    ],
+  },
+  calibrationScaffold: {
+    prefix:
+      "\n\n## Reviewer Calibration (from writer feedback on past QA output)\nApply these adjustments when deciding what to flag and how to classify severity. They never override the structural requirements or scoring rules above.\n",
+    runtimeSentinel: "{{runtime.qaCalibration}}",
+  },
+  paragraphMarkers: { prefix: "[P", suffix: "] ", separator: "\n\n" },
+  roleOrder: ["system", "user"],
+  toolName: "submit_qa_scorecard",
+  toolDescription: "Submit the QA scorecard for the SR&ED report draft.",
+  jsonIndentation: 2,
+  maxTokens: 4096,
+  modelSelector: "candidate-model-or-default",
+} as const;
+
+export function numberParagraphs(text: string): string {
   return text
     .replace(/\r\n?/g, "\n")
     .split(/\n[^\S\n]*\n+/)
     .map((paragraph) => paragraph.replace(/\s+/g, " ").trim())
     .filter(Boolean)
-    .map((paragraph, index) => `[P${index + 1}] ${paragraph}`)
-    .join("\n\n");
+    .map(
+      (paragraph, index) =>
+        `${QA_REQUEST.paragraphMarkers.prefix}${index + 1}${QA_REQUEST.paragraphMarkers.suffix}${paragraph}`
+    )
+    .join(QA_REQUEST.paragraphMarkers.separator);
 }
 
 export interface QAIssue {
@@ -80,30 +115,16 @@ export async function runQAAgent(
   // convex/ai/learning.ts). Tunes which observations to raise and their
   // severity; the rubric and scoring arithmetic above stay authoritative.
   const calibrationBlock = calibration?.trim()
-    ? `\n\n## Reviewer Calibration (from writer feedback on past QA output)\nApply these adjustments when deciding what to flag and how to classify severity. They never override the structural requirements or scoring rules above.\n${calibration.trim()}`
+    ? `${QA_REQUEST.calibrationScaffold.prefix}${calibration.trim()}`
     : "";
 
   return await generateStructured<QAScorecard>(client, {
     system: buildQaSystemPrompt(styleOverrides, firstPersonRequested) + calibrationBlock,
-    user: `Review the following SR&ED report draft.
-
-${preComputedChecks}
-
-## Original Transcript Analysis
-${JSON.stringify(analysis, null, 2)}
-
-## Section 242 — Scientific/Technological Uncertainty
-${numberParagraphs(section242)}
-
-## Section 244 — Work Performed
-${numberParagraphs(section244)}
-
-## Section 246 — Scientific/Technological Advancement
-${numberParagraphs(section246)}`,
-    toolName: "submit_qa_scorecard",
-    description: "Submit the QA scorecard for the SR&ED report draft.",
+    user: `${QA_REQUEST.userScaffold.prefix}${preComputedChecks}${QA_REQUEST.userScaffold.analysisHeading}${JSON.stringify(analysis, null, QA_REQUEST.jsonIndentation)}${QA_REQUEST.userScaffold.section242Heading}${numberParagraphs(section242)}${QA_REQUEST.userScaffold.section244Heading}${numberParagraphs(section244)}${QA_REQUEST.userScaffold.section246Heading}${numberParagraphs(section246)}`,
+    toolName: QA_REQUEST.toolName,
+    description: QA_REQUEST.toolDescription,
     schema: QA_SCHEMA,
-    maxTokens: 4096,
+    maxTokens: QA_REQUEST.maxTokens,
     model,
     // Enforce the same contract the panel reads. Without this a scorecard the
     // renderer can't parse is still stored and marked done, and the writer
@@ -132,7 +153,7 @@ const sectionScore = {
   },
 } as const;
 
-const QA_SCHEMA: Anthropic.Tool.InputSchema = {
+export const QA_SCHEMA: Anthropic.Tool.InputSchema = {
   type: "object",
   properties: {
     overall_score: { type: "number" },

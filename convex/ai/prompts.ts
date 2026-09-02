@@ -130,10 +130,65 @@ Respond with ONLY valid JSON matching this structure:
 // The block texts live in shared/houseRules.ts (PSOS-50) so the admin
 // House Rules page renders the same rulebook the prompts are assembled from.
 
+export const SHARED_WRITING_RULE_PROGRAM = {
+  wrapper: {
+    prefix: "\n## Writing Rules (MANDATORY)\n\n",
+    blockSeparator: "\n\n",
+    suffix: "\n",
+  },
+  blocks: {
+    voice: RULES_VOICE,
+    voiceConsistency: RULES_VOICE_CONSISTENCY,
+    sentenceConstruction: RULES_SENTENCE_CONSTRUCTION,
+    openingClauses: RULES_CRA_OPENERS,
+    bannedWords: RULES_BANNED_WORDS,
+    humanProse: RULES_HUMAN_PROSE,
+    repetition: RULES_REPETITION,
+    density: RULES_DENSITY,
+    general: RULES_GENERAL,
+    repetitionTracking: RULES_REPETITION_TRACKING,
+    bannedWordSelfCheck: RULES_BANNED_SELF_CHECK,
+  },
+  orderedBlockIds: [
+    "voice",
+    "voiceConsistency",
+    "sentenceConstruction",
+    "openingClauses",
+    "bannedWords",
+    "humanProse",
+    "repetition",
+    "density",
+    "general",
+    "repetitionTracking",
+    "bannedWordSelfCheck",
+    "waiverFooter",
+  ],
+  waiverFooter: {
+    prefix: "HOUSE-RULE WAIVERS:\nThe default house rules are waived for: ",
+    labelSeparator: "; ",
+    preferences:
+      ". For those areas, follow the writer's personal style preferences if a preferences block is provided in the user message; if none is provided, use your own professional judgment; the waived default rules simply do not apply. ",
+    skeletonWaivedMandatory:
+      "Only the length budget and the evidence rules (use only the provided material; [GAP] placeholders instead of invention) remain mandatory; the writer's preferences govern everything else about structure and content.",
+    defaultMandatory:
+      "Every CRA rule in this prompt (section structure, paragraph roles, required content, length limits, and evidence rules) remains mandatory.",
+  },
+} as const;
+
 /** Human-readable list of the waived categories, for prompt footers. */
+export const GENERATION_STYLE_CATEGORY_LABELS = {
+  bannedWords: STYLE_OVERRIDE_META.bannedWords.label.toLowerCase(),
+  paragraphDensity: STYLE_OVERRIDE_META.paragraphDensity.label.toLowerCase(),
+  sentenceConstruction:
+    STYLE_OVERRIDE_META.sentenceConstruction.label.toLowerCase(),
+  repetitionCaps: STYLE_OVERRIDE_META.repetitionCaps.label.toLowerCase(),
+  openingClauses: STYLE_OVERRIDE_META.openingClauses.label.toLowerCase(),
+  reportSkeleton: STYLE_OVERRIDE_META.reportSkeleton.label.toLowerCase(),
+} as const;
+
 export function waivedCategoryLabels(overrides: StyleOverrides): string[] {
   return STYLE_OVERRIDE_KEYS.filter((key) => overrides[key]).map(
-    (key) => STYLE_OVERRIDE_META[key].label.toLowerCase()
+    (key) => GENERATION_STYLE_CATEGORY_LABELS[key]
   );
 }
 
@@ -141,10 +196,9 @@ function waiverFooter(overrides: StyleOverrides): string {
   const waived = waivedCategoryLabels(overrides);
   if (waived.length === 0) return "";
   const stillMandatory = overrides.reportSkeleton
-    ? "Only the length budget and the evidence rules (use only the provided material; [GAP] placeholders instead of invention) remain mandatory; the writer's preferences govern everything else about structure and content."
-    : "Every CRA rule in this prompt (section structure, paragraph roles, required content, length limits, and evidence rules) remains mandatory.";
-  return `HOUSE-RULE WAIVERS:
-The default house rules are waived for: ${waived.join("; ")}. For those areas, follow the writer's personal style preferences if a preferences block is provided in the user message; if none is provided, use your own professional judgment; the waived default rules simply do not apply. ${stillMandatory}`;
+    ? SHARED_WRITING_RULE_PROGRAM.waiverFooter.skeletonWaivedMandatory
+    : SHARED_WRITING_RULE_PROGRAM.waiverFooter.defaultMandatory;
+  return `${SHARED_WRITING_RULE_PROGRAM.waiverFooter.prefix}${waived.join(SHARED_WRITING_RULE_PROGRAM.waiverFooter.labelSeparator)}${SHARED_WRITING_RULE_PROGRAM.waiverFooter.preferences}${stillMandatory}`;
 }
 
 // ─── Writer-defined architecture (reportSkeleton waived) ─────────────────────
@@ -174,25 +228,43 @@ const LINE_246_PURPOSE =
 export function buildSharedWritingRules(
   overrides: StyleOverrides = NO_STYLE_OVERRIDES
 ): string {
+  const definitions = SHARED_WRITING_RULE_PROGRAM;
   const blocks = [
-    RULES_VOICE,
-    RULES_VOICE_CONSISTENCY,
-    overrides.sentenceConstruction ? null : RULES_SENTENCE_CONSTRUCTION,
-    overrides.openingClauses ? null : RULES_CRA_OPENERS,
-    overrides.bannedWords ? null : RULES_BANNED_WORDS,
-    RULES_HUMAN_PROSE,
-    overrides.repetitionCaps ? null : RULES_REPETITION,
-    overrides.paragraphDensity ? null : RULES_DENSITY,
-    RULES_GENERAL,
-    overrides.repetitionCaps ? null : RULES_REPETITION_TRACKING,
-    overrides.bannedWords ? null : RULES_BANNED_SELF_CHECK,
+    definitions.blocks.voice,
+    definitions.blocks.voiceConsistency,
+    overrides.sentenceConstruction
+      ? null
+      : definitions.blocks.sentenceConstruction,
+    overrides.openingClauses ? null : definitions.blocks.openingClauses,
+    overrides.bannedWords ? null : definitions.blocks.bannedWords,
+    definitions.blocks.humanProse,
+    overrides.repetitionCaps ? null : definitions.blocks.repetition,
+    overrides.paragraphDensity ? null : definitions.blocks.density,
+    definitions.blocks.general,
+    overrides.repetitionCaps ? null : definitions.blocks.repetitionTracking,
+    overrides.bannedWords ? null : definitions.blocks.bannedWordSelfCheck,
     waiverFooter(overrides) || null,
   ].filter((block): block is string => Boolean(block));
-  return `\n## Writing Rules (MANDATORY)\n\n${blocks.join("\n\n")}\n`;
+  return `${definitions.wrapper.prefix}${blocks.join(definitions.wrapper.blockSeparator)}${definitions.wrapper.suffix}`;
 }
 
 
 // ─── AGENT 2: SECTION 242 — WHY BEING SOUGHT ────────────────────────────────
+
+export const SECTION_242_PROMPT_BRANCHES = {
+  passiveUncertaintyOpening: {
+    default:
+      'It MUST open with: "The limitations to standard practice were that..."',
+    waived:
+      'It MUST open with a direct statement of the limitations to standard practice, phrased per the writer\'s saved preferences (the default opener is "The limitations to standard practice were that...").',
+  },
+  technologicalObjectiveOpening: {
+    default:
+      'This paragraph MUST open with: "The technological objective was to advance the understanding of [specific knowledge area] for the purposes of [improving/creating the specific technological solution]."',
+    waived:
+      'This paragraph MUST state, at its start, the technological objective as two clauses: advancing the understanding of [specific knowledge area] for the purposes of [improving/creating the specific technological solution]. The writer\'s preferred phrasing may be used (the default opener is "The technological objective was to advance the understanding of..."), but both clauses must appear.',
+  },
+} as const;
 
 export function buildSection242SystemPrompt(
   overrides: StyleOverrides = NO_STYLE_OVERRIDES
@@ -233,8 +305,8 @@ Describe the company's goal. This can be high-level. This is the project goal; t
 **Paragraph 3; PASSIVE TECHNOLOGICAL UNCERTAINTIES/LIMITATIONS:**
 This is the HARDEST and MOST IMPORTANT paragraph. ${
     overrides.openingClauses
-      ? 'It MUST open with a direct statement of the limitations to standard practice, phrased per the writer\'s saved preferences (the default opener is "The limitations to standard practice were that...").'
-      : 'It MUST open with: "The limitations to standard practice were that..."'
+      ? SECTION_242_PROMPT_BRANCHES.passiveUncertaintyOpening.waived
+      : SECTION_242_PROMPT_BRANCHES.passiveUncertaintyOpening.default
   }
 
 These are NOT limitations to the physical product or process itself; they are conceptual limitations to scientific or technological KNOWLEDGE.
@@ -259,8 +331,8 @@ RIGHT: "The engineering knowledge required to design window systems capable of e
 **Paragraph 4; TECHNOLOGICAL OBJECTIVE:**
 ${
     overrides.openingClauses
-      ? 'This paragraph MUST state, at its start, the technological objective as two clauses: advancing the understanding of [specific knowledge area] for the purposes of [improving/creating the specific technological solution]. The writer\'s preferred phrasing may be used (the default opener is "The technological objective was to advance the understanding of..."), but both clauses must appear.'
-      : 'This paragraph MUST open with: "The technological objective was to advance the understanding of [specific knowledge area] for the purposes of [improving/creating the specific technological solution]."'
+      ? SECTION_242_PROMPT_BRANCHES.technologicalObjectiveOpening.waived
+      : SECTION_242_PROMPT_BRANCHES.technologicalObjectiveOpening.default
   }
 
 The first clause is CONCEPTUAL; it describes new knowledge being sought. The second clause is the PHYSICAL EMBODIMENT; the specific solution that applies that knowledge. The second clause is NOT the same as the project goal from Paragraph 2.
@@ -285,6 +357,21 @@ Respond with ONLY the 5 paragraphs of text. No headers, no labels, no metadata. 
 
 
 // ─── AGENT 3: SECTION 244 — HOW (WORK PERFORMED) ────────────────────────────
+
+export const SECTION_244_PROMPT_BRANCHES = {
+  hypothesisOpening: {
+    default:
+      'This paragraph MUST open with: "It was hypothesized that if [specific approach, method, or condition], then [specific measurable outcome related to the technological advancement]."',
+    waived:
+      'This paragraph MUST state the hypothesis at its start, in strict if/then form: if [specific approach, method, or condition], then [specific measurable outcome related to the technological advancement]. The writer\'s preferred opening phrasing may be used (the default opener is "It was hypothesized that if...").',
+  },
+  systematicPhraseGuidance: {
+    default:
+      'IMPORTANT: Use the phrase "systematic investigation" or "systematic experimentation" NO MORE THAN TWICE in the entire section. Demonstrate the systematic approach through the content itself; describe ordered steps, controlled variables, and evidence-based conclusions; rather than asserting "systematic" repeatedly.',
+    waived:
+      'Demonstrate the systematic approach through the content itself; describe ordered steps, controlled variables, and evidence-based conclusions; rather than asserting "systematic" repeatedly.',
+  },
+} as const;
 
 export function buildSection244SystemPrompt(
   overrides: StyleOverrides = NO_STYLE_OVERRIDES
@@ -317,8 +404,8 @@ Define or re-state the technological problem. Then describe the planned systemat
 **Paragraph 3; HYPOTHESIS:**
 ${
     overrides.openingClauses
-      ? 'This paragraph MUST state the hypothesis at its start, in strict if/then form: if [specific approach, method, or condition], then [specific measurable outcome related to the technological advancement]. The writer\'s preferred opening phrasing may be used (the default opener is "It was hypothesized that if...").'
-      : 'This paragraph MUST open with: "It was hypothesized that if [specific approach, method, or condition], then [specific measurable outcome related to the technological advancement]."'
+      ? SECTION_244_PROMPT_BRANCHES.hypothesisOpening.waived
+      : SECTION_244_PROMPT_BRANCHES.hypothesisOpening.default
   }
 
 The hypothesis MUST be specific, testable, and measurable. It must follow strict if/then structure where both clauses contain technical specifics.
@@ -351,8 +438,8 @@ SELF-CHECK FOR EACH EXPERIMENTATION PARAGRAPH: After writing it, verify it conta
 
 ${
     overrides.repetitionCaps
-      ? 'Demonstrate the systematic approach through the content itself; describe ordered steps, controlled variables, and evidence-based conclusions; rather than asserting "systematic" repeatedly.'
-      : 'IMPORTANT: Use the phrase "systematic investigation" or "systematic experimentation" NO MORE THAN TWICE in the entire section. Demonstrate the systematic approach through the content itself; describe ordered steps, controlled variables, and evidence-based conclusions; rather than asserting "systematic" repeatedly.'
+      ? SECTION_244_PROMPT_BRANCHES.systematicPhraseGuidance.waived
+      : SECTION_244_PROMPT_BRANCHES.systematicPhraseGuidance.default
   }
 
 If the transcript analysis contains fewer than 3 distinct experiments, write fewer paragraphs. If it contains more, consolidate related work. Do not invent experiments not present in the source material.
@@ -366,6 +453,24 @@ Respond with ONLY the paragraphs of text. No headers, no labels, no metadata. Ju
 
 
 // ─── AGENT 4: SECTION 246 — WHY ACHIEVED ────────────────────────────────────
+
+export const SECTION_246_PROMPT_BRANCHES = {
+  advancementOpening: {
+    default:
+      'At least 2 of the 3 advancement paragraphs MUST open with "Through systematic investigation, it was determined that..." or "It was established that..."',
+    waived:
+      'Every advancement paragraph MUST open with the knowledge finding itself; what was determined or established; in the writer\'s preferred phrasing (the default openers are "Through systematic investigation, it was determined that..." and "It was established that...").',
+  },
+  repetitionGuidance: {
+    default:
+      'IMPORTANT: Use the phrase "technological uncertainty" no more than 3 times in this entire section. After initial use, vary with "the uncertainty regarding", "this challenge", "the open question of", or restructure.\n\n',
+    waived: "",
+  },
+  paragraphDensity: {
+    default: " Keep it concise: 3-4 sentences maximum.",
+    waived: "",
+  },
+} as const;
 
 export function buildSection246SystemPrompt(
   overrides: StyleOverrides = NO_STYLE_OVERRIDES
@@ -400,8 +505,8 @@ Open by restating the technological objective and to what extent it was achieved
 **Paragraphs 2, 3, 4; TECHNOLOGICAL ADVANCEMENTS:**
 Each paragraph addresses ONE specific technological uncertainty from 242 and describes the advancement. ${
     overrides.openingClauses
-      ? 'Every advancement paragraph MUST open with the knowledge finding itself; what was determined or established; in the writer\'s preferred phrasing (the default openers are "Through systematic investigation, it was determined that..." and "It was established that...").'
-      : 'At least 2 of the 3 advancement paragraphs MUST open with "Through systematic investigation, it was determined that..." or "It was established that..."'
+      ? SECTION_246_PROMPT_BRANCHES.advancementOpening.waived
+      : SECTION_246_PROMPT_BRANCHES.advancementOpening.default
   }
 
 The structure of every advancement paragraph should be:
@@ -417,10 +522,8 @@ GOOD (leads with knowledge):
 
 ${
     overrides.repetitionCaps
-      ? ""
-      : `IMPORTANT: Use the phrase "technological uncertainty" no more than 3 times in this entire section. After initial use, vary with "the uncertainty regarding", "this challenge", "the open question of", or restructure.
-
-`
+      ? SECTION_246_PROMPT_BRANCHES.repetitionGuidance.waived
+      : SECTION_246_PROMPT_BRANCHES.repetitionGuidance.default
   }If fewer than 3 advancements are present in the source material, write fewer paragraphs. Do not fabricate advancements.
 
 **Paragraph 5; PROJECT STATUS & NEXT STEPS:**
@@ -428,7 +531,9 @@ Be specific about what is still unknown and WHY it remains uncertain. Don't just
 
 **Paragraph 6; PROJECT GOAL & IMPROVEMENTS:**
 This is the only paragraph in 246 where you lead with the physical outcome. Connect the knowledge gained back to the original project goal from 242 P2. Describe how the advancement improved the product/process. This should feel like the report coming full circle; the last paragraph of 246 echoes the project goal in 242 P2.${
-    overrides.paragraphDensity ? "" : " Keep it concise: 3-4 sentences maximum."
+    overrides.paragraphDensity
+      ? SECTION_246_PROMPT_BRANCHES.paragraphDensity.waived
+      : SECTION_246_PROMPT_BRANCHES.paragraphDensity.default
   }
 
 ${buildSharedWritingRules(overrides)}
@@ -440,6 +545,49 @@ Respond with ONLY the paragraphs of text. No headers, no labels, no metadata. Ju
 
 
 // ─── AGENT 5: QA & SCORING ──────────────────────────────────────────────────
+
+export const QA_PROMPT_BRANCHES = {
+  structureCompliance: {
+    default: `### Structure Compliance
+- Does Section 242 contain all 5 required paragraphs (company/context, goal/problem, passive uncertainties, technological objective, active uncertainties)?
+- Does Section 244 contain the required paragraphs (optional prior year, workplan, hypothesis, experimentation)?
+- Does Section 246 contain the required paragraphs (advancement, specific advancements, project status, project goal)?`,
+    skeletonWaived: `### Structure Compliance: WAIVED
+- This writer's profile replaces the built-in section skeleton with their own settings document. Paragraph counts, paragraph roles, ordering, mandated opening phrases, and the default framing conventions do NOT apply. Do NOT flag or deduct for a section having more, fewer, or differently arranged paragraphs than the default skeleton, for consolidated or split paragraphs, or for the absence of signal phrases.
+- Every check below that names a paragraph position (P3, P5, "paragraphs 2, 3, and 4") is positional guidance for the DEFAULT skeleton only. For this report, locate the relevant content by what it says, not where it sits; if you cannot locate it, do not deduct.
+- Judge the substance instead: does the report, in the writer's own architecture, convey a genuine technological uncertainty, a systematic investigation, and a knowledge advancement that a CRA reviewer would accept? Deduct only for substantive weaknesses a writer would need to rework, never for deviation from the default structure.
+- The CRA Verbiage, Conceptual Accuracy, Knowledge vs. Capability, Hypothesis Specificity, Passive vs. Active, and Experimentation Narrative Arc checks below describe the DEFAULT methodology. For this writer they are ADVISORY: report a genuine substantive weakness as a "warning" (no deduction) so the writer can decide; deduct only when a claim is unsupported by the source material or the section is empty of substance. The Human Prose, Writing Quality, Faithfulness, and Gaps checks apply as written.
+
+### CRA Keyword Visibility Check: WAIVED
+- Do NOT deduct for missing signal phrases ("The limitations to standard practice were...", "The technological objective was to...", "It was hypothesized that if...", "Through systematic investigation, it was determined that..."). Ignore any pre-computed opener results.`,
+  },
+  keywordVisibility: {
+    heading: "### CRA Keyword Visibility Check\n",
+    skeletonWaived: "",
+    openingClausesWaived: `- WAIVED: this writer's profile waives the mandated literal opening clauses. Do NOT deduct points or flag issues for missing signal phrases ("The limitations to standard practice were...", "The technological objective was to...", "It was hypothesized that if...", "Through systematic investigation, it was determined that...").
+- Still verify the underlying CONTENT is present in the writer's own phrasing: 242 P3 states the limitations of standard practice, 242 P4 states the technological objective (knowledge sought + solution), the 244 hypothesis is in if/then form, and 246 advancement paragraphs open with knowledge findings. Flag and deduct only when the content itself is missing.`,
+    default: `- Does "The limitations to standard practice were..." appear near the start of 242 P3? (Not buried mid-sentence) If not, flag and deduct 5 points from 242.
+- Does "The technological objective was to..." open 242 P4? If not, flag and deduct 5 points.
+- Does the hypothesis open with "It was hypothesized that if..."? If not, flag and deduct 5 points from 244.
+- FOR 246 ADVANCEMENT OPENERS: Use the pre-computed "CRA Opener Detection" results provided above. These were verified programmatically by parsing the first sentence of each paragraph. Trust these results; do not re-evaluate them. If the pre-computed check shows fewer than 2/3 passing, deduct 5 points from 246.
+  NOTE: Paragraph 1 of 246 SHOULD open by restating the technological objective. Do NOT apply the knowledge-first opening rule to paragraph 1.`,
+  },
+  firstPerson: {
+    requested: `- The writer's preferences ASK for first-person plural ("we", "our"). Sentences about the team's actions, observations, interpretations, or expectations must use "we/our"; if the report never uses first person at all, flag once as "requested first person not applied" and deduct 3 points overall.`,
+    notRequested: `- The writer's preferences DO NOT ask for first person. Any "we", "our", or "us" referring to the company is a defect: flag each sentence with the quote and deduct 1 point from that section (max 5 per section). Skip the mixed-voice rule below.`,
+    unknown: `- Whether first person was requested is unknown. If the report uses first-person plural in only one or two sentences of an otherwise impersonal draft, treat it as stray first person: flag once with the quoted sentence, deduct 1 point, and skip the mixed-voice rule below. If first person is used throughout, apply the mixed-voice rule.`,
+  },
+  bannedWords: {
+    default: `- FOR BANNED WORDS AND REPETITION: Use the pre-computed "Banned Word Scan" and "Repetition Count" results provided above. These were verified programmatically. Copy the found violations into the superlative_flags and ai_language_flags arrays. Trust these results; do not re-scan.`,
+    waived: `- BANNED-WORD SCANNING IS WAIVED for this writer: their profile exempts the default banned-word list. Do NOT flag vocabulary from that list; leave superlative_flags and ai_language_flags empty unless a claim is genuinely unsupported marketing language.`,
+  },
+  repetitionCaps: {
+    default:
+      "- Identify any other phrase (not in the banned list) that appears 3+ times and flag it.",
+    waived:
+      "- REPETITION CAPS ARE WAIVED for this writer: do not flag phrase repetition.",
+  },
+} as const;
 
 export function buildQaSystemPrompt(
   overrides: StyleOverrides = NO_STYLE_OVERRIDES,
@@ -461,31 +609,16 @@ Score each section (0-100) and the overall report based on:
 
 ${
     skeletonWaived
-      ? `### Structure Compliance: WAIVED
-- This writer's profile replaces the built-in section skeleton with their own settings document. Paragraph counts, paragraph roles, ordering, mandated opening phrases, and the default framing conventions do NOT apply. Do NOT flag or deduct for a section having more, fewer, or differently arranged paragraphs than the default skeleton, for consolidated or split paragraphs, or for the absence of signal phrases.
-- Every check below that names a paragraph position (P3, P5, "paragraphs 2, 3, and 4") is positional guidance for the DEFAULT skeleton only. For this report, locate the relevant content by what it says, not where it sits; if you cannot locate it, do not deduct.
-- Judge the substance instead: does the report, in the writer's own architecture, convey a genuine technological uncertainty, a systematic investigation, and a knowledge advancement that a CRA reviewer would accept? Deduct only for substantive weaknesses a writer would need to rework, never for deviation from the default structure.
-- The CRA Verbiage, Conceptual Accuracy, Knowledge vs. Capability, Hypothesis Specificity, Passive vs. Active, and Experimentation Narrative Arc checks below describe the DEFAULT methodology. For this writer they are ADVISORY: report a genuine substantive weakness as a "warning" (no deduction) so the writer can decide; deduct only when a claim is unsupported by the source material or the section is empty of substance. The Human Prose, Writing Quality, Faithfulness, and Gaps checks apply as written.
-
-### CRA Keyword Visibility Check: WAIVED
-- Do NOT deduct for missing signal phrases ("The limitations to standard practice were...", "The technological objective was to...", "It was hypothesized that if...", "Through systematic investigation, it was determined that..."). Ignore any pre-computed opener results.`
-      : `### Structure Compliance
-- Does Section 242 contain all 5 required paragraphs (company/context, goal/problem, passive uncertainties, technological objective, active uncertainties)?
-- Does Section 244 contain the required paragraphs (optional prior year, workplan, hypothesis, experimentation)?
-- Does Section 246 contain the required paragraphs (advancement, specific advancements, project status, project goal)?`
+      ? QA_PROMPT_BRANCHES.structureCompliance.skeletonWaived
+      : QA_PROMPT_BRANCHES.structureCompliance.default
   }
 
-${skeletonWaived ? "" : "### CRA Keyword Visibility Check\n"}${
+${skeletonWaived ? "" : QA_PROMPT_BRANCHES.keywordVisibility.heading}${
     skeletonWaived
-      ? ""
+      ? QA_PROMPT_BRANCHES.keywordVisibility.skeletonWaived
       : overrides.openingClauses
-      ? `- WAIVED: this writer's profile waives the mandated literal opening clauses. Do NOT deduct points or flag issues for missing signal phrases ("The limitations to standard practice were...", "The technological objective was to...", "It was hypothesized that if...", "Through systematic investigation, it was determined that...").
-- Still verify the underlying CONTENT is present in the writer's own phrasing: 242 P3 states the limitations of standard practice, 242 P4 states the technological objective (knowledge sought + solution), the 244 hypothesis is in if/then form, and 246 advancement paragraphs open with knowledge findings. Flag and deduct only when the content itself is missing.`
-      : `- Does "The limitations to standard practice were..." appear near the start of 242 P3? (Not buried mid-sentence) If not, flag and deduct 5 points from 242.
-- Does "The technological objective was to..." open 242 P4? If not, flag and deduct 5 points.
-- Does the hypothesis open with "It was hypothesized that if..."? If not, flag and deduct 5 points from 244.
-- FOR 246 ADVANCEMENT OPENERS: Use the pre-computed "CRA Opener Detection" results provided above. These were verified programmatically by parsing the first sentence of each paragraph. Trust these results; do not re-evaluate them. If the pre-computed check shows fewer than 2/3 passing, deduct 5 points from 246.
-  NOTE: Paragraph 1 of 246 SHOULD open by restating the technological objective. Do NOT apply the knowledge-first opening rule to paragraph 1.`
+      ? QA_PROMPT_BRANCHES.keywordVisibility.openingClausesWaived
+      : QA_PROMPT_BRANCHES.keywordVisibility.default
   }
 
 ### Human Prose Check
@@ -495,10 +628,10 @@ ${skeletonWaived ? "" : "### CRA Keyword Visibility Check\n"}${
 ### Voice Consistency Check (mandated-opener paragraphs only)
 ${
     firstPersonRequested === true
-      ? `- The writer's preferences ASK for first-person plural ("we", "our"). Sentences about the team's actions, observations, interpretations, or expectations must use "we/our"; if the report never uses first person at all, flag once as "requested first person not applied" and deduct 3 points overall.`
+      ? QA_PROMPT_BRANCHES.firstPerson.requested
       : firstPersonRequested === false
-        ? `- The writer's preferences DO NOT ask for first person. Any "we", "our", or "us" referring to the company is a defect: flag each sentence with the quote and deduct 1 point from that section (max 5 per section). Skip the mixed-voice rule below.`
-        : `- Whether first person was requested is unknown. If the report uses first-person plural in only one or two sentences of an otherwise impersonal draft, treat it as stray first person: flag once with the quoted sentence, deduct 1 point, and skip the mixed-voice rule below. If first person is used throughout, apply the mixed-voice rule.`
+        ? QA_PROMPT_BRANCHES.firstPerson.notRequested
+        : QA_PROMPT_BRANCHES.firstPerson.unknown
   }
 - Mixed-voice rule (first-person reports only). Check the paragraphs that carry a mandated opener: 242 P3 and P4, the 244 hypothesis paragraph, and each 246 advancement paragraph that opens with "Through systematic investigation". The opener itself is always impersonal and is never a violation.
 - After the opener, voice must follow sentence FUNCTION: sentences stating a physical/technical mechanism or established scientific principle stay neutral third person; sentences describing the team's actions, observations, interpretations, expectations, or applications of knowledge use "we/our". In a first-person report, "the company observed" and passive "it was observed" both count as impersonal for a team-action sentence.
@@ -548,13 +681,13 @@ ${
 ### Writing Quality
 ${
     overrides.bannedWords
-      ? `- BANNED-WORD SCANNING IS WAIVED for this writer: their profile exempts the default banned-word list. Do NOT flag vocabulary from that list; leave superlative_flags and ai_language_flags empty unless a claim is genuinely unsupported marketing language.`
-      : `- FOR BANNED WORDS AND REPETITION: Use the pre-computed "Banned Word Scan" and "Repetition Count" results provided above. These were verified programmatically. Copy the found violations into the superlative_flags and ai_language_flags arrays. Trust these results; do not re-scan.`
+      ? QA_PROMPT_BRANCHES.bannedWords.waived
+      : QA_PROMPT_BRANCHES.bannedWords.default
   }
 ${
     overrides.repetitionCaps
-      ? `- REPETITION CAPS ARE WAIVED for this writer: do not flag phrase repetition.`
-      : `- Identify any other phrase (not in the banned list) that appears 3+ times and flag it.`
+      ? QA_PROMPT_BRANCHES.repetitionCaps.waived
+      : QA_PROMPT_BRANCHES.repetitionCaps.default
   }
 - Are there bullet points that should be prose?
 - Is the tone formal and consultant-like?
@@ -612,6 +745,65 @@ Respond with ONLY valid JSON:
 }`;
 }
 
+/**
+ * Provider-visible writing prompt definitions consumed by the generation
+ * program manifest. Runtime builders consume the branch and rule constants;
+ * the two base architecture renders capture their remaining exact static
+ * text without a combinatorial style-mask expansion. Runtime report data is
+ * intentionally absent.
+ */
+const WRITER_DEFINED_ARCHITECTURE_OVERRIDES = {
+  ...NO_STYLE_OVERRIDES,
+  reportSkeleton: true,
+} as const;
+
+export const GENERATION_WRITING_PROMPT_PROGRAM = {
+  styleSelector: {
+    overrideOrder: STYLE_OVERRIDE_KEYS,
+    defaultOverrides: NO_STYLE_OVERRIDES,
+    waivedCategoryLabels: GENERATION_STYLE_CATEGORY_LABELS,
+    branchRules: {
+      trueMeans: "waive-corresponding-default-instruction",
+      reportSkeleton:
+        "select-writer-defined-section-architecture-and-qa-structure-waiver",
+      firstPerson: [true, false, null],
+    },
+  },
+  sharedRuleAssembly: SHARED_WRITING_RULE_PROGRAM,
+  instructionBranches: {
+    section242: SECTION_242_PROMPT_BRANCHES,
+    section244: SECTION_244_PROMPT_BRANCHES,
+    section246: SECTION_246_PROMPT_BRANCHES,
+    qa: QA_PROMPT_BRANCHES,
+  },
+  sectionSystemTemplates: {
+    section242: {
+      defaultArchitecture: buildSection242SystemPrompt(NO_STYLE_OVERRIDES),
+      writerDefinedArchitecture: buildSection242SystemPrompt(
+        WRITER_DEFINED_ARCHITECTURE_OVERRIDES
+      ),
+    },
+    section244: {
+      defaultArchitecture: buildSection244SystemPrompt(NO_STYLE_OVERRIDES),
+      writerDefinedArchitecture: buildSection244SystemPrompt(
+        WRITER_DEFINED_ARCHITECTURE_OVERRIDES
+      ),
+    },
+    section246: {
+      defaultArchitecture: buildSection246SystemPrompt(NO_STYLE_OVERRIDES),
+      writerDefinedArchitecture: buildSection246SystemPrompt(
+        WRITER_DEFINED_ARCHITECTURE_OVERRIDES
+      ),
+    },
+  },
+  qaSystemTemplates: {
+    defaultArchitecture: buildQaSystemPrompt(NO_STYLE_OVERRIDES, null),
+    writerDefinedArchitecture: buildQaSystemPrompt(
+      WRITER_DEFINED_ARCHITECTURE_OVERRIDES,
+      null
+    ),
+  },
+} as const;
 
 // ─── PD REVIEW MODE (BNH-39): review an existing written PD ──────────────────
 
@@ -751,4 +943,3 @@ A rejection means "refine this," NOT "give up." The writer often rejects simply 
 - If they say they LIKED a previous or rejected version and only want a small change, reproduce that exact version from the PRIOR EDIT DECISIONS block with ONLY the requested change applied. Do not rewrite it from scratch or drop the parts they liked.
 - Only when the request is genuinely ambiguous should you ask a brief clarifying question; and even then, offer 2–3 concrete options so they can just pick one.`;
 }
-

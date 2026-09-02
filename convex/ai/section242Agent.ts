@@ -7,6 +7,22 @@ import { buildSection242SystemPrompt } from "./prompts";
 import type { StyleOverrides } from "../../shared/styleOverrides";
 import type { TranscriptAnalysis } from "./analyzerAgent";
 
+export const SECTION_242_REQUEST = {
+  userPrefix:
+    "Here is the structured transcript analysis. Use ONLY this information to draft Section 242.\n\n",
+  runtimeSentinels: [
+    "{{runtime.transcriptAnalysis}}",
+    "{{runtime.brainExemplars}}",
+    "{{runtime.lengthBudget}}",
+    "{{runtime.styleGuidance}}",
+  ],
+  roleOrder: ["system", "user"],
+  jsonIndentation: 2,
+  modelSelector: "candidate-model-or-default",
+  maxTokensSelector: "section-answer-token-budget",
+  thinking: { type: "disabled" },
+} as const;
+
 export async function runSection242Agent(
   client: GenerationClient,
   analysis: TranscriptAnalysis,
@@ -19,12 +35,12 @@ export async function runSection242Agent(
   const response = await client.messages.create({
     model,
     max_tokens: sectionAnswerTokenBudget(model),
-    thinking: { type: "disabled" },
+    thinking: SECTION_242_REQUEST.thinking,
     system: buildSection242SystemPrompt(styleOverrides),
     messages: [
       {
         role: "user",
-        content: `Here is the structured transcript analysis. Use ONLY this information to draft Section 242.\n\n${JSON.stringify(analysis, null, 2)}${brainExemplars}${lengthBudget}${styleGuidance}`,
+        content: `${SECTION_242_REQUEST.userPrefix}${JSON.stringify(analysis, null, SECTION_242_REQUEST.jsonIndentation)}${brainExemplars}${lengthBudget}${styleGuidance}`,
       },
     ],
   });

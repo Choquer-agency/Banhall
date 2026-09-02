@@ -17,7 +17,7 @@ export interface ContextDoc {
   content: string;
 }
 
-const CATEGORY_LABELS: Record<ContextDoc["category"], string> = {
+export const ANALYZER_CATEGORY_LABELS: Record<ContextDoc["category"], string> = {
   writer_notes: "WRITER'S NOTES (unreliable narrator)",
   previous_pd: "PREVIOUS-YEAR REPORT",
   scoping_notes: "SCOPING NOTES",
@@ -26,7 +26,7 @@ const CATEGORY_LABELS: Record<ContextDoc["category"], string> = {
 };
 
 // Present highest-trust material first.
-const CATEGORY_ORDER: ContextDoc["category"][] = [
+export const ANALYZER_CATEGORY_ORDER: ContextDoc["category"][] = [
   "writer_notes",
   "previous_pd",
   "scoping_notes",
@@ -34,22 +34,24 @@ const CATEGORY_ORDER: ContextDoc["category"][] = [
   "other",
 ];
 
-function buildContextBlock(docs: ContextDoc[]): string {
+export function buildContextBlock(docs: ContextDoc[]): string {
   if (!docs.length) return "";
   const sorted = [...docs].sort(
     (a, b) =>
-      CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category)
+      ANALYZER_CATEGORY_ORDER.indexOf(a.category) -
+      ANALYZER_CATEGORY_ORDER.indexOf(b.category)
   );
   // Unambiguous begin/end delimiters: document content is client-provided
   // DATA, and CONTEXT_INPUTS_GUIDANCE tells the model never to follow
   // instructions embedded between a document's markers.
   const sections = sorted
-    .map(
-      (d) =>
-        `--- BEGIN [${CATEGORY_LABELS[d.category]}] ${d.fileName} ---\n${d.content}\n--- END [${CATEGORY_LABELS[d.category]}] ${d.fileName} ---`
-    )
-    .join("\n\n");
-  return `\n\n${CONTEXT_INPUTS_GUIDANCE}\n\n# ATTACHED CONTEXTUAL MATERIALS\n${sections}`;
+    .map((d) => {
+      const label = ANALYZER_CATEGORY_LABELS[d.category];
+      const delimiters = ANALYZER_REQUEST.userScaffolds.documentDelimiters;
+      return `${delimiters.beginPrefix}${label}${delimiters.categoryToFile}${d.fileName}${delimiters.lineSuffix}${delimiters.contentPrefix}${d.content}${delimiters.contentSuffix}${delimiters.endPrefix}${label}${delimiters.categoryToFile}${d.fileName}${delimiters.lineSuffix}`;
+    })
+    .join(ANALYZER_REQUEST.userScaffolds.documentSeparator);
+  return `\n\n${CONTEXT_INPUTS_GUIDANCE}${ANALYZER_REQUEST.userScaffolds.contextHeading}${sections}`;
 }
 
 export interface TranscriptAnalysis {
@@ -124,6 +126,36 @@ const analysisSchema: z.ZodType<TranscriptAnalysis> = z.object({
   useful_quotes: z.array(z.string()).default([]),
 });
 
+export const ANALYZER_REQUEST = {
+  userScaffolds: {
+    withTranscriptPrefix: "Here is the interview transcript to analyze:\n\n",
+    withoutTranscript:
+      "There is NO interview transcript for this project. Analyze the attached contextual materials below as the sole source. Anything the documents do not support must be flagged as a gap — never invent interview content.",
+    contextHeading: "\n\n# ATTACHED CONTEXTUAL MATERIALS\n",
+    documentDelimiters: {
+      beginPrefix: "--- BEGIN [",
+      endPrefix: "--- END [",
+      categoryToFile: "] ",
+      lineSuffix: " ---",
+      contentPrefix: "\n",
+      contentSuffix: "\n",
+    },
+    documentSeparator: "\n\n",
+    runtimeSentinels: [
+      "{{runtime.interviewTranscript}}",
+      "{{runtime.contextDocuments}}",
+      "{{runtime.brainExemplars}}",
+    ],
+  },
+  roleOrder: ["system", "user"],
+  toolName: "submit_transcript_analysis",
+  toolDescription:
+    "Submit the structured analysis of the SR&ED interview transcript.",
+  jsonIndentation: 2,
+  maxTokens: 8192,
+  modelSelector: "candidate-model-or-default",
+} as const;
+
 export async function runAnalyzerAgent(
   client: GenerationClient,
   transcript: string,
@@ -138,16 +170,15 @@ export async function runAnalyzerAgent(
   // the context documents directly instead of presenting an empty interview —
   // an empty "transcript" section would prime the model to hallucinate one.
   const user = transcript.trim()
-    ? `Here is the interview transcript to analyze:\n\n${transcript}${contextBlock}${brainExemplars}`
-    : `There is NO interview transcript for this project. Analyze the attached contextual materials below as the sole source. Anything the documents do not support must be flagged as a gap — never invent interview content.${contextBlock}${brainExemplars}`;
+    ? `${ANALYZER_REQUEST.userScaffolds.withTranscriptPrefix}${transcript}${contextBlock}${brainExemplars}`
+    : `${ANALYZER_REQUEST.userScaffolds.withoutTranscript}${contextBlock}${brainExemplars}`;
   return await generateStructured<TranscriptAnalysis>(client, {
     system: ANALYZER_SYSTEM_PROMPT,
     user,
-    toolName: "submit_transcript_analysis",
-    description:
-      "Submit the structured analysis of the SR&ED interview transcript.",
+    toolName: ANALYZER_REQUEST.toolName,
+    description: ANALYZER_REQUEST.toolDescription,
     schema: ANALYSIS_SCHEMA,
-    maxTokens: 8192,
+    maxTokens: ANALYZER_REQUEST.maxTokens,
     model,
     validate: analysisSchema,
   });
@@ -155,7 +186,7 @@ export async function runAnalyzerAgent(
 
 const strArray = { type: "array", items: { type: "string" } } as const;
 
-const ANALYSIS_SCHEMA: Anthropic.Tool.InputSchema = {
+export const ANALYSIS_SCHEMA: Anthropic.Tool.InputSchema = {
   type: "object",
   properties: {
     company_context: { type: "string" },

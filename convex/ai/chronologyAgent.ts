@@ -17,7 +17,7 @@ export interface ChronologyTable {
   entries: ChronologyEntry[];
 }
 
-const CHRONOLOGY_SYSTEM_PROMPT = `You are an expert SR&ED consultant generating a chronology table for a CRA audit file.
+export const CHRONOLOGY_SYSTEM_PROMPT = `You are an expert SR&ED consultant generating a chronology table for a CRA audit file.
 
 A chronology table is a medium-level technical overview that breaks the SR&ED project into distinct phases/activities, each tied to specific technological uncertainties. It sits between the high-level Project Description (242/244/246) and the low-level individual timesheets.
 
@@ -50,6 +50,18 @@ Respond with ONLY valid JSON:
     }
   ]
 }`;
+
+export const CHRONOLOGY_REQUEST = {
+  userPrefix:
+    "Generate a chronology table from this transcript analysis:\n\n",
+  runtimeSentinel: "{{runtime.transcriptAnalysis}}",
+  roleOrder: ["system", "user"],
+  toolName: "submit_chronology_table",
+  toolDescription: "Submit the SR&ED chronology table.",
+  jsonIndentation: 2,
+  maxTokens: 4096,
+  modelSelector: "candidate-model-or-default",
+} as const;
 
 /**
  * Tool output is trusted as-is by generateStructured, so a model can return an
@@ -86,17 +98,17 @@ export async function runChronologyAgent(
 ): Promise<ChronologyTable> {
   const raw = await generateStructured<unknown>(client, {
     system: CHRONOLOGY_SYSTEM_PROMPT,
-    user: `Generate a chronology table from this transcript analysis:\n\n${JSON.stringify(analysis, null, 2)}`,
-    toolName: "submit_chronology_table",
-    description: "Submit the SR&ED chronology table.",
+    user: `${CHRONOLOGY_REQUEST.userPrefix}${JSON.stringify(analysis, null, CHRONOLOGY_REQUEST.jsonIndentation)}`,
+    toolName: CHRONOLOGY_REQUEST.toolName,
+    description: CHRONOLOGY_REQUEST.toolDescription,
     schema: CHRONOLOGY_SCHEMA,
-    maxTokens: 4096,
+    maxTokens: CHRONOLOGY_REQUEST.maxTokens,
     model,
   });
   return normalizeChronology(raw);
 }
 
-const CHRONOLOGY_SCHEMA: Anthropic.Tool.InputSchema = {
+export const CHRONOLOGY_SCHEMA: Anthropic.Tool.InputSchema = {
   type: "object",
   properties: {
     entries: {

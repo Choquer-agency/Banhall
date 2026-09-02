@@ -23,16 +23,16 @@ export type RetrievalBrief = {
   advancement: string;
 };
 
-const BRIEF_MODEL = "claude-haiku-4-5-20251001";
+export const RETRIEVAL_BRIEF_MODEL = "claude-haiku-4-5-20251001";
 
 /** Transcripts can be huge; the technical meat is captured well within this. */
-const TRANSCRIPT_CAP = 120_000;
+export const RETRIEVAL_BRIEF_TRANSCRIPT_CAP = 120_000;
 
-const BRIEF_SYSTEM = `You extract retrieval queries from an SR&ED interview transcript. Your output is used ONLY to search a database of past approved SR&ED reports for similar passages — it is never shown to anyone and never copied into a report.
+export const RETRIEVAL_BRIEF_SYSTEM_PROMPT = `You extract retrieval queries from an SR&ED interview transcript. Your output is used ONLY to search a database of past approved SR&ED reports for similar passages — it is never shown to anyone and never copied into a report.
 
 Write in dense technical language (the database contains polished report prose, so match that register, not conversational speech). No client or person names — describe the technology, not the company.`;
 
-const BRIEF_SCHEMA: Anthropic.Tool.InputSchema = {
+export const RETRIEVAL_BRIEF_SCHEMA: Anthropic.Tool.InputSchema = {
   type: "object",
   properties: {
     problem: {
@@ -59,6 +59,23 @@ const BRIEF_SCHEMA: Anthropic.Tool.InputSchema = {
   required: ["problem", "uncertainty", "work", "advancement"],
 };
 
+export const RETRIEVAL_BRIEF_REQUEST = {
+  userScaffold: {
+    titlePrefix: "Project title: ",
+    transcriptPrefix: "\n\nInterview transcript:\n",
+    runtimeSentinels: [
+      "{{runtime.projectTitle}}",
+      "{{runtime.interviewTranscript}}",
+    ],
+  },
+  roleOrder: ["system", "user"],
+  toolName: "submit_retrieval_brief",
+  toolDescription:
+    "Submit the four retrieval queries extracted from the transcript.",
+  maxTokens: 1024,
+  modelSelector: "fixed-retrieval-brief-model",
+} as const;
+
 /**
  * One cheap structured Haiku call → four section-scoped queries. Returns null
  * on any failure so callers can fall back to the legacy title+transcript query
@@ -71,14 +88,13 @@ export async function buildRetrievalBrief(
 ): Promise<RetrievalBrief | null> {
   try {
     const brief = await generateStructured<RetrievalBrief>(client, {
-      system: BRIEF_SYSTEM,
-      user: `Project title: ${title}\n\nInterview transcript:\n${transcript.slice(0, TRANSCRIPT_CAP)}`,
-      toolName: "submit_retrieval_brief",
-      description:
-        "Submit the four retrieval queries extracted from the transcript.",
-      schema: BRIEF_SCHEMA,
-      maxTokens: 1024,
-      model: BRIEF_MODEL,
+      system: RETRIEVAL_BRIEF_SYSTEM_PROMPT,
+      user: `${RETRIEVAL_BRIEF_REQUEST.userScaffold.titlePrefix}${title}${RETRIEVAL_BRIEF_REQUEST.userScaffold.transcriptPrefix}${transcript.slice(0, RETRIEVAL_BRIEF_TRANSCRIPT_CAP)}`,
+      toolName: RETRIEVAL_BRIEF_REQUEST.toolName,
+      description: RETRIEVAL_BRIEF_REQUEST.toolDescription,
+      schema: RETRIEVAL_BRIEF_SCHEMA,
+      maxTokens: RETRIEVAL_BRIEF_REQUEST.maxTokens,
+      model: RETRIEVAL_BRIEF_MODEL,
     });
     // Guard against a model returning empty strings — worse than the fallback.
     if (!brief.problem?.trim() || !brief.uncertainty?.trim()) return null;

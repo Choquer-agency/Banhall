@@ -7,6 +7,25 @@ import {
   type GenerationResponse,
 } from "./openrouterCore";
 
+export const STRUCTURED_OUTPUT_PROGRAM = {
+  attempts: 2,
+  repairScaffold: {
+    prefix: "\n\nYour previous tool output was invalid: ",
+    suffix:
+      ". Return the complete tool object and include every required field.",
+    runtimeSentinel: "{{runtime.validationSummary}}",
+  },
+  request: {
+    defaultMaxTokens: 8192,
+    defaultSchema: { type: "object" },
+    roleOrder: ["system", "user"],
+    userRole: "user",
+    toolChoice: { type: "tool", selection: "named", forced: true },
+    retryUserPolicy: "reuse-original-and-append-repair-scaffold",
+    thinking: { kind: "omitted" },
+  },
+} as const;
+
 /**
  * Models sometimes wrap their tool output in a JSON string — occasionally more
  * than once. A chronology table came back as `{ entries: "{\"entries\":[…]}" }`,
@@ -64,26 +83,33 @@ export async function generateStructured<T>(
   // A forced tool call can still omit required JSON fields. Retry once with
   // the concrete validation feedback; accepting a partial object would let a
   // malformed analysis fail much later after more paid generation work.
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < STRUCTURED_OUTPUT_PROGRAM.attempts; attempt += 1) {
     const user =
       attempt === 0
         ? opts.user
-        : `${opts.user}\n\nYour previous tool output was invalid: ${validationSummary}. Return the complete tool object and include every required field.`;
+        : `${opts.user}${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.prefix}${validationSummary}${STRUCTURED_OUTPUT_PROGRAM.repairScaffold.suffix}`;
     let res: GenerationResponse;
     try {
       res = await client.messages.create({
         model: opts.model ?? MODEL,
-        max_tokens: opts.maxTokens ?? 8192,
+        max_tokens:
+          opts.maxTokens ?? STRUCTURED_OUTPUT_PROGRAM.request.defaultMaxTokens,
         system: opts.system,
         tools: [
           {
             name: opts.toolName,
             description: opts.description,
-            input_schema: opts.schema ?? { type: "object" },
+            input_schema:
+              opts.schema ?? STRUCTURED_OUTPUT_PROGRAM.request.defaultSchema,
           },
         ],
-        tool_choice: { type: "tool", name: opts.toolName },
-        messages: [{ role: "user", content: user }],
+        tool_choice: {
+          type: STRUCTURED_OUTPUT_PROGRAM.request.toolChoice.type,
+          name: opts.toolName,
+        },
+        messages: [
+          { role: STRUCTURED_OUTPUT_PROGRAM.request.userRole, content: user },
+        ],
       });
     } catch (error) {
       // The OpenRouter adapter decodes tool-call JSON inside create(), so a

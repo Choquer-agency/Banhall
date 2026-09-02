@@ -151,6 +151,9 @@ export const usageReportAccess = query({
 
 const usageArgs = {
   projectId: v.optional(v.id("projects")),
+  generationId: v.optional(v.id("generations")),
+  candidateRunId: v.optional(v.id("generationCandidateRuns")),
+  durationMs: v.optional(v.number()),
   userId: v.optional(v.string()),
   agentThreadId: v.optional(v.string()),
   brainSourceId: v.optional(v.id("brainSources")),
@@ -210,6 +213,15 @@ export const logUsage = internalMutation({
 
     await ctx.db.insert("aiUsage", {
       ...(projectId ? { projectId } : {}),
+      ...(args.generationId ? { generationId: args.generationId } : {}),
+      ...(args.candidateRunId
+        ? { candidateRunId: args.candidateRunId }
+        : {}),
+      ...(args.durationMs !== undefined &&
+      Number.isFinite(args.durationMs) &&
+      args.durationMs >= 0
+        ? { durationMs: args.durationMs }
+        : {}),
       ...(userId ? { userId } : {}),
       ...(writerName ? { writerName } : {}),
       ...(args.agentThreadId ? { agentThreadId: args.agentThreadId } : {}),
@@ -217,10 +229,12 @@ export const logUsage = internalMutation({
       model: args.model,
       inputTokens,
       outputTokens,
-      ...(cacheCreationInputTokens
+      ...(args.cacheCreationInputTokens !== undefined
         ? { cacheCreationInputTokens }
         : {}),
-      ...(cacheReadInputTokens ? { cacheReadInputTokens } : {}),
+      ...(args.cacheReadInputTokens !== undefined
+        ? { cacheReadInputTokens }
+        : {}),
       costUsd:
         args.costUsd !== undefined &&
         Number.isFinite(args.costUsd) &&

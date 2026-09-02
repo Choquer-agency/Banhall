@@ -7,6 +7,9 @@ import type { Id } from "../_generated/dataModel";
 
 export type UsageEvent = {
   projectId?: Id<"projects">;
+  generationId?: Id<"generations">;
+  candidateRunId?: Id<"generationCandidateRuns">;
+  durationMs?: number;
   userId?: string;
   agentThreadId?: string;
   brainSourceId?: Id<"brainSources">;
@@ -20,6 +23,38 @@ export type UsageEvent = {
   costUsd?: number;
   createdAt?: number;
 };
+
+/** Attribution carried only by provider calls owned by a generation. */
+export type GenerationAttribution = {
+  generationId: Id<"generations">;
+  /** Present only for calls made by a generationCandidateRuns row. */
+  candidateRunId?: Id<"generationCandidateRuns">;
+  /** Exact nonblank learned-digest content included in this call's payload. */
+  learningDigestIds?: Id<"learningDigests">[];
+};
+
+export type ProviderCallMeta = {
+  callSite: string;
+  projectId?: Id<"projects">;
+  userId?: string;
+  attribution?: GenerationAttribution;
+};
+
+/**
+ * Last application boundary before a generation-owned payload reaches a
+ * provider. This must be awaited: provenance is part of the handoff contract,
+ * not best-effort telemetry.
+ */
+export async function recordGenerationHandoff(
+  ctx: ActionCtx,
+  attribution: GenerationAttribution | undefined
+): Promise<void> {
+  if (!attribution?.learningDigestIds?.length) return;
+  await ctx.runMutation(internal.generations.unionLearningDigestIds, {
+    generationId: attribution.generationId,
+    digestIds: attribution.learningDigestIds,
+  });
+}
 
 /**
  * Queue usage as a scheduled mutation so a successful provider response is
@@ -48,46 +83,54 @@ export async function scheduleUsage(
   }
 }
 
-function tokenCount(value: unknown): number {
+function tokenCount(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
     ? value
-    : 0;
+    : null;
 }
 
 function anthropicUsage(response: unknown): {
   inputTokens: number;
   outputTokens: number;
-  cacheCreationInputTokens: number;
-  cacheReadInputTokens: number;
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
 } | null {
   if (!response || typeof response !== "object" || !("usage" in response)) {
     return null;
   }
   const usage = response.usage;
   if (!usage || typeof usage !== "object") return null;
+  const inputTokens =
+    "input_tokens" in usage ? tokenCount(usage.input_tokens) : null;
+  const outputTokens =
+    "output_tokens" in usage ? tokenCount(usage.output_tokens) : null;
+  const cacheCreationInputTokens =
+    "cache_creation_input_tokens" in usage
+      ? tokenCount(usage.cache_creation_input_tokens)
+      : null;
+  const cacheReadInputTokens =
+    "cache_read_input_tokens" in usage
+      ? tokenCount(usage.cache_read_input_tokens)
+      : null;
+  // Anthropic always reports both primary counters; an object carrying only
+  // cache counters (or neither) is malformed, matching openRouterUsage.
+  if (inputTokens === null && outputTokens === null) {
+    return null;
+  }
   return {
-    inputTokens:
-      "input_tokens" in usage ? tokenCount(usage.input_tokens) : 0,
-    outputTokens:
-      "output_tokens" in usage ? tokenCount(usage.output_tokens) : 0,
-    cacheCreationInputTokens:
-      "cache_creation_input_tokens" in usage
-        ? tokenCount(usage.cache_creation_input_tokens)
-        : 0,
-    cacheReadInputTokens:
-      "cache_read_input_tokens" in usage
-        ? tokenCount(usage.cache_read_input_tokens)
-        : 0,
+    inputTokens: inputTokens ?? 0,
+    outputTokens: outputTokens ?? 0,
+    ...(cacheCreationInputTokens !== null
+      ? { cacheCreationInputTokens }
+      : {}),
+    ...(cacheReadInputTokens !== null ? { cacheReadInputTokens } : {}),
   };
 }
 
 /** Anthropic client that durably records billed usage after every response. */
 export function instrumentedAnthropic(
   ctx: ActionCtx,
-  meta: {
-    callSite: string;
-    projectId?: Id<"projects">;
-    userId?: string;
+  meta: ProviderCallMeta & {
     brainSourceId?: Id<"brainSources">;
     capability?: AnthropicCapability;
   }
@@ -99,11 +142,14 @@ export function instrumentedAnthropic(
     get(target, property, receiver) {
       if (property !== "create") return Reflect.get(target, property, receiver);
       return async (...args: unknown[]) => {
+        await recordGenerationHandoff(ctx, meta.attribution);
+        const startedAt = Date.now();
         const response: unknown = await Reflect.apply(
           originalCreate,
           target,
           args
         );
+        const durationMs = Math.max(0, Date.now() - startedAt);
         const usage = anthropicUsage(response);
         const params = args[0];
         const model =
@@ -116,6 +162,15 @@ export function instrumentedAnthropic(
         if (usage) {
           await scheduleUsage(ctx, {
             ...(meta.projectId ? { projectId: meta.projectId } : {}),
+            ...(meta.attribution
+              ? {
+                  generationId: meta.attribution.generationId,
+                  ...(meta.attribution.candidateRunId
+                    ? { candidateRunId: meta.attribution.candidateRunId }
+                    : {}),
+                  durationMs,
+                }
+              : {}),
             ...(meta.userId ? { userId: meta.userId } : {}),
             ...(meta.brainSourceId
               ? { brainSourceId: meta.brainSourceId }
@@ -124,13 +179,13 @@ export function instrumentedAnthropic(
             model,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
-            ...(usage.cacheCreationInputTokens
+            ...(usage.cacheCreationInputTokens !== undefined
               ? {
                   cacheCreationInputTokens:
                     usage.cacheCreationInputTokens,
                 }
               : {}),
-            ...(usage.cacheReadInputTokens
+            ...(usage.cacheReadInputTokens !== undefined
               ? { cacheReadInputTokens: usage.cacheReadInputTokens }
               : {}),
           });

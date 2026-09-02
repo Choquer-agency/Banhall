@@ -13,7 +13,11 @@
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { requireOpenRouterConfigured } from "../lib/providerConfig";
-import { scheduleUsage } from "./instrument";
+import {
+  recordGenerationHandoff,
+  scheduleUsage,
+  type GenerationAttribution,
+} from "./instrument";
 import {
   toChatCompletions,
   fromChatCompletions,
@@ -65,6 +69,7 @@ export async function openRouterChatCompletion(
     callSite: string;
     projectId?: Id<"projects">;
     userId?: string;
+    attribution?: GenerationAttribution;
     headers?: Record<string, string>;
     /** Per-attempt fetch timeout. Defaults to DEFAULT_TIMEOUT_MS. */
     timeoutMs?: number;
@@ -73,6 +78,8 @@ export async function openRouterChatCompletion(
   const apiKey = requireOpenRouterConfigured();
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxAttempts = OPENROUTER_MAX_RETRIES + 1;
+  await recordGenerationHandoff(ctx, input.attribution);
+  const startedAt = Date.now();
   let response!: Response;
   let text!: string;
   // Bounded retry with backoff for transient gateway failures (429/5xx/
@@ -150,16 +157,27 @@ export async function openRouterChatCompletion(
   // Mirrors instrumentedAnthropic: a successful response is never turned into
   // an app failure by usage logging.
   const usage = openRouterUsage(body);
-  await scheduleUsage(ctx, {
-    ...(input.projectId ? { projectId: input.projectId } : {}),
-    ...(input.userId ? { userId: input.userId } : {}),
-    callSite: input.callSite,
-    model: input.model,
-    inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens,
-    cacheReadInputTokens: usage.cacheReadInputTokens,
-    ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
-  });
+  if (usage) {
+    await scheduleUsage(ctx, {
+      ...(input.projectId ? { projectId: input.projectId } : {}),
+      ...(input.userId ? { userId: input.userId } : {}),
+      ...(input.attribution
+        ? {
+            generationId: input.attribution.generationId,
+            ...(input.attribution.candidateRunId
+              ? { candidateRunId: input.attribution.candidateRunId }
+              : {}),
+            durationMs: Math.max(0, Date.now() - startedAt),
+          }
+        : {}),
+      callSite: input.callSite,
+      model: input.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cacheReadInputTokens: usage.cacheReadInputTokens,
+      ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
+    });
+  }
   return body;
 }
 
@@ -169,6 +187,7 @@ export function instrumentedOpenRouter(
     callSite: string;
     projectId?: Id<"projects">;
     userId?: string;
+    attribution?: GenerationAttribution;
   }
 ): GenerationClient {
   return {

@@ -31,6 +31,19 @@ export const EMPTY_BRAIN_BLOCKS: BrainExemplarBlocks = {
   s246: "",
 };
 
+export const GENERATION_BRAIN_RETRIEVALS = [
+  { block: "analyzer", section: "analyzer", briefParts: ["problem"], k: 4 },
+  { block: "s242", section: "242", briefParts: ["uncertainty", "problem"], k: 3 },
+  { block: "s244", section: "244", briefParts: ["work", "problem"], k: 3 },
+  { block: "s246", section: "246", briefParts: ["advancement", "problem"], k: 3 },
+] as const;
+export const BRAIN_FALLBACK_TRANSCRIPT_CHARS = 2000;
+export const BRAIN_GENERATION_QUERY_PROGRAM = {
+  queryPartSeparator: "\n\n",
+  fallbackTitleTranscriptSeparator: "\n\n",
+  documentType: "pd",
+} as const;
+
 /**
  * Pull gold-standard reference passages from The Brain once per generation.
  * A good PD is a good PD — retrieval runs with or without an industry;
@@ -70,38 +83,25 @@ export async function retrieveBrainBlocks(
       params.title,
       params.transcript
     );
-    const fallbackQuery = `${params.title}\n\n${params.transcript.slice(0, 2000)}`;
+    const fallbackQuery = `${params.title}${BRAIN_GENERATION_QUERY_PROGRAM.fallbackTitleTranscriptSeparator}${params.transcript.slice(
+      0,
+      BRAIN_FALLBACK_TRANSCRIPT_CHARS
+    )}`;
     const retrievals: {
       block: keyof BrainExemplarBlocks;
       section: string;
       query: string;
       k: number;
-    }[] = [
-      {
-        block: "analyzer",
-        section: "analyzer",
-        query: brief ? brief.problem : fallbackQuery,
-        k: 4,
-      },
-      {
-        block: "s242",
-        section: "242",
-        query: brief ? `${brief.uncertainty}\n\n${brief.problem}` : fallbackQuery,
-        k: 3,
-      },
-      {
-        block: "s244",
-        section: "244",
-        query: brief ? `${brief.work}\n\n${brief.problem}` : fallbackQuery,
-        k: 3,
-      },
-      {
-        block: "s246",
-        section: "246",
-        query: brief ? `${brief.advancement}\n\n${brief.problem}` : fallbackQuery,
-        k: 3,
-      },
-    ];
+    }[] = GENERATION_BRAIN_RETRIEVALS.map((definition) => ({
+      block: definition.block,
+      section: definition.section,
+      query: brief
+        ? definition.briefParts
+            .map((part) => brief[part])
+            .join(BRAIN_GENERATION_QUERY_PROGRAM.queryPartSeparator)
+        : fallbackQuery,
+      k: definition.k,
+    }));
 
     const provenance: {
       section: string;
@@ -124,7 +124,7 @@ export async function retrieveBrainBlocks(
             : {}),
           query: r.query,
           k: r.k,
-          docType: "pd",
+          docType: BRAIN_GENERATION_QUERY_PROGRAM.documentType,
           projectId: params.projectId,
           usageLabel: r.section,
         }

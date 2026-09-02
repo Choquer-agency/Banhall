@@ -113,6 +113,19 @@ describe("Contextual Research core", () => {
     });
   });
 
+  test("keeps a provider-reported cost when token counters are absent", () => {
+    const result = parseOpenRouterResearchResponse({
+      choices: [{ message: { content: "Answer" } }],
+      usage: { cost: 0.5 },
+    });
+    expect(result.usage).toMatchObject({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadInputTokens: 0,
+      costUsd: 0.5,
+    });
+  });
+
   test("accepts provider citation URL fallbacks when annotations are absent", () => {
     const result = parseOpenRouterResearchResponse({
       choices: [{ message: { content: "Answer", citations: ["https://example.org/paper"] } }],

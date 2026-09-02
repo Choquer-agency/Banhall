@@ -1,7 +1,8 @@
 "use node";
 
-import { internalAction } from "../_generated/server";
+import { internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
 import { instrumentedAnthropic } from "./instrument";
 import { clientForModel } from "./providers";
@@ -42,6 +43,12 @@ import { styleOverridesValidator } from "../lib/styleOverrides";
 import { waivedCategoryLabels } from "./prompts";
 import { fetchWriterStyle } from "./writerStyle";
 import { detectFirstPersonPreference } from "../../shared/humanProse";
+import { currentPromptVersion } from "./promptProgram";
+import {
+  COMPRESSION_REQUEST,
+  LENGTH_BUDGET_SCAFFOLD,
+  STYLE_GUIDANCE_SCAFFOLDS,
+} from "./promptDefinitions";
 
 export type { BrainExemplarBlocks };
 
@@ -50,14 +57,17 @@ export type { BrainExemplarBlocks };
 // from); re-exported for the iterative flow.
 export { scrubBannedWords };
 
+export {
+  COMPRESSION_REQUEST,
+  LENGTH_BUDGET_SCAFFOLD,
+  STYLE_GUIDANCE_SCAFFOLDS,
+} from "./promptDefinitions";
+
 /** BNH-45: the length-budget instruction appended to each drafter prompt. */
 export function lengthBudgetBlock(section: SectionKey, target: LengthTarget): string {
   const words = wordBudget(section, target);
   const lines = LINE_LIMITS[section];
-  return `
-
-# LENGTH BUDGET (CRA form constraint — hard requirement)
-The CRA form field for this section holds at most ${lines} lines of ${CHARS_PER_LINE} characters, and EVERY blank line between paragraphs also costs one full line. Write AT MOST ${words} words total. Prefer fewer, denser paragraphs (each blank line spent on a paragraph break is a line of content lost). Do NOT pad. If the material exceeds the budget, keep the most technically load-bearing content and cut the rest.`;
+  return `${LENGTH_BUDGET_SCAFFOLD.prefix}${lines}${LENGTH_BUDGET_SCAFFOLD.linesToChars}${CHARS_PER_LINE}${LENGTH_BUDGET_SCAFFOLD.charsToWords}${words}${LENGTH_BUDGET_SCAFFOLD.suffix}`;
 }
 
 /** BNH-45: compression pass for a section that overflows the form.
@@ -74,13 +84,12 @@ export async function compressSection(
   const words = Math.round(wordBudget(section, target) * squeeze);
   const response = await anthropic.messages.create({
     model: modelId,
-    max_tokens: 4096,
-    system:
-      "You compress SR&ED report sections to fit CRA form limits. Preserve every distinct technical claim, uncertainty, iteration, and result; cut repetition, filler, and scene-setting. Never invent content. [GAP: …] markers must be preserved verbatim — never remove or reword them. Keep the same paragraph conventions (blank line between paragraphs). Never join clauses with an em dash or a dash stand-in (double hyphen, spaced hyphen); use a colon, semicolon, comma, or period. Return ONLY the compressed section text.",
+    max_tokens: COMPRESSION_REQUEST.maxTokens,
+    system: COMPRESSION_REQUEST.system,
     messages: [
       {
         role: "user",
-        content: `This section is ${m.lines} lines / ${m.words} words, but the CRA field allows only ${m.limit} lines of ${CHARS_PER_LINE} characters (blank lines between paragraphs each cost one line). Rewrite it to AT MOST ${words} words while preserving all technical substance. Merge paragraphs where natural — fewer paragraph breaks save lines.\n\n${text}`,
+        content: `${COMPRESSION_REQUEST.userScaffold.prefix}${m.lines}${COMPRESSION_REQUEST.userScaffold.linesToWords}${m.words}${COMPRESSION_REQUEST.userScaffold.wordsToLimit}${m.limit}${COMPRESSION_REQUEST.userScaffold.limitToChars}${CHARS_PER_LINE}${COMPRESSION_REQUEST.userScaffold.charsToTarget}${words}${COMPRESSION_REQUEST.userScaffold.targetToText}${text}`,
       },
     ],
   });
@@ -103,11 +112,11 @@ export function buildStyleGuidance(
   // convex/ai/learning.ts). CRA structure/phrasing rules take precedence;
   // PSOS-49: a writer's waived categories outrank the learned guidance.
   const styleBlock = draftStyle?.trim()
-    ? `\n\n## Style guidance learned from writer feedback on past drafts\nApply where it does not conflict with the required structure, CRA phrasing, or banned-word rules${
+    ? `${STYLE_GUIDANCE_SCAFFOLDS.learned.prefix}${
         waived.length > 0
-          ? ", or with the writer's personal preferences in their waived house-style areas below"
+          ? STYLE_GUIDANCE_SCAFFOLDS.learned.waivedClause
           : ""
-      }:\n${draftStyle.trim()}`
+      }${STYLE_GUIDANCE_SCAFFOLDS.learned.contentPrefix}${draftStyle.trim()}`
     : "";
   // Per-writer flavor (Phase A + PSOS-49): the requesting writer's personal
   // preferences. For waived house-style categories they are AUTHORITATIVE;
@@ -115,10 +124,10 @@ export function buildStyleGuidance(
   // override CRA structure, the remaining house rules, or the length budget.
   const flavorBlock = writerFlavor?.trim()
     ? styleOverrides.reportSkeleton
-      ? `\n\n## Writer's personal style preferences (AUTHORITATIVE)\nThe requesting writer recorded these preferences and their profile waives the built-in report skeleton. They are the authority for section architecture (paragraph count, roles, order, openers, framing) and for these waived house-style areas: ${waived.join("; ")}. Apply them fully. The only limits they cannot override are the length budget and the evidence rules (use only the provided material; [GAP] placeholders instead of invention); the learned style guidance above yields to them wherever the two conflict.\n\n${writerFlavor.trim()}`
+      ? `${STYLE_GUIDANCE_SCAFFOLDS.writerSkeletonWaived.prefix}${waived.join("; ")}${STYLE_GUIDANCE_SCAFFOLDS.writerSkeletonWaived.contentPrefix}${writerFlavor.trim()}`
       : waived.length > 0
-      ? `\n\n## Writer's personal style preferences\nThe requesting writer recorded these preferences. For the following waived house-style areas they are AUTHORITATIVE and replace the default house rules: ${waived.join("; ")}.\nOutside those areas, apply them ONLY where they do not conflict with: (1) the required CRA section structure and paragraph mandates, (2) the remaining house-style and CRA phrasing rules, (3) the length budget, (4) the learned style guidance above. When in conflict outside the waived areas, ignore the preference silently.\n\n${writerFlavor.trim()}`
-      : `\n\n## Writer's personal style preferences (lowest priority)\nThe requesting writer recorded these personal preferences. Apply them ONLY where\nthey do not conflict with: (1) the required CRA section structure and paragraph\nmandates, (2) CRA phrasing and banned-word rules, (3) the length budget,\n(4) the learned style guidance above. When in conflict, ignore the preference\nsilently.\n\n${writerFlavor.trim()}`
+      ? `${STYLE_GUIDANCE_SCAFFOLDS.writerWithWaivers.prefix}${waived.join("; ")}${STYLE_GUIDANCE_SCAFFOLDS.writerWithWaivers.contentPrefix}${writerFlavor.trim()}`
+      : `${STYLE_GUIDANCE_SCAFFOLDS.writerDefault.prefix}${writerFlavor.trim()}`
     : "";
   return styleBlock + flavorBlock;
 }
@@ -138,7 +147,7 @@ export async function compressToFit(
   styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES
 ): Promise<string> {
   let out = text;
-  for (const squeeze of [1, 0.85]) {
+  for (const squeeze of COMPRESSION_REQUEST.squeezes) {
     if (!sectionMetrics(out, key).overLimit) return out;
     const compressed = await compressSection(
       anthropicFor(`generation:compression:${key.slice(1)}`),
@@ -230,8 +239,11 @@ function provenanceDrafts(
  * Run the full pipeline once for a single model → a complete candidate report
  * (content + agentOutputs incl. QA + chronology). Used for BNH-15 A/B testing.
  */
-async function runPipelineForModel(
-  anthropicFor: (callSite: string) => GenerationClient,
+export async function runPipelineForModel(
+  anthropicFor: (
+    callSite: string,
+    learningDigestIds?: Id<"learningDigests">[]
+  ) => GenerationClient,
   modelId: string,
   transcript: string,
   contextDocs: ContextDoc[],
@@ -240,6 +252,8 @@ async function runPipelineForModel(
   lengthTarget: LengthTarget = "standard",
   qaCalibration?: string,
   draftStyle?: string,
+  qaCalibrationDigestId?: Id<"learningDigests">,
+  draftStyleDigestId?: Id<"learningDigests">,
   writerFlavor?: string,
   styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES
 ): Promise<{
@@ -256,10 +270,21 @@ async function runPipelineForModel(
     brainExemplars.analyzer
   );
   const styleGuidance = buildStyleGuidance(draftStyle, writerFlavor, styleOverrides);
+  // Keep provenance paired with the exact learned content assembled into this
+  // request. An id supplied by an old or malformed queued payload is not
+  // declared unless its matching nonblank content is actually sent.
+  const styleDigestIds =
+    draftStyleDigestId && draftStyle?.trim()
+      ? [draftStyleDigestId]
+      : undefined;
+  const qaDigestIds =
+    qaCalibrationDigestId && qaCalibration?.trim()
+      ? [qaCalibrationDigestId]
+      : undefined;
   const [raw242, raw244, raw246] = await Promise.all([
-    runSection242Agent(anthropicFor("generation:section:242"), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget), styleGuidance, styleOverrides),
-    runSection244Agent(anthropicFor("generation:section:244"), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget), styleGuidance, styleOverrides),
-    runSection246Agent(anthropicFor("generation:section:246"), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget), styleGuidance, styleOverrides),
+    runSection242Agent(anthropicFor("generation:section:242", styleDigestIds), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget), styleGuidance, styleOverrides),
+    runSection244Agent(anthropicFor("generation:section:244", styleDigestIds), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget), styleGuidance, styleOverrides),
+    runSection246Agent(anthropicFor("generation:section:246", styleDigestIds), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget), styleGuidance, styleOverrides),
   ]);
   // PSOS-49: a bannedWords waiver exempts this writer from the mechanical scrub.
   let section242 = scrubBannedWordsUnlessWaived(raw242, styleOverrides.bannedWords);
@@ -286,7 +311,7 @@ async function runPipelineForModel(
   // have received — losing a full multi-model draft because a scorecard came
   // back malformed is far worse than shipping the draft with no scorecard.
   const [qaSettled, chronologySettled] = await Promise.allSettled([
-    runQAAgent(anthropicFor("generation:qa"), analysis, section242, section244, section246, modelId, qaCalibration, styleOverrides, detectFirstPersonPreference(writerFlavor)),
+    runQAAgent(anthropicFor("generation:qa", qaDigestIds), analysis, section242, section244, section246, modelId, qaCalibration, styleOverrides, detectFirstPersonPreference(writerFlavor)),
     runChronologyAgent(anthropicFor("generation:chronology"), analysis, modelId),
   ]);
   if (qaSettled.status === "rejected") {
@@ -333,6 +358,44 @@ async function runPipelineForModel(
 }
 
 /**
+ * Entry guard shared by the one-shot and iterative entry actions: compute the
+ * deployed prompt-program version, then move the reserved row to running with
+ * that version stamped. The row is still reserved while either step runs, so
+ * a failure fails the generation (naming the phase that failed) instead of
+ * leaving the project generating until the stale-reservation sweep. Returns
+ * whether the caller may proceed.
+ */
+export async function beginTrackedGeneration(
+  ctx: ActionCtx,
+  generationId: Id<"generations">
+): Promise<boolean> {
+  const describe = (error: unknown) =>
+    error instanceof Error ? error.message : String(error);
+  let promptVersion: string;
+  try {
+    promptVersion = await currentPromptVersion();
+  } catch (error) {
+    await ctx.runMutation(internal.generations.failGeneration, {
+      generationId,
+      error: `Prompt program version unavailable: ${describe(error)}`,
+    });
+    return false;
+  }
+  try {
+    return await ctx.runMutation(internal.generations.beginGeneration, {
+      generationId,
+      promptVersion,
+    });
+  } catch (error) {
+    await ctx.runMutation(internal.generations.failGeneration, {
+      generationId,
+      error: `Generation could not begin: ${describe(error)}`,
+    });
+    return false;
+  }
+}
+
+/**
  * Main pipeline action (BNH-15). Compare mode stores one candidate per
  * configured model for writer selection; single mode runs the default Sonnet
  * candidate and atomically promotes it when that run completes.
@@ -340,10 +403,7 @@ async function runPipelineForModel(
 export const generateReport = internalAction({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
-    const started = await ctx.runMutation(internal.generations.beginGeneration, {
-      generationId: args.generationId,
-    });
-    if (!started) return;
+    if (!(await beginTrackedGeneration(ctx, args.generationId))) return;
     const input = await ctx.runQuery(internal.generations.getGenerationInput, {
       generationId: args.generationId,
     });
@@ -375,6 +435,7 @@ export const generateReport = internalAction({
       capability: "generation",
       projectId,
       ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+      attribution: { generationId: genId },
     });
     const log = (line: string) =>
       ctx.runMutation(internal.generations.appendProgress, {
@@ -443,6 +504,8 @@ export const generateReport = internalAction({
       // Wrapped so learning can NEVER break generation.
       let qaCalibration: string | undefined;
       let draftStyle: string | undefined;
+      let qaCalibrationDigestId: Id<"learningDigests"> | undefined;
+      let draftStyleDigestId: Id<"learningDigests"> | undefined;
       try {
         const [qaDigest, styleDigest] = await Promise.all([
           ctx.runQuery(internal.learning.getActiveDigest, {
@@ -452,14 +515,16 @@ export const generateReport = internalAction({
             kind: "draft_style",
           }),
         ]);
-        if (qaDigest) {
+        if (qaDigest?.content.trim()) {
           qaCalibration = qaDigest.content;
+          qaCalibrationDigestId = qaDigest._id;
           await log(
             `Applying QA calibration learned from ${qaDigest.sourceCount} writer feedback event(s).`
           );
         }
-        if (styleDigest) {
+        if (styleDigest?.content.trim()) {
           draftStyle = styleDigest.content;
+          draftStyleDigestId = styleDigest._id;
           await log(
             `Applying drafting style learned from ${styleDigest.sourceCount} writer critique(s).`
           );
@@ -494,6 +559,8 @@ export const generateReport = internalAction({
             brainExemplars: brainBlocks,
             ...(qaCalibration ? { qaCalibration } : {}),
             ...(draftStyle ? { draftStyle } : {}),
+            ...(qaCalibrationDigestId ? { qaCalibrationDigestId } : {}),
+            ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
             ...(writerFlavor ? { writerFlavor } : {}),
             ...(styleOverrides ? { styleOverrides } : {}),
           }
@@ -526,6 +593,8 @@ export const generateCandidate = internalAction({
     }),
     qaCalibration: v.optional(v.string()),
     draftStyle: v.optional(v.string()),
+    qaCalibrationDigestId: v.optional(v.id("learningDigests")),
+    draftStyleDigestId: v.optional(v.id("learningDigests")),
     writerFlavor: v.optional(v.string()),
     styleOverrides: v.optional(styleOverridesValidator),
   },
@@ -547,11 +616,19 @@ export const generateCandidate = internalAction({
     // Routed by the candidate model's gateway: Anthropic models use the
     // direct SDK, OpenAI/Google models go through OpenRouter. Usage from both
     // lands in the same aiUsage table.
-    const clientFor = (callSite: string) =>
+    const clientFor = (
+      callSite: string,
+      learningDigestIds?: Id<"learningDigests">[]
+    ) =>
       clientForModel(ctx, run.model, {
         callSite,
         projectId: run.projectId,
         ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+        attribution: {
+          generationId: run.generationId,
+          candidateRunId: args.candidateRunId,
+          ...(learningDigestIds?.length ? { learningDigestIds } : {}),
+        },
       });
     try {
       const { content, agentOutputs, qaScore, claimDrafts } =
@@ -565,6 +642,8 @@ export const generateCandidate = internalAction({
           input.lengthTarget,
           args.qaCalibration,
           args.draftStyle,
+          args.qaCalibrationDigestId,
+          args.draftStyleDigestId,
           args.writerFlavor,
           normalizeStyleOverrides(args.styleOverrides)
         );

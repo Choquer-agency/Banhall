@@ -1,6 +1,7 @@
 import {
   CANDIDATE_MODELS,
   MODEL,
+  RANDOM_COMPARISON_GATEWAY,
   type CandidateModelId,
 } from "../../shared/generationModels";
 
@@ -16,6 +17,26 @@ export { CANDIDATE_MODELS, MODEL };
 export type { CandidateModelId };
 export type CandidateMode = "compare" | "single" | "iterative";
 
+export const CANDIDATE_MODE_ROUTING = {
+  compare: {
+    selectionRule: "exactly-two-distinct-registered-model-ids",
+    explicitSelectionCount: 2,
+    legacyFallbackGateway: "anthropic",
+    randomPoolGateway: RANDOM_COMPARISON_GATEWAY,
+  },
+  single: {
+    selectionRule: "one-valid-registered-model-id",
+    selectionCount: 1,
+    fallbackModelId: MODEL,
+  },
+  iterative: {
+    resolvesAs: "single",
+    selectionRule: "one-valid-registered-model-id",
+    selectionCount: 1,
+    fallbackModelId: MODEL,
+  },
+} as const;
+
 type CandidateModel = (typeof CANDIDATE_MODELS)[number];
 
 /**
@@ -30,7 +51,9 @@ export function resolveCompareModels(
   const valid = [...new Set(compareModelIds)]
     .map((id) => CANDIDATE_MODELS.find((model) => model.id === id))
     .filter((model): model is CandidateModel => model !== undefined);
-  return valid.length === 2 ? valid : undefined;
+  return valid.length === CANDIDATE_MODE_ROUTING.compare.explicitSelectionCount
+    ? valid
+    : undefined;
 }
 
 /**
@@ -40,7 +63,8 @@ export function resolveCompareModels(
  */
 export function randomComparePair(): CandidateModel[] {
   const shuffled = CANDIDATE_MODELS.filter(
-    (model) => model.gateway === "anthropic"
+    (model) =>
+      model.gateway === CANDIDATE_MODE_ROUTING.compare.randomPoolGateway
   );
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -61,12 +85,25 @@ export function candidateModelsForMode(
     // always persist exactly 2 ids.
     return (
       resolveCompareModels(compareModelIds) ??
-      CANDIDATE_MODELS.filter((model) => model.gateway === "anthropic")
+      CANDIDATE_MODELS.filter(
+        (model) =>
+          model.gateway === CANDIDATE_MODE_ROUTING.compare.legacyFallbackGateway
+      )
     );
   }
   // "single" and "iterative" both run exactly one model.
+  const routing =
+    mode === "iterative"
+      ? CANDIDATE_MODE_ROUTING.iterative
+      : CANDIDATE_MODE_ROUTING.single;
   const selected = singleModelId
     ? CANDIDATE_MODELS.find((model) => model.id === singleModelId)
     : undefined;
-  return [selected ?? CANDIDATE_MODELS[0]];
+  return [
+    selected ??
+      CANDIDATE_MODELS.find(
+        (model) => model.id === routing.fallbackModelId
+      ) ??
+      CANDIDATE_MODELS[0],
+  ];
 }
