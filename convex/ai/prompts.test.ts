@@ -25,6 +25,10 @@ const waive = (...keys: Array<keyof StyleOverrides>): StyleOverrides =>
   normalizeStyleOverrides(Object.fromEntries(keys.map((k) => [k, true])));
 
 const ALL_WAIVED = waive(...STYLE_OVERRIDE_KEYS);
+// Every house-style category waived but the skeleton kept (the PSOS-49 set).
+const ALL_HOUSE_STYLE_WAIVED = waive(
+  ...STYLE_OVERRIDE_KEYS.filter((key) => key !== "reportSkeleton")
+);
 
 describe("buildSharedWritingRules", () => {
   it("includes every house-style block by default and no waiver footer", () => {
@@ -126,11 +130,82 @@ describe("section 242 prompt", () => {
     // Content requirements stay.
     expect(prompt).toContain("limitations to standard practice");
     expect(prompt).toContain("technological objective");
-    // Locked structure stays under the full waiver set too.
-    const allWaived = buildSection242SystemPrompt(ALL_WAIVED);
+    // Locked structure stays under the full house-style waiver set too.
+    const allWaived = buildSection242SystemPrompt(ALL_HOUSE_STYLE_WAIVED);
     expect(allWaived).toContain("exactly 5 paragraphs");
     expect(allWaived).toContain("CRITICAL DISTINCTION between Paragraph 3 and Paragraph 5");
     expect(allWaived).toContain("The BECAUSE clause is what makes an uncertainty credible");
+  });
+});
+
+// 2026-09-01 amendment: reportSkeleton hands section architecture to the
+// writer's own document; only the length budget and evidence rules survive.
+describe("reportSkeleton waiver", () => {
+  const skeletonWaived = waive("reportSkeleton");
+
+  it("replaces the fixed paragraph roles in every section prompt", () => {
+    const s242 = buildSection242SystemPrompt(skeletonWaived);
+    expect(s242).toContain("## Section Architecture (writer-defined)");
+    expect(s242).not.toContain("exactly 5 paragraphs");
+    expect(s242).not.toContain("## Paragraph Structure");
+    expect(s242).not.toContain("It MUST open with");
+
+    const s244 = buildSection244SystemPrompt(skeletonWaived);
+    expect(s244).toContain("## Section Architecture (writer-defined)");
+    expect(s244).not.toContain("PROBLEM STATEMENT");
+    expect(s244).not.toContain('This paragraph MUST open with: "It was hypothesized that if');
+
+    const s246 = buildSection246SystemPrompt(skeletonWaived);
+    expect(s246).toContain("## Section Architecture (writer-defined)");
+    expect(s246).not.toContain("KNOWLEDGE FIRST, CAPABILITIES SECOND");
+    expect(s246).not.toContain("At least 2 of the 3 advancement paragraphs");
+  });
+
+  it("keeps the length budget and evidence rules locked", () => {
+    for (const prompt of [
+      buildSection242SystemPrompt(ALL_WAIVED),
+      buildSection244SystemPrompt(ALL_WAIVED),
+      buildSection246SystemPrompt(ALL_WAIVED),
+    ]) {
+      expect(prompt).toContain("stay within the length budget");
+      expect(prompt).toContain("[GAP: ...] placeholder, never an invention");
+      expect(prompt).toContain("NEVER hallucinate or fabricate technical details");
+      expect(prompt).toContain("Do NOT fall back to a fixed paragraph count");
+      // The waiver footer no longer asserts structure supremacy.
+      expect(prompt).toContain("Only the length budget and the evidence rules");
+      expect(prompt).not.toContain("section structure, paragraph roles, required content, length limits, and evidence rules) remains mandatory");
+    }
+  });
+
+  it("other house-style toggles still govern their own blocks", () => {
+    const prompt = buildSection242SystemPrompt(skeletonWaived);
+    expect(prompt).toContain("BANNED WORDS AND PHRASES");
+    expect(prompt).toContain("CRA KEYWORD VISIBILITY:");
+    const both = buildSection242SystemPrompt(waive("reportSkeleton", "bannedWords"));
+    expect(both).not.toContain("BANNED WORDS AND PHRASES");
+  });
+
+  it("QA prompt waives structure and positional checks", () => {
+    const prompt = buildQaSystemPrompt(skeletonWaived);
+    expect(prompt).toContain("### Structure Compliance: WAIVED");
+    expect(prompt).toContain("### CRA Keyword Visibility Check: WAIVED");
+    expect(prompt).not.toContain("Does Section 242 contain all 5 required paragraphs");
+    expect(prompt).not.toContain("If not, flag and deduct 5 points from 242");
+    expect(prompt).toContain("ADVISORY");
+    // Faithfulness and prose checks survive.
+    expect(prompt).toContain("### Faithfulness");
+    expect(prompt).toContain("### Human Prose Check");
+  });
+
+  it("chat skeleton rules defer to the writer's architecture", () => {
+    const rules = buildSectionStructureRules(skeletonWaived);
+    expect(rules).toContain("SR&ED report architecture (writer-defined)");
+    expect(rules).not.toContain("NEVER break this");
+    expect(rules).not.toContain("(5 paragraphs)");
+    expect(rules).toContain("CRA form length limit");
+    const chat = buildChatSystemPromptV2(skeletonWaived);
+    expect(chat).toContain("SR&ED report architecture (writer-defined)");
+    expect(chat).not.toContain("SR&ED report skeleton (NEVER break this");
   });
 });
 
@@ -227,6 +302,11 @@ describe("prompt dash hygiene", () => {
       buildQaSystemPrompt(),
       buildChatSystemPromptV2(),
       buildSharedWritingRules(waive("bannedWords", "sentenceConstruction", "repetitionCaps", "paragraphDensity", "openingClauses")),
+      buildSection242SystemPrompt(ALL_WAIVED),
+      buildSection244SystemPrompt(ALL_WAIVED),
+      buildSection246SystemPrompt(ALL_WAIVED),
+      buildQaSystemPrompt(ALL_WAIVED),
+      buildChatSystemPromptV2(ALL_WAIVED),
     ]) {
       expect(findDashConnectors(prompt.replace(RULES_HUMAN_PROSE, "")).map((h) => h.context)).toEqual([]);
       expect(findDashConnectors(prompt).length).toBeLessThanOrEqual(allowed);

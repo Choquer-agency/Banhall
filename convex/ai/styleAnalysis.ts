@@ -46,6 +46,7 @@ export const styleAnalysisSchema: z.ZodType<StyleAnalysis> = z.object({
     sentenceConstruction: categorySchema,
     repetitionCaps: categorySchema,
     openingClauses: categorySchema,
+    reportSkeleton: categorySchema,
   }),
   lockedConflicts: z.array(z.object({ excerpt: z.string(), rule: z.string() })),
 });

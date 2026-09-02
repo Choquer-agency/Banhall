@@ -115,11 +115,12 @@
         <h2 class="text-title">How this rulebook works</h2>
         <p class="mt-1 max-w-3xl text-sm text-gray-500">
           Every generated PD is written against two tiers of rules. The
-          CRA-required tier is locked for everyone — no writer, admin, or
-          preference document can change it. The house-style tier below is the
-          organization's own writing standard: each category can be governed
-          per rule, from writer-by-writer choice to org-wide enforcement to
-          switching the rule off entirely.
+          locked tier (CRA form length limits and no-fabrication rules) applies
+          to everyone — no writer, admin, or preference document can change
+          it. The waivable tier below is the organization's own writing
+          standard, including the default report skeleton: each category can
+          be governed per rule, from writer-by-writer choice to org-wide
+          enforcement to switching the rule off entirely.
         </p>
       </section>
 

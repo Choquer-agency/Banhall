@@ -179,6 +179,7 @@ describe("writer profile style overrides", () => {
         sentenceConstruction: "writer_choice",
         repetitionCaps: "writer_choice",
         openingClauses: "writer_choice",
+        reportSkeleton: "writer_choice",
       },
     });
     const withUser = await t.query(
@@ -209,6 +210,7 @@ describe("writer profile style overrides", () => {
         sentenceConstruction: "writer_choice",
         repetitionCaps: "writer_choice",
         openingClauses: "writer_choice",
+        reportSkeleton: "writer_choice",
       },
     });
     const result = await t.query(

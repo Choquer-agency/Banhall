@@ -106,6 +106,17 @@ ${bannedTermLines()}
 Common replacements: "novel" → "new" or "alternative" or "specialized"; "additionally" → just start the next sentence; "robust" → "reliable" or "consistent"; "comprehensive" → "thorough" or "complete"; "innovative" → describe what makes it new instead.
 Do NOT skip this step. The word "novel" in particular appears frequently in AI-generated text and MUST be caught and replaced.`;
 
+// Waivable: reportSkeleton (2026-09-01 amendment). Summary of the default
+// architecture the drafting prompts encode inline (convex/ai/prompts.ts).
+// When waived, the writer's own preferences document defines each line's
+// architecture and framing; only the CRA form line/word limits and the
+// no-fabrication/evidence rules remain enforced.
+export const RULES_REPORT_SKELETON = `REPORT SKELETON (default architecture):
+- Line 242 (Scientific/Technological Uncertainty), 5 paragraphs: company context → goal/problem → passive limitations of standard practice → technological objective → active uncertainties, each with a "because" clause.
+- Line 244 (Work Performed): optional prior-year status → workplan → hypothesis in if/then form with a measurable then-clause → experimentation paragraphs, each a problem → attempt → finding → adaptation → conclusion arc.
+- Line 246 (Scientific/Technological Advancement), ~6 paragraphs: overall advancement → knowledge-first advancement paragraphs (one per resolved uncertainty) → project status and next steps → project-goal bookend.
+- The WHY–HOW–WHY arc across the three lines; passive vs active uncertainties never blurred; advancements lead with what was LEARNED, not what was built.`;
+
 // ─── Display catalog for the admin House Rules page ─────────────────────────
 
 /** Full rule text per waivable category (blocks concatenated for display). */
@@ -115,35 +126,19 @@ export const HOUSE_RULE_TEXTS: Record<StyleOverrideKey, string> = {
   sentenceConstruction: RULES_SENTENCE_CONSTRUCTION,
   repetitionCaps: `${RULES_REPETITION}\n\n${RULES_REPETITION_TRACKING}`,
   openingClauses: RULES_CRA_OPENERS,
+  reportSkeleton: RULES_REPORT_SKELETON,
 };
 
-/** The CRA-compliance tier, summarized for display. Locked for everyone. */
+/**
+ * The locked tier, summarized for display. Locked for everyone.
+ *
+ * 2026-09-01 amendment: the skeleton, passive/active distinction,
+ * because-clauses, hypothesis content, and knowledge-first framing moved from
+ * this list into the waivable `reportSkeleton` category (RULES_REPORT_SKELETON
+ * above) — they remain the default for every writer who has not waived it.
+ * Only the CRA form limits and integrity rules below can never be waived.
+ */
 export const LOCKED_RULES: Array<{ title: string; summary: string }> = [
-  {
-    title: "Three-line skeleton and paragraph roles",
-    summary:
-      "Line 242 (uncertainty, 5 paragraphs), Line 244 (work performed), Line 246 (advancement, ~6 paragraphs); the WHY–HOW–WHY arc and each paragraph's content role are fixed.",
-  },
-  {
-    title: "Passive vs active uncertainties",
-    summary:
-      "Gaps in general knowledge/standard practice and risks specific to this project's approach are never blurred together.",
-  },
-  {
-    title: "Because-clauses on active uncertainties",
-    summary:
-      "Every active-uncertainty statement explains WHY it was uncertain with a project-specific reason.",
-  },
-  {
-    title: "Hypothesis content",
-    summary:
-      "Strict if/then structure with a specific technical approach and a measurable, falsifiable then-clause. (The literal opening phrase is the waivable part; the content is not.)",
-  },
-  {
-    title: "Knowledge-first advancements",
-    summary:
-      "Line 246 leads with what was LEARNED, not what was built; the physical outcome is evidence, not the claim.",
-  },
   {
     title: "CRA form length limits",
     summary:

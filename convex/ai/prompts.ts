@@ -5,15 +5,18 @@
  * interview transcripts to CRA eligibility criteria. They are the
  * single most important file in the codebase.
  *
- * PSOS-49: the writing standard is two-tiered. The CRA-compliance tier
- * (section skeleton, paragraph roles, passive/active distinction,
- * because-clauses, hypothesis content, knowledge-first framing, length
- * limits, no fabrication) is locked for everyone. Five house-style
- * categories (shared/styleOverrides.ts) can be waived per writer (or org-wide
- * via PSOS-50 governance modes); a waived category's rule text is OMITTED
- * from the assembled prompt; conflicts are resolved at assembly time, never
- * delegated to the model. Prompts are produced by the `build*` functions;
- * call them with no argument for the default (full-enforcement) build.
+ * PSOS-49: the writing standard is two-tiered. The locked tier (CRA form
+ * length limits, no fabrication, evidence discipline) applies to everyone.
+ * The waivable categories (shared/styleOverrides.ts) can be waived per writer
+ * (or org-wide via PSOS-50 governance modes); a waived category's rule text is
+ * OMITTED from the assembled prompt; conflicts are resolved at assembly time,
+ * never delegated to the model. 2026-09-01 amendment: `reportSkeleton` waives
+ * the whole built-in section architecture (paragraph counts, roles, ordering,
+ * framing conventions) — the section builders then emit a writer-defined
+ * architecture prompt in which the writer's preferences block is the
+ * authority and only the length budget and no-fabrication rules stay.
+ * Prompts are produced by the `build*` functions; call them with no argument
+ * for the default (full-enforcement) build.
  */
 
 import {
@@ -137,9 +140,36 @@ export function waivedCategoryLabels(overrides: StyleOverrides): string[] {
 function waiverFooter(overrides: StyleOverrides): string {
   const waived = waivedCategoryLabels(overrides);
   if (waived.length === 0) return "";
+  const stillMandatory = overrides.reportSkeleton
+    ? "Only the length budget and the evidence rules (use only the provided material; [GAP] placeholders instead of invention) remain mandatory; the writer's preferences govern everything else about structure and content."
+    : "Every CRA rule in this prompt (section structure, paragraph roles, required content, length limits, and evidence rules) remains mandatory.";
   return `HOUSE-RULE WAIVERS:
-The default house rules are waived for: ${waived.join("; ")}. For those areas, follow the writer's personal style preferences if a preferences block is provided in the user message; if none is provided, use your own professional judgment; the waived default rules simply do not apply. Every CRA rule in this prompt (section structure, paragraph roles, required content, length limits, and evidence rules) remains mandatory.`;
+The default house rules are waived for: ${waived.join("; ")}. For those areas, follow the writer's personal style preferences if a preferences block is provided in the user message; if none is provided, use your own professional judgment; the waived default rules simply do not apply. ${stillMandatory}`;
 }
+
+// ─── Writer-defined architecture (reportSkeleton waived) ─────────────────────
+//
+// When a writer waives the built-in skeleton, the section builders emit this
+// block instead of the fixed paragraph roles. The writer's preferences block
+// in the user message becomes the authority for architecture and content;
+// only the length budget and the no-fabrication rules stay locked.
+
+function writerArchitectureBlock(lineLabel: string, purpose: string): string {
+  return `## Section Architecture (writer-defined)
+
+This writer's profile waives the built-in section skeleton. The writer's personal style preferences block in the user message is the AUTHORITY for ${lineLabel}: how many paragraphs to write, what each paragraph covers, the order, how paragraphs open, how uncertainties, work, and advancements are framed, and any per-paragraph word caps. Follow it exactly. Do NOT fall back to a fixed paragraph count or to mandated opening phrases the preferences do not ask for. Where the preferences are silent on a point, use your judgment as a senior SR&ED writer.
+
+What ${lineLabel} is for on the CRA form: ${purpose}
+
+Locked regardless of the preferences: use ONLY the provided material (missing information becomes a [GAP: ...] placeholder, never an invention), and stay within the length budget given in the user message.`;
+}
+
+const LINE_242_PURPOSE =
+  "it explains the scientific or technological uncertainty the company set out to resolve, why existing knowledge and standard practice could not resolve it, and the technological objective pursued.";
+const LINE_244_PURPOSE =
+  "it describes the work performed in the fiscal period: the systematic investigation, the hypotheses, and the experiments or iterations carried out to resolve the uncertainties, with their results.";
+const LINE_246_PURPOSE =
+  "it describes the scientific or technological advancement: what new knowledge was gained (or what was learned when the hypothesis failed), the current state of the remaining uncertainties, and how the knowledge applied to the project goal.";
 
 export function buildSharedWritingRules(
   overrides: StyleOverrides = NO_STYLE_OVERRIDES
@@ -167,6 +197,19 @@ export function buildSharedWritingRules(
 export function buildSection242SystemPrompt(
   overrides: StyleOverrides = NO_STYLE_OVERRIDES
 ): string {
+  if (overrides.reportSkeleton) {
+    return `You are an expert SR&ED report writer for a Canadian consulting firm. Your task is to draft Line 242 (Scientific or Technological Uncertainty) of an SR&ED project description report.
+
+You will receive structured analysis of an interview transcript. Use ONLY the information provided.
+
+${writerArchitectureBlock("Line 242", LINE_242_PURPOSE)}
+
+${buildSharedWritingRules(overrides)}
+
+## Output Format
+
+Respond with ONLY the paragraphs of text. No headers, no labels, no metadata. Just the paragraphs separated by blank lines.`;
+  }
   return `You are an expert SR&ED report writer for a Canadian consulting firm. Your task is to draft Line 242 (Scientific or Technological Uncertainty) of an SR&ED project description report.
 
 You will receive structured analysis of an interview transcript. Use ONLY the information provided. Your output must contain exactly 5 paragraphs as described below.
@@ -246,6 +289,19 @@ Respond with ONLY the 5 paragraphs of text. No headers, no labels, no metadata. 
 export function buildSection244SystemPrompt(
   overrides: StyleOverrides = NO_STYLE_OVERRIDES
 ): string {
+  if (overrides.reportSkeleton) {
+    return `You are an expert SR&ED report writer for a Canadian consulting firm. Your task is to draft Line 244 (Work Performed) of an SR&ED project description report.
+
+You will receive structured analysis of an interview transcript. Use ONLY the information provided. Do not invent experiments not present in the source material.
+
+${writerArchitectureBlock("Line 244", LINE_244_PURPOSE)}
+
+${buildSharedWritingRules(overrides)}
+
+## Output Format
+
+Respond with ONLY the paragraphs of text. No headers, no labels, no metadata. Just the paragraphs separated by blank lines.`;
+  }
   return `You are an expert SR&ED report writer for a Canadian consulting firm. Your task is to draft Line 244 (Work Performed) of an SR&ED project description report.
 
 You will receive structured analysis of an interview transcript. Use ONLY the information provided. Your output should contain the paragraphs described below.
@@ -314,6 +370,19 @@ Respond with ONLY the paragraphs of text. No headers, no labels, no metadata. Ju
 export function buildSection246SystemPrompt(
   overrides: StyleOverrides = NO_STYLE_OVERRIDES
 ): string {
+  if (overrides.reportSkeleton) {
+    return `You are an expert SR&ED report writer for a Canadian consulting firm. Your task is to draft Line 246 (Scientific or Technological Advancement) of an SR&ED project description report.
+
+You will receive structured analysis of an interview transcript. Use ONLY the information provided. Do not fabricate advancements.
+
+${writerArchitectureBlock("Line 246", LINE_246_PURPOSE)}
+
+${buildSharedWritingRules(overrides)}
+
+## Output Format
+
+Respond with ONLY the paragraphs of text. No headers, no labels, no metadata. Just the paragraphs separated by blank lines.`;
+  }
   return `You are an expert SR&ED report writer for a Canadian consulting firm. Your task is to draft Line 246 (Scientific or Technological Advancement) of an SR&ED project description report.
 
 You will receive structured analysis of an interview transcript. Use ONLY the information provided. Your output should contain the paragraphs described below.
@@ -377,6 +446,7 @@ export function buildQaSystemPrompt(
   /** Whether the writer's preferences asked for first person; null = unknown. */
   firstPersonRequested: boolean | null = null
 ): string {
+  const skeletonWaived = overrides.reportSkeleton;
   return `You are an expert SR&ED quality assurance reviewer for a Canadian consulting firm. Your job is to review a complete draft SR&ED project description report and evaluate it against CRA criteria with strict, honest scoring.
 
 You will receive:
@@ -389,14 +459,26 @@ You will receive:
 
 Score each section (0-100) and the overall report based on:
 
-### Structure Compliance
+${
+    skeletonWaived
+      ? `### Structure Compliance: WAIVED
+- This writer's profile replaces the built-in section skeleton with their own settings document. Paragraph counts, paragraph roles, ordering, mandated opening phrases, and the default framing conventions do NOT apply. Do NOT flag or deduct for a section having more, fewer, or differently arranged paragraphs than the default skeleton, for consolidated or split paragraphs, or for the absence of signal phrases.
+- Every check below that names a paragraph position (P3, P5, "paragraphs 2, 3, and 4") is positional guidance for the DEFAULT skeleton only. For this report, locate the relevant content by what it says, not where it sits; if you cannot locate it, do not deduct.
+- Judge the substance instead: does the report, in the writer's own architecture, convey a genuine technological uncertainty, a systematic investigation, and a knowledge advancement that a CRA reviewer would accept? Deduct only for substantive weaknesses a writer would need to rework, never for deviation from the default structure.
+- The CRA Verbiage, Conceptual Accuracy, Knowledge vs. Capability, Hypothesis Specificity, Passive vs. Active, and Experimentation Narrative Arc checks below describe the DEFAULT methodology. For this writer they are ADVISORY: report a genuine substantive weakness as a "warning" (no deduction) so the writer can decide; deduct only when a claim is unsupported by the source material or the section is empty of substance. The Human Prose, Writing Quality, Faithfulness, and Gaps checks apply as written.
+
+### CRA Keyword Visibility Check: WAIVED
+- Do NOT deduct for missing signal phrases ("The limitations to standard practice were...", "The technological objective was to...", "It was hypothesized that if...", "Through systematic investigation, it was determined that..."). Ignore any pre-computed opener results.`
+      : `### Structure Compliance
 - Does Section 242 contain all 5 required paragraphs (company/context, goal/problem, passive uncertainties, technological objective, active uncertainties)?
 - Does Section 244 contain the required paragraphs (optional prior year, workplan, hypothesis, experimentation)?
-- Does Section 246 contain the required paragraphs (advancement, specific advancements, project status, project goal)?
+- Does Section 246 contain the required paragraphs (advancement, specific advancements, project status, project goal)?`
+  }
 
-### CRA Keyword Visibility Check
-${
-    overrides.openingClauses
+${skeletonWaived ? "" : "### CRA Keyword Visibility Check\n"}${
+    skeletonWaived
+      ? ""
+      : overrides.openingClauses
       ? `- WAIVED: this writer's profile waives the mandated literal opening clauses. Do NOT deduct points or flag issues for missing signal phrases ("The limitations to standard practice were...", "The technological objective was to...", "It was hypothesized that if...", "Through systematic investigation, it was determined that...").
 - Still verify the underlying CONTENT is present in the writer's own phrasing: 242 P3 states the limitations of standard practice, 242 P4 states the technological objective (knowledge sought + solution), the 244 hypothesis is in if/then form, and 246 advancement paragraphs open with knowledge findings. Flag and deduct only when the content itself is missing.`
       : `- Does "The limitations to standard practice were..." appear near the start of 242 P3? (Not buried mid-sentence) If not, flag and deduct 5 points from 242.
@@ -582,6 +664,14 @@ export function buildSectionStructureRules(
   overrides: StyleOverrides = NO_STYLE_OVERRIDES
 ): string {
   const openersWaived = overrides.openingClauses;
+  if (overrides.reportSkeleton) {
+    return `
+## SR&ED report architecture (writer-defined)
+
+This writer's profile waives the built-in report skeleton. Their personal style preferences (provided in this conversation when available) are the AUTHORITY for how each of the three CRA lines is organized: paragraph count, paragraph roles, ordering, openers, and framing. On a "redo it all" request, rebuild to the writer's architecture, never to the default skeleton. The three CRA lines themselves stay: Line 242 (Scientific/Technological Uncertainty), Line 244 (Work Performed), Line 246 (Scientific/Technological Advancement).
+
+Locked regardless of preferences: every claim stays supported by the provided materials ([GAP: ...] placeholders instead of invention), and each line stays within its CRA form length limit.`;
+  }
   return `
 ## SR&ED report skeleton (NEVER break this, even on a "redo it all" request)
 

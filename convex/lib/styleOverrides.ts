@@ -14,6 +14,7 @@ export const styleOverridesValidator = v.object({
   sentenceConstruction: v.optional(v.boolean()),
   repetitionCaps: v.optional(v.boolean()),
   openingClauses: v.optional(v.boolean()),
+  reportSkeleton: v.optional(v.boolean()),
 });
 
 /** Normalized shape returned to the generation pipeline: every key present. */
@@ -23,4 +24,5 @@ export const normalizedStyleOverridesValidator = v.object({
   sentenceConstruction: v.boolean(),
   repetitionCaps: v.boolean(),
   openingClauses: v.boolean(),
+  reportSkeleton: v.boolean(),
 });

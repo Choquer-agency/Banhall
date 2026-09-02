@@ -114,7 +114,9 @@ export function buildStyleGuidance(
   // everywhere else they stay the lowest-priority guidance so they can never
   // override CRA structure, the remaining house rules, or the length budget.
   const flavorBlock = writerFlavor?.trim()
-    ? waived.length > 0
+    ? styleOverrides.reportSkeleton
+      ? `\n\n## Writer's personal style preferences (AUTHORITATIVE)\nThe requesting writer recorded these preferences and their profile waives the built-in report skeleton. They are the authority for section architecture (paragraph count, roles, order, openers, framing) and for these waived house-style areas: ${waived.join("; ")}. Apply them fully. The only limits they cannot override are the length budget and the evidence rules (use only the provided material; [GAP] placeholders instead of invention); the learned style guidance above yields to them wherever the two conflict.\n\n${writerFlavor.trim()}`
+      : waived.length > 0
       ? `\n\n## Writer's personal style preferences\nThe requesting writer recorded these preferences. For the following waived house-style areas they are AUTHORITATIVE and replace the default house rules: ${waived.join("; ")}.\nOutside those areas, apply them ONLY where they do not conflict with: (1) the required CRA section structure and paragraph mandates, (2) the remaining house-style and CRA phrasing rules, (3) the length budget, (4) the learned style guidance above. When in conflict outside the waived areas, ignore the preference silently.\n\n${writerFlavor.trim()}`
       : `\n\n## Writer's personal style preferences (lowest priority)\nThe requesting writer recorded these personal preferences. Apply them ONLY where\nthey do not conflict with: (1) the required CRA section structure and paragraph\nmandates, (2) CRA phrasing and banned-word rules, (3) the length budget,\n(4) the learned style guidance above. When in conflict, ignore the preference\nsilently.\n\n${writerFlavor.trim()}`
     : "";

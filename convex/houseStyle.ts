@@ -30,6 +30,7 @@ const modesValidator = v.object({
   sentenceConstruction: modeValidator,
   repetitionCaps: modeValidator,
   openingClauses: modeValidator,
+  reportSkeleton: modeValidator,
 });
 
 /** Shared db read — also used by writerProfiles and research. */

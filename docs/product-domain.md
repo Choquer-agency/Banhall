@@ -1381,6 +1381,61 @@ analyze-my-instructions flow at save time.
 - **Approval:** product owner directed and approved the governance-mode
   contract on 2026-08-24 as the follow-on to PSOS-49.
 
+### 2026-09-01 — Writer-defined report skeleton (`reportSkeleton` waiver)
+
+Generation-behavior amendment that re-tiers the PSOS-49 writing standard.
+The built-in section skeleton is no longer locked: it becomes a sixth
+waivable category, and when waived the writer's own preferences document is
+the authority for report architecture.
+
+- **Affected ticket/scope:** follow-on to PSOS-49/PSOS-50. Origin: flag from
+  lrinaldo@banhall.com (2026-08-31, project
+  `k9707a4y5wexp3bx4dq3w4shvd8dkybr`): with all five house-style categories
+  waived, their "PD Writing Customized Settings" document still could not
+  change paragraph count or roles (line 246 kept three mandated advancement
+  paragraphs instead of the document's consolidated architecture). Owner
+  direction 2026-09-01: the only rule that must stay is the per-line word
+  count, because that is what fits on the finalized form.
+- **Tier table (supersedes the PSOS-49 table):**
+
+  | Tier | Rules | Overridable |
+  |---|---|---|
+  | Locked | CRA line/word limits (`convex/lib/lineLimits.ts`, compression pass); no-fabrication/[GAP] and evidence-tracing rules; human-prose dash scan; voice consistency | Never |
+  | Waivable | Six categories: `bannedWords`, `paragraphDensity`, `sentenceConstruction`, `repetitionCaps`, `openingClauses`, **`reportSkeleton`** (canonical list in `shared/styleOverrides.ts`) | Per writer, per category; org mode via PSOS-50 |
+
+  `reportSkeleton` covers everything previously listed as "locked CRA
+  compliance" except the length limits and integrity rules: the three-line
+  paragraph counts and roles, ordering, the passive/active split, because-
+  clauses, if/then hypothesis content, knowledge-first framing, and the
+  default narrative arcs. The three CRA lines themselves (242/244/246) are
+  form fields and remain.
+- **Storage:** `writerProfiles.styleOverrides.reportSkeleton` (optional
+  boolean, widen-only, no backfill); `houseStyle.modes.reportSkeleton`
+  defaults to `writer_choice`. Legacy rows and frozen generation artifacts
+  normalize to `false` — exactly the prior behavior.
+- **Behavior when waived (on an enabled profile, subject to org mode):**
+  the section builders in `convex/ai/prompts.ts` emit a writer-defined
+  architecture prompt (`writerArchitectureBlock`) instead of the fixed
+  paragraph roles; the writer's preferences block in `buildStyleGuidance`
+  is marked authoritative for architecture; the QA prompt waives Structure
+  Compliance and keyword visibility, downgrades the methodology checks to
+  advisory warnings, and keeps faithfulness/prose/gap checks; the
+  deterministic BECAUSE and opener scans report `WAIVED`; the chat
+  skeleton block defers to the writer's architecture on "redo it all"
+  requests. Other toggles keep governing their own blocks independently.
+- **Authorization:** none changed.
+- **Tests:** `convex/ai/prompts.test.ts` (`reportSkeleton waiver` block),
+  `convex/ai/qaChecks.test.ts`, existing key-driven suites extended.
+- **Recorded residual tensions:** (1) QA scores under the waiver reflect
+  faithfulness and prose more than CRA methodology; calibration text still
+  describes senior-writer edit time. (2) The global `draft_style` digest
+  yields to the writer document when the skeleton is waived. (3) The
+  `RULES_VOICE_CONSISTENCY` block still names default paragraph positions
+  as examples; it is conditional on first-person use and harmless under a
+  custom architecture.
+- **Approval:** product owner approved on 2026-09-01 ("Lets allow this";
+  "The only rule we need is the word count for each line").
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

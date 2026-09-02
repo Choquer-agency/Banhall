@@ -289,6 +289,38 @@ describe("style-override waivers", () => {
     expect(summary).toContain("Uncertainties with BECAUSE clauses: 2/2");
   });
 
+  // 2026-09-01: reportSkeleton waives the positional/structural scans too.
+  it("reportSkeleton waiver skips the BECAUSE and opener scans", () => {
+    const skeletonWaived = waive({ reportSkeleton: true });
+    expect(
+      sectionDeterministicFindings("s242", section242Fail, skeletonWaived).some(
+        (f) => f.check === "because_clause"
+      )
+    ).toBe(false);
+    expect(
+      sectionDeterministicFindings("s246", section246Fail, skeletonWaived).some(
+        (f) => f.check === "cra_opener"
+      )
+    ).toBe(false);
+    // Vocabulary and prose scans are governed by their own toggles.
+    expect(
+      sectionDeterministicFindings("s244", "A novel rollout -- shipped.", skeletonWaived).map(
+        (f) => f.check
+      )
+    ).toEqual(["banned_word", "dash_connector"]);
+
+    const summary = runDeterministicChecks(
+      section242Fail,
+      "Section 244.",
+      section246Fail,
+      skeletonWaived
+    );
+    expect(summary).toContain("### CRA Opener Detection (246 P2-P4)\nWAIVED by writer profile");
+    expect(summary).toContain("### BECAUSE Clause Detection (242 P5)\nWAIVED by writer profile");
+    expect(summary).not.toContain("FAIL —");
+    expect(summary).toContain("No banned words found.");
+  });
+
   it("runDeterministicChecks default output is unchanged without waivers", () => {
     const summary = runDeterministicChecks(
       section242Pass,

@@ -243,7 +243,9 @@ export function sectionDeterministicFindings(
     });
   }
 
-  if (section === "s242") {
+  // Positional/structural scans assume the default skeleton; a writer-defined
+  // architecture (reportSkeleton waived) makes them meaningless, not wrong.
+  if (section === "s242" && !overrides.reportSkeleton) {
     const because = checkBecauseClauses(text);
     for (const d of because.details) {
       if (!d.hasBecause) {
@@ -255,7 +257,7 @@ export function sectionDeterministicFindings(
     }
   }
 
-  if (section === "s246" && !overrides.openingClauses) {
+  if (section === "s246" && !overrides.openingClauses && !overrides.reportSkeleton) {
     const openers = checkCRAOpeners(text);
     for (const r of openers.results) {
       if (!r.passes) {
@@ -305,7 +307,9 @@ export function runDeterministicChecks(
 
   // CRA openers
   summary += `### CRA Opener Detection (246 P2-P4)\n`;
-  if (overrides.openingClauses) {
+  if (overrides.reportSkeleton) {
+    summary += `WAIVED by writer profile — this writer's own document defines the section architecture, so positional opener detection does not apply. Do not deduct for missing signal phrases.\n`;
+  } else if (overrides.openingClauses) {
     summary += `WAIVED by writer profile — literal opening clauses are not required for this writer. Do not deduct for missing signal phrases.\n`;
   } else {
     const openers = checkCRAOpeners(section246);
@@ -318,9 +322,13 @@ export function runDeterministicChecks(
 
   // BECAUSE clauses
   summary += `### BECAUSE Clause Detection (242 P5)\n`;
-  summary += `Uncertainties with BECAUSE clauses: ${because.withBecause}/${because.uncertaintyCount}\n`;
-  for (const d of because.details) {
-    summary += `- ${d.hasBecause ? "PASS" : "FAIL"} — "${d.excerpt}"\n`;
+  if (overrides.reportSkeleton) {
+    summary += `WAIVED by writer profile — this writer's own document defines the section architecture, so the default because-clause structure does not apply. Do not deduct for its absence.\n`;
+  } else {
+    summary += `Uncertainties with BECAUSE clauses: ${because.withBecause}/${because.uncertaintyCount}\n`;
+    for (const d of because.details) {
+      summary += `- ${d.hasBecause ? "PASS" : "FAIL"} — "${d.excerpt}"\n`;
+    }
   }
   summary += `\n`;
 

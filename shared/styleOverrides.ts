@@ -1,12 +1,15 @@
 /**
  * Per-writer house-style override toggles (PSOS-49).
  *
- * The SR&ED writing standard has two tiers. The CRA-compliance tier (three-line
- * skeleton, passive/active uncertainty distinction, because-clauses, hypothesis
- * content, knowledge-first framing, line/word limits, no fabrication) is locked
- * for everyone. The house-style tier below is enforced by default but a writer
- * may waive individual categories so their own "Writing preferences" document
- * governs that area instead. A waived category is removed from the drafting
+ * The SR&ED writing standard has two tiers. The locked tier (CRA form
+ * line/word limits and the no-fabrication/evidence rules) applies to everyone.
+ * The waivable tier below is enforced by default but a writer may waive
+ * individual categories so their own "Writing preferences" document governs
+ * that area instead. Since the 2026-09-01 amendment this includes
+ * `reportSkeleton`: the whole built-in section skeleton (paragraph counts,
+ * roles, ordering, framing conventions) — waiving it makes the writer's
+ * document authoritative for report architecture, with only the line limits
+ * and no-fabrication rules still enforced. A waived category is removed from the drafting
  * prompts, skipped by the programmatic scrub/QA scans, and exempted from QA
  * deductions — conflicts are resolved before prompt assembly, never silently
  * inside it.
@@ -21,6 +24,7 @@ export const STYLE_OVERRIDE_KEYS = [
   "sentenceConstruction",
   "repetitionCaps",
   "openingClauses",
+  "reportSkeleton",
 ] as const;
 
 export type StyleOverrideKey = (typeof STYLE_OVERRIDE_KEYS)[number];
@@ -34,6 +38,7 @@ export const NO_STYLE_OVERRIDES: StyleOverrides = {
   sentenceConstruction: false,
   repetitionCaps: false,
   openingClauses: false,
+  reportSkeleton: false,
 };
 
 /**
@@ -84,6 +89,7 @@ export const DEFAULT_HOUSE_RULE_MODES: HouseRuleModes = {
   sentenceConstruction: "writer_choice",
   repetitionCaps: "writer_choice",
   openingClauses: "writer_choice",
+  reportSkeleton: "writer_choice",
 };
 
 export const HOUSE_RULE_MODE_LABELS: Record<HouseRuleMode, string> = {
@@ -167,5 +173,10 @@ export const STYLE_OVERRIDE_META: Record<
     label: "Mandated opening clauses",
     description:
       "Waive the literal CRA signal phrases that must open certain paragraphs; the required content still has to appear, in your phrasing.",
+  },
+  reportSkeleton: {
+    label: "Report skeleton and paragraph roles",
+    description:
+      "Waive the built-in section skeleton: paragraph counts, paragraph roles, content ordering, and framing conventions. Your instructions define each line's architecture. The CRA form line/word limits and the no-fabrication rules always stay.",
   },
 };

@@ -163,10 +163,10 @@
       <h2 class="text-title">Writing preferences</h2>
       <p class="mt-1 text-sm text-ink-muted">
         Describe how you like to write and every report you generate will
-        follow it. CRA structure and length limits always apply. House style
-        rules apply too, unless you tick one below to let your instructions
-        take over. Check what applies reads your instructions and ticks the
-        rules they cover for you.
+        follow it. The CRA line length limits always apply. House style rules
+        and the default report skeleton apply too, unless you tick one below
+        to let your instructions take over. Check what applies reads your
+        instructions and ticks the rules they cover for you.
       </p>
     </div>
     <div class="settings-row-form max-w-4xl!">
