@@ -1,4 +1,5 @@
 import { internalAction, type ActionCtx } from "../../_generated/server";
+import { internal } from "../../_generated/api";
 import { v } from "convex/values";
 import { rerank } from "ai";
 import type { Id } from "../../_generated/dataModel";
@@ -162,6 +163,41 @@ type BrainSearchArgs = {
   usageLabel?: string;
 };
 
+/**
+ * Governance join on the served results (CAP-10 g). An entry orphaned by a
+ * revoke keeps `approved: true` in its OWN RAG filter value until deletion
+ * succeeds, so `brain.search` keeps matching it. Rather than accept that
+ * window, every hit is joined back to `brainSources.status` and dropped unless
+ * the row is currently `approved`.
+ *
+ * Legacy hits with no `metadata.sourceId` cannot be joined and pass through
+ * unchanged — they predate revocation tracking.
+ *
+ * The query, the search filters and the ranking ALGORITHM are unchanged; what
+ * changes is the candidate slate the ranking stages see. Because this runs
+ * before `shouldRerankBrainCandidates`, dropping hits can narrow the slate
+ * below the rerank threshold (skipping rerank entirely) and always narrows the
+ * documents/topN handed to the reranker. That is intended: a non-servable hit
+ * must not influence ranking, and it must not be served.
+ */
+async function dropNonServableCandidates(
+  ctx: ActionCtx,
+  candidates: BrainExemplar[]
+): Promise<BrainExemplar[]> {
+  const sourceIds = [
+    ...new Set(
+      candidates
+        .map((c) => c.sourceId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+    ),
+  ];
+  if (sourceIds.length === 0) return candidates;
+  const approved = new Set(
+    await ctx.runQuery(internal.brain.approvedBrainSourceIds, { sourceIds })
+  );
+  return candidates.filter((c) => !c.sourceId || approved.has(c.sourceId));
+}
+
 export async function searchBrainExemplars(
   ctx: ActionCtx,
   args: BrainSearchArgs
@@ -217,7 +253,7 @@ export async function searchBrainExemplars(
     }
 
     const byEntry = new Map(entries.map((e) => [e.entryId, e]));
-    const candidates: BrainExemplar[] = results.map((r) => {
+    const rawCandidates: BrainExemplar[] = results.map((r) => {
       const entry = byEntry.get(r.entryId);
       const meta = entry?.metadata as BrainEntryMetadata | undefined;
       return {
@@ -234,6 +270,8 @@ export async function searchBrainExemplars(
           : undefined,
       };
     });
+
+    const candidates = await dropNonServableCandidates(ctx, rawCandidates);
 
     // P2 quality layer: rerank a wide slate (not just top-k), then apply a
     // relevance floor, blend the writer tier back in (rerank is tier-blind),

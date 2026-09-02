@@ -1564,7 +1564,11 @@ export default defineSchema({
       v.literal("reject"),
       v.literal("revoke"),
       v.literal("reweight"),
-      v.literal("revert")
+      v.literal("revert"),
+      // Confirmed erasure evidence (CAP-10). `revoke` is intent only; these
+      // two record the outcome of the confirmed-erasure action.
+      v.literal("unlearn_confirmed"),
+      v.literal("unlearn_failed")
     ),
     sourceId: v.optional(v.id("brainSources")),
     feedbackId: v.optional(v.id("brainFeedbackQueue")),

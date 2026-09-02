@@ -1,5 +1,5 @@
 import { RAG } from "@convex-dev/rag";
-import { components } from "../../_generated/api";
+import { components, internal } from "../../_generated/api";
 import type { DataModel } from "../../_generated/dataModel";
 import { brainEmbeddingModel, BRAIN_EMBEDDING_DIMENSION } from "./embeddings";
 
@@ -71,7 +71,15 @@ export const ingestOnComplete = brain.defineOnComplete<DataModel>(
       .withIndex("by_ragKey", (q) => q.eq("ragKey", entry.key!))
       .first();
     if (!source) {
-      if (!error) await brain.deleteAsync(ctx, { entryId: entry.entryId });
+      // Orphan: no governance row owns this entry. Route it through the
+      // confirmed-erasure action — `deleteAsync` is workpool-backed and returns
+      // before the entry is gone, so it can never confirm anything. No
+      // `sourceId`: there is no row to book against.
+      if (!error) {
+        await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
+          ragEntryId: entry.entryId,
+        });
+      }
       return;
     }
 
@@ -91,7 +99,14 @@ export const ingestOnComplete = brain.defineOnComplete<DataModel>(
     // committed first, this removes the late vector instead of restoring it;
     // if completion committed first, revoke observes ragEntryId and removes it.
     if (source.status !== "approved") {
-      await brain.deleteAsync(ctx, { entryId: entry.entryId });
+      // Compensation is the SAME confirmed-erasure path as revoke-time unlearn
+      // (this is a mutation, so it cannot confirm anything inline). Never patch
+      // `ragEntryId` here: a non-approved source must not gain an entry id
+      // except as failure evidence, which the action writes if erasure fails.
+      await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
+        ragEntryId: entry.entryId,
+        sourceId: source._id,
+      });
       await ctx.db.insert("brainAuditLog", {
         action: "ingest",
         sourceId: source._id,

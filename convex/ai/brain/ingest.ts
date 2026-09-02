@@ -77,7 +77,11 @@ export const embedSource = internalAction({
       internal.brain.getBrainSourceForIngest,
       { sourceId: args.sourceId }
     );
-    if (!src) throw new Error("brainSource not found for ingest");
+    // Silent no-op, never a throw: `getBrainSourceForIngest` returns null for a
+    // missing row AND for any non-approved (revoked/pending) one, and the
+    // `embedPool` retries thrown actions up to 6 times — a throw here would
+    // retry an embed against a source that must never be embedded.
+    if (!src) return;
 
     const importance = Math.max(0, Math.min(1, src.writerTier));
 

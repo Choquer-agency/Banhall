@@ -11,7 +11,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { Workpool } from "@convex-dev/workpool";
 import { components, internal } from "./_generated/api";
-import { brain } from "./ai/brain/rag";
+import { eraseBrainEntry } from "./ai/brain/erase";
 import { requireBrainConfigured } from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { extractPlainText } from "./lib/reportEdits";
@@ -337,13 +337,35 @@ export const approveSource = mutation({
   },
 });
 
-/** Unlearn: "wipe this from the brain." Revoke → delete from the RAG. */
+/**
+ * Deletion-only remediation bound. A failed erasure reschedules `unlearnSource`
+ * (never `embedSource` — nothing may re-approve or re-ingest a revoked source)
+ * with exponential backoff until this many attempts have been made; after that
+ * the retained `ragEntryId` plus the `unlearn_failed` audit rows are the
+ * standing evidence, and a fresh `revokeSource` call restarts remediation.
+ */
+export const UNLEARN_MAX_ATTEMPTS = 5;
+export const UNLEARN_RETRY_BASE_MS = 60_000;
+
+/** Unlearn: "wipe this from the brain." Revoke → confirmed erasure from the RAG. */
 export const revokeSource = mutation({
   args: { sourceId: v.id("brainSources"), reason: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const admin = await assertAdmin(ctx);
     const s = await ctx.db.get(args.sourceId);
     if (!s) throw new Error("Source not found");
+    if (s.status === "revoked") {
+      // Idempotent. A second revoke never writes a second `revoke` row. A
+      // retained `ragEntryId` on a revoked row is failure evidence, and it
+      // doubles as the remediation handle: retry deletion against it.
+      if (s.ragEntryId) {
+        await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
+          ragEntryId: s.ragEntryId,
+          sourceId: args.sourceId,
+        });
+      }
+      return;
+    }
     await ctx.db.patch(args.sourceId, { status: "revoked" });
     await ctx.db.insert("brainAuditLog", {
       action: "revoke",
@@ -355,16 +377,150 @@ export const revokeSource = mutation({
     if (s.ragEntryId) {
       await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
         ragEntryId: s.ragEntryId,
+        sourceId: args.sourceId,
       });
+      return;
+    }
+    // Never embedded (or already erased): there is nothing remote to confirm,
+    // so the erasure is confirmed by construction — record it here.
+    await ctx.db.insert("brainAuditLog", {
+      action: "unlearn_confirmed",
+      sourceId: args.sourceId,
+      actorId: "system",
+      reason: "No RAG entry to erase",
+      at: Date.now(),
+    });
+  },
+});
+
+/**
+ * Confirmed erasure + governance bookkeeping. The single path for BOTH
+ * revoke-time unlearn and late-embed compensation: each reduces to "erase, then
+ * record", differing only in whether `ragEntryId` was already on the row.
+ *
+ * Deleting from the RAG needs an action (component delete runs in actions), and
+ * bookkeeping must be transactional, hence the two internal mutations below.
+ *
+ * `sourceId` is optional: `removeSourcePermanently` (row is gone) and
+ * `requeueAllApprovedEmbeds` (entry is about to be replaced) want deletion with
+ * no governance bookkeeping at all.
+ */
+export const unlearnSource = internalAction({
+  args: {
+    ragEntryId: v.string(),
+    sourceId: v.optional(v.id("brainSources")),
+    attempt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const attempt = args.attempt ?? 1;
+    try {
+      await eraseBrainEntry(ctx, args.ragEntryId);
+    } catch (err) {
+      await ctx.runMutation(internal.brain.recordUnlearnFailure, {
+        ragEntryId: args.ragEntryId,
+        ...(args.sourceId ? { sourceId: args.sourceId } : {}),
+        attempt,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // Surfaced to the caller: an unconfirmed erasure must never look like a
+      // success. `ragEntryId` stays as the un-erased remote id (evidence).
+      throw err;
+    }
+    await ctx.runMutation(internal.brain.recordUnlearnConfirmed, {
+      ragEntryId: args.ragEntryId,
+      ...(args.sourceId ? { sourceId: args.sourceId } : {}),
+    });
+  },
+});
+
+/**
+ * Success bookkeeping. Clears `ragEntryId` ONLY if it still equals the erased
+ * id (a re-ingest may have written a newer one) and writes the single
+ * `unlearn_confirmed` row. Guarded on a still-existing, still-non-approved row
+ * so it can never resurrect a deleted source or contradict a re-approval.
+ */
+export const recordUnlearnConfirmed = internalMutation({
+  args: {
+    ragEntryId: v.string(),
+    sourceId: v.optional(v.id("brainSources")),
+  },
+  handler: async (ctx, args) => {
+    if (!args.sourceId) return;
+    const s = await ctx.db.get(args.sourceId);
+    if (!s || s.status === "approved") return;
+    if (s.ragEntryId === args.ragEntryId) {
+      await ctx.db.patch(args.sourceId, { ragEntryId: undefined });
+    }
+    await ctx.db.insert("brainAuditLog", {
+      action: "unlearn_confirmed",
+      sourceId: args.sourceId,
+      actorId: "system",
+      reason: `Erasure confirmed for entry ${args.ragEntryId}`,
+      at: Date.now(),
+    });
+  },
+});
+
+/**
+ * Failure bookkeeping. Keeps the un-erased remote id on the row as evidence
+ * (and as the remediation handle), records `unlearn_failed`, and schedules the
+ * next deletion-only attempt while under the cap.
+ */
+export const recordUnlearnFailure = internalMutation({
+  args: {
+    ragEntryId: v.string(),
+    sourceId: v.optional(v.id("brainSources")),
+    attempt: v.number(),
+    error: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (args.sourceId) {
+      const s = await ctx.db.get(args.sourceId);
+      if (s && s.status !== "approved") {
+        if (!s.ragEntryId) {
+          await ctx.db.patch(args.sourceId, { ragEntryId: args.ragEntryId });
+        }
+        await ctx.db.insert("brainAuditLog", {
+          action: "unlearn_failed",
+          sourceId: args.sourceId,
+          actorId: "system",
+          reason: `Erasure failed for entry ${args.ragEntryId} (attempt ${args.attempt}/${UNLEARN_MAX_ATTEMPTS}): ${args.error}`,
+          at: Date.now(),
+        });
+      }
+    }
+    if (args.attempt < UNLEARN_MAX_ATTEMPTS) {
+      await ctx.scheduler.runAfter(
+        UNLEARN_RETRY_BASE_MS * 2 ** (args.attempt - 1),
+        internal.brain.unlearnSource,
+        {
+          ragEntryId: args.ragEntryId,
+          ...(args.sourceId ? { sourceId: args.sourceId } : {}),
+          attempt: args.attempt + 1,
+        }
+      );
     }
   },
 });
 
-/** Deleting from the RAG needs an action (component delete runs in actions). */
-export const unlearnSource = internalAction({
-  args: { ragEntryId: v.string() },
+/**
+ * Served-result status join (CAP-10 g). A revoked source's RAG entry still
+ * carries `approved: true` in its own filter value until deletion succeeds, so
+ * retrieval joins each hit's `metadata.sourceId` back to governance and drops
+ * anything not currently approved. One `db.get` per distinct source in the
+ * top-N. Ids are normalized: metadata is a plain string and may be stale.
+ */
+export const approvedBrainSourceIds = internalQuery({
+  args: { sourceIds: v.array(v.string()) },
   handler: async (ctx, args) => {
-    await brain.delete(ctx, { entryId: args.ragEntryId as never });
+    const approved: string[] = [];
+    for (const raw of args.sourceIds) {
+      const id = ctx.db.normalizeId("brainSources", raw);
+      if (!id) continue;
+      const row = await ctx.db.get(id);
+      if (row?.status === "approved") approved.push(raw);
+    }
+    return approved;
   },
 });
 
