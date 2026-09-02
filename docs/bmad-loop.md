@@ -9,7 +9,7 @@ Model split for this repo:
 | Stage | Who | Why |
 |---|---|---|
 | PRD, spec, story breakdown, spec checkpoints | Claude Fable 5.1, interactive (`/bmad-spec`, `/bmad-create-prd`, …) | plans and approves tickets |
-| Dev pass (`bmad-build-auto` plan + implement + inline review) | Codex `gpt-5.6-sol` | implements |
+| Dev pass (`bmad-build-auto` plan + implement + inline review) | Claude Opus 5, `--effort medium` (was Codex `gpt-5.6-sol` until 2026-09-02; rate limits) | implements |
 | Review pass (fresh-context `bmad-build-auto` on the done spec), sweep triage | Claude Fable 5.1 (`claude-fable-5-1`) | verifies |
 
 `[review].trigger = "always"`, so every story gets the Fable review, and every
@@ -81,3 +81,10 @@ per-machine steps there (`.codex/hooks.json` embeds an absolute path).
 - Component tests (`npm run test:component`) are not in the verify gate; run them by hand before merging UI stories.
 - The old Claude-Workflow orchestrator (`.claude/workflows/bmad-story-loop.js`) is superseded by this tool.
 - Story hints (`invoke_dev_with`) must name symbols that exist; touchpoints must point at vitest-run files (see sprint 1 retrospective).
+- The engine squashes every commit made after a dev session launched into that story's single
+  commit, and the remote then rejects the push as non-fast-forward if one of those commits was
+  already pushed. Commit and push only while the run is paused at a checkpoint or stopped;
+  during a session, park edits outside the tree (scratchpad patch or `git stash push <file>`).
+- Codex can block its own turn end with a modal (update prompt, "approaching rate limits, switch
+  model?"). No Stop hook fires until it is dismissed. Answer it in the agent pane, then inject
+  the Stop event by hand if the engine is still waiting.
