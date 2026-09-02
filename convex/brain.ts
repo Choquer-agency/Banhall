@@ -44,7 +44,9 @@ async function scheduleEmbed(
 
 // ─── The Brain governance (BNH-10 / 18 / 39) ────────────────────────────────
 // Everything here gatekeeps what reaches the RAG index. The index only ever
-// holds APPROVED knowledge: approve → schedule embedSource; revoke → deleteByKey.
+// holds APPROVED knowledge: approve → schedule embedSource; revoke → confirmed
+// erasure through unlearnSource (a retained ragEntryId on a revoked row is
+// failure evidence, never a servable entry).
 // Every change is written to brainAuditLog so the admin can see and revert it.
 
 /** Admin-only guard (the Brain is sacred — only the admin curates it). */

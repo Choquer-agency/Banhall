@@ -7,14 +7,15 @@ import { brainEmbeddingModel, BRAIN_EMBEDDING_DIMENSION } from "./embeddings";
  * The Brain's retrieval engine (BNH-10).
  *
  * The RAG component owns ONLY the vector index + chunks, and it only ever holds
- * APPROVED knowledge — approve = ingest, revoke = deleteByKey (see convex/brain.ts).
+ * APPROVED knowledge — approve = ingest, revoke = confirmed erasure via
+ * `unlearnSource` (see convex/brain.ts and ./erase.ts).
  * All governance (approval, weighting, unlearn, audit) lives in our own reactive
  * tables. Killer requirements map to native features:
  *   - industry routing    → optional `industryApproved` filter (see BRAIN_NAMESPACE)
  *   - science routing     → metadata grouping with cross-code fallback
  *   - writer weighting    → `importance` (0..1, scales the vector score)
  *   - provenance          → `entryId` (foreign-keyed back to brainSources)
- *   - unlearn             → `deleteByKey`
+ *   - unlearn             → confirmed `delete` + `getEntry` re-read (./erase.ts)
  *
  * Convex vector filtering is equality/OR only, so `industryApproved` is a
  * COMPOSITE value ({ industry, approved }) letting us AND the two in one filter.

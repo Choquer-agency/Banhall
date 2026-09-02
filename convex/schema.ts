@@ -1457,7 +1457,7 @@ export default defineSchema({
   // ─── BNH-10: The Brain — curated, governed cross-project knowledge ──────────
   // The RAG component holds the vectors; THESE tables are the source of truth
   // for governance. The Brain index only ever contains APPROVED knowledge:
-  // approve → ingest (embedSource), revoke → deleteByKey. Nothing is ever
+  // approve → ingest (embedSource), revoke → confirmed erasure. Nothing is ever
   // auto-applied — the admin gatekeeps every entry ("treat the brain sacred").
   brainSources: defineTable({
     kind: v.union(
@@ -1468,7 +1468,7 @@ export default defineSchema({
     status: v.union(
       v.literal("pending"), // in the queue, NOT yet in the Brain
       v.literal("approved"), // ingested & retrievable
-      v.literal("revoked") // unlearned — deleted from the RAG
+      v.literal("revoked") // unlearned — erasure requested; ragEntryId, if retained, is failure evidence
     ),
     title: v.string(),
     industry: v.string(), // → RAG namespace

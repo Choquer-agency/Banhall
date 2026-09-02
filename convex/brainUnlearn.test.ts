@@ -104,9 +104,10 @@ type UnlearnArgs = {
 
 /**
  * Run every `unlearnSource` job scheduled so far, once each. convex-test does
- * not execute scheduled jobs on its own, and draining them blindly would loop
- * forever on the bounded remediation retries — so each job id runs at most once
- * and its rejection is handed back to the test.
+ * not execute scheduled jobs on its own, and draining until the queue is empty
+ * would run the whole remediation ladder synchronously (each failure schedules
+ * the next attempt) — so each job id runs at most once and its rejection is
+ * handed back to the test.
  */
 function unlearnDrain(t: ReturnType<typeof convexTest>) {
   const seen = new Set<string>();
@@ -379,6 +380,8 @@ describe("confirmed unlearn (CAP-10)", () => {
     await t.run(async (ctx) => ctx.db.delete(missing));
 
     for (const sourceId of [revoked, pending, missing]) {
+      // The handler does `return;` (undefined); convex-test serializes an
+      // undefined function result as null at the boundary, as Convex does.
       await expect(
         t.action(internal.ai.brain.ingest.embedSource, { sourceId })
       ).resolves.toBeNull();
@@ -456,6 +459,31 @@ describe("confirmed unlearn (CAP-10)", () => {
     expect(await auditRows(t)).toHaveLength(0);
   });
 
+  test("(f3'') a failed orphan erasure still climbs the deletion-only ladder, with no bookkeeping", async () => {
+    const { t } = await setup();
+    const drain = unlearnDrain(t);
+    eraseMock.mockRejectedValue(new Error("rag unreachable"));
+
+    await t.mutation(internal.ai.brain.rag.ingestOnComplete, {
+      namespace: NAMESPACE,
+      entry: completionEntry("brain:orphan"),
+    });
+    await expect(drain()).rejects.toThrow("rag unreachable");
+
+    // No row to book against: no audit row, no patch — but the retry ladder is
+    // the only thing standing between an orphaned vector and permanence, so it
+    // must still escalate exactly as the sourceId-bearing path does.
+    expect(await auditRows(t)).toHaveLength(0);
+    const jobs = await unlearnJobArgs(t);
+    expect(jobs).toHaveLength(2);
+    const retry = jobs.filter((j) => j.args.attempt === 2);
+    expect(retry).toHaveLength(1);
+    expect(retry[0].args.ragEntryId).toBe(ENTRY_ID);
+    expect(retry[0].args.sourceId).toBeUndefined();
+    const names = await scheduledJobNames(t);
+    expect(names.some((n) => n.includes("embedSource"))).toBe(false);
+  });
+
   test("(f3') a FAILED ingest with no governance row schedules nothing", async () => {
     const { t } = await setup();
 
@@ -478,6 +506,9 @@ describe("confirmed unlearn (CAP-10)", () => {
       status: "revoked",
       ragKey: "brain:revoked",
     });
+    // A row removed by removeSourcePermanently: valid-shaped id, no document.
+    const deleted = await insertSource(t, { ragKey: "brain:deleted" });
+    await t.run(async (ctx) => ctx.db.delete(deleted));
 
     const hit = (entryId: string, score: number) => ({
       entryId: entryId as never,
@@ -492,10 +523,16 @@ describe("confirmed unlearn (CAP-10)", () => {
     });
 
     vi.spyOn(brain, "search").mockResolvedValue({
-      results: [hit("e_ok", 0.9), hit("e_revoked", 0.8), hit("e_legacy", 0.7)],
+      results: [
+        hit("e_ok", 0.9),
+        hit("e_revoked", 0.8),
+        hit("e_deleted", 0.75),
+        hit("e_legacy", 0.7),
+      ],
       entries: [
         entry("e_ok", approved),
         entry("e_revoked", revoked),
+        entry("e_deleted", deleted),
         entry("e_legacy", undefined),
       ],
       usage: { tokens: 0 },
@@ -511,6 +548,63 @@ describe("confirmed unlearn (CAP-10)", () => {
     expect(outcome.exemplars.map((e) => e.entryId).sort()).toEqual([
       "e_legacy",
       "e_ok",
+    ]);
+  });
+
+  test("(g') non-servable hits are dropped before ranking, so they never consume top-k slots", async () => {
+    const { t } = await setup();
+    const approved = await insertSource(t, { ragKey: "brain:approved" });
+    const revoked = await insertSource(t, {
+      status: "revoked",
+      ragKey: "brain:revoked",
+    });
+
+    const hit = (entryId: string, score: number) => ({
+      entryId: entryId as never,
+      order: 0,
+      startOrder: 0,
+      score,
+      content: [{ text: `passage ${entryId}`, metadata: undefined }],
+    });
+    const entry = (entryId: string, sourceId: string | undefined) => ({
+      ...completionEntry("k", entryId),
+      metadata: sourceId ? { sourceId } : {},
+    });
+
+    // Two revoked hits OUTRANK every servable one. If the governance join ran
+    // after top-k, the served list would shrink to one exemplar (and a 5 > 3
+    // slate would have been handed to the reranker). Filtering first leaves a
+    // 3-candidate slate for k = 3, so no rerank call is made and all three
+    // servable hits are served.
+    vi.spyOn(brain, "search").mockResolvedValue({
+      results: [
+        hit("e_rev_1", 0.95),
+        hit("e_rev_2", 0.9),
+        hit("e_ok_1", 0.85),
+        hit("e_ok_2", 0.8),
+        hit("e_legacy", 0.75),
+      ],
+      entries: [
+        entry("e_rev_1", revoked),
+        entry("e_rev_2", revoked),
+        entry("e_ok_1", approved),
+        entry("e_ok_2", approved),
+        entry("e_legacy", undefined),
+      ],
+      usage: { tokens: 0 },
+      text: "",
+    } as never);
+
+    const outcome = await t.action(
+      internal.ai.brain.retrieve.retrieveBrainContext,
+      { query: "how do we phrase uncertainty", k: 3 }
+    );
+
+    expect(outcome.degraded).toBe(false);
+    expect(outcome.exemplars.map((e) => e.entryId)).toEqual([
+      "e_ok_1",
+      "e_ok_2",
+      "e_legacy",
     ]);
   });
 });

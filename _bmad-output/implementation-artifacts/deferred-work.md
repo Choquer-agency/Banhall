@@ -109,3 +109,67 @@ source_spec: `11-getgeneration-exposes-attributable-cost-with-legacy-null-semant
 severity: low
 reason: Pre-existing and file-wide, not introduced by this story; adding one to getGeneration alone would have been a non-additive change outside scope. Worth a focused pass over the file.
 status: open
+
+### DW-15: The admin audit table has no ACTION_LABEL entry for the two new brainAuditLog actions, so they render as raw slugs.
+origin: spec-deferred 064dc3cf843b
+location: src/routes/admin/brain/+page.svelte:17
+source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.md`
+severity: medium
+reason: src/routes/admin/brain/+page.svelte:17-24 maps every other action to a human label and falls back to `?? a.action`; unlearn_confirmed / unlearn_failed therefore render unlabeled. The actor mapping at line 187 also renders the "system" actor as "admin". Out of scope by the intent's Never clause ("No frontend change, no UI for unlearn evidence").
+status: open
+
+### DW-16: An orphan erasure that keeps failing produces no audit evidence at all.
+origin: spec-deferred 87fa6e71d1bb
+location: convex/brain.ts:449
+source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.md`
+severity: low
+reason: ingestOnComplete's orphan branch schedules unlearnSource without a sourceId, and both bookkeeping mutations early-return in that case, so a capped-out orphan erasure is invisible. Mitigated at serve time by the new status join (a hit whose sourceId maps to no row is dropped). brainAuditLog.sourceId is optional, so a sourceId-less row is representable if evidence is later wanted.
+status: open
+
+### DW-17: Repeated revokeSource clicks start concurrent, undeduplicated remediation ladders.
+origin: spec-deferred b1ee08c62c36
+location: convex/brain.ts:357
+source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.md`
+severity: low
+reason: The revoked early-return schedules a fresh unlearnSource with no attempt each time, so N clicks yield N ladders, N duplicate unlearn_failed rows and N concurrent deletes. Intended as the documented remediation restart, but there is no in-flight marker to make it idempotent.
+status: open
+
+### DW-18: Failure evidence is dropped when the row already carries a newer ragEntryId.
+origin: spec-deferred 6e7fe476c928
+location: convex/brain.ts:479
+source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.md`
+severity: low
+reason: recordUnlearnFailure patches the id back only `if (!s.ragEntryId)` (as the spec task specifies). If a re-ingest wrote E2 while the compensation for E1 was failing, the un-erased E1 survives only in the unlearn_failed reason string, and re-revoke remediation then retries against E2.
+status: open
+
+### DW-19: No unlearn_failed row is written if the source row is deleted or re-approved between the throw and the bookkeeping.
+origin: spec-deferred e0dbef9e0f88
+location: convex/brain.ts:477
+source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.md`
+severity: low
+reason: recordUnlearnFailure's insert sits inside `if (s && s.status !== "approved")`, while the action still rethrows and still reschedules. The guard exists to avoid contradicting a re-approval, so the fix is a policy choice rather than a bug.
+status: open
+
+### DW-20: A failure of the new governance join degrades retrieval to zero exemplars rather than erroring.
+origin: spec-deferred 553bb6411cf5
+location: convex/ai/brain/retrieve.ts:268
+source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.md`
+severity: low
+reason: dropNonServableCandidates runs inside searchBrainExemplars' outer try/catch, whose catch returns { exemplars: [], degraded: true }. This is the pre-existing degrade contract, but the join is a new failure source inside it and no test covers that path.
+status: open
+
+### DW-21: docs/the-brain.md still describes unlearn as a plain vector delete, with no confirmed-erasure contract or the two new audit actions.
+origin: spec-deferred de93dd2066cc
+location: docs/the-brain.md:11
+source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.md`
+severity: low
+reason: docs/the-brain.md:11 and its status table at line 85 predate the confirmed-erasure contract. No changelog entry accompanies the governance behavior change. The intent neither requires nor forbids doc updates.
+status: open
+
+### DW-22: Story 12 never received its independent fresh-context review pass
+origin: operator 2026-09-02
+location: n/a
+source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.md`
+severity: medium
+reason: All three review sessions for story 12 stalled on the Claude Fable usage limit (12-review-1 after 50 min and 1.08M weighted tokens with partial patches kept; 12-review-2 and 12-review-3 at 0 tokens). The dev commit 8259869 passed the verify gate and the dev pass's inline review, but the policy's separate review stage did not run to completion. Re-run: `claude --model claude-fable-5-1 "/bmad-build-auto <spec path>"` on the done spec, or a bmad-loop review-only re-drive, after the limit resets on 2026-09-03 13:00 America/Vancouver.
+status: open

@@ -179,6 +179,11 @@ deferred:
 
 ## Review Triage Log
 
+### 2026-09-02 — Fresh review pass (Fable), stalled
+- Session 12-review-1 (claude-fable-5-1) ran 50 minutes and stopped at the Claude usage limit ("99% of your Fable limit, resets Sep 3 at 1pm"); sessions 12-review-2 and 12-review-3 could not start for the same reason. bmad-loop deferred the story and paused for manual recovery.
+- Kept from the partial pass (verify green): four comment corrections replacing stale `deleteByKey` wording in `convex/ai/brain/erase.ts`, `convex/ai/brain/rag.ts`, `convex/brain.ts`, `convex/schema.ts`; two added tests in `convex/brainUnlearn.test.ts` ((f3'') failed orphan erasure climbs the deletion-only ladder; (g') non-servable hits are dropped before ranking).
+- The independent fresh-context review of this story has NOT completed. Refiled as DW-22; run it once the Fable limit resets. The dev pass's inline review (8 patches, 7 deferred, 9 rejected) stands as the only review on record.
+
 ### 2026-09-02 — Review pass
 - intent_gap: 0
 - bad_spec: 0

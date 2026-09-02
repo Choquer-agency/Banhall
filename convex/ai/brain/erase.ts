@@ -10,8 +10,8 @@ import { brain } from "./rag";
  * throw and `deleteSync`'s `_del` on a missing document, so "already absent"
  * can never masquerade as a failure.
  *
- * Deliberately three statements long with no branching beyond the two null
- * checks: it is mocked in tests (convex-test has no registration for the `rag`
+ * Deliberately minimal — read, delete, re-read — with no branching beyond the
+ * two null checks: it is mocked in tests (convex-test has no registration for the `rag`
  * component), so its own sequence is only exercised against a live deployment.
  *
  * NOT a `"use node"` module — it runs in the default Convex runtime.
