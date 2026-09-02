@@ -70,6 +70,13 @@ per-machine steps there (`.codex/hooks.json` embeds an absolute path).
 
 - `bmad-build-auto` renders through `uv run _bmad/scripts/render_skill.py`; `_bmad/render/` is gitignored.
 - Codex trust and hook trust are per path; a new worktree needs the interactive first run again.
+- Codex writes hook trust to `~/.codex/config.toml` only on a clean exit. After pressing `t`, quit with
+  Ctrl-C twice and confirm `grep 'Banhall/.codex/hooks.json' ~/.codex/config.toml` shows `session_start`
+  and `stop` entries. Untrusted hooks never fire, the events dir under `~/.local/state/bmad-loop/` stays
+  empty, and every session waits out the 10-minute stall grace before the engine rescues it from disk.
+- Engine stuck on a session that visibly finished: pipe a Stop payload through the relay with the
+  session's `BMAD_LOOP_RUN_DIR`, `BMAD_LOOP_TASK_ID`, and `BMAD_LOOP_EVENTS_DIR` set (see `ps eww` on the
+  CLI process); the engine picks it up within seconds.
 - `npm run check` needs `PUBLIC_CONVEX_URL`; the verify script defaults it to a placeholder.
 - Component tests (`npm run test:component`) are not in the verify gate; run them by hand before merging UI stories.
 - The old Claude-Workflow orchestrator (`.claude/workflows/bmad-story-loop.js`) is superseded by this tool.
