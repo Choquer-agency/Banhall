@@ -1,0 +1,120 @@
+- id: "9"
+  title: Bounded chat context, windowed proposals, empty reads on missing threads
+  description: >-
+    CAP-8. Cap model context at 30 non-tool messages, bound listProposals to
+    the loaded turn window, and return [] for nonexistent or deleted threads
+    while still erroring on unauthorized reads.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Read SPEC.md CAP-8 and decision D-5, plus touchpoints.md row CAP-8.
+    Dependency: story 1 complete (authorization semantics for the
+    unauthorized case). Acceptance: (1) the streamText call uses a context
+    options constant with recentMessages 30 and tool messages excluded; test
+    asserts the constant and, if the agent library exposes it, that a thread
+    of 35 messages with 5 tool messages yields at most 30 non-tool messages;
+    (2) listProposals accepts the same optional window arguments as
+    listTurns with identical defaults and returns only proposals whose turn
+    is in that window; a proposal on a turn outside the window is absent;
+    (3) listMessages and listProposals return [] for a nonexistent or
+    deleted thread; (4) an existing thread the caller cannot access still
+    throws the existing authorization error, not []; (5) existing callers
+    keep an unchanged call shape (no new required args, source compatible);
+    their results are intentionally bounded by the default listTurns window
+    and may omit proposals on turns outside it, which is the intended change,
+    not a regression. Verify (G-5, G-2): agent library contextOptions field
+    names; listTurns window args. Extend
+    convex/chatTurns.test.ts (existence unverified).
+- id: "10"
+  title: Generations record prompt version hash and learning digest ids
+  description: >-
+    CAP-9 part a. New generations store promptVersion (hash of the stable
+    prompt program) and learningDigestIds (union of digests sent in provider
+    payloads); aiUsage rows carry generationId, candidateRunId, durationMs
+    with a by_generationId index.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Read SPEC.md CAP-9, decision D-4, assumption A-3, and touchpoints.md row
+    CAP-9a. Dependencies: none; story 11 depends on this. Acceptance: (1) a
+    generation created after the change has promptVersion equal to a
+    deterministic hash of the stable prompt program (static system
+    templates, instructions, relevant prompt configuration; excludes runtime
+    project, report, transcript, and digest content), written at creation or
+    before the first provider call; two generations on the same prompt
+    program with different project content share the hash, and a changed
+    template changes it; record the hashed input list and algorithm;
+    (2) learningDigestIds is the deduplicated union of digest ids whose
+    content is included in any provider request payload for the generation,
+    recorded or updated immediately before each payload is handed to the
+    provider SDK (expected anchors: assembly sites in pipeline.ts and
+    iterative.ts), growing across a multi-call generation and final at
+    terminal status; a digest fetched but not sent is absent; empty array
+    when none; (3) every provider call made on behalf of a generation that
+    returns usage writes an aiUsage row with generationId, candidateRunId
+    when applicable, and durationMs, including calls whose generation later
+    fails or is retried; calls that return no usage write no row and no
+    synthetic zero-token rows are written; (4) legacy rows are untouched and
+    readers tolerate absent fields. Schema: optional fields only plus index
+    by_generationId following existing naming. No backfill. Verify (G-7):
+    aiUsage cost field and unit. Tests in tests/aiUsage.test.ts (existence
+    unverified).
+- id: "11"
+  title: getGeneration exposes attributable cost with legacy null semantics
+  description: >-
+    CAP-9 part b. getGeneration returns cost as the sum of recorded aiUsage
+    rows keyed by generationId for tracked generations and null for legacy
+    ones.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Read SPEC.md CAP-9 and decision D-4, plus touchpoints.md row CAP-9b.
+    Dependency: story 10 complete. cost is strictly the sum of recorded
+    aiUsage cost rows for the generation; it documents recorded attributable
+    cost, not exact total provider spend or invoice completeness, and the
+    field documentation says so. Acceptance: (1) tracked generation
+    (promptVersion present) with usage rows returns cost equal to the sum
+    of those rows in the unit stored on aiUsage, including failed and
+    retried call rows; (2) tracked generation with no rows returns cost 0;
+    (3) legacy generation returns promptVersion, learningDigestIds, and
+    cost all null, never 0; (4) an in-flight tracked generation returns the
+    sum so far and learningDigestIds as recorded so far; (5) any caller
+    authorized to read the generation sees the fields, and an Admin can read
+    them for any generation. Aggregate via the by_generationId index inside
+    the query; confirm the per-generation row count is bounded by the
+    pipeline (G-7). Do not add UI. Tests alongside story 10.
+- id: "12"
+  title: Confirmed unlearn with failure evidence and retry-free embeds
+  description: >-
+    CAP-10. unlearnSource writes unlearn_confirmed only after confirmed or
+    already-absent erasure, keeps evidence on failure, is idempotent, and
+    embedSource never restores or retries a revoked source.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Read SPEC.md CAP-10 and touchpoints.md row CAP-10. Dependencies: none.
+    Acceptance, one test each: (a) live ragEntryId and confirmed erasure:
+    exactly one unlearn_confirmed audit row, ragEntryId cleared, source not
+    approved; (b) remote reports already absent, or source never had
+    ragEntryId: same outcome as (a); (c) erasure fails: no unlearn_confirmed
+    row, ragEntryId retained, source not approved and not servable, error
+    surfaced to caller, failure evidence recorded (existing audit action if
+    one fits, else the optional unlearn_failed value; record the choice);
+    (d) second revoke after (a): no error, no remote call, no second
+    unlearn_confirmed row; (e) embedSource on missing, revoked, or otherwise
+    non-approved source returns normally, writes no ragEntryId, schedules no
+    retry; (f) embed completing remotely after revoke: source not approved,
+    entry not served, no embedding retry; the completion path runs
+    compensating erasure of the newly created remote entry; if compensation
+    confirms deletion or already-absent, ragEntryId is not written and
+    status is unchanged; if compensation fails, retain the remote id as
+    evidence (ragEntryId, or the planning-gated additive evidence field if
+    G-8 finds ragEntryId unsuitable), keep the source non-approved and
+    non-servable, record failure evidence via the same mechanism as (c), and
+    schedule or surface deletion-only remediation; never write
+    unlearn_confirmed for that late entry until compensation is confirmed.
+    Test (f) in both branches: compensation succeeds and compensation fails.
+    Mirror the late-completion fence in convex/ai/brain/rag.ts for the
+    status check. Do not invent remote API details; verify (G-8) how the RAG
+    client signals confirmed and already absent, which deletion call the
+    compensation path reuses, and whether ragEntryId can hold the orphaned
+    id without being read as servable. Schema: brainAuditLog action adds
+    unlearn_confirmed; unlearn_failed optional; evidence field optional and
+    planning-gated. Tests in convex/brainFeedback.test.ts or a new brain
+    test file.

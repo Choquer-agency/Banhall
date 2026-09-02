@@ -1,0 +1,14 @@
+# Touchpoints (epic 2B)
+
+Anchors from `docs/ai-engine-audit-2026-08-25.md` as of `b39b434` on `bmad-loop`. Lines drift; grep the symbol.
+
+| CAP | Primary edit | Reference | Tests |
+|---|---|---|---|
+| CAP-1 | new `convex/lib/deidentify.ts`; `convex/brain.ts` `nominateFromReport` (~`:216-235`); `convex/generations.ts` edit-event write (~`:1730-1751`); `convex/chatV2.ts` is off-limits, so wrap `proposalWordingEditEvents` at the learning read side in `convex/ai/learning.ts:74-98`; `convex/learning.ts` `selectDigest` (~`:287-331`) gains `privacyReviewed`; `src/routes/admin/reviews/+page.svelte:23-75` checkbox | `query.ts:33` (no-names instruction precedent) | new `convex/lib/deidentify.test.ts`, `convex/learning.test.ts` |
+| CAP-2 | `convex/schema.ts` (new table); `convex/reports.ts:433-499` (`postEditDistance` logic, extract to `convex/lib/editDistance.ts`); write sites: `convex/generations.ts` candidate selection (~`:774,831,1832`), `convex/snapshots.ts` milestone (~`:152-259`), `convex/projects.ts` `publishForReview` (add a scheduled internal mutation call only) | | new `convex/reportEditDistance.test.ts` |
+| CAP-3 | new `convex/learningHealth.ts`; new `src/routes/admin/learning/+page.svelte`; `src/lib/components/admin/AdminWorkspacePage.svelte` (nav entry); `src/routes/admin/adminWorkspaceRoutes.test.ts` | `generations.brainProvenance` (`schema.ts:668-684`), `aiUsage` callSites (`aiUsage.ts:156-216`), `writerReviews`, `candidateScores` | new `convex/learningHealth.test.ts`; extend routes test |
+| CAP-4 | `convex/ai/learning.ts:31` (`MIN_FEEDBACK_ROWS`), `:109-160`, `:205-299`; `convex/learning.ts` `saveDigest` (~`:196-227`); `convex/schema.ts` `learningDigests` (~`:1592-1608`); `src/routes/admin/reviews/+page.svelte` | | `convex/learning.test.ts` |
+| CAP-5 | `src/lib/components/chat/AssistantTurn.svelte`; `src/lib/components/chat/AgentChatPanel.svelte` (~`:434-466`, `:836-848`); `src/lib/chat/turnParts.ts` | `chatV2.sendMessage` (do not change its signature) | new component test under `src/lib/components/chat/*.component.test.ts` |
+| CAP-6 | `AgentChatPanel.svelte:434-466`; `src/lib/chat/uiMessages.svelte.ts` (~`:147-164`) | | component test |
+| CAP-7 | `src/lib/components/chat/ToolTraceStep.svelte`; `src/lib/chat/turnParts.ts` (searchBrain body); `src/lib/components/chat/primitives/Source.svelte`, `FeedbackBar.svelte`; new `convex/chatFeedback.ts` + `schema.ts` table; `convex/ai/learning.ts` (new signal stream) | `brain/retrieve.ts:258` result shape | `convex/chatFeedback.test.ts`; component test |
+| CAP-8 | new `convex/generationLifecycle.test.ts`, `convex/snapshots.test.ts` | `convex/generationRecovery.test.ts` fixture pattern; `agentTest.register(t)` in `chatTurns.test.ts` | itself |
