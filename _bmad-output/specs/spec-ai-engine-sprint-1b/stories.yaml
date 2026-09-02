@@ -46,8 +46,8 @@
     content is included in any provider request payload for the generation,
     recorded or updated immediately before each payload is handed to the
     provider SDK (expected anchors: assembly sites in pipeline.ts and
-    iterative.ts), growing across a multi-call generation and final at
-    terminal status; a digest fetched but not sent is absent; empty array
+    iterative.ts), growing across a multi-call generation, including generation-owned
+    post-QA calls after terminal status, and final once no such calls remain; a digest fetched but not sent is absent; empty array
     when none; (3) every provider call made on behalf of a generation that
     returns usage writes an aiUsage row with generationId, candidateRunId
     when applicable, and durationMs, including calls whose generation later
