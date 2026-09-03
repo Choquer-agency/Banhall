@@ -1,16 +1,21 @@
 ---
 key: uploader-1-cloud-placeholder-filter
-status: todo
+status: done
 kind: bug
 deps: []
 touches: [scripts]
 risky: []
 verify: [pwsh -NoProfile -File scripts/client-uploader/tests/run-tests.ps1]
-done_when: [test -f scripts/client-uploader/uploader-lib.ps1, test -f scripts/client-uploader/tests/run-tests.ps1, "rg -q 'uploader-lib.ps1' scripts/client-uploader/banhall-uploader.ps1", "! rg -q 'FileAttributes\\\\]::ReparsePoint\\\\) -and' scripts/client-uploader/banhall-uploader.ps1", "rg -q 'run-tests.ps1' scripts/loop-verify.sh", pwsh -NoProfile -File scripts/client-uploader/tests/run-tests.ps1]
+done_when: [test -f scripts/client-uploader/uploader-lib.ps1, test -f scripts/client-uploader/tests/run-tests.ps1, "rg -q 'uploader-lib.ps1' scripts/client-uploader/banhall-uploader.ps1", "! rg -q 'FileAttributes\\\\\\\\]::ReparsePoint\\\\\\\\) -and' scripts/client-uploader/banhall-uploader.ps1", "rg -q 'run-tests.ps1' scripts/loop-verify.sh", pwsh -NoProfile -File scripts/client-uploader/tests/run-tests.ps1]
 title: Uploader keeps OneDrive cloud placeholders and skips only real links; filter is a unit-tested function
 plan: 20260903-client-sync
-deferred: ["done_when 4 (`! rg -q 'FileAttributes\\\\]::ReparsePoint\\\\) -and' …`) is a malformed regex: rg exits non-zero with `error: unopened group`, so the leading `!` makes it pass on any tree, fixed or not; out of scope for mode=fix, its intent is now asserted by the harness case 'regression banhall-uploader.ps1 never mentions ReparsePoint again'", "banhall-uploader.ps1:217 keeps New-Object List[object] + @($entries); @() around a New-Object List[object] throws 'Argument types do not match' on pwsh 7.6.5 — harmless today because Sort-Object turns $entries into an array first, out of scope here", "ticket AC6 verification regex \"\\?\\s*[^:]+:\" false-positives on the pre-existing upload URI at banhall-uploader.ps1:289; AC6 proven with an AST ternary/coalesce scan instead", "Skipped/Errors/Walked counts are returned but not printed or logged — uploader-2-zero-found-diagnostics owns that", "README.txt zero-found remedy wording still describes the old behavior — next ticket owns it"]
-updated: "2026-09-03T21:17:39.899Z"
+deferred: ["done_when 4 (`! rg -q 'FileAttributes\\\\\\\\]::ReparsePoint\\\\\\\\) -and' …`) is a malformed regex: rg exits non-zero with `error: unopened group`, so the leading `!` makes it pass on any tree, fixed or not; out of scope for mode=fix, its intent is now asserted by the harness case 'regression banhall-uploader.ps1 never mentions ReparsePoint again'", "banhall-uploader.ps1:217 keeps New-Object List[object] + @($entries); @() around a New-Object List[object] throws 'Argument types do not match' on pwsh 7.6.5 — harmless today because Sort-Object turns $entries into an array first, out of scope here", "ticket AC6 verification regex \\\"\\\\?\\\\s*[^:]+:\\\" false-positives on the pre-existing upload URI at banhall-uploader.ps1:289; AC6 proven with an AST ternary/coalesce scan instead", Skipped/Errors/Walked counts are returned but not printed or logged — uploader-2-zero-found-diagnostics owns that, README.txt zero-found remedy wording still describes the old behavior — next ticket owns it]
+updated: "2026-09-03T22:02:12.179Z"
+run: 20260903-211917-12-tickets
+branch: factory/uploader-1-cloud-placeholder-filter
+merged: f4e7eeb
+verdict: test-verified
+evidence: .audit/uploader-1-cloud-placeholder-filter/evidence.md
 ---
 ## Intent
 Michael (client, Windows, OneDrive Files On-Demand) runs `Run-Uploader.bat` and every mode prints `Found 0 document(s)` because `banhall-uploader.ps1:211` drops every file whose attributes include `ReparsePoint`, and OneDrive marks every file under a sync root as a cloud reparse point. After this ticket the filter keeps cloud placeholders, skips only real links (symlinks, junctions, non-cloud reparse points), and lives in a function that a `pwsh` harness proves. The next maintainer inherits `uploader-lib.ps1` (pure functions, dot-sourced by the main script) and `tests/run-tests.ps1` wired into the gate.
