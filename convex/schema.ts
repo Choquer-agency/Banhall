@@ -488,7 +488,39 @@ export default defineSchema({
     projectId: v.id("projects"),
     content: v.string(),
     createdAt: v.number(),
+    // 2026-09-03 widen: multiple transcripts per project. Legacy rows have
+    // none of the three; readers go through convex/lib/transcripts.ts, which
+    // labels them "Interview transcript" and orders them by createdAt.
+    label: v.optional(v.string()),
+    position: v.optional(v.number()),
+    contentHash: v.optional(v.string()),
   }).index("by_projectId", ["projectId"]),
+
+  // 2026-09-03 widen: multiple transcripts per project. Condensed stand-in for
+  // one transcript, reused across generations. Keyed by the transcript, the
+  // hash of the text it was built from and CONDENSE_VERSION, so a re-condense
+  // happens only when the text or the condense contract changes.
+  transcriptDigests: defineTable({
+    transcriptId: v.id("transcripts"),
+    projectId: v.id("projects"),
+    sourceContentHash: v.string(),
+    condenseVersion: v.string(),
+    // Rendered text fed to the prompt.
+    content: v.string(),
+    // JSON string of the validated digest object.
+    structured: v.string(),
+    model: v.string(),
+    promptVersion: v.string(),
+    charCount: v.number(),
+    originalLength: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_transcriptId_and_sourceContentHash_and_condenseVersion", [
+      "transcriptId",
+      "sourceContentHash",
+      "condenseVersion",
+    ])
+    .index("by_projectId", ["projectId"]),
 
   reports: defineTable({
     projectId: v.id("projects"),
@@ -498,6 +530,8 @@ export default defineSchema({
     updatedAt: v.number(),
     generationId: v.optional(v.id("generations")),
     sourceTranscriptId: v.optional(v.id("transcripts")),
+    // 2026-09-03 widen: the full ordered set; sourceTranscriptId stays the first.
+    sourceTranscriptIds: v.optional(v.array(v.id("transcripts"))),
     provenanceId: v.optional(v.id("reportProvenance")),
     revisionNumber: v.optional(v.number()),
     contentHash: v.optional(v.string()),
@@ -599,7 +633,15 @@ export default defineSchema({
 
   generations: defineTable({
     projectId: v.id("projects"),
+    // Still required here: transcripts-2 relaxes it together with the two
+    // readers that dereference it (convex/generations.ts:544, :580).
     transcriptId: v.id("transcripts"),
+    // 2026-09-03 widen: multiple transcripts per project. The frozen set in
+    // position order, how it was fed to the model, and the digests used when
+    // inputMode is "digest".
+    transcriptIds: v.optional(v.array(v.id("transcripts"))),
+    inputMode: v.optional(v.union(v.literal("full"), v.literal("digest"))),
+    digestIds: v.optional(v.array(v.id("transcriptDigests"))),
     status: v.union(
       v.literal("reserved"),
       v.literal("running"),
@@ -1209,6 +1251,8 @@ export default defineSchema({
     sourceRevisionNumber: v.optional(v.number()),
     generationId: v.optional(v.id("generations")),
     sourceTranscriptId: v.optional(v.id("transcripts")),
+    // 2026-09-03 widen: the full ordered set; sourceTranscriptId stays the first.
+    sourceTranscriptIds: v.optional(v.array(v.id("transcripts"))),
     contentHash: v.optional(v.string()),
     // Present on the checkpoint captured before a research-backed edit, keeping
     // the source trail attached to version history.
@@ -1327,8 +1371,15 @@ export default defineSchema({
   generationSources: defineTable({
     generationId: v.id("generations"),
     projectId: v.id("projects"),
-    kind: v.union(v.literal("transcript"), v.literal("project_document")),
+    kind: v.union(
+      v.literal("transcript"),
+      v.literal("project_document"),
+      // 2026-09-03 widen: a digest enters the pipeline as its own frozen
+      // source row, never as live text.
+      v.literal("transcript_digest")
+    ),
     transcriptId: v.optional(v.id("transcripts")),
+    digestId: v.optional(v.id("transcriptDigests")),
     projectDocumentId: v.optional(v.id("projectDocuments")),
     label: v.string(),
     content: v.string(),
@@ -1345,6 +1396,10 @@ export default defineSchema({
     projectId: v.id("projects"),
     generationId: v.optional(v.id("generations")),
     sourceTranscriptId: v.optional(v.id("transcripts")),
+    // 2026-09-03 widen: the full ordered set; sourceTranscriptId stays the
+    // first. digestIds names the digests the claims were cited against.
+    sourceTranscriptIds: v.optional(v.array(v.id("transcripts"))),
+    digestIds: v.optional(v.array(v.id("transcriptDigests"))),
     contentHash: v.string(),
     status: v.union(
       v.literal("needs_review"),
