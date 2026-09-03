@@ -69,6 +69,10 @@ unset or shorter than 32 chars.
   `Write-Log`'s `try`, not up front: those `SCAN` lines survive the zero-result
   exit, a read-only kit folder still prints the diagnostics instead of dying on
   the truncation, and a run that logs nothing leaves the last real log alone.
+  Both closing lines that mention the log are gated on `$script:logWritten`,
+  set only after an `Add-Content` returns: when the kit folder is read-only the
+  run asks for a screenshot instead of pointing the client at a file that was
+  never written.
 - Client folder names hold wildcard characters (`Applications [2024]`). Every
   path read parses literally - `Get-Item -LiteralPath`, `Get-FileHash
   -LiteralPath`, `Test-RootUsable` (which uses `Test-Path -LiteralPath`) - and

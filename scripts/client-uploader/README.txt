@@ -34,7 +34,9 @@ If it says it found 0 documents
   types it did see, and whether the folder sits inside your OneDrive sync
   folder. The same lines are saved to upload-log.txt, each one starting with
   SCAN. Send that file to the dev team - it describes what the scan saw
-  without naming any of your documents.
+  without naming any of your documents. If the script says it could not write
+  upload-log.txt, send a screenshot of the window instead - the same lines are
+  on screen.
 
 If it can't find your folder
   Open uploader-config.json in Notepad/TextEdit and put the full folder

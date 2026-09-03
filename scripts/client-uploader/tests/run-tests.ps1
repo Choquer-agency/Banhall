@@ -564,7 +564,33 @@ function Get-CommandLine($ast, [string]$name, [string]$argNeedle) {
     return $calls[0].Extent.StartLineNumber
 }
 
-Check "zero-diag AC4 the root-is-a-file message sits in the Test-RootUsable branch" {
+# The names Test-RootUsable results are stored under. AC4 is about what each
+# of those states does next, so the checks below follow the variables rather
+# than hard-coded names.
+function Get-RootStateVariables($ast) {
+    $assignments = @($ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.AssignmentStatementAst]) -and
+        "$($node.Right.Extent.Text)".Contains("Test-RootUsable")
+    }, $true))
+    return @(@($assignments | ForEach-Object { "$($_.Left.Extent.Text)" }) | Select-Object -Unique)
+}
+
+# The nearest enclosing if that actually ends the run.
+function Get-EnclosingExitingIf($node) {
+    $branch = Get-EnclosingIf $node
+    while ($branch) {
+        $exits = @($branch.FindAll({
+            param($inner)
+            $inner -is [System.Management.Automation.Language.ExitStatementAst]
+        }, $true))
+        if ($exits.Count -gt 0) { return $branch }
+        $branch = Get-EnclosingIf $branch.Parent
+    }
+    return $null
+}
+
+Check "zero-diag AC4 every root-is-a-file message stops the run from a Test-RootUsable state" {
     $usable = @($uploaderParsed.Ast.FindAll({
         param($node)
         ($node -is [System.Management.Automation.Language.CommandAst]) -and
@@ -573,18 +599,83 @@ Check "zero-diag AC4 the root-is-a-file message sits in the Test-RootUsable bran
     if ($usable.Count -lt 2) {
         return "expected Test-RootUsable at both root checks, found $($usable.Count) call site(s)"
     }
-    $message = Find-SmallestAstContaining $uploaderParsed.Ast "is a file, not a folder"
-    if (-not $message) { return "the root-is-a-file message is missing" }
-    $branch = Get-EnclosingIf $message
-    if (-not $branch) { return "the root-is-a-file message is not inside an if" }
-    $guard = "$($branch.Extent.Text)"
-    while ($branch -and -not $guard.Contains("That folder does not exist")) {
-        $branch = Get-EnclosingIf $branch.Parent
-        if ($branch) { $guard = "$($branch.Extent.Text)" }
+    $stateVars = Get-RootStateVariables $uploaderParsed.Ast
+    if ($stateVars.Count -lt 2) {
+        return "expected the remembered and chosen roots to each keep a Test-RootUsable result, found: $($stateVars -join ', ')"
     }
-    if (-not $branch) { return "the file and missing messages are not two arms of one root check" }
-    if (-not "$($branch.Clauses[0].Item1.Extent.Text)".Contains('$rootState')) {
-        return "the root check branches on '$($branch.Clauses[0].Item1.Extent.Text)', not on the Test-RootUsable result"
+
+    # Both the remembered (JSON) root and the chosen one: a file there is a
+    # dead end, never a reason to fall through to the auto-detect guess.
+    $messages = @($uploaderParsed.Ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.CommandAst]) -and
+        "$($node.Extent.Text)".Contains("That path is a file, not a folder")
+    }, $true))
+    if ($messages.Count -ne 2) {
+        return "expected the root-is-a-file message at both root checks, found $($messages.Count)"
+    }
+    foreach ($message in $messages) {
+        $line = $message.Extent.StartLineNumber
+        $branch = Get-EnclosingExitingIf $message
+        if (-not $branch) { return "the root-is-a-file message on line $line never reaches an exit" }
+        $condition = "$($branch.Clauses[0].Item1.Extent.Text)"
+        if (@($stateVars | Where-Object { $condition.Contains($_) }).Count -eq 0) {
+            return "the exiting branch around line $line tests '$condition', not a Test-RootUsable result"
+        }
+    }
+
+    $missing = Find-SmallestAstContaining $uploaderParsed.Ast "That folder does not exist"
+    if (-not $missing) { return "the root-does-not-exist message is missing" }
+    $missingBranch = Get-EnclosingIf $missing
+    if (-not $missingBranch) { return "the root-does-not-exist message is not inside an if" }
+    $missingCondition = "$($missingBranch.Clauses[0].Item1.Extent.Text)"
+    if (@($stateVars | Where-Object { $missingCondition.Contains($_) }).Count -eq 0) {
+        return "the root-does-not-exist message branches on '$missingCondition', not on a Test-RootUsable result"
+    }
+    return $null
+}
+
+Check "review-fix the uploader only claims a log was saved when a write succeeded" {
+    $writeLog = @($uploaderParsed.Ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.FunctionDefinitionAst]) -and $node.Name -eq "Write-Log"
+    }, $true))
+    if ($writeLog.Count -ne 1) { return "expected one Write-Log definition, found $($writeLog.Count)" }
+    $flagSets = @($writeLog[0].FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.AssignmentStatementAst]) -and
+        "$($node.Left.Extent.Text)" -eq '$script:logWritten' -and
+        "$($node.Right.Extent.Text)" -eq '$true'
+    }, $true))
+    if ($flagSets.Count -ne 1) { return "Write-Log never records that a line reached the file" }
+
+    # Add-Content throws on a read-only kit folder; the flag has to sit after
+    # it, or a swallowed failure still reports success.
+    $add = @($writeLog[0].FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.CommandAst]) -and
+        "$($node.GetCommandName())" -eq "Add-Content"
+    }, $true))
+    if ($add.Count -ne 1) { return "expected one Add-Content in Write-Log, found $($add.Count)" }
+    if (-not ($add[0].Extent.StartLineNumber -lt $flagSets[0].Extent.StartLineNumber)) {
+        return "logWritten is set before the write that can fail"
+    }
+
+    $claims = @($uploaderParsed.Ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.CommandAst]) -and
+        "$($node.Extent.Text)".Contains("saved to upload-log.txt")
+    }, $true))
+    if ($claims.Count -lt 2) { return "expected the zero-found and end-of-run log claims, found $($claims.Count)" }
+    foreach ($claim in $claims) {
+        $branch = Get-EnclosingIf $claim
+        if (-not $branch) { return "the log claim on line $($claim.Extent.StartLineNumber) is unconditional" }
+        if (-not "$($branch.Clauses[0].Item1.Extent.Text)".Contains('$script:logWritten')) {
+            return "the log claim on line $($claim.Extent.StartLineNumber) is guarded by '$($branch.Clauses[0].Item1.Extent.Text)', not by logWritten"
+        }
+        if (-not $branch.ElseClause) {
+            return "the log claim on line $($claim.Extent.StartLineNumber) has no message for the run that could not write"
+        }
     }
     return $null
 }

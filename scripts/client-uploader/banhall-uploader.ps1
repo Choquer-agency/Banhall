@@ -130,12 +130,15 @@ if ($Paths -and $Paths.Count -gt 0) {
         Write-Host "  $root"
         $again = Read-Host "Scan this folder again? (y = yes / c = choose a different folder)"
         if ($again -notmatch "^[Yy]") { $root = Pick-Folder $root }
+    } elseif ($rememberedState -eq "is_file") {
+        # A remembered path that now names a file is a broken config, not a
+        # folder to guess past: stop the same way a typed one does.
+        Write-Host "That path is a file, not a folder: $root" -ForegroundColor Red
+        Write-Host "Choose the folder that holds your client documents instead."
+        Read-Host "Press Enter to close"
+        exit 1
     } elseif ($root) {
-        if ($rememberedState -eq "is_file") {
-            Write-Host "The remembered path is a file, not a folder: $root"
-        } else {
-            Write-Host "The remembered folder no longer exists: $root"
-        }
+        Write-Host "The remembered folder no longer exists: $root"
         $root = ""
     }
     if (-not $root) {
@@ -227,7 +230,11 @@ function Get-DropPrefix([string]$abs) {
 # a read-only kit folder must not kill the run before it prints the very
 # diagnostics the client is being asked for, and a run that uploads nothing
 # leaves the last real log alone.
+# $logWritten is what the closing lines are allowed to claim: a read-only kit
+# folder swallows every write, and telling the client to send a file that was
+# never written recreates the unactionable report this run exists to end.
 $script:logStarted = $false
+$script:logWritten = $false
 function Write-Log([string]$line) {
     try {
         if (-not $script:logStarted) {
@@ -235,6 +242,7 @@ function Write-Log([string]$line) {
             $script:logStarted = $true
         }
         Add-Content -Path $logPath -Value $line -Encoding UTF8
+        $script:logWritten = $true
     } catch {}
 }
 
@@ -282,7 +290,11 @@ if (@($entries).Count -eq 0) {
             Write-Log ("SCAN`t" + $line)
         }
     }
-    Write-Host "The same breakdown was saved to upload-log.txt - send that file to the dev team."
+    if ($script:logWritten) {
+        Write-Host "The same breakdown was saved to upload-log.txt - send that file to the dev team."
+    } else {
+        Write-Host "Could not write upload-log.txt next to the script - send a screenshot of this window instead." -ForegroundColor Yellow
+    }
     Read-Host "Nothing to upload. Press Enter to close"
     exit 0
 }
@@ -407,6 +419,10 @@ foreach ($e in $entries) {
 
 Write-Host ""
 Write-Host ("Done. Uploaded: {0}   Skipped: {1}   Too large: {2}   Failed: {3}" -f $staged, $skipped, $tooLarge, $failed) -ForegroundColor Cyan
-Write-Host "A log was saved to upload-log.txt next to this script."
+if ($script:logWritten) {
+    Write-Host "A log was saved to upload-log.txt next to this script."
+} else {
+    Write-Host "Could not write upload-log.txt next to this script - send a screenshot of this window instead." -ForegroundColor Yellow
+}
 Write-Host "Files now wait in the Banhall review queue - nothing is in the AI until approved."
 Read-Host "Press Enter to close"
