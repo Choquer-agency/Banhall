@@ -8,3 +8,5 @@ export PUBLIC_CONVEX_URL="${PUBLIC_CONVEX_URL:-https://placeholder.convex.cloud}
 npx tsc -p convex/tsconfig.json --noEmit
 npm run check
 npm test
+# Client-uploader file-selection harness (scripts/client-uploader/uploader-lib.ps1).
+pwsh -NoProfile -File scripts/client-uploader/tests/run-tests.ps1

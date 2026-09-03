@@ -33,6 +33,17 @@ $ProgressPreference = "SilentlyContinue"
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# File selection lives in uploader-lib.ps1 so a test harness can prove it.
+$libPath = Join-Path $scriptDir "uploader-lib.ps1"
+if (-not (Test-Path $libPath)) {
+    Write-Host "Missing uploader-lib.ps1 - it must sit next to this script." -ForegroundColor Red
+    Write-Host "Unzip the whole kit into one folder and run it from there."
+    Read-Host "Press Enter to close"
+    exit 1
+}
+. $libPath
+
 $configPath = Join-Path $scriptDir "uploader-config.json"
 $logPath = Join-Path $scriptDir "upload-log.txt"
 
@@ -198,22 +209,17 @@ function Get-DropPrefix([string]$abs) {
     if ($tail) { return "$tail/" } else { return "" }
 }
 
-# Collect candidate files across every root. File-level reparse points are
-# skipped (note: PS 5.1's -Recurse can still traverse directory junctions —
-# keep the corpus free of junction loops). Duplicate rels (nested/overlapping
-# drops) are uploaded once.
+# Collect candidate files across every root. Get-UploadCandidates decides what
+# counts as a document: real links (symlinks, junctions) are skipped, OneDrive
+# cloud placeholders are kept (note: PS 5.1's -Recurse can still traverse
+# directory junctions — keep the corpus free of junction loops). Duplicate rels
+# (nested/overlapping drops) are uploaded once.
 $entries = New-Object System.Collections.Generic.List[object]
 $seenRel = New-Object 'System.Collections.Generic.HashSet[string]'
 foreach ($r in $roots) {
     $prefix = if ($droppedMode) { Get-DropPrefix $r } else { "" }
-    $files = Get-ChildItem -Path $r -Recurse -File -ErrorAction SilentlyContinue |
-        Where-Object {
-            -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -and
-            -not $_.Name.StartsWith("~$") -and
-            -not $_.Name.StartsWith(".") -and
-            $allowedExt -contains $_.Extension.ToLower()
-        }
-    foreach ($f in $files) {
+    $scan = Get-UploadCandidates $r $allowedExt
+    foreach ($f in $scan.Candidates) {
         $rel = $prefix + ($f.FullName.Substring($r.Length).TrimStart("\", "/") -replace "\\", "/")
         if ($seenRel.Add($rel)) {
             $entries.Add([pscustomobject]@{ File = $f; Rel = $rel })

@@ -9,6 +9,7 @@ verify: [pwsh -NoProfile -File scripts/client-uploader/tests/run-tests.ps1]
 done_when: [test -f scripts/client-uploader/uploader-lib.ps1, test -f scripts/client-uploader/tests/run-tests.ps1, "rg -q 'uploader-lib.ps1' scripts/client-uploader/banhall-uploader.ps1", "! rg -q 'FileAttributes\\\\]::ReparsePoint\\\\) -and' scripts/client-uploader/banhall-uploader.ps1", "rg -q 'run-tests.ps1' scripts/loop-verify.sh", pwsh -NoProfile -File scripts/client-uploader/tests/run-tests.ps1]
 title: Uploader keeps OneDrive cloud placeholders and skips only real links; filter is a unit-tested function
 plan: 20260903-client-sync
+deferred: ["banhall-uploader.ps1:217 keeps New-Object List[object] + @($entries); @() around a New-Object List[object] throws 'Argument types do not match' on pwsh 7.6.5 — harmless today because Sort-Object turns $entries into an array first, out of scope here", "ticket AC6 verification regex \"\\?\\s*[^:]+:\" false-positives on the pre-existing upload URI at banhall-uploader.ps1:289; AC6 proven with an AST ternary/coalesce scan instead", "Skipped/Errors/Walked counts are returned but not printed or logged — uploader-2-zero-found-diagnostics owns that", "README.txt zero-found remedy wording still describes the old behavior — next ticket owns it"]
 updated: "2026-09-03T21:17:39.899Z"
 ---
 ## Intent
