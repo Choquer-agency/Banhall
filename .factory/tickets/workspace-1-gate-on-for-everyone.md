@@ -1,6 +1,6 @@
 ---
 key: workspace-1-gate-on-for-everyone
-status: todo
+status: escalated
 kind: feature
 deps: []
 touches: [convex, src]
@@ -9,7 +9,10 @@ verify: [npx vitest run convex/workspaceRollout.test.ts src/routes/admin/adminWo
 done_when: ["! rg -q 'masterEnabled|setMasterSwitch|setUserAccess|listEnabledAccess|listRolloutEvents|getAdminState' convex/workspaceRollout.ts", test ! -f src/lib/components/admin/WorkspaceRolloutCard.svelte, test ! -f src/lib/components/admin/WorkspaceRolloutCard.component.test.ts, "! rg -q 'WorkspaceRolloutCard' src/", npx vitest run convex/workspaceRollout.test.ts]
 title: "Preview workspace available to every internal role; rollout master switch, allowlist functions, admin card and its component test deleted"
 plan: 20260903-client-sync
-updated: "2026-09-03T21:17:39.899Z"
+updated: "2026-09-03T22:46:58.159Z"
+run: 20260903-211917-12-tickets
+branch: factory/workspace-1-gate-on-for-everyone
+escalation: implementer session failed (attempt 2); log .factory/runs/20260903-211917-12-tickets/logs/workspace-1-gate-on-for-everyone.implement-2.jsonl
 ---
 ## Intent
 Writers are still on the old UI while Michael reproduces their bugs in the new one (meeting 2026-08-26, 13:00 and 17:21). After this ticket every authenticated user holding `project.readInternal` gets `available: true` from `workspaceRollout.getAccess`, with no master switch and no per-user allowlist. Role-based permissions inside the workspace do not change. The maintainer inherits a four-line gate and no admin rollout card. Tables stay. The domain amendment that supersedes the 2026-08-06 fail-closed rollout clause rides with `workspace-2` so this ticket stays inside the two-package sizing limit.
