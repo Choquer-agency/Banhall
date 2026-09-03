@@ -122,6 +122,159 @@ Check "edge missing or unset Attributes does not throw" {
         Where-Object { $_ } | Select-Object -First 1
 }
 
+# --- zero-found diagnostics: Test-CloudOnly ---------------------------------
+# 0x400000 is FileAttributes.RecallOnDataAccess. It has no name on .NET
+# Framework 4.8 (Windows PowerShell 5.1), so the lib matches the bit.
+$recallOnDataAccess = 0x400000
+Check "zero-diag AC3 Offline attribute is cloud-only" {
+    Expect "cloud-only" $true (Test-CloudOnly (New-FakeFile "cloud.docx" $null "Archive, Offline"))
+}
+Check "zero-diag AC3 RecallOnDataAccess bit is cloud-only" {
+    # Raw bits, not [IO.FileAttributes]: the enum on this host (.NET on macOS)
+    # has no RecallOnDataAccess member and rejects the cast. Windows hands the
+    # lib the same bit pattern inside a real FileInfo.
+    $file = [pscustomobject]@{
+        Name = "cloud.docx"; Extension = ".docx"; LinkType = $null
+        Attributes = ($recallOnDataAccess -bor [int][IO.FileAttributes]::Archive)
+    }
+    Expect "cloud-only" $true (Test-CloudOnly $file)
+}
+Check "zero-diag AC3 a hydrated local file is not cloud-only" {
+    (Expect "archive" $false (Test-CloudOnly (New-FakeFile "local.docx" $null "Archive"))),
+    (Expect "reparse point alone" $false (Test-CloudOnly (New-FakeFile "ph.docx" $null "Archive, ReparsePoint"))) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "zero-diag edge Test-CloudOnly tolerates a missing or unset Attributes" {
+    $noAttr = [pscustomobject]@{ Name = "a.docx"; Extension = ".docx" }
+    $unset = [pscustomobject]@{ Name = "a.docx"; Extension = ".docx"; Attributes = $null }
+    (Expect "null file" $false (Test-CloudOnly $null)),
+    (Expect "no Attributes property" $false (Test-CloudOnly $noAttr)),
+    (Expect "Attributes null" $false (Test-CloudOnly $unset)) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+
+# --- zero-found diagnostics: Get-ExtensionHistogram -------------------------
+Check "zero-diag AC1 histogram counts by extension, most frequent first" {
+    $files = @(
+        (New-FakeFile "a.xlsx" $null $null), (New-FakeFile "b.xlsx" $null $null),
+        (New-FakeFile "c.XLSX" $null $null), (New-FakeFile "d.msg" $null $null),
+        (New-FakeFile "e.png" $null $null), (New-FakeFile "f.png" $null $null)
+    )
+    $hist = @(Get-ExtensionHistogram $files 8)
+    (Expect "buckets" 3 $hist.Count),
+    (Expect "first" ".xlsx (3)" ("{0} ({1})" -f $hist[0].Extension, $hist[0].Count)),
+    (Expect "second" ".png (2)" ("{0} ({1})" -f $hist[1].Extension, $hist[1].Count)),
+    (Expect "third" ".msg (1)" ("{0} ({1})" -f $hist[2].Extension, $hist[2].Count)) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "zero-diag edge histogram caps at top N and labels extensionless files" {
+    $many = @(0..99 | ForEach-Object { New-FakeFile ("f{0}.e{0}" -f $_) $null $null })
+    $many += (New-FakeFile "README" $null $null)
+    $hist = @(Get-ExtensionHistogram $many 8)
+    (Expect "cap" 8 $hist.Count),
+    (Expect "extensionless bucket" 1 @(Get-ExtensionHistogram @((New-FakeFile "README" $null $null)) 8 |
+        Where-Object { $_.Extension -eq "(none)" }).Count) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "zero-diag edge histogram of nothing is empty" {
+    Expect "buckets" 0 @(Get-ExtensionHistogram @() 8).Count
+}
+
+# --- zero-found diagnostics: Format-ScanDiagnostics -------------------------
+# The block the client screenshots. Counts and extensions only - never a file
+# name (architecture invariant 8).
+Check "zero-diag AC1/AC5 formatter renders every required line for a zero-candidate scan" {
+    $fabricated = [pscustomobject]@{
+        Candidates = @()
+        Skipped    = [ordered]@{ link = 0; temp = 3; dotfile = 1; extension = 414 }
+        Errors     = @("Access to the path is denied.")
+        Walked     = 418
+        Extensions = @(
+            [pscustomobject]@{ Extension = ".xlsx"; Count = 301 },
+            [pscustomobject]@{ Extension = ".msg"; Count = 60 },
+            [pscustomobject]@{ Extension = ".png"; Count = 41 }
+        )
+    }
+    $expected = @(
+        "Walked: 418 files",
+        "Skipped - link: 0",
+        "Skipped - temp: 3",
+        "Skipped - dotfile: 1",
+        "Skipped - extension: 414",
+        "Access errors: 1",
+        "Extensions seen: .xlsx (301), .msg (60), .png (41)",
+        "Under OneDrive sync root: yes"
+    )
+    $actual = @(Format-ScanDiagnostics $fabricated "yes")
+    if ($actual.Count -ne $expected.Count) {
+        return "expected $($expected.Count) lines, got $($actual.Count): $($actual -join ' | ')"
+    }
+    for ($i = 0; $i -lt $expected.Count; $i++) {
+        $problem = Expect "line $i" $expected[$i] $actual[$i]
+        if ($problem) { return $problem }
+    }
+    return $null
+}
+Check "zero-diag edge formatter prints an all-zero block for an empty folder" {
+    $empty = [pscustomobject]@{
+        Candidates = @(); Skipped = [ordered]@{ link = 0; temp = 0; dotfile = 0; extension = 0 }
+        Errors = @(); Walked = 0; Extensions = @()
+    }
+    $lines = @(Format-ScanDiagnostics $empty "unknown")
+    (Expect "walked" "Walked: 0 files" $lines[0]),
+    (Expect "errors" "Access errors: 0" $lines[5]),
+    (Expect "extensions" "Extensions seen: none" $lines[6]),
+    (Expect "onedrive" "Under OneDrive sync root: unknown" $lines[7]) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+Check "zero-diag AC1 formatter never prints a file name" {
+    $scan = [pscustomobject]@{
+        Candidates = @(); Skipped = [ordered]@{ link = 0; temp = 0; dotfile = 0; extension = 1 }
+        Errors = @(); Walked = 1
+        Extensions = @([pscustomobject]@{ Extension = ".xlsx"; Count = 1 })
+    }
+    $joined = (@(Format-ScanDiagnostics $scan "no") -join " ")
+    if ($joined -match "secret-client") { return "leaked a file name: $joined" }
+    return $null
+}
+
+# --- zero-found diagnostics: Test-UnderOneDrive -----------------------------
+# Reads the same three env vars the auto-detect probe reads; the probe itself
+# only picks a folder to offer, so its result says nothing about this root.
+function Invoke-WithOneDriveEnv([string]$commercial, [string]$consumer, [string]$plain, [scriptblock]$body) {
+    $saved = @($env:OneDriveCommercial, $env:OneDrive, $env:OneDriveConsumer)
+    try {
+        $env:OneDriveCommercial = $commercial
+        $env:OneDrive = $plain
+        $env:OneDriveConsumer = $consumer
+        return & $body
+    } finally {
+        $env:OneDriveCommercial = $saved[0]
+        $env:OneDrive = $saved[1]
+        $env:OneDriveConsumer = $saved[2]
+    }
+}
+Check "zero-diag AC1 root under a sync root reports yes, case- and separator-insensitively" {
+    Invoke-WithOneDriveEnv "C:\Users\m\OneDrive - Banhall" "" "" {
+        (Expect "child" "yes" (Test-UnderOneDrive "c:\users\m\onedrive - banhall\Applications\Acme")),
+        (Expect "the sync root itself" "yes" (Test-UnderOneDrive "C:\Users\m\OneDrive - Banhall")),
+        (Expect "forward slashes" "yes" (Test-UnderOneDrive "C:/Users/m/OneDrive - Banhall/Applications")) |
+            Where-Object { $_ } | Select-Object -First 1
+    }
+}
+Check "zero-diag AC1 root outside every sync root reports no" {
+    Invoke-WithOneDriveEnv "" "C:\Users\m\OneDrive" "" {
+        (Expect "elsewhere" "no" (Test-UnderOneDrive "D:\Archive\Applications")),
+        (Expect "sibling with a shared prefix" "no" (Test-UnderOneDrive "C:\Users\m\OneDrive-Backup")) |
+            Where-Object { $_ } | Select-Object -First 1
+    }
+}
+Check "zero-diag AC1 no OneDrive env var at all reports unknown" {
+    Invoke-WithOneDriveEnv "" "" "" {
+        Expect "unknown" "unknown" (Test-UnderOneDrive "C:\Users\m\Documents")
+    }
+}
+
 # --- AC4: Get-UploadCandidates over a real temp tree ------------------------
 $tree = Join-Path ([IO.Path]::GetTempPath()) ("banhall-uploader-tests-" + [Guid]::NewGuid().ToString("N"))
 try {
@@ -178,6 +331,25 @@ try {
         $missing = Get-UploadCandidates (Join-Path $tree "does-not-exist") $allowed
         (Expect "candidates" 0 $missing.Candidates.Count),
         (Expect "errors" 1 $missing.Errors.Count) |
+            Where-Object { $_ } | Select-Object -First 1
+    }
+
+    Check "zero-diag AC1 the scan records an extension histogram of every file it walked" {
+        $hist = @($scan.Extensions)
+        $counted = 0
+        foreach ($bucket in $hist) { $counted += $bucket.Count }
+        $md = @($hist | Where-Object { $_.Extension -eq ".md" })
+        (Expect "every walked file is counted" $walked.Count $counted),
+        (Expect ".docx is the biggest bucket" ".docx" "$($hist[0].Extension)"),
+        (Expect ".md bucket" 1 @($md).Count),
+        (Expect ".md count" 1 $md[0].Count) |
+            Where-Object { $_ } | Select-Object -First 1
+    }
+    Check "zero-diag AC4 Test-RootUsable separates a folder, a file and a missing path" {
+        (Expect "folder" "ok" (Test-RootUsable $tree)),
+        (Expect "file" "is_file" (Test-RootUsable $real)),
+        (Expect "missing" "missing" (Test-RootUsable (Join-Path $tree "does-not-exist"))),
+        (Expect "empty" "missing" (Test-RootUsable "")) |
             Where-Object { $_ } | Select-Object -First 1
     }
 } finally {
@@ -288,6 +460,117 @@ Check "AC6 all three input modes converge on roots" {
 Check "regression banhall-uploader.ps1 never mentions ReparsePoint again" {
     $hits = @($uploaderParsed.Tokens | Where-Object { "$($_.Text)" -match "ReparsePoint" })
     if ($hits.Count -gt 0) { return "ReparsePoint at line $($hits[0].Extent.StartLineNumber)" }
+    return $null
+}
+
+# --- zero-found diagnostics: the uploader's wiring, read as AST -------------
+# The zero-result run cannot be driven here (the folder chooser is WinForms),
+# so the order the uploader writes the log in is asserted on the source.
+function Find-SmallestAstContaining($ast, [string]$needle) {
+    $hits = @($ast.FindAll({ param($node) "$($node.Extent.Text)".Contains($needle) }, $true))
+    if ($hits.Count -eq 0) { return $null }
+    return ($hits | Sort-Object { $_.Extent.Text.Length } | Select-Object -First 1)
+}
+
+function Get-EnclosingIf($node) {
+    $current = $node
+    while ($current -and -not ($current -is [System.Management.Automation.Language.IfStatementAst])) {
+        $current = $current.Parent
+    }
+    return $current
+}
+
+function Get-CommandLine($ast, [string]$name, [string]$argNeedle) {
+    $calls = @($ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.CommandAst]) -and
+        "$($node.GetCommandName())" -eq $name
+    }, $true))
+    if ($argNeedle) { $calls = @($calls | Where-Object { "$($_.Extent.Text)".Contains($argNeedle) }) }
+    if ($calls.Count -eq 0) { return -1 }
+    return $calls[0].Extent.StartLineNumber
+}
+
+Check "zero-diag AC4 the root-is-a-file message sits in the Test-RootUsable branch" {
+    $usable = @($uploaderParsed.Ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.CommandAst]) -and
+        "$($node.GetCommandName())" -eq "Test-RootUsable"
+    }, $true))
+    if ($usable.Count -lt 2) {
+        return "expected Test-RootUsable at both root checks, found $($usable.Count) call site(s)"
+    }
+    $message = Find-SmallestAstContaining $uploaderParsed.Ast "is a file, not a folder"
+    if (-not $message) { return "the root-is-a-file message is missing" }
+    $branch = Get-EnclosingIf $message
+    if (-not $branch) { return "the root-is-a-file message is not inside an if" }
+    $guard = "$($branch.Extent.Text)"
+    while ($branch -and -not $guard.Contains("That folder does not exist")) {
+        $branch = Get-EnclosingIf $branch.Parent
+        if ($branch) { $guard = "$($branch.Extent.Text)" }
+    }
+    if (-not $branch) { return "the file and missing messages are not two arms of one root check" }
+    if (-not "$($branch.Clauses[0].Item1.Extent.Text)".Contains('$rootState')) {
+        return "the root check branches on '$($branch.Clauses[0].Item1.Extent.Text)', not on the Test-RootUsable result"
+    }
+    return $null
+}
+
+Check "zero-diag AC2 the log is truncated before the scan and the SCAN lines beat the zero exit" {
+    $truncations = @($uploaderParsed.Ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.CommandAst]) -and
+        "$($node.GetCommandName())" -eq "Set-Content" -and
+        "$($node.Extent.Text)".Contains('$logPath')
+    }, $true))
+    if ($truncations.Count -ne 1) { return "expected 1 log truncation, found $($truncations.Count)" }
+
+    $truncate = $truncations[0].Extent.StartLineNumber
+    $collect = Get-CommandLine $uploaderParsed.Ast "Get-UploadCandidates" ""
+    $scanLog = Get-CommandLine $uploaderParsed.Ast "Write-Log" "SCAN"
+    $zeroExit = -1
+    $nothing = Find-SmallestAstContaining $uploaderParsed.Ast "Nothing to upload"
+    $zeroBranch = Get-EnclosingIf $nothing
+    if ($zeroBranch) {
+        $exits = @($zeroBranch.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.ExitStatementAst]
+        }, $true))
+        if ($exits.Count -gt 0) { $zeroExit = $exits[0].Extent.StartLineNumber }
+    }
+    if ($collect -lt 0) { return "no Get-UploadCandidates call site" }
+    if ($scanLog -lt 0) { return "nothing writes SCAN lines to the log" }
+    if ($zeroExit -lt 0) { return "no exit inside the zero-found branch" }
+    if (-not ($truncate -lt $collect)) { return "log truncation (line $truncate) runs after the scan (line $collect)" }
+    if (-not ($collect -lt $scanLog)) { return "the SCAN write (line $scanLog) runs before the scan (line $collect)" }
+    if (-not ($scanLog -lt $zeroExit)) { return "the SCAN write (line $scanLog) runs after the zero exit (line $zeroExit)" }
+    return $null
+}
+
+Check "zero-diag AC3 the cloud-only line is printed only when the count is above zero" {
+    $calls = @($uploaderParsed.Ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.CommandAst]) -and
+        "$($node.GetCommandName())" -eq "Test-CloudOnly"
+    }, $true))
+    if ($calls.Count -lt 1) { return "the uploader never calls Test-CloudOnly" }
+    $message = Find-SmallestAstContaining $uploaderParsed.Ast "cloud-only and will be downloaded by OneDrive while uploading"
+    if (-not $message) { return "the cloud-only announcement is missing" }
+    $branch = Get-EnclosingIf $message
+    if (-not $branch) { return "the cloud-only line is not guarded by an if" }
+    $condition = "$($branch.Clauses[0].Item1.Extent.Text)"
+    if (-not $condition.Contains("-gt 0")) { return "cloud-only line is guarded by '$condition', not by a count above zero" }
+    return $null
+}
+
+Check "zero-diag AC1 the zero-found branch prints the formatter's lines and never a file name" {
+    $branch = Get-EnclosingIf (Find-SmallestAstContaining $uploaderParsed.Ast "Nothing to upload")
+    if (-not $branch) { return "no zero-found branch" }
+    $body = "$($branch.Extent.Text)"
+    if (-not $body.Contains("Format-ScanDiagnostics")) { return "the zero-found branch never calls Format-ScanDiagnostics" }
+    foreach ($leak in @("FullName", ".Name", "Candidates")) {
+        if ($body.Contains($leak)) { return "the zero-found branch touches '$leak' - it must print counts only" }
+    }
     return $null
 }
 

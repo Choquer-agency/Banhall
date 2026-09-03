@@ -105,9 +105,10 @@ $droppedMode = $false
 if ($Paths -and $Paths.Count -gt 0) {
     $droppedMode = $true
     foreach ($p in $Paths) {
-        if (Test-Path $p -PathType Container) {
+        $dropState = Test-RootUsable $p
+        if ($dropState -eq "ok") {
             $roots += (Get-Item $p).FullName
-        } elseif (Test-Path $p) {
+        } elseif ($dropState -eq "is_file") {
             Write-Host "  ! skipped (drop folders, not single files): $p" -ForegroundColor Yellow
         } else {
             Write-Host "  ! skipped (not found): $p" -ForegroundColor Yellow
@@ -163,8 +164,14 @@ if ($Paths -and $Paths.Count -gt 0) {
             $root = Pick-Folder $HOME
         }
     }
-    if (-not $root -or -not (Test-Path $root)) {
-        Write-Host "That folder does not exist: $root" -ForegroundColor Red
+    $rootState = Test-RootUsable $root
+    if ($rootState -ne "ok") {
+        if ($rootState -eq "is_file") {
+            Write-Host "That path is a file, not a folder: $root" -ForegroundColor Red
+            Write-Host "Choose the folder that holds your client documents instead."
+        } else {
+            Write-Host "That folder does not exist: $root" -ForegroundColor Red
+        }
         Read-Host "Press Enter to close"
         exit 1
     }
@@ -214,11 +221,21 @@ function Get-DropPrefix([string]$abs) {
 # cloud placeholders are kept (note: PS 5.1's -Recurse can still traverse
 # directory junctions — keep the corpus free of junction loops). Duplicate rels
 # (nested/overlapping drops) are uploaded once.
+#
+# The log is truncated here, before the walk, so the zero-found run can record
+# its diagnostics in it and still exit before the upload loop.
+Set-Content -Path $logPath -Value @() -Encoding UTF8
+function Write-Log([string]$line) {
+    try { Add-Content -Path $logPath -Value $line -Encoding UTF8 } catch {}
+}
+
 $entries = New-Object System.Collections.Generic.List[object]
 $seenRel = New-Object 'System.Collections.Generic.HashSet[string]'
+$scans = New-Object System.Collections.Generic.List[object]
 foreach ($r in $roots) {
     $prefix = if ($droppedMode) { Get-DropPrefix $r } else { "" }
     $scan = Get-UploadCandidates $r $allowedExt
+    $scans.Add([pscustomobject]@{ Root = $r; Scan = $scan })
     foreach ($f in $scan.Candidates) {
         $rel = $prefix + ($f.FullName.Substring($r.Length).TrimStart("\", "/") -replace "\\", "/")
         if ($seenRel.Add($rel)) {
@@ -229,7 +246,29 @@ foreach ($r in $roots) {
 $entries = $entries | Sort-Object Rel
 
 Write-Host ("Found {0} document(s) (.docx/.doc/.pdf/.txt/.vtt)." -f @($entries).Count)
+
+# Dehydrated Files On-Demand documents upload fine, but each one blocks while
+# OneDrive fetches it. Say so before the run instead of leaving the client
+# watching a stalled progress line.
+$cloudOnly = @($entries | Where-Object { Test-CloudOnly $_.File }).Count
+if ($cloudOnly -gt 0) {
+    Write-Host ("{0} files are cloud-only and will be downloaded by OneDrive while uploading" -f $cloudOnly)
+}
+
+# Zero found is the report that used to arrive with nothing to act on. Print
+# and log the breakdown: counts and extensions only, never a document name.
 if (@($entries).Count -eq 0) {
+    foreach ($s in $scans) {
+        if ($scans.Count -gt 1) {
+            Write-Host ("  Root: {0}" -f $s.Root)
+            Write-Log ("SCAN`tRoot: {0}" -f $s.Root)
+        }
+        foreach ($line in (Format-ScanDiagnostics $s.Scan (Test-UnderOneDrive $s.Root))) {
+            Write-Host ("  " + $line)
+            Write-Log ("SCAN`t" + $line)
+        }
+    }
+    Write-Host "The same breakdown was saved to upload-log.txt - send that file to the dev team."
     Read-Host "Nothing to upload. Press Enter to close"
     exit 0
 }
@@ -259,12 +298,6 @@ if (@($entries).Count -gt $testCap) {
 }
 
 $staged = 0; $skipped = 0; $tooLarge = 0; $failed = 0
-# Log incrementally (UTF-8): a crash, Ctrl-C, or closed window mid-run must
-# not lose the record of what was already sent.
-Set-Content -Path $logPath -Value @() -Encoding UTF8
-function Write-Log([string]$line) {
-    try { Add-Content -Path $logPath -Value $line -Encoding UTF8 } catch {}
-}
 
 foreach ($e in $entries) {
     $f = $e.File
