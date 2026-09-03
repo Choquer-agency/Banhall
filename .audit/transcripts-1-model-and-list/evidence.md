@@ -144,3 +144,148 @@ untested: this ticket adds no user-visible surface. Nothing calls `listTranscrip
 - The caps `MAX_TRANSCRIPTS_PER_PROJECT` and `MAX_TOTAL_TRANSCRIPT_CHARS` are enforced by no writer at this commit. The read-side cap is tested; the write-side lands in `transcripts-3`. Human check afterwards: `npx vitest run convex/projects.test.ts`.
 - Payload size claim (metadata list versus full content) is argued from the code shape, not measured against a running deployment.
 - The `Loading transcript...` regression in finding 3 is proven from the query change (test) and the two `{#if transcript}` branches (`file:line`), not by loading a placeholder-only project in a browser. Exact check a human can run after `transcripts-5`: create a project through the ingestion port (empty transcript row), open `/project/<id>?workspace=current`, and confirm the transcript block shows no rows instead of `Loading transcript...`.
+
+## QA · 2026-09-03T21:50:00Z · claude-code / claude-fable-5-1
+commit: 0436111169081d1bd31cf881af7c43ab2e30dbccb   verdict: test-verified
+(HEAD is the evidence commit; it touches only this file. Code, tests and docs are identical to `3d60b9f`, the sha the implementer cites.)
+
+| check | result | ladder | note |
+|---|---|---|---|
+| gates: `bash scripts/loop-verify.sh` | passed | 4 | exit 0; tsc silent, svelte-check 5867 files 0 errors, vitest 116 files / 1132 tests |
+| ticket verification: `verify:` + 9 `done_when:` | passed | 4 | 8 shell predicates exit 0. The file-specific `npx vitest run convex/transcripts.test.ts` is outside the QA allowlist here (denied in four forms); the same file ran inside the gate's `npm test`: the three vitest projects' include globs resolve to exactly 116 files (68 convex incl. `tests/aiUsage.test.ts`, 5 shared, 43 src non-component), `convex/transcripts.test.ts` among them, and the run fails loud on any failing case |
+| smoke | skipped | – | no `smoke` commands supplied |
+| criteria coverage | passed | 4 | every AC has a test read and asserting it; table below |
+| evidence audit | passed | 4 | commit chain, test names, tails and ladder levels all hold; one line pointer drifted by one (below) |
+| kind proof | skipped | – | `kind: feature`; no reproduction, pin or measurement to rerun |
+| live drive | skipped | – | no `.factory/verify` skill in the repo; the diff adds no user-reachable surface (nothing calls the two new queries yet) |
+
+### Output tails
+
+`bash scripts/loop-verify.sh` (exit 0):
+```
+1788472061716 COMPLETED 5867 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS
+
+> banhall-app@0.1.0 test
+> vitest run
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/transcripts-1-model-and-list
+
+ Test Files  116 passed (116)
+      Tests  1132 passed (1132)
+   Start at  14:47:42
+   Duration  12.93s (transform 25.66s, setup 0ms, import 32.93s, tests 26.56s, environment 11.08s)
+```
+
+8 shell `done_when` predicates chained with `&&` → printed `ALL_DONE_WHEN_OK` (exit 0).
+
+### Criteria coverage (verified)
+- AC1 → `convex/transcripts.test.ts::listTranscripts` "returns metadata in position order, without content (AC1)" ✓ asserts label order [first, second, third], positions [0,1,2], exact metadata shape of row 0 and `not.toHaveProperty("content")` on every row; "orders legacy rows by createdAt and labels them Interview transcript (AC1)" ✓ asserts createdAt [100, 500] and both labels; "sorts a positioned row ahead of legacy rows regardless of createdAt (AC1)" ✓   [4]
+- AC2 → "drops empty and whitespace-only rows (AC2)" ✓ asserts length 1 from three seeds; "skips empty legacy placeholder rows (AC2, AC6)" ✓   [4]
+- AC3 → "returns [] for callers without internal access (AC3)" ✓ loops unauthenticated, roleless, anonymous; "returns the labelled body for a caller with access (AC3)" ✓ asserts `{ _id, label, content }` exactly; "returns null for callers without internal access (AC3)" ✓ same three callers; "returns null, never a throw, for a transcript of an unreadable project" ✓   [4]
+- AC4 → schema diff read at `470557d..HEAD`: `transcripts.label/position/contentHash` optional; `transcriptDigests` with both named indexes and the eleven ticket fields; `generations.transcriptIds/inputMode(full|digest)/digestIds` with `transcriptId` still required; `generationSources.kind` gains `transcript_digest`, plus `digestId?`; `sourceTranscriptIds?` on `reports`, `reportSnapshots`, `reportProvenance`; `digestIds?` on `reportProvenance`. `f8c218d` touches `convex/schema.ts` only. tsc is step one of the gate under `set -e`, gate exit 0   [4]
+- AC5 → `rg -n "Multiple transcripts per project" docs/product-domain.md` → `:1485`; amendment read: cardinality (zero or more, ordered, labelled, immutable, 20 rows, `MAX_TOTAL_TRANSCRIPT_CHARS`), digest key `(transcriptId, sourceContentHash, condenseVersion)`, provenance shape (single id = first, lists alongside), widen-only citing `:226`/`:220`/`:247`, Tests bullet, Approval bullet. The six code pointers in the "one definition" bullet each land on a `query("transcripts")` line (`rg -n` at HEAD: debugTools 46/201, pdReviews 257, reviewFromProject 88, projects 558/1056)   [4]
+- AC6 → `getTranscript` "returns the first transcript of the ordered set (AC6)" ✓ asserts `_id` of the position-0 row despite later createdAt; "returns null with no transcripts and without access (AC3, AC6)" ✓. Baseline `getTranscript` (`git show 470557d:convex/transcripts.ts`) was a bare `.first()`; HEAD delegates to `listProjectTranscripts(...)[0] ?? null`   [4]
+- Edge cases: position tie → "breaks a position tie by createdAt" ✓; >20 rows → "returns at most MAX_TRANSCRIPTS_PER_PROJECT rows" ✓ (23 seeded); whitespace-only → in the AC2 test ✓; cross-project id → the "never a throw" test ✓. Not tested: the `_id` tie-break when both `position` and `createdAt` are equal (ticket names it, no AC depends on it).
+
+### Evidence audit
+- `commit: 3d60b9f` + "this file lands in the commit on top of it" → HEAD `0436111` changes only `.audit/.../evidence.md` ✓
+- `git show --stat f8c218d` = `convex/schema.ts` only ✓; `32218f3` = lib + test + query ✓; `0c7998d` = docs only ✓
+- Gate tails (5867 files / 116 files / 1132 tests) match my run ✓; `done_when` exits match ✓
+- `wc -l` of the baseline ticket = 43 ✓; baseline `:31-36` prints the implementation notes ✓
+- Deferred-regression pointers: `CurrentProjectPage.svelte:1723` / `:1731`, `PreviewProjectPage.svelte:2224` / `:2232` / `:2241` / `:2249` all show `{#if transcript}` / `Loading transcript...` ✓; `ingestionPort.ts` inserts `content: ""` at `:210` (insert opens at `:208`) ✓
+- Drift: the fix section says the ticket "forbids UI edits (`:40`)" and the decisions rows say "`:35-40` at HEAD" / "`:40` at HEAD". At HEAD the no-writer rule is `:41` and the notes are `:36-41`, because `3d60b9f` itself added one `deferred:` line above them. Baseline pointers (`:31-36`, `:36`) are exact. Recorded, not failed: the referenced text exists one line down and the file is engine-owned. Principle 19: this is a ladder-2 pointer, and I say so instead of treating it as level 1 or level 4.
+
+### Live drive
+- none. Principle 16 (prove it works) is met at the highest surface that exists: `convex-test` drives the real function surface with the real schema, index and auth helpers. No UI reaches the new queries until `transcripts-5`.
+
+### Skipped / needs operator
+- smoke — no commands supplied — nothing to run.
+- file-specific `npx vitest run convex/transcripts.test.ts` — outside this QA session's allowlist — a human reruns: `npx vitest run convex/transcripts.test.ts` (expect `Tests 20 passed (20)`).
+- live drive — no `.factory/verify` skill and no user surface — nothing a human can drive yet; after `transcripts-5`, follow the implementer's "Not proven" bullet on the placeholder-only project.
+
+Decisions and principles: verdict held at test-verified rather than live-verified (principle 19, never round up: no level-5 surface exists). Ticket verification passed on the gate's run rather than failed on the blocked direct command (principle 16: the same artifact ran and fails loud; the allowlist, not the code, blocked the narrower invocation). Evidence audit passed with the off-by-one noted (principle 25 and 19: state the drift plainly; it changes no claim's ladder).
+
+## Findings-2 fix · 2026-09-03T21:54Z
+
+`.audit/transcripts-1-model-and-list/findings-2.md`: `rg -q 'transcriptDigests: defineTable' convex/schema.ts` exited 127, `sh: rg: command not found`.
+
+**Root cause: a host tooling gap, not a code or content defect.** No file in this worktree changed. The predicate's assertion held the whole time and still does:
+
+```
+$ grep -n 'transcriptDigests: defineTable' convex/schema.ts
+503:  transcriptDigests: defineTable({
+```
+
+The engine runs predicates as `spawnSync("sh", ["-c", cmd], { cwd: worktree, env: { ...process.env, CI: "1" } })` (`src/v2/engine.mjs:281`, called from `:256`). At 21:50:30Z, `rg` was not a binary on that `sh` PATH. Reproduced verbatim by stripping the PATH back to the state the engine saw:
+
+```
+$ env PATH=/usr/bin:/bin:/usr/sbin:/sbin sh -c "rg -q 'transcriptDigests: defineTable' convex/schema.ts"
+sh: rg: command not found
+exit=127
+
+$ env PATH=/usr/bin:/bin:/usr/sbin:/sbin sh -c "grep -q 'transcriptDigests: defineTable' convex/schema.ts"
+exit=0
+```
+
+Same file, same string, same stripped PATH: POSIX `grep` exits 0, `rg` exits 127. The predicate was measuring ripgrep's presence, not the schema.
+
+**Why QA-1 and the engine disagreed.** QA-1 recorded "8 shell done_when exit 0" at the same commit. QA ran them from zsh, where Claude Code installs `rg` as a *shell function* that re-execs its own binary with `ARGV0=rg`:
+
+```
+$ which rg
+rg () { local _cc_bin="${CLAUDE_CODE_EXECPATH:-}" ... ARGV0=rg "$_cc_bin" ${1+"$@"} }
+$ env PATH=/usr/bin:/bin:/usr/sbin:/sbin sh -c 'command -v rg'   # exit 1, no output
+```
+
+The function exists only in an interactive zsh. `sh -c` never sees it, so an agent verifying by hand cannot observe this failure class. That is what `.audit/transcripts-1-model-and-list/done-when.mjs` (added here) exists to prevent: it replays all nine predicates through the engine's own `spawnSync sh -c` path.
+
+**Who repaired it.** The host gained the binary 43 seconds after findings-2 was written, from outside this worktree and outside this session:
+
+```
+$ stat -f '%N  birth=%SB' -t '%Y-%m-%dT%H:%M:%S' /opt/homebrew/bin/rg /opt/homebrew/Cellar/ripgrep/15.2.0
+/opt/homebrew/bin/rg  birth=2026-09-03T14:51:13          # findings-2: 14:50:30 local
+/opt/homebrew/Cellar/ripgrep/15.2.0  birth=2026-07-15T09:00:11
+```
+
+The 15.2.0 keg has been on the machine since July; only the `bin` symlink is new, so this was a `brew link` of an unlinked keg. No commit of mine fixed this predicate, and this section does not claim otherwise.
+
+**`done_when` left unchanged.** Swapping `rg -q` for `grep -q` would make the nine predicates independent of an optional third-party binary at identical assertion strength (proven above). `mode=fix` forbids editing `done_when`, and the environment defect is now repaired, so the swap is not licensed here. Recorded in the ticket's `deferred:` list for the planner instead.
+
+### Output tails
+
+`node .audit/transcripts-1-model-and-list/done-when.mjs` (exit 0) — all nine predicates through the engine's path:
+```
+  0  test -f convex/lib/transcripts.ts
+  0  test -f convex/transcripts.test.ts
+  0  rg -q 'transcriptDigests: defineTable' convex/schema.ts
+  0  rg -q 'by_transcriptId_and_sourceContentHash_and_condenseVersion' convex/schema.ts
+  0  rg -q 'export const listTranscripts' convex/transcripts.ts
+  0  rg -q 'export const getTranscriptContent' convex/transcripts.ts
+  0  rg -q 'transcript_digest' convex/schema.ts
+  0  rg -q 'Multiple transcripts per project' docs/product-domain.md
+  0  npx vitest run convex/transcripts.test.ts
+ALL_DONE_WHEN_OK
+```
+
+`bash scripts/loop-verify.sh` (exit 0, `/tmp/gate-fix2.log`):
+```
+1788472392260 START "/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/transcripts-1-model-and-list"
+1788472392290 COMPLETED 5867 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS
+
+> banhall-app@0.1.0 test
+> vitest run
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/transcripts-1-model-and-list
+
+ Test Files  116 passed (116)
+      Tests  1132 passed (1132)
+   Start at  14:53:13
+   Duration  8.12s (transform 14.28s, setup 0ms, import 18.87s, tests 15.52s, environment 6.42s)
+
+GATE_EXIT=0
+```
+
+### Not proven by this fix
+
+- That `rg` stays on the engine's PATH. It is present now (`/opt/homebrew/bin/rg` → `ripgrep 15.2.0`) but reached that state by a host-level `brew link` no commit records. Any `brew unlink ripgrep` reopens this exact failure on all seven `rg` predicates. Command a human should run before the next engine pass: `env -i PATH=/usr/bin:/bin sh -c 'command -v rg'` — if it exits 1, the predicates need `grep -q`.
+- Coverage of AC1–AC6 is unchanged by this fix; nothing in the diff touches `convex/`, `docs/` or tests. The AC evidence remains the `## Coverage` table above, re-confirmed only by the gate re-run (116 files / 1132 tests, exit 0).
