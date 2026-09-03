@@ -1,6 +1,6 @@
 ---
 key: transcripts-1-model-and-list
-status: todo
+status: done
 kind: feature
 deps: []
 touches: [convex, docs]
@@ -9,13 +9,13 @@ verify: [npx vitest run convex/transcripts.test.ts]
 done_when: [test -f convex/lib/transcripts.ts, test -f convex/transcripts.test.ts, "rg -q 'transcriptDigests: defineTable' convex/schema.ts", "rg -q 'by_transcriptId_and_sourceContentHash_and_condenseVersion' convex/schema.ts", "rg -q 'export const listTranscripts' convex/transcripts.ts", "rg -q 'export const getTranscriptContent' convex/transcripts.ts", "rg -q 'transcript_digest' convex/schema.ts", "rg -q 'Multiple transcripts per project' docs/product-domain.md", npx vitest run convex/transcripts.test.ts]
 title: "Widen the schema for N transcripts, digests and provenance sets; one read helper, a metadata list query and a content query; domain amendment"
 plan: 20260903-client-sync
-deferred:
-  - "charCount/wordCount are computed per query run in transcriptMetadata; storing them at insert belongs to transcripts-3, which owns insertTranscriptRow (validation-2 low, principle 2)."
-  - "transcriptDigests, generationSources.kind transcript_digest and digestId are declared but written by nothing at this commit; first real writes land in transcripts-7."
-  - "MAX_TRANSCRIPTS_PER_PROJECT and MAX_TOTAL_TRANSCRIPT_CHARS are enforced on the read side only; writer enforcement is transcripts-3."
-  - "UI regression, transcripts-5: a project whose only row is the empty placeholder (convex/ingestionPort.ts:208, and convex/projects.ts:715 when project/new is submitted with files but no transcript text) now gets null from getTranscript where .first() returned the empty row, so CurrentProjectPage.svelte:1723 and PreviewProjectPage.svelte:2224/:2241 show a permanent 'Loading transcript...' (:1731, :2232, :2249) instead of an empty box. Both conflate undefined (loading) with null (none). AC2 and AC6 mandate the null and this ticket forbids UI edits; transcripts-5 Edge cases bullet 1 already requires the readers to branch on load state (data !== undefined), which removes the false loading text. FilesPanel.svelte:477 and project/new/+page.svelte:212 degrade cleanly (row hidden, prefill unchanged)."
-  - "Seven of the nine done_when predicates call `rg`, which the engine runs via `sh -c` (engine.mjs:281). ripgrep was unlinked on this host at 21:50:30Z, so the third predicate exited 127 with `sh: rg: command not found` while the schema it asserts was present at convex/schema.ts:503; it was brew-linked externally at 14:51:13 local and all nine now exit 0. `grep -q` asserts the same strings with no ripgrep dependency (verified: exit 0 under PATH=/usr/bin:/bin), but mode=fix forbids editing done_when, so the swap is left for the planner."
-updated: "2026-09-03T21:17:39.896Z"
+deferred: ["charCount/wordCount are computed per query run in transcriptMetadata; storing them at insert belongs to transcripts-3, which owns insertTranscriptRow (validation-2 low, principle 2).", "transcriptDigests, generationSources.kind transcript_digest and digestId are declared but written by nothing at this commit; first real writes land in transcripts-7.", MAX_TRANSCRIPTS_PER_PROJECT and MAX_TOTAL_TRANSCRIPT_CHARS are enforced on the read side only; writer enforcement is transcripts-3., "UI regression, transcripts-5: a project whose only row is the empty placeholder (convex/ingestionPort.ts:208, and convex/projects.ts:715 when project/new is submitted with files but no transcript text) now gets null from getTranscript where .first() returned the empty row, so CurrentProjectPage.svelte:1723 and PreviewProjectPage.svelte:2224/:2241 show a permanent 'Loading transcript...' (:1731, :2232, :2249) instead of an empty box. Both conflate undefined (loading) with null (none). AC2 and AC6 mandate the null and this ticket forbids UI edits; transcripts-5 Edge cases bullet 1 already requires the readers to branch on load state (data !== undefined), which removes the false loading text. FilesPanel.svelte:477 and project/new/+page.svelte:212 degrade cleanly (row hidden, prefill unchanged).", "Seven of the nine done_when predicates call `rg`, which the engine runs via `sh -c` (engine.mjs:281). ripgrep was unlinked on this host at 21:50:30Z, so the third predicate exited 127 with `sh: rg: command not found` while the schema it asserts was present at convex/schema.ts:503; it was brew-linked externally at 14:51:13 local and all nine now exit 0. `grep -q` asserts the same strings with no ripgrep dependency (verified: exit 0 under PATH=/usr/bin:/bin), but mode=fix forbids editing done_when, so the swap is left for the planner."]
+updated: "2026-09-03T22:06:50.720Z"
+run: 20260903-211917-12-tickets
+branch: factory/transcripts-1-model-and-list
+merged: 5437b03
+verdict: test-verified
+evidence: .audit/transcripts-1-model-and-list/evidence.md
 ---
 ## Intent
 Tracy needs several transcripts on one project and a two-hour transcript must not blow the model's window. This ticket lays the data structures every later transcripts ticket builds on, all additive: labelled, ordered transcript rows; a digest table keyed by transcript content and condense version; the generation's set of transcripts and its input mode; digest source rows; list fields beside every `sourceTranscriptId`. It also defines, in one helper, what "a project's transcripts" means, and splits the client read into a light metadata list and a per-transcript content query so the project page never subscribes to megabytes of text. The domain amendment lands here so no code relies on the new contract before it is recorded.
