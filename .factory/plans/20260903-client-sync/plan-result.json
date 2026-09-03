@@ -1,0 +1,27 @@
+{
+  "status": "ready",
+  "plan_dir": ".factory/plans/20260903-client-sync",
+  "tickets": [
+    "uploader-1-cloud-placeholder-filter",
+    "uploader-2-zero-found-diagnostics",
+    "uploader-3-mac-parity",
+    "workspace-1-gate-on-for-everyone",
+    "workspace-2-drop-dead-gate-branches",
+    "transcripts-1-model-and-list",
+    "transcripts-2-generation-reads-all",
+    "transcripts-3-create-with-many",
+    "transcripts-4-copies-and-readers",
+    "transcripts-5-ui-readers",
+    "transcripts-6-provenance-sets",
+    "transcripts-7-condense-digests"
+  ],
+  "risky": [
+    "workspace-1-gate-on-for-everyone",
+    "transcripts-1-model-and-list",
+    "transcripts-2-generation-reads-all",
+    "transcripts-6-provenance-sets",
+    "transcripts-7-condense-digests"
+  ],
+  "questions": [],
+  "summary": "Revision 1 after validation-1 (request_changes). Consumer: (C) the Windows uploader stops dropping OneDrive cloud placeholders (banhall-uploader.ps1:211 filtered every ReparsePoint), prints and logs a skip breakdown on zero results, warns about cloud-only files, and the Mac script gains the same plus a missing READ_ERROR path. (B) every internal role (writer, shown as Consultant; manager; admin) gets the preview workspace; ?workspace=current stays the rollback; the admin rollout card, its component test and its backend functions are deleted, tables kept; the callerless resolveWorkspaceExperience goes too. (A) a project holds N ordered, labelled transcripts (20 rows / 2,000,000 chars caps); the wizard accepts multi .docx upload, paste and remove, and prefills duplicates by reference so text never round-trips the browser; clients read a metadata list plus one body at a time; generation freezes and reads all transcripts; over a 200k-char budget each transcript is condensed once to a stored digest keyed by (transcriptId, contentHash, condenseVersion), reused on regeneration, frozen as a transcript_digest source row; reports, snapshots and provenance rows gain sourceTranscriptIds beside the still-populated sourceTranscriptId. Maintainer inherits: uploader-lib.ps1 + pwsh/bash harnesses wired into scripts/loop-verify.sh; a four-line getAccess; convex/lib/transcripts.ts as the single definition of a project's transcripts, its caps and CONDENSE_VERSION; listTranscripts (metadata) + getTranscriptContent; a transcriptDigests table; three budget constants in the prompt program; two docs/product-domain.md amendments (workspace on for everyone, recorded in workspace-2; multiple transcripts + provenance shape, in transcripts-1); widen only, no backfill, no narrow. What changed in revision 1: transcripts-6 proof moved from bun:test files (outside every vitest project) into convex/lib/snapshots.test.ts and convex/reports.test.ts; the generations.transcriptId relaxation moved from transcripts-1 to transcripts-2 with the readers it breaks; transcripts-3 and transcripts-4 done_when predicates made satisfiable (word-bounded transcriptId; -F fixed-string matching because rg 'query(\"transcripts\")' was a vacuous regex group; count predicates for the two files that keep one direct query); projectDuplication.ts:83 and generationAttribution.test.ts:449/:1534 named in transcripts-3; WorkspaceRolloutCard.component.test.ts named for deletion; workspace-1 back to two packages by moving the amendment to workspace-2; transcripts-2 tagged risky [schema, provenance]; Trace line ranges refreshed. Correction to one low finding: there is no consultant role (shared/roles.ts:4), so no new test identity is needed. 12 tickets in dependency order (3 uploader, 2 workspace, 7 transcripts). Risky: workspace-1 (rights), transcripts-1 (schema, additive), transcripts-2 (schema relax + citation mapping), transcripts-6 and transcripts-7 (provenance lists and digest ids). Unproven at plan time: the pwsh reproduction one-liner and vitest runs were denied by the permission mode in both planning and revision sessions, so the C hypothesis rests on file:line plus a walked mechanism until uploader-1 records it; the condensation LLM call cannot run in tests, so its decision, persistence, reuse and prompt-program registration are what the gate proves. Prior-art overlap: PSOS-42 already records getTranscript returning .first() only (docs/todos/psos/tasks/PSOS-42.md:22); no existing ticket in .factory/tickets covered any of this."
+}

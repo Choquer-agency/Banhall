@@ -1,0 +1,49 @@
+---
+key: transcripts-7-condense-digests
+status: todo
+kind: feature
+deps: [transcripts-6-provenance-sets]
+touches: [convex]
+risky: [provenance]
+verify: [npx vitest run convex/ai/condenseAgent.test.ts convex/transcriptDigests.test.ts convex/ai/promptScaffolds.test.ts]
+done_when: [test -f convex/ai/condense.ts, test -f convex/ai/condenseAgent.ts, test -f convex/transcriptDigests.ts, "rg -q 'condense' convex/ai/promptProgram.ts", "rg -q 'ensureCondensedInputs' convex/ai/pipeline.ts convex/ai/iterative.ts", "rg -q 'decideInputMode' convex/generations.ts", "rg -q 'CONDENSE_VERSION' convex/transcriptDigests.ts", npx vitest run convex/ai/condenseAgent.test.ts convex/transcriptDigests.test.ts]
+title: "Over-budget transcript sets are condensed to stored, reusable, provenance-linked digests before the prompt program runs"
+plan: 20260903-client-sync
+updated: "2026-09-03T21:17:39.898Z"
+---
+## Intent
+A two-hour transcript or several transcripts exceed what the model handles well. When the combined frozen transcript text exceeds `budgetChars`, each transcript is reduced by one structured Sonnet call to a digest that keeps the SR&ED facts (who/what/when, technological uncertainties, hypotheses, experiments, results, dates, numbers, names, verbatim key quotes). Digests are stored, keyed by transcript content, reused on regeneration, frozen as `transcript_digest` source rows, and the generation says `inputMode: "digest"` with `digestIds`. Below budget nothing changes. The maintainer inherits three constants in the prompt program, one condensation module shared by the compare and iterative flows, and a digest table they can open to see exactly what the model read.
+
+## Acceptance
+- AC1: Given transcripts totalling under `budgetChars`, when reserved, then `inputMode` is `full`, no digest rows exist, and the prompt text is the full join (unchanged from `transcripts-2`).
+- AC2: Given transcripts totalling over `budgetChars`, when `generateReport` (or `startIterativeGeneration`) runs, then before Brain retrieval one `transcriptDigests` row exists per transcript with `sourceContentHash`, `model`, `promptVersion`, `content`, `structured`, `charCount`, `originalLength`; one `generationSources` row of kind `transcript_digest` per transcript with `digestId`, `transcriptId`, `contentHash` of the digest text; `generations.digestIds` lists them; `getGenerationInput` returns the digest parts and `inputMode: "digest"`.
+- AC3: Given a second generation on the same project with unchanged transcripts and the same `CONDENSE_VERSION`, when it runs, then no new `transcriptDigests` row is inserted, the existing ids are reused, and the progress log says `Reusing stored digest for transcript i of N "<label>".`; given a bumped `CONDENSE_VERSION`, a new row is inserted and the old one is left in place.
+- AC4: Given a single transcript longer than `condenseWindowChars`, when condensed, then it is split into windows at paragraph boundaries, each window digested, and the rendered digests concatenated with `--- part k of K ---` markers into one digest row.
+- AC5: `promptProgram.ts` contains `calls.condense` (`kind: "structured"`, fixed model `MODEL`, system template, schema, `structuredPolicy`) and `configuration.transcripts = { budgetChars, condenseWindowChars, digestTargetChars }`; `currentPromptVersion()` changes and every test pinning a literal hash is updated with a comment naming this ticket.
+- AC6: Provenance rows created in digest mode carry `digestIds` and claims cite the digest source rows; `createProvenance` byte-checks pass; a claim whose quote survives verbatim in the digest is `needs_review`, otherwise `unsupported`.
+
+## Verification
+- AC1, AC2 (decision and persistence) → `convex/transcriptDigests.test.ts` (new): `decideInputMode` unit cases at budget-1, budget, budget+1; call the internal `recordDigest` mutation twice with the same key and assert one row (AC3 persistence half); reserve a generation over budget and assert `inputMode`.
+- AC2 (action wiring), AC3 (log line) → the LLM call cannot run in tests. `ensureCondensedInputs(ctx, generationId, log, condense = condenseTranscript)` takes the condensation function as a parameter; the test passes a stub returning a fixed digest object and asserts source rows, `digestIds`, and the log lines through convex-test's `t.action` on a thin internal action, or through `t.run` if actions are not exercisable. Record which in evidence.
+- AC4 → `convex/ai/condenseAgent.test.ts` (new): `splitIntoWindows` and `renderDigest` are pure; cases for boundaries and marker format.
+- AC5 → `convex/ai/promptScaffolds.test.ts` or a new case asserting `generationPromptProgram.calls.condense` exists and `configuration.transcripts.budgetChars === 200_000`.
+- AC6 → extend the claim-mapping unit test from `transcripts-2` with digest parts.
+
+## Implementation notes
+- Constants (`convex/ai/promptProgram.ts:361-367` block): `budgetChars: 200_000`, `condenseWindowChars: 160_000`, `digestTargetChars: 24_000`. Starting values, not measured; keep them in one place.
+- `convex/generations.ts`: `decideInputMode(totalChars)` pure export; `reserveGeneration` sets `inputMode`; `getGenerationInput` selects `transcript_digest` rows when `inputMode === "digest"` and they exist, else `transcript` rows; returns `inputMode`, `digestIds`.
+- `convex/transcriptDigests.ts` (default runtime): `findDigest` internalQuery `{ transcriptId, sourceContentHash, condenseVersion }` on `by_transcriptId_and_sourceContentHash_and_condenseVersion` (laid down in `transcripts-1`); `recordDigest` internalMutation (idempotent on the index: return the existing id if present); `freezeDigestSource` internalMutation inserting the `generationSources` row and patching `generations.digestIds` (dedupe). `condenseVersion` is always `CONDENSE_VERSION` from `convex/lib/transcripts.ts` (default runtime, so both the `"use node"` action and these mutations import the same constant).
+- `convex/ai/condenseAgent.ts` (`"use node"`): system prompt (no client or person names dropped; keep names, dates and numbers verbatim; quotes verbatim; target length), zod schema with `.default([])` on collections (pattern `analyzerAgent.ts:98-127`), JSON schema (`:189-242`), `condenseTranscript(client, text, label, modelId)` via `generateStructured` (`structured.ts:63`), `renderDigest(obj)` deterministic markdown, `splitIntoWindows(text, size)`.
+- `convex/ai/condense.ts` (`"use node"`): `ensureCondensedInputs(ctx, generationId, log, condense?)`; reads the frozen `transcript` source rows through an internal query; for each, `findDigest` → else `condense` → `recordDigest`; then `freezeDigestSource`; `Promise.all` across transcripts; client from `instrumentedAnthropic(ctx, { callSite: "generation:condense", capability: "generation", projectId, userId, attribution: { generationId } })` (`instrument.ts:131`). Log lines as in `architecture.md` Usage.
+- `pipeline.ts:403-473`: after `getGenerationInput`, if `input.inputMode === "digest"`, `await ensureCondensedInputs(...)` then re-run `getGenerationInput` (the parts changed). Same in `iterative.ts:59-131`. Estimate at `pipeline.ts:479-490` uses the words of the parts actually used.
+- `pipeline.ts:680-689`: pass `digestIds: input.digestIds`.
+- Time budget: condensation runs in the parent action, in parallel, each call ≤ `ANTHROPIC_TIMEOUT_MS`; with 20 transcripts and windows this could approach the 10-minute action limit. Cap concurrent calls at 4 and fail the generation with a clear message (`Condensing transcripts took too long; split the project or shorten transcripts`) rather than time out silently.
+- Usage attribution rows come for free from `instrumentedAnthropic`.
+- Do not touch UI. Do not digest context documents.
+
+## Edge cases
+- Transcript edited (cannot happen: rows are immutable) or replaced by a new row: new hash, new digest.
+- Condensation fails for one transcript: `failGeneration` with the provider error; digests already stored stay for the retry (idempotent).
+- Digest text longer than the transcript (tiny transcript over a large set): use the shorter of the two as the source row, mark `structured` anyway.
+- Over-budget set where one transcript is empty after trim: helper already dropped it.
+- `promptVersion` on the digest row differs from the generation's later `promptVersion` after tuning: reuse is keyed on `(transcriptId, sourceContentHash, condenseVersion)`, so a prompt or schema change to the condense call must bump `CONDENSE_VERSION` in `convex/lib/transcripts.ts` in the same commit (say so in a comment next to the zod schema); `promptVersion` is stored for inspection only. A test in `convex/ai/condenseAgent.test.ts` pins the hash of the system prompt plus JSON schema against `CONDENSE_VERSION` so a change without a bump fails loud.
