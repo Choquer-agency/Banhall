@@ -37,5 +37,5 @@ Old readers keep `sourceTranscriptId` (first transcript). New readers get `sourc
 
 ## Edge cases
 - Generation with `transcriptIds: []` (docs-only): report gets no `sourceTranscriptId` and `sourceTranscriptIds: []`.
-- Legacy report with `sourceTranscriptId` only, restored from a legacy snapshot: lists absent on both; nothing invents one.
+- Legacy report with `sourceTranscriptId` only, restored from a legacy snapshot: the rule is one-directional and generation-driven. If the snapshot carries a `generationId` and that generation resolves, `snapshotAuditFields` derives `sourceTranscriptIds` from it (legacy generation → `[transcriptId]`, per AC3) and the restored report gets that list. Only when there is no resolvable generation AND no explicit list passed in are the lists absent on both; nothing is invented from the single `sourceTranscriptId` alone. (Resolves the AC3 / edge-case ambiguity raised in validation-2.)
 - Provenance row whose `sourceTranscriptId` conflicts with the generation's: existing rule drops the provenance link; the list follows the generation.

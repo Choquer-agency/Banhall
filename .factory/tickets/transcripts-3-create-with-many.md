@@ -4,7 +4,7 @@ status: todo
 kind: feature
 deps: [transcripts-2-generation-reads-all]
 touches: [convex, src]
-risky: []
+risky: [rights]
 verify: [npx vitest run convex/projects.test.ts convex/reviewFromProject.test.ts convex/generationAttribution.test.ts, npx vitest run --config vitest.component.config.ts --no-file-parallelism src/routes/project/new/newProjectTranscripts.component.test.ts src/routes/project/new/newProjectPrefill.component.test.ts]
 done_when: ["! rg -q 'transcriptContent' convex/projects.ts src/routes", "rg -q 'transcripts: v.array' convex/projects.ts", "! rg -q '\\\\btranscriptId\\\\b' src/routes/project/new/+page.svelte src/routes/project/questionnaire/+page.svelte", "rg -Uq 'type=\\\"file\\\"[^>]*multiple' src/routes/project/new/+page.svelte", test -f src/routes/project/new/newProjectTranscripts.component.test.ts, "! rg -q 'transcriptId: v.optional' convex/generations.ts", "rg -qF 'targetTranscriptId: v.optional(v.id(\\\"transcripts\\\"))' convex/projectDuplication.ts", npx vitest run convex/projects.test.ts]
 title: "New-project page takes an ordered list of transcripts (multi .docx upload, paste, remove, copy-by-reference); createProject stores them; generation no longer takes a transcript id"
@@ -23,7 +23,7 @@ Tracy attaches several `.docx` files at once, or one at a time, or pastes, sees 
 - AC6: `createProject` rejects more than 20 transcripts or more than `MAX_TOTAL_TRANSCRIPT_CHARS` combined with `INVALID_INPUT`, rejects a `fromTranscriptId` whose project the caller cannot read with `NOT_AUTHORIZED`, skips empty-content entries, and returns `{ projectId, transcriptIds }`; the questionnaire page passes one item labelled `Questionnaire answers`.
 
 ## Verification
-- AC4 (backend), AC6 → `convex/projects.test.ts`: create with three content items, read rows through `api.transcripts.listTranscripts`; create with two `fromTranscriptId` items from a seeded source project and assert copied `content`/`contentHash`; create with 21 → error; over the chars cap → error; empty entries skipped; foreign `fromTranscriptId` → `NOT_AUTHORIZED`. Update `convex/reviewFromProject.test.ts:38` and any test calling `createProject` with `transcriptContent`.
+- AC4 (backend), AC6 → `convex/projects.test.ts`: create with three content items, read rows through `api.transcripts.listTranscripts`; create with two `fromTranscriptId` items from a seeded source project and assert copied `content`/`contentHash`; create with 21 → error; over the chars cap → error; empty entries skipped; foreign `fromTranscriptId` → `NOT_AUTHORIZED`. Update every test that calls `createProject` with `transcriptContent`: `convex/reviewFromProject.test.ts:38`, `convex/projectCreation.test.ts:46` and `:76`, `convex/dashboardStageCounts.test.ts:126` (run `rg -n transcriptContent convex src` and fix all hits; the gate's `npm test` runs them all).
 - AC4 (no `transcriptId` on `requestGeneration`) → `convex/generationAttribution.test.ts:449` and `:1534` pass `transcriptId` to `requestGeneration` today; remove the arg at both sites (the fixture still inserts its own transcript row, which the project now picks up through the helper). `rg` predicates in `done_when`; `npm run check`.
 - AC1, AC2, AC3, AC5 (client) → `src/routes/project/new/newProjectTranscripts.component.test.ts` (new, local-only): render the page like `newProjectPrefill.component.test.ts:19-30`; add items via the textarea path (file parsing needs real `.docx` bytes; use paste for list behaviour and a fixture `.docx` only if `mammoth` in the browser project handles it within the timeout); assert list rows, Remove, and prefill from `__setQueryData("transcripts:listTranscripts", [{ _id, label, wordCount, ... }])`. The convex stub's `useMutation` is a no-op (`src/lib/test/convex-svelte-stub.svelte.ts:125-127`); assert call args by extending the stub with a recorded-calls array if that is a small change, otherwise pin AC4 in the convex test only and say so in evidence.
 
@@ -40,6 +40,7 @@ Tracy attaches several `.docx` files at once, or one at a time, or pastes, sees 
 - Design-system note: the 2026-08-14 amendment (`docs/design-system.md:1003`) constrains the Home composer, not the wizard; the wizard keeps its tablist as the "how to add the next item" chooser.
 
 ## Edge cases
+- `fromTranscriptId` is a caller-supplied cross-project read: the `NOT_AUTHORIZED` path (source project not readable via `getInternalProjectAccessOrNull`) is an authorization boundary; test it explicitly and never copy before the check passes.
 - Same file selected twice: allowed as two items (user can remove one); label unchanged.
 - A `.docx` that parses to empty text: rejected with a toast, not added.
 - Paste tab with an empty draft: Add disabled.
