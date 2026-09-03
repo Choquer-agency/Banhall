@@ -9,6 +9,10 @@ verify: [npx vitest run convex/transcripts.test.ts]
 done_when: [test -f convex/lib/transcripts.ts, test -f convex/transcripts.test.ts, "rg -q 'transcriptDigests: defineTable' convex/schema.ts", "rg -q 'by_transcriptId_and_sourceContentHash_and_condenseVersion' convex/schema.ts", "rg -q 'export const listTranscripts' convex/transcripts.ts", "rg -q 'export const getTranscriptContent' convex/transcripts.ts", "rg -q 'transcript_digest' convex/schema.ts", "rg -q 'Multiple transcripts per project' docs/product-domain.md", npx vitest run convex/transcripts.test.ts]
 title: "Widen the schema for N transcripts, digests and provenance sets; one read helper, a metadata list query and a content query; domain amendment"
 plan: 20260903-client-sync
+deferred:
+  - "charCount/wordCount are computed per query run in transcriptMetadata; storing them at insert belongs to transcripts-3, which owns insertTranscriptRow (validation-2 low, principle 2)."
+  - "transcriptDigests, generationSources.kind transcript_digest and digestId are declared but written by nothing at this commit; first real writes land in transcripts-7."
+  - "MAX_TRANSCRIPTS_PER_PROJECT and MAX_TOTAL_TRANSCRIPT_CHARS are enforced on the read side only; writer enforcement is transcripts-3."
 updated: "2026-09-03T21:17:39.896Z"
 ---
 ## Intent
