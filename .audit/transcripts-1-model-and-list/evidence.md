@@ -206,6 +206,8 @@ commit: 0436111169081d1bd31cf881af7c43ab2e30dbccb   verdict: test-verified
 Decisions and principles: verdict held at test-verified rather than live-verified (principle 19, never round up: no level-5 surface exists). Ticket verification passed on the gate's run rather than failed on the blocked direct command (principle 16: the same artifact ran and fails loud; the allowlist, not the code, blocked the narrower invocation). Evidence audit passed with the off-by-one noted (principle 25 and 19: state the drift plainly; it changes no claim's ladder).
 
 ## Findings-2 fix · 2026-09-03T21:54Z
+commit: 5cc83e6 (this section lands in the commit on top of it; the fix touches no code, test or doc)
+re-run at 5cc83e6: gate exit 0 (116 files / 1132 tests, `/tmp/gate-final.log`), 9/9 done_when exit 0 (`ALL_DONE_WHEN_OK`)
 
 `.audit/transcripts-1-model-and-list/findings-2.md`: `rg -q 'transcriptDigests: defineTable' convex/schema.ts` exited 127, `sh: rg: command not found`.
 
