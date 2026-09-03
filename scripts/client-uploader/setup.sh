@@ -73,7 +73,7 @@ echo "  root: auto-detect (OneDrive…/Applications)"
 if [ "$MAKE_ZIP" -eq 1 ]; then
   ZIP="$HOME/Desktop/banhall-uploader.zip"
   rm -f "$ZIP"
-  (cd "$SCRIPT_DIR" && zip -qry "$ZIP" . -x "setup.sh" -x "DEV-HANDOFF.md" -x "upload-log.txt" -x "*.DS_Store" -x "._*")
+  (cd "$SCRIPT_DIR" && zip -qry "$ZIP" . -x "setup.sh" -x "DEV-HANDOFF.md" -x "tests/*" -x "upload-log.txt" -x "*.DS_Store" -x "._*")
   echo "Wrote $ZIP (setup.sh and dev notes excluded)"
 fi
 
