@@ -1,16 +1,21 @@
 ---
 key: transcripts-2-generation-reads-all
-status: todo
+status: done
 kind: feature
 deps: [transcripts-1-model-and-list]
 touches: [convex]
 risky: [schema, provenance]
 verify: [npx vitest run convex/generationInput.test.ts convex/generationRecovery.test.ts convex/generationAttribution.test.ts]
-done_when: [test -f convex/generationInput.test.ts, "rg -q 'transcriptParts' convex/generations.ts", "rg -q 'mapClaimToPart|findQuoteInParts' convex/ai/pipeline.ts", "! rg -q 'transcript: Doc<\\\"transcripts\\\">' convex/generations.ts", "! rg -qF 'ctx.db.get(failed.transcriptId)' convex/generations.ts", npx vitest run convex/generationInput.test.ts]
+done_when: [test -f convex/generationInput.test.ts, "rg -q 'transcriptParts' convex/generations.ts", "rg -q 'mapClaimToPart|findQuoteInParts' convex/ai/pipeline.ts", "! rg -q 'transcript: Doc<\\\\\\\"transcripts\\\\\\\">' convex/generations.ts", "! rg -qF 'ctx.db.get(failed.transcriptId)' convex/generations.ts", npx vitest run convex/generationInput.test.ts]
 title: Generation freezes and consumes every transcript of the project; claims cite the part they came from
 plan: 20260903-client-sync
 deferred: []
-updated: "2026-09-03T21:17:39.897Z"
+updated: "2026-09-03T22:30:46.007Z"
+run: 20260903-211917-12-tickets
+branch: factory/transcripts-2-generation-reads-all
+merged: bf5f1ec
+verdict: test-verified
+evidence: .audit/transcripts-2-generation-reads-all/evidence.md
 ---
 ## Intent
 Generation currently reads one transcript by id, slices it once and computes every claim offset against that single string. After this ticket `reserveGeneration` loads the project's transcripts through the helper, freezes one source row per transcript, records the set and `inputMode: "full"`, and `getGenerationInput` hands the pipeline prompt text plus the parts needed to cite claims per source row. A legacy project with one transcript produces byte-identical prompt text and citations to today. `requestGeneration.transcriptId` becomes optional and ignored so stale clients keep working until `transcripts-3` removes it.
