@@ -1482,6 +1482,80 @@ stories 2 through 8 and 13) and the 2026-09-01 audit.
   product-owner confirmation of the `superseded` state name and of the
   legacy-row publish consequence.
 
+### 2026-09-03 — Multiple transcripts per project
+
+Data-model amendment. Origin: the 2026-08-26 client meeting (Tracy attaches
+several interview transcripts to one project, and a two-hour transcript
+exceeds the model's context window). Landed additively by the
+`transcripts-1` ticket; the writers, generation, provenance and UI that use
+it follow in `transcripts-2` through `transcripts-7`.
+
+- **Cardinality:** a project has zero or more transcripts, not exactly one.
+  They are ordered (`transcripts.position`, 0-based) and labelled
+  (`transcripts.label`: the uploaded file name, or `Pasted transcript N`).
+  Transcript text stays immutable once written; changing the text means a new
+  row, never an edit. At most `MAX_TRANSCRIPTS_PER_PROJECT` = 20 rows and at
+  most `MAX_TOTAL_TRANSCRIPT_CHARS` = 2 000 000 combined characters per
+  project (`convex/lib/transcripts.ts`). The second cap exists because
+  `reserveGeneration` freezes every transcript into `generationSources` rows
+  inside one mutation and Convex bounds the bytes one transaction writes.
+  Writers enforce both caps in `transcripts-3`; the read helper returns the
+  first 20 rows in order.
+- **One definition of "a project's transcripts":** `listProjectTranscripts`
+  in `convex/lib/transcripts.ts` — ordered by `position`, then `createdAt`,
+  then `_id`, with empty-content rows (ingestion placeholders) dropped. Two
+  direct `transcripts` table queries are permanent exceptions, because neither
+  wants that definition: `deleteProject`'s cascade
+  (`convex/projects.ts:1055-1059`), which must also delete the empty rows, and
+  the admin orphan scan (`convex/debugTools.ts:201`), which reads rows whose
+  project is gone. Four legacy readers still take the project's first row
+  directly and are migrated by `transcripts-4`:
+  `convex/pdReviews.ts:256-259`, `convex/reviewFromProject.ts:87-90`,
+  `convex/projects.ts:557-560` (`getScienceCodeSuggestionContext`) and
+  `convex/debugTools.ts:45-48`. Once they move, the helper is the only
+  project-scoped reader. Clients never subscribe to transcript text in bulk:
+  `listTranscripts` returns metadata only and `getTranscriptContent` returns
+  one body at a time.
+- **Digest artifact:** `transcriptDigests` holds a condensed stand-in for one
+  transcript, keyed by `(transcriptId, sourceContentHash, condenseVersion)`.
+  A digest is never regenerated for the same key, and any change to the
+  condense prompt, the digest schema or the size constants bumps
+  `CONDENSE_VERSION` in the same commit. A digest is generation input, not
+  report prose; it enters the pipeline only as a frozen `generationSources`
+  row of kind `transcript_digest`, never as live text.
+- **Provenance shape:** every existing single-id field
+  (`generations.transcriptId`, `reports.sourceTranscriptId`,
+  `reportSnapshots.sourceTranscriptId`,
+  `reportProvenance.sourceTranscriptId`) keeps being written with the first
+  transcript of the set, so readers that have not migrated see no change. The
+  lists (`transcriptIds`, `sourceTranscriptIds`, `digestIds`) and
+  `generations.inputMode` (`full` | `digest`) sit alongside them and are
+  optional. Claim citation is unchanged: every claim is still validated
+  byte-for-byte against one frozen source row.
+- **Migration and compatibility:** widen only, per the schema rollout rule
+  (`:226`) and the D7 precedent (`:220`). Every new field is optional, no
+  backfill runs, and no legacy field is narrowed or removed here; the one
+  non-additive change, `generations.transcriptId` required → optional, lands
+  in `transcripts-2` together with the two readers that dereference it.
+  Narrowing anything else remains a separate, dedicated decision (`:247`).
+- **Authorization:** no new capability cells. `listTranscripts` and
+  `getTranscriptContent` use the same internal-project-access check and the
+  same silent-`null`/empty-result policy as the `getTranscript` query they
+  extend; `getTranscriptContent` authorizes through the transcript's own
+  `projectId`, so an id from an unreadable project returns `null`.
+- **Tests:** `convex/transcripts.test.ts` (ordering, legacy label default,
+  empty rows dropped, metadata shape and absence of content, the 20-row cap,
+  access policy on all three queries, prompt assembly and quote location).
+  Later tickets add `convex/generationInput.test.ts` (prompt parts and claim
+  mapping), `convex/projects.test.ts` (create with many transcripts),
+  `convex/lib/snapshots.test.ts` and `convex/reports.test.ts` (provenance
+  sets), `convex/ai/condenseAgent.test.ts` and
+  `convex/transcriptDigests.test.ts` (condensation decision, digest
+  persistence and reuse).
+- **Approval:** product owner requested several transcripts per project and a
+  working two-hour transcript at the 2026-08-26 client meeting; recorded here
+  before any code relies on the contract.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:
