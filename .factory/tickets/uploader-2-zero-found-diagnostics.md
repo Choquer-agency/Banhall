@@ -1,6 +1,6 @@
 ---
 key: uploader-2-zero-found-diagnostics
-status: todo
+status: escalated
 kind: feature
 deps: [uploader-1-cloud-placeholder-filter]
 touches: [scripts]
@@ -9,7 +9,10 @@ verify: [pwsh -NoProfile -File scripts/client-uploader/tests/run-tests.ps1]
 done_when: ["rg -q 'Format-ScanDiagnostics' scripts/client-uploader/uploader-lib.ps1", "rg -q 'cloud-only' scripts/client-uploader/banhall-uploader.ps1", "rg -q 'is a file, not a folder' scripts/client-uploader/banhall-uploader.ps1", "rg -q 'Format-ScanDiagnostics' scripts/client-uploader/tests/run-tests.ps1", "! rg -q 'exactly what was sent' scripts/client-uploader/README.txt", pwsh -NoProfile -File scripts/client-uploader/tests/run-tests.ps1]
 title: "Uploader prints and logs a skip breakdown on zero results, warns about cloud-only files, rejects a file path as root"
 plan: 20260903-client-sync
-updated: "2026-09-03T21:17:39.899Z"
+updated: "2026-09-03T22:47:02.935Z"
+run: 20260903-211917-12-tickets
+branch: factory/uploader-2-zero-found-diagnostics
+escalation: implementer session failed (attempt 2); log .factory/runs/20260903-211917-12-tickets/logs/uploader-2-zero-found-diagnostics.implement-2.jsonl
 ---
 ## Intent
 Owner commitment from the 2026-08-26 meeting: the next zero-result report from the client must be actionable without a screen share. When the scan finds nothing, the uploader prints and logs a breakdown (files walked, skip counts per reason, first extensions seen, whether the root is under a OneDrive sync root). Dehydrated cloud-only files are counted and announced before uploading starts. A `root` that is a file, or does not exist, gets an explicit message. The maintainer inherits one pure formatter in the lib, proved by the harness, and a log that also records the scan.
