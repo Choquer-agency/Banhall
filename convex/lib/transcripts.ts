@@ -119,3 +119,55 @@ export function findQuoteInParts(
   }
   return null;
 }
+
+/** A frozen transcript source row, ready to be cited. */
+export type TranscriptPromptPart = TranscriptPart & {
+  sourceId: Id<"generationSources">;
+  contentHash: string;
+};
+
+export type TranscriptCitation = {
+  generationSourceId: Id<"generationSources">;
+  sourceContentHash: string;
+  exactExcerpt: string;
+  startOffset: number;
+  endOffset: number;
+};
+
+/**
+ * Resolves one claim's supporting quote to the frozen source row it came from.
+ * The offsets are relative to that row's content, which is what
+ * `reports.createProvenance` byte-checks; an offset into the assembled prompt
+ * text would point past the headers and be rejected.
+ */
+export function mapClaimToPart(
+  parts: TranscriptPromptPart[],
+  claim: { sourceQuote?: string }
+): TranscriptCitation | null {
+  if (!claim.sourceQuote) return null;
+  const found = findQuoteInParts(parts, claim.sourceQuote);
+  if (!found) return null;
+  const part = parts[found.partIndex];
+  return {
+    generationSourceId: part.sourceId,
+    sourceContentHash: part.contentHash,
+    exactExcerpt: claim.sourceQuote,
+    startOffset: found.startOffset,
+    endOffset: found.startOffset + claim.sourceQuote.length,
+  };
+}
+
+/** The generation progress log's first line, shared by both pipelines. */
+export function describeTranscriptInput(parts: TranscriptPart[]): string {
+  const words = parts.reduce(
+    (total, part) => total + part.content.split(/\s+/).filter(Boolean).length,
+    0
+  );
+  if (words === 0) {
+    return "No interview transcript — drafting from context documents only.";
+  }
+  const count = words.toLocaleString();
+  return parts.length === 1
+    ? `Read frozen interview transcript — ${count} words.`
+    : `Read ${parts.length} frozen interview transcripts — ${count} words.`;
+}

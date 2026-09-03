@@ -6,7 +6,9 @@ import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
 import {
   buildTranscriptPromptText,
+  describeTranscriptInput,
   findQuoteInParts,
+  mapClaimToPart,
   MAX_TRANSCRIPTS_PER_PROJECT,
 } from "./lib/transcripts";
 
@@ -332,5 +334,64 @@ describe("findQuoteInParts", () => {
     expect(findQuoteInParts(parts, "echo")).toBeNull();
     expect(findQuoteInParts(parts, "")).toBeNull();
     expect(findQuoteInParts([], "alpha")).toBeNull();
+  });
+});
+
+describe("mapClaimToPart", () => {
+  const parts = [
+    { sourceId: "src1" as Id<"generationSources">, contentHash: "hash-one", label: "one", content: "alpha bravo" },
+    { sourceId: "src2" as Id<"generationSources">, contentHash: "hash-two", label: "two", content: "charlie bravo delta" },
+  ];
+
+  it("cites the part the quote came from, with an offset inside that part (AC4)", () => {
+    expect(mapClaimToPart(parts, { sourceQuote: "delta" })).toEqual({
+      generationSourceId: "src2",
+      sourceContentHash: "hash-two",
+      exactExcerpt: "delta",
+      startOffset: 14,
+      endOffset: 19,
+    });
+  });
+
+  it("resolves a duplicated quote to the first part (edge case)", () => {
+    expect(mapClaimToPart(parts, { sourceQuote: "bravo" })).toEqual({
+      generationSourceId: "src1",
+      sourceContentHash: "hash-one",
+      exactExcerpt: "bravo",
+      startOffset: 6,
+      endOffset: 11,
+    });
+  });
+
+  it("returns null without a quote, for an unmatched quote, and with no parts (AC4)", () => {
+    expect(mapClaimToPart(parts, {})).toBeNull();
+    expect(mapClaimToPart(parts, { sourceQuote: "echo" })).toBeNull();
+    expect(mapClaimToPart([], { sourceQuote: "alpha" })).toBeNull();
+  });
+});
+
+describe("describeTranscriptInput", () => {
+  it("keeps today's singular line for one transcript (AC6)", () => {
+    expect(describeTranscriptInput([{ label: "one", content: "a b c" }])).toBe(
+      "Read frozen interview transcript — 3 words."
+    );
+  });
+
+  it("counts words across every part and pluralises (AC6)", () => {
+    expect(
+      describeTranscriptInput([
+        { label: "one", content: "a b c" },
+        { label: "two", content: "d e" },
+      ])
+    ).toBe("Read 2 frozen interview transcripts — 5 words.");
+  });
+
+  it("falls back to the documents-only line with no words (AC6)", () => {
+    expect(describeTranscriptInput([])).toBe(
+      "No interview transcript — drafting from context documents only."
+    );
+    expect(describeTranscriptInput([{ label: "one", content: "   " }])).toBe(
+      "No interview transcript — drafting from context documents only."
+    );
   });
 });

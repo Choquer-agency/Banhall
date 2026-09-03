@@ -36,6 +36,12 @@ import { defaultModelId } from "./appSettings";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { sectionMetrics } from "./lib/lineLimits";
 import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
+import {
+  buildTranscriptPromptText,
+  listProjectTranscripts,
+  MAX_TRANSCRIPTS_PER_PROJECT,
+  transcriptLabel,
+} from "./lib/transcripts";
 
 // ─── Generation status helpers ───────────────────────────────────────────────
 
@@ -341,7 +347,6 @@ function validatedCompareModelIds(
 async function reserveGeneration(
   ctx: MutationCtx,
   project: Doc<"projects">,
-  transcript: Doc<"transcripts">,
   requestedBy: Id<"users">,
   lengthTarget: "concise" | "standard" | "full",
   candidateMode: CandidateMode,
@@ -359,13 +364,11 @@ async function reserveGeneration(
       ? undefined
       : (explicitSingleModelId ??
         ((await defaultModelId(ctx)) as CandidateModelId));
-  if (transcript.projectId !== project._id) {
-    domainError("TRANSCRIPT_PROJECT_MISMATCH", "Transcript does not belong to this project");
-  }
+  const transcripts = await listProjectTranscripts(ctx, project._id);
   // Jul 17 meeting: some engagements have no interview at all (spreadsheet
   // only, drawings, a single email). A transcript-less generation is allowed
   // as long as there's at least one readable context document to work from.
-  if (!transcript.content.trim()) {
+  if (transcripts.length === 0) {
     const docs = await ctx.db
       .query("projectDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
@@ -423,7 +426,9 @@ async function reserveGeneration(
   const now = Date.now();
   const generationId = await ctx.db.insert("generations", {
     projectId: project._id,
-    transcriptId: transcript._id,
+    transcriptId: transcripts[0]?._id,
+    transcriptIds: transcripts.map((row) => row._id),
+    inputMode: "full",
     status: "reserved",
     requestedAt: now,
     requestedBy,
@@ -442,19 +447,21 @@ async function reserveGeneration(
     candidatesFailed: 0,
     startedAt: now,
   });
-  const transcriptContent = transcript.content.slice(0, 500_000);
-  await ctx.db.insert("generationSources", {
-    generationId,
-    projectId: project._id,
-    kind: "transcript",
-    transcriptId: transcript._id,
-    label: "Interview transcript",
-    content: transcriptContent,
-    contentHash: await sha256(transcriptContent),
-    truncated: transcriptContent.length !== transcript.content.length,
-    originalLength: transcript.content.length,
-    capturedAt: now,
-  });
+  for (const transcript of transcripts) {
+    const content = transcript.content.slice(0, 500_000);
+    await ctx.db.insert("generationSources", {
+      generationId,
+      projectId: project._id,
+      kind: "transcript",
+      transcriptId: transcript._id,
+      label: transcriptLabel(transcript),
+      content,
+      contentHash: await sha256(content),
+      truncated: content.length !== transcript.content.length,
+      originalLength: transcript.content.length,
+      capturedAt: now,
+    });
+  }
   const documents = await ctx.db
     .query("projectDocuments")
     .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
@@ -495,7 +502,10 @@ async function reserveGeneration(
 export const requestGeneration = mutation({
   args: {
     projectId: v.id("projects"),
-    transcriptId: v.id("transcripts"),
+    // Ignored beyond a project-membership check: reserveGeneration reads the
+    // project's whole transcript set. Kept so stale clients keep working;
+    // transcripts-3 removes it with its callers.
+    transcriptId: v.optional(v.id("transcripts")),
     lengthTarget: v.optional(lengthTargetValidator),
     candidateMode: v.optional(candidateModeValidator),
     singleModelId: v.optional(singleModelIdValidator),
@@ -504,8 +514,16 @@ export const requestGeneration = mutation({
   },
   handler: async (ctx, args) => {
     const { project, user } = await requireInternalProjectAccess(ctx, args.projectId);
-    const transcript = await ctx.db.get(args.transcriptId);
-    if (!transcript) domainError("NOT_FOUND", "Transcript not found");
+    if (args.transcriptId) {
+      const transcript = await ctx.db.get(args.transcriptId);
+      if (!transcript) domainError("NOT_FOUND", "Transcript not found");
+      if (transcript.projectId !== project._id) {
+        domainError(
+          "TRANSCRIPT_PROJECT_MISMATCH",
+          "Transcript does not belong to this project"
+        );
+      }
+    }
     const latestReport = await ctx.db
       .query("reports")
       .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
@@ -521,7 +539,6 @@ export const requestGeneration = mutation({
     return await reserveGeneration(
       ctx,
       project,
-      transcript,
       user._id,
       args.lengthTarget ?? "standard",
       candidateMode,
@@ -541,12 +558,9 @@ export const retryGeneration = mutation({
       domainError("INVALID_INPUT", "Only a failed generation can be retried");
     }
     const { project, user } = await requireInternalProjectAccess(ctx, failed.projectId);
-    const transcript = await ctx.db.get(failed.transcriptId);
-    if (!transcript) domainError("NOT_FOUND", "Transcript not found");
     return await reserveGeneration(
       ctx,
       project,
-      transcript,
       user._id,
       failed.lengthTarget ?? "standard",
       failed.candidateMode ?? "compare",
@@ -577,8 +591,6 @@ export const retryFailedCandidates = mutation({
       domainError("INVALID_STATE", "Only a partial generation can retry failed drafts");
     }
     const { project, user } = await requireInternalProjectAccess(ctx, generation.projectId);
-    const transcript = await ctx.db.get(generation.transcriptId);
-    if (!transcript) domainError("NOT_FOUND", "Transcript not found");
     const runs = await ctx.db
       .query("generationCandidateRuns")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
@@ -636,7 +648,6 @@ export const retryFailedCandidates = mutation({
       retryId = await reserveGeneration(
         ctx,
         resetProject,
-        transcript,
         user._id,
         generation.lengthTarget ?? "standard",
         "compare",
@@ -789,9 +800,17 @@ export const getGenerationInput = internalQuery({
     const sources = await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(51);
-    const transcript = sources.find((source) => source.kind === "transcript");
-    if (!transcript) return null;
+      .take(MAX_TRANSCRIPTS_PER_PROJECT + 51);
+    // Insertion order is reservation order, which is the project's transcript
+    // order; every offset the pipeline cites is relative to one of these rows.
+    const transcriptParts = sources
+      .filter((source) => source.kind === "transcript")
+      .map((source) => ({
+        sourceId: source._id,
+        contentHash: source.contentHash,
+        content: source.content,
+        label: source.label,
+      }));
     return {
       generationId: generation._id,
       projectId: project._id,
@@ -799,9 +818,8 @@ export const getGenerationInput = internalQuery({
       // from the project creator, e.g. an admin retry).
       requestedBy: generation.requestedBy,
       transcriptId: generation.transcriptId,
-      transcript: transcript.content,
-      transcriptSourceId: transcript._id,
-      transcriptContentHash: transcript.contentHash,
+      transcript: buildTranscriptPromptText(transcriptParts),
+      transcriptParts,
       title: project.title,
       lengthTarget: generation.lengthTarget ?? "standard",
       candidateMode: generation.candidateMode ?? "compare",
