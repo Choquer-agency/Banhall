@@ -1,5 +1,5 @@
 # Evidence · uploader-1-cloud-placeholder-filter
-commit: c19b62ae7355   branch: factory/uploader-1-cloud-placeholder-filter   baseline: 470557d8eab88847b54edfe31bda04132a9a7552   date: 2026-09-03   kind: bug
+commit: eea3dfd77e2e (fix 1; implementation c19b62ae7355)   branch: factory/uploader-1-cloud-placeholder-filter   baseline: 470557d8eab88847b54edfe31bda04132a9a7552   date: 2026-09-03   kind: bug
 
 ## Coverage
 - AC1 (ReparsePoint + empty LinkType is a candidate) → scripts/client-uploader/tests/run-tests.ps1::"AC1 cloud placeholder (ReparsePoint attribute, empty LinkType) is a candidate" ✓ (ran in `pwsh -NoProfile -File scripts/client-uploader/tests/run-tests.ps1`)   [ladder 4]
