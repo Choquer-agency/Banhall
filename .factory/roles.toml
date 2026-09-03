@@ -1,0 +1,43 @@
+# Who plays which role. Edit, then run `factory doctor` (v2 reads this file directly; only the bmad-loop engine needs `factory apply`).
+# cli = "claude" | "codex" | "shell". model is passed through as-is to that CLI.
+#   claude knobs: effort = low|medium|high|max, max_turns, max_budget_usd
+#   codex knobs:  reasoning = minimal|low|medium|high|xhigh
+#   shell:        cmd = "any-cli --headless {prompt}"   (placeholders {prompt} {cwd} {schema} are substituted already shell-quoted; last JSON line on stdout = result)
+# fallback = [{ cli, model, ... }] is tried in order when the provider reports a usage limit / rate limit.
+
+[orchestrator]
+engine = "v2"                 # v2 (built-in, harness-agnostic) | bmad-loop (legacy; needs BMAD + bmad-loop)
+max_parallel = 1              # tickets driven at once (disjoint `touches` only)
+
+[planner]                     # factory plan: intake → research → architecture → tickets. Read-only outside .factory/.
+cli = "claude"
+model = "opus"
+effort = "high"
+fallback = [{ cli = "codex", model = "gpt-5.6-sol", reasoning = "high" }]
+
+[implementer]                 # implements a ticket in its worktree, writes evidence + decision trail, commits. Full permissions inside the worktree.
+cli = "claude"
+model = "opus"
+effort = "high"
+fallback = [{ cli = "codex", model = "gpt-5.6-sol", reasoning = "high" }]
+
+[reviewer]                    # reviews diffs and validates plans. Read-only. Use a different model family than the implementer.
+cli = "codex"
+model = "gpt-5.6-sol"
+reasoning = "high"
+fallback = [{ cli = "claude", model = "sonnet", effort = "high" }]
+# panel = [{ cli = "codex", model = "gpt-5.6-sol", reasoning = "high" }, { cli = "claude", model = "opus", effort = "high" }]
+#                             # >1 entry: every model reviews the same diff; findings raised by 2+ models are consensus; [lead] judges
+
+# [lead]                      # lead judgment over the panel (Act on / Consider / Noted / Dismissed). Read-only. Defaults to [planner].
+# cli = "claude"
+# model = "opus"
+
+# [verifier]                  # `factory verify-skill`: generates + proves .factory/verify/. Full permissions. Defaults to [implementer].
+
+[qa]                          # proves the change independently. Hard tool allowlist; cannot leave it.
+cli = "claude"
+model = "sonnet"
+effort = "medium"
+max_turns = 60
+# allow = [...]               # default: read tools + git read + Write(.audit/**) + the [verify] and [qa].smoke commands

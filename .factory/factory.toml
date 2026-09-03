@@ -1,0 +1,61 @@
+# Project-specific settings. Everything the roles and the engine need to know about THIS repo.
+project = "Banhall"
+
+[verify]                      # deterministic gates: run in the worktree after implement and after every fix
+commands = ["bash scripts/loop-verify.sh"]
+timeout_min = 20
+
+[plan]
+confirm = "auto"              # auto: tickets run without you | human: every ticket waits for `factory approve` | risky: only tickets touching a risky domain wait
+validate = true               # reviewer role (other model family) traces the architecture + tickets against the code before they become runnable
+arena = 1                     # >1: N planner candidates (roles [planner].arena list or N copies), a cross-judge picks a base, the planner grafts the rest
+
+[run]
+max_dev_attempts = 2          # fresh implementer sessions per ticket
+max_fix_loops = 4             # gates → evidence → review → external → qa, each failure = one fix session
+stall_min = 10                # no output from a session for this long → kill + retry (fallback model if it was a quota)
+session_timeout_min = 120
+merge_strategy = "merge"      # merge | ff | squash
+keep_branches = false
+min_verdict = "test-verified" # unproven | typecheck-only | test-verified | live-verified. QA's verdict must reach this or the fix loop continues
+
+[qa]
+smoke = []                    # agent-safe proofs QA may run itself (hermetic: no servers, no shared deployments)
+operator_only = []            # proofs that touch a shared deployment or need credentials; QA records them as needs_operator, never runs them
+evidence = ".audit/{ticket}/evidence.md"
+timeout_min = 30
+
+[tickets]
+dir = ".factory/tickets"      # one markdown file per ticket; commit them
+
+[sizing]                      # the planner splits a ticket that exceeds any of these
+max_packages = 2
+max_criteria = 6
+max_files_hint = 12
+
+[risky_domains]               # a ticket touching one of these is `risky`; with confirm = "risky" it waits for you
+domains = ["auth", "security", "tenancy", "billing", "payments", "schema", "migration", "deploy", "secrets", "rights", "provenance"]
+
+[git]
+integration_branch = ""       # "" = branch checked out when the run starts. Tickets merge here; closeout pushes it.
+base_branch = "main"          # PR target for factory closeout
+
+[external_review]
+provider = "none"             # none | coderabbit   (runs `coderabbit review --agent` after the reviewer; findings go through the same fix loop)
+max_fix_loops = 3
+
+# ---- legacy bmad-loop engine only ([orchestrator].engine = "bmad-loop"); ignored by v2
+[loop]
+gate_mode = "per-epic"
+max_review_cycles = 3
+max_dev_attempts = 2
+max_followup_reviews = 2
+session_timeout_min = 120
+sweep = "run-end"
+merge_strategy = "merge"
+[planning]
+epics = "_bmad-output/planning-artifacts/epics.md"
+sprint_status = "_bmad-output/implementation-artifacts/sprint-status.yaml"
+specs = "_bmad-output/implementation-artifacts"
+deferred = "_bmad-output/implementation-artifacts/deferred-work.md"
+context_docs = ["PRODUCT.md", "CONTEXT.md", "docs/context"]

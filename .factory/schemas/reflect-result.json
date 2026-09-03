@@ -1,0 +1,60 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "proposals",
+    "summary"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string"
+    },
+    "proposals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "target",
+          "change",
+          "why",
+          "evidence",
+          "bucket"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "skill-note",
+              "config",
+              "gate",
+              "structure",
+              "ticket"
+            ]
+          },
+          "target": {
+            "type": "string"
+          },
+          "change": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "bucket": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "backlog",
+              "rejected"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

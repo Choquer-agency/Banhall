@@ -65,3 +65,8 @@ crawler-manifest.jsonl
 .bmad-loop/policy.toml
 _bmad/render/
 .codex/
+.audit/
+.factory/runs/
+.factory/worktrees/
+.factory/verify/evidence/
+.bmad-loop/policy.toml.bak

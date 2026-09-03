@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "skill_path",
+    "features",
+    "proven_feature",
+    "evidence_path",
+    "summary"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "proven",
+        "draft",
+        "blocked"
+      ]
+    },
+    "skill_path": {
+      "type": "string"
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "proven_feature": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "evidence_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "plan_dir", "tickets", "risky", "questions", "summary"],
+  "properties": {
+    "status": { "type": "string", "enum": ["ready", "blocked", "needs_input"] },
+    "plan_dir": { "type": "string" },
+    "tickets": { "type": "array", "items": { "type": "string" } },
+    "risky": { "type": "array", "items": { "type": "string" } },
+    "questions": { "type": "array", "items": { "type": "string" } },
+    "summary": { "type": "string" }
+  }
+}

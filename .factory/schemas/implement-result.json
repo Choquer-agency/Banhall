@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "commits", "summary", "deferred"],
+  "properties": {
+    "status": { "type": "string", "enum": ["done", "blocked"] },
+    "commits": { "type": "array", "items": { "type": "string" } },
+    "summary": { "type": "string" },
+    "deferred": { "type": "array", "items": { "type": "string" } }
+  }
+}
