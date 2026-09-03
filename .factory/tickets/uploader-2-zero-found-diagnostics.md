@@ -9,6 +9,7 @@ verify: [pwsh -NoProfile -File scripts/client-uploader/tests/run-tests.ps1]
 done_when: ["rg -q 'Format-ScanDiagnostics' scripts/client-uploader/uploader-lib.ps1", "rg -q 'cloud-only' scripts/client-uploader/banhall-uploader.ps1", "rg -q 'is a file, not a folder' scripts/client-uploader/banhall-uploader.ps1", "rg -q 'Format-ScanDiagnostics' scripts/client-uploader/tests/run-tests.ps1", "! rg -q 'exactly what was sent' scripts/client-uploader/README.txt", pwsh -NoProfile -File scripts/client-uploader/tests/run-tests.ps1]
 title: "Uploader prints and logs a skip breakdown on zero results, warns about cloud-only files, rejects a file path as root"
 plan: 20260903-client-sync
+deferred: []
 updated: "2026-09-03T21:17:39.899Z"
 ---
 ## Intent
