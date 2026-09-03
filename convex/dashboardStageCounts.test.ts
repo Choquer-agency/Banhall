@@ -123,7 +123,7 @@ describe("stageCounts transactional maintenance", () => {
     await s.writer.mutation(api.projects.createProject, {
       title: "New client project",
       clientName: "Fresh Client",
-      transcriptContent: "transcript",
+      transcripts: [{ content: "transcript" }],
     });
     const company = await companyRow(s, "fresh client");
     expect(company).not.toBeNull();

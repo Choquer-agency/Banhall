@@ -17,6 +17,10 @@
     SUPPORTED_LABEL,
   } from "$lib/parseDocument";
   import { CONTEXT_CATEGORIES, type ContextCategoryId } from "$lib/contextCategories";
+  import {
+    MAX_TOTAL_TRANSCRIPT_CHARS,
+    MAX_TRANSCRIPTS_PER_PROJECT,
+  } from "../../../../convex/lib/transcripts";
   import { userErrorMessage } from "$lib/errors";
   import { appendOutbox } from "$lib/uploads/attemptOutbox";
   import { shouldDropOutboxEntry, withUploadTimeout } from "$lib/uploads/outboxFlush";
@@ -124,9 +128,58 @@
   function removeInterviewee(idx: number) {
     interviewees = interviewees.filter((_, i) => i !== idx);
   }
-  let transcript = $state("");
-  // BNH-31: single-tab transcript input — upload OR paste, not both at once.
+  // A project carries an ordered list of transcripts. An item is either text
+  // this browser holds (an extracted .docx, or a paste) or a reference to a
+  // row on the source project, copied server-side by the duplicate flow.
+  type TranscriptItem = {
+    id: string;
+    label: string;
+    wordCount: number;
+    charCount: number;
+    source:
+      | { kind: "upload" | "paste"; content: string }
+      | { kind: "copy"; fromTranscriptId: Id<"transcripts"> };
+  };
+  let transcriptItems = $state<TranscriptItem[]>([]);
+  let pasteDraft = $state("");
+  let transcriptItemSeq = 0;
+  // BNH-31: one input method shown at a time — upload or paste — so the page
+  // stays short. Both append to the same list.
   let transcriptTab = $state<"upload" | "paste">("upload");
+
+  function countWords(text: string) {
+    return text.trim().split(/\s+/).filter(Boolean).length;
+  }
+
+  function addTextTranscript(
+    kind: "upload" | "paste",
+    label: string,
+    content: string
+  ) {
+    transcriptItems = [
+      ...transcriptItems,
+      {
+        id: `t-${transcriptItemSeq++}`,
+        label,
+        wordCount: countWords(content),
+        charCount: content.length,
+        source: { kind, content },
+      },
+    ];
+  }
+
+  function addPastedTranscript() {
+    const text = pasteDraft.trim();
+    if (!text) return;
+    const pastedCount =
+      transcriptItems.filter((item) => item.source.kind === "paste").length + 1;
+    addTextTranscript("paste", `Pasted transcript ${pastedCount}`, text);
+    pasteDraft = "";
+  }
+
+  function removeTranscriptItem(id: string) {
+    transcriptItems = transcriptItems.filter((item) => item.id !== id);
+  }
 
   // Duplicate flow: /project/new?from=<projectId> prefills the wizard from an
   // existing project (setup + transcript now; documents copied on commit).
@@ -142,10 +195,20 @@
     if (!projectStartPrefill.title && !projectStartPrefill.transcriptText) return;
     projectStartPrefillApplied = true;
     if (!title && projectStartPrefill.title) title = projectStartPrefill.title;
-    if (!transcript && projectStartPrefill.transcriptText) {
-      transcript = projectStartPrefill.transcriptText;
-      transcriptFileName = projectStartPrefill.transcriptFileName;
-      transcriptTab = projectStartPrefill.transcriptFileName ? "upload" : "paste";
+    if (!transcriptItems.length && projectStartPrefill.transcriptText) {
+      // A file handed over from Home is already an item; loose text stays in
+      // the paste box so the writer can still edit it before creating.
+      if (projectStartPrefill.transcriptFileName) {
+        addTextTranscript(
+          "upload",
+          projectStartPrefill.transcriptFileName,
+          projectStartPrefill.transcriptText
+        );
+        transcriptTab = "upload";
+      } else {
+        pasteDraft = projectStartPrefill.transcriptText;
+        transcriptTab = "paste";
+      }
     }
   });
 
@@ -182,7 +245,9 @@
       ? { projectId: fromProjectId as Id<"projects"> }
       : "skip"
   );
-  const sourceTranscriptQ = useQuery(api.transcripts.getTranscript, () =>
+  // Metadata only: a duplicate never downloads transcript text to re-upload
+  // it, the server copies the rows by reference.
+  const sourceTranscriptsQ = useQuery(api.transcripts.listTranscripts, () =>
     auth.isAuthenticated && fromProjectId
       ? { projectId: fromProjectId as Id<"projects"> }
       : "skip"
@@ -207,11 +272,19 @@
       fiscalYearEnd = new Date(source.fiscalYearEnd).toISOString().slice(0, 10);
     }
   });
+  let transcriptsPrefilled = $state(false);
   $effect(() => {
-    const sourceTranscript = sourceTranscriptQ?.data;
-    if (!fromProjectId || !sourceTranscript || transcript) return;
-    transcript = sourceTranscript.content;
-    transcriptTab = "paste";
+    const rows = sourceTranscriptsQ?.data;
+    if (!fromProjectId || !rows?.length || transcriptsPrefilled) return;
+    if (transcriptItems.length) return;
+    transcriptsPrefilled = true;
+    transcriptItems = rows.map((row) => ({
+      id: `t-${transcriptItemSeq++}`,
+      label: row.label,
+      wordCount: row.wordCount,
+      charCount: row.charCount,
+      source: { kind: "copy" as const, fromTranscriptId: row._id },
+    }));
   });
   let staged = $state<Staged>(emptyStaged());
 
@@ -224,37 +297,33 @@
   // Jul 17 meeting: transcripts are Teams exports — .docx only. Anything else
   // belongs in the supporting-document slots below; the copy-paste tab stays
   // as the fallback for the rare non-Teams interview (Google Meet etc.).
-  // The uploaded file stays visible as a chip; the extracted text is kept
-  // behind the scenes instead of being dumped into the textarea.
-  let transcriptFileName = $state<string | null>(null);
-
-  async function handleTranscriptFile(file: File) {
-    if (!file.name.toLowerCase().endsWith(".docx")) {
-      transcriptFileError = `Transcripts must be Word (.docx) files — Teams exports are. Put other documents in the context slots below, or paste the transcript text instead.`;
-      return;
-    }
-    transcriptFileError = "";
-    parsingTranscript = file.name;
-    try {
-      const parsed = await parseFileToText(file);
-      const text = parsed.content.trim();
-      if (!text) {
-        transcriptFileError = `Couldn't extract any text from ${file.name}.`;
-      } else {
-        transcript = text;
-        transcriptFileName = file.name;
-        toast.success(`Imported ${file.name}`);
+  // Each imported file becomes a row in the list; the extracted text is kept
+  // behind the scenes instead of being dumped into a textarea.
+  async function handleTranscriptFiles(files: File[]) {
+    const rejected = files.filter(
+      (file) => !file.name.toLowerCase().endsWith(".docx")
+    );
+    transcriptFileError = rejected.length
+      ? `Transcripts must be Word (.docx) files — Teams exports are. Put other documents in the context slots below, or paste the transcript text instead.`
+      : "";
+    for (const file of files) {
+      if (rejected.includes(file)) continue;
+      parsingTranscript = file.name;
+      try {
+        const parsed = await parseFileToText(file);
+        const text = parsed.content.trim();
+        if (!text) {
+          transcriptFileError = `Couldn't extract any text from ${file.name}.`;
+        } else {
+          addTextTranscript("upload", file.name, text);
+          toast.success(`Imported ${file.name}`);
+        }
+      } catch {
+        transcriptFileError = `Couldn't read ${file.name}. Try another file.`;
+      } finally {
+        parsingTranscript = null;
       }
-    } catch {
-      transcriptFileError = `Couldn't read ${file.name}. Try another file.`;
-    } finally {
-      parsingTranscript = null;
     }
-  }
-
-  function removeTranscriptFile() {
-    transcriptFileName = null;
-    transcript = "";
   }
 
   // BNH-39 review mode: the existing written PD to review (required).
@@ -299,7 +368,24 @@
     if (!auth.isLoading && !auth.isAuthenticated) goto("/login", { replaceState: true });
   });
 
-  const wordCount = $derived(transcript.trim().split(/\s+/).filter(Boolean).length);
+  const draftWordCount = $derived(countWords(pasteDraft));
+  const wordCount = $derived(
+    transcriptItems.reduce((total, item) => total + item.wordCount, 0) +
+      draftWordCount
+  );
+  const transcriptCharCount = $derived(
+    transcriptItems.reduce((total, item) => total + item.charCount, 0) +
+      pasteDraft.trim().length
+  );
+  // Server caps, checked here so the writer hears about it before the upload
+  // loop runs (convex/lib/transcripts.ts holds the one definition).
+  const transcriptCountForSubmit = $derived(
+    transcriptItems.length + (pasteDraft.trim() ? 1 : 0)
+  );
+  const transcriptsOverCap = $derived(
+    transcriptCountForSubmit > MAX_TRANSCRIPTS_PER_PROJECT ||
+      transcriptCharCount > MAX_TOTAL_TRANSCRIPT_CHARS
+  );
   const pyFileCount = $derived(pyRows.reduce((n, r) => n + r.files.length, 0));
   const pyNoteOnlyCount = $derived(
     pyRows.filter((r) => r.files.length === 0 && r.note.trim()).length
@@ -377,7 +463,7 @@
       pyNoteOnlyCount
   );
   const hasAnySource = $derived(
-    mode === "review" || Boolean(transcript.trim()) || textualFileCount > 0
+    mode === "review" || transcriptCountForSubmit > 0 || textualFileCount > 0
   );
 
   function goNext() {
@@ -456,6 +542,22 @@
     }
   }
 
+  /** The transcript list as createProject takes it, paste draft included. */
+  function transcriptArgs() {
+    const items = transcriptItems.map((item) =>
+      item.source.kind === "copy"
+        ? { fromTranscriptId: item.source.fromTranscriptId, label: item.label }
+        : { content: item.source.content, label: item.label }
+    );
+    const draft = pasteDraft.trim();
+    if (draft) {
+      const pastedCount =
+        transcriptItems.filter((item) => item.source.kind === "paste").length + 1;
+      items.push({ content: draft, label: `Pasted transcript ${pastedCount}` });
+    }
+    return items;
+  }
+
   async function commit() {
     if (!hasAnySource) {
       toast.error(
@@ -463,11 +565,17 @@
       );
       return;
     }
+    if (transcriptsOverCap) {
+      toast.error(
+        `A project takes at most ${MAX_TRANSCRIPTS_PER_PROJECT} transcripts and ${(MAX_TOTAL_TRANSCRIPT_CHARS / 1000).toLocaleString()}k characters of transcript text. Remove one and try again.`
+      );
+      return;
+    }
     committing = true;
     let createdProjectId: Id<"projects"> | null = null;
     try {
       progress = "Creating project…";
-      const { projectId, transcriptId } = await createProject({
+      const { projectId, transcriptIds } = await createProject({
         title: title.trim(),
         ...(sredTitle.trim() ? { sredTitle: sredTitle.trim() } : {}),
         clientName: clientName.trim(),
@@ -485,21 +593,21 @@
         ...(scienceCode ? { scienceCode } : {}),
         ...(projectNumber.trim() ? { projectNumber: projectNumber.trim() } : {}),
         mode,
-        transcriptContent: transcript,
+        transcripts: transcriptArgs(),
       });
       createdProjectId = projectId;
 
-      // Duplicate flow: clone the complete project input package, including
-      // transcripts, support docs, archived docs, review PDs, original file
-      // bytes, and identity evidence. The transcript was already created from
-      // the prefilled source text above, so the copy action handles everything
-      // else without sharing storage ownership with the source project.
+      // Duplicate flow: clone the complete project input package — support
+      // docs, archived docs, review PDs, original file bytes, and identity
+      // evidence. The transcripts were copied by reference inside
+      // createProject above, so the action never shares storage ownership
+      // with the source project.
       if (fromProjectId) {
         progress = "Copying all project materials…";
         await copyProjectContent({
           fromProjectId: fromProjectId as Id<"projects">,
           toProjectId: projectId,
-          targetTranscriptId: transcriptId,
+          ...(transcriptIds[0] ? { targetTranscriptId: transcriptIds[0] } : {}),
         });
       }
 
@@ -654,7 +762,6 @@
         progress = "Starting generation…";
         await generateReport({
           projectId,
-          transcriptId,
           candidateMode,
           ...(candidateMode !== "compare" && singleModelId
             ? { singleModelId }
@@ -1019,7 +1126,9 @@
               </label>
               <div class="flex items-center gap-3">
                 {#if wordCount > 0}
-                  <span class="text-xs text-gray-400">{wordCount.toLocaleString()} words</span>
+                  <span class="text-xs text-gray-400">
+                    {#if transcriptItems.length > 1}{transcriptItems.length} transcripts · {/if}{wordCount.toLocaleString()} words
+                  </span>
                 {/if}
                 <!-- BNH-31: upload OR paste — one shown at a time to keep the page short -->
                 <div class="flex gap-1 rounded-lg bg-chrome p-1" role="tablist" aria-label="Transcript input method">
@@ -1045,32 +1154,40 @@
               </div>
             </div>
 
+            {#if transcriptItems.length}
+              <!-- The project's transcripts, in the order they will be read.
+                   Same chip grammar as the context-document rows below. -->
+              <ul class="flex flex-col gap-1.5">
+                {#each transcriptItems as item (item.id)}
+                  <li class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
+                    <span class="flex min-w-0 items-center gap-2.5">
+                      <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-500">
+                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                        </svg>
+                      </span>
+                      <span class="min-w-0">
+                        <span class="block truncate text-sm font-medium text-gray-800">{item.label}</span>
+                        <span class="block text-xs text-gray-400">{item.wordCount.toLocaleString()} words</span>
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onclick={() => removeTranscriptItem(item.id)}
+                      aria-label={`Remove ${item.label}`}
+                      class="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-50"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+
             {#if transcriptTab === "upload"}
-              {#if transcriptFileName}
-                <!-- Imported transcript stays as a file chip — nobody reads the
-                     extracted text log (Jul 17). -->
-                <div class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
-                  <span class="flex min-w-0 items-center gap-2.5">
-                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-500">
-                      <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                      </svg>
-                    </span>
-                    <span class="min-w-0">
-                      <span class="block truncate text-sm font-medium text-gray-800">{transcriptFileName}</span>
-                      <span class="block text-xs text-gray-400">{wordCount.toLocaleString()} words extracted</span>
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    onclick={removeTranscriptFile}
-                    class="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-50"
-                  >
-                    Remove
-                  </button>
-                </div>
-              {:else}
-              <!-- BNH-31: large drag-and-drop zone to import a transcript file -->
+              <!-- BNH-31: large drag-and-drop zone; every drop or selection
+                   appends to the list, so several Teams exports can go in at
+                   once or one at a time. -->
               <button
                 type="button"
                 onclick={() => transcriptInput?.click()}
@@ -1079,8 +1196,8 @@
                 ondrop={(e) => {
                   e.preventDefault();
                   transcriptDragOver = false;
-                  const file = e.dataTransfer?.files?.[0];
-                  if (file) handleTranscriptFile(file);
+                  const files = e.dataTransfer?.files;
+                  if (files?.length) handleTranscriptFiles(Array.from(files));
                 }}
                 class={`flex cursor-pointer items-center justify-center gap-2.5 rounded-xl border border-dashed px-4 py-4 text-center transition-colors ${
                   transcriptDragOver
@@ -1098,31 +1215,45 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                   </svg>
                   <span class="text-xs font-medium text-primary-dark">
-                    Drag the transcript here, or click to browse
+                    {transcriptItems.length
+                      ? "Drag more transcripts here, or click to browse"
+                      : "Drag the transcript here, or click to browse"}
                   </span>
                   <span class="text-[11px] text-primary-dark/60">
                     Word (.docx) — the Teams export
                   </span>
                 {/if}
               </button>
-              {/if}
             {:else}
               <textarea
                 id="transcript"
                 rows={12}
-                bind:value={transcript}
+                bind:value={pasteDraft}
                 placeholder="Paste the full interview transcript here"
                 class="field-control rounded-lg px-3.5 py-2.5 font-serif text-sm leading-relaxed text-gray-900 placeholder:font-sans placeholder:text-gray-400"
               ></textarea>
+              <div class="flex justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={!pasteDraft.trim()}
+                  onclick={addPastedTranscript}
+                >
+                  Add transcript
+                </Button>
+              </div>
             {/if}
             <input
               bind:this={transcriptInput}
               type="file"
               accept=".docx"
+              multiple
               class="hidden"
               onchange={(e) => {
-                const file = e.currentTarget.files?.[0];
-                if (file) handleTranscriptFile(file);
+                if (e.currentTarget.files?.length) {
+                  handleTranscriptFiles(Array.from(e.currentTarget.files));
+                }
                 e.currentTarget.value = "";
               }}
             />
@@ -1234,7 +1365,12 @@
             {#if mode === "review"}
               {@render row("Written PD", pdDoc?.name ?? "—")}
             {/if}
-            {@render row("Transcript", wordCount > 0 ? `${wordCount.toLocaleString()} words` : "None")}
+            {@render row(
+              "Transcripts",
+              transcriptCountForSubmit > 0
+                ? `${transcriptCountForSubmit} · ${wordCount.toLocaleString()} words`
+                : "None"
+            )}
             {@render row("Context items", fileCount > 0 ? `${fileCount} attached` : "None")}
           </div>
           {#if fileCount > 0}

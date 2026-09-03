@@ -1100,3 +1100,213 @@ describe("project number auto-lettering (meeting 2026-08-18)", () => {
     expect(rollover?.projectNumber).toBe("1");
   });
 });
+
+/** Typed domain-error code of a rejected call, or a marker for other outcomes. */
+async function createErrorCode(call: () => Promise<unknown>): Promise<string> {
+  try {
+    await call();
+  } catch (error) {
+    const data = (error as { data?: unknown }).data;
+    if (data && typeof data === "object" && "code" in data) {
+      return String((data as { code: unknown }).code);
+    }
+    return `UNTYPED: ${(error as Error).message}`;
+  }
+  return "NO_ERROR";
+}
+
+describe("createProject takes an ordered list of transcripts", () => {
+  test("stores one row per content item, in list order", async () => {
+    const { t } = await setup();
+    const { projectId, transcriptIds } = await asActor(t, "writer").mutation(
+      api.projects.createProject,
+      {
+        title: "Three-part interview",
+        clientName: "Acme Robotics",
+        transcripts: [
+          { content: "Part one body", label: "Day 1.docx" },
+          { content: "Part two body", label: "Day 2.docx" },
+          { content: "Part three body" },
+        ],
+      }
+    );
+    expect(transcriptIds).toHaveLength(3);
+
+    const listed = await asActor(t, "writer").query(
+      api.transcripts.listTranscripts,
+      { projectId }
+    );
+    expect(listed.map((row) => [row._id, row.label, row.position])).toEqual([
+      [transcriptIds[0], "Day 1.docx", 0],
+      [transcriptIds[1], "Day 2.docx", 1],
+      [transcriptIds[2], "Interview transcript", 2],
+    ]);
+    expect(listed.every((row) => Boolean(row.contentHash))).toBe(true);
+
+    const bodies = await t.run(async (ctx) =>
+      Promise.all(transcriptIds.map(async (id) => (await ctx.db.get(id))?.content))
+    );
+    expect(bodies).toEqual(["Part one body", "Part two body", "Part three body"]);
+  });
+
+  test("copies a source project's transcripts by reference", async () => {
+    const { t } = await setup();
+    const writer = asActor(t, "writer");
+    const source = await writer.mutation(api.projects.createProject, {
+      title: "Source",
+      clientName: "Acme Robotics",
+      transcripts: [
+        { content: "Alpha body", label: "Alpha.docx" },
+        { content: "Beta body", label: "Beta.docx" },
+      ],
+    });
+    const sourceRows = await t.run(async (ctx) =>
+      Promise.all(source.transcriptIds.map((id) => ctx.db.get(id)))
+    );
+
+    const copy = await writer.mutation(api.projects.createProject, {
+      title: "Source (copy)",
+      clientName: "Acme Robotics",
+      transcripts: source.transcriptIds.map((fromTranscriptId) => ({
+        fromTranscriptId,
+      })),
+    });
+    const copiedRows = await t.run(async (ctx) =>
+      Promise.all(copy.transcriptIds.map((id) => ctx.db.get(id)))
+    );
+    expect(
+      copiedRows.map((row) => [row?.content, row?.label, row?.contentHash, row?.position])
+    ).toEqual([
+      [sourceRows[0]?.content, "Alpha.docx", sourceRows[0]?.contentHash, 0],
+      [sourceRows[1]?.content, "Beta.docx", sourceRows[1]?.contentHash, 1],
+    ]);
+    // Copies belong to the new project; the source keeps its own rows.
+    expect(copiedRows.every((row) => row?.projectId === copy.projectId)).toBe(true);
+  });
+
+  test("rejects more than twenty transcripts", async () => {
+    const { t } = await setup();
+    expect(
+      await createErrorCode(() =>
+        asActor(t, "writer").mutation(api.projects.createProject, {
+          title: "Too many parts",
+          clientName: "Acme Robotics",
+          transcripts: Array.from({ length: 21 }, (_, index) => ({
+            content: `Part ${index}`,
+          })),
+        })
+      )
+    ).toBe("INVALID_INPUT");
+  });
+
+  test("rejects combined text over the character cap", async () => {
+    const { t } = await setup();
+    const half = "x".repeat(1_000_001);
+    expect(
+      await createErrorCode(() =>
+        asActor(t, "writer").mutation(api.projects.createProject, {
+          title: "Oversized",
+          clientName: "Acme Robotics",
+          transcripts: [{ content: half }, { content: half }],
+        })
+      )
+    ).toBe("INVALID_INPUT");
+  });
+
+  test("skips empty entries and creates the project with the rest", async () => {
+    const { t } = await setup();
+    const { projectId, transcriptIds } = await asActor(t, "writer").mutation(
+      api.projects.createProject,
+      {
+        title: "Context-only plus one",
+        clientName: "Acme Robotics",
+        transcripts: [{ content: "   " }, { content: "Real body" }, { content: "" }],
+      }
+    );
+    expect(transcriptIds).toHaveLength(1);
+    const rows = await t.run(async (ctx) =>
+      ctx.db
+        .query("transcripts")
+        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+        .collect()
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].content).toBe("Real body");
+  });
+
+  test("creates a project with no transcript rows at all", async () => {
+    const { t } = await setup();
+    const { projectId, transcriptIds } = await asActor(t, "writer").mutation(
+      api.projects.createProject,
+      { title: "Documents only", clientName: "Acme Robotics", transcripts: [] }
+    );
+    expect(transcriptIds).toEqual([]);
+    expect(
+      await asActor(t, "writer").query(api.transcripts.listTranscripts, { projectId })
+    ).toEqual([]);
+  });
+
+  test("refuses a transcript whose project the caller cannot read", async () => {
+    const { t } = await setup();
+    // A transcript left behind by a project the caller can no longer read is
+    // an authorization boundary, not a copy: nothing may be written from it.
+    const orphanTranscriptId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const strangerProjectId = await ctx.db.insert("projects", {
+        title: "Unreadable",
+        clientName: "Stranger",
+        status: "draft",
+        createdBy: (await ctx.db.query("users").first())!._id,
+        shareToken: "unreadable-token",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const transcriptId = await ctx.db.insert("transcripts", {
+        projectId: strangerProjectId,
+        content: "Confidential body",
+        createdAt: now,
+      });
+      await ctx.db.delete(strangerProjectId);
+      return transcriptId;
+    });
+    expect(
+      await createErrorCode(() =>
+        asActor(t, "writer").mutation(api.projects.createProject, {
+          title: "Sneaky copy",
+          clientName: "Acme Robotics",
+          transcripts: [{ fromTranscriptId: orphanTranscriptId }],
+        })
+      )
+    ).toBe("NOT_AUTHORIZED");
+    const leaked = await t.run(async (ctx) =>
+      ctx.db
+        .query("transcripts")
+        .filter((q) => q.eq(q.field("content"), "Confidential body"))
+        .collect()
+    );
+    expect(leaked).toHaveLength(1);
+  });
+
+  test("skips a source transcript deleted between prefill and submit", async () => {
+    const { t } = await setup();
+    const writer = asActor(t, "writer");
+    const source = await writer.mutation(api.projects.createProject, {
+      title: "Source",
+      clientName: "Acme Robotics",
+      transcripts: [{ content: "Kept body" }, { content: "Deleted body" }],
+    });
+    await t.run((ctx) => ctx.db.delete(source.transcriptIds[1]));
+
+    const copy = await writer.mutation(api.projects.createProject, {
+      title: "Source (copy)",
+      clientName: "Acme Robotics",
+      transcripts: source.transcriptIds.map((fromTranscriptId) => ({
+        fromTranscriptId,
+      })),
+    });
+    expect(copy.transcriptIds).toHaveLength(1);
+    const copied = await t.run((ctx) => ctx.db.get(copy.transcriptIds[0]));
+    expect(copied?.content).toBe("Kept body");
+    expect(copied?.position).toBe(0);
+  });
+});

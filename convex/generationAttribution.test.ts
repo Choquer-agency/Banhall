@@ -446,7 +446,6 @@ describe("generation provenance", () => {
       .withIdentity({ subject: AUTH_ID })
       .mutation(api.generations.requestGeneration, {
         projectId: fixture.projectId,
-        transcriptId: fixture.transcriptId,
         candidateMode: "single",
         singleModelId: "claude-sonnet-5",
       });
@@ -1531,7 +1530,6 @@ describe("getGeneration attributable cost", () => {
       .withIdentity({ subject: AUTH_ID })
       .mutation(api.generations.requestGeneration, {
         projectId: fixture.projectId,
-        transcriptId: fixture.transcriptId,
         candidateMode: "single",
         singleModelId: "claude-sonnet-5",
       });

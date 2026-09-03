@@ -80,7 +80,9 @@ export const copyProjectContent = action({
   args: {
     fromProjectId: v.id("projects"),
     toProjectId: v.id("projects"),
-    targetTranscriptId: v.id("transcripts"),
+    // Absent when the duplicate carries no transcript at all: the report copy
+    // simply has no source transcript to cite.
+    targetTranscriptId: v.optional(v.id("transcripts")),
   },
   handler: async (ctx, args): Promise<CopyResult> => {
     return await copyProjectContentBetween(ctx, args);

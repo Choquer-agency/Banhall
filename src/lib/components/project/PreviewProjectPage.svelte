@@ -780,7 +780,6 @@
     try {
       await generateReport({
         projectId,
-        transcriptId: transcript._id,
         lengthTarget: lengthTarget as "concise" | "standard" | "full",
         candidateMode,
         ...(candidateMode !== "compare" && singleModelId

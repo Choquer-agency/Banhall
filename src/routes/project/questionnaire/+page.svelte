@@ -109,13 +109,14 @@
     submitting = true;
 
     try {
-      const transcriptContent = buildTranscriptFromAnswers();
-      const { projectId, transcriptId } = await createProject({
+      const { projectId } = await createProject({
         title: title.trim(),
         clientName: clientName.trim(),
-        transcriptContent,
+        transcripts: [
+          { content: buildTranscriptFromAnswers(), label: "Questionnaire answers" },
+        ],
       });
-      await generateReport({ projectId, transcriptId });
+      await generateReport({ projectId });
       goto(`/project/${projectId}`);
     } catch {
       error = "Failed to create project. Please try again.";

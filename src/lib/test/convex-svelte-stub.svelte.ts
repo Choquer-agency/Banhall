@@ -16,6 +16,11 @@ const registry = $state<{
   pages: Record<string, unknown[]>;
 }>({ queries: {}, pages: {} });
 
+// Mutation/action calls a suite can assert on, plus the value each one
+// resolves with — a wizard that destructures its mutation result needs one.
+const calls: Array<{ name: string; args: unknown }> = [];
+const results: Record<string, unknown> = {};
+
 // Args getters per function name (one per mounted hook instance) — lets
 // tests observe which subscriptions are live (args !== "skip") and HOW MANY
 // are live at once (subscription-budget assertions, H1).
@@ -35,10 +40,21 @@ export function __setPaginatedRows(name: string, rows: unknown[]) {
   registry.pages[name] = rows;
 }
 
+export function __setMutationResult(name: string, value: unknown) {
+  results[name] = value;
+}
+
+/** Args of every call to `name`, in call order. */
+export function __mutationCalls(name: string) {
+  return calls.filter((call) => call.name === name).map((call) => call.args);
+}
+
 export function __resetConvexStub() {
   registry.queries = {};
   registry.pages = {};
   argsGetters.clear();
+  calls.length = 0;
+  for (const key of Object.keys(results)) delete results[key];
 }
 
 /** True when any registered getter for `name` is not skipped. */
@@ -122,10 +138,18 @@ export function usePaginatedQuery(query: FunctionReference<"query">, ...rest: un
   };
 }
 
-export function useMutation(_mutation: unknown) {
-  return async (_args?: unknown) => undefined;
+function recordingCall(fn: unknown) {
+  const name = getFunctionName(fn as FunctionReference<"mutation">);
+  return async (args?: unknown) => {
+    calls.push({ name, args });
+    return results[name];
+  };
 }
 
-export function useAction(_action: unknown) {
-  return async (_args?: unknown) => undefined;
+export function useMutation(mutation: unknown) {
+  return recordingCall(mutation);
+}
+
+export function useAction(action: unknown) {
+  return recordingCall(action);
 }

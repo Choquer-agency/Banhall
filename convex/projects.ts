@@ -6,7 +6,7 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   getInternalProjectAccessOrNull,
   getFilingReadiness,
@@ -39,6 +39,64 @@ import {
   dashboardCompanyKey,
   dashboardFiscalYearRank,
 } from "../shared/dashboardProjection";
+import {
+  MAX_TOTAL_TRANSCRIPT_CHARS,
+  MAX_TRANSCRIPTS_PER_PROJECT,
+  copyTranscriptRow,
+  insertTranscriptRow,
+} from "./lib/transcripts";
+
+type TranscriptInput =
+  | { content: string; label?: string }
+  | { fromTranscriptId: Id<"transcripts">; label?: string };
+
+type ResolvedTranscript =
+  | { kind: "content"; content: string; label?: string }
+  | { kind: "copy"; source: Doc<"transcripts"> };
+
+/**
+ * Turns the caller's transcript list into the rows a new project may write.
+ * `fromTranscriptId` is a caller-supplied cross-project read, so every source
+ * row's project is authorized before anything is written. A source deleted
+ * between the wizard's prefill and the submit is skipped rather than sinking
+ * the whole creation, and so is an entry with no text.
+ */
+async function resolveTranscriptInputs(
+  ctx: MutationCtx,
+  inputs: TranscriptInput[]
+): Promise<ResolvedTranscript[]> {
+  if (inputs.length > MAX_TRANSCRIPTS_PER_PROJECT) {
+    domainError(
+      "INVALID_INPUT",
+      `A project may carry at most ${MAX_TRANSCRIPTS_PER_PROJECT} transcripts`
+    );
+  }
+  const resolved: ResolvedTranscript[] = [];
+  for (const input of inputs) {
+    if ("fromTranscriptId" in input) {
+      const source = await ctx.db.get(input.fromTranscriptId);
+      if (!source) continue;
+      if (!(await getInternalProjectAccessOrNull(ctx, source.projectId))) {
+        domainError("NOT_AUTHORIZED", "Transcript is not readable");
+      }
+      if (source.content.trim() === "") continue;
+      resolved.push({ kind: "copy", source });
+      continue;
+    }
+    if (input.content.trim() === "") continue;
+    resolved.push({ kind: "content", content: input.content, label: input.label });
+  }
+  const totalChars = resolved.reduce(
+    (total, item) =>
+      total +
+      (item.kind === "copy" ? item.source.content.length : item.content.length),
+    0
+  );
+  if (totalChars > MAX_TOTAL_TRANSCRIPT_CHARS) {
+    domainError("INVALID_INPUT", "Combined transcript text is too large");
+  }
+  return resolved;
+}
 
 async function validatedIndustry(
   ctx: MutationCtx,
@@ -598,7 +656,18 @@ export const createProject = mutation({
     // BNH-39: review mode reviews an existing written PD instead of generating.
     mode: v.optional(v.union(v.literal("generate"), v.literal("review"))),
     projectType: v.optional(projectTypeValidator),
-    transcriptContent: v.string(),
+    // The project's transcripts in list order: text typed or extracted in the
+    // browser, or an existing row copied by reference so a duplicate never
+    // round-trips a megabyte of interview through the client.
+    transcripts: v.array(
+      v.union(
+        v.object({ content: v.string(), label: v.optional(v.string()) }),
+        v.object({
+          fromTranscriptId: v.id("transcripts"),
+          label: v.optional(v.string()),
+        })
+      )
+    ),
     ownerId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
@@ -638,7 +707,7 @@ export const createProject = mutation({
       normalizeProjectNumberInput(args.projectNumber)
     );
     const industry = await validatedIndustry(ctx, args.industry);
-
+    const transcripts = await resolveTranscriptInputs(ctx, args.transcripts);
 
     const now = Date.now();
     const shareToken = generateShareToken();
@@ -713,13 +782,24 @@ export const createProject = mutation({
       "intake"
     );
 
-    const transcriptId = await ctx.db.insert("transcripts", {
-      projectId,
-      content: args.transcriptContent,
-      createdAt: now,
-    });
+    const transcriptIds: Id<"transcripts">[] = [];
+    for (const [position, transcript] of transcripts.entries()) {
+      const transcriptId =
+        transcript.kind === "copy"
+          ? await copyTranscriptRow(ctx, transcript.source, {
+              projectId,
+              position,
+            })
+          : await insertTranscriptRow(ctx, {
+              projectId,
+              content: transcript.content,
+              label: transcript.label,
+              position,
+            });
+      if (transcriptId) transcriptIds.push(transcriptId);
+    }
 
-    return { projectId, transcriptId };
+    return { projectId, transcriptIds };
   },
 });
 
