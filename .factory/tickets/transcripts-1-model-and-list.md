@@ -13,6 +13,7 @@ deferred:
   - "charCount/wordCount are computed per query run in transcriptMetadata; storing them at insert belongs to transcripts-3, which owns insertTranscriptRow (validation-2 low, principle 2)."
   - "transcriptDigests, generationSources.kind transcript_digest and digestId are declared but written by nothing at this commit; first real writes land in transcripts-7."
   - "MAX_TRANSCRIPTS_PER_PROJECT and MAX_TOTAL_TRANSCRIPT_CHARS are enforced on the read side only; writer enforcement is transcripts-3."
+  - "UI regression, transcripts-5: a project whose only row is the empty placeholder (convex/ingestionPort.ts:208, and convex/projects.ts:715 when project/new is submitted with files but no transcript text) now gets null from getTranscript where .first() returned the empty row, so CurrentProjectPage.svelte:1723 and PreviewProjectPage.svelte:2224/:2241 show a permanent 'Loading transcript...' (:1731, :2232, :2249) instead of an empty box. Both conflate undefined (loading) with null (none). AC2 and AC6 mandate the null and this ticket forbids UI edits; transcripts-5 Edge cases bullet 1 already requires the readers to branch on load state (data !== undefined), which removes the false loading text. FilesPanel.svelte:477 and project/new/+page.svelte:212 degrade cleanly (row hidden, prefill unchanged)."
 updated: "2026-09-03T21:17:39.896Z"
 ---
 ## Intent

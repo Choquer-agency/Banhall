@@ -1503,11 +1503,19 @@ it follow in `transcripts-2` through `transcripts-7`.
   first 20 rows in order.
 - **One definition of "a project's transcripts":** `listProjectTranscripts`
   in `convex/lib/transcripts.ts` — ordered by `position`, then `createdAt`,
-  then `_id`, with empty-content rows (ingestion placeholders) dropped. The
-  only direct `transcripts` table queries outside it are `deleteProject`'s
-  cascade, which must also delete the empty rows, and the admin orphan scan.
-  Clients never subscribe to transcript text in bulk: `listTranscripts`
-  returns metadata only and `getTranscriptContent` returns one body at a time.
+  then `_id`, with empty-content rows (ingestion placeholders) dropped. Two
+  direct `transcripts` table queries are permanent exceptions, because neither
+  wants that definition: `deleteProject`'s cascade
+  (`convex/projects.ts:1055-1059`), which must also delete the empty rows, and
+  the admin orphan scan (`convex/debugTools.ts:201`), which reads rows whose
+  project is gone. Four legacy readers still take the project's first row
+  directly and are migrated by `transcripts-4`:
+  `convex/pdReviews.ts:256-259`, `convex/reviewFromProject.ts:87-90`,
+  `convex/projects.ts:557-560` (`getScienceCodeSuggestionContext`) and
+  `convex/debugTools.ts:45-48`. Once they move, the helper is the only
+  project-scoped reader. Clients never subscribe to transcript text in bulk:
+  `listTranscripts` returns metadata only and `getTranscriptContent` returns
+  one body at a time.
 - **Digest artifact:** `transcriptDigests` holds a condensed stand-in for one
   transcript, keyed by `(transcriptId, sourceContentHash, condenseVersion)`.
   A digest is never regenerated for the same key, and any change to the
