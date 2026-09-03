@@ -216,19 +216,20 @@ function Get-DropPrefix([string]$abs) {
     if ($tail) { return "$tail/" } else { return "" }
 }
 
-# Collect candidate files across every root. Get-UploadCandidates decides what
-# counts as a document: real links (symlinks, junctions) are skipped, OneDrive
-# cloud placeholders are kept (note: PS 5.1's -Recurse can still traverse
-# directory junctions — keep the corpus free of junction loops). Duplicate rels
-# (nested/overlapping drops) are uploaded once.
-#
-# The log is truncated here, before the walk, so the zero-found run can record
-# its diagnostics in it and still exit before the upload loop.
+# Log incrementally (UTF-8): a crash, Ctrl-C, or closed window mid-run must
+# not lose the record of what was already sent. Truncated here, before the
+# walk, so a run that finds nothing can still record its diagnostics and exit
+# above the upload loop.
 Set-Content -Path $logPath -Value @() -Encoding UTF8
 function Write-Log([string]$line) {
     try { Add-Content -Path $logPath -Value $line -Encoding UTF8 } catch {}
 }
 
+# Collect candidate files across every root. Get-UploadCandidates decides what
+# counts as a document: real links (symlinks, junctions) are skipped, OneDrive
+# cloud placeholders are kept (note: PS 5.1's -Recurse can still traverse
+# directory junctions — keep the corpus free of junction loops). Duplicate rels
+# (nested/overlapping drops) are uploaded once.
 $entries = New-Object System.Collections.Generic.List[object]
 $seenRel = New-Object 'System.Collections.Generic.HashSet[string]'
 $scans = New-Object System.Collections.Generic.List[object]

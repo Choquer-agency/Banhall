@@ -56,6 +56,25 @@ unset or shorter than 32 chars.
   (ternary, `??`, `-Parallel`, `#Requires -Version 7`) or on a second
   `Get-UploadCandidates` call site, so the client's machine cannot be the
   place where a PS7-only edit is discovered.
+- A zero-result run is self-diagnosing. `Found 0 document(s)` is followed by
+  `Format-ScanDiagnostics` output: files walked, per-reason skip counts, access
+  errors, the top 8 extensions seen, and `Under OneDrive sync root:
+  yes|no|unknown` (`Test-UnderOneDrive` compares the root against
+  `$env:OneDriveCommercial` / `$env:OneDrive` / `$env:OneDriveConsumer`;
+  `unknown` means none of the three is set). The same lines go to
+  `upload-log.txt` as `SCAN\t…`, so the next zero-result report from the
+  client is one file, not a screen share. Counts and extensions only, never a
+  document name.
+- `upload-log.txt` is truncated **before** the walk, not after it, so those
+  `SCAN` lines survive the zero-result exit. A cancelled run therefore leaves
+  an empty (or SCAN-only) log rather than the previous run's.
+- Cloud-only files are announced before uploading (`N files are cloud-only and
+  will be downloaded by OneDrive while uploading`). `Test-CloudOnly` matches
+  the `Offline` attribute or bit `0x400000` (`RecallOnDataAccess`, which has no
+  named member on .NET Framework 4.8).
+- `Test-RootUsable` returns `ok | is_file | missing` and backs both root
+  checks: a dropped file is skipped with a message, a configured or typed file
+  path exits with `That path is a file, not a folder`.
 - Corrupt/unreadable files land in the Failed tab and are retried on each
   re-run (cheap; visible to the admin).
 - The only file either script writes is `upload-log.txt` beside itself.
