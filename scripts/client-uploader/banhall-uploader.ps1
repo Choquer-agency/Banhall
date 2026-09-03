@@ -79,7 +79,7 @@ function Pick-Folder([string]$start) {
         Add-Type -AssemblyName System.Windows.Forms
         $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
         $dlg.Description = "Choose the folder that holds your client documents"
-        if ($start -and (Test-Path $start)) { $dlg.SelectedPath = $start }
+        if ((Test-RootUsable $start) -eq "ok") { $dlg.SelectedPath = $start }
         if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             return $dlg.SelectedPath
         }
@@ -107,7 +107,7 @@ if ($Paths -and $Paths.Count -gt 0) {
     foreach ($p in $Paths) {
         $dropState = Test-RootUsable $p
         if ($dropState -eq "ok") {
-            $roots += (Get-Item $p).FullName
+            $roots += (Get-Item -LiteralPath $p).FullName
         } elseif ($dropState -eq "is_file") {
             Write-Host "  ! skipped (drop folders, not single files): $p" -ForegroundColor Yellow
         } else {
@@ -124,13 +124,18 @@ if ($Paths -and $Paths.Count -gt 0) {
     $foundOneDrive = $null
     # A remembered folder is a default, not a lock-in: confirm it each run and
     # offer the chooser again (client feedback Aug 18).
-    if ($root -and (Test-Path $root)) {
+    $rememberedState = Test-RootUsable $root
+    if ($rememberedState -eq "ok") {
         Write-Host "Last time you scanned:"
         Write-Host "  $root"
         $again = Read-Host "Scan this folder again? (y = yes / c = choose a different folder)"
         if ($again -notmatch "^[Yy]") { $root = Pick-Folder $root }
     } elseif ($root) {
-        Write-Host "The remembered folder no longer exists: $root"
+        if ($rememberedState -eq "is_file") {
+            Write-Host "The remembered path is a file, not a folder: $root"
+        } else {
+            Write-Host "The remembered folder no longer exists: $root"
+        }
         $root = ""
     }
     if (-not $root) {
@@ -175,7 +180,7 @@ if ($Paths -and $Paths.Count -gt 0) {
         Read-Host "Press Enter to close"
         exit 1
     }
-    $root = (Get-Item $root).FullName
+    $root = (Get-Item -LiteralPath $root).FullName
     # Persist so the next run scans the same folder without asking again.
     Save-Root $root
     $roots = @($root)
@@ -217,12 +222,20 @@ function Get-DropPrefix([string]$abs) {
 }
 
 # Log incrementally (UTF-8): a crash, Ctrl-C, or closed window mid-run must
-# not lose the record of what was already sent. Truncated here, before the
-# walk, so a run that finds nothing can still record its diagnostics and exit
-# above the upload loop.
-Set-Content -Path $logPath -Value @() -Encoding UTF8
+# not lose the record of what was already sent. The previous run's log is
+# cleared by the first line this run writes, inside the same try as the write:
+# a read-only kit folder must not kill the run before it prints the very
+# diagnostics the client is being asked for, and a run that uploads nothing
+# leaves the last real log alone.
+$script:logStarted = $false
 function Write-Log([string]$line) {
-    try { Add-Content -Path $logPath -Value $line -Encoding UTF8 } catch {}
+    try {
+        if (-not $script:logStarted) {
+            Set-Content -Path $logPath -Value @() -Encoding UTF8
+            $script:logStarted = $true
+        }
+        Add-Content -Path $logPath -Value $line -Encoding UTF8
+    } catch {}
 }
 
 # Collect candidate files across every root. Get-UploadCandidates decides what
@@ -312,13 +325,16 @@ foreach ($e in $entries) {
     # A single locked/ACL-denied/cloud-dehydration-failed file must not kill
     # the whole run under $ErrorActionPreference = "Stop".
     try {
-        $hash = (Get-FileHash -Path $f.FullName -Algorithm SHA256).Hash.ToLower()
+        $hash = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLower()
     } catch {
         $failed++
         Write-Host ("  x unreadable  {0}" -f $rel) -ForegroundColor Yellow
         Write-Log "READ_ERROR`t$rel"
         continue
     }
+    # -InFile has no -LiteralPath twin: it resolves wildcards, so a client
+    # folder named "Applications [2024]" would fail to open. Escape it.
+    $inFile = [Management.Automation.WildcardPattern]::Escape($f.FullName)
     $mtime = [DateTimeOffset]::new($f.LastWriteTimeUtc, [TimeSpan]::Zero).ToUnixTimeMilliseconds()
     $uri = "$appUrl/ingestion/upload?path=$([uri]::EscapeDataString($rel))&hash=$hash&mtime=$mtime"
 
@@ -328,7 +344,7 @@ foreach ($e in $entries) {
             $resp = Invoke-RestMethod -Method Post -Uri $uri `
                 -Headers @{ Authorization = "Bearer $key" } `
                 -ContentType "application/octet-stream" `
-                -InFile $f.FullName
+                -InFile $inFile
             if ($resp.skipped) {
                 $skipped++
                 Write-Host ("  - skipped     {0} ({1})" -f $rel, $resp.reason) -ForegroundColor DarkGray

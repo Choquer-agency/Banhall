@@ -65,9 +65,17 @@ unset or shorter than 32 chars.
   `upload-log.txt` as `SCAN\t…`, so the next zero-result report from the
   client is one file, not a screen share. Counts and extensions only, never a
   document name.
-- `upload-log.txt` is truncated **before** the walk, not after it, so those
-  `SCAN` lines survive the zero-result exit. A cancelled run therefore leaves
-  an empty (or SCAN-only) log rather than the previous run's.
+- `upload-log.txt` is cleared by the **first line a run writes**, inside
+  `Write-Log`'s `try`, not up front: those `SCAN` lines survive the zero-result
+  exit, a read-only kit folder still prints the diagnostics instead of dying on
+  the truncation, and a run that logs nothing leaves the last real log alone.
+- Client folder names hold wildcard characters (`Applications [2024]`). Every
+  path read parses literally - `Get-Item -LiteralPath`, `Get-FileHash
+  -LiteralPath`, `Test-RootUsable` (which uses `Test-Path -LiteralPath`) - and
+  `-InFile`, which has no literal twin, is fed a
+  `[WildcardPattern]::Escape`d path. A wildcard read of such a folder returns
+  nothing rather than failing, so the symptom is an empty root or a null hash,
+  not an error. The harness asserts this on the AST.
 - Cloud-only files are announced before uploading (`N files are cloud-only and
   will be downloaded by OneDrive while uploading`). `Test-CloudOnly` matches
   the `Offline` attribute or bit `0x400000` (`RecallOnDataAccess`, which has no

@@ -356,6 +356,33 @@ try {
     Remove-Item -LiteralPath $tree -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# --- review fix: a root whose name holds wildcard characters ---------------
+# "Applications [2024]" is a real client folder shape. Every root check has to
+# read it as a literal path; a wildcard read matches nothing and hands the rest
+# of the run an empty root.
+$bracketParent = Join-Path ([IO.Path]::GetTempPath()) ("banhall-uploader-tests-" + [Guid]::NewGuid().ToString("N"))
+try {
+    $bracketRoot = Join-Path $bracketParent "Applications [2024]"
+    New-Item -ItemType Directory -Path $bracketRoot -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $bracketRoot "real.docx") -Value "real" -Encoding UTF8
+
+    Check "review-fix a bracket-named root is usable and yields its candidate" {
+        $scan = Get-UploadCandidates $bracketRoot $allowed
+        (Expect "root state" "ok" (Test-RootUsable $bracketRoot)),
+        (Expect "walked" 1 $scan.Walked),
+        (Expect "candidates" 1 $scan.Candidates.Count),
+        (Expect "errors" 0 $scan.Errors.Count) |
+            Where-Object { $_ } | Select-Object -First 1
+    }
+    Check "review-fix a wildcard read of that root is what loses it" {
+        (Expect "wildcard match" 0 @(Get-Item $bracketRoot -ErrorAction SilentlyContinue).Count),
+        (Expect "literal match" 1 @(Get-Item -LiteralPath $bracketRoot).Count) |
+            Where-Object { $_ } | Select-Object -First 1
+    }
+} finally {
+    Remove-Item -LiteralPath $bracketParent -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # --- AC6: the shipped scripts, read as source ------------------------------
 # Token and AST checks, not text searches: banhall-uploader.ps1 holds a "?" in
 # an upload URI, which a ternary regex matches and a tokenizer does not.
@@ -454,6 +481,52 @@ Check "AC6 all three input modes converge on roots" {
     return $null
 }
 
+# A path typed, remembered or dropped by a client is data, not a pattern:
+# "Applications [2024]" read as a wildcard matches nothing, and the cmdlet
+# returns nothing instead of failing - an empty root, then a null hash. Every
+# path read in the uploader parses literally.
+Check "review-fix every path the uploader reads is a literal path" {
+    foreach ($cmdlet in @("Get-Item", "Get-FileHash")) {
+        $calls = @($uploaderParsed.Ast.FindAll({
+            param($node)
+            ($node -is [System.Management.Automation.Language.CommandAst]) -and
+            "$($node.GetCommandName())" -eq $cmdlet
+        }, $true))
+        if ($calls.Count -lt 1) { return "no $cmdlet call site left to check" }
+        foreach ($call in $calls) {
+            $literal = @($call.CommandElements | Where-Object {
+                ($_ -is [System.Management.Automation.Language.CommandParameterAst]) -and
+                $_.ParameterName -eq "LiteralPath"
+            })
+            if ($literal.Count -ne 1) {
+                return "$cmdlet at line $($call.Extent.StartLineNumber) lacks -LiteralPath"
+            }
+        }
+    }
+    return $null
+}
+
+# -InFile is the one path with no -LiteralPath twin, so the wildcard has to be
+# escaped instead. Unescaped, every file under a bracket-named client folder
+# fails to open.
+Check "review-fix the upload body path is wildcard-escaped" {
+    $inFile = @($uploaderParsed.Ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.CommandParameterAst]) -and
+        $node.ParameterName -eq "InFile"
+    }, $true))
+    if ($inFile.Count -ne 1) { return "expected 1 -InFile, found $($inFile.Count)" }
+    $fed = "$($inFile[0].Parent.CommandElements[[array]::IndexOf($inFile[0].Parent.CommandElements, $inFile[0]) + 1].Extent.Text)"
+    $escapes = @($uploaderParsed.Ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.AssignmentStatementAst]) -and
+        "$($node.Right.Extent.Text)".Contains("WildcardPattern]::Escape")
+    }, $true))
+    $escaped = @($escapes | Where-Object { "$($_.Left.Extent.Text)" -eq $fed })
+    if ($escaped.Count -ne 1) { return "-InFile is fed '$fed', which is never wildcard-escaped" }
+    return $null
+}
+
 # The bug was an inline Attributes -band ReparsePoint filter in the uploader.
 # The vocabulary belongs to uploader-lib.ps1 now; a comment here would mean it
 # is creeping back.
@@ -524,6 +597,22 @@ Check "zero-diag AC2 the log is truncated before the scan and the SCAN lines bea
         "$($node.Extent.Text)".Contains('$logPath')
     }, $true))
     if ($truncations.Count -ne 1) { return "expected 1 log truncation, found $($truncations.Count)" }
+
+    # An unwritable kit folder must not kill the run before it prints the
+    # diagnostics: the truncation runs on the first logged line, inside the
+    # same try/catch as the write.
+    $scope = $truncations[0].Parent
+    $inTry = $false
+    $inWriteLog = $false
+    while ($scope) {
+        if ($scope -is [System.Management.Automation.Language.TryStatementAst]) { $inTry = $true }
+        if (($scope -is [System.Management.Automation.Language.FunctionDefinitionAst]) -and $scope.Name -eq "Write-Log") {
+            $inWriteLog = $true
+        }
+        $scope = $scope.Parent
+    }
+    if (-not $inWriteLog) { return "the log truncation runs outside Write-Log, so a failed one is fatal" }
+    if (-not $inTry) { return "the log truncation is not inside a try/catch" }
 
     $truncate = $truncations[0].Extent.StartLineNumber
     $collect = Get-CommandLine $uploaderParsed.Ast "Get-UploadCandidates" ""
