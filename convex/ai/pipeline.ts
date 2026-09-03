@@ -29,6 +29,10 @@ import {
   type SectionKey,
 } from "../lib/lineLimits";
 import { sha256 } from "../lib/contracts";
+import {
+  describeTranscriptInput,
+  mapClaimToPart,
+} from "../lib/transcripts";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
 import {
   scrubBannedWords,
@@ -448,12 +452,7 @@ export const generateReport = internalAction({
       if (input.scienceCode?.trim() && !scienceCode) {
         throw new Error("Project science code is not a valid CRA T4088 line 206 code");
       }
-      const transcriptWords = transcript.split(/\s+/).filter(Boolean).length;
-      if (transcriptWords > 0) {
-        await log(`Read frozen interview transcript — ${transcriptWords.toLocaleString()} words.`);
-      } else {
-        await log("No interview transcript — drafting from context documents only.");
-      }
+      await log(describeTranscriptInput(input.transcriptParts));
       if (contextDocs.length > 0) {
         await log(`Using ${contextDocs.length} frozen contextual document(s), weighted by SR&ED priority.`);
       }
@@ -480,7 +479,8 @@ export const generateReport = internalAction({
         (n, d) => n + (d.content?.split(/\s+/).filter(Boolean).length ?? 0),
         0
       );
-      const inputWords = transcriptWords + contextWords;
+      const inputWords =
+        transcript.split(/\s+/).filter(Boolean).length + contextWords;
       const perModelSec = 45 + inputWords / 150;
       const estimatedMs = Math.round(perModelSec * 1000 * 1.5);
       await ctx.runMutation(internal.generations.setGenerationEstimate, {
@@ -649,31 +649,15 @@ export const generateCandidate = internalAction({
         );
       const claims = await Promise.all(
         claimDrafts.map(async (claim) => {
-          const startOffset = claim.sourceQuote
-            ? input.transcript.indexOf(claim.sourceQuote)
-            : -1;
+          const citation = mapClaimToPart(input.transcriptParts, claim);
           return {
             claimId: claim.claimId,
             section: claim.section,
             material: true,
             claimText: claim.claimText,
             claimTextHash: await sha256(claim.claimText),
-            state:
-              startOffset >= 0
-                ? ("needs_review" as const)
-                : ("unsupported" as const),
-            sources:
-              claim.sourceQuote && startOffset >= 0
-                ? [
-                    {
-                      generationSourceId: input.transcriptSourceId,
-                      sourceContentHash: input.transcriptContentHash,
-                      exactExcerpt: claim.sourceQuote,
-                      startOffset,
-                      endOffset: startOffset + claim.sourceQuote.length,
-                    },
-                  ]
-                : [],
+            state: citation ? ("needs_review" as const) : ("unsupported" as const),
+            sources: citation ? [citation] : [],
           };
         })
       );

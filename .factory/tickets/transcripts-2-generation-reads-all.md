@@ -9,6 +9,7 @@ verify: [npx vitest run convex/generationInput.test.ts convex/generationRecovery
 done_when: [test -f convex/generationInput.test.ts, "rg -q 'transcriptParts' convex/generations.ts", "rg -q 'mapClaimToPart|findQuoteInParts' convex/ai/pipeline.ts", "! rg -q 'transcript: Doc<\\\"transcripts\\\">' convex/generations.ts", "! rg -qF 'ctx.db.get(failed.transcriptId)' convex/generations.ts", npx vitest run convex/generationInput.test.ts]
 title: Generation freezes and consumes every transcript of the project; claims cite the part they came from
 plan: 20260903-client-sync
+deferred: []
 updated: "2026-09-03T21:17:39.897Z"
 ---
 ## Intent

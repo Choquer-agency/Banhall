@@ -22,6 +22,7 @@ import { runSection246Agent } from "./section246Agent";
 import { candidateModelsForMode } from "./model";
 import { normalizeProviderError } from "./providers";
 import { retrieveBrainBlocks } from "./brainRetrieval";
+import { describeTranscriptInput } from "../lib/transcripts";
 import {
   beginTrackedGeneration,
   buildStyleGuidance,
@@ -112,12 +113,7 @@ export const startIterativeGeneration = internalAction({
       if (input.scienceCode?.trim() && !scienceCode) {
         throw new Error("Project science code is not a valid CRA T4088 line 206 code");
       }
-      const transcriptWords = transcript.split(/\s+/).filter(Boolean).length;
-      if (transcriptWords > 0) {
-        await log(`Read frozen interview transcript — ${transcriptWords.toLocaleString()} words.`);
-      } else {
-        await log("No interview transcript — drafting from context documents only.");
-      }
+      await log(describeTranscriptInput(input.transcriptParts));
       if (contextDocs.length > 0) {
         await log(`Using ${contextDocs.length} frozen contextual document(s), weighted by SR&ED priority.`);
       }

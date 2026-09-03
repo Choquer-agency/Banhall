@@ -633,9 +633,9 @@ export default defineSchema({
 
   generations: defineTable({
     projectId: v.id("projects"),
-    // Still required here: transcripts-2 relaxes it together with the two
-    // readers that dereference it (convex/generations.ts:544, :580).
-    transcriptId: v.id("transcripts"),
+    // 2026-09-03 widen: absent when the project has no transcript (docs-only
+    // generation).
+    transcriptId: v.optional(v.id("transcripts")),
     // 2026-09-03 widen: multiple transcripts per project. The frozen set in
     // position order, how it was fed to the model, and the digests used when
     // inputMode is "digest".
