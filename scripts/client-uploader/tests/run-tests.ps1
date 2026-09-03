@@ -1,9 +1,16 @@
-# Test harness for uploader-lib.ps1. Plain pwsh, no Pester.
+# Test harness for uploader-lib.ps1 and for the shape of the shipped .ps1
+# files. Plain pwsh, no Pester.
 #
 #   pwsh -NoProfile -File scripts/client-uploader/tests/run-tests.ps1
 #
 # Exits 1 if any case fails. Dot-sources only the lib — never the uploader,
-# uploader-config.json (holds a live key) or upload-log.txt.
+# uploader-config.json (holds a live key) or upload-log.txt. The AC6 cases read
+# the uploader as text and AST; they never execute it.
+#
+# -InjectFailure adds one always-failing case. The AC5 fail-path case re-runs
+# this file with that switch to prove a failing case really fails the gate.
+
+param([switch]$InjectFailure)
 
 $ErrorActionPreference = "Stop"
 . (Join-Path (Split-Path -Parent $PSScriptRoot) "uploader-lib.ps1")
@@ -30,6 +37,12 @@ function Check([string]$name, [scriptblock]$body) {
 function Expect([string]$label, $expected, $actual) {
     if ($expected -ne $actual) { return "$label expected '$expected', got '$actual'" }
     return $null
+}
+
+# The only difference between a -InjectFailure run and a normal one. The AC5
+# fail-path case below spawns that run and asserts the gate stops on it.
+if ($InjectFailure) {
+    Check "AC5 injected failing case (self-test only)" { return "injected on purpose" }
 }
 
 # A FileInfo stand-in. Omit a property by passing $null for LinkType and
@@ -169,6 +182,140 @@ try {
     }
 } finally {
     Remove-Item -LiteralPath $tree -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# --- AC6: the shipped scripts, read as source ------------------------------
+# Token and AST checks, not text searches: banhall-uploader.ps1 holds a "?" in
+# an upload URI, which a ternary regex matches and a tokenizer does not.
+$kitDir = Split-Path -Parent $PSScriptRoot
+$repoRoot = Split-Path -Parent (Split-Path -Parent $kitDir)
+$uploaderPath = Join-Path $kitDir "banhall-uploader.ps1"
+$ps7TokenKinds = @("QuestionQuestion", "QuestionQuestionEquals", "QuestionDot", "QuestionLBracket")
+
+function Get-ParsedScript([string]$path) {
+    $tokens = $null
+    $errors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors)
+    return [pscustomobject]@{ Ast = $ast; Tokens = @($tokens); Errors = @($errors) }
+}
+
+# $null when the file would run on Windows PowerShell 5.1, otherwise the first
+# PS7-only construct found and its line.
+function Test-Ps51Compatible([string]$path) {
+    if (-not (Test-Path -LiteralPath $path)) { return "missing file $path" }
+    $parsed = Get-ParsedScript $path
+
+    if ($parsed.Errors.Count -gt 0) {
+        return "parse error line $($parsed.Errors[0].Extent.StartLineNumber): $($parsed.Errors[0].Message)"
+    }
+    $ternaries = @($parsed.Ast.FindAll({ param($node) $node.GetType().Name -eq "TernaryExpressionAst" }, $true))
+    if ($ternaries.Count -gt 0) { return "ternary at line $($ternaries[0].Extent.StartLineNumber)" }
+
+    $ps7Ops = @($parsed.Tokens | Where-Object { $ps7TokenKinds -contains "$($_.Kind)" })
+    if ($ps7Ops.Count -gt 0) {
+        return "PS7 operator '$($ps7Ops[0].Text)' at line $($ps7Ops[0].Extent.StartLineNumber)"
+    }
+    $parallel = @($parsed.Ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.CommandParameterAst]) -and $node.ParameterName -eq "Parallel"
+    }, $true))
+    if ($parallel.Count -gt 0) { return "-Parallel at line $($parallel[0].Extent.StartLineNumber)" }
+
+    $req = $parsed.Ast.ScriptRequirements
+    if ($req -and $req.RequiredPSVersion -and $req.RequiredPSVersion.Major -ge 6) {
+        return "#Requires -Version $($req.RequiredPSVersion)"
+    }
+    return $null
+}
+
+foreach ($scanned in @($uploaderPath, (Join-Path $kitDir "uploader-lib.ps1"), $PSCommandPath)) {
+    $leaf = Split-Path -Leaf $scanned
+    Check ("AC6 {0} parses and stays Windows PowerShell 5.1 compatible" -f $leaf) {
+        Test-Ps51Compatible $scanned
+    }
+}
+
+$uploaderParsed = Get-ParsedScript $uploaderPath
+
+Check "AC6 one Get-UploadCandidates call site, inside the foreach over roots" {
+    $calls = @($uploaderParsed.Ast.FindAll({
+        param($node)
+        ($node -is [System.Management.Automation.Language.CommandAst]) -and
+        "$($node.GetCommandName())" -eq "Get-UploadCandidates"
+    }, $true))
+    if ($calls.Count -ne 1) { return "expected 1 call site, found $($calls.Count)" }
+
+    $call = $calls[0]
+    $fedWith = "$($call.CommandElements[1].Extent.Text)"
+    if ($fedWith -ne '$r') { return "call site is fed '$fedWith', not the loop variable" }
+
+    $loop = $call.Parent
+    while ($loop -and -not ($loop -is [System.Management.Automation.Language.ForEachStatementAst])) {
+        $loop = $loop.Parent
+    }
+    if (-not $loop) { return "the call site is not inside a foreach" }
+    $walks = "$($loop.Condition.Extent.Text)"
+    if ("$($loop.Variable.Extent.Text)" -ne '$r' -or $walks -ne '$roots') {
+        return "enclosing foreach binds $($loop.Variable.Extent.Text) over $walks"
+    }
+    return $null
+}
+
+# Drag-drop appends each dropped folder; the JSON root and the chooser both
+# write $root, which becomes @($root). One filter serves all three.
+Check "AC6 all three input modes converge on roots" {
+    $assignments = @($uploaderParsed.Ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.AssignmentStatementAst]
+    }, $true))
+    $toRoots = @($assignments | Where-Object { "$($_.Left.Extent.Text)" -eq '$roots' })
+    $toRoot = @($assignments | Where-Object { "$($_.Left.Extent.Text)" -eq '$root' })
+    $dropped = @($toRoots | Where-Object { "$($_.Operator)" -eq "PlusEquals" })
+    $single = @($toRoots | Where-Object { "$($_.Right.Extent.Text)" -eq '@($root)' })
+    $fromConfig = @($toRoot | Where-Object { "$($_.Right.Extent.Text)" -like "*config.root*" })
+    $fromChooser = @($toRoot | Where-Object { "$($_.Right.Extent.Text)" -like "Pick-Folder*" })
+
+    if ($dropped.Count -lt 1) { return "no drag-drop append to roots" }
+    if ($single.Count -ne 1) { return "expected one 'roots = @(root)', found $($single.Count)" }
+    if ($fromConfig.Count -lt 1) { return "root is never read from the JSON config" }
+    if ($fromChooser.Count -lt 1) { return "root is never set by the folder chooser" }
+    return $null
+}
+
+# The bug was an inline Attributes -band ReparsePoint filter in the uploader.
+# The vocabulary belongs to uploader-lib.ps1 now; a comment here would mean it
+# is creeping back.
+Check "regression banhall-uploader.ps1 never mentions ReparsePoint again" {
+    $hits = @($uploaderParsed.Tokens | Where-Object { "$($_.Text)" -match "ReparsePoint" })
+    if ($hits.Count -gt 0) { return "ReparsePoint at line $($hits[0].Extent.StartLineNumber)" }
+    return $null
+}
+
+# --- AC5: the gate wiring, and that a failing case actually fails it --------
+Check "AC5 loop-verify.sh runs the harness under set -e" {
+    $gatePath = Join-Path $repoRoot "scripts/loop-verify.sh"
+    if (-not (Test-Path -LiteralPath $gatePath)) { return "missing $gatePath" }
+    $lines = @(Get-Content -LiteralPath $gatePath)
+    (Expect "set -euo pipefail lines" 1 @($lines | Where-Object { $_.Trim() -eq "set -euo pipefail" }).Count),
+    (Expect "harness invocations" 1 @($lines | Where-Object { $_ -notmatch "^\s*#" -and $_ -match "run-tests\.ps1" }).Count) |
+        Where-Object { $_ } | Select-Object -First 1
+}
+
+$bash = Get-Command bash -ErrorAction SilentlyContinue
+if ($InjectFailure) {
+    # The child run: spawning another one would recurse forever.
+} elseif (-not $bash) {
+    Write-Host "SKIP  AC5 fail-path sub-case - bash is not on PATH"
+} else {
+    Check "AC5 an injected failing case exits 1 and stops a set -e gate" {
+        $fragment = 'set -euo pipefail' + "`n" +
+            '"$1" -NoProfile -File "$2" -InjectFailure > /dev/null 2>&1' + "`n" +
+            'echo REACHED_THE_NEXT_GATE_COMMAND'
+        $out = & $bash.Source -c $fragment bash (Get-Process -Id $PID).Path $PSCommandPath 2>&1
+        (Expect "gate exit code" 1 $LASTEXITCODE),
+        (Expect "output after the harness" "" "$out".Trim()) |
+            Where-Object { $_ } | Select-Object -First 1
+    }
 }
 
 Write-Host ""

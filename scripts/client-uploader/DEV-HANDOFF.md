@@ -51,7 +51,11 @@ unset or shorter than 32 chars.
   The rule lives in `uploader-lib.ps1` (pure functions, dot-sourced by
   `banhall-uploader.ps1`, must ship beside it in the kit) and is proved by
   `pwsh -NoProfile -File tests/run-tests.ps1`, which `scripts/loop-verify.sh`
-  runs. `tests/` is excluded from the client zip.
+  runs. `tests/` is excluded from the client zip. The harness also parses the
+  three `.ps1` files and fails on Windows PowerShell 5.1 incompatibilities
+  (ternary, `??`, `-Parallel`, `#Requires -Version 7`) or on a second
+  `Get-UploadCandidates` call site, so the client's machine cannot be the
+  place where a PS7-only edit is discovered.
 - Corrupt/unreadable files land in the Failed tab and are retried on each
   re-run (cheap; visible to the admin).
 - The only file either script writes is `upload-log.txt` beside itself.
