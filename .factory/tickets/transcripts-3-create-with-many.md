@@ -1,15 +1,18 @@
 ---
 key: transcripts-3-create-with-many
-status: todo
+status: escalated
 kind: feature
 deps: [transcripts-2-generation-reads-all]
 touches: [convex, src]
 risky: [rights]
 verify: [npx vitest run convex/projects.test.ts convex/reviewFromProject.test.ts convex/generationAttribution.test.ts, npx vitest run --config vitest.component.config.ts --no-file-parallelism src/routes/project/new/newProjectTranscripts.component.test.ts src/routes/project/new/newProjectPrefill.component.test.ts]
-done_when: ["! rg -q 'transcriptContent' convex/projects.ts src/routes", "rg -q 'transcripts: v.array' convex/projects.ts", "! rg -q '\\\\btranscriptId\\\\b' src/routes/project/new/+page.svelte src/routes/project/questionnaire/+page.svelte", "rg -Uq 'type=\\\"file\\\"[^>]*multiple' src/routes/project/new/+page.svelte", test -f src/routes/project/new/newProjectTranscripts.component.test.ts, "! rg -q 'transcriptId: v.optional' convex/generations.ts", "rg -qF 'targetTranscriptId: v.optional(v.id(\\\"transcripts\\\"))' convex/projectDuplication.ts", npx vitest run convex/projects.test.ts]
+done_when: ["! rg -q 'transcriptContent' convex/projects.ts src/routes", "rg -q 'transcripts: v.array' convex/projects.ts", "! rg -q '\\\\\\\\btranscriptId\\\\\\\\b' src/routes/project/new/+page.svelte src/routes/project/questionnaire/+page.svelte", "rg -Uq 'type=\\\\\\\"file\\\\\\\"[^>]*multiple' src/routes/project/new/+page.svelte", test -f src/routes/project/new/newProjectTranscripts.component.test.ts, "! rg -q 'transcriptId: v.optional' convex/generations.ts", "rg -qF 'targetTranscriptId: v.optional(v.id(\\\\\\\"transcripts\\\\\\\"))' convex/projectDuplication.ts", npx vitest run convex/projects.test.ts]
 title: "New-project page takes an ordered list of transcripts (multi .docx upload, paste, remove, copy-by-reference); createProject stores them; generation no longer takes a transcript id"
 plan: 20260903-client-sync
-updated: "2026-09-03T21:17:39.897Z"
+updated: "2026-09-03T22:45:25.484Z"
+run: 20260903-211917-12-tickets
+branch: factory/transcripts-3-create-with-many
+escalation: implementer session failed (attempt 2); log .factory/runs/20260903-211917-12-tickets/logs/transcripts-3-create-with-many.implement-2.jsonl
 ---
 ## Intent
 Tracy attaches several `.docx` files at once, or one at a time, or pastes, sees them as an ordered list, removes one, and generates. `createProject` stores one row per transcript with its label and position. The duplicate wizard prefills every transcript of the source project as removable items that are copied server-side by reference, so no transcript text is downloaded to the browser and re-uploaded. `requestGeneration` drops `transcriptId` entirely. The maintainer inherits a list-shaped intake state that mirrors the context-document rows already on the page, and one copy helper shared with the review-from-project flow.
