@@ -12,6 +12,8 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
+type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>;
+
 const doc = (...paragraphs: string[]) =>
   JSON.stringify({
     type: "doc",
@@ -140,7 +142,7 @@ async function setup(options: Options = {}) {
   };
 }
 
-const rows = (t: ReturnType<typeof convexTest>, reportId: Id<"reports">) =>
+const rows = (t: TestConvex, reportId: Id<"reports">) =>
   t.run(async (ctx) =>
     ctx.db
       .query("reportEditDistance")
@@ -149,7 +151,7 @@ const rows = (t: ReturnType<typeof convexTest>, reportId: Id<"reports">) =>
   );
 
 async function editReport(
-  t: ReturnType<typeof convexTest>,
+  t: TestConvex,
   reportId: Id<"reports">
 ) {
   await t.run(async (ctx) => {
@@ -509,7 +511,7 @@ describe("seriesForReport", () => {
 
 describe("seriesForWriter", () => {
   async function seed(
-    t: ReturnType<typeof convexTest>,
+    t: TestConvex,
     reportId: Id<"reports">,
     projectId: Id<"projects">,
     writerUserId: Id<"users">,
@@ -578,7 +580,7 @@ describe("seriesForWriter", () => {
 
   it("rejects an invalid sinceDays before reading anything", async () => {
     const f = await setup();
-    for (const sinceDays of [0, -1, 4000, Number.NaN]) {
+    for (const sinceDays of [0, -1, 0.5, 4000, Number.NaN]) {
       expect(
         await errorCode(
           f.admin.query(api.reportEditDistance.seriesForWriter, {
@@ -588,6 +590,18 @@ describe("seriesForWriter", () => {
         )
       ).toBe("INVALID_INPUT");
     }
+  });
+
+  it("authenticates before it validates sinceDays", async () => {
+    const f = await setup();
+    expect(
+      await errorCode(
+        f.t.query(api.reportEditDistance.seriesForWriter, {
+          writerUserId: f.writerId,
+          sinceDays: -1,
+        })
+      )
+    ).toBe("NOT_AUTHENTICATED");
   });
 
   it("windows by sinceDays", async () => {

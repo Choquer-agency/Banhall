@@ -404,9 +404,10 @@ export const failExport = mutation({
 // ─── BNH-10 flywheel: post-edit distance ─────────────────────────────────────
 
 /**
- * Read-time post-edit distance. The formula lives in `./lib/editDistance` so
- * this query and the rows persisted at milestones (`reportEditDistance`) can
- * never drift apart.
+ * Read-time post-edit distance. The formula lives in `./lib/editDistance`, so
+ * this query and the rows persisted at milestones (`reportEditDistance`) share
+ * one implementation. The `"generated"` baseline lookup is still written out in
+ * both places; the ghost-snapshot tests are what keep those two copies aligned.
  */
 export const postEditDistance = query({
   args: {

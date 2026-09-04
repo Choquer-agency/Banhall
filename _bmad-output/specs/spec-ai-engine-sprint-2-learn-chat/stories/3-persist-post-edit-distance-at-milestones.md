@@ -156,6 +156,98 @@ deferred:
     location: >-
       convex/lib/editDistance.ts
     severity: low
+  - summary: >-
+      seriesForWriter hardcodes an admin/manager-or-self role check instead of
+      going through the repo's roleCapabilities matrix.
+    evidence: |-
+      convex/projects.ts:27 imports requireCapability from ./lib/roleCapabilities
+      and uses it two lines from the new scheduled call (:1028, :1053), and
+      shared/capabilities.ts is the recorded permission surface. The new query
+      instead reads user.role directly. The behaviour matches the intent's
+      matrix, so it was not patched, but the permission is now invisible to the
+      capability matrix and the /admin permission UI.
+    location: >-
+      convex/reportEditDistance.ts:58
+    severity: medium
+  - summary: >-
+      reportEditDistance rows carry no formula version, so the first change to
+      computeEditDistance silently mixes two incompatible scales on one trend.
+    evidence: |-
+      convex/schema.ts:1270 stores only the ped scalar; the intent contract
+      enumerates the exact columns, so adding a version column was out of scope
+      here. Once rows exist, adding one requires a backfill, and no consumer can
+      tell a v1 reading from a v2 reading.
+    location: >-
+      convex/schema.ts:1270
+    severity: medium
+  - summary: >-
+      reports.postEditDistance still returns PED to a client_review caller
+      holding a share token, exposing an internal staff-quality metric.
+    evidence: |-
+      convex/reports.ts postEditDistance accepts shareToken and returns for
+      access.kind === "client_review"; the new seriesForReport is internal-only,
+      which makes the asymmetry visible. Pre-existing behaviour untouched by this
+      story, and docs/product-domain.md does not record the exposure as reviewed.
+    location: >-
+      convex/reports.ts:411
+    severity: medium
+  - summary: >-
+      reportEditDistance is append-only with no pruning and no cleanup when a
+      report (rather than a project) is deleted.
+    evidence: |-
+      Distinct from the deleteProject cascade gap above: reportSnapshots has
+      pruneSnapshots (convex/lib/snapshots.ts:237) while the new table has no
+      retention at all, and seriesForReport returns null once the report is
+      gone, so orphaned rows become unreachable but permanent.
+    location: >-
+      convex/schema.ts:1270
+    severity: low
+  - summary: >-
+      seriesForReport caps by insertion order but presents the series ordered by
+      computedAt, so the dropped row need not be the oldest row shown.
+    evidence: |-
+      by_reportId is _creationTime-ordered, so .order("desc").take(200) keeps the
+      newest-inserted rows and the handler then re-sorts by computedAt. Today the
+      two agree; a late-draining scheduled publish or any future backfill would
+      break that. A [reportId, computedAt] index would make the cap exact.
+    location: >-
+      convex/reportEditDistance.ts:27
+    severity: low
+  - summary: >-
+      The sinceDays window is anchored with Date.now() inside a reactive query,
+      so a long-open dashboard keeps the window it had at subscription time.
+    evidence: |-
+      convex/reportEditDistance.ts computes `since` at execution time; a Convex
+      query only re-runs when its reads change, so the window does not advance
+      with wall-clock time. CAP-3 should either pass an explicit `since` or
+      refresh deliberately.
+    location: >-
+      convex/reportEditDistance.ts:80
+    severity: low
+  - summary: >-
+      The candidate-selection hook re-reads the report and re-queries the
+      snapshot it just inserted even though the reading is ped 0 by construction.
+    evidence: |-
+      convex/generations.ts:1005 calls ctx.db.get(reportId) after the insert, and
+      recordReportEditDistance then runs a baseline query, a dedupe query and the
+      full text diff on every generation, all to produce ped 0 from two copies of
+      the same candidate content. Correct but three avoidable round-trips on the
+      generation hot path.
+    location: >-
+      convex/generations.ts:1005
+    severity: low
+  - summary: >-
+      The repeat-trigger dedupe inspects only the single newest row, so
+      alternating triggers with no edit record a redundant third reading.
+    evidence: |-
+      convex/lib/editDistance.ts compares (trigger, revisionNumber, ped) against
+      by_reportId .order("desc").first(). publish then milestone then publish with
+      no edit in between writes a third row because the newest row's trigger
+      differs. This is the literal reading of the intent's repeat-trigger row; a
+      per-trigger comparison would suppress it.
+    location: >-
+      convex/lib/editDistance.ts:120
+    severity: low
 ---
 
 <intent-contract>
@@ -253,6 +345,19 @@ deferred:
   - `[low]` `[patch]` Dedupe was tested only for over-firing (repeat publish, no edit) and never for under-firing. Added publish → edit → publish asserting two `client_publish` rows with distinct `ped`, so an over-eager dedupe cannot silently flatten the series.
   - `[low]` `[patch]` `seriesForReport`'s `_creationTime` tie-break was unexercised (the ordering test used distinct `computedAt` values). Added a two-row same-`computedAt` case asserting insertion order; mutation-checked.
 
+### 2026-09-04 — Review pass (repair iteration)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 5: (high 0, medium 0, low 5)
+- defer: 8: (high 0, medium 3, low 5)
+- reject: 17: (high 0, medium 0, low 17)
+- addressed_findings:
+  - `[low]` `[patch]` Deterministic verification failed at `npx tsc -p convex/tsconfig.json`: `convex/reportEditDistance.test.ts` typed its three helpers as `ReturnType<typeof convexTest>`, which drops the schema type parameter, so `ctx.db.query("reportEditDistance").withIndex("by_reportId", ...)` resolved against `SystemIndexes`. Adopted the repo's existing `type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>` convention (`convex/transcriptDigests.test.ts:19`, `convex/generationInput.test.ts:11`). The two `convex/researchReviewMode.test.ts` module-resolution errors in the same failure were environmental: this worktree had no `node_modules`; `npm install` resolved them.
+  - `[low]` `[patch]` `computeEditDistance`'s docstring described v1 as "word-multiset similarity (Sørensen–Dice) + unchanged-paragraph ratio" while `ped` is `1 - similarity` only — the paragraph counts are reported but never folded in. Now that the number is persisted as the north-star trend, the comment states the formula exactly and says the paragraph counts are deliberately excluded.
+  - `[low]` `[patch]` `seriesForWriter` validated `sinceDays` before `requireCurrentUser`, so an unauthenticated caller could probe argument validation, and the guard (`<= 0`) accepted fractional values the error message rules out. Authentication now runs first and the guard is `Number.isInteger` + 1..3650; pinned by a new "authenticates before it validates sinceDays" test and a `0.5` case added to the invalid-input loop.
+  - `[low]` `[patch]` `recordReportEditDistance`'s catch logged `"recordReportEditDistance failed"` with the error alone, so an operator could not tell which report lost a reading — and the function returns `null` for both "no baseline" (expected) and "broken" (not). The log now carries `reportId`, `projectId` and `trigger`.
+  - `[low]` `[patch]` Two doc comments overclaimed: `seriesForReport` said it renders "without a error boundary" and did not mention the missing-report `null`; `reports.postEditDistance` claimed the two PED surfaces "can never drift apart" when the `"generated"` baseline lookup is still duplicated (DW-47) and only the ghost-snapshot tests hold them together. Both corrected to what the code actually guarantees.
+
 ## Design Notes
 
 Extraction boundary — the query keeps I/O and auth, the module keeps math:
@@ -284,35 +389,29 @@ Both series queries are bounded (`.order("desc").take(LIMIT)` then restored to o
 - `npx vitest run convex/lib/editDistance.test.ts convex/reportEditDistance.test.ts` -- expected: all new tests pass.
 - `npm test` -- expected: full backend suite green, with `convex/reports.test.ts`, `convex/snapshots.test.ts`, `convex/generationLifecycle.test.ts`, and `convex/projects.test.ts` unaffected.
 
+
 ## Auto Run Result
 
 Status: done
-Blocking condition: none
 
-**Summary.** CAP-2 implemented: the post-edit-distance math moved verbatim out of `convex/reports.ts` into a pure `convex/lib/editDistance.ts`, a `reportEditDistance` table now records one reading at each of the three milestones (candidate selection, milestone snapshot, `client_review` publish), and a new `convex/reportEditDistance.ts` exposes per-report and per-writer series. One review pass ran four layers over the full diff; no intent gaps and no spec defects surfaced.
+**Implemented change.** CAP-2: post-edit distance is now persisted at the three milestones. The read-time formula moved out of `reports.postEditDistance` into `convex/lib/editDistance.ts` (`computeEditDistance` plus the `recordReportEditDistance` write path), a `reportEditDistance` table with three indexes was added, and the three triggers hook it: candidate selection at the `createGeneratedReportArtifacts` choke point, milestone inside `createMilestoneSnapshot`, and client publish through a scheduled `internal.reportEditDistance.recordAtPublish`. `seriesForReport` and `seriesForWriter` are the bounded read surfaces CAP-3 will consume.
 
-**Note on the starting state.** Merge `740008e` (this run's baseline) dropped an earlier attempt at this story: `b5643de` is an ancestor of HEAD but none of its files survive in the tree. The story was re-planned and re-implemented from the current code; every touchpoint anchor was re-verified against HEAD before planning.
+This run was a repair iteration: the working tree from the previous session failed deterministic verification. See the second triage-log entry for what was repaired.
 
 **Files changed**
-- `convex/lib/editDistance.ts` (new) — `computeEditDistance` (the four helpers and the formula, moved verbatim) plus `recordReportEditDistance`, which loads the `generated` baseline, dedupes a repeat identical reading, resolves `writerUserId` from `project.ownerId`, inserts, and swallows every failure so telemetry can never fail its caller.
-- `convex/reportEditDistance.ts` (new) — `seriesForReport` (internal access, `null` when denied), `seriesForWriter` (admin/manager/self, validated `sinceDays`, never anonymous), both newest-capped and returned oldest-first; `recordAtPublish` internal mutation.
-- `convex/schema.ts` — `reportEditDistance` table with `by_reportId`, `by_projectId`, `by_writerUserId_and_computedAt`.
-- `convex/reports.ts` — four helpers deleted; `postEditDistance` delegates to `computeEditDistance`. Args, auth and the eight returned keys unchanged.
-- `convex/generations.ts`, `convex/snapshots.ts`, `convex/projects.ts` — one recording hook each (inline, inline, scheduled).
-- `convex/_generated/api.d.ts` — two hand-added lines registering the new module (codegen cannot run here; deferred).
-- `convex/lib/editDistance.test.ts` (9 tests), `convex/reportEditDistance.test.ts` (21 tests).
+- `convex/lib/editDistance.ts` — new: the moved formula plus the shared, never-throwing record path (baseline lookup, repeat-trigger dedupe, `writerUserId` from `project.ownerId`).
+- `convex/lib/editDistance.test.ts` — new: pure-function tests plus the never-throws Always against a stub ctx.
+- `convex/reportEditDistance.ts` — new: `seriesForReport`, `seriesForWriter`, `recordAtPublish`.
+- `convex/reportEditDistance.test.ts` — new: convex-test suite covering every I/O matrix row; this run fixed its `convexTest` typing and added two `sinceDays` cases.
+- `convex/schema.ts` — new `reportEditDistance` table and its three indexes.
+- `convex/reports.ts` — four helpers deleted; `postEditDistance` delegates to `computeEditDistance` and keeps its eight-key shape.
+- `convex/generations.ts`, `convex/snapshots.ts`, `convex/projects.ts` — one recording hook each (publish via scheduler).
+- `convex/_generated/api.d.ts` — two hand-added lines registering the new module; codegen cannot run in this worktree (DW-43).
 
-**Review findings breakdown.** 4 patched (2 medium, 2 low), 10 deferred (2 medium, 8 low), 15 rejected. Rejected findings were intent- or spec-mandated behaviour (persisting only `ped`, since CAP-2 enumerates the field list; the newest-row dedupe key; `null` vs `NOT_AUTHORIZED` across the two queries; the scheduled publish shape; the `by_projectId` index; no backfill), refactors outside the diff (reusing `lib/auth`'s role gate, sharing a baseline helper), micro-performance (recomputing a guaranteed-zero PED at candidate selection), or cosmetic (`toHaveBeenCalledTimes(1)` strictness).
+**Review findings breakdown (this pass).** 5 patches applied (all low), 8 items deferred (3 medium, 5 low), 17 rejected. No intent gap and no bad-spec loopback. The first pass on this spec applied 4 patches and deferred 11.
 
-**Follow-up review recommendation:** `true`. Patched this pass: high 0, medium 2, low 2 → 3 × 2 + 1 × 2 = 8, at or above the threshold of 5.
+**Follow-up review recommendation:** `true`. Patched this pass: high 0, medium 0, low 5 → score `3×0 + 1×5 = 5`, which meets the threshold of 5.
 
-**Verification**
-- `npx vitest run convex/lib/editDistance.test.ts convex/reportEditDistance.test.ts` — 30 passed.
-- `npm test` — 1281 passed across 125 files. One file, `convex/researchReviewMode.test.ts`, fails to load; it hardcodes `../node_modules/@convex-dev/workflow/src/component/schema.js`, and this worktree has no `node_modules` of its own. Untouched by this change and failing identically before it.
-- `PUBLIC_CONVEX_URL=http://localhost npm run check` — 3 errors, all pre-existing in `src/lib/chat/agentInternal.ts` from the same worktree `node_modules` layout. No new errors.
-- Matrix audit: all eight I/O rows are covered by tests that ran and passed.
+**Verification performed.** `bash scripts/loop-verify.sh` → rc 0 (`npx tsc -p convex/tsconfig.json --noEmit`, `npm run check`, `npm test` at 126 files / 1286 tests, plus both client-uploader harnesses at 50 and 18 passing). `npx vitest run convex/lib/editDistance.test.ts convex/reportEditDistance.test.ts` → 31 tests passing. Matrix audit: every I/O matrix row has a covering test in those two files and all of them ran.
 
-**Residual risks**
-- Two `npm test` / `npm run check` failures are environmental (this worktree has no `node_modules`); they were not reproduced against a clean checkout, only traced to hardcoded `../node_modules` paths in files this change does not touch.
-- `convex/_generated/api.d.ts` carries a hand edit because `npx convex codegen` needs a `CONVEX_DEPLOYMENT` this worktree lacks.
-- Everything else is recorded in `deferred` — most consequentially the `deleteProject` cascade gap and the bogus `ped 1` a report with unparseable content would persist.
+**Residual risks.** `convex/_generated/api.d.ts` was hand-edited and should be regenerated where a Convex deployment is configured (DW-43). The metric is now durable but has no formula-version column, so any future change to `computeEditDistance` mixes scales on one trend. The `client_publish` reading is taken at scheduler drain, so an edit landing in that window is attributed to the publish (DW-46). Unparseable report content persists a bogus `ped` rather than recording nothing (DW-45).

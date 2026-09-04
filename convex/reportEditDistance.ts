@@ -12,9 +12,10 @@ export const SERIES_FOR_REPORT_LIMIT = 200;
 export const SERIES_FOR_WRITER_LIMIT = 500;
 
 /**
- * Every recorded reading for one report, oldest-first. Returns `null` (never
- * throws) for a caller without internal access to the report's project, so the
- * dashboard can render an empty state without a error boundary.
+ * Every recorded reading for one report, oldest-first. Returns `null` — rather
+ * than throwing — for a missing report or a caller without internal access to
+ * the report's project, so the dashboard can render an empty state without an
+ * error boundary.
  */
 export const seriesForReport = query({
   args: { reportId: v.id("reports") },
@@ -61,20 +62,23 @@ export const seriesForWriter = query({
     sinceDays: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    if (args.sinceDays !== undefined) {
-      if (
-        !Number.isFinite(args.sinceDays) ||
-        args.sinceDays <= 0 ||
-        args.sinceDays > 3650
-      ) {
-        domainError("INVALID_INPUT", "sinceDays must be between 1 and 3650");
-      }
-    }
+    // Authenticate first: an ineligible caller must not be able to probe this
+    // query's argument validation.
     const user = await requireCurrentUser(ctx);
     const elevated = user.role === "admin" || user.role === "manager";
     const isSelf = user._id === args.writerUserId;
     if (user.isAnonymous === true || !user.role || (!elevated && !isSelf)) {
       domainError("NOT_AUTHORIZED", "Not allowed to read this writer's series");
+    }
+
+    if (args.sinceDays !== undefined) {
+      if (
+        !Number.isInteger(args.sinceDays) ||
+        args.sinceDays < 1 ||
+        args.sinceDays > 3650
+      ) {
+        domainError("INVALID_INPUT", "sinceDays must be between 1 and 3650");
+      }
     }
 
     const since =

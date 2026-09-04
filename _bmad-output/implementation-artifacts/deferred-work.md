@@ -333,3 +333,91 @@ source_spec: `2-de-identification-before-firm-wide-knowledge.md`
 severity: medium
 reason: AGENTS.md requires contract-level transitions and permissions to be recorded in docs/product-domain.md; that file still only states "Personal digests cannot be published globally" and says nothing about de-identification at the firm-wide boundary or about publication now requiring an administrator privacy attestation. docs/the-brain.md still describes Brain ingestion without the scrub step. Out of this story because its acceptance criteria restrict the diff to files in the Execution task list, which names no documentation file.
 status: open
+
+### DW-43: convex/_generated/api.d.ts was hand-edited to register the new reportEditDistance module because codegen cannot run in this worktree.
+origin: spec-deferred 0f61d99a0a09
+location: convex/_generated/api.d.ts:106
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: `npx convex codegen` exits with "No CONVEX_DEPLOYMENT set, run `npx convex dev` to configure a Convex project". The two lines added (the `import type * as reportEditDistance from "../reportEditDistance.js";` at api.d.ts:106 and the `reportEditDistance: typeof reportEditDistance;` map entry at :226) match codegen's shape and sorted position, but the file should be regenerated on a machine with a deployment configured to confirm it byte-for-byte. `convex/lib/editDistance.ts` is deliberately absent from api.d.ts: it exports no Convex functions, matching how codegen already omits convex/lib/deidentify.ts.
+status: open
+
+### DW-44: deleteProject cascades to transcripts, reports, comments, generations and pdReviews but not to reportEditDistance, so a deleted project's readings stay in a writer's series forever.
+origin: spec-deferred df380f2085de
+location: convex/projects.ts:1106
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: medium
+reason: convex/projects.ts:1106 enumerates the cascade; reportEditDistance is absent. seriesForWriter keys on writerUserId, not project access, so orphaned rows stay readable. Not patched because the same cascade already omits reportSnapshots, reportProvenance, writerReviews, candidateScores and modelSelections -- a house-wide retention gap -- and the intent restricts convex/projects.ts to the scheduled publish call.
+status: open
+
+### DW-45: A report whose content JSON fails to parse persists a bogus ped 1 reading instead of recording nothing.
+origin: spec-deferred f8ab36ad866f
+location: convex/lib/editDistance.ts
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: medium
+reason: extractPlainText (convex/lib/reportEdits.ts:168) swallows JSON.parse failures and returns "". recordReportEditDistance then computes computeEditDistance(draft, "") = ped 1 and writes it as a legitimate "fully rewritten" point; if both sides fail it writes ped 0. The read-time query has always had the same blind spot, but persistence makes the bogus point permanent in the trend.
+status: open
+
+### DW-46: The client_publish reading is taken by a scheduled mutation, so a report edited between publishForReview and the drain records post-publish content and revisionNumber.
+origin: spec-deferred 8bd581101280
+location: convex/reportEditDistance.ts recordAtPublish
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: convex/projects.ts schedules internal.reportEditDistance.recordAtPublish with only reportId, and recordAtPublish re-reads the report at drain time. The intent (touchpoints CAP-2) mandates "add a scheduled internal mutation call only" in this file, so passing and enforcing a revision is a change to the contract, not a patch.
+status: open
+
+### DW-47: The generated-baseline lookup is duplicated in two files and filters reason over the whole by_reportId range instead of using a [reportId, reason] index.
+origin: spec-deferred 1672ee0e4699
+location: convex/lib/editDistance.ts
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: convex/reports.ts postEditDistance and convex/lib/editDistance.ts recordReportEditDistance both run withIndex("by_reportId").filter(reason === "generated").first(). The duplication is now pinned by a test on both surfaces, but a shared findGeneratedBaseline helper plus a compound index would remove the range scan from two mutation paths. Pre-existing in reports.ts; persistence puts it on two more write paths.
+status: open
+
+### DW-48: Reports that already hold a generated baseline start with an empty series and can never recover their candidate-selection origin point.
+origin: spec-deferred 27fd0c6fbcba
+location: convex/reportEditDistance.ts
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: recordReportEditDistance only runs at new triggers, so existing reports get their first row at the next milestone or publish. The data to seed the trend exists (snapshotIdsToDelete never prunes reason:"generated"), so a one-shot internal backfill would work; the intent explicitly excludes backfill from this story.
+status: open
+
+### DW-49: docs/system-map.md still labels reports.postEditDistance a dead end that is "never stored".
+origin: spec-deferred 6c8361a5abe1
+location: docs/system-map.md:359
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: docs/system-map.md:359 reads `PED[reports.postEditDistance query] -.->|DEAD-END: computed on read, never stored, no UI caller| NW2((no reader))`. Half of that is now false. Left for CAP-3, which adds the UI reader and makes the other half false too, so the line can be rewritten once instead of twice.
+status: open
+
+### DW-50: Neither restoreSnapshot nor finalizeProject takes a reading, so a restore and every round of client-review rework are invisible to the series.
+origin: spec-deferred 02963021049d
+location: convex/schema.ts reportEditDistance.trigger
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: The trigger union stops at client_publish. snapshots.restoreSnapshot can move content arbitrarily far from the AI draft and the next recorded reading jumps with no row explaining why; projects.finalizeProject is where the writer has actually stopped editing. CAP-2's success criterion names only the three implemented triggers, so these are extensions.
+status: open
+
+### DW-51: Both series queries truncate silently at their caps with no cursor or truncated flag, so a long-lived report or writer shows a partial window presented as the full history.
+origin: spec-deferred ca55a403acc7
+location: convex/reportEditDistance.ts
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: SERIES_FOR_REPORT_LIMIT 200 and SERIES_FOR_WRITER_LIMIT 500 keep the newest readings (tested), but neither query accepts a cursor nor reports that it dropped rows; for seriesForReport the dropped row is the ped-0 candidate_selection origin point, so a capped trend appears to start mid-flight. Paging belongs to CAP-3, which owns the dashboard.
+status: open
+
+### DW-52: Only the selectReportCandidate candidate path is driven end to end; the single-candidate and iterative-approve paths are covered structurally, not by test.
+origin: spec-deferred deae0a6ac7eb
+location: convex/generations.ts:1005
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: The recording hook sits in createGeneratedReportArtifacts, the sole production insert("reports") in convex/generations.ts, and all three callers (:1155 auto-select, :2051 iterative approve, :2778 selectReportCandidate) route through it. Only the third is exercised by convex/reportEditDistance.test.ts, and nothing pins the invariant that no other path inserts a reason:"generated" snapshot for a report.
+status: open
+
+### DW-53: writerUserId is frozen at record time, so a mid-project owner change splits one report's series across two writers with no marker.
+origin: spec-deferred 100d9c0baf83
+location: convex/lib/editDistance.ts
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: recordReportEditDistance resolves writerUserId from project.ownerId at insert time (correct per PSOS-07). Nothing documents or tests what a later ownership transfer does to either writer's trend, and a writer reading their own series still sees reportId/projectId for projects since reassigned away from them, with no access re-check.
+status: open

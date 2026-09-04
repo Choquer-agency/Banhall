@@ -45,10 +45,12 @@ export type EditDistanceResult = {
  * (regulatory-writing shops track exactly this; falling PED over time = better
  * drafts, >40-50% sustained = fix prompts/retrieval, not writers).
  *
- * v1 is deliberately cheap and order-insensitive: word-multiset similarity
- * (Sørensen–Dice) + unchanged-paragraph ratio against the "generated" baseline
- * snapshot frozen at candidate selection. It trends correctly; it does not
- * attribute edits to positions.
+ * v1 is deliberately cheap and order-insensitive: `ped` is `1 -` the
+ * word-multiset (Sørensen–Dice) similarity against the "generated" baseline
+ * snapshot frozen at candidate selection. The unchanged-paragraph counts are
+ * reported alongside it for context and are deliberately NOT folded into
+ * `ped` — the persisted number is the word-similarity term only. It trends
+ * correctly; it does not attribute edits to positions.
  */
 export function computeEditDistance(
   draftText: string,
@@ -146,7 +148,12 @@ export async function recordReportEditDistance(
       trigger,
     });
   } catch (error) {
-    console.error("recordReportEditDistance failed", error);
+    console.error("recordReportEditDistance failed", {
+      reportId: report._id,
+      projectId: report.projectId,
+      trigger,
+      error,
+    });
     return null;
   }
 }
