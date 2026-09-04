@@ -9,6 +9,7 @@ verify: [npx vitest run convex/lib/snapshots.test.ts convex/reports.test.ts conv
 done_when: ["rg -q 'sourceTranscriptIds' convex/generations.ts convex/reports.ts convex/lib/snapshots.ts convex/projects.ts", test -f convex/lib/snapshots.test.ts, test -f convex/reports.test.ts, "rg -q 'sourceTranscriptIds' convex/lib/snapshots.test.ts", npx vitest run convex/lib/snapshots.test.ts convex/reports.test.ts]
 title: "Reports, snapshots and provenance rows record the set of transcripts beside sourceTranscriptId"
 plan: 20260903-client-sync
+deferred: ["tests/snapshots.test.ts still asserts the pre-widen snapshotAuditFields shape with toEqual and would fail if bun tests were ever wired into a gate; the ticket says leave it as is and it is unreachable from every npm script (vitest.config.ts:19)"]
 updated: "2026-09-03T21:17:39.898Z"
 ---
 ## Intent
