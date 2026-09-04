@@ -173,3 +173,107 @@ source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.m
 severity: medium
 reason: All three review sessions for story 12 stalled on the Claude Fable usage limit (12-review-1 after 50 min and 1.08M weighted tokens with partial patches kept; 12-review-2 and 12-review-3 at 0 tokens). The dev commit 8259869 passed the verify gate and the dev pass's inline review, but the policy's separate review stage did not run to completion. Re-run: `claude --model claude-fable-5-1 "/bmad-build-auto <spec path>"` on the done spec, or a bmad-loop review-only re-drive, after the limit resets on 2026-09-03 13:00 America/Vancouver.
 status: open
+
+### DW-23: restoreSnapshot has no positive-path test asserting the pre_restore checkpoint's own fields or the provenance/lineage rewrite it performs.
+origin: spec-deferred 001651b8506b
+location: convex/snapshots.test.ts
+source_spec: `1-orchestration-seam-tests.md`
+severity: medium
+reason: convex/snapshots.ts:286-307 writes a pre_restore snapshot with label "Before restore" and createdByRole "system", then patches the report's provenanceId/generationId/sourceTranscriptId(s)/contentHash from snapshotAuditFields(snapshot). convex/comments.test.ts:210 checks only that a pre_restore row carries the accepted content, and convex/snapshots.test.ts:112 checks only the transcript set. Restoring a legacy snapshot that lacks a generationId would silently clear the report's provenance with no test failing.
+status: open
+
+### DW-24: completeCandidateRun's ghost-after-terminal branch is covered only for a completed generation that already has a report row.
+origin: spec-deferred 1a30854a6bbb
+location: convex/generations.ts:1026
+source_spec: `1-orchestration-seam-tests.md`
+severity: medium
+reason: convex/generations.ts:1026-1059 terminalizes a late ghost run and inserts the comparison snapshot only when generation.status === "completed" and a report exists. convex/generationAttribution.test.ts:1788 covers that case and convex/generationRecovery.test.ts:749-797 covers a superseded generation (run terminalized, no snapshot). Still uncovered: the completed-but-no-report sub-case, and a ghost completion carrying an error, which patches the run to "failed" and stores the truncated error.
+status: open
+
+### DW-25: createMilestoneSnapshot and pruneSnapshots retention have no direct test coverage.
+origin: spec-deferred 966f0e5a244b
+location: convex/snapshots.ts:205
+source_spec: `1-orchestration-seam-tests.md`
+severity: low
+reason: convex/snapshots.ts:205 (createMilestoneSnapshot: R-number parsing via milestoneKeyFor, canonical label mapping, per-project duplicate rejection, stale-revision fence) and convex/lib/snapshots.ts:237 (pruneSnapshots, called on both create and restore) are exercised only incidentally. No test asserts the retention thinning rule or the milestone label contract.
+status: open
+
+### DW-26: The ConvexError domain-code assertion helper is reimplemented privately in eight convex test files instead of living in a shared test util.
+origin: spec-deferred ee471a3f7081
+location: convex/
+source_spec: `1-orchestration-seam-tests.md`
+severity: low
+reason: The same "(error as { data?: unknown }).data" unwrapping appears in brainFeedback.test.ts, comments.test.ts, chatProposals.test.ts, generationInput.test.ts, projects.test.ts, reportAuthz.test.ts, reviews.test.ts and now generationLifecycle.test.ts, each with slightly different strictness. Extracting one helper would make error-code assertions uniformly strict.
+status: open
+
+### DW-27: provenanceId propagation and createGeneratedReportArtifacts idempotency/version bumping are untested.
+origin: spec-deferred 0c99a68de5a6
+location: convex/generations.ts
+source_spec: `1-orchestration-seam-tests.md`
+severity: low
+reason: No test passes provenanceId to completeCandidateRun, so its flow into reportCandidates and onward into the report and its "generated" snapshot is unverified, as is listSnapshots' "unavailable_legacy" fallback that depends on it. createGeneratedReportArtifacts' existing-report short-circuit and its version: (latest?.version ?? 0) + 1 increment are never exercised because every fixture starts with no report.
+status: open
+
+### DW-28: approveSectionDraft's generation-state, run-state and next-section-ready guards are untested repo-wide.
+origin: spec-deferred ede3e2c5cf12
+location: convex/generations.ts:1934
+source_spec: `1-orchestration-seam-tests.md`
+severity: medium
+reason: convex/generations.ts:1934 ("No section is awaiting review right now"), :1938 ("This section is not awaiting review") and :1994 ("The next section is not ready to draft") are the three INVALID_STATE guards the new suite does not drive; grepping convex/*.test.ts for those messages returns nothing. Only the earlier-sections-unapproved guard, the attempt fence and the empty-text guard are covered. A regression that dropped any of the three would let an approval land on a generation that is not awaiting input, on a section that is not awaiting review, or double-schedule the next section.
+status: open
+
+### DW-29: The live-ghost failure branch of completeCandidateRun has no test.
+origin: spec-deferred a15af4de892b
+location: convex/generations.ts:1101
+source_spec: `1-orchestration-seam-tests.md`
+severity: low
+reason: convex/generations.ts:1101-1104 patches a ghost run under a still-live iterative generation to "failed" and appends the "One-shot comparison draft failed" progress line. The new "records a ghost draft without advancing a live iterative generation" test drives only the success line, and no other suite seeds a failing ghost under a live generation. Distinct from DW-24, which is the ghost-after-terminal branch.
+status: open
+
+### DW-30: sectionEditEvents' skip, zero-word and 6000-character truncation branches are untested.
+origin: spec-deferred 1385b8474226
+location: convex/generations.ts
+source_spec: `1-orchestration-seam-tests.md`
+severity: low
+reason: approveSectionDraft writes a sectionEditEvents row only when run.draftText exists, computes editRatio 0 when the draft has no words, and caps draftText/approvedText/ghostText at 6000 characters. Every fixture in convex/generationLifecycle.test.ts seeds a short non-empty draftText, so the no-draft skip (no row written), the zero-word ratio and all three caps are unexercised.
+status: open
+
+### DW-31: The ConvexError domain-code assertion helper is reimplemented privately in eight convex test files instead of living in a shared test util.
+origin: spec-deferred f7720b162ff9
+location: convex/
+source_spec: `1-orchestration-seam-tests.md`
+severity: low
+reason: The same "(error as { data?: unknown }).data" unwrapping appears in brainFeedback.test.ts, comments.test.ts, chatProposals.test.ts, generationInput.test.ts, projects.test.ts, reportAuthz.test.ts, reviews.test.ts and now generationLifecycle.test.ts, each with slightly different strictness. Extracting one helper would make error-code assertions uniformly strict.
+status: open
+
+### DW-32: approveSectionDraft's generation-state, run-state and next-section-ready guards are untested repo-wide.
+origin: spec-deferred 9a886c2b9cdc
+location: convex/generations.ts:1934
+source_spec: `1-orchestration-seam-tests.md`
+severity: medium
+reason: convex/generations.ts:1934 ("No section is awaiting review right now"), :1938 ("This section is not awaiting review") and :1994 ("The next section is not ready to draft") are the three INVALID_STATE guards the new suite does not drive; grepping convex/*.test.ts for those messages returns nothing. Only the earlier-sections-unapproved guard, the attempt fence and the empty-text guard are covered. A regression that dropped any of the three would let an approval land on a generation that is not awaiting input, on a section that is not awaiting review, or double-schedule the next section.
+status: open
+
+### DW-33: The live-ghost failure branch of completeCandidateRun has no test.
+origin: spec-deferred a8cad920b794
+location: convex/generations.ts:1101
+source_spec: `1-orchestration-seam-tests.md`
+severity: low
+reason: convex/generations.ts:1101-1104 patches a ghost run under a still-live iterative generation to "failed" and appends the "One-shot comparison draft failed" progress line. The new "records a ghost draft without advancing a live iterative generation" test drives only the success line, and no other suite seeds a failing ghost under a live generation. Distinct from DW-24, which is the ghost-after-terminal branch.
+status: open
+
+### DW-34: sectionEditEvents' skip, zero-word and 6000-character truncation branches are untested.
+origin: spec-deferred 279977ac106e
+location: convex/generations.ts
+source_spec: `1-orchestration-seam-tests.md`
+severity: low
+reason: approveSectionDraft writes a sectionEditEvents row only when run.draftText exists, computes editRatio 0 when the draft has no words, and caps draftText/approvedText/ghostText at 6000 characters. Every fixture in convex/generationLifecycle.test.ts seeds a short non-empty draftText, so the no-draft skip (no row written), the zero-word ratio and all three caps are unexercised.
+status: open
+
+### DW-35: Follow-up review still recommended for 1 after the damping cap was spent
+origin: review-budget-followup
+location: n/a
+source_spec: `1-orchestration-seam-tests.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-065146-9a65; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
