@@ -96,7 +96,6 @@ describe("reserveGeneration freezes the project's transcripts", () => {
     ]);
     const generationId = await authed.mutation(api.generations.requestGeneration, {
       projectId,
-      transcriptId: transcriptIds[0],
     });
     const generation = await t.run((ctx) => ctx.db.get(generationId));
     expect(generation).toMatchObject({
@@ -206,8 +205,8 @@ describe("reserveGeneration freezes the project's transcripts", () => {
   });
 });
 
-describe("requestGeneration transcriptId is optional and only checked (AC5)", () => {
-  it("reserves without a transcriptId", async () => {
+describe("requestGeneration reads the project's transcripts (AC5)", () => {
+  it("reserves from the project alone", async () => {
     const { t, authed, projectId, transcriptIds } = await setup([
       { content: "Interview body" },
     ]);
@@ -216,39 +215,6 @@ describe("requestGeneration transcriptId is optional and only checked (AC5)", ()
     });
     const generation = await t.run((ctx) => ctx.db.get(generationId));
     expect(generation?.transcriptIds).toEqual(transcriptIds);
-  });
-
-  it("rejects a transcript belonging to another project", async () => {
-    const { t, authed, projectId } = await setup([{ content: "Interview body" }]);
-    const foreignId = await t.run(async (ctx) => {
-      const otherUser = await ctx.db.insert("users", {
-        authId: "gen-input-other",
-        role: "writer",
-      });
-      const now = Date.now();
-      const otherProject = await ctx.db.insert("projects", {
-        title: "Other",
-        clientName: "Other client",
-        status: "draft",
-        createdBy: otherUser,
-        shareToken: "gen-input-other-token",
-        createdAt: now,
-        updatedAt: now,
-      });
-      return await ctx.db.insert("transcripts", {
-        projectId: otherProject,
-        content: "Foreign body",
-        createdAt: now,
-      });
-    });
-    expect(
-      await errorCode(() =>
-        authed.mutation(api.generations.requestGeneration, {
-          projectId,
-          transcriptId: foreignId,
-        })
-      )
-    ).toBe("TRANSCRIPT_PROJECT_MISMATCH");
   });
 });
 

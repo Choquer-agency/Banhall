@@ -1,5 +1,6 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { sha256 } from "./contracts";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -10,7 +11,8 @@ export const MAX_TRANSCRIPTS_PER_PROJECT = 20;
  * Combined character cap across a project's transcripts. `reserveGeneration`
  * freezes every transcript into a `generationSources` row inside one mutation,
  * and Convex bounds the bytes a transaction may write; 20 rows at the browser's
- * per-file cap would approach that bound. Writers enforce it in transcripts-3.
+ * per-file cap would approach that bound. `projects.createProject` enforces it
+ * before it writes any row.
  */
 export const MAX_TOTAL_TRANSCRIPT_CHARS = 2_000_000;
 
@@ -170,4 +172,49 @@ export function describeTranscriptInput(parts: TranscriptPart[]): string {
   return parts.length === 1
     ? `Read frozen interview transcript — ${count} words.`
     : `Read ${parts.length} frozen interview transcripts — ${count} words.`;
+}
+
+/**
+ * Writes one transcript row with its hash, in list position. Empty text is not
+ * a transcript: the row is skipped and `null` comes back, so a project created
+ * from context documents alone carries no transcript rows at all.
+ */
+export async function insertTranscriptRow(
+  ctx: MutationCtx,
+  args: {
+    projectId: Id<"projects">;
+    content: string;
+    label?: string;
+    position: number;
+  }
+): Promise<Id<"transcripts"> | null> {
+  if (args.content.trim() === "") return null;
+  return await ctx.db.insert("transcripts", {
+    projectId: args.projectId,
+    content: args.content,
+    label: args.label ?? DEFAULT_TRANSCRIPT_LABEL,
+    position: args.position,
+    contentHash: await sha256(args.content),
+    createdAt: Date.now(),
+  });
+}
+
+/**
+ * Copies an existing transcript into another project by reference: the text
+ * never leaves the backend, so the duplicate wizard does not download and
+ * re-upload a megabyte of interview.
+ */
+export async function copyTranscriptRow(
+  ctx: MutationCtx,
+  source: Doc<"transcripts">,
+  args: { projectId: Id<"projects">; position: number }
+): Promise<Id<"transcripts">> {
+  return await ctx.db.insert("transcripts", {
+    projectId: args.projectId,
+    content: source.content,
+    label: transcriptLabel(source),
+    position: args.position,
+    contentHash: source.contentHash ?? (await sha256(source.content)),
+    createdAt: Date.now(),
+  });
 }

@@ -43,7 +43,7 @@ describe("project creator ownership", () => {
     const result = await caller.mutation(api.projects.createProject, {
       title: `${actor.role} project`,
       clientName: "Creator-owned client",
-      transcriptContent: "Interview notes",
+      transcripts: [{ content: "Interview notes" }],
     });
     const stored = await t.run(async (ctx) => {
       const project = await ctx.db.get(result.projectId);
@@ -73,7 +73,7 @@ describe("project creator ownership", () => {
       t.withIdentity({ subject: "create-admin" }).mutation(api.projects.createProject, {
         title: "Stale admin form",
         clientName: "Creator-owned client",
-        transcriptContent: "Interview notes",
+        transcripts: [{ content: "Interview notes" }],
         ownerId: ids["create-manager"],
       })
     ).rejects.toThrow(/initially owned by the person creating them|NOT_AUTHORIZED/i);

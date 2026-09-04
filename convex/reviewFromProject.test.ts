@@ -35,7 +35,7 @@ async function setup() {
     {
       title: "Alpha PD",
       clientName: "Acme Robotics",
-      transcriptContent: "Interview notes about the robot arm.",
+      transcripts: [{ content: "Interview notes about the robot arm." }],
     }
   );
   return { t, asWriter, writerId, sourceProjectId };

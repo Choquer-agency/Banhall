@@ -502,10 +502,6 @@ async function reserveGeneration(
 export const requestGeneration = mutation({
   args: {
     projectId: v.id("projects"),
-    // Ignored beyond a project-membership check: reserveGeneration reads the
-    // project's whole transcript set. Kept so stale clients keep working;
-    // transcripts-3 removes it with its callers.
-    transcriptId: v.optional(v.id("transcripts")),
     lengthTarget: v.optional(lengthTargetValidator),
     candidateMode: v.optional(candidateModeValidator),
     singleModelId: v.optional(singleModelIdValidator),
@@ -514,16 +510,6 @@ export const requestGeneration = mutation({
   },
   handler: async (ctx, args) => {
     const { project, user } = await requireInternalProjectAccess(ctx, args.projectId);
-    if (args.transcriptId) {
-      const transcript = await ctx.db.get(args.transcriptId);
-      if (!transcript) domainError("NOT_FOUND", "Transcript not found");
-      if (transcript.projectId !== project._id) {
-        domainError(
-          "TRANSCRIPT_PROJECT_MISMATCH",
-          "Transcript does not belong to this project"
-        );
-      }
-    }
     const latestReport = await ctx.db
       .query("reports")
       .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
