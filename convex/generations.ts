@@ -32,7 +32,7 @@ import {
 } from "../shared/generationModels";
 import { randomComparePair, resolveCompareModels } from "./ai/model";
 import { findActiveGeneration } from "./lib/activeGeneration";
-import { defaultModelId } from "./appSettings";
+import { analyzerContextBudget, defaultModelId } from "./appSettings";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { sectionMetrics } from "./lib/lineLimits";
 import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
@@ -867,12 +867,56 @@ export const getGenerationInput = internalQuery({
           const separator = source.label.indexOf(":");
           const category = separator >= 0 ? source.label.slice(0, separator) : "other";
           return {
+            sourceId: source._id,
             category,
             fileName: separator >= 0 ? source.label.slice(separator + 1) : source.label,
             content: source.content,
           };
         }),
+      // Analyzer context budget as configured right now. Each candidate
+      // re-reads this query, so an admin retune mid-generation does reach
+      // later candidates and can disagree with the budget already recorded on
+      // the source rows — the recorded report describes the run that wrote it.
+      contextBudget: await analyzerContextBudget(ctx),
     };
+  },
+});
+
+/**
+ * Record what the analyzer's context budget did with each frozen source row
+ * (convex/ai/trustedContext.ts). Additive: capture-time facts (`content`,
+ * `contentHash`, `truncated`, `originalLength`) are never rewritten.
+ */
+export const recordContextBudget = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    budgetTokens: v.number(),
+    applied: v.array(
+      v.object({
+        sourceId: v.id("generationSources"),
+        included: v.boolean(),
+        includedLength: v.number(),
+        truncated: v.boolean(),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    for (const entry of args.applied) {
+      const row = await ctx.db.get(entry.sourceId);
+      // A row deleted mid-generation, or an id from another generation, is
+      // skipped rather than thrown: the budget report is telemetry, and
+      // failing here would kill an otherwise-good generation.
+      if (!row || row.generationId !== args.generationId) continue;
+      await ctx.db.patch(entry.sourceId, {
+        contextBudget: {
+          budgetTokens: args.budgetTokens,
+          included: entry.included,
+          includedLength: entry.includedLength,
+          truncated: entry.truncated,
+        },
+      });
+    }
+    return null;
   },
 });
 

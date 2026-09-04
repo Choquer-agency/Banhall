@@ -10,8 +10,16 @@ import { requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { MODEL, modelById } from "../shared/generationModels";
 import type { Id } from "./_generated/dataModel";
+import {
+  DEFAULT_CONTEXT_BUDGET,
+  type ContextBudget,
+} from "./ai/trustedContext";
 
 const DEFAULT_MODEL_KEY = "defaultModel";
+const ANALYZER_CONTEXT_BUDGET_KEY = "ai.analyzerContextBudgetTokens";
+const ANALYZER_TRANSCRIPT_BUDGET_KEY = "ai.analyzerTranscriptBudgetTokens";
+const ANALYZER_DOCUMENT_BUDGET_KEY = "ai.analyzerDocumentBudgetTokens";
+const ANALYZER_MAX_DOCUMENTS_KEY = "ai.analyzerMaxContextDocuments";
 const MY_WORK_KILL_SWITCH_KEY = "myWork.killSwitch";
 const MY_WORK_DEFAULT_VIEW_KEY = "myWork.defaultView";
 const MY_WORK_READINESS_KEY = "myWork.readiness";
@@ -53,6 +61,49 @@ export async function defaultModelId(ctx: QueryCtx | MutationCtx): Promise<strin
   // A stale setting (model removed from the registry) falls back to the
   // registry default rather than breaking generations.
   return row && modelById(row.value) ? row.value : MODEL;
+}
+
+/**
+ * Admin-tunable analyzer context budget. Each field is read independently and
+ * falls back to its module constant when the row is absent, unparseable or
+ * non-positive — same rule as `defaultModelId`: a stale or fat-fingered
+ * setting must never break generations.
+ */
+export async function analyzerContextBudget(
+  ctx: QueryCtx | MutationCtx
+): Promise<ContextBudget> {
+  const readPositiveInt = async (key: string, fallback: number) => {
+    const row = await ctx.db
+      .query("appSettings")
+      .withIndex("by_key", (q) => q.eq("key", key))
+      .unique();
+    if (!row) return fallback;
+    // Plain decimal digits only: Number() would happily read "1e9" or
+    // "0x2710" as a valid positive integer that means nothing like what an
+    // admin typed.
+    const raw = row.value.trim();
+    if (!/^\d+$/.test(raw)) return fallback;
+    const parsed = Number(raw);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+  };
+  return {
+    totalTokens: await readPositiveInt(
+      ANALYZER_CONTEXT_BUDGET_KEY,
+      DEFAULT_CONTEXT_BUDGET.totalTokens
+    ),
+    transcriptTokens: await readPositiveInt(
+      ANALYZER_TRANSCRIPT_BUDGET_KEY,
+      DEFAULT_CONTEXT_BUDGET.transcriptTokens
+    ),
+    perDocumentTokens: await readPositiveInt(
+      ANALYZER_DOCUMENT_BUDGET_KEY,
+      DEFAULT_CONTEXT_BUDGET.perDocumentTokens
+    ),
+    maxDocuments: await readPositiveInt(
+      ANALYZER_MAX_DOCUMENTS_KEY,
+      DEFAULT_CONTEXT_BUDGET.maxDocuments
+    ),
+  };
 }
 
 export const getDefaultModel = internalQuery({
