@@ -6,7 +6,7 @@ deps: [workspace-1-gate-on-for-everyone]
 touches: [src, docs]
 risky: []
 verify: [npx vitest run src/lib/dashboard/workspaceExperience.test.ts, npx vitest run --config vitest.component.config.ts --no-file-parallelism src/lib/workspace/WorkspaceGate.component.test.ts src/routes/workspaceRoutes.component.test.ts]
-done_when: ["! rg -q 'localDevelopment' src/lib/dashboard/workspaceExperience.ts src/lib/workspace/WorkspaceGate.svelte", "! rg -q 'resolveWorkspaceExperience' src/", "! rg -q 'from \\\"\\\\$app/environment\\\"' src/lib/workspace/WorkspaceGate.svelte", "rg -q '2026-09-03' docs/product-domain.md", npx vitest run src/lib/dashboard/workspaceExperience.test.ts]
+done_when: ["! rg -q 'localDevelopment' src/lib/dashboard/workspaceExperience.ts src/lib/workspace/WorkspaceGate.svelte", "! rg -q 'resolveWorkspaceExperience' src/", "! rg -q 'from \"\\\\$app/environment\"' src/lib/workspace/WorkspaceGate.svelte", "rg -q '2026-09-03' docs/product-domain.md", npx vitest run src/lib/dashboard/workspaceExperience.test.ts]
 title: "Delete the dead localDevelopment branch and the callerless resolveWorkspaceExperience; retire \"not flagged\" cases from workspace tests; record the domain amendment"
 plan: 20260903-client-sync
 updated: "2026-09-03T21:17:39.899Z"
