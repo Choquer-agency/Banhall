@@ -6,19 +6,19 @@ Loading svelte-check in workspace: /Users/johnnynguyen/Documents/Repos/Banhall/.
 Getting Svelte diagnostics...
 
 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11/src/lib/chat/agentInternal.ts:16:8
-Error: Cannot find module '../../../node_modules/@convex-dev/agent/dist/deltas.js' or its corresponding type declarations. 
+Error: Cannot find module '../../../node_modules/@convex-dev/agent/dist/deltas.js' or its corresponding type declarations.
   statusFromStreamStatus,
 } from "../../../node_modules/@convex-dev/agent/dist/deltas.js";
 export { combineUIMessages } from "../../../node_modules/@convex-dev/agent/dist/UIMessages.js";
 
 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11/src/lib/chat/agentInternal.ts:17:35
-Error: Cannot find module '../../../node_modules/@convex-dev/agent/dist/UIMessages.js' or its corresponding type declarations. 
+Error: Cannot find module '../../../node_modules/@convex-dev/agent/dist/UIMessages.js' or its corresponding type declarations.
 } from "../../../node_modules/@convex-dev/agent/dist/deltas.js";
 export { combineUIMessages } from "../../../node_modules/@convex-dev/agent/dist/UIMessages.js";
 export { sorted } from "../../../node_modules/@convex-dev/agent/dist/shared.js";
 
 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11/src/lib/chat/agentInternal.ts:18:24
-Error: Cannot find module '../../../node_modules/@convex-dev/agent/dist/shared.js' or its corresponding type declarations. 
+Error: Cannot find module '../../../node_modules/@convex-dev/agent/dist/shared.js' or its corresponding type declarations.
 export { combineUIMessages } from "../../../node_modules/@convex-dev/agent/dist/UIMessages.js";
 export { sorted } from "../../../node_modules/@convex-dev/agent/dist/shared.js";
 export type { UIMessage } from "@convex-dev/agent";

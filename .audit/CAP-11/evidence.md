@@ -327,3 +327,5 @@ Command: `npm test`. Exit 0. Output: `.audit/CAP-11/logs/isolated-full-retry.log
 ```
 
 Final verification uses only worker-local cloned dependencies. All acceptance criteria and matrix rows pass; CAP-8 context assertions remain intact. Remaining caveats are the pre-existing intermittent source-scan timeout and documented production transaction-size limits.
+
+Archived command logs retain their substantive output; trailing whitespace and extra terminal blank lines were normalized for Git whitespace checks. Story frontmatter was parsed with Ruby YAML and validated as done, with an empty deferred list and follow-up recommendation false.

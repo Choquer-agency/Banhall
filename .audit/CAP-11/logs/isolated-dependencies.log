@@ -8,7 +8,7 @@ vitest/package.json: independent inode=True; sha256=caa41f04799bd42f3cfd100c4282
 package-lock.json: d4213ef7b50aa850ea095dbe6c65b35306ae7589a90073c0e377147421a33dac
 /Users/johnnynguyen/Documents/Repos/Banhall/package-lock.json: d4213ef7b50aa850ea095dbe6c65b35306ae7589a90073c0e377147421a33dac
 Revision: 495b3bbf828fbc52381b557378bc7b0b1cd1a2cf
-Production diff: 
+Production diff:
 @convex-dev/agent 0.6.4 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11/node_modules/@convex-dev/agent/package.json
 convex 1.42.3 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11/node_modules/convex/package.json
 svelte-check 4.7.3 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11/node_modules/svelte-check/package.json
