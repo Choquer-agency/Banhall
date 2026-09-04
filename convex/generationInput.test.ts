@@ -6,6 +6,7 @@ import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
 import { sha256 } from "./lib/contracts";
 import { mapClaimToPart } from "./lib/transcripts";
+import { DEFAULT_CONTEXT_BUDGET } from "./ai/trustedContext";
 
 const modules = import.meta.glob("./**/*.ts");
 type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -371,5 +372,171 @@ describe("claims cite the part they came from (AC4)", () => {
     });
     const provenance = await t.run((ctx) => ctx.db.get(provenanceId));
     expect(provenance?.claims[0].sources[0].generationSourceId).toBe(sources[1]._id);
+  });
+});
+
+
+/**
+ * Story 2: the analyzer's context budget. `getGenerationInput` hands the
+ * action the ids and the resolved budget; `recordContextBudget` writes the
+ * outcome back onto the frozen rows without touching a capture-time fact.
+ */
+describe("the analyzer context budget travels with the frozen input", () => {
+  async function settingsAdmin(t: TestConvex) {
+    return await t.run((ctx) =>
+      ctx.db.insert("users", { authId: "budget-admin", role: "admin" })
+    );
+  }
+
+  it("returns a sourceId per context doc and the default budget", async () => {
+    const { t, authed, projectId } = await setup(
+      [{ content: "Interview body" }],
+      ["Context document body"]
+    );
+    const generationId = await authed.mutation(api.generations.requestGeneration, {
+      projectId,
+    });
+    const input = await generationInput(t, generationId);
+    expect(input?.contextBudget).toEqual(DEFAULT_CONTEXT_BUDGET);
+    const rows = await t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("generationSources")
+          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+          .collect()
+      ).filter((row) => row.kind === "project_document")
+    );
+    expect(input?.contextDocs).toHaveLength(1);
+    expect(input?.contextDocs[0]).toMatchObject({
+      sourceId: rows[0]._id,
+      fileName: "doc-0.txt",
+      category: "other",
+      content: "Context document body",
+    });
+  });
+
+  it("takes admin overrides per field and ignores unparseable ones", async () => {
+    const { t, authed, projectId } = await setup([{ content: "Interview body" }]);
+    const generationId = await authed.mutation(api.generations.requestGeneration, {
+      projectId,
+    });
+    const adminId = await settingsAdmin(t);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (const [key, value] of [
+        ["ai.analyzerContextBudgetTokens", "90000"],
+        ["ai.analyzerTranscriptBudgetTokens", "abc"],
+        ["ai.analyzerDocumentBudgetTokens", "-5"],
+        ["ai.analyzerMaxContextDocuments", "3"],
+      ] as const) {
+        await ctx.db.insert("appSettings", {
+          key,
+          value,
+          updatedBy: adminId,
+          updatedAt: now,
+        });
+      }
+    });
+    const input = await generationInput(t, generationId);
+    expect(input?.contextBudget).toEqual({
+      totalTokens: 90_000,
+      transcriptTokens: DEFAULT_CONTEXT_BUDGET.transcriptTokens,
+      perDocumentTokens: DEFAULT_CONTEXT_BUDGET.perDocumentTokens,
+      maxDocuments: 3,
+    });
+  });
+
+  it("records the budget outcome without rewriting any capture-time fact", async () => {
+    const { t, authed, projectId } = await setup(
+      [{ label: "First", position: 0, content: "Alpha body" }],
+      ["Context document body"]
+    );
+    const generationId = await authed.mutation(api.generations.requestGeneration, {
+      projectId,
+    });
+    const before = await t.run((ctx) =>
+      ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+        .collect()
+    );
+    const transcriptRow = before.find((row) => row.kind === "transcript")!;
+    const documentRow = before.find((row) => row.kind === "project_document")!;
+
+    await t.mutation(internal.generations.recordContextBudget, {
+      generationId,
+      budgetTokens: 150_000,
+      applied: [
+        {
+          sourceId: transcriptRow._id,
+          included: true,
+          includedLength: 7,
+          truncated: true,
+        },
+      ],
+    });
+
+    const after = await t.run((ctx) =>
+      ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+        .collect()
+    );
+    const patched = after.find((row) => row._id === transcriptRow._id)!;
+    const untouched = after.find((row) => row._id === documentRow._id)!;
+    expect(patched.contextBudget).toEqual({
+      budgetTokens: 150_000,
+      included: true,
+      includedLength: 7,
+      truncated: true,
+    });
+    expect(patched.content).toBe(transcriptRow.content);
+    expect(patched.contentHash).toBe(transcriptRow.contentHash);
+    expect(patched.truncated).toBe(transcriptRow.truncated);
+    expect(patched.originalLength).toBe(transcriptRow.originalLength);
+    expect(untouched.contextBudget).toBeUndefined();
+  });
+
+  it("skips a source id that belongs to another generation", async () => {
+    const { t, authed, projectId } = await setup([{ content: "Alpha body" }]);
+    const firstId = await authed.mutation(api.generations.requestGeneration, {
+      projectId,
+    });
+    const foreign = await t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("generationSources")
+          .withIndex("by_generationId", (q) => q.eq("generationId", firstId))
+          .collect()
+      )[0]
+    );
+    const otherGenerationId = await t.run(async (ctx) =>
+      ctx.db.insert("generations", {
+        projectId,
+        status: "running",
+        requestedBy: (await ctx.db.query("users").first())!._id,
+        candidateMode: "single",
+        singleModelId: "claude-sonnet-5",
+        candidatesDone: 0,
+        candidatesFailed: 0,
+        startedAt: Date.now(),
+      })
+    );
+    await expect(
+      t.mutation(internal.generations.recordContextBudget, {
+        generationId: otherGenerationId,
+        budgetTokens: 150_000,
+        applied: [
+          {
+            sourceId: foreign._id,
+            included: true,
+            includedLength: 1,
+            truncated: false,
+          },
+        ],
+      })
+    ).resolves.toBeNull();
+    const row = await t.run((ctx) => ctx.db.get(foreign._id));
+    expect(row?.contextBudget).toBeUndefined();
   });
 });

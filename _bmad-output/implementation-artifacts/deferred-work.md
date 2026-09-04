@@ -181,3 +181,43 @@ source_spec: `1-shared-pre-edit-snapshot-writer.md`
 severity: low
 reason: Every other foreign id on a reportSnapshots row is filtered through validGeneration/validTranscriptId/validTranscriptIds in convex/lib/snapshots.ts, which drop cross-project references. The research session id is passed straight to ctx.db.get and its count copied in. Pre-existing behaviour carried over verbatim from applyProposal, not introduced by this story, and not reachable today because the research layer only ever creates a session for the proposal's own report — but the helper is now the single choke point where a check belongs.
 status: open
+
+### DW-24: Brain exemplars are appended to the analyzer user message after buildTrustedContext has finished, so they are neither delimited nor charged against the context budget.
+origin: spec-deferred 9e00a2db9df5
+location: convex/ai/analyzerAgent.ts (runAnalyzerAgent)
+source_spec: `2-trusted-context-module-for-generation-input.md`
+severity: medium
+reason: runAnalyzerAgent concatenates `brainExemplars` onto the prebuilt userMessage. The budget therefore bounds frozen source characters, not the bytes actually sent. Pre-existing (BNH-10 retrieval path), but it is the one remaining hole in "worst-case analyzer input is bounded".
+status: open
+
+### DW-25: Nothing surfaces context-budget truncation to a human: no query, no UI, and no field on the generations row exposes generationSources.contextBudget.
+origin: spec-deferred d176ecb8ca1d
+location: convex/generations.ts (recordContextBudget) / no consumer
+source_spec: `2-trusted-context-module-for-generation-input.md`
+severity: medium
+reason: A writer can receive a report generated from a halved transcript or with documents dropped and see only the progress-log document count. The data is persisted per source row but has no read side.
+status: open
+
+### DW-26: Chat and research still assemble their own context inline, so plan Phase 2's "one trusted-context module shared by chat, generation and research" is only half met after this story.
+origin: spec-deferred 25b33403de81
+location: convex/ai/chatAgentV2.ts, convex/ai/research/
+source_spec: `2-trusted-context-module-for-generation-input.md`
+severity: medium
+reason: convex/ai/chatAgentV2.ts still builds its own grounding block with a literal 20k-char slice per document, different delimiters, no END marker and no guidance; convex/ai/research/* is untouched. Chat is CAP-4 (story 4); research has no story in this epic.
+status: open
+
+### DW-27: CONTEXT_INPUTS_GUIDANCE still says "the materials below" and "each attached material is wrapped" when it is emitted with zero documents.
+origin: spec-deferred 8227370580e0
+location: convex/ai/prompts.ts (CONTEXT_INPUTS_GUIDANCE)
+source_spec: `2-trusted-context-module-for-generation-input.md`
+severity: low
+reason: The intent requires the guidance on every analyzer call, and it now is; the prose in convex/ai/prompts.ts was written for the documents-present case and was not adjusted (prompts.ts is untouched by this story on purpose — its test must pass unmodified). Harmless but slightly misleading on a transcript-only project.
+status: open
+
+### DW-28: Follow-up review still recommended for 2 after the damping cap was spent
+origin: review-budget-followup
+location: n/a
+source_spec: `2-trusted-context-module-for-generation-input.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-030217-50fa; this entry preserves the lingering recommendation for a deliberate later review.
+status: open

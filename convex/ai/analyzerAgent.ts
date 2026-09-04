@@ -3,56 +3,18 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { GenerationClient } from "./openrouterCore";
-import { ANALYZER_SYSTEM_PROMPT, CONTEXT_INPUTS_GUIDANCE } from "./prompts";
+import { ANALYZER_SYSTEM_PROMPT } from "./prompts";
+import { CONTEXT_SCAFFOLDS } from "./trustedContext";
 import { generateStructured } from "./structured";
 
-export interface ContextDoc {
-  category:
-    | "previous_pd"
-    | "scoping_notes"
-    | "writer_notes"
-    | "background"
-    | "other";
-  fileName: string;
-  content: string;
-}
-
-export const ANALYZER_CATEGORY_LABELS: Record<ContextDoc["category"], string> = {
-  writer_notes: "WRITER'S NOTES (unreliable narrator)",
-  previous_pd: "PREVIOUS-YEAR REPORT",
-  scoping_notes: "SCOPING NOTES",
-  background: "BACKGROUND RESEARCH / LINKS",
-  other: "OTHER SUPPORTING MATERIAL",
-};
-
-// Present highest-trust material first.
-export const ANALYZER_CATEGORY_ORDER: ContextDoc["category"][] = [
-  "writer_notes",
-  "previous_pd",
-  "scoping_notes",
-  "background",
-  "other",
-];
-
-export function buildContextBlock(docs: ContextDoc[]): string {
-  if (!docs.length) return "";
-  const sorted = [...docs].sort(
-    (a, b) =>
-      ANALYZER_CATEGORY_ORDER.indexOf(a.category) -
-      ANALYZER_CATEGORY_ORDER.indexOf(b.category)
-  );
-  // Unambiguous begin/end delimiters: document content is client-provided
-  // DATA, and CONTEXT_INPUTS_GUIDANCE tells the model never to follow
-  // instructions embedded between a document's markers.
-  const sections = sorted
-    .map((d) => {
-      const label = ANALYZER_CATEGORY_LABELS[d.category];
-      const delimiters = ANALYZER_REQUEST.userScaffolds.documentDelimiters;
-      return `${delimiters.beginPrefix}${label}${delimiters.categoryToFile}${d.fileName}${delimiters.lineSuffix}${delimiters.contentPrefix}${d.content}${delimiters.contentSuffix}${delimiters.endPrefix}${label}${delimiters.categoryToFile}${d.fileName}${delimiters.lineSuffix}`;
-    })
-    .join(ANALYZER_REQUEST.userScaffolds.documentSeparator);
-  return `\n\n${CONTEXT_INPUTS_GUIDANCE}${ANALYZER_REQUEST.userScaffolds.contextHeading}${sections}`;
-}
+// Context assembly (classification, delimiting, budgeting) lives in
+// convex/ai/trustedContext.ts — a non-node module queries can import too.
+// Re-exported here so existing importers keep their import path.
+export {
+  ANALYZER_CATEGORY_LABELS,
+  ANALYZER_CATEGORY_ORDER,
+} from "./trustedContext";
+export type { ContextDoc, ContextDocCategory, TrustLevel } from "./trustedContext";
 
 export interface TranscriptAnalysis {
   company_context: string;
@@ -127,26 +89,7 @@ const analysisSchema: z.ZodType<TranscriptAnalysis> = z.object({
 });
 
 export const ANALYZER_REQUEST = {
-  userScaffolds: {
-    withTranscriptPrefix: "Here is the interview transcript to analyze:\n\n",
-    withoutTranscript:
-      "There is NO interview transcript for this project. Analyze the attached contextual materials below as the sole source. Anything the documents do not support must be flagged as a gap — never invent interview content.",
-    contextHeading: "\n\n# ATTACHED CONTEXTUAL MATERIALS\n",
-    documentDelimiters: {
-      beginPrefix: "--- BEGIN [",
-      endPrefix: "--- END [",
-      categoryToFile: "] ",
-      lineSuffix: " ---",
-      contentPrefix: "\n",
-      contentSuffix: "\n",
-    },
-    documentSeparator: "\n\n",
-    runtimeSentinels: [
-      "{{runtime.interviewTranscript}}",
-      "{{runtime.contextDocuments}}",
-      "{{runtime.brainExemplars}}",
-    ],
-  },
+  userScaffolds: CONTEXT_SCAFFOLDS,
   roleOrder: ["system", "user"],
   toolName: "submit_transcript_analysis",
   toolDescription:
@@ -158,23 +101,18 @@ export const ANALYZER_REQUEST = {
 
 export async function runAnalyzerAgent(
   client: GenerationClient,
-  transcript: string,
-  contextDocs: ContextDoc[] = [],
+  // Prebuilt by buildTrustedContext (transcript + guidance + delimited
+  // materials, already budgeted). The agent no longer assembles context; it
+  // only sends it.
+  userMessage: string,
   model?: string,
   // BNH-10: gold-standard reference passages retrieved from The Brain (already
   // formatted). Reference patterns only — the prompt forbids copying their facts.
   brainExemplars: string = ""
 ): Promise<TranscriptAnalysis> {
-  const contextBlock = buildContextBlock(contextDocs);
-  // Transcript-less projects (spreadsheet-only, drawings, a lone email) analyze
-  // the context documents directly instead of presenting an empty interview —
-  // an empty "transcript" section would prime the model to hallucinate one.
-  const user = transcript.trim()
-    ? `${ANALYZER_REQUEST.userScaffolds.withTranscriptPrefix}${transcript}${contextBlock}${brainExemplars}`
-    : `${ANALYZER_REQUEST.userScaffolds.withoutTranscript}${contextBlock}${brainExemplars}`;
   return await generateStructured<TranscriptAnalysis>(client, {
     system: ANALYZER_SYSTEM_PROMPT,
-    user,
+    user: `${userMessage}${brainExemplars}`,
     toolName: ANALYZER_REQUEST.toolName,
     description: ANALYZER_REQUEST.toolDescription,
     schema: ANALYSIS_SCHEMA,

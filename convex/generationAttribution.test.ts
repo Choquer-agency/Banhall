@@ -9,6 +9,9 @@ import type {
   GenerationResponse,
 } from "./ai/openrouterCore";
 import { runPipelineForModel } from "./ai/pipeline";
+import { buildTrustedContext, DEFAULT_CONTEXT_BUDGET } from "./ai/trustedContext";
+import { CONTEXT_INPUTS_GUIDANCE } from "./ai/prompts";
+import { CONDENSE_VERSION } from "./lib/transcripts";
 import {
   currentPromptVersion,
   generationPromptProgram,
@@ -20,6 +23,7 @@ import { NO_STYLE_OVERRIDES } from "../shared/styleOverrides";
 const modules = import.meta.glob("./**/*.ts");
 const AUTH_ID = "generation-attribution-writer";
 const PROMPT_VERSION = `sha256:${"a".repeat(64)}`;
+const CANDIDATE_DOCUMENT_BODY = "Frozen writer notes for the candidate run.";
 const RETRY_PROMPT_VERSION = `sha256:${"b".repeat(64)}`;
 
 beforeEach(() => {
@@ -193,6 +197,16 @@ async function insertProjectFixture(t: ReturnType<typeof convexTest>) {
     });
     return { now, userId, projectId, transcriptId };
   });
+}
+
+/**
+ * The analyzer user message the production path builds — delimited, guided
+ * and budgeted — so the fixture cannot drift from the real shape.
+ */
+function analyzerMessageFor(transcript: string): string {
+  return buildTrustedContext({
+    transcriptParts: [{ label: "Interview transcript", content: transcript }],
+  }).userMessage;
 }
 
 async function insertDigest(
@@ -736,7 +750,7 @@ describe("generation payload provenance", () => {
       observingPipelineClientFactory(blankCalls),
       "claude-sonnet-5",
       "A runtime transcript",
-      [],
+      analyzerMessageFor("A runtime transcript"),
       "Runtime title",
       { analyzer: "", s242: "", s244: "", s246: "" },
       "standard",
@@ -766,7 +780,7 @@ describe("generation payload provenance", () => {
       observingPipelineClientFactory(pairedCalls),
       "claude-sonnet-5",
       "A different runtime transcript",
-      [],
+      analyzerMessageFor("A different runtime transcript"),
       "A different runtime title",
       { analyzer: "", s242: "", s244: "", s246: "" },
       "standard",
@@ -1182,6 +1196,17 @@ describe("generation entry handoffs through the real actions", () => {
         originalLength: 30,
         capturedAt: fixture.now,
       });
+      await ctx.db.insert("generationSources", {
+        generationId,
+        projectId: fixture.projectId,
+        kind: "project_document",
+        label: "writer_notes:notes.md",
+        content: CANDIDATE_DOCUMENT_BODY,
+        contentHash: "candidate-document-hash",
+        truncated: false,
+        originalLength: CANDIDATE_DOCUMENT_BODY.length,
+        capturedAt: fixture.now,
+      });
       const candidateRunId = await ctx.db.insert("generationCandidateRuns", {
         generationId,
         projectId: fixture.projectId,
@@ -1237,6 +1262,26 @@ describe("generation entry handoffs through the real actions", () => {
     expect(analyzerBody).toBeDefined();
     expect(analyzerBody).not.toContain(styleText);
     expect(analyzerBody).not.toContain(qaText);
+    // The trusted-context module is actually wired into the request: the
+    // guidance ships on every analyzer call and every frozen source — the
+    // transcript included — travels between BEGIN/END markers.
+    const analyzerUser = JSON.parse(analyzerBody!) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const userText = analyzerUser.messages
+      .filter((message) => message.role === "user")
+      .map((message) => message.content)
+      .join("\n");
+    expect(userText).toContain(CONTEXT_INPUTS_GUIDANCE);
+    expect(userText).toContain("--- BEGIN [INTERVIEW TRANSCRIPT] ---");
+    expect(userText).toContain("--- END [INTERVIEW TRANSCRIPT] ---");
+    expect(userText).toContain(
+      "--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---",
+    );
+    expect(userText).toContain(
+      "--- END [WRITER'S NOTES (unreliable narrator)] notes.md ---",
+    );
+    expect(userText).toContain(CANDIDATE_DOCUMENT_BODY);
 
     // Usage rows are scheduled at the transport boundary; flush them and read
     // through the Story 11 index. Every candidate-owned call carries the run
@@ -1906,4 +1951,396 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
       "One-shot ghost draft (comparison — Gemini 3.1 Pro)",
     ]);
   });
+});
+
+
+/**
+ * Story 2: the budget outcome must actually be recorded by the production
+ * entry actions — deleting the `recordContextBudget` call in either pipeline
+ * has to fail here, not merely go unnoticed because the mutation is exercised
+ * directly elsewhere.
+ */
+describe("the analyzer context budget is recorded by the entry actions", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Digest mode: the frozen full text is over budget by declaration
+   * (`inputMode: "digest"`), and a stored digest for exactly its bytes lets
+   * `ensureCondensedInputs` reuse it without a condense call — so the entry
+   * action freezes a `transcript_digest` row and re-reads before analyzing.
+   */
+  const DIGEST_FULL_TEXT = `${"F".repeat(200)} FULL-TEXT SENTINEL`;
+  const DIGEST_TEXT = "DIGEST SENTINEL";
+
+  async function reservedGenerationWithSources(
+    t: ReturnType<typeof convexTest>,
+    candidateMode: "single" | "iterative",
+    inputMode: "full" | "digest" = "full",
+  ) {
+    return await t.run(async (ctx) => {
+      const now = Date.now();
+      const transcriptText =
+        inputMode === "digest" ? DIGEST_FULL_TEXT : "A usable interview transcript.";
+      const userId = await ctx.db.insert("users", {
+        authId: `budget-record-${candidateMode}`,
+        role: "writer",
+      });
+      const projectId = await ctx.db.insert("projects", {
+        title: "Budget recording project",
+        clientName: "Test client",
+        status: "draft",
+        createdBy: userId,
+        shareToken: `budget-record-${candidateMode}`,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const transcriptId = await ctx.db.insert("transcripts", {
+        projectId,
+        content: transcriptText,
+        createdAt: now,
+      });
+      const generationId = await ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        transcriptIds: [transcriptId],
+        ...(inputMode === "digest" ? { inputMode } : {}),
+        status: "reserved",
+        requestedAt: now,
+        requestedBy: userId,
+        candidateMode,
+        ...(candidateMode === "single"
+          ? { singleModelId: "claude-sonnet-5" }
+          : {}),
+        previousProjectStatus: "draft",
+        learningDigestIds: [],
+        startedAt: now,
+      });
+      await ctx.db.patch(projectId, {
+        activeGenerationId: generationId,
+        status: "generating",
+      });
+      await ctx.db.insert("generationSources", {
+        generationId,
+        projectId,
+        kind: "transcript",
+        transcriptId,
+        label: "Interview transcript",
+        content: transcriptText,
+        contentHash: "budget-record-transcript-hash",
+        truncated: false,
+        originalLength: transcriptText.length,
+        capturedAt: now,
+      });
+      if (inputMode === "digest") {
+        await ctx.db.insert("transcriptDigests", {
+          transcriptId,
+          projectId,
+          sourceContentHash: "budget-record-transcript-hash",
+          condenseVersion: CONDENSE_VERSION,
+          content: DIGEST_TEXT,
+          structured: "[]",
+          model: "claude-sonnet-5",
+          promptVersion: PROMPT_VERSION,
+          charCount: DIGEST_TEXT.length,
+          originalLength: transcriptText.length,
+          createdAt: now,
+        });
+      }
+      await ctx.db.insert("generationSources", {
+        generationId,
+        projectId,
+        kind: "project_document",
+        label: "writer_notes:notes.md",
+        content: CANDIDATE_DOCUMENT_BODY,
+        contentHash: "budget-record-document-hash",
+        truncated: false,
+        originalLength: CANDIDATE_DOCUMENT_BODY.length,
+        capturedAt: now,
+      });
+      return { generationId };
+    });
+  }
+
+  /** The analyzer request's user text, whichever transport shape carried it. */
+  function analyzerUserTextOf(requests: OpenRouterRequest[]): string {
+    const bodies = requests.map((request) => JSON.stringify(request));
+    const index = bodies.findIndex((body) =>
+      body.includes("submit_transcript_analysis"),
+    );
+    expect(index).toBeGreaterThan(-1);
+    const request = requests[index] as unknown as {
+      messages: Array<{
+        role: string;
+        content: string | Array<{ type: string; text?: string }>;
+      }>;
+    };
+    return request.messages
+      .filter((message) => message.role === "user")
+      .map((message) =>
+        typeof message.content === "string"
+          ? message.content
+          : message.content.map((block) => block.text ?? "").join("\n"),
+      )
+      .join("\n");
+  }
+
+  async function writeBudgetSettings(
+    t: ReturnType<typeof convexTest>,
+    values: Record<string, string>,
+  ) {
+    await t.run(async (ctx) => {
+      const adminId = await ctx.db.insert("users", {
+        authId: `budget-admin-${Object.keys(values).join("-")}`,
+        role: "admin",
+      });
+      for (const [key, value] of Object.entries(values)) {
+        await ctx.db.insert("appSettings", {
+          key,
+          value,
+          updatedBy: adminId,
+          updatedAt: Date.now(),
+        });
+      }
+    });
+  }
+
+  it.each([
+    ["one-shot", internal.ai.pipeline.generateReport, "single"] as const,
+    [
+      "iterative",
+      internal.ai.iterative.startIterativeGeneration,
+      "iterative",
+    ] as const,
+  ])(
+    "the %s entry action applies the admin-tuned budget and tells the writer what it cut",
+    async (_label, action, candidateMode) => {
+      const t = convexTest(schema, modules);
+      const { generationId } = await reservedGenerationWithSources(
+        t,
+        candidateMode,
+      );
+      // 100 tokens total; a 1-token (4-char) document cap cuts the notes.
+      await writeBudgetSettings(t, {
+        "ai.analyzerContextBudgetTokens": "100",
+        "ai.analyzerDocumentBudgetTokens": "1",
+      });
+      const requests: OpenRouterRequest[] = [];
+      vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
+
+      await t.action(action, { generationId });
+
+      const rows = await t.run((ctx) =>
+        ctx.db
+          .query("generationSources")
+          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+          .collect(),
+      );
+      const transcriptRow = rows.find((row) => row.kind === "transcript")!;
+      const documentRow = rows.find((row) => row.kind === "project_document")!;
+      expect(transcriptRow.contextBudget).toEqual({
+        budgetTokens: 100,
+        included: true,
+        includedLength: transcriptRow.content.length,
+        truncated: false,
+      });
+      expect(documentRow.contextBudget).toEqual({
+        budgetTokens: 100,
+        included: true,
+        includedLength: 4,
+        truncated: true,
+      });
+      // The frozen capture facts are untouched by the recording.
+      expect(documentRow.content).toBe(CANDIDATE_DOCUMENT_BODY);
+      expect(documentRow.truncated).toBe(false);
+
+      const generation = await t.run((ctx) => ctx.db.get(generationId));
+      expect(generation?.progressLog).toContain(
+        "Using 1 frozen contextual document(s), weighted by SR&ED priority.",
+      );
+      expect(generation?.progressLog).toContain(
+        "Context budget (100 tokens) shortened notes.md.",
+      );
+
+      if (candidateMode === "iterative") {
+        const userText = analyzerUserTextOf(requests);
+        expect(userText).toContain(
+          `--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\n${CANDIDATE_DOCUMENT_BODY.slice(0, 4)}\n[TRUNCATED: 38 of 42 characters omitted to fit the context budget.]\n--- END`,
+        );
+        expect(userText).not.toContain(CANDIDATE_DOCUMENT_BODY);
+      }
+    },
+  );
+
+  it("a candidate sends the budget it was scheduled with, not a later retune", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId } = await reservedGenerationWithSources(t, "single");
+    const candidateRunId = await t.run(async (ctx) => {
+      const generation = (await ctx.db.get(generationId))!;
+      // claimCandidateRun only hands out runs of a running generation.
+      await ctx.db.patch(generationId, { status: "running" });
+      return await ctx.db.insert("generationCandidateRuns", {
+        generationId,
+        projectId: generation.projectId,
+        model: "openai/gpt-5.6-luna",
+        label: "GPT-5.6 Luna",
+        status: "queued",
+        queuedAt: Date.now(),
+      });
+    });
+    // Settings now say "documents are fine"; the scheduled payload says the
+    // report was recorded with no documents at all. The payload wins.
+    const requests: OpenRouterRequest[] = [];
+    vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
+    await t.action(internal.ai.pipeline.generateCandidate, {
+      candidateRunId,
+      generationId,
+      brainExemplars: { analyzer: "", s242: "", s244: "", s246: "" },
+      contextBudget: { ...DEFAULT_CONTEXT_BUDGET, maxDocuments: 0 },
+    });
+    const userText = analyzerUserTextOf(requests);
+    expect(userText).toContain("--- BEGIN [INTERVIEW TRANSCRIPT] ---");
+    expect(userText).not.toContain("notes.md");
+    expect(userText).not.toContain(CANDIDATE_DOCUMENT_BODY);
+  });
+
+  it("a candidate scheduled without a budget falls back to the frozen input's admin-tuned one", async () => {
+    // The transition window: a candidate queued before `contextBudget` was in
+    // the scheduler payload must still honour the settings, not the defaults.
+    const t = convexTest(schema, modules);
+    const { generationId } = await reservedGenerationWithSources(t, "single");
+    const candidateRunId = await t.run(async (ctx) => {
+      const generation = (await ctx.db.get(generationId))!;
+      await ctx.db.patch(generationId, { status: "running" });
+      return await ctx.db.insert("generationCandidateRuns", {
+        generationId,
+        projectId: generation.projectId,
+        model: "openai/gpt-5.6-luna",
+        label: "GPT-5.6 Luna",
+        status: "queued",
+        queuedAt: Date.now(),
+      });
+    });
+    await writeBudgetSettings(t, { "ai.analyzerDocumentBudgetTokens": "1" });
+    const requests: OpenRouterRequest[] = [];
+    vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
+    await t.action(internal.ai.pipeline.generateCandidate, {
+      candidateRunId,
+      generationId,
+      brainExemplars: { analyzer: "", s242: "", s244: "", s246: "" },
+    });
+    const userText = analyzerUserTextOf(requests);
+    expect(userText).toContain(
+      `--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\n${CANDIDATE_DOCUMENT_BODY.slice(0, 4)}\n[TRUNCATED: 38 of 42 characters omitted to fit the context budget.]\n--- END`,
+    );
+    expect(userText).not.toContain(CANDIDATE_DOCUMENT_BODY);
+  });
+
+  it.each([
+    ["one-shot", internal.ai.pipeline.generateReport, "single"] as const,
+    [
+      "iterative",
+      internal.ai.iterative.startIterativeGeneration,
+      "iterative",
+    ] as const,
+  ])(
+    "the %s entry action analyzes and records the digest rows in digest mode, not the full text",
+    async (_label, action, candidateMode) => {
+      const t = convexTest(schema, modules);
+      const { generationId } = await reservedGenerationWithSources(
+        t,
+        candidateMode,
+        "digest",
+      );
+      const requests: OpenRouterRequest[] = [];
+      vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
+
+      await t.action(action, { generationId });
+
+      const rows = await t.run((ctx) =>
+        ctx.db
+          .query("generationSources")
+          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+          .collect(),
+      );
+      const fullTextRow = rows.find((row) => row.kind === "transcript")!;
+      const digestRow = rows.find((row) => row.kind === "transcript_digest")!;
+      const documentRow = rows.find((row) => row.kind === "project_document")!;
+      expect(digestRow.content).toBe(DIGEST_TEXT);
+      // Only the rows the analyzer read carry the budget outcome: the digest
+      // it was built from and the documents, never the superseded full text.
+      expect(fullTextRow.contextBudget).toBeUndefined();
+      expect(digestRow.contextBudget).toEqual({
+        budgetTokens: DEFAULT_CONTEXT_BUDGET.totalTokens,
+        included: true,
+        includedLength: DIGEST_TEXT.length,
+        truncated: false,
+      });
+      expect(documentRow.contextBudget?.included).toBe(true);
+
+      if (candidateMode === "iterative") {
+        const userText = analyzerUserTextOf(requests);
+        expect(userText).toContain(
+          `--- BEGIN [INTERVIEW TRANSCRIPT] ---\n${DIGEST_TEXT}\n--- END [INTERVIEW TRANSCRIPT] ---`,
+        );
+        expect(userText).not.toContain("FULL-TEXT SENTINEL");
+      }
+    },
+  );
+
+  it.each([
+    ["one-shot", internal.ai.pipeline.generateReport, "single"] as const,
+    [
+      "iterative",
+      internal.ai.iterative.startIterativeGeneration,
+      "iterative",
+    ] as const,
+  ])(
+    "the %s entry action patches contextBudget onto every frozen source",
+    async (_label, action, candidateMode) => {
+      const t = convexTest(schema, modules);
+      const { generationId } = await reservedGenerationWithSources(
+        t,
+        candidateMode,
+      );
+      const requests: OpenRouterRequest[] = [];
+      vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
+
+      // Whatever happens downstream, the recording is a committed mutation
+      // that must have landed by the time the action returns.
+      await t.action(action, { generationId });
+
+      if (candidateMode === "iterative") {
+        // The iterative flow calls the analyzer itself (one-shot delegates to
+        // generateCandidate, fenced above): the message it sends must be the
+        // trusted-context one, not the raw joined transcript.
+        const userText = analyzerUserTextOf(requests);
+        expect(userText).toContain(CONTEXT_INPUTS_GUIDANCE);
+        expect(userText).toContain("--- BEGIN [INTERVIEW TRANSCRIPT] ---");
+        expect(userText).toContain("--- END [INTERVIEW TRANSCRIPT] ---");
+        expect(userText).toContain(
+          "--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---",
+        );
+        expect(userText).toContain(CANDIDATE_DOCUMENT_BODY);
+      }
+
+      const rows = await t.run((ctx) =>
+        ctx.db
+          .query("generationSources")
+          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+          .collect(),
+      );
+      expect(rows).toHaveLength(2);
+      for (const row of rows) {
+        expect(row.contextBudget).toBeDefined();
+        expect(row.contextBudget?.budgetTokens).toBe(
+          DEFAULT_CONTEXT_BUDGET.totalTokens,
+        );
+        expect(row.contextBudget?.included).toBe(true);
+        expect(row.contextBudget?.includedLength).toBe(row.content.length);
+        expect(row.contextBudget?.truncated).toBe(false);
+      }
+    },
+  );
 });

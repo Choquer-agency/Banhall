@@ -31,10 +31,13 @@ import { describeTranscriptInput } from "../lib/transcripts";
 import {
   beginTrackedGeneration,
   buildStyleGuidance,
+  buildAnalyzerContext,
   compressToFit,
+  includedDocumentCount,
   lengthBudgetBlock,
-  toContextDocs,
+  recordContextBudget,
 } from "./pipeline";
+import { describeContextCuts } from "./trustedContext";
 import { scrubBannedWordsUnlessWaived } from "../../shared/bannedWords";
 import { sectionDeterministicFindings } from "./qaChecks";
 import { sectionMetrics, type LengthTarget, type SectionKey } from "../lib/lineLimits";
@@ -82,7 +85,6 @@ export const startIterativeGeneration = internalAction({
     const genId = input.generationId;
     const projectId = input.projectId;
     const title = input.title || "Untitled Report";
-    const contextDocs = toContextDocs(input.contextDocs);
     // Iterative mode uses single-model semantics: the explicitly selected
     // model, defaulting to Sonnet.
     const model = candidateModelsForMode("iterative", input.singleModelId)[0];
@@ -121,9 +123,6 @@ export const startIterativeGeneration = internalAction({
         throw new Error("Project science code is not a valid CRA T4088 line 206 code");
       }
       await log(describeTranscriptInput(input.transcriptParts));
-      if (contextDocs.length > 0) {
-        await log(`Using ${contextDocs.length} frozen contextual document(s), weighted by SR&ED priority.`);
-      }
       await log(`Section-by-section drafting with ${model.label}.`);
 
       // Over-budget transcript sets are reduced to stored digests and frozen
@@ -148,6 +147,17 @@ export const startIterativeGeneration = internalAction({
         input = condensed;
       }
       const transcript = input.transcript;
+
+      // Bounded, delimited analyzer input — built once, recorded once, and
+      // reported to the writer by what the budget actually kept.
+      const analyzerContext = buildAnalyzerContext(input);
+      await recordContextBudget(ctx, genId, analyzerContext.report);
+      const includedDocs = includedDocumentCount(analyzerContext.report);
+      if (includedDocs > 0) {
+        await log(`Using ${includedDocs} frozen contextual document(s), weighted by SR&ED priority.`);
+      }
+      const cuts = describeContextCuts(analyzerContext.report);
+      if (cuts) await log(cuts);
 
       // Frozen once: Brain exemplar blocks (never re-retrieved per section).
       const brainBlocks = await retrieveBrainBlocks(ctx, {
@@ -206,8 +216,7 @@ export const startIterativeGeneration = internalAction({
       await log("Analyzing the transcript (runs once — shared by all sections)…");
       const analysis = await runAnalyzerAgent(
         clientFor("generation:analyzer"),
-        transcript,
-        contextDocs,
+        analyzerContext.userMessage,
         model.id,
         brainBlocks.analyzer
       );

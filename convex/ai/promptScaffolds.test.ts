@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildContextBlock } from "./analyzerAgent";
+import { buildTrustedContext, DEFAULT_CONTEXT_BUDGET } from "./trustedContext";
 import { CONDENSE_SCHEMA, CONDENSE_SYSTEM_PROMPT } from "./condenseAgent";
 import { generationPromptProgram, hashPromptProgram } from "./promptProgram";
 import {
@@ -78,19 +78,36 @@ describe("prompt scaffold composition", () => {
     ).toBe("[P1] First para still first\n\n[P2] Second\n\n[P3] Third");
   });
 
-  it("renders attached context documents exactly and in trust order", () => {
-    expect(buildContextBlock([])).toBe("");
+  it("renders the transcript and attached documents exactly and in trust order", () => {
+    // Zero documents still emits the guidance, and the transcript itself is
+    // wrapped in the same BEGIN/END markers the guidance promises.
     expect(
-      buildContextBlock([
-        { category: "other", fileName: "misc.txt", content: "Misc content." },
-        {
-          category: "writer_notes",
-          fileName: "notes.md",
-          content: "Note content.",
-        },
-      ]),
+      buildTrustedContext({
+        transcriptParts: [{ label: "Interview transcript", content: "Interview body" }],
+      }).userMessage,
     ).toBe(
-      `\n\n${CONTEXT_INPUTS_GUIDANCE}\n\n# ATTACHED CONTEXTUAL MATERIALS\n` +
+      "Here is the interview transcript to analyze:\n\n" +
+        "--- BEGIN [INTERVIEW TRANSCRIPT] ---\nInterview body\n--- END [INTERVIEW TRANSCRIPT] ---" +
+        `\n\n${CONTEXT_INPUTS_GUIDANCE}`,
+    );
+
+    expect(
+      buildTrustedContext({
+        transcriptParts: [{ label: "Interview transcript", content: "Interview body" }],
+        documents: [
+          { category: "other", fileName: "misc.txt", content: "Misc content." },
+          {
+            category: "writer_notes",
+            fileName: "notes.md",
+            content: "Note content.",
+          },
+        ],
+      }).userMessage,
+    ).toBe(
+      "Here is the interview transcript to analyze:\n\n" +
+        "--- BEGIN [INTERVIEW TRANSCRIPT] ---\nInterview body\n--- END [INTERVIEW TRANSCRIPT] ---" +
+        `\n\n${CONTEXT_INPUTS_GUIDANCE}` +
+        "\n\n# ATTACHED CONTEXTUAL MATERIALS\n" +
         "--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\nNote content.\n--- END [WRITER'S NOTES (unreliable narrator)] notes.md ---" +
         "\n\n" +
         "--- BEGIN [OTHER SUPPORTING MATERIAL] misc.txt ---\nMisc content.\n--- END [OTHER SUPPORTING MATERIAL] misc.txt ---",
@@ -116,6 +133,20 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       },
       thinking: { kind: "omitted" },
       structuredPolicy: "single-attempt",
+    });
+  });
+
+  it("discloses the analyzer context budget defaults", () => {
+    // The budget decides how much of each frozen source reaches the model, so
+    // retuning the defaults must move promptVersion.
+    expect(generationPromptProgram.calls.analyzer.contextBudget).toEqual(
+      DEFAULT_CONTEXT_BUDGET
+    );
+    expect(DEFAULT_CONTEXT_BUDGET).toEqual({
+      totalTokens: 150_000,
+      transcriptTokens: 100_000,
+      perDocumentTokens: 10_000,
+      maxDocuments: 12,
     });
   });
 

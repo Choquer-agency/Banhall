@@ -1387,6 +1387,21 @@ export default defineSchema({
     truncated: v.boolean(),
     originalLength: v.number(),
     capturedAt: v.number(),
+    // Budget-application metadata, NOT capture metadata: what the analyzer's
+    // context budget did with this row (see convex/ai/trustedContext.ts).
+    // Written after the fact by generations.recordContextBudget; absent on
+    // legacy rows, on any row whose generation predates the budget, and on
+    // full-text transcript rows a digest-mode generation superseded with
+    // transcript_digest rows (only the rows the analyzer read are recorded).
+    // `content`/`contentHash`/`truncated`/`originalLength` above stay frozen.
+    contextBudget: v.optional(
+      v.object({
+        budgetTokens: v.number(),
+        included: v.boolean(),
+        includedLength: v.number(),
+        truncated: v.boolean(),
+      })
+    ),
   })
     .index("by_generationId", ["generationId"])
     .index("by_projectId_and_generationId", ["projectId", "generationId"]),
