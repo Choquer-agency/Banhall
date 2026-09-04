@@ -2,8 +2,8 @@
 title: 'Review artifacts pinned to revision and content hash'
 type: 'feature'
 created: '2026-09-04'
-status: 'done'
-baseline_revision: '3db1dd0c8d750034b73e42eb0bf4e75c797afd45'
+status: ready-for-dev
+baseline_revision: f122b086d745acc40b4decca26b9aaafc7257f6a
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -112,6 +112,16 @@ deferred:
   - `[low]` `[patch]` Clarify historical handoff wording alongside completed parent verification.
   - `[low]` `[patch]` Describe observed timeout headroom, including the focused runtime, without promising a fixed runtime.
 
+### 2026-09-04: Fresh verification repair review
+- intent_gap: 0
+- bad_spec: 0
+- patch: 2 (high 0, medium 0, low 2)
+- defer: 0
+- reject: 8 (high 0, medium 0, low 8)
+- addressed_findings:
+  - `[low]` `[patch]` Record the exact executable comparison proving the frozen intent is unchanged.
+  - `[low]` `[patch]` Record the configuration digest command and its observed output.
+
 ## Design Notes
 
 CAP-7 already uses baseline revision 0 for legacy reports. Candidates and uploaded documents have no independent revision counter, so revision 0 plus their content hash identifies their baseline without adding a new lifecycle. Historical duplication carries evidence forward, like CAP-3 uploader provenance; missing historical evidence stays missing. New start/retry events always receive both fields. Current-time server pinning follows CAP-7; caller expected-revision fencing remains outside this additive schema story.
@@ -128,20 +138,3 @@ CAP-7 already uses baseline revision 0 for legacy reports. Candidates and upload
 
 Resume request: repair deterministic verification without changing the frozen intent contract. Feedback in `../../../../../../../../feedback/9-1.md` reports `bash scripts/loop-verify.sh` failed because the repository-wide form-control source audit exceeded its 5000ms timeout (9636ms under full-suite load). Type checks passed; 126 test files passed, one timed out. Investigate and repair verification reliability, preserve all assertions and backend behavior, and record reproduction and successful gate evidence.
 
-## Auto Run Result
-
-Status: done
-
-Repaired the deterministic gate failure by assigning the existing repository-wide form-control source audit a dedicated Vitest project with a 30-second budget. The same shared file list excludes it from the normal source project, so the audit runs exactly once. Ordinary unit-test budgets and every assertion remain unchanged. The frozen intent contract is byte-for-byte unchanged; the prior review-provenance backend implementation remains intact.
-
-Files changed in this repair:
-- `vitest.config.ts`: dedicated source-audit project and shared exclusion.
-- `.audit/CAP-9/evidence.md`, `decisions.tsv`, and timeout logs: live reproduction, passing verification, and decision evidence.
-- This story: repair baseline, deviation, review triage, and completion result.
-- `_bmad-output/implementation-artifacts/deferred-work.md`: preserve the pre-existing caller-provided DW-46 ledger entry.
-
-Independent review: three low-severity documentation patches, zero new deferrals, ten findings rejected. Patch counts: high 0, medium 0, low 3; score 3; follow-up review recommended: false.
-
-Verification: baseline `npm test` reproduced the 5000ms audit timeout at 6541ms. Repaired `npm test` passed 127 files and 1366 tests. Focused verbose audit ran once, with all three tests passing. Both parent and final `bash scripts/loop-verify.sh` runs exited 0: Convex typecheck, Svelte check with 0 errors and 0 warnings, 127 files and 1366 tests, PowerShell uploader 50 passed, Bash uploader 18 passed. `git diff --check` passed. No frontend, generated, or excluded epic files changed.
-
-Residual risks: audit runtime remains machine-load dependent; 30 seconds provides observed headroom, not a completion guarantee. The existing reviewer-observation limitation remains recorded in frontmatter; this repair adds no new backend policy.
