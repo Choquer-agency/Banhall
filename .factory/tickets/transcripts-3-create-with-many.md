@@ -1,6 +1,6 @@
 ---
 key: transcripts-3-create-with-many
-status: escalated
+status: done
 kind: feature
 deps: [transcripts-2-generation-reads-all]
 touches: [convex, src]
@@ -9,10 +9,15 @@ verify: [npx vitest run convex/projects.test.ts convex/reviewFromProject.test.ts
 done_when: ["! rg -q 'transcriptContent' convex/projects.ts src/routes", "rg -q 'transcripts: v.array' convex/projects.ts", "! rg -q '\\\\\\\\btranscriptId\\\\\\\\b' src/routes/project/new/+page.svelte src/routes/project/questionnaire/+page.svelte", "rg -Uq 'type=\"file\"[^>]*multiple' src/routes/project/new/+page.svelte", test -f src/routes/project/new/newProjectTranscripts.component.test.ts, "! rg -q 'transcriptId: v.optional' convex/generations.ts", "rg -qF 'targetTranscriptId: v.optional(v.id(\"transcripts\"))' convex/projectDuplication.ts", npx vitest run convex/projects.test.ts]
 title: "New-project page takes an ordered list of transcripts (multi .docx upload, paste, remove, copy-by-reference); createProject stores them; generation no longer takes a transcript id"
 plan: 20260903-client-sync
-updated: "2026-09-03T22:45:25.484Z"
-run: 20260903-211917-12-tickets
+updated: "2026-09-04T02:19:15.095Z"
+run: 20260904-020442-8-tickets
 branch: factory/transcripts-3-create-with-many
 escalation: implementer session failed (attempt 2); log .factory/runs/20260903-211917-12-tickets/logs/transcripts-3-create-with-many.implement-2.jsonl
+ui: false
+merged: 45b9090
+verdict: test-verified
+evidence: .audit/transcripts-3-create-with-many/evidence.md
+deferred: ["8 pre-existing component-suite failures (WorkspaceRail x4, WorkspaceChrome, WorkspaceHeader, Button, workspaceRoutes) reproduce with the baseline convex-svelte stub and touch no file this ticket changes; they are outside the CI gate.", "review-0 medium/consider: an unsaved pasteDraft survives a switch to the Upload tab and is folded in at submit as an invisible extra transcript; the behaviour existed at baseline and the Home-handoff pin (newProjectPrefill.component.test.ts:86) requires the draft path, so it is left as-is.", "review-0 medium/consider: the 20-item and total-chars caps are enforced client-side only inside commit() as a Generate-time toast, with no component test; the server rejects both (convex/projects.test.ts:1187, :1202), so the invariant holds.", "review-0 low/noted: copy items still send a label alongside fromTranscriptId that resolveTranscriptInputs ignores (the source label always wins), so the field is dead weight in the validator.", "review-0 low/noted: handleTranscriptFiles has one error slot, so in a mixed batch a later parse failure overwrites the non-.docx rejection message.", "review-0 low/noted: src/routes/project/new/+page.svelte is 1471 lines (1331 at baseline); extracting the transcript list block into a component is a follow-up, not this ticket."]
 ---
 ## Intent
 Tracy attaches several `.docx` files at once, or one at a time, or pastes, sees them as an ordered list, removes one, and generates. `createProject` stores one row per transcript with its label and position. The duplicate wizard prefills every transcript of the source project as removable items that are copied server-side by reference, so no transcript text is downloaded to the browser and re-uploaded. `requestGeneration` drops `transcriptId` entirely. The maintainer inherits a list-shaped intake state that mirrors the context-document rows already on the page, and one copy helper shared with the review-from-project flow.
