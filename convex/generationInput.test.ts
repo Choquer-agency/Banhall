@@ -86,6 +86,13 @@ async function frozenSources(t: TestConvex, generationId: Id<"generations">) {
   );
 }
 
+/** (fileName, uploaderRole) of each contextDoc, with absence normalized. */
+function contextDocRoles(
+  input: { contextDocs: Array<{ fileName: string; uploaderRole?: string }> } | null
+) {
+  return (input?.contextDocs ?? []).map((d) => [d.fileName, d.uploaderRole ?? null]);
+}
+
 function generationInput(t: TestConvex, generationId: Id<"generations">) {
   return t.query(internal.generations.getGenerationInput, { generationId });
 }
@@ -413,6 +420,61 @@ describe("the analyzer context budget travels with the frozen input", () => {
       category: "other",
       content: "Context document body",
     });
+  });
+
+  it("freezes the uploader role onto the source row and surfaces it (CAP-3)", async () => {
+    const { t, authed, projectId } = await setup([{ content: "Interview body" }]);
+    // Two writer's-notes rows that differ only in whether an internal uploader
+    // role was recorded. Trust must be pinned to the reservation, so the frozen
+    // row has to carry the role forward; the legacy row must stay roleless and
+    // reach the analyzer as client evidence.
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("projectDocuments", {
+        projectId,
+        fileName: "attributed.md",
+        fileType: "txt",
+        content: "Internal direction.",
+        category: "writer_notes",
+        source: "upload",
+        uploadedBy: "writer@banhall.com",
+        uploaderRole: "manager",
+        createdAt: now,
+      });
+      await ctx.db.insert("projectDocuments", {
+        projectId,
+        fileName: "legacy.md",
+        fileType: "txt",
+        content: "Unattributed direction.",
+        category: "writer_notes",
+        source: "upload",
+        uploadedBy: "writer@banhall.com",
+        createdAt: now + 1,
+      });
+    });
+    const generationId = await authed.mutation(api.generations.requestGeneration, {
+      projectId,
+    });
+    const rows = await t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("generationSources")
+          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+          .collect()
+      ).filter((row) => row.kind === "project_document")
+    );
+    expect(
+      rows.map((row) => [row.label, row.uploaderRole ?? null])
+    ).toEqual([
+      ["writer_notes:attributed.md", "manager"],
+      ["writer_notes:legacy.md", null],
+    ]);
+    expect(
+      contextDocRoles(await generationInput(t, generationId))
+    ).toEqual([
+      ["attributed.md", "manager"],
+      ["legacy.md", null],
+    ]);
   });
 
   it("takes admin overrides per field and ignores unparseable ones", async () => {

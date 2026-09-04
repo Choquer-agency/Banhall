@@ -865,6 +865,10 @@ async function copyProjectInputRows(
       ...(processing.detail ? { processingDetail: processing.detail } : {}),
       source: doc.source,
       uploadedBy: userDisplayLabel(user),
+      // CAP-3: trust belongs to the content's origin, not to whoever pressed
+      // duplicate. Re-deriving from the copier would launder a client file
+      // into internal direction.
+      ...(doc.uploaderRole ? { uploaderRole: doc.uploaderRole } : {}),
       createdAt: now,
     });
     docIdMap.set(doc._id, documentId);

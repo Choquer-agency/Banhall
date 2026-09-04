@@ -117,6 +117,8 @@ describe("ingestion port to project", () => {
       content: "Historical PD body text",
       source: "ingestion_port",
       category: "previous_pd",
+      // CAP-3: the porting admin is the internal author of this row.
+      uploaderRole: "admin",
     });
 
     const item = await f.t.run((ctx) => ctx.db.get(itemId));

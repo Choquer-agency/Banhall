@@ -12,6 +12,7 @@ import {
   buildTrustedContext,
   DEFAULT_CONTEXT_BUDGET,
   describeContextCuts,
+  isInternalUploaderRole,
   type ContextBudget,
   type ContextDoc,
   type TrustedContextReport,
@@ -187,6 +188,7 @@ export function toContextDocs(
     category: string;
     fileName: string;
     content: string;
+    uploaderRole?: string;
     sourceId?: Id<"generationSources">;
   }>
 ): ContextDoc[] {
@@ -204,6 +206,12 @@ export function toContextDocs(
       category,
       fileName: document.fileName,
       content: document.content,
+      // CAP-3: narrowed the same way the category is. Anything outside the
+      // role union — absent, unknown, legacy — stays absent, which
+      // `documentTrust` reads as client trust.
+      ...(isInternalUploaderRole(document.uploaderRole)
+        ? { uploaderRole: document.uploaderRole }
+        : {}),
       ...(document.sourceId ? { sourceId: document.sourceId } : {}),
     };
   });
@@ -223,6 +231,10 @@ export function buildAnalyzerContext(input: {
     category: string;
     fileName: string;
     content: string;
+    // CAP-3: declared here, not merely passed through by a caller spreading
+    // the whole getGenerationInput result — `toContextDocs` reads it to derive
+    // the document's trust.
+    uploaderRole?: string;
     sourceId?: Id<"generationSources">;
   }>;
   contextBudget?: ContextBudget;

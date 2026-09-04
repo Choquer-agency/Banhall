@@ -328,6 +328,32 @@ describe("project duplication", () => {
         uploadedBy: "Owner",
         createdAt: now,
       });
+      // CAP-3: trust belongs to the content's origin, not to whoever pressed
+      // duplicate. The acting copier here is a `writer`, so a source role of
+      // `manager` proves the copy carried the source's role rather than being
+      // re-stamped, and the roleless row proves nothing is derived from the
+      // copier — that would launder a client file into internal direction.
+      await ctx.db.insert("projectDocuments", {
+        projectId,
+        fileName: "Attributed notes.md",
+        fileType: "txt",
+        content: "Internal direction.",
+        category: "writer_notes",
+        source: "context_input",
+        uploadedBy: "Manager",
+        uploaderRole: "manager",
+        createdAt: now,
+      });
+      await ctx.db.insert("projectDocuments", {
+        projectId,
+        fileName: "Unattributed notes.md",
+        fileType: "txt",
+        content: "Unattributed direction.",
+        category: "writer_notes",
+        source: "context_input",
+        uploadedBy: "Owner",
+        createdAt: now,
+      });
       await ctx.db.insert("projectIdentityEvidence", {
         projectId,
         subjectName: "Client",
@@ -364,7 +390,7 @@ describe("project duplication", () => {
       }
     );
 
-    expect(result.documents).toHaveLength(3);
+    expect(result.documents).toHaveLength(5);
     expect(result.evidenceCopied).toBe(1);
     expect(result.pdReviewsCopied).toBe(1);
     expect(result.reportId).toBeTruthy();
@@ -386,7 +412,7 @@ describe("project duplication", () => {
         .withIndex("by_projectId", (q) => q.eq("projectId", destinationProjectId))
         .collect(),
     }));
-    expect(copied.documents).toHaveLength(3);
+    expect(copied.documents).toHaveLength(5);
     expect(copied.documents.find((doc) => doc.fileName === "Support.pdf")).toMatchObject({
       archived: true,
       category: "background",
@@ -397,6 +423,17 @@ describe("project duplication", () => {
       processingStatus: "could_not_read",
       processingDetail: "no_text_extracted",
     });
+    expect(
+      copied.documents.find((doc) => doc.fileName === "Attributed notes.md")
+        ?.uploaderRole
+    ).toBe("manager");
+    // Absent, not re-stamped with the copier's `writer` role: assert the key
+    // is missing, since a written nullish value would also read as no role.
+    const copiedUnattributed = copied.documents.find(
+      (doc) => doc.fileName === "Unattributed notes.md"
+    );
+    expect(copiedUnattributed).toBeTruthy();
+    expect(copiedUnattributed && "uploaderRole" in copiedUnattributed).toBe(false);
     expect(copied.evidence[0]?.projectDocumentId).toBeTruthy();
     expect(copied.reviews[0]).toMatchObject({
       sourceFileName: "Existing PD.docx",

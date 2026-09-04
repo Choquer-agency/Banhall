@@ -156,6 +156,85 @@ describe("uploadDocument processing status", () => {
     ).toBe("reference_only");
   });
 
+  test("records the uploader's internal role, and never backfills it on dedupe", async () => {
+    const { t, projectId, writer } = await setup();
+
+    // CAP-3: the analyzer's trust in a writer's-notes document comes from this
+    // stored role, because `uploadedBy` is not a usable join key to `users`.
+    const documentId = await writer.mutation(api.documents.uploadDocument, {
+      projectId,
+      fileName: "notes.md",
+      fileType: "txt",
+      content: "Writer direction.",
+      category: "writer_notes",
+    });
+    expect(
+      await t.run(async (ctx) => (await ctx.db.get(documentId))?.uploaderRole)
+    ).toBe("writer");
+
+    // A row that predates this field stays roleless: the dedupe branch resolves
+    // to a *different* upload event, so its role is not a fact about that row.
+    const legacyId = await t.run(async (ctx) =>
+      await ctx.db.insert("projectDocuments", {
+        projectId,
+        fileName: "legacy-notes.md",
+        fileType: "txt",
+        content: "Legacy direction.",
+        category: "writer_notes",
+        source: "chat_upload",
+        uploadedBy: "writer@banhall.com",
+        createdAt: Date.now(),
+      })
+    );
+    const deduped = await writer.mutation(api.documents.uploadDocument, {
+      projectId,
+      fileName: "legacy-notes.md",
+      fileType: "txt",
+      content: "Legacy direction.",
+      category: "writer_notes",
+    });
+    expect(deduped).toBe(legacyId);
+    // Assert the key's absence rather than its value: a dedupe branch that
+    // wrote `uploaderRole: undefined` would be indistinguishable from one that
+    // wrote nothing if we only compared values, and only true absence proves
+    // the row was left alone.
+    expect(
+      await t.run(async (ctx) => {
+        const row = await ctx.db.get(legacyId);
+        return row !== null && "uploaderRole" in row;
+      })
+    ).toBe(false);
+
+    // Complementary case: an already-attributed row must keep the role it was
+    // stored with, even when a user holding a different role re-uploads it.
+    // Without this, code that patched `uploaderRole` on the dedupe branch would
+    // still pass the roleless case above.
+    const attributedId = await t.run(async (ctx) =>
+      await ctx.db.insert("projectDocuments", {
+        projectId,
+        fileName: "manager-notes.md",
+        fileType: "txt",
+        content: "Manager direction.",
+        category: "writer_notes",
+        source: "chat_upload",
+        uploadedBy: "manager@banhall.com",
+        uploaderRole: "manager",
+        createdAt: Date.now(),
+      })
+    );
+    const rededuped = await writer.mutation(api.documents.uploadDocument, {
+      projectId,
+      fileName: "manager-notes.md",
+      fileType: "txt",
+      content: "Manager direction.",
+      category: "writer_notes",
+    });
+    expect(rededuped).toBe(attributedId);
+    expect(
+      await t.run(async (ctx) => (await ctx.db.get(attributedId))?.uploaderRole)
+    ).toBe("manager");
+  });
+
   test("two unreadable files with the same name stay separate rows", async () => {
     const { t, projectId, writer } = await setup();
     // Both store "", so a (fileName, content) dedupe would merge them. They are

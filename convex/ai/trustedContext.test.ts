@@ -16,11 +16,23 @@ const budget = (overrides: Partial<ContextBudget> = {}): ContextBudget => ({
   ...overrides,
 });
 
+// CAP-3: trust follows the uploader's role, so every fixture that expects a
+// `writer_notes` document to keep its high-trust label has to carry an
+// internal role. `writer` is the default; pass `null` for a document with no
+// role at all. (An explicit `undefined` would be swallowed by the default
+// parameter and silently yield an internal document, so absence is spelled
+// `null` here on purpose.)
 const doc = (
   category: ContextDoc["category"],
   fileName: string,
-  content: string
-): ContextDoc => ({ category, fileName, content });
+  content: string,
+  uploaderRole: ContextDoc["uploaderRole"] | null = "writer"
+): ContextDoc => ({
+  category,
+  fileName,
+  content,
+  ...(uploaderRole ? { uploaderRole } : {}),
+});
 
 describe("trusted context assembly", () => {
   it("always emits the guidance and wraps the transcript in markers (zero documents)", () => {
@@ -83,16 +95,88 @@ describe("trusted context assembly", () => {
     expect(report.sources[2].trust).toBe("client");
   });
 
-  it("derives trust from the category (the seam story 3 re-derives)", () => {
-    expect(documentTrust("writer_notes")).toBe("internal");
+  it("derives trust from the uploader's role, not the category", () => {
+    // Only writer's notes an internal user actually uploaded are direction.
+    for (const role of ["writer", "manager", "admin"] as const) {
+      expect(documentTrust("writer_notes", role)).toBe("internal");
+    }
+    // Fail closed: no role, an unknown role, or a non-notes category.
+    expect(documentTrust("writer_notes", undefined)).toBe("client");
+    expect(documentTrust("writer_notes", "client")).toBe("client");
+    expect(documentTrust("writer_notes", "")).toBe("client");
     for (const category of [
       "previous_pd",
       "scoping_notes",
       "background",
       "other",
     ] as const) {
-      expect(documentTrust(category)).toBe("client");
+      expect(documentTrust(category, undefined)).toBe("client");
+      // An internal role never promotes a non-notes category.
+      expect(documentTrust(category, "admin")).toBe("client");
     }
+  });
+
+  it("demotes unattributed writer's notes to ordinary supporting material", () => {
+    const { userMessage, report } = buildTrustedContext({
+      documents: [
+        { category: "writer_notes", fileName: "notes.md", content: "Notes." },
+      ],
+    });
+    // The label IS the instruction, so the demotion has to move it.
+    expect(userMessage).toContain(
+      "--- BEGIN [OTHER SUPPORTING MATERIAL] notes.md ---\nNotes.\n--- END [OTHER SUPPORTING MATERIAL] notes.md ---"
+    );
+    // The guidance block always names the category; what must not exist is a
+    // delimiter that puts this document under it.
+    expect(userMessage).not.toContain("[WRITER'S NOTES");
+    expect(report.sources[0]).toMatchObject({
+      label: "notes.md",
+      trust: "client",
+      category: "other",
+    });
+  });
+
+  it("sorts a demoted document in `other`'s position, not writer_notes'", () => {
+    const { userMessage, report } = buildTrustedContext({
+      documents: [
+        { category: "writer_notes", fileName: "unattributed.md", content: "U." },
+        doc("background", "bg.txt", "Background."),
+        doc("writer_notes", "attributed.md", "A."),
+      ],
+    });
+    expect(report.sources.map((source) => source.label)).toEqual([
+      "attributed.md",
+      "bg.txt",
+      "unattributed.md",
+    ]);
+    // Match full BEGIN markers: a bare "attributed.md" substring also occurs
+    // inside "unattributed.md", so it could not tell the two orders apart.
+    const at = (label: string, file: string) =>
+      userMessage.indexOf(`--- BEGIN [${label}] ${file} ---`);
+    const attributedAt = at("WRITER'S NOTES (unreliable narrator)", "attributed.md");
+    const bgAt = at("BACKGROUND RESEARCH / LINKS", "bg.txt");
+    const unattributedAt = at("OTHER SUPPORTING MATERIAL", "unattributed.md");
+    expect(attributedAt).toBeGreaterThanOrEqual(0);
+    expect(bgAt).toBeGreaterThanOrEqual(0);
+    expect(unattributedAt).toBeGreaterThanOrEqual(0);
+    expect(attributedAt).toBeLessThan(bgAt);
+    expect(bgAt).toBeLessThan(unattributedAt);
+    expect(report.sources.map((source) => source.trust)).toEqual([
+      "internal",
+      "client",
+      "client",
+    ]);
+  });
+
+  it("keeps an internal role from promoting a non-notes category", () => {
+    const { userMessage, report } = buildTrustedContext({
+      documents: [doc("previous_pd", "pd.txt", "Last year.", "admin")],
+    });
+    expect(userMessage).toContain("--- BEGIN [PREVIOUS-YEAR REPORT] pd.txt ---");
+    expect(report.sources[0]).toMatchObject({
+      trust: "client",
+      category: "previous_pd",
+    });
   });
 
   it("cuts an oversize document at the per-document cap, inside its markers", () => {
@@ -133,6 +217,27 @@ describe("trusted context assembly", () => {
     expect(userMessage).toContain("high.md");
     expect(userMessage).not.toContain("low.txt");
     expect(report.includedTokens).toBeLessThanOrEqual(100);
+  });
+
+  it("cuts a demoted writer's-notes document first under budget pressure", () => {
+    // The demotion moves the sort key, and the sort key is the budget queue:
+    // an unattributed writer_notes document sorts with `other`, behind a
+    // client `background` file, so it is the one the total budget drops.
+    const body = "x".repeat(400);
+    const { userMessage, report } = buildTrustedContext({
+      documents: [
+        doc("writer_notes", "unattributed.md", body, null),
+        doc("background", "bg.txt", body),
+      ],
+      // 100 tokens = 400 chars: exactly one document fits.
+      budget: budget({ totalTokens: 100, perDocumentTokens: 100 }),
+    });
+    expect(report.sources.map((s) => [s.label, s.included])).toEqual([
+      ["bg.txt", true],
+      ["unattributed.md", false],
+    ]);
+    expect(userMessage).toContain("bg.txt");
+    expect(userMessage).not.toContain("unattributed.md");
   });
 
   it("renders at most maxDocuments and reports the overflow", () => {

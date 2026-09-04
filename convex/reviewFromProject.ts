@@ -188,6 +188,8 @@ export const createReviewProjectRecord = internalMutation({
       processingStatus: derived.status,
       processingDetail: derived.detail,
       uploadedBy: userDisplayLabel(user),
+      // CAP-3: the acting internal user authored this review PD.
+      ...(user.role ? { uploaderRole: user.role } : {}),
       createdAt: now,
     });
 

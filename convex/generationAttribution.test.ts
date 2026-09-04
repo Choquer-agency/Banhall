@@ -24,6 +24,7 @@ const modules = import.meta.glob("./**/*.ts");
 const AUTH_ID = "generation-attribution-writer";
 const PROMPT_VERSION = `sha256:${"a".repeat(64)}`;
 const CANDIDATE_DOCUMENT_BODY = "Frozen writer notes for the candidate run.";
+const LEGACY_DOCUMENT_BODY = "Unattributed direction frozen before CAP-3.";
 const RETRY_PROMPT_VERSION = `sha256:${"b".repeat(64)}`;
 
 beforeEach(() => {
@@ -1205,6 +1206,24 @@ describe("generation entry handoffs through the real actions", () => {
         contentHash: "candidate-document-hash",
         truncated: false,
         originalLength: CANDIDATE_DOCUMENT_BODY.length,
+        // CAP-3: writer's-notes trust now comes from the uploader's role, so
+        // this fixture carries an internal one to keep the WRITER'S NOTES
+        // label the assertions below expect.
+        uploaderRole: "writer",
+        capturedAt: fixture.now,
+      });
+      // CAP-3: a legacy frozen writer_notes row with no uploaderRole, run
+      // through the real entry action, must reach the analyzer as client
+      // evidence — the whole seam in one traversal, not two tested halves.
+      await ctx.db.insert("generationSources", {
+        generationId,
+        projectId: fixture.projectId,
+        kind: "project_document",
+        label: "writer_notes:legacy.md",
+        content: LEGACY_DOCUMENT_BODY,
+        contentHash: "legacy-document-hash",
+        truncated: false,
+        originalLength: LEGACY_DOCUMENT_BODY.length,
         capturedAt: fixture.now,
       });
       const candidateRunId = await ctx.db.insert("generationCandidateRuns", {
@@ -1282,6 +1301,17 @@ describe("generation entry handoffs through the real actions", () => {
       "--- END [WRITER'S NOTES (unreliable narrator)] notes.md ---",
     );
     expect(userText).toContain(CANDIDATE_DOCUMENT_BODY);
+    // The roleless legacy row is demoted end to end: OTHER SUPPORTING MATERIAL
+    // label, never the WRITER'S NOTES header, and after the attributed notes.
+    expect(userText).toContain(
+      `--- BEGIN [OTHER SUPPORTING MATERIAL] legacy.md ---\n${LEGACY_DOCUMENT_BODY}\n--- END [OTHER SUPPORTING MATERIAL] legacy.md ---`,
+    );
+    expect(userText).not.toContain("[WRITER'S NOTES (unreliable narrator)] legacy.md");
+    expect(
+      userText.indexOf("--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---"),
+    ).toBeLessThan(
+      userText.indexOf("--- BEGIN [OTHER SUPPORTING MATERIAL] legacy.md ---"),
+    );
 
     // Usage rows are scheduled at the transport boundary; flush them and read
     // through the Story 11 index. Every candidate-owned call carries the run
@@ -2057,6 +2087,9 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
         contentHash: "budget-record-document-hash",
         truncated: false,
         originalLength: CANDIDATE_DOCUMENT_BODY.length,
+        // CAP-3: an internal role is what earns the notes label; this fixture
+        // carries one so its expected label is unchanged.
+        uploaderRole: "writer",
         capturedAt: now,
       });
       return { generationId };

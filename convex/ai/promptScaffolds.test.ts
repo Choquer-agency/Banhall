@@ -9,7 +9,7 @@ import {
   TRANSCRIPT_BUDGET_CHARS,
 } from "../lib/transcripts";
 import { priorSectionsBlock } from "./iterative";
-import { buildStyleGuidance, lengthBudgetBlock } from "./pipeline";
+import { buildStyleGuidance, lengthBudgetBlock, toContextDocs } from "./pipeline";
 import { CONTEXT_INPUTS_GUIDANCE, waivedCategoryLabels } from "./prompts";
 import { numberParagraphs } from "./qaAgent";
 import { CHARS_PER_LINE, LINE_LIMITS, wordBudget } from "../lib/lineLimits";
@@ -100,6 +100,8 @@ describe("prompt scaffold composition", () => {
             category: "writer_notes",
             fileName: "notes.md",
             content: "Note content.",
+            // CAP-3: only an internal uploader keeps the notes label.
+            uploaderRole: "writer",
           },
         ],
       }).userMessage,
@@ -112,6 +114,35 @@ describe("prompt scaffold composition", () => {
         "\n\n" +
         "--- BEGIN [OTHER SUPPORTING MATERIAL] misc.txt ---\nMisc content.\n--- END [OTHER SUPPORTING MATERIAL] misc.txt ---",
     );
+  });
+
+  it("hands a legacy frozen source to the analyzer as client evidence (CAP-3)", () => {
+    // The whole seam a legacy row travels: a `generationSources` row frozen
+    // before CAP-3 carries no uploaderRole, `getGenerationInput` surfaces that
+    // absence, `toContextDocs` narrows it away, and the assembled message must
+    // label the document OTHER SUPPORTING MATERIAL — never as the authoritative
+    // direction the guidance grants WRITER'S NOTES.
+    const legacyContextDocs = [
+      // Hand-built pre-narrowing input. `getGenerationInput` omits the key
+      // entirely (generationInput.test.ts pins that); an explicit `undefined`
+      // is the widest shape `toContextDocs` accepts and must narrow the same.
+      {
+        category: "writer_notes",
+        fileName: "legacy.md",
+        content: "Unattributed direction.",
+        uploaderRole: undefined,
+      },
+    ];
+    const docs = toContextDocs(legacyContextDocs);
+    expect("uploaderRole" in docs[0]).toBe(false);
+
+    const { userMessage, report } = buildTrustedContext({ documents: docs });
+    expect(userMessage).toContain(
+      "--- BEGIN [OTHER SUPPORTING MATERIAL] legacy.md ---\nUnattributed direction.\n--- END [OTHER SUPPORTING MATERIAL] legacy.md ---",
+    );
+    expect(userMessage).not.toContain("[WRITER'S NOTES");
+    expect(report.sources[0].trust).toBe("client");
+    expect(report.sources[0].category).toBe("other");
   });
 });
 
