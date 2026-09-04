@@ -222,3 +222,34 @@ export const setDefaultModel = mutation({
     }
   },
 });
+
+const CHAT_DAILY_BUDGET_KEY = "ai.chatDailyBudgetUsd";
+const CHAT_MAX_QUEUED_TURNS_KEY = "ai.chatMaxQueuedTurns";
+
+export async function chatAdmissionLimits(ctx: QueryCtx | MutationCtx) {
+  const row = await ctx.db.query("appSettings")
+    .withIndex("by_key", (q) => q.eq("key", CHAT_DAILY_BUDGET_KEY)).unique();
+  const raw = row?.value.trim() ?? "";
+  // Accept decimal/scientific notation emitted by String(number), not hex.
+  const parsed = /^(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(raw)
+    ? Number(raw) : NaN;
+  return {
+    dailyBudgetUsd: Number.isFinite(parsed) && parsed > 0 ? parsed : 50,
+    maxQueuedTurns: await readPositiveInt(ctx, CHAT_MAX_QUEUED_TURNS_KEY, 3),
+  };
+}
+
+export const setChatAdmissionLimits = mutation({
+  args: { dailyBudgetUsd: v.number(), maxQueuedTurns: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await requireRole(ctx, ["admin"]);
+    if (!Number.isFinite(args.dailyBudgetUsd) || args.dailyBudgetUsd <= 0 ||
+        !Number.isSafeInteger(args.maxQueuedTurns) || args.maxQueuedTurns <= 0) {
+      domainError("INVALID_INPUT", "Chat limits require positive finite USD and a positive safe integer queue count");
+    }
+    await setSetting(ctx, CHAT_DAILY_BUDGET_KEY, String(args.dailyBudgetUsd), user._id);
+    await setSetting(ctx, CHAT_MAX_QUEUED_TURNS_KEY, String(args.maxQueuedTurns), user._id);
+    return null;
+  },
+});

@@ -1,0 +1,34 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+
+ ❯ |convex| convex/chatTurns.test.ts (53 tests | 1 failed | 52 skipped) 166ms
+     × compares exact decimal costs at a fractional budget 163ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/chatTurns.test.ts > CAP-11 chat admission > compares exact decimal costs at a fractional budget
+ConvexError: {"code":"CHAT_SPEND_BUDGET_EXCEEDED","message":"Project chat spending budget exceeded"}
+ ❯ domainError convex/lib/contracts.ts:39:9
+     37|   details?: Record<string, string>
+     38| ): never {
+     39|   throw new ConvexError({ ...details, code, message });
+       |         ^
+     40| }
+     41|
+ ❯ assertChatAdmission convex/chatV2.ts:245:5
+ ❯ handler convex/chatV2.ts:325:5
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeMutation node_modules/convex/src/server/impl/registration_impl.ts:70:17
+ ❯ runMutationWithHandler node_modules/convex-test/dist/index.js:1562:31
+ ❯ Object.mutationFromPath node_modules/convex-test/dist/index.js:1693:32
+ ❯ mutation node_modules/convex-test/dist/index.js:1739:20
+ ❯ sendQueuedTurn convex/chatTurns.test.ts:63:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 52 skipped (53)
+   Start at  12:40:18
+   Duration  1.78s (transform 825ms, setup 0ms, import 1.35s, tests 166ms, environment 64ms)
+
