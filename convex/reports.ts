@@ -404,10 +404,16 @@ export const failExport = mutation({
 // ─── BNH-10 flywheel: post-edit distance ─────────────────────────────────────
 
 /**
- * Read-time post-edit distance. The formula lives in `./lib/editDistance`, so
- * this query and the rows persisted at milestones (`reportEditDistance`) share
- * one implementation. The `"generated"` baseline lookup is still written out in
- * both places; the ghost-snapshot tests are what keep those two copies aligned.
+ * Post-edit distance (PED): how much of the AI draft the writer changed before
+ * the report's current state — the north-star "is the system improving" metric
+ * (regulatory-writing shops track exactly this; falling PED over time = better
+ * drafts, >40-50% sustained = fix prompts/retrieval, not writers).
+ *
+ * v1 is deliberately cheap and order-insensitive: word-multiset similarity
+ * (Sørensen–Dice) + unchanged-paragraph ratio against the "generated" baseline
+ * snapshot frozen at candidate selection. It trends correctly; it does not
+ * attribute edits to positions. Returns null for reports predating baseline
+ * snapshots.
  */
 export const postEditDistance = query({
   args: {

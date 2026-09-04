@@ -435,6 +435,32 @@ describe("seriesForReport", () => {
     ).toHaveLength(1);
   });
 
+  it("excludes another project's readings from an authorized report series", async () => {
+    const { t, writer, reportId, projectId, otherWriterId } = await setup();
+    const expectedId = await t.run(async (ctx) => {
+      const otherProjectId = await ctx.db.insert("projects", {
+        title: "Other project", clientName: "Other client", status: "review",
+        createdBy: otherWriterId, ownerId: otherWriterId,
+        shareToken: "ped-other-project-token",
+        createdAt: 0, updatedAt: 0,
+      });
+      const otherReportId = await ctx.db.insert("reports", {
+        projectId: otherProjectId, content: DRAFT, version: 1,
+        generatedAt: 0, updatedAt: 0,
+      });
+      await ctx.db.insert("reportEditDistance", {
+        reportId: otherReportId, projectId: otherProjectId,
+        revisionNumber: 0, computedAt: 1, trigger: "milestone", ped: 1,
+      });
+      return await ctx.db.insert("reportEditDistance", {
+        reportId, projectId, revisionNumber: 0,
+        computedAt: 2, trigger: "milestone", ped: 0,
+      });
+    });
+    const series = await writer.query(api.reportEditDistance.seriesForReport, { reportId });
+    expect(series?.map((row) => row._id)).toEqual([expectedId]);
+  });
+
   it("returns null without internal access and rows oldest-first with it", async () => {
     const { t, admin, reportId, generationId } = await setup();
     await t.run(async (ctx) => {

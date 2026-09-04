@@ -4,6 +4,28 @@ import type { Doc } from "../_generated/dataModel";
 import { computeEditDistance, recordReportEditDistance } from "./editDistance";
 
 describe("computeEditDistance", () => {
+  test("counts repeated words and consumes each matching paragraph once", () => {
+    expect(computeEditDistance("alpha\nalpha\nbeta", "alpha\nbeta")).toEqual({
+      ped: 1 - 4 / 5,
+      wordSimilarity: 4 / 5,
+      draftWords: 3,
+      currentWords: 2,
+      paragraphsTotal: 3,
+      paragraphsUnchanged: 2,
+    });
+  });
+
+  test("normalizes Unicode words and edge punctuation without changing paragraph matching", () => {
+    expect(computeEditDistance("ÉTUDE, 東京! 123. !!!", "étude 東京 123")).toEqual({
+      ped: 0,
+      wordSimilarity: 1,
+      draftWords: 3,
+      currentWords: 3,
+      paragraphsTotal: 1,
+      paragraphsUnchanged: 0,
+    });
+  });
+
   test("identical text scores an untouched draft", () => {
     const text = "The team ran a trial.\n\nResults were inconclusive.";
     const r = computeEditDistance(text, text);
