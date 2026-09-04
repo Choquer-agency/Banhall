@@ -10,6 +10,7 @@
 
 import type * as ai_analyzerAgent from "../ai/analyzerAgent.js";
 import type * as ai_brain_embeddings from "../ai/brain/embeddings.js";
+import type * as ai_brain_erase from "../ai/brain/erase.js";
 import type * as ai_brain_ingest from "../ai/brain/ingest.js";
 import type * as ai_brain_query from "../ai/brain/query.js";
 import type * as ai_brain_rag from "../ai/brain/rag.js";
@@ -31,6 +32,8 @@ import type * as ai_openrouter from "../ai/openrouter.js";
 import type * as ai_openrouterCore from "../ai/openrouterCore.js";
 import type * as ai_pipeline from "../ai/pipeline.js";
 import type * as ai_postQa from "../ai/postQa.js";
+import type * as ai_promptDefinitions from "../ai/promptDefinitions.js";
+import type * as ai_promptProgram from "../ai/promptProgram.js";
 import type * as ai_prompts from "../ai/prompts.js";
 import type * as ai_providers from "../ai/providers.js";
 import type * as ai_qaAgent from "../ai/qaAgent.js";
@@ -88,6 +91,7 @@ import type * as lib_snapshots from "../lib/snapshots.js";
 import type * as lib_styleOverrides from "../lib/styleOverrides.js";
 import type * as lib_teamRoster from "../lib/teamRoster.js";
 import type * as lib_tiptapReport from "../lib/tiptapReport.js";
+import type * as lib_transcripts from "../lib/transcripts.js";
 import type * as lib_uploadAttempts from "../lib/uploadAttempts.js";
 import type * as lib_workItemOversight from "../lib/workItemOversight.js";
 import type * as myWork from "../myWork.js";
@@ -129,6 +133,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   "ai/analyzerAgent": typeof ai_analyzerAgent;
   "ai/brain/embeddings": typeof ai_brain_embeddings;
+  "ai/brain/erase": typeof ai_brain_erase;
   "ai/brain/ingest": typeof ai_brain_ingest;
   "ai/brain/query": typeof ai_brain_query;
   "ai/brain/rag": typeof ai_brain_rag;
@@ -150,6 +155,8 @@ declare const fullApi: ApiFromModules<{
   "ai/openrouterCore": typeof ai_openrouterCore;
   "ai/pipeline": typeof ai_pipeline;
   "ai/postQa": typeof ai_postQa;
+  "ai/promptDefinitions": typeof ai_promptDefinitions;
+  "ai/promptProgram": typeof ai_promptProgram;
   "ai/prompts": typeof ai_prompts;
   "ai/providers": typeof ai_providers;
   "ai/qaAgent": typeof ai_qaAgent;
@@ -207,6 +214,7 @@ declare const fullApi: ApiFromModules<{
   "lib/styleOverrides": typeof lib_styleOverrides;
   "lib/teamRoster": typeof lib_teamRoster;
   "lib/tiptapReport": typeof lib_tiptapReport;
+  "lib/transcripts": typeof lib_transcripts;
   "lib/uploadAttempts": typeof lib_uploadAttempts;
   "lib/workItemOversight": typeof lib_workItemOversight;
   myWork: typeof myWork;
