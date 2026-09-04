@@ -32,3 +32,4 @@ Three fresh BMAD review layers completed; retained patches and dispositions are 
 
 `git diff --check` passed. No frontend or schema changes. Ledger entries were not edited. Source audit iteration can hit transaction limits on exceptionally large source histories; under the unchanged-schema constraint, safe transactional failure is preferred over truncating the fence lookup.
 
+Verified source commit: `901446a381eafeae815a4fe134ff3fb08ed9feae`. Following evidence-only commit records this identifier; production source and tests are unchanged. Raw log/diff artifacts retain command whitespace; the source/spec diff check is clean.
