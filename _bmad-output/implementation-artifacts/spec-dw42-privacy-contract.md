@@ -28,6 +28,8 @@ context: []
 
 ## Code Map
 
+- `docs/the-brain.md:66`: ingestion reference; add the missing nomination scrub boundary and link the approved domain contract, without changing other import instructions.
+
 - `docs/product-domain.md:165`: existing governed behavioral learning rules; retain these and add the amendment reference.
 - `convex/lib/deidentify.ts:20`: pure helper enumerates `clientName`, `title`, `sredTitle`, `writer`, `interviewer`, `interviewees`; contact patterns, placeholders and limitations.
 - `convex/brain.ts:213`: `nominateFromReport` scrubs plain report content and project-title label before importing a pending Brain source.
@@ -41,6 +43,7 @@ context: []
 ## Tasks & Acceptance
 
 **Execution:**
+- [x] `docs/the-brain.md`: document the existing nomination scrub and separate digest publication gate, with a link to the domain amendment.
 - [x] `docs/product-domain.md`: add dated approved-contract amendment and cross-reference, accurately recording boundaries and compatibility.
 - [x] `.audit/DW42/evidence.md`: record baseline omission, precise source evidence, verification and limitations.
 - [x] `.audit/DW42/decisions.tsv`: append traceable scope and verification decisions.
@@ -53,9 +56,11 @@ context: []
 
 ## Spec Change Log
 
+- 2026-09-04: root identified the second documentation target explicitly named by DW42. Added `docs/the-brain.md` to the execution map and verification. Preserve the approved contract, all boundary limitations, and the frozen intent; this corrects the missing implementation target without changing policy.
+
 ## Verification
 
 - `git diff --check`: no whitespace errors.
 - `git diff --name-only`: authorized documentation and repair artifacts only.
-- Read every added domain paragraph against the Code Map and canonical story. Baseline must omit the newly recorded contract; updated document must contain it.
+- Read every added domain and Brain-reference paragraph against the Code Map and canonical story. Baseline must omit the newly recorded contract and nomination scrub; updated documents must contain them. Verify the Brain reference links to the actual domain amendment heading.
 - Independent BMAD review remains mandatory; if team capacity prevents dispatch, report the pending review to root without declaring the repair fully verified.

@@ -45,6 +45,22 @@ No claim is made that these tests passed in this repair session.
 Root owns BMAD step 04 independent review and all broader runtime gates.
 The local candidate is prepared for review, not marked done. No heavy checks,
 dependency installation, push, canonical ledger/status changes, or native
-run changes were performed. The separate Brain reference documentation gap
-and story 4 mixed-stream decision are outside this bounded domain-document
-repair. Best-effort privacy limitations remain unchanged.
+run changes were performed. Story 4's mixed-stream decision remains outside
+this documentation repair. Best-effort privacy limitations remain unchanged.
+
+## Brain reference follow-up
+
+Root identified that DW42 also explicitly names `docs/the-brain.md`. Read the
+entire reference and added a bounded CAP-1 section under ingestion instructions.
+It documents the actual `nominateFromReport` content/title scrub, pending status,
+forward-only scope and excluded import paths, then distinguishes digest
+publication from Brain approval and links to the domain amendment.
+Source evidence is unchanged: `convex/brain.ts:229-250` and
+`convex/learning.ts:305-365`, plus the canonical story's deferred import gaps.
+The frozen repair intent was preserved byte-for-byte; only the non-frozen
+execution map, changelog and verification were extended.
+
+Static follow-up checks compare both documents to the original baseline,
+validate the relative link and heading, and ensure the complete tracked diff
+contains only the two docs, repair spec and audit evidence. These checks do
+not claim runtime test execution. Independent review remains pending.
