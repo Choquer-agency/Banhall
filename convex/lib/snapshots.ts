@@ -248,3 +248,60 @@ export async function pruneSnapshots(
     await ctx.db.delete(snapshotId);
   }
 }
+
+/** The two checkpoints taken immediately before a report edit is written. */
+export type PreEditSnapshotReason = "pre_chat_edit" | "pre_client_edit";
+
+const PRE_EDIT_DEFAULT_LABEL: Record<PreEditSnapshotReason, string> = {
+  pre_chat_edit: "Before AI edit",
+  pre_client_edit: "Before client edit",
+};
+
+/** A research-backed edit is labelled for its evidence, whatever the reason. */
+const RESEARCHED_LABEL = "Before researched edit";
+
+/**
+ * Write the recovery checkpoint that precedes an in-place report rewrite.
+ * The single owner of the pre-edit snapshot shape, label included: callers
+ * pass the reason (and, for a research-backed edit, the session whose source
+ * count and label travel with the checkpoint). Call it inside the mutation
+ * transaction, after every validation throw and before the report patch,
+ * threading the same `now` the patch uses for `updatedAt` — `createdAt` is
+ * required so the two can never drift onto separate clocks.
+ */
+export async function writePreEditSnapshot(
+  ctx: MutationCtx,
+  report: Doc<"reports">,
+  reason: PreEditSnapshotReason,
+  options: {
+    createdAt: number;
+    researchSessionId?: Id<"researchSessions">;
+  }
+): Promise<Id<"reportSnapshots">> {
+  const auditFields = await snapshotAuditFields(ctx, report);
+  // Provenance for version history. The research layer owns the evidence
+  // policy (brain patterns never count) and stored the number at review time.
+  const researchFields = options.researchSessionId
+    ? {
+        researchSessionId: options.researchSessionId,
+        researchSourceCount:
+          (await ctx.db.get(options.researchSessionId))?.evidenceSourceCount ??
+          0,
+      }
+    : {};
+
+  return await ctx.db.insert("reportSnapshots", {
+    projectId: report.projectId,
+    reportId: report._id,
+    content: report.content,
+    ...auditFields,
+    sourceRevisionNumber: report.revisionNumber ?? 0,
+    reason,
+    label: options.researchSessionId
+      ? RESEARCHED_LABEL
+      : PRE_EDIT_DEFAULT_LABEL[reason],
+    createdByRole: "system",
+    createdAt: options.createdAt,
+    ...researchFields,
+  });
+}

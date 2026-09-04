@@ -173,3 +173,11 @@ source_spec: `12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.m
 severity: medium
 reason: All three review sessions for story 12 stalled on the Claude Fable usage limit (12-review-1 after 50 min and 1.08M weighted tokens with partial patches kept; 12-review-2 and 12-review-3 at 0 tokens). The dev commit 8259869 passed the verify gate and the dev pass's inline review, but the policy's separate review stage did not run to completion. Re-run: `claude --model claude-fable-5-1 "/bmad-build-auto <spec path>"` on the done spec, or a bmad-loop review-only re-drive, after the limit resets on 2026-09-03 13:00 America/Vancouver.
 status: open
+
+### DW-23: writePreEditSnapshot copies a research session's evidenceSourceCount without checking the session belongs to this project or report.
+origin: spec-deferred fbbba2dca0f0
+location: convex/lib/snapshots.ts writePreEditSnapshot researchFields
+source_spec: `1-shared-pre-edit-snapshot-writer.md`
+severity: low
+reason: Every other foreign id on a reportSnapshots row is filtered through validGeneration/validTranscriptId/validTranscriptIds in convex/lib/snapshots.ts, which drop cross-project references. The research session id is passed straight to ctx.db.get and its count copied in. Pre-existing behaviour carried over verbatim from applyProposal, not introduced by this story, and not reachable today because the research layer only ever creates a session for the proposal's own report — but the helper is now the single choke point where a check belongs.
+status: open

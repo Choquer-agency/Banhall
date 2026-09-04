@@ -7,7 +7,7 @@ import {
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import { domainError, sha256 } from "./lib/contracts";
 import { applyReplacements, type PMNode } from "./lib/reportEdits";
-import { pruneSnapshots, snapshotAuditFields } from "./lib/snapshots";
+import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 
 const COMMENTER_COLORS = [
   "#818CF8",
@@ -183,15 +183,7 @@ export const acceptEdit = mutation({
     // restorable through the ordinary snapshot restore path. The replacement
     // checks above throw before this insert, so a rejected accept persists no
     // snapshot.
-    await ctx.db.insert("reportSnapshots", {
-      projectId: report.projectId,
-      reportId: report._id,
-      content: report.content,
-      ...(await snapshotAuditFields(ctx, report)),
-      sourceRevisionNumber: revisionNumber,
-      reason: "pre_client_edit",
-      label: "Before client edit",
-      createdByRole: "system",
+    await writePreEditSnapshot(ctx, report, "pre_client_edit", {
       createdAt: now,
     });
     await ctx.db.patch(report._id, {
