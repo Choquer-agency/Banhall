@@ -158,6 +158,7 @@ describe("governed learning digest publication", () => {
       digestId: secondId,
       expectedSelectionId: null,
       reason: "Reviewed and approved",
+      privacyReviewed: true,
     });
     expect(
       (
@@ -182,6 +183,7 @@ describe("governed learning digest publication", () => {
       digestId: firstId,
       expectedSelectionId: disabledId,
       reason: "Rollback to known-good guidance",
+      privacyReviewed: true,
     });
     expect(
       (
@@ -199,6 +201,7 @@ describe("governed learning digest publication", () => {
       kind: "draft_style",
       digestId: publishedId,
       expectedSelectionId: null,
+      privacyReviewed: true,
     });
     for (let i = 2; i <= 25; i += 1) {
       await insertDigest(t, "draft_style", `candidate ${i}`, i);
@@ -221,6 +224,7 @@ describe("governed learning digest publication", () => {
       kind: "qa_calibration" as const,
       digestId,
       expectedSelectionId: null,
+      privacyReviewed: true,
     };
     await expect(
       writer.mutation(api.learning.selectDigest, args),
@@ -260,11 +264,161 @@ describe("governed learning digest publication", () => {
         kind: "draft_style",
         digestId: ids.digestId,
         expectedSelectionId: null,
+        privacyReviewed: true,
       }),
     ).rejects.toThrow(/personal/i);
     await expect(
       t.query(internal.learning.getActiveDigest, { kind: "draft_style" }),
     ).resolves.toBeNull();
+  });
+
+  // ─── CAP-1 privacy review gate ─────────────────────────────────────────────
+
+  test("publishing without a confirmed privacy review is refused", async () => {
+    const { t, admin } = await setup();
+    const digestId = await insertDigest(t, "draft_style", "candidate", 1);
+
+    for (const extra of [{}, { privacyReviewed: false }]) {
+      await expect(
+        admin.mutation(api.learning.selectDigest, {
+          kind: "draft_style",
+          digestId,
+          expectedSelectionId: null,
+          ...extra,
+        }),
+      ).rejects.toThrow(/privacy review/i);
+    }
+
+    const selections = await t.run(async (ctx) => {
+      const rows = [];
+      for await (const row of ctx.db.query("learningDigestSelections"))
+        rows.push(row);
+      return rows;
+    });
+    // No ledger row: the refusal happened before the publication was recorded.
+    expect(selections).toEqual([]);
+  });
+
+  test("disabling guidance never requires a privacy review", async () => {
+    const { t, admin } = await setup();
+    const digestId = await insertDigest(t, "draft_style", "candidate", 1);
+    const publishedId = await admin.mutation(api.learning.selectDigest, {
+      kind: "draft_style",
+      digestId,
+      expectedSelectionId: null,
+      privacyReviewed: true,
+    });
+
+    const disabledId = await admin.mutation(api.learning.selectDigest, {
+      kind: "draft_style",
+      digestId: null,
+      expectedSelectionId: publishedId,
+    });
+
+    expect(disabledId).not.toBeNull();
+    await expect(
+      t.query(internal.learning.getActiveDigest, { kind: "draft_style" }),
+    ).resolves.toBeNull();
+  });
+});
+
+// ─── CAP-1 de-identified proposal wording edits ───────────────────────────────
+
+describe("proposal wording edits leave their project de-identified", () => {
+  async function seedEdit(
+    t: ReturnType<typeof convexTest>,
+    opts: { withProject: boolean },
+  ) {
+    return await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", {
+        authId: "edit-writer",
+        role: "writer",
+      });
+      const projectId = await ctx.db.insert("projects", {
+        title: "Raspberry Cane Trial",
+        sredTitle: "Cold-hardiness of Rubus cultivars",
+        clientName: "Acme Farms",
+        writer: "Johnny Test",
+        status: "draft",
+        createdBy: userId,
+        shareToken: `deid-${opts.withProject}`,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      const reportId = await ctx.db.insert("reports", {
+        projectId,
+        content: JSON.stringify({ type: "doc", content: [] }),
+        version: 1,
+        generatedAt: 1,
+        updatedAt: 1,
+      });
+      const proposalId = await ctx.db.insert("chatProposals", {
+        agentThreadId: "thread-deid",
+        projectId,
+        reportId,
+        kind: "edit",
+        state: "pending",
+        createdAt: 1,
+      });
+      await ctx.db.insert("proposalWordingEditEvents", {
+        projectId,
+        reportId,
+        proposalId,
+        userId,
+        originalText:
+          "Acme Farms tested the Raspberry Cane Trial; email jo@acme.ca.",
+        editedText:
+          "Johnny Test rewrote it for Acme Farms. Call (613) 555-0134.",
+        createdAt: 1,
+      });
+      // The orphan case: the row survives its project document.
+      if (!opts.withProject) await ctx.db.delete(projectId);
+      return { projectId };
+    });
+  }
+
+  test("scrubs identifiers on the read side without rewriting stored rows", async () => {
+    const t = convexTest(schema, modules);
+    await seedEdit(t, { withProject: true });
+
+    const rows = await t.query(
+      internal.learning.getProposalWordingEditsForDigest,
+      { limit: 10 },
+    );
+
+    expect(rows).toHaveLength(1);
+    const combined = `${rows[0].originalText} ${rows[0].editedText}`;
+    expect(combined).not.toMatch(/Acme Farms/i);
+    expect(combined).not.toMatch(/Johnny Test/i);
+    expect(combined).not.toMatch(/Raspberry Cane Trial/i);
+    expect(combined).not.toContain("jo@acme.ca");
+    expect(combined).not.toContain("555-0134");
+    expect(combined).toContain("[redacted]");
+
+    // The stored row is untouched: chatV2's write site is off limits.
+    const stored = await t.run((ctx) =>
+      ctx.db.query("proposalWordingEditEvents").first(),
+    );
+    expect(stored?.originalText).toContain("Acme Farms");
+  });
+
+  test("a row whose project is gone still gets contact scrubbing", async () => {
+    const t = convexTest(schema, modules);
+    await seedEdit(t, { withProject: false });
+
+    const rows = await t.query(
+      internal.learning.getProposalWordingEditsForDigest,
+      { limit: 10 },
+    );
+
+    expect(rows).toHaveLength(1);
+    const combined = `${rows[0].originalText} ${rows[0].editedText}`;
+    expect(combined).not.toContain("jo@acme.ca");
+    expect(combined).not.toContain("555-0134");
+    expect(combined).toContain("[redacted email]");
+    expect(combined).toContain("[redacted phone]");
+    // No project record means no name pass — that is the accepted trade.
+    expect(combined).toContain("Acme Farms");
   });
 });
 

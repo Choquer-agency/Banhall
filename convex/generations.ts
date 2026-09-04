@@ -35,6 +35,7 @@ import { findActiveGeneration } from "./lib/activeGeneration";
 import { defaultModelId } from "./appSettings";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { sectionMetrics } from "./lib/lineLimits";
+import { deidentify } from "./lib/deidentify";
 import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
 import {
   buildTranscriptPromptText,
@@ -1974,12 +1975,15 @@ export const approveSectionDraft = mutation({
           ? 0
           : Math.min(1, Math.max(0, 1 - kept / draftWords.length));
       const caller = await getCurrentUserOrNull(ctx);
+      // CAP-1: these rows feed the firm-wide draft-style distiller, so the
+      // stored prose is de-identified. editRatio above is deliberately
+      // computed on the raw text — scrubbing must not move the number.
       await ctx.db.insert("sectionEditEvents", {
         projectId: generation.projectId,
         generationId: generation._id,
         section: args.section,
-        draftText: cap(run.draftText),
-        approvedText: cap(text),
+        draftText: cap(deidentify(run.draftText, project)),
+        approvedText: cap(deidentify(text, project)),
         editRatio,
         ...(caller ? { userId: caller._id } : {}),
         createdAt: now,
@@ -2102,7 +2106,10 @@ export const approveSectionDraft = mutation({
             for (const event of events) {
               const ghostText = ghostSections[event.section];
               if (typeof ghostText === "string" && ghostText.trim()) {
-                await ctx.db.patch(event._id, { ghostText: ghostText.slice(0, 6000) });
+                // CAP-1: same firm-wide digest input as draftText/approvedText.
+                await ctx.db.patch(event._id, {
+                  ghostText: deidentify(ghostText, project).slice(0, 6000),
+                });
               }
             }
           }

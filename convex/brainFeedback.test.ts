@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -533,5 +533,78 @@ describe("submitBrainFeedback scope", () => {
       projectId: f.projectId,
     });
     expect(await feedbackCount(f)).toBe(before + 1);
+  });
+});
+
+// ─── CAP-1: de-identification at the Brain nomination boundary ───────────────
+
+const CLIENT_NAME = "Acme Metals";
+const PROJECT_TITLE = "Alloy fatigue PD";
+const WRITER_NAME = "Tracy Fielding";
+
+function tiptap(...paragraphs: string[]) {
+  return JSON.stringify({
+    type: "doc",
+    content: paragraphs.map((text) => ({
+      type: "paragraph",
+      content: [{ type: "text", text }],
+    })),
+  });
+}
+
+describe("nominateFromReport de-identification", () => {
+  test("scrubs client identifiers from both the nominated content and its title", async () => {
+    const t = convexTest(schema, modules);
+    const reportId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const writerId = await ctx.db.insert("users", {
+        authId: "nominate-writer",
+        role: "writer",
+        name: "Tracy",
+      });
+      const projectId = await ctx.db.insert("projects", {
+        title: PROJECT_TITLE,
+        clientName: CLIENT_NAME,
+        writer: WRITER_NAME,
+        status: "review",
+        createdBy: writerId,
+        ownerId: writerId,
+        shareToken: "nominate-token",
+        createdAt: now,
+        updatedAt: now,
+      });
+      return await ctx.db.insert("reports", {
+        projectId,
+        content: tiptap(
+          `${CLIENT_NAME} engaged us on ${PROJECT_TITLE} after ${WRITER_NAME} scoped it.`,
+          "Reach the lead at tracy@acmemetals.ca or (613) 555-0134.",
+        ),
+        version: 1,
+        generatedAt: now,
+        updatedAt: now,
+      });
+    });
+
+    await t.mutation(internal.brain.nominateFromReport, {
+      reportId,
+      writerName: WRITER_NAME,
+      score: 88,
+    });
+
+    const sources = await allRows(t, "brainSources");
+    expect(sources).toHaveLength(1);
+    const source = sources[0]!;
+    for (const field of [source.content, source.title]) {
+      expect(field).not.toContain(CLIENT_NAME);
+      expect(field).not.toContain(PROJECT_TITLE);
+      expect(field).not.toContain(WRITER_NAME);
+    }
+    expect(source.content).toContain("[redacted email]");
+    expect(source.content).toContain("[redacted phone]");
+    // The label degrades to the score, which is the point: the exemplar title
+    // is injected into drafting prompts.
+    expect(source.title).toBe("[redacted] (writer-rated 88/100)");
+    // The prose keeps its paragraph structure — it is exemplar material.
+    expect(source.content.split("\n\n")).toHaveLength(2);
   });
 });

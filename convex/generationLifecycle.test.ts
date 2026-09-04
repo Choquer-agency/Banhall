@@ -1450,3 +1450,116 @@ describe("selectReportCandidate", () => {
     expect(state.project?.activeGenerationId).toBe(generationId);
   });
 });
+
+// ─── CAP-1: de-identification of section edit events ─────────────────────────
+
+describe("approveSectionDraft de-identification", () => {
+  /** Give the fixture project identifiers worth scrubbing. */
+  async function nameTheClient(
+    t: ReturnType<typeof convexTest>,
+    projectId: Id<"projects">
+  ) {
+    await t.run(async (ctx) =>
+      ctx.db.patch(projectId, {
+        clientName: "Acme Metals",
+        title: "Alloy fatigue PD",
+        writer: "Tracy Fielding",
+      })
+    );
+  }
+
+  it("scrubs the stored draft and approved text without moving editRatio", async () => {
+    const { t, authed, generationId, projectId } = await setupIterative({
+      sections: {
+        s242: {
+          status: "awaiting_review",
+          // Four words, three of which the approval keeps: editRatio is 1/4
+          // whether or not the identifiers are scrubbed.
+          draftText: "Acme Metals drifted alpha",
+        },
+        s244: { status: "pending" },
+        s246: { status: "pending" },
+      },
+    });
+    await nameTheClient(t, projectId);
+
+    await authed.mutation(api.generations.approveSectionDraft, {
+      generationId,
+      section: "s242",
+      text: "Acme Metals kept alpha",
+    });
+
+    const events = await t.run(async (ctx) =>
+      ctx.db.query("sectionEditEvents").collect()
+    );
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    expect(event.draftText).toBe("[redacted] drifted alpha");
+    expect(event.approvedText).toBe("[redacted] kept alpha");
+    // Raw-text ratio: 1 of the 4 draft words is absent from the approval.
+    expect(event.editRatio).toBeCloseTo(1 / 4, 10);
+  });
+
+  it("scrubs contact patterns and preserves paragraph structure", async () => {
+    const { t, authed, generationId, projectId } = await setupIterative({
+      sections: {
+        s242: {
+          status: "awaiting_review",
+          draftText: "Line one.\n\nReach tracy@acmemetals.ca or (613) 555-0134.",
+        },
+        s244: { status: "pending" },
+        s246: { status: "pending" },
+      },
+    });
+    await nameTheClient(t, projectId);
+
+    await authed.mutation(api.generations.approveSectionDraft, {
+      generationId,
+      section: "s242",
+      text: "Line one.\n\nApproved without contacts.",
+    });
+
+    const events = await t.run(async (ctx) =>
+      ctx.db.query("sectionEditEvents").collect()
+    );
+    expect(events[0]?.draftText).toBe(
+      "Line one.\n\nReach [redacted email] or [redacted phone]."
+    );
+  });
+
+  it("scrubs the ghost text patched onto edit events at final approval", async () => {
+    const { t, authed, generationId, projectId } = await setupIterative({
+      sections: {
+        s242: { status: "approved", approvedText: "Uncertainty text" },
+        s244: { status: "approved", approvedText: "Work performed text" },
+        s246: { status: "awaiting_review", draftText: "Advancement draft" },
+      },
+      editEvents: ["s242", "s244"],
+      ghost: {
+        section242: "Acme Metals ran the fatigue rig.",
+        section244: "Tracy Fielding logged the runs.",
+        section246: "Alloy fatigue PD advanced the state of the art.",
+      },
+    });
+    await nameTheClient(t, projectId);
+
+    await authed.mutation(api.generations.approveSectionDraft, {
+      generationId,
+      section: "s246",
+      text: "Advancement approved",
+    });
+
+    const events = await t.run(async (ctx) =>
+      ctx.db.query("sectionEditEvents").collect()
+    );
+    expect(
+      Object.fromEntries(
+        events.map((event) => [event.section, event.ghostText])
+      )
+    ).toEqual({
+      s242: "[redacted] ran the fatigue rig.",
+      s244: "[redacted] logged the runs.",
+      s246: "[redacted] advanced the state of the art.",
+    });
+  });
+});

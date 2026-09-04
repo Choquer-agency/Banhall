@@ -277,3 +277,59 @@ source_spec: `1-orchestration-seam-tests.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-065146-9a65; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
+
+### DW-36: sectionEditEvents and brainSources rows written before this change still hold raw client prose and reach firm-wide digests and the Brain unchanged.
+origin: spec-deferred 5c499923f69e
+location: convex/learning.ts:100
+source_spec: `2-de-identification-before-firm-wide-knowledge.md`
+severity: medium
+reason: Scrubbing for those two tables happens at the write site (convex/generations.ts:1985, convex/brain.ts:234), so convex/learning.ts getSectionEditsForDigest returns whatever is stored and every pre-deploy row in the 500-row digest window is raw. CAP-1's success clause is write-scoped ("writes pass through it") and the epic SPEC's open question defaults re-processing existing Brain sources to "no", so a backfill or a read-side filter is deliberately out of this story.
+status: open
+
+### DW-37: Three other free-text streams cross the same firm-wide boundary without de-identification.
+origin: spec-deferred 8260a959468e
+location: convex/learning.ts:29
+source_spec: `2-de-identification-before-firm-wide-knowledge.md`
+severity: medium
+reason: qaItemFeedback.itemText (convex/learning.ts getFeedbackForDigest), candidateScores.comment (getCandidateFeedbackForDigest) and brainFeedbackQueue body/suggestedRule (getApprovedBrainFeedbackForDigest, plus the writer_feedback importSource at convex/brain.ts:675) all feed the same two digest prompts or the Brain, and all carry a projectId. CAP-1 enumerates only nominateFromReport, sectionEditEvents and proposalWordingEditEvents, so these are outside this story's intent.
+status: open
+
+### DW-38: convex/ingestion.ts builds a Brain source title from clientName, so curated imports carry the client name into drafting prompts.
+origin: spec-deferred 30023b719473
+location: convex/ingestion.ts
+source_spec: `2-de-identification-before-firm-wide-knowledge.md`
+severity: low
+reason: The exemplar label reaches generation prompts via BRAIN_EXEMPLAR_SCAFFOLDS.labelOrder (convex/ai/brain/retrieve.ts:115) — the same argument that made nominateFromReport scrub its title. The ingestion path is a separate, admin-curated crossing not named by CAP-1.
+status: open
+
+### DW-39: redactExternalText still leaves the opening parenthesis of a "(613) 555-0134" phone number.
+origin: spec-deferred fe2c6ce4be11
+location: convex/ai/research/core.ts:57
+source_spec: `2-de-identification-before-firm-wide-knowledge.md`
+severity: low
+reason: convex/ai/research/core.ts:57 anchors the phone pattern with a leading \b, which cannot match before "(", so the match starts at the digits. The new convex/lib/deidentify.ts fixes this with a lookbehind; the research redactor, which predates this story, was left untouched.
+status: open
+
+### DW-40: The read-side scrub matches the project's current identifiers, so a renamed project leaves its old name in previously stored edit text.
+origin: spec-deferred e0205e521244
+location: convex/learning.ts:79
+source_spec: `2-de-identification-before-firm-wide-knowledge.md`
+severity: low
+reason: convex/learning.ts getProposalWordingEditsForDigest loads the live project document and scrubs against it. A project renamed after an edit event was written no longer supplies the string that appears in the stored prose. Inherent to the read-side approach the story mandated (chatV2.ts is off-limits), not to any choice made inside it.
+status: open
+
+### DW-41: A section edit whose only change was a client name now stores an identical draft/approved pair while keeping its pre-scrub editRatio.
+origin: spec-deferred 27886a9e0f20
+location: convex/generations.ts:1985
+source_spec: `2-de-identification-before-firm-wide-knowledge.md`
+severity: low
+reason: editRatio is computed on raw text (deliberate, so the metric does not move), but getSectionEditsForDigest filters on editRatio >= 0.05 and then shows the model two identical strings as evidence of a meaningful edit. Low signal cost, no privacy cost.
+status: open
+
+### DW-42: The de-identification invariant and the new publish precondition are not recorded in the product-domain contract or the Brain doc.
+origin: spec-deferred 7845c71a112f
+location: docs/product-domain.md
+source_spec: `2-de-identification-before-firm-wide-knowledge.md`
+severity: medium
+reason: AGENTS.md requires contract-level transitions and permissions to be recorded in docs/product-domain.md; that file still only states "Personal digests cannot be published globally" and says nothing about de-identification at the firm-wide boundary or about publication now requiring an administrator privacy attestation. docs/the-brain.md still describes Brain ingestion without the scrub step. Out of this story because its acceptance criteria restrict the diff to files in the Execution task list, which names no documentation file.
+status: open
