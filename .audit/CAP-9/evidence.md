@@ -1,7 +1,7 @@
 # CAP-9 review provenance evidence
 
 Canonical starting revision: `f122b086d745acc40b4decca26b9aaafc7257f6a`.
-Implementation is currently the working-tree diff against that revision.
+Verified implementation commit: `febc42b3309eab88e4186a92b26e5fa125374964`. The subsequent evidence-only commit records this identifier and normalizes trailing blank lines in retained command logs.
 
 ## Acceptance and matrix coverage
 
@@ -82,3 +82,5 @@ svelte-check found 0 errors and 0 warnings
 ```
 
 The Convex typecheck passed before application check; the existing PowerShell platform-specific dotfile sub-case skip remains. `git diff --check` exited 0 with no output after the patches.
+
+Audit artifact notes: command logs retain their output content with trailing blank lines removed. `parent-verify.log` is an intentionally interrupted redundant rerun (exit 143), not full-gate evidence; the two complete gate logs are `loop-verify.log` and `review-patches-loop-verify.log`. Initial decision timestamps in rows 2 and 3 are unknown, as explicitly corrected in the append-only decision trail.

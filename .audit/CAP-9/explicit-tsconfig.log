@@ -22,4 +22,3 @@ Error: Value is none of these types `bool`, `BindingTsconfigRawOptions`,  on Bin
       Tests  no tests
    Start at  12:30:04
    Duration  1.21s (transform 0ms, setup 0ms, import 0ms, tests 0ms, environment 0ms)
-
