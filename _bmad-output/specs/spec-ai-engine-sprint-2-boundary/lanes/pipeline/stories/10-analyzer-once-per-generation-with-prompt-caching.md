@@ -2,7 +2,7 @@
 title: 'Analyzer once per generation with prompt caching'
 type: 'feature'
 created: '2026-09-04'
-status: blocked
+status: ready-for-dev
 baseline_revision: 'ffd761de7d7fe59e4f111d374f663775d68dfb0d'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -146,21 +146,3 @@ Pass serialized analysis in an optional internal action argument to avoid a new 
 - `git diff --check`
 
 
-## Auto Run Result
-
-Status: blocked
-Blocking condition: patch verification failed. The unmodified `npm test` gate repeatedly times out in unrelated chat-context and form-control source-contract tests on this host.
-
-The existing implementation already mirrors iterative generation: analyze once, persist the analysis before fanout, pass validated analysis to both candidates, and mark generation-owned Anthropic prefixes for caching. No runtime or test changes were required in this run.
-
-Files changed:
-- This story: current baseline, review triage, follow-up flag and blocked verification result.
-- `.audit/CAP-10/evidence.md`: source inspection, revision provenance, matrix mapping and fresh gate results.
-- `.audit/CAP-10/decisions.tsv`: append-only inspection and verification decisions.
-- `.audit/CAP-10/rearm-*.log`: retained installation, failing attempts and passing command output.
-
-Review: 10 low documentation/evidence patches applied, 0 medium, 0 high; 0 new deferred items and 0 rejected items after deduplication. Follow-up review recommended: true (score 10 under the workflow formula). Four layers identified no runtime gap.
-
-Verification: local focused suite passed 27 tests; serial full suite passed all 1376 tests in 128 files with `npm test -- --maxWorkers=1 --testTimeout=30000`; type check passed with zero errors and warnings. Latest unmodified `npm test` passed 1374 tests and timed out in 2. The redundant post-documentation type check was stopped after that failure. Diff whitespace verification passed.
-
-The six matrix cases are covered by executed tests. The existing action-chain deadline risk remains deferred; live provider cache hits are not claimed. See [verification evidence](../../../../../../.audit/CAP-10/evidence.md) for exact revisions, commands and output tails. No push, PR or deployment was performed.
