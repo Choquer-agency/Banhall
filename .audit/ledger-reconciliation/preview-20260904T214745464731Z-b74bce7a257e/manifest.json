@@ -1,0 +1,55 @@
+{
+  "created_utc": "2026-09-04T21:47:45.317920+00:00",
+  "ledger_path": "_bmad-output/implementation-artifacts/deferred-work.md",
+  "sources": [
+    {
+      "branch": "main",
+      "sha": "14d3d1795d9f861257ac122f7183449b248a369a",
+      "snapshot": "main.md",
+      "ledger_sha256": "2eeb5cda7215c1115b8f393d20b47c7b5ca96e43a814adfc5ea56ef13a5d569f",
+      "entry_count": 22
+    },
+    {
+      "branch": "sprint2-boundary",
+      "sha": "e04ab9a9f05717b7607efe1137eac97795a41ed0",
+      "snapshot": "sprint2-boundary.md",
+      "ledger_sha256": "f0588762b98de5f0decda4fc166cb1b273d7f7cb0083baa908b09cc3d2e328e0",
+      "entry_count": 70
+    },
+    {
+      "branch": "lane/spec-ai-engine-sprint-2-boundary/qa",
+      "sha": "7c27eeff15c583389462b5e3e68eb47bdb373cb5",
+      "snapshot": "lane__spec-ai-engine-sprint-2-boundary__qa.md",
+      "ledger_sha256": "4bb7eaacb7e1d45159335c8fc89e0eb9e7dfee8f5f9768d12e012c607bc663d5",
+      "entry_count": 46
+    },
+    {
+      "branch": "lane/spec-ai-engine-sprint-2-boundary/schema",
+      "sha": "7dc7131d72bca734215d78dd38aeb732f4050842",
+      "snapshot": "lane__spec-ai-engine-sprint-2-boundary__schema.md",
+      "ledger_sha256": "985158000ef8d25a6ec11fd6fa6c3f031638543a43f5d3bc45b589e0e5e0ad59",
+      "entry_count": 46
+    },
+    {
+      "branch": "lane/spec-ai-engine-sprint-2-boundary/pipeline",
+      "sha": "c138fbebeccc01b25f38362c79c9b316119c3fff",
+      "snapshot": "lane__spec-ai-engine-sprint-2-boundary__pipeline.md",
+      "ledger_sha256": "80ca541d12f0dadd6fc316d2d391338691053e05adcee2c15e1afa9f9b789efa",
+      "entry_count": 46
+    },
+    {
+      "branch": "lane/spec-ai-engine-sprint-2-boundary/chatspend",
+      "sha": "8f2199688ce3bd34ead3293b8b606db22ceed378",
+      "snapshot": "lane__spec-ai-engine-sprint-2-boundary__chatspend.md",
+      "ledger_sha256": "595b272ce909f8a1f0e20b998b8cc89049b30d196a9280ef768731bd8c254774",
+      "entry_count": 45
+    },
+    {
+      "branch": "sprint2-learn-chat",
+      "sha": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+      "snapshot": "sprint2-learn-chat.md",
+      "ledger_sha256": "0ae7048a95cd952cf5fe357a24eb280a8de152aa79a6089159feb55e04f9b72b",
+      "entry_count": 65
+    }
+  ]
+}

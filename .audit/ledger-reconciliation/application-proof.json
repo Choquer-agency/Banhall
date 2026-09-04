@@ -1,0 +1,12 @@
+{
+  "source": ".audit/ledger-reconciliation/deferred-work.application.md",
+  "destination": "_bmad-output/implementation-artifacts/deferred-work.md",
+  "sha256": "485f2182da59085ff10dd129a5cec8308571f471dbb1dfb4d9164aec9dbf3415",
+  "entries": 93,
+  "closures": 0,
+  "annotations": [
+    "DW-78 and DW-82 sourceDW24 maps to DW73"
+  ],
+  "review": "final-independent-review.md; sole P2 patched",
+  "manual_entries": "DW92 and DW93 include explicit source_spec matching location for strict application parser"
+}

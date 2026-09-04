@@ -1,0 +1,57 @@
+[
+  {
+    "branch": "sprint2-learn-chat",
+    "sha": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+    "path": "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/1-orchestration-seam-tests.md",
+    "line": 88,
+    "status": "done",
+    "old_id": "DW-24",
+    "new_id": "DW-73",
+    "text": "      convex/generations.ts:1101-1104 patches a ghost run under a still-live iterative generation to \"failed\" and appends the \"One-shot comparison draft failed\" progress line. The new \"records a ghost draft without advancing a live iterative generation\" test drives only the success line, and no other suite seeds a failing ghost under a live generation. Distinct from DW-24, which is the ghost-after-terminal branch.",
+    "action": "review contextual reference; do not blindly replace"
+  },
+  {
+    "branch": "sprint2-learn-chat",
+    "sha": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+    "path": "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/1-orchestration-seam-tests.md",
+    "line": 212,
+    "status": "done",
+    "old_id": "DW-24",
+    "new_id": "DW-73",
+    "text": "  - `[low]` `[patch]` Deferred entry DW-24 claimed the cancelled/failed-generation ghost-after-terminal sub-case had no coverage; `convex/generationRecovery.test.ts:749-797` drives exactly that shape. Corrected DW-24 (spec frontmatter and ledger) to name only the genuinely uncovered sub-cases, and fixed DW-26's \"roughly nine\"/eight file-count mismatch.",
+    "action": "review contextual reference; do not blindly replace"
+  },
+  {
+    "branch": "sprint2-learn-chat",
+    "sha": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+    "path": "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/1-orchestration-seam-tests.md",
+    "line": 212,
+    "status": "done",
+    "old_id": "DW-26",
+    "new_id": "DW-75",
+    "text": "  - `[low]` `[patch]` Deferred entry DW-24 claimed the cancelled/failed-generation ghost-after-terminal sub-case had no coverage; `convex/generationRecovery.test.ts:749-797` drives exactly that shape. Corrected DW-24 (spec frontmatter and ledger) to name only the genuinely uncovered sub-cases, and fixed DW-26's \"roughly nine\"/eight file-count mismatch.",
+    "action": "review contextual reference; do not blindly replace"
+  },
+  {
+    "branch": "sprint2-learn-chat",
+    "sha": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+    "path": "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/2-de-identification-before-firm-wide-knowledge.md",
+    "line": 304,
+    "status": "done",
+    "old_id": "DW-42",
+    "new_id": "DW-91",
+    "text": "- Items deferred: 0 new. Every pre-existing gap the reviewers re-raised (historic raw rows, the other three digest streams, the `writer_feedback` and `ingestion.ts` Brain paths, the docs contract) is already in `deferred` / the ledger (DW-42).",
+    "action": "review contextual reference; do not blindly replace"
+  },
+  {
+    "branch": "sprint2-learn-chat",
+    "sha": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+    "path": "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md",
+    "line": 387,
+    "status": "done",
+    "old_id": "DW-47",
+    "new_id": "DW-50",
+    "text": "  - `[low]` `[patch]` Two doc comments overclaimed: `seriesForReport` said it renders \"without a error boundary\" and did not mention the missing-report `null`; `reports.postEditDistance` claimed the two PED surfaces \"can never drift apart\" when the `\"generated\"` baseline lookup is still duplicated (DW-47) and only the ghost-snapshot tests hold them together. Both corrected to what the code actually guarantees.",
+    "action": "review contextual reference; do not blindly replace"
+  }
+]

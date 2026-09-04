@@ -1,0 +1,234 @@
+[
+  [
+    {
+      "new_id": "DW-75",
+      "old_id": "DW-26",
+      "branch": "sprint2-learn-chat",
+      "sha": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+      "fingerprint": "05dedeca3a6b78b6283af767d714f6ed5733848da3165dfe6940ba80e2a345b9",
+      "title": "The ConvexError domain-code assertion helper is reimplemented privately in eight convex test files instead of living in a shared test util.",
+      "fields": {
+        "origin": [
+          "spec-deferred ee471a3f7081"
+        ],
+        "location": [
+          "convex/"
+        ],
+        "source_spec": [
+          "`1-orchestration-seam-tests.md`"
+        ],
+        "severity": [
+          "low"
+        ],
+        "reason": [
+          "The same \"(error as { data?: unknown }).data\" unwrapping appears in brainFeedback.test.ts, comments.test.ts, chatProposals.test.ts, generationInput.test.ts, projects.test.ts, reportAuthz.test.ts, reviews.test.ts and now generationLifecycle.test.ts, each with slightly different strictness. Extracting one helper would make error-code assertions uniformly strict."
+        ],
+        "status": [
+          "open"
+        ]
+      }
+    },
+    {
+      "new_id": "DW-80",
+      "old_id": "DW-31",
+      "branch": "sprint2-learn-chat",
+      "sha": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+      "fingerprint": "1f2dc35cd1929f46d600ac6cb6e0fc5ddc3ba9cde797664a6e84b1e78860c0de",
+      "title": "The ConvexError domain-code assertion helper is reimplemented privately in eight convex test files instead of living in a shared test util.",
+      "fields": {
+        "origin": [
+          "spec-deferred f7720b162ff9"
+        ],
+        "location": [
+          "convex/"
+        ],
+        "source_spec": [
+          "`1-orchestration-seam-tests.md`"
+        ],
+        "severity": [
+          "low"
+        ],
+        "reason": [
+          "The same \"(error as { data?: unknown }).data\" unwrapping appears in brainFeedback.test.ts, comments.test.ts, chatProposals.test.ts, generationInput.test.ts, projects.test.ts, reportAuthz.test.ts, reviews.test.ts and now generationLifecycle.test.ts, each with slightly different strictness. Extracting one helper would make error-code assertions uniformly strict."
+        ],
+        "status": [
+          "open"
+        ]
+      }
+    }
+  ],
+  [
+    {
+      "new_id": "DW-77",
+      "old_id": "DW-28",
+      "branch": "sprint2-learn-chat",
+      "sha": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+      "fingerprint": "1adaef9e477e78ee54673e28babdfb3fedbaa9a4bb037946d01487f4dab44b5b",
+      "title": "approveSectionDraft's generation-state, run-state and next-section-ready guards are untested repo-wide.",
+      "fields": {
+        "origin": [
+          "spec-deferred ede3e2c5cf12"
+        ],
+        "location": [
+          "convex/generations.ts:1934"
+        ],
+        "source_spec": [
+          "`1-orchestration-seam-tests.md`"
+        ],
+        "severity": [
+          "medium"
+        ],
+        "reason": [
+          "convex/generations.ts:1934 (\"No section is awaiting review right now\"), :1938 (\"This section is not awaiting review\") and :1994 (\"The next section is not ready to draft\") are the three INVALID_STATE guards the new suite does not drive; grepping convex/*.test.ts for those messages returns nothing. Only the earlier-sections-unapproved guard, the attempt fence and the empty-text guard are covered. A regression that dropped any of the three would let an approval land on a generation that is not awaiting input, on a section that is not awaiting review, or double-schedule the next section."
+        ],
+        "status": [
+          "open"
+        ]
+      }
+    },
+    {
+      "new_id": "DW-81",
+      "old_id": "DW-32",
+      "branch": "sprint2-learn-chat",
+      "sha": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+      "fingerprint": "536a2cf6f21eb15a4a1aa28ab649cabceb461931959a8683e7406f5aa6ecebac",
+      "title": "approveSectionDraft's generation-state, run-state and next-section-ready guards are untested repo-wide.",
+      "fields": {
+        "origin": [
+          "spec-deferred 9a886c2b9cdc"
+        ],
+        "location": [
+          "convex/generations.ts:1934"
+        ],
+        "source_spec": [
+          "`1-orchestration-seam-tests.md`"
+        ],
+        "severity": [
+          "medium"
+        ],
+        "reason": [
+          "convex/generations.ts:1934 (\"No section is awaiting review right now\"), :1938 (\"This section is not awaiting review\") and :1994 (\"The next section is not ready to draft\") are the three INVALID_STATE guards the new suite does not drive; grepping convex/*.test.ts for those messages returns nothing. Only the earlier-sections-unapproved guard, the attempt fence and the empty-text guard are covered. A regression that dropped any of the three would let an approval land on a generation that is not awaiting input, on a section that is not awaiting review, or double-schedule the next section."
+        ],
+        "status": [
+          "open"
+        ]
+      }
+    }
+  ],
+  [
+    {
+      "new_id": "DW-78",
+      "old_id": "DW-29",
+      "branch": "sprint2-learn-chat",
+      "sha": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+      "fingerprint": "e7e3026632f411b874ef2a747bd4337a887a6246be77f79a5c639b3875bb6ded",
+      "title": "The live-ghost failure branch of completeCandidateRun has no test.",
+      "fields": {
+        "origin": [
+          "spec-deferred a15af4de892b"
+        ],
+        "location": [
+          "convex/generations.ts:1101"
+        ],
+        "source_spec": [
+          "`1-orchestration-seam-tests.md`"
+        ],
+        "severity": [
+          "low"
+        ],
+        "reason": [
+          "convex/generations.ts:1101-1104 patches a ghost run under a still-live iterative generation to \"failed\" and appends the \"One-shot comparison draft failed\" progress line. The new \"records a ghost draft without advancing a live iterative generation\" test drives only the success line, and no other suite seeds a failing ghost under a live generation. Distinct from DW-24, which is the ghost-after-terminal branch."
+        ],
+        "status": [
+          "open"
+        ]
+      }
+    },
+    {
+      "new_id": "DW-82",
+      "old_id": "DW-33",
+      "branch": "sprint2-learn-chat",
+      "sha": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+      "fingerprint": "584f94d215a4e308cdeb547db966fe3ef804e98638797b53bad19df6235f19f2",
+      "title": "The live-ghost failure branch of completeCandidateRun has no test.",
+      "fields": {
+        "origin": [
+          "spec-deferred a8cad920b794"
+        ],
+        "location": [
+          "convex/generations.ts:1101"
+        ],
+        "source_spec": [
+          "`1-orchestration-seam-tests.md`"
+        ],
+        "severity": [
+          "low"
+        ],
+        "reason": [
+          "convex/generations.ts:1101-1104 patches a ghost run under a still-live iterative generation to \"failed\" and appends the \"One-shot comparison draft failed\" progress line. The new \"records a ghost draft without advancing a live iterative generation\" test drives only the success line, and no other suite seeds a failing ghost under a live generation. Distinct from DW-24, which is the ghost-after-terminal branch."
+        ],
+        "status": [
+          "open"
+        ]
+      }
+    }
+  ],
+  [
+    {
+      "new_id": "DW-79",
+      "old_id": "DW-30",
+      "branch": "sprint2-learn-chat",
+      "sha": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+      "fingerprint": "ccb5a128654858d2ba1c97ea721eed3c4f437b279f4c193a96f31db98434e644",
+      "title": "sectionEditEvents' skip, zero-word and 6000-character truncation branches are untested.",
+      "fields": {
+        "origin": [
+          "spec-deferred 1385b8474226"
+        ],
+        "location": [
+          "convex/generations.ts"
+        ],
+        "source_spec": [
+          "`1-orchestration-seam-tests.md`"
+        ],
+        "severity": [
+          "low"
+        ],
+        "reason": [
+          "approveSectionDraft writes a sectionEditEvents row only when run.draftText exists, computes editRatio 0 when the draft has no words, and caps draftText/approvedText/ghostText at 6000 characters. Every fixture in convex/generationLifecycle.test.ts seeds a short non-empty draftText, so the no-draft skip (no row written), the zero-word ratio and all three caps are unexercised."
+        ],
+        "status": [
+          "open"
+        ]
+      }
+    },
+    {
+      "new_id": "DW-83",
+      "old_id": "DW-34",
+      "branch": "sprint2-learn-chat",
+      "sha": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+      "fingerprint": "07fef1d13e50471e19e16b1af2fc4cc4f609aa85f78fdf9499ec2bc52c1b23d0",
+      "title": "sectionEditEvents' skip, zero-word and 6000-character truncation branches are untested.",
+      "fields": {
+        "origin": [
+          "spec-deferred 279977ac106e"
+        ],
+        "location": [
+          "convex/generations.ts"
+        ],
+        "source_spec": [
+          "`1-orchestration-seam-tests.md`"
+        ],
+        "severity": [
+          "low"
+        ],
+        "reason": [
+          "approveSectionDraft writes a sectionEditEvents row only when run.draftText exists, computes editRatio 0 when the draft has no words, and caps draftText/approvedText/ghostText at 6000 characters. Every fixture in convex/generationLifecycle.test.ts seeds a short non-empty draftText, so the no-draft skip (no row written), the zero-word ratio and all three caps are unexercised."
+        ],
+        "status": [
+          "open"
+        ]
+      }
+    }
+  ]
+]

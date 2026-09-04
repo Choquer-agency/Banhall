@@ -1,0 +1,18 @@
+{
+  "sources": 7,
+  "occurrences": 340,
+  "canonical_entries": 91,
+  "exact_copies_deduplicated": 249,
+  "remapped_occurrences": 48,
+  "main_entries_preserved": 22,
+  "main_stable_ids": "DW-1 through DW-22",
+  "content_variant_groups": 0,
+  "distinct_origin_alias_groups": 4,
+  "explicit_source_damage_repairs": 3,
+  "active_reference_suggestions": 0,
+  "historical_references_preserved": 5,
+  "statuses": {
+    "open": 91
+  },
+  "assertions": "PASS: all occurrence content, fields, status, origin, source, and gate lines preserved; main bytes intact"
+}

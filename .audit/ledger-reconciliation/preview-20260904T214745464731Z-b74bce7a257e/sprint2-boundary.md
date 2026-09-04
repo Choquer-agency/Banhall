@@ -174,7 +174,6 @@ severity: medium
 reason: All three review sessions for story 12 stalled on the Claude Fable usage limit (12-review-1 after 50 min and 1.08M weighted tokens with partial patches kept; 12-review-2 and 12-review-3 at 0 tokens). The dev commit 8259869 passed the verify gate and the dev pass's inline review, but the policy's separate review stage did not run to completion. Re-run: `claude --model claude-fable-5-1 "/bmad-build-auto <spec path>"` on the done spec, or a bmad-loop review-only re-drive, after the limit resets on 2026-09-03 13:00 America/Vancouver.
 status: open
 
-
 ### DW-23: writePreEditSnapshot copies a research session's evidenceSourceCount without checking the session belongs to this project or report.
 origin: spec-deferred fbbba2dca0f0
 location: convex/lib/snapshots.ts writePreEditSnapshot researchFields
@@ -541,210 +540,16 @@ location: convex/reportEditDistance.ts:30
 source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: convex/reportEditDistance.ts uses take(SERIES_FOR_REPORT_LIMIT) and take(SERIES_FOR_WRITER_LIMIT) and returns arrays. The existing pagination deferral remains reserved for CAP-3.
-status: open
-
-
-### DW-69: A review records server state at submission, without proving that it is the content the reviewer previously viewed.
+### DW-46: A review records server state at submission, without proving that it is the content the reviewer previously viewed.
 origin: spec-deferred 49135c102a03
 location: convex/reviews.ts:40;convex/reviews.ts:200
 source_spec: `9-review-artifacts-pinned-to-revision-and-content-hash.md`
 severity: medium
 reason: submitWriterReview and saveQaItemFeedback accept target IDs without an expected revision or content hash. Existing callers may submit after another actor edits the report. CAP-9 preserves these public call shapes and records the current mutation-time target; caller observation fencing remains a separate existing workflow limitation.
-status: open
-
-
-### DW-70: End-to-end provider chains can exceed the Convex action deadline; shared analysis now joins the entry chain, as it already does in iterative generation.
+### DW-46: End-to-end provider chains can exceed the Convex action deadline; shared analysis now joins the entry chain, as it already does in iterative generation.
 origin: spec-deferred 5e1fa4cb0ca5
 location: convex/ai/pipeline.ts:679
 source_spec: `10-analyzer-once-per-generation-with-prompt-caching.md`
 severity: medium
 reason: convex/ai/condense.ts:124-139 reserves only non-request time after condensation. Brain retrieval and analysis then execute sequentially. convex/ai/providers.ts:32-48 explicitly documents that provider timeout bounds apply to one slot rather than a complete action; stale-generation recovery remains the fallback. Durable per-phase scheduling is a broader existing pipeline limitation.
-status: open
-
-
-### DW-71: The existing because detector treats multiple recognized uncertainties in one sentence as one statement.
-origin: spec-deferred bf65f7833aeb
-location: convex/ai/qaChecks.ts:93
-source_spec: `8-blocking-qa-policy.md`
-severity: medium
-reason: Baseline f122b086d745acc40b4decca26b9aaafc7257f6a convex/ai/qaChecks.ts uses uncertaintyMarkers.some and one /because/i check per sentence. One because clause can therefore satisfy another uncertainty in the same sentence. The new gate reuses that existing detector rather than adding a linguistic classifier.
-status: open
-
-
-### DW-72: restoreSnapshot has no positive-path test asserting the pre_restore checkpoint's own fields or the provenance/lineage rewrite it performs.
-origin: spec-deferred 001651b8506b
-location: convex/snapshots.test.ts
-source_spec: `1-orchestration-seam-tests.md`
-severity: medium
-reason: convex/snapshots.ts:286-307 writes a pre_restore snapshot with label "Before restore" and createdByRole "system", then patches the report's provenanceId/generationId/sourceTranscriptId(s)/contentHash from snapshotAuditFields(snapshot). convex/comments.test.ts:210 checks only that a pre_restore row carries the accepted content, and convex/snapshots.test.ts:112 checks only the transcript set. Restoring a legacy snapshot that lacks a generationId would silently clear the report's provenance with no test failing.
-status: open
-
-### DW-73: completeCandidateRun's ghost-after-terminal branch is covered only for a completed generation that already has a report row.
-origin: spec-deferred 1a30854a6bbb
-location: convex/generations.ts:1026
-source_spec: `1-orchestration-seam-tests.md`
-severity: medium
-reason: convex/generations.ts:1026-1059 terminalizes a late ghost run and inserts the comparison snapshot only when generation.status === "completed" and a report exists. convex/generationAttribution.test.ts:1788 covers that case and convex/generationRecovery.test.ts:749-797 covers a superseded generation (run terminalized, no snapshot). Still uncovered: the completed-but-no-report sub-case, and a ghost completion carrying an error, which patches the run to "failed" and stores the truncated error.
-status: open
-
-### DW-74: createMilestoneSnapshot and pruneSnapshots retention have no direct test coverage.
-origin: spec-deferred 966f0e5a244b
-location: convex/snapshots.ts:205
-source_spec: `1-orchestration-seam-tests.md`
-severity: low
-reason: convex/snapshots.ts:205 (createMilestoneSnapshot: R-number parsing via milestoneKeyFor, canonical label mapping, per-project duplicate rejection, stale-revision fence) and convex/lib/snapshots.ts:237 (pruneSnapshots, called on both create and restore) are exercised only incidentally. No test asserts the retention thinning rule or the milestone label contract.
-status: open
-
-### DW-75: The ConvexError domain-code assertion helper is reimplemented privately in eight convex test files instead of living in a shared test util.
-origin: spec-deferred ee471a3f7081
-location: convex/
-source_spec: `1-orchestration-seam-tests.md`
-severity: low
-reason: The same "(error as { data?: unknown }).data" unwrapping appears in brainFeedback.test.ts, comments.test.ts, chatProposals.test.ts, generationInput.test.ts, projects.test.ts, reportAuthz.test.ts, reviews.test.ts and now generationLifecycle.test.ts, each with slightly different strictness. Extracting one helper would make error-code assertions uniformly strict.
-status: open
-
-### DW-76: provenanceId propagation and createGeneratedReportArtifacts idempotency/version bumping are untested.
-origin: spec-deferred 0c99a68de5a6
-location: convex/generations.ts
-source_spec: `1-orchestration-seam-tests.md`
-severity: low
-reason: No test passes provenanceId to completeCandidateRun, so its flow into reportCandidates and onward into the report and its "generated" snapshot is unverified, as is listSnapshots' "unavailable_legacy" fallback that depends on it. createGeneratedReportArtifacts' existing-report short-circuit and its version: (latest?.version ?? 0) + 1 increment are never exercised because every fixture starts with no report.
-status: open
-
-### DW-77: approveSectionDraft's generation-state, run-state and next-section-ready guards are untested repo-wide.
-origin: spec-deferred ede3e2c5cf12
-location: convex/generations.ts:1934
-source_spec: `1-orchestration-seam-tests.md`
-severity: medium
-reason: convex/generations.ts:1934 ("No section is awaiting review right now"), :1938 ("This section is not awaiting review") and :1994 ("The next section is not ready to draft") are the three INVALID_STATE guards the new suite does not drive; grepping convex/*.test.ts for those messages returns nothing. Only the earlier-sections-unapproved guard, the attempt fence and the empty-text guard are covered. A regression that dropped any of the three would let an approval land on a generation that is not awaiting input, on a section that is not awaiting review, or double-schedule the next section.
-status: open
-
-### DW-78: The live-ghost failure branch of completeCandidateRun has no test.
-origin: spec-deferred a15af4de892b
-location: convex/generations.ts:1101
-source_spec: `1-orchestration-seam-tests.md`
-severity: low
-reason: convex/generations.ts:1101-1104 patches a ghost run under a still-live iterative generation to "failed" and appends the "One-shot comparison draft failed" progress line. The new "records a ghost draft without advancing a live iterative generation" test drives only the success line, and no other suite seeds a failing ghost under a live generation. Distinct from DW-24, which is the ghost-after-terminal branch.
-status: open
-reference-note: In the unchanged source reason, DW-24 means canonical DW-73; the reference originated in sprint2-learn-chat at b99f1eeef78348df5c14f68031f7f0276527ff3f. Historical source text is preserved.
-
-### DW-79: sectionEditEvents' skip, zero-word and 6000-character truncation branches are untested.
-origin: spec-deferred 1385b8474226
-location: convex/generations.ts
-source_spec: `1-orchestration-seam-tests.md`
-severity: low
-reason: approveSectionDraft writes a sectionEditEvents row only when run.draftText exists, computes editRatio 0 when the draft has no words, and caps draftText/approvedText/ghostText at 6000 characters. Every fixture in convex/generationLifecycle.test.ts seeds a short non-empty draftText, so the no-draft skip (no row written), the zero-word ratio and all three caps are unexercised.
-status: open
-
-### DW-80: The ConvexError domain-code assertion helper is reimplemented privately in eight convex test files instead of living in a shared test util.
-origin: spec-deferred f7720b162ff9
-location: convex/
-source_spec: `1-orchestration-seam-tests.md`
-severity: low
-reason: The same "(error as { data?: unknown }).data" unwrapping appears in brainFeedback.test.ts, comments.test.ts, chatProposals.test.ts, generationInput.test.ts, projects.test.ts, reportAuthz.test.ts, reviews.test.ts and now generationLifecycle.test.ts, each with slightly different strictness. Extracting one helper would make error-code assertions uniformly strict.
-status: open
-
-### DW-81: approveSectionDraft's generation-state, run-state and next-section-ready guards are untested repo-wide.
-origin: spec-deferred 9a886c2b9cdc
-location: convex/generations.ts:1934
-source_spec: `1-orchestration-seam-tests.md`
-severity: medium
-reason: convex/generations.ts:1934 ("No section is awaiting review right now"), :1938 ("This section is not awaiting review") and :1994 ("The next section is not ready to draft") are the three INVALID_STATE guards the new suite does not drive; grepping convex/*.test.ts for those messages returns nothing. Only the earlier-sections-unapproved guard, the attempt fence and the empty-text guard are covered. A regression that dropped any of the three would let an approval land on a generation that is not awaiting input, on a section that is not awaiting review, or double-schedule the next section.
-status: open
-
-### DW-82: The live-ghost failure branch of completeCandidateRun has no test.
-origin: spec-deferred a8cad920b794
-location: convex/generations.ts:1101
-source_spec: `1-orchestration-seam-tests.md`
-severity: low
-reason: convex/generations.ts:1101-1104 patches a ghost run under a still-live iterative generation to "failed" and appends the "One-shot comparison draft failed" progress line. The new "records a ghost draft without advancing a live iterative generation" test drives only the success line, and no other suite seeds a failing ghost under a live generation. Distinct from DW-24, which is the ghost-after-terminal branch.
-status: open
-reference-note: In the unchanged source reason, DW-24 means canonical DW-73; the reference originated in sprint2-learn-chat at b99f1eeef78348df5c14f68031f7f0276527ff3f. Historical source text is preserved.
-
-### DW-83: sectionEditEvents' skip, zero-word and 6000-character truncation branches are untested.
-origin: spec-deferred 279977ac106e
-location: convex/generations.ts
-source_spec: `1-orchestration-seam-tests.md`
-severity: low
-reason: approveSectionDraft writes a sectionEditEvents row only when run.draftText exists, computes editRatio 0 when the draft has no words, and caps draftText/approvedText/ghostText at 6000 characters. Every fixture in convex/generationLifecycle.test.ts seeds a short non-empty draftText, so the no-draft skip (no row written), the zero-word ratio and all three caps are unexercised.
-status: open
-
-### DW-84: Follow-up review still recommended for 1 after the damping cap was spent
-origin: review-budget-followup
-location: n/a
-source_spec: `1-orchestration-seam-tests.md`
-severity: low
-reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-065146-9a65; this entry preserves the lingering recommendation for a deliberate later review.
-status: open
-
-### DW-85: sectionEditEvents and brainSources rows written before this change still hold raw client prose and reach firm-wide digests and the Brain unchanged.
-origin: spec-deferred 5c499923f69e
-location: convex/learning.ts:100
-source_spec: `2-de-identification-before-firm-wide-knowledge.md`
-severity: medium
-reason: Scrubbing for those two tables happens at the write site (convex/generations.ts:1985, convex/brain.ts:234), so convex/learning.ts getSectionEditsForDigest returns whatever is stored and every pre-deploy row in the 500-row digest window is raw. CAP-1's success clause is write-scoped ("writes pass through it") and the epic SPEC's open question defaults re-processing existing Brain sources to "no", so a backfill or a read-side filter is deliberately out of this story.
-status: open
-
-### DW-86: Three other free-text streams cross the same firm-wide boundary without de-identification.
-origin: spec-deferred 8260a959468e
-location: convex/learning.ts:29
-source_spec: `2-de-identification-before-firm-wide-knowledge.md`
-severity: medium
-reason: qaItemFeedback.itemText (convex/learning.ts getFeedbackForDigest), candidateScores.comment (getCandidateFeedbackForDigest) and brainFeedbackQueue body/suggestedRule (getApprovedBrainFeedbackForDigest, plus the writer_feedback importSource at convex/brain.ts:675) all feed the same two digest prompts or the Brain, and all carry a projectId. CAP-1 enumerates only nominateFromReport, sectionEditEvents and proposalWordingEditEvents, so these are outside this story's intent.
-status: open
-
-### DW-87: convex/ingestion.ts builds a Brain source title from clientName, so curated imports carry the client name into drafting prompts.
-origin: spec-deferred 30023b719473
-location: convex/ingestion.ts
-source_spec: `2-de-identification-before-firm-wide-knowledge.md`
-severity: low
-reason: The exemplar label reaches generation prompts via BRAIN_EXEMPLAR_SCAFFOLDS.labelOrder (convex/ai/brain/retrieve.ts:115) — the same argument that made nominateFromReport scrub its title. The ingestion path is a separate, admin-curated crossing not named by CAP-1.
-status: open
-
-### DW-88: redactExternalText still leaves the opening parenthesis of a "(613) 555-0134" phone number.
-origin: spec-deferred fe2c6ce4be11
-location: convex/ai/research/core.ts:57
-source_spec: `2-de-identification-before-firm-wide-knowledge.md`
-severity: low
-reason: convex/ai/research/core.ts:57 anchors the phone pattern with a leading \b, which cannot match before "(", so the match starts at the digits. The new convex/lib/deidentify.ts fixes this with a lookbehind; the research redactor, which predates this story, was left untouched.
-status: open
-
-### DW-89: The read-side scrub matches the project's current identifiers, so a renamed project leaves its old name in previously stored edit text.
-origin: spec-deferred e0205e521244
-location: convex/learning.ts:79
-source_spec: `2-de-identification-before-firm-wide-knowledge.md`
-severity: low
-reason: convex/learning.ts getProposalWordingEditsForDigest loads the live project document and scrubs against it. A project renamed after an edit event was written no longer supplies the string that appears in the stored prose. Inherent to the read-side approach the story mandated (chatV2.ts is off-limits), not to any choice made inside it.
-status: open
-
-### DW-90: A section edit whose only change was a client name now stores an identical draft/approved pair while keeping its pre-scrub editRatio.
-origin: spec-deferred 27886a9e0f20
-location: convex/generations.ts:1985
-source_spec: `2-de-identification-before-firm-wide-knowledge.md`
-severity: low
-reason: editRatio is computed on raw text (deliberate, so the metric does not move), but getSectionEditsForDigest filters on editRatio >= 0.05 and then shows the model two identical strings as evidence of a meaningful edit. Low signal cost, no privacy cost.
-status: open
-
-### DW-91: The de-identification invariant and the new publish precondition are not recorded in the product-domain contract or the Brain doc.
-origin: spec-deferred 7845c71a112f
-location: docs/product-domain.md
-source_spec: `2-de-identification-before-firm-wide-knowledge.md`
-severity: medium
-reason: AGENTS.md requires contract-level transitions and permissions to be recorded in docs/product-domain.md; that file still only states "Personal digests cannot be published globally" and says nothing about de-identification at the firm-wide boundary or about publication now requiring an administrator privacy attestation. docs/the-brain.md still describes Brain ingestion without the scrub step. Out of this story because its acceptance criteria restrict the diff to files in the Execution task list, which names no documentation file.
-status: open
-
-### DW-92: Complete blocking QA policy review and verification
-origin: operator recovery of native run 20260904-121607-3217, 2026-09-04
-location: _bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/qa/stories/8-blocking-qa-policy.md
-source_spec: `_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/qa/stories/8-blocking-qa-policy.md`
-severity: medium
-reason: Story8 remains in-review after its prior native run exhausted harvest attempts while full verification was held. Resume a real BMAD follow-up review using this existing spec as the result spec, preserving its frozen contract, baseline and prior review history. Independently inspect the historical QA implementation from original implementation baseline f122b086d745acc40b4decca26b9aaafc7257f6a as well as subsequent repairs; run the required standard gates on current code and commit genuine fresh verification evidence before native acceptance. Existing ignored .audit evidence must be explicitly staged if used as the review artifact. Do not erase the prior deferred run or infer completion from an old green gate.
-status: open
-
-### DW-93: Complete persisted post-edit-distance native follow-up
-origin: operator recovery of native run 20260904-065146-9a65, 2026-09-04
-location: _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md
-source_spec: `_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md`
-severity: medium
-reason: The implementation and real Convex codegen are preserved, but the prior run deferred story3 because its claimed historical baseline740008e1369faaf6eab001f95efeb10a9e52d1e5 differed from that run's recorded baseline. Adopt the existing story spec for a fresh BMAD follow-up review, retain the historical frozen contract and baseline, independently assess the full implementation and run the ordinary required gates without test-timeout CLI overrides. Commit genuine fresh review/verification evidence before native acceptance. Keep old run history deferred. This finalization obligation is separate from the generated-API omission entry and cannot be closed merely because codegen later succeeded.
 status: open
