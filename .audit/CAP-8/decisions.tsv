@@ -12,3 +12,4 @@ ts	phase	decision	why	evidence	result
 2026-09-04T20:30:47.363700+00:00	review	Preserve recognized uncertainty through section labels and code blocks	Four new gate regressions reproduced before repair	convex/qaBlocking.test.ts	48 focused tests passed; existing deferrals untouched
 2026-09-04T20:32:37.598184+00:00	review	Restrict punctuated plaintext labels to established section names	Follow-up check reproduced a cross-reference regression	.audit/CAP-8/second-review-crossref-before.log	152 focused tests passed after repair
 2026-09-04T20:34:45.082681+00:00	prove	Accept second reviewed source after complete gates	All runtime and type checks passed on final source	.audit/CAP-8/second-review-gate.log	1414 tests; both type checks; 68 harness cases passed
+2026-09-04T20:35:03.511041+00:00	ship	Commit second reviewed source locally	Workflow completed; no push	40d34059ae38b891023681ac00989d040f9fc973	Committed with existing deferrals unchanged
