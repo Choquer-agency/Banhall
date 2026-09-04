@@ -1,6 +1,6 @@
 ---
 key: uploader-2-zero-found-diagnostics
-status: todo
+status: done
 kind: feature
 deps: [uploader-1-cloud-placeholder-filter]
 touches: [scripts]
@@ -11,6 +11,11 @@ title: "Uploader prints and logs a skip breakdown on zero results, warns about c
 plan: 20260903-client-sync
 deferred: []
 updated: "2026-09-03T21:17:39.899Z"
+run: 20260904-011629-9-tickets
+branch: factory/uploader-2-zero-found-diagnostics
+merged: 848df9f
+verdict: test-verified
+evidence: .audit/uploader-2-zero-found-diagnostics/evidence.md
 ---
 ## Intent
 Owner commitment from the 2026-08-26 meeting: the next zero-result report from the client must be actionable without a screen share. When the scan finds nothing, the uploader prints and logs a breakdown (files walked, skip counts per reason, first extensions seen, whether the root is under a OneDrive sync root). Dehydrated cloud-only files are counted and announced before uploading starts. A `root` that is a file, or does not exist, gets an explicit message. The maintainer inherits one pure formatter in the lib, proved by the harness, and a log that also records the scan.
