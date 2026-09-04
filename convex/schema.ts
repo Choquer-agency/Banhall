@@ -1017,6 +1017,18 @@ export default defineSchema({
     ),
     source: v.string(),
     uploadedBy: v.string(),
+    // CAP-3: the internal role of the user who uploaded this document, frozen
+    // at write time. `uploadedBy` is a free-form string (a user id on one path,
+    // a display label on three others) so it is NOT a usable join key to
+    // `users`; the role has to be a stored fact. ABSENT MEANS CLIENT TRUST:
+    // every row predating this field, and any row whose writer is unknown, is
+    // presented to the analyzer as ordinary client evidence. Never backfilled.
+    // On a duplicated project this describes the ORIGIN row's uploader and is
+    // carried forward verbatim, while `uploadedBy` names whoever duplicated;
+    // the two fields may describe different people by design.
+    uploaderRole: v.optional(
+      v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))
+    ),
     createdAt: v.number(),
   })
     .index("by_projectId", ["projectId"])
@@ -1387,6 +1399,13 @@ export default defineSchema({
     truncated: v.boolean(),
     originalLength: v.number(),
     capturedAt: v.number(),
+    // CAP-3: uploader role frozen off the `projectDocuments` row at
+    // reservation, so the analyzer's trust decision is pinned to the
+    // reservation rather than re-read live. ABSENT MEANS CLIENT TRUST (legacy
+    // rows, transcript rows, and any document whose uploader role is unknown).
+    uploaderRole: v.optional(
+      v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))
+    ),
     // Budget-application metadata, NOT capture metadata: what the analyzer's
     // context budget did with this row (see convex/ai/trustedContext.ts).
     // Written after the fact by generations.recordContextBudget; absent on

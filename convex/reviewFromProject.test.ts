@@ -153,6 +153,8 @@ describe("createReviewFromProject", () => {
       "Line 244 — Work Performed"
     );
     expect(reviewPd?.processingStatus).toBe("ready");
+    // CAP-3: the acting internal user authored this review PD.
+    expect(reviewPd?.uploaderRole).toBe("writer");
 
     // The AI review is running against exactly that document.
     expect(state.reviews).toHaveLength(1);

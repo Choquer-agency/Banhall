@@ -498,6 +498,9 @@ async function reserveGeneration(
       contentHash: await sha256(content),
       truncated: content.length !== document.content.length,
       originalLength: document.content.length,
+      // CAP-3: trust is pinned to the reservation, never re-read live.
+      // Absent (legacy document rows) means client trust downstream.
+      ...(document.uploaderRole ? { uploaderRole: document.uploaderRole } : {}),
       capturedAt: now,
     });
   }
@@ -871,6 +874,8 @@ export const getGenerationInput = internalQuery({
             category,
             fileName: separator >= 0 ? source.label.slice(separator + 1) : source.label,
             content: source.content,
+            // CAP-3: frozen at reservation. Absent = client trust.
+            ...(source.uploaderRole ? { uploaderRole: source.uploaderRole } : {}),
           };
         }),
       // Analyzer context budget as configured right now. Each candidate

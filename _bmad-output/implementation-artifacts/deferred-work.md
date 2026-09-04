@@ -221,3 +221,27 @@ source_spec: `2-trusted-context-module-for-generation-input.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-030217-50fa; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
+
+### DW-29: The PD-review path still interpolates a document's raw category into the model prompt without passing through the trust seam.
+origin: spec-deferred 7874721f503f
+location: convex/ai/reviewAgent.ts:81 / convex/documents.ts getContextDocsForGeneration
+source_spec: `3-document-trust-from-uploader-role.md`
+severity: medium
+reason: convex/documents.ts getContextDocsForGeneration selects only category/fileName/content, and convex/ai/reviewAgent.ts annotates that result as ContextDoc[] before writing "## Supporting document - <file> (<category>)" straight into the user message. So reviewAgent can label a document writer_notes with no uploader-role check and no BEGIN/END markers, and the ContextDoc[] annotation now falsely implies the row went through documentTrust. Pre-existing (reviewAgent never used trustedContext) and explicitly out of scope for this story, but the misleading type is new as of CAP-3.
+status: open
+
+### DW-30: A demotion is invisible to the writer who tagged the document: no query, no UI, and no progress-log line reports that a writer_notes document was treated as client evidence.
+origin: spec-deferred be5c004766ae
+location: convex/ai/trustedContext.ts (report.sources[].trust) / no consumer
+source_spec: `3-document-trust-from-uploader-role.md`
+severity: medium
+reason: report.sources[].trust is telemetry the model never sees and nothing reads it back. describeContextCuts names truncation and omission but not demotion. A writer picks "Writer's notes" in src/lib/contextCategories.ts and, for any row predating CAP-3, silently gets ordinary client evidence plus a lower budget priority. This story bars UI edits, so it needs its own work item. Same shape as story 2's deferred "nothing surfaces context-budget truncation to a human".
+status: open
+
+### DW-31: CAP-3 as specified cannot reach the threat its own success criterion names, because no client-facing upload path exists.
+origin: spec-deferred e897e1d7422f
+location: convex/lib/auth.ts:44-60 (every upload path is internal)
+source_spec: `3-document-trust-from-uploader-role.md`
+severity: medium
+reason: Every projectDocuments writer (documents.ts, ingestionPort.ts, projects.ts, reviewFromProject.ts) is behind requireInternalProjectAccess or an admin check, and users.role has no client member. So a "client-uploaded file tagged writer_notes" is not a producible runtime state; the demotion only ever fires on rows predating the field. The open case is an internal writer uploading a client-supplied file and tagging it writer_notes, which uploader role cannot distinguish. Closing it needs a different signal (document origin or intake channel), which is an epic-level decision.
+status: open

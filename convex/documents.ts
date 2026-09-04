@@ -144,6 +144,11 @@ export const uploadDocument = mutation({
       processingStatus: derived.status,
       processingDetail: derived.detail,
       uploadedBy: user._id,
+      // CAP-3: the analyzer's trust in this document comes from who uploaded
+      // it, not from the category the uploader picked. `uploadedBy` is not a
+      // usable join key (see schema), so the role is recorded here.
+      // `requireInternalProjectAccess` above already rejected a roleless user.
+      ...(user.role ? { uploaderRole: user.role } : {}),
       createdAt: Date.now(),
     });
 

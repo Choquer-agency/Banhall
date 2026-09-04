@@ -23,10 +23,28 @@ export type ContextDocCategory =
   | "background"
   | "other";
 
+/**
+ * Internal roles a user can hold (`users.role`). There is no client role in
+ * this system, so any internal role means the document was uploaded by one of
+ * our own people.
+ */
+export type UploaderRole = "writer" | "manager" | "admin";
+
+/** Absent, unknown, or anything outside the union is NOT internal. */
+export function isInternalUploaderRole(role: string | undefined): role is UploaderRole {
+  return role === "writer" || role === "manager" || role === "admin";
+}
+
 export interface ContextDoc {
   category: ContextDocCategory;
   fileName: string;
   content: string;
+  /**
+   * Internal role of whoever uploaded this document, frozen at write time.
+   * Absent means client trust — see `documentTrust`. Fail closed: there is no
+   * read-time join that could recover it, by design.
+   */
+  uploaderRole?: UploaderRole;
   /** Frozen source row this document came from, when the caller has it. */
   sourceId?: Id<"generationSources">;
 }
@@ -36,8 +54,8 @@ export interface ContextDoc {
  * our own writer (authoritative for intent); `client` is data supplied by the
  * client and never an instruction.
  *
- * Story 3 (CAP-3) re-derives trust from the uploader's role. It replaces
- * `documentTrust` only — every consumer reads this type, not the category.
+ * Trust is derived in `documentTrust` and nowhere else — every consumer reads
+ * this type, never the category.
  */
 export type TrustLevel = "internal" | "client";
 
@@ -58,9 +76,45 @@ export const ANALYZER_CATEGORY_ORDER: ContextDocCategory[] = [
   "other",
 ];
 
-/** Category-derived trust. Story 3 re-derives this one function. */
-export function documentTrust(category: ContextDocCategory): TrustLevel {
-  return category === "writer_notes" ? "internal" : "client";
+/**
+ * Trust for one document (CAP-3). `writer_notes` is the only category the
+ * guidance treats as authoritative direction, and it earns that only when an
+ * internal user actually uploaded it. `category` is picked from a dropdown by
+ * whoever uploads, so it can never be the sole basis for trust.
+ *
+ * Fails closed: no `uploaderRole` (every row predating CAP-3, and any row
+ * whose writer is unknown) means `client`.
+ */
+export function documentTrust(
+  category: ContextDocCategory,
+  uploaderRole: string | undefined
+): TrustLevel {
+  return category === "writer_notes" && isInternalUploaderRole(uploaderRole)
+    ? "internal"
+    : "client";
+}
+
+/**
+ * The category the model — and the truncation report — actually sees.
+ *
+ * The demotion has to move the label, because the label *is* the instruction:
+ * `CONTEXT_INPUTS_GUIDANCE` binds "HIGHEST TRUST … the writer's notes win" to
+ * the literal `WRITER'S NOTES` header inside the marker line, while
+ * `report.sources[].trust` is telemetry the model never sees. So a client-trust
+ * `writer_notes` document becomes an ordinary `other` document at every
+ * observation point: sort key, block label, and report row.
+ *
+ * Routing the sort key through this has a budget consequence: a demoted
+ * document now sorts in `other`'s position, last, so under total-budget
+ * pressure it can be truncated or dropped where its `writer_notes` position
+ * previously kept it. That is intended — an unattributed document should not
+ * outrank attributed material for the budget either.
+ */
+export function effectiveCategory(doc: ContextDoc): ContextDocCategory {
+  return doc.category === "writer_notes" &&
+    documentTrust(doc.category, doc.uploaderRole) !== "internal"
+    ? "other"
+    : doc.category;
 }
 
 /**
@@ -231,7 +285,7 @@ function omittedMaterialsNotice(count: number): string {
 }
 
 function documentBlock(doc: ContextDoc, content: string): string {
-  const label = ANALYZER_CATEGORY_LABELS[doc.category];
+  const label = ANALYZER_CATEGORY_LABELS[effectiveCategory(doc)];
   const d = CONTEXT_SCAFFOLDS.documentDelimiters;
   const line = `${label}${d.categoryToFile}${sanitizeFileName(doc.fileName)}${d.lineSuffix}`;
   return `${d.beginPrefix}${line}${d.contentPrefix}${content}${d.contentSuffix}${d.endPrefix}${line}`;
@@ -333,8 +387,8 @@ export function buildTrustedContext(input: TrustedContextInput): {
     .map((doc, index) => ({ doc, index }))
     .sort((a, b) => {
       const trust =
-        ANALYZER_CATEGORY_ORDER.indexOf(a.doc.category) -
-        ANALYZER_CATEGORY_ORDER.indexOf(b.doc.category);
+        ANALYZER_CATEGORY_ORDER.indexOf(effectiveCategory(a.doc)) -
+        ANALYZER_CATEGORY_ORDER.indexOf(effectiveCategory(b.doc));
       return trust !== 0 ? trust : a.index - b.index;
     });
   const perDocChars = Math.max(0, budget.perDocumentTokens) * CHARS_PER_TOKEN;
@@ -345,8 +399,8 @@ export function buildTrustedContext(input: TrustedContextInput): {
       kind: "document",
       ...(doc.sourceId ? { sourceId: doc.sourceId } : {}),
       label: doc.fileName,
-      trust: documentTrust(doc.category),
-      category: doc.category,
+      trust: documentTrust(doc.category, doc.uploaderRole),
+      category: effectiveCategory(doc),
       originalLength: original,
       includedLength: 0,
       included: false,
