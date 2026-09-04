@@ -2,7 +2,7 @@
 title: 'Persist post-edit distance at milestones (CAP-2)'
 type: 'feature'
 created: '2026-09-04'
-status: 'done'
+status: 'in-review'
 baseline_revision: '740008e1369faaf6eab001f95efeb10a9e52d1e5'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -358,6 +358,17 @@ deferred:
   - `[low]` `[patch]` `recordReportEditDistance`'s catch logged `"recordReportEditDistance failed"` with the error alone, so an operator could not tell which report lost a reading — and the function returns `null` for both "no baseline" (expected) and "broken" (not). The log now carries `reportId`, `projectId` and `trigger`.
   - `[low]` `[patch]` Two doc comments overclaimed: `seriesForReport` said it renders "without a error boundary" and did not mention the missing-report `null`; `reports.postEditDistance` claimed the two PED surfaces "can never drift apart" when the `"generated"` baseline lookup is still duplicated (DW-47) and only the ghost-snapshot tests hold them together. Both corrected to what the code actually guarantees.
 
+### 2026-09-04 Review pass (follow-up)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 1: (high 0, medium 0, low 1)
+- defer: 0
+- reject: 17: (high 0, medium 0, low 17)
+- addressed_findings:
+  - `[low]` `[patch]` Added an API-level report-series regression test for authenticated anonymous-admin, roleless, and unmapped callers. Each receives null despite an existing milestone reading; the eligible writer receives that reading.
+
+Existing deferred entries remain unchanged and are reserved for orchestrator resolution. Legacy owner compatibility follows the optional-owner migration in `docs/product-domain.md:30`; the recorder does not substitute `createdBy`. The pure computation remains independently callable, and its extracted formula and the required scheduler call are unchanged.
+
 ## Design Notes
 
 Extraction boundary — the query keeps I/O and auth, the module keeps math:
@@ -388,30 +399,3 @@ Both series queries are bounded (`.order("desc").take(LIMIT)` then restored to o
 - `PUBLIC_CONVEX_URL=http://localhost npm run check` -- expected: no new type or svelte-check errors.
 - `npx vitest run convex/lib/editDistance.test.ts convex/reportEditDistance.test.ts` -- expected: all new tests pass.
 - `npm test` -- expected: full backend suite green, with `convex/reports.test.ts`, `convex/snapshots.test.ts`, `convex/generationLifecycle.test.ts`, and `convex/projects.test.ts` unaffected.
-
-
-## Auto Run Result
-
-Status: done
-
-**Implemented change.** CAP-2: post-edit distance is now persisted at the three milestones. The read-time formula moved out of `reports.postEditDistance` into `convex/lib/editDistance.ts` (`computeEditDistance` plus the `recordReportEditDistance` write path), a `reportEditDistance` table with three indexes was added, and the three triggers hook it: candidate selection at the `createGeneratedReportArtifacts` choke point, milestone inside `createMilestoneSnapshot`, and client publish through a scheduled `internal.reportEditDistance.recordAtPublish`. `seriesForReport` and `seriesForWriter` are the bounded read surfaces CAP-3 will consume.
-
-This run was a repair iteration: the working tree from the previous session failed deterministic verification. See the second triage-log entry for what was repaired.
-
-**Files changed**
-- `convex/lib/editDistance.ts` — new: the moved formula plus the shared, never-throwing record path (baseline lookup, repeat-trigger dedupe, `writerUserId` from `project.ownerId`).
-- `convex/lib/editDistance.test.ts` — new: pure-function tests plus the never-throws Always against a stub ctx.
-- `convex/reportEditDistance.ts` — new: `seriesForReport`, `seriesForWriter`, `recordAtPublish`.
-- `convex/reportEditDistance.test.ts` — new: convex-test suite covering every I/O matrix row; this run fixed its `convexTest` typing and added two `sinceDays` cases.
-- `convex/schema.ts` — new `reportEditDistance` table and its three indexes.
-- `convex/reports.ts` — four helpers deleted; `postEditDistance` delegates to `computeEditDistance` and keeps its eight-key shape.
-- `convex/generations.ts`, `convex/snapshots.ts`, `convex/projects.ts` — one recording hook each (publish via scheduler).
-- `convex/_generated/api.d.ts` — two hand-added lines registering the new module; codegen cannot run in this worktree (DW-43).
-
-**Review findings breakdown (this pass).** 5 patches applied (all low), 8 items deferred (3 medium, 5 low), 17 rejected. No intent gap and no bad-spec loopback. The first pass on this spec applied 4 patches and deferred 11.
-
-**Follow-up review recommendation:** `true`. Patched this pass: high 0, medium 0, low 5 → score `3×0 + 1×5 = 5`, which meets the threshold of 5.
-
-**Verification performed.** `bash scripts/loop-verify.sh` → rc 0 (`npx tsc -p convex/tsconfig.json --noEmit`, `npm run check`, `npm test` at 126 files / 1286 tests, plus both client-uploader harnesses at 50 and 18 passing). `npx vitest run convex/lib/editDistance.test.ts convex/reportEditDistance.test.ts` → 31 tests passing. Matrix audit: every I/O matrix row has a covering test in those two files and all of them ran.
-
-**Residual risks.** `convex/_generated/api.d.ts` was hand-edited and should be regenerated where a Convex deployment is configured (DW-43). The metric is now durable but has no formula-version column, so any future change to `computeEditDistance` mixes scales on one trend. The `client_publish` reading is taken at scheduler drain, so an edit landing in that window is attributed to the publish (DW-46). Unparseable report content persists a bogus `ped` rather than recording nothing (DW-45).

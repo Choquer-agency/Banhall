@@ -421,3 +421,67 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: recordReportEditDistance resolves writerUserId from project.ownerId at insert time (correct per PSOS-07). Nothing documents or tests what a later ownership transfer does to either writer's trend, and a writer reading their own series still sees reportId/projectId for projects since reassigned away from them, with no access re-check.
 status: open
+
+### DW-54: seriesForWriter hardcodes an admin/manager-or-self role check instead of going through the repo's roleCapabilities matrix.
+origin: spec-deferred b42a05a3908b
+location: convex/reportEditDistance.ts:58
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: medium
+reason: convex/projects.ts:27 imports requireCapability from ./lib/roleCapabilities and uses it two lines from the new scheduled call (:1028, :1053), and shared/capabilities.ts is the recorded permission surface. The new query instead reads user.role directly. The behaviour matches the intent's matrix, so it was not patched, but the permission is now invisible to the capability matrix and the /admin permission UI.
+status: open
+
+### DW-55: reportEditDistance rows carry no formula version, so the first change to computeEditDistance silently mixes two incompatible scales on one trend.
+origin: spec-deferred e241a28dbc77
+location: convex/schema.ts:1270
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: medium
+reason: convex/schema.ts:1270 stores only the ped scalar; the intent contract enumerates the exact columns, so adding a version column was out of scope here. Once rows exist, adding one requires a backfill, and no consumer can tell a v1 reading from a v2 reading.
+status: open
+
+### DW-56: reports.postEditDistance still returns PED to a client_review caller holding a share token, exposing an internal staff-quality metric.
+origin: spec-deferred 7f1a8c583f86
+location: convex/reports.ts:411
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: medium
+reason: convex/reports.ts postEditDistance accepts shareToken and returns for access.kind === "client_review"; the new seriesForReport is internal-only, which makes the asymmetry visible. Pre-existing behaviour untouched by this story, and docs/product-domain.md does not record the exposure as reviewed.
+status: open
+
+### DW-57: reportEditDistance is append-only with no pruning and no cleanup when a report (rather than a project) is deleted.
+origin: spec-deferred 85449beef801
+location: convex/schema.ts:1270
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: Distinct from the deleteProject cascade gap above: reportSnapshots has pruneSnapshots (convex/lib/snapshots.ts:237) while the new table has no retention at all, and seriesForReport returns null once the report is gone, so orphaned rows become unreachable but permanent.
+status: open
+
+### DW-58: seriesForReport caps by insertion order but presents the series ordered by computedAt, so the dropped row need not be the oldest row shown.
+origin: spec-deferred b18dbfbdc69c
+location: convex/reportEditDistance.ts:27
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: by_reportId is _creationTime-ordered, so .order("desc").take(200) keeps the newest-inserted rows and the handler then re-sorts by computedAt. Today the two agree; a late-draining scheduled publish or any future backfill would break that. A [reportId, computedAt] index would make the cap exact.
+status: open
+
+### DW-59: The sinceDays window is anchored with Date.now() inside a reactive query, so a long-open dashboard keeps the window it had at subscription time.
+origin: spec-deferred 84cae3cbf0cc
+location: convex/reportEditDistance.ts:80
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: convex/reportEditDistance.ts computes `since` at execution time; a Convex query only re-runs when its reads change, so the window does not advance with wall-clock time. CAP-3 should either pass an explicit `since` or refresh deliberately.
+status: open
+
+### DW-60: The candidate-selection hook re-reads the report and re-queries the snapshot it just inserted even though the reading is ped 0 by construction.
+origin: spec-deferred 7ca12cdf17a9
+location: convex/generations.ts:1005
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: convex/generations.ts:1005 calls ctx.db.get(reportId) after the insert, and recordReportEditDistance then runs a baseline query, a dedupe query and the full text diff on every generation, all to produce ped 0 from two copies of the same candidate content. Correct but three avoidable round-trips on the generation hot path.
+status: open
+
+### DW-61: The repeat-trigger dedupe inspects only the single newest row, so alternating triggers with no edit record a redundant third reading.
+origin: spec-deferred 155ff2e6638e
+location: convex/lib/editDistance.ts:120
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: convex/lib/editDistance.ts compares (trigger, revisionNumber, ped) against by_reportId .order("desc").first(). publish then milestone then publish with no edit in between writes a third row because the newest row's trigger differs. This is the literal reading of the intent's repeat-trigger row; a per-trigger comparison would suppress it.
+status: open
