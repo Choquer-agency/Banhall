@@ -1,9 +1,5 @@
 {
 	"extends": "./.svelte-kit/tsconfig.json",
-	"include": [
-		".svelte-kit/**/*.d.ts",
-		"vite.config.ts",
-		"vite.config.js",
 	// Keep includes rooted here for native test-transformer config discovery.
 	// Preserve SvelteKit generated coverage and add cross-runtime shared code.
 	// Synchronize this list whenever SvelteKit changes its generated includes.
