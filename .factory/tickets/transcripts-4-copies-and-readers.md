@@ -1,6 +1,6 @@
 ---
 key: transcripts-4-copies-and-readers
-status: todo
+status: done
 kind: feature
 deps: [transcripts-3-create-with-many]
 touches: [convex]
@@ -9,7 +9,14 @@ verify: [npx vitest run convex/reviewFromProject.test.ts convex/projects.test.ts
 done_when: ["! rg -qF 'query(\"transcripts\")' convex/reviewFromProject.ts convex/pdReviews.ts", "test \"$(rg -cF 'query(\"transcripts\")' convex/projects.ts)\" = 1", "test \"$(rg -cF 'query(\"transcripts\")' convex/debugTools.ts)\" = 1", "rg -q 'transcriptIds' convex/reviewFromProject.ts", "rg -q 'copyTranscriptRow' convex/reviewFromProject.ts", "rg -q 'position' convex/seed.ts", npx vitest run convex/reviewFromProject.test.ts]
 title: "Review-from-project copies every transcript; review input, science-code context, debug tools and seed read the list"
 plan: 20260903-client-sync
-updated: "2026-09-03T21:17:39.898Z"
+updated: "2026-09-04T02:54:59.753Z"
+ui: false
+run: 20260904-020442-8-tickets
+branch: factory/transcripts-4-copies-and-readers
+merged: 7605521
+verdict: test-verified
+evidence: .audit/transcripts-4-copies-and-readers/evidence.md
+deferred: ["convex/researchReviewMode.test.ts imports ../node_modules/@convex-dev/... by relative path, so it fails in any bare git worktree; symlinking the repo-root @convex-dev in makes the suite 117/117. Untouched by this ticket."]
 ---
 ## Intent
 BNH-39 "review an existing PD from a project" must carry all transcripts of the source, and every remaining backend reader of the single row must see the set. After this ticket the only direct `transcripts` queries outside `convex/lib/transcripts.ts` are the two that are not "a project's transcripts": `deleteProject`'s cascade (`convex/projects.ts:1056`, must also delete empty placeholder rows the helper drops) and the admin orphan scan (`convex/debugTools.ts:201`, whole-table `collect()`), plus ingestion's placeholder writer, which is out of scope. The `done_when` count predicates pin exactly one remaining call in each of those two files. Note: `rg` treats `(` as a group, so the predicates use `-F`; a plain `rg 'query("transcripts")'` never matches the literal.
