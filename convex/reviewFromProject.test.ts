@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { buildTiptapDocument } from "./lib/tiptapReport";
@@ -20,7 +20,14 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-async function setup() {
+const SOURCE_TRANSCRIPTS = [
+  { label: "Kickoff A", content: "Interview notes about the robot arm." },
+  { label: "Follow-up B", content: "Second sitting about the gripper." },
+];
+
+async function setup(
+  transcripts: Array<{ content: string; label?: string }> = SOURCE_TRANSCRIPTS
+) {
   const t = convexTest(schema, modules);
   const writerId = await t.run(async (ctx) =>
     ctx.db.insert("users", {
@@ -35,10 +42,22 @@ async function setup() {
     {
       title: "Alpha PD",
       clientName: "Acme Robotics",
-      transcripts: [{ content: "Interview notes about the robot arm." }],
+      transcripts,
     }
   );
   return { t, asWriter, writerId, sourceProjectId };
+}
+
+function projectTranscripts(
+  t: Awaited<ReturnType<typeof setup>>["t"],
+  projectId: Id<"projects">
+) {
+  return t.run(async (ctx) =>
+    ctx.db
+      .query("transcripts")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      .collect()
+  );
 }
 
 async function addSourceReport(
@@ -102,10 +121,6 @@ describe("createReviewFromProject", () => {
         .query("pdReviews")
         .withIndex("by_projectId", (q) => q.eq("projectId", reviewProjectId))
         .collect();
-      const transcript = await ctx.db
-        .query("transcripts")
-        .withIndex("by_projectId", (q) => q.eq("projectId", reviewProjectId))
-        .first();
       const report = await ctx.db
         .query("reports")
         .withIndex("by_projectId", (q) => q.eq("projectId", reviewProjectId))
@@ -114,7 +129,7 @@ describe("createReviewFromProject", () => {
         .query("projectDocuments")
         .withIndex("by_projectId", (q) => q.eq("projectId", sourceProjectId))
         .collect();
-      return { project, docs, reviews, transcript, report, sourceDocs };
+      return { project, docs, reviews, report, sourceDocs };
     });
 
     // Association + creation conventions (creator becomes Owner, intake).
@@ -148,17 +163,79 @@ describe("createReviewFromProject", () => {
       createdBy: writerId,
     });
 
-    // Inherited content: transcript text, support doc with CLONED bytes, and
-    // the copied report so the PD renders in the editor.
-    expect(state.transcript?.content).toBe(
-      "Interview notes about the robot arm."
+    // Every transcript of the source is inherited, in order, byte-identical
+    // and with the source hash reused rather than recomputed.
+    const copied = await projectTranscripts(t, reviewProjectId);
+    const sourceRows = await projectTranscripts(t, sourceProjectId);
+    expect(copied.map((row) => row.label)).toEqual([
+      "Kickoff A",
+      "Follow-up B",
+    ]);
+    expect(copied.map((row) => row.position)).toEqual([0, 1]);
+    expect(copied.map((row) => row.content)).toEqual(
+      SOURCE_TRANSCRIPTS.map((row) => row.content)
     );
+    expect(copied.map((row) => row.contentHash)).toEqual(
+      sourceRows.map((row) => row.contentHash)
+    );
+    expect(copied[0]._id).not.toEqual(sourceRows[0]._id);
+
+    // copyProjectContentBetween got the first copied id: the copied report is
+    // stamped with it, which is the only observable use of targetTranscriptId.
+    expect(state.report?.sourceTranscriptId).toEqual(copied[0]._id);
+
+    // Inherited content: support doc with CLONED bytes, and the copied report
+    // so the PD renders in the editor.
     const copiedNotes = state.docs.find((d) => d.fileName === "notes.txt");
     const sourceNotes = state.sourceDocs.find((d) => d.fileName === "notes.txt");
     expect(copiedNotes?.content).toBe("Scoping notes");
     expect(copiedNotes?.storageId).toBeDefined();
     expect(copiedNotes?.storageId).not.toEqual(sourceNotes?.storageId);
     expect(state.report?.content).toContain("Uncertainty prose.");
+  });
+
+  it("carries every transcript into the review agent's input", async () => {
+    const { t, asWriter, sourceProjectId } = await setup();
+    await addSourceReport(t, sourceProjectId);
+    const { projectId: reviewProjectId } = await asWriter.action(
+      api.reviewFromProject.createReviewFromProject,
+      { projectId: sourceProjectId }
+    );
+    const reviewId = await t.run(async (ctx) => {
+      const review = await ctx.db
+        .query("pdReviews")
+        .withIndex("by_projectId", (q) => q.eq("projectId", reviewProjectId))
+        .first();
+      return review!._id;
+    });
+    const input = await t.query(internal.pdReviews.getReviewInput, { reviewId });
+    expect(input?.transcript).toBe(
+      "=== Transcript 1: Kickoff A ===\nInterview notes about the robot arm." +
+        "\n\n=== Transcript 2: Follow-up B ===\nSecond sitting about the gripper."
+    );
+  });
+
+  it("creates no transcript rows when the source has none", async () => {
+    const { t, asWriter, sourceProjectId } = await setup([]);
+    await addSourceReport(t, sourceProjectId);
+    const { projectId: reviewProjectId } = await asWriter.action(
+      api.reviewFromProject.createReviewFromProject,
+      { projectId: sourceProjectId }
+    );
+    expect(await projectTranscripts(t, reviewProjectId)).toEqual([]);
+
+    const reviews = await t.run(async (ctx) =>
+      ctx.db
+        .query("pdReviews")
+        .withIndex("by_projectId", (q) => q.eq("projectId", reviewProjectId))
+        .collect()
+    );
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0].status).toBe("running");
+    const input = await t.query(internal.pdReviews.getReviewInput, {
+      reviewId: reviews[0]._id,
+    });
+    expect(input?.transcript).toBe("");
   });
 
   it("fails closed when the source project has no report", async () => {

@@ -16,6 +16,10 @@ import {
 } from "./lib/dashboardProjection";
 import { generateShareToken } from "./projects";
 import { copyProjectContentBetween } from "./projectDuplication";
+import {
+  copyTranscriptRow,
+  listProjectTranscripts,
+} from "./lib/transcripts";
 
 /**
  * 2026-08-11 (second) amendment — review projects created from an existing
@@ -29,7 +33,8 @@ import { copyProjectContentBetween } from "./projectDuplication";
 /**
  * Creates the review project atomically: project row (mirroring
  * projects.createProject's insert conventions), creation events, dashboard
- * company count, inherited transcript, the report snapshot as a `review_pd`
+ * company count, every transcript of the source, the report snapshot as a
+ * `review_pd`
  * document, and the started pdReview (same guarded path as startPdReview).
  * The calling action copies the remaining content + file bytes afterwards.
  */
@@ -37,7 +42,7 @@ export const createReviewProjectRecord = internalMutation({
   args: { sourceProjectId: v.id("projects") },
   returns: v.object({
     projectId: v.id("projects"),
-    transcriptId: v.id("transcripts"),
+    transcriptIds: v.array(v.id("transcripts")),
     documentId: v.id("projectDocuments"),
     reviewId: v.id("pdReviews"),
   }),
@@ -84,10 +89,7 @@ export const createReviewProjectRecord = internalMutation({
       if (await ctx.db.get(tagId)) tagIds.push(tagId);
     }
 
-    const sourceTranscript = await ctx.db
-      .query("transcripts")
-      .withIndex("by_projectId", (q) => q.eq("projectId", source._id))
-      .first();
+    const sourceTranscripts = await listProjectTranscripts(ctx, source._id);
 
     const now = Date.now();
     const dashboardProjection = projectDashboardProjectionPatch({
@@ -160,11 +162,12 @@ export const createReviewProjectRecord = internalMutation({
       "intake"
     );
 
-    const transcriptId = await ctx.db.insert("transcripts", {
-      projectId,
-      content: sourceTranscript?.content ?? "",
-      createdAt: now,
-    });
+    const transcriptIds: Id<"transcripts">[] = [];
+    for (const [position, transcript] of sourceTranscripts.entries()) {
+      transcriptIds.push(
+        await copyTranscriptRow(ctx, transcript, { projectId, position })
+      );
+    }
 
     // The source report snapshot becomes the written PD under review. The
     // processing status derives from the same observable facts uploadDocument
@@ -220,7 +223,7 @@ export const createReviewProjectRecord = internalMutation({
       projectId,
     });
 
-    return { projectId, transcriptId, documentId, reviewId };
+    return { projectId, transcriptIds, documentId, reviewId };
   },
 });
 
@@ -237,7 +240,7 @@ export const createReviewFromProject = action({
   handler: async (ctx, args): Promise<{ projectId: Id<"projects"> }> => {
     const created: {
       projectId: Id<"projects">;
-      transcriptId: Id<"transcripts">;
+      transcriptIds: Id<"transcripts">[];
       documentId: Id<"projectDocuments">;
       reviewId: Id<"pdReviews">;
     } = await ctx.runMutation(
@@ -247,7 +250,9 @@ export const createReviewFromProject = action({
     await copyProjectContentBetween(ctx, {
       fromProjectId: args.projectId,
       toProjectId: created.projectId,
-      targetTranscriptId: created.transcriptId,
+      ...(created.transcriptIds[0]
+        ? { targetTranscriptId: created.transcriptIds[0] }
+        : {}),
     });
     return { projectId: created.projectId };
   },

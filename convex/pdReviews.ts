@@ -12,6 +12,7 @@ import {
 } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
+import { projectTranscriptPromptText } from "./lib/transcripts";
 /**
  * BNH-39: PD review mode. A review-mode project uploads an existing written PD
  * (stored in projectDocuments, source "review_pd"); these functions run the AI
@@ -245,7 +246,7 @@ export const logPdReviewEvent = mutation({
 // ─── Internal plumbing for the review action ─────────────────────────────────
 
 /** Everything the review agent needs in one read: the written PD, the project
- *  basics, and the transcript (may be empty in review mode). */
+ *  basics, and every transcript joined (may be empty in review mode). */
 export const getReviewInput = internalQuery({
   args: { reviewId: v.id("pdReviews") },
   handler: async (ctx, args) => {
@@ -253,10 +254,6 @@ export const getReviewInput = internalQuery({
     if (!review) return null;
     const doc = await ctx.db.get(review.documentId);
     const project = await ctx.db.get(review.projectId);
-    const transcript = await ctx.db
-      .query("transcripts")
-      .withIndex("by_projectId", (q) => q.eq("projectId", review.projectId))
-      .first();
     return {
       pdContent: doc?.content ?? "",
       // Usage attribution: the user who started (or retried) this review.
@@ -264,7 +261,7 @@ export const getReviewInput = internalQuery({
       fileName: review.sourceFileName,
       title: project?.title ?? "Untitled",
       clientName: project?.clientName ?? "",
-      transcript: transcript?.content?.trim() ?? "",
+      transcript: await projectTranscriptPromptText(ctx, review.projectId),
     };
   },
 });
