@@ -59,3 +59,7 @@ The cap applies to the global pool rather than independently increasing per-proj
 - `git diff --check`: no whitespace errors.
 
 Approval: user delegated verification repairs and routine implementation choices; no additional checkpoint is required for this bounded configuration repair.
+
+## Chat-spend recovery application
+
+Applied the schema lane's independently reviewed dedicated source-audit timeout repair (f009b43) after the standard command repeatedly exceeded the five-second source-parser budget. Assertions and test selection are unchanged; the audit is selected once with a 30-second limit and the existing worker cap remains. This recovery base awaits serial native dev, review and final verification. Earlier passing logs certify their recorded historical revisions only.
