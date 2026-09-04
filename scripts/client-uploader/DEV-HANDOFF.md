@@ -56,6 +56,21 @@ unset or shorter than 32 chars.
   (ternary, `??`, `-Parallel`, `#Requires -Version 7`) or on a second
   `Get-UploadCandidates` call site, so the client's machine cannot be the
   place where a PS7-only edit is discovered.
+- The Mac script has no separate lib: every function sits above a
+  `BANHALL_UPLOADER_LIB_ONLY` guard in `banhall-uploader.sh`, so
+  `bash tests/run-tests.sh` sources the shipped file itself and calls
+  `collect_candidates`, `format_scan_diagnostics`, `root_state`,
+  `require_folder`, `under_onedrive`, `sha256_of` and `upload_one` directly —
+  no config read, no network, no `upload-log.txt` write. Nothing that reads the
+  config or the network may move above that guard. `scripts/loop-verify.sh`
+  runs it. The harness re-execs under `/bin/bash` (stock macOS bash 3.2) and
+  fails on bash-4 constructs (`declare -A`, `mapfile`, `${x^^}`, `&>>`) and on
+  a function defined below the guard, so the client's Mac cannot be where a
+  bash-4 edit is discovered.
+- `find` never follows symlinks, so the Mac script's old `-type f` filter
+  dropped them without counting them. It now walks `-type f -o -type l` and
+  classifies each entry in the loop, which is what makes `link` a countable
+  skip reason instead of an invisible one.
 - A zero-result run is self-diagnosing. `Found 0 document(s)` is followed by
   `Format-ScanDiagnostics` output: files walked, per-reason skip counts, access
   errors, the top 8 extensions seen, and `Under OneDrive sync root:
@@ -64,13 +79,16 @@ unset or shorter than 32 chars.
   `unknown` means none of the three is set). The same lines go to
   `upload-log.txt` as `SCAN\t…`, so the next zero-result report from the
   client is one file, not a screen share. Counts and extensions only, never a
-  document name.
+  document name. The Mac script prints and logs the identical block from
+  `format_scan_diagnostics`; its `under_onedrive` compares the root against
+  `~/Library/CloudStorage/OneDrive*` and `~/OneDrive*` instead of env vars, and
+  returns `unknown` when the machine has neither.
 - `upload-log.txt` is cleared by the **first line a run writes**, inside
-  `Write-Log`'s `try`, not up front: those `SCAN` lines survive the zero-result
+  `Write-Log`'s `try` (`log_line` on the Mac), not up front: those `SCAN` lines survive the zero-result
   exit, a read-only kit folder still prints the diagnostics instead of dying on
   the truncation, and a run that logs nothing leaves the last real log alone.
-  Both closing lines that mention the log are gated on `$script:logWritten`,
-  set only after an `Add-Content` returns: when the kit folder is read-only the
+  Both closing lines that mention the log are gated on `$script:logWritten`
+  (`LOG_WRITTEN` on the Mac), set only after the append returns: when the kit folder is read-only the
   run asks for a screenshot instead of pointing the client at a file that was
   never written.
 - Client folder names hold wildcard characters (`Applications [2024]`). Every
@@ -80,13 +98,22 @@ unset or shorter than 32 chars.
   `[WildcardPattern]::Escape`d path. A wildcard read of such a folder returns
   nothing rather than failing, so the symptom is an empty root or a null hash,
   not an error. The harness asserts this on the AST.
-- Cloud-only files are announced before uploading (`N files are cloud-only and
+- Not mirrored on the Mac: the cloud-only pre-warning. macOS exposes no
+  cheap per-file dataless flag to `stat`, and the count is a nicety, not a
+  diagnostic. Cloud-only files are announced before uploading (`N files are cloud-only and
   will be downloaded by OneDrive while uploading`). `Test-CloudOnly` matches
   the `Offline` attribute or bit `0x400000` (`RecallOnDataAccess`, which has no
   named member on .NET Framework 4.8).
-- `Test-RootUsable` returns `ok | is_file | missing` and backs both root
-  checks: a dropped file is skipped with a message, a configured or typed file
-  path exits with `That path is a file, not a folder`.
+- `Test-RootUsable` (Windows) and `root_state` (Mac) return
+  `ok | is_file | missing` and back both root checks: a dropped/argument file is
+  skipped with a message, a configured or typed file path exits with `That path
+  is a file, not a folder`. On the Mac a run left with no folder at all after
+  the argument loop reports the first file argument that way, so one stray file
+  alongside real folders still does not kill the run.
+- A file that cannot be hashed is logged as `READ_ERROR\t<rel>` and skipped
+  without a request: on Windows `Get-FileHash` throws, on the Mac `sha256_of`
+  returns nothing (a locked, ACL-denied or failed-to-hydrate file). Sending it
+  anyway would put an empty `hash=` in the URL.
 - Corrupt/unreadable files land in the Failed tab and are retried on each
   re-run (cheap; visible to the admin).
 - The only file either script writes is `upload-log.txt` beside itself.

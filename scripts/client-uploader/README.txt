@@ -49,5 +49,5 @@ If it can't find your folder
 
 Questions / anything unexpected
   Contact the dev team and send them upload-log.txt from next to the script.
-  It records each run: one line per file that was sent, skipped, or refused,
-  and the SCAN lines from a run that found nothing.
+  It records each run: one line per file that was sent, skipped, refused, or
+  impossible to read, and the SCAN lines from a run that found nothing.
