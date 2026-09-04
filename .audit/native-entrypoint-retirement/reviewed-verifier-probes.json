@@ -1,0 +1,89 @@
+{
+  "fixture_only": true,
+  "verifier_sha256": "e1cc089b9f6de6f055f26e4f85e1fac65f86b576403a0278cab2c4f5cd5ab164",
+  "checks": [
+    {
+      "case": "actual reviewed source",
+      "expected_pass": true,
+      "actual_pass": true,
+      "issues": []
+    },
+    {
+      "case": "restored scripts/loop-parallel.py",
+      "expected_pass": false,
+      "actual_pass": false,
+      "issues": [
+        "retired entry point exists: scripts/loop-parallel.py"
+      ]
+    },
+    {
+      "case": "restored scripts/loop.sh",
+      "expected_pass": false,
+      "actual_pass": false,
+      "issues": [
+        "retired entry point exists: scripts/loop.sh"
+      ]
+    },
+    {
+      "case": "active skill caller",
+      "expected_pass": false,
+      "actual_pass": false,
+      "issues": [
+        "retired basename reference requires review: .agents/active/SKILL.md"
+      ]
+    },
+    {
+      "case": "relative factory caller",
+      "expected_pass": false,
+      "actual_pass": false,
+      "issues": [
+        "retired basename reference requires review: .factory/caller.sh"
+      ]
+    },
+    {
+      "case": "modified operator guide",
+      "expected_pass": false,
+      "actual_pass": false,
+      "issues": [
+        "retirement guide changed; inspect references and recovery safeguards",
+        "preserved gate/guide differs from reviewed bytes: docs/bmad-loop.md"
+      ]
+    },
+    {
+      "case": "empty native gate",
+      "expected_pass": false,
+      "actual_pass": false,
+      "issues": [
+        "preserved gate/guide differs from reviewed bytes: scripts/loop-verify.sh"
+      ]
+    },
+    {
+      "case": "alias to inspected tracked file",
+      "expected_pass": true,
+      "actual_pass": true,
+      "issues": []
+    },
+    {
+      "case": "alias to uninspected file",
+      "expected_pass": false,
+      "actual_pass": false,
+      "issues": [
+        "uninspected tracked symlink: tracked-alias"
+      ]
+    },
+    {
+      "case": "active alias into excluded historical artifacts",
+      "expected_pass": false,
+      "actual_pass": false,
+      "issues": [
+        "uninspected tracked symlink: tracked-alias"
+      ]
+    },
+    {
+      "case": "restored fixture",
+      "expected_pass": true,
+      "actual_pass": true,
+      "issues": []
+    }
+  ]
+}

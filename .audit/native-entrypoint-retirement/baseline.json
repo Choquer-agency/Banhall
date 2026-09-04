@@ -1,0 +1,8 @@
+{
+  "head": "9da55bece5948da12129720dd2330a3032c985bf",
+  "prior_retirement": "7a164054c5e9fe85ee1ab41bf105d9e286bb81fb",
+  "wrappers_present": [
+    "scripts/loop-parallel.py",
+    "scripts/loop.sh"
+  ]
+}

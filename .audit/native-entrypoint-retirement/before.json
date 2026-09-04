@@ -1,0 +1,10 @@
+{
+  "head": "9da55bece5948da12129720dd2330a3032c985bf",
+  "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-native-entrypoint-fix",
+  "issues": [
+    "retired entry point exists: scripts/loop-parallel.py",
+    "retired entry point exists: scripts/loop.sh"
+  ],
+  "active_callers": [],
+  "passed": false
+}

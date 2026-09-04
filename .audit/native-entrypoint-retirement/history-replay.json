@@ -1,0 +1,27 @@
+{
+  "base": "14d3d1795d9f861257ac122f7183449b248a369a",
+  "head": "9da55bece5948da12129720dd2330a3032c985bf",
+  "revived_source_deletions": [
+    {
+      "deletion_commit": "7a164054c5e9fe85ee1ab41bf105d9e286bb81fb",
+      "present_path": "scripts/loop-parallel.py"
+    }
+  ],
+  "first_parent_introductions_including_original_creation": [
+    {
+      "commit": "021f0b4cb9b58e310c9acbbaa60f6fa9227b418e",
+      "parents": [
+        "34feaeb58948ef01d729917e8da689dea58bb5a6",
+        "b99f1eeef78348df5c14f68031f7f0276527ff3f"
+      ],
+      "subject": "merge: integrate preserved learning stories for final verification"
+    },
+    {
+      "commit": "d7c65751d27085776be147e405e919d78410e781",
+      "parents": [
+        "39ef82cab767286053fc5f719299475425158e85"
+      ],
+      "subject": "feat(loop): run an epic as concurrent bmad-loop lanes, one worktree and branch each"
+    }
+  ]
+}

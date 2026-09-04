@@ -1,0 +1,17 @@
+[
+  {
+    "commit": "021f0b4cb9b58e310c9acbbaa60f6fa9227b418e",
+    "parents": [
+      "34feaeb58948ef01d729917e8da689dea58bb5a6",
+      "b99f1eeef78348df5c14f68031f7f0276527ff3f"
+    ],
+    "subject": "merge: integrate preserved learning stories for final verification"
+  },
+  {
+    "commit": "d7c65751d27085776be147e405e919d78410e781",
+    "parents": [
+      "39ef82cab767286053fc5f719299475425158e85"
+    ],
+    "subject": "feat(loop): run an epic as concurrent bmad-loop lanes, one worktree and branch each"
+  }
+]

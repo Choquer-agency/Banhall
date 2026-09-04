@@ -1,0 +1,67 @@
+{
+  "head": "9da55bece5948da12129720dd2330a3032c985bf",
+  "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-native-entrypoint-fix",
+  "source_fingerprint": "16f24497e4eac21159aa6500b9f3ae2de867bbce6146d3ff3ead69d4b799487f",
+  "verifier_sha256": "baac62c9f530e4eb3e7aa596337ad863fef84ac8900db78b0ca85f1104cf81bf",
+  "inspected_tracked_files": 3120,
+  "retired_basename_references": [
+    "docs/bmad-loop.md"
+  ],
+  "aliases_to_inspected_tracked_targets": [
+    {
+      "alias": ".claude/skills/brandkit",
+      "tracked_target": ".agents/skills/brandkit"
+    },
+    {
+      "alias": ".claude/skills/design-taste-frontend",
+      "tracked_target": ".agents/skills/design-taste-frontend"
+    },
+    {
+      "alias": ".claude/skills/design-taste-frontend-v1",
+      "tracked_target": ".agents/skills/design-taste-frontend-v1"
+    },
+    {
+      "alias": ".claude/skills/full-output-enforcement",
+      "tracked_target": ".agents/skills/full-output-enforcement"
+    },
+    {
+      "alias": ".claude/skills/gpt-taste",
+      "tracked_target": ".agents/skills/gpt-taste"
+    },
+    {
+      "alias": ".claude/skills/high-end-visual-design",
+      "tracked_target": ".agents/skills/high-end-visual-design"
+    },
+    {
+      "alias": ".claude/skills/image-to-code",
+      "tracked_target": ".agents/skills/image-to-code"
+    },
+    {
+      "alias": ".claude/skills/imagegen-frontend-mobile",
+      "tracked_target": ".agents/skills/imagegen-frontend-mobile"
+    },
+    {
+      "alias": ".claude/skills/imagegen-frontend-web",
+      "tracked_target": ".agents/skills/imagegen-frontend-web"
+    },
+    {
+      "alias": ".claude/skills/industrial-brutalist-ui",
+      "tracked_target": ".agents/skills/industrial-brutalist-ui"
+    },
+    {
+      "alias": ".claude/skills/minimalist-ui",
+      "tracked_target": ".agents/skills/minimalist-ui"
+    },
+    {
+      "alias": ".claude/skills/redesign-existing-projects",
+      "tracked_target": ".agents/skills/redesign-existing-projects"
+    },
+    {
+      "alias": ".claude/skills/stitch-design-taste",
+      "tracked_target": ".agents/skills/stitch-design-taste"
+    }
+  ],
+  "issues": [],
+  "passed": true,
+  "limits": "Static basename-reference and exact preserved-file checks; not proof against dynamically constructed command names. New artifacts under .audit and _bmad-output are historical/review inputs, not active callers."
+}

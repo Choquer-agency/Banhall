@@ -1,0 +1,10 @@
+usage: bmad-loop status [-h] [--project PROJECT] [--json] [run_id]
+
+positional arguments:
+  run_id
+
+options:
+  -h, --help         show this help message and exit
+  --project PROJECT  target project root (default: cwd)
+  --json             emit a stable machine-readable JSON document (run state)
+                     instead of text
