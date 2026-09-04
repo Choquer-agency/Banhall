@@ -2,8 +2,8 @@
 title: 'Blocking QA policy'
 type: 'feature'
 created: '2026-09-04'
-status: 'done'
-baseline_revision: 'f122b086d745acc40b4decca26b9aaafc7257f6a'
+status: 'in-review'
+baseline_revision: '0dd0d6bd98c28e54107ae10fe06a90fd83c6dab2'
 review_loop_iteration: 0
 followup_review_recommended: true
 context: ['{project-root}/convex/_generated/ai/guidelines.md', '{project-root}/.factory/AGENTS.factory.md']
@@ -151,6 +151,25 @@ The intent audit confirms the exact-evidence interpretation already recorded abo
 
 The existing exact-content interpretation and existing deferred entries remain unchanged. Four gate failures were reproduced on the entry source before extraction repairs; a cross-reference regression in the initial repair was also reproduced and fixed. The invalid-scorecard case already passed and now guards that accepted behavior.
 
+### 2026-09-04: Verification repair review
+- intent_gap: 0
+- bad_spec: 0
+- patch: 9: (high 0, medium 0, low 9)
+- defer: 0
+- reject: 2: (high 0, medium 0, low 2)
+- addressed_findings:
+  - `[low]` `[patch]` Distinguish original implementation and repair-entry baselines.
+  - `[low]` `[patch]` Describe host contention as a hypothesis rather than proven causation.
+  - `[low]` `[patch]` Disclose the missing timestamp for the earlier load sample.
+  - `[low]` `[patch]` Disclose that supplied feedback does not identify its exact source revision.
+  - `[low]` `[patch]` Preserve the previous Auto Run Result as explicitly historical.
+  - `[low]` `[patch]` Record scheduling provenance and the explicit slot-grant condition.
+  - `[low]` `[patch]` Record a bounded diagnostic next step if the granted-slot gate times out again.
+  - `[low]` `[patch]` Link to the repository-local retained failure artifact.
+  - `[low]` `[patch]` Identify uploader harnesses as unreached in the failed gate.
+
+All four review layers completed. Edge-case and verification-gap reviewers reported no findings. Intent review confirms this pass records diagnosis and a temporary hold; it does not yet establish successful native verification. Follow-up recommendation is true from nine low patches (score 9). Full verification remains pending under the operator scheduling instruction.
+
 ## Design Notes
 
 Known methodology failures are carried to a new revision only when the same report has exactly the same content hash; this prevents no-op saves and restores from acting as waivers. Section identity participates in finding deduplication.
@@ -159,6 +178,8 @@ An open row is evidence of an unresolved failure for its exact content revision.
 
 ## Verification
 
+The following command results are historical implementation verification, as retained in the entry Git version. Current repair verification is pending below.
+
 **Commands:**
 - `npx vitest run convex/ai/qaChecks.test.ts convex/projects.test.ts convex/qaBlocking.test.ts`: all pass, including every matrix row.
 - `npm test`: full suite passes.
@@ -166,7 +187,22 @@ An open row is evidence of an unresolved failure for its exact content revision.
 - `npx tsc -p convex/tsconfig.json --noEmit`: no errors.
 - `git diff --name-only -- src/`: empty.
 
-## Auto Run Result
+
+## Verification Repair Context
+
+Repair-entry canonical baseline and workflow `baseline_revision`: `0dd0d6bd98c28e54107ae10fe06a90fd83c6dab2`. Original implementation baseline: `f122b086d745acc40b4decca26b9aaafc7257f6a`.
+
+Resume repair requested after deterministic verification failed. Evidence: [retained native failure feedback](../../../../../../.audit/CAP-8/verification-repair-failed-feedback.md). The failed run's exact source revision is unknown from that feedback. The full gate timed out in the form-control source scan at 46,638ms against a 30,000ms limit; 128 other test files passed. The uploader harnesses were not reached because `npm test` failed under the gate's `set -e`. Repair verification reliability without modifying the frozen intent contract or src/.
+
+Scheduling provenance: operator message on 2026-09-04. Full-suite and full type checks remain held until the operator grants the verification slot. Current status: in-review, verification pending. Review proceeds during this temporary hold; verification is not waived. Observed high host load supports a contention hypothesis, not a confirmed cause of the timeout. No timeout increase is justified solely by that hypothesis.
+
+Next step: on explicit slot grant, run `bash scripts/loop-verify.sh` and preserve native evidence. If the timeout recurs, diagnose the targeted scan with contemporaneous host metrics before choosing a repair.
+
+Targeted diagnostic: `npx vitest run src/lib/components/ui/formControlContract.test.ts --maxWorkers=1` exited 0, three tests passed in 12.63s with unchanged timeout and assertions. [Native log](../../../../../../.audit/CAP-8/verification-repair-targeted.log). Full native verification remains pending the scheduling slot.
+
+## Historical Auto Run Result
+
+The following result is retained verbatim from the repair-entry Git version (`0dd0d6bd98c28e54107ae10fe06a90fd83c6dab2`). Its done status describes the earlier implementation run, not this pending verification repair.
 
 Status: done
 
@@ -187,3 +223,18 @@ Verification:
 - `git diff --check`: passed; no baseline-relative frontend or generated Convex changes.
 
 Residual limits: the existing sentence-level uncertainty detector and exact-content methodology evidence policy remain as specified. No new linguistic classifier or fresh-AI-pass requirement was introduced.
+
+## Auto Run Result
+
+Status: in-review
+Blocking condition: operator verification slot pending.
+
+Targeted diagnosis and all four BMAD review layers are complete. No product code, test assertions, timeout or concurrency settings changed. The frozen intent and existing deferral match the repair-entry revision exactly.
+
+Files changed: this story records the pending repair and review; `.audit/CAP-8/evidence.md` and `decisions.tsv` retain diagnosis and decisions; `verification-repair-failed-feedback.md` preserves operator feedback verbatim; targeted and host logs retain native observations. The new audit artifacts are currently ignored by Git and must be explicitly included during finalization after successful verification.
+
+Review: nine low audit-clarity patches, zero deferrals, two rejected findings. Follow-up review recommended: true (0 high, 0 medium, 9 low; score 9).
+
+Verification: the isolated source-contract file passed all three tests in 12.63s using one worker and the existing timeout; `git diff --check` passed; frozen-intent and deferral comparisons passed; product/test/config diff was empty. The original failure artifact matches supplied feedback byte for byte.
+
+Required remaining work: after explicit slot grant, run `bash scripts/loop-verify.sh` and the spec-focused command, record outcomes, then finalize and commit locally. Full-suite and full type checks have not been launched during this repair. No verification requirement is waived. If the native gate times out again, perform targeted diagnosis with contemporaneous metrics before choosing any repair.

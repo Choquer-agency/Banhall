@@ -2,7 +2,7 @@
 
 Verified implementation commit: `b13d5ce9f93fe00ad0d02e15294954a20961b69d`. The verified working-tree source was committed unchanged; the subsequent audit-only commit records this identifier.
 
-Baseline commit: `f122b086d745acc40b4decca26b9aaafc7257f6a`.
+Original implementation baseline commit: `f122b086d745acc40b4decca26b9aaafc7257f6a`. This historical baseline differs from the verification repair-entry baseline recorded below.
 
 ## Acceptance mapping
 
@@ -137,3 +137,23 @@ The final cross-reference repair landed before the full suite ran. Both type che
 Verified second-review source commit: `40d34059ae38b891023681ac00989d040f9fc973`. The subsequent audit-only commit records this identifier; source remained unchanged after verification.
 
 The final baseline-wide whitespace check also reports a pre-existing trailing blank line in `followup-regressions.log:63`; that prior-run log was preserved. New second-review logs have normalized trailing newlines. The current worktree diff check passes.
+
+
+## Verification reliability repair diagnosis (2026-09-04)
+
+Repair-entry canonical baseline revision: `0dd0d6bd98c28e54107ae10fe06a90fd83c6dab2` (`git rev-parse HEAD`), also the current workflow `baseline_revision`. The original implementation baseline is `f122b086d745acc40b4decca26b9aaafc7257f6a`; earlier implementation evidence above is historical.
+
+The failed native output is preserved verbatim in [verification-repair-failed-feedback.md](verification-repair-failed-feedback.md). The failed run's exact source revision is unknown from that feedback. It reports the complete-tree source scan timing out after 46,638 ms against its existing 30,000 ms budget, with 128 other files and 1,413 other tests passing. These are prior-run results, not a new successful verification. The uploader PowerShell and Bash harnesses were not reached: `scripts/loop-verify.sh` uses `set -e`, and the preceding `npm test` command failed.
+
+Static diagnosis: `src/lib/components/ui/formControlContract.test.ts:61` synchronously reads, parses and walks all 211 Svelte files. `vitest.config.ts` already limits workers to two and gives this project a 30-second budget. `uptime` during diagnosis reported `load averages: 119.60 112.53 82.50`; the precise timestamp of that sample was not retained. This high load supports host contention as a hypothesis, but does not establish the cause of the earlier timeout. No failing assertion or source defect was identified in this bounded inspection. There is insufficient evidence to justify a permanent timeout or concurrency change, so no configuration, test assertions or `src/` changes were made.
+
+Scheduling provenance: the operator message on 2026-09-04 instructed this session to hold new full-suite and full typecheck runs until a verification slot is granted. No tests or typechecks were launched during diagnosis. The current repair remains in review with verification pending until that explicit slot grant; verification is not waived.
+
+Next step: after the operator grants the slot, run `bash scripts/loop-verify.sh` and retain its native output. If the timeout recurs, diagnose the targeted source scan with contemporaneous host metrics before deciding whether a source or configuration repair is justified. This diagnosis does not satisfy the full verification acceptance criterion.
+
+
+### Targeted diagnostic after review
+
+Allowed targeted command: `npx vitest run src/lib/components/ui/formControlContract.test.ts --maxWorkers=1`, exit 0. Native output: [verification-repair-targeted.log](verification-repair-targeted.log). All three tests passed; duration 12.63s, tests 10.18s, unchanged 30-second timeout. Source and assertions were unchanged. This supports but does not prove contention as the earlier failure's cause. It does not substitute for the pending native full gate.
+
+A host sample captured immediately afterward is retained in [verification-repair-host.log](verification-repair-host.log): 2026-09-04T21:05:45Z, load 69.76/84.40/86.29, 10 logical CPUs. No full-suite or full typecheck was started.
