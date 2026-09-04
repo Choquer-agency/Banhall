@@ -1,4 +1,5 @@
 - id: "1"
+  lane: snap
   title: Shared pre-edit snapshot writer
   description: >-
     CAP-1. Add writePreEditSnapshot to convex/lib/snapshots.ts and route the three
@@ -11,6 +12,7 @@
     Pure refactor; existing tests (chatProposals.test.ts, comments.test.ts) must pass
     unchanged. Anchors on main: chatV2.ts:399, chatV2.ts:511, comments.ts:192.
 - id: "2"
+  lane: ctx
   title: Trusted-context module for generation input
   description: >-
     CAP-2. New convex/ai/trustedContext.ts with context classes, per-source and total
@@ -22,6 +24,7 @@
     prompts.test.ts snapshots passing or update with a reason. Budget defaults per
     SPEC.md Assumptions; read from appSettings with fallbacks.
 - id: "3"
+  lane: ctx
   title: Document trust from uploader role
   description: >-
     CAP-3. writer_notes trust applies only when the uploader held an internal role at
@@ -30,6 +33,7 @@
   invoke_dev_with: >-
     Read touchpoints.md row CAP-3. Depends on story 2's module. Missing uploader = client trust.
 - id: "4"
+  lane: ctx
   title: Chat evidence leaves the system prompt
   description: >-
     CAP-4. Policy-only system prompt; one labeled user-role evidence message with
@@ -42,6 +46,7 @@
     Run only after spec-ai-engine-sprint-1b story 9 (CAP-8 chat context bounds)
     has landed on main; both touch convex/chatV2.ts and convex/ai/chatAgentV2.ts.
 - id: "5"
+  lane: ctx
   title: Injection boundary test suite
   description: >-
     CAP-5. Deterministic fixtures (instruction overrides, tool-call requests, role
@@ -50,6 +55,7 @@
   spec_checkpoint: false
   invoke_dev_with: Read touchpoints.md row CAP-5. Fixtures as plain .txt under convex/ai/__fixtures__/injection/.
 - id: "7"
+  lane: schema
   title: reviewDecisions required to leave internal_review
   description: >-
     CAP-7. New table written atomically with the stage event; transition fails with
@@ -59,6 +65,7 @@
     Read touchpoints.md row CAP-7. Add an optional decision arg to setWorkflowStage
     rather than a second mutation; document the new error code in docs/product-domain.md.
 - id: "8"
+  lane: qa
   title: Blocking QA policy
   description: >-
     CAP-8. Persist deterministic QA findings as rows; because_clause and CRA
@@ -68,6 +75,7 @@
     Read touchpoints.md row CAP-8. Open question in SPEC.md resolved as absolute
     (no waiver). Do not restyle the QA rail; read-side may show the blocking flag.
 - id: "9"
+  lane: schema
   title: Review artifacts pinned to revision and content hash
   description: >-
     CAP-9. Add revisionNumber and contentHash to writerReviews, qaItemFeedback,
@@ -75,6 +83,7 @@
   spec_checkpoint: false
   invoke_dev_with: Read touchpoints.md row CAP-9. Optional fields; old rows tolerate absence.
 - id: "10"
+  lane: pipeline
   title: Analyzer once per generation with prompt caching
   description: >-
     CAP-10. Compare mode stores analysis in generationArtifacts and reuses it per
@@ -84,6 +93,7 @@
     Read touchpoints.md row CAP-10. iterative.ts already does analyzer-once; mirror it.
     Prove one analyzer call for two candidates with a stubbed client.
 - id: "11"
+  lane: chatspend
   title: Chat spend budget and queue limit
   description: >-
     CAP-11. sendMessage refuses when project 24h aiUsage cost exceeds an
