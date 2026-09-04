@@ -9,6 +9,7 @@ verify: [npx vitest run convex/workspaceRollout.test.ts src/routes/admin/adminWo
 done_when: ["! rg -q 'masterEnabled|setMasterSwitch|setUserAccess|listEnabledAccess|listRolloutEvents|getAdminState' convex/workspaceRollout.ts", test ! -f src/lib/components/admin/WorkspaceRolloutCard.svelte, test ! -f src/lib/components/admin/WorkspaceRolloutCard.component.test.ts, "! rg -q 'WorkspaceRolloutCard' src/", npx vitest run convex/workspaceRollout.test.ts]
 title: "Preview workspace available to every internal role; rollout master switch, allowlist functions, admin card and its component test deleted"
 plan: 20260903-client-sync
+deferred: ["8 pre-existing component-test failures in Button/WorkspaceChrome/WorkspaceHeader/WorkspaceRail/workspaceRoutes; identical failure set at baseline de540f8, outside this ticket's scope"]
 updated: "2026-09-03T21:17:39.899Z"
 ---
 ## Intent
