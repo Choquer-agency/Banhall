@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { dashboardCompanyKey } from "../shared/dashboardProjection";
 
@@ -1308,5 +1308,79 @@ describe("createProject takes an ordered list of transcripts", () => {
     const copied = await t.run((ctx) => ctx.db.get(copy.transcriptIds[0]));
     expect(copied?.content).toBe("Kept body");
     expect(copied?.position).toBe(0);
+  });
+});
+
+describe("backend readers of a project's transcripts", () => {
+  const JOINED =
+    "=== Transcript 1: Kickoff ===\nFirst sitting body." +
+    "\n\n=== Transcript 2: Follow-up ===\nSecond sitting body.";
+
+  async function projectWithTranscripts(
+    transcripts: Array<{ content: string; label?: string }>
+  ) {
+    const { t } = await setup();
+    const writer = asActor(t, "writer");
+    const { projectId } = await writer.mutation(api.projects.createProject, {
+      title: "Nutrient dosing",
+      clientName: "Acme Robotics",
+      transcripts,
+    });
+    return { t, writer, projectId };
+  }
+
+  test("getScienceCodeSuggestionContext joins every transcript", async () => {
+    const { t, writer, projectId } = await projectWithTranscripts([
+      { label: "Kickoff", content: "First sitting body." },
+      { label: "Follow-up", content: "Second sitting body." },
+    ]);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("reports", {
+        projectId,
+        content: "Report body",
+        version: 1,
+        generatedAt: now,
+        updatedAt: now,
+      });
+    });
+    const context = await writer.query(
+      internal.projects.getScienceCodeSuggestionContext,
+      { projectId }
+    );
+    expect(context?.transcript).toBe(JOINED);
+    expect(context?.report).toBe("Report body");
+  });
+
+  test("getScienceCodeSuggestionContext returns empty text with no transcripts", async () => {
+    const { writer, projectId } = await projectWithTranscripts([]);
+    const context = await writer.query(
+      internal.projects.getScienceCodeSuggestionContext,
+      { projectId }
+    );
+    expect(context?.transcript).toBe("");
+  });
+
+  test("generationPostmortem counts every transcript and its characters", async () => {
+    const { t, projectId } = await projectWithTranscripts([
+      { label: "Kickoff", content: "First sitting body." },
+      { label: "Follow-up", content: "Second sitting body." },
+    ]);
+    const postmortem = await t.query(internal.debugTools.generationPostmortem, {
+      projectId,
+    });
+    expect(postmortem?.transcriptCount).toBe(2);
+    expect(postmortem?.transcriptChars).toBe(
+      "First sitting body.".length + "Second sitting body.".length
+    );
+  });
+
+  test("generationPostmortem reports zero for a project with no transcripts", async () => {
+    const { t, projectId } = await projectWithTranscripts([]);
+    const postmortem = await t.query(internal.debugTools.generationPostmortem, {
+      projectId,
+    });
+    expect(postmortem?.transcriptCount).toBe(0);
+    expect(postmortem?.transcriptChars).toBe(0);
   });
 });

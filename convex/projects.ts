@@ -44,6 +44,7 @@ import {
   MAX_TRANSCRIPTS_PER_PROJECT,
   copyTranscriptRow,
   insertTranscriptRow,
+  projectTranscriptPromptText,
 } from "./lib/transcripts";
 
 type TranscriptInput =
@@ -612,10 +613,7 @@ export const getScienceCodeSuggestionContext = internalQuery({
     if (!access) return null;
 
     const [transcript, report] = await Promise.all([
-      ctx.db
-        .query("transcripts")
-        .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-        .first(),
+      projectTranscriptPromptText(ctx, args.projectId),
       ctx.db
         .query("reports")
         .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
@@ -627,7 +625,7 @@ export const getScienceCodeSuggestionContext = internalQuery({
       title: access.project.title,
       sredTitle: access.project.sredTitle,
       industry: access.project.industry,
-      transcript: transcript?.content,
+      transcript,
       report: report?.content,
     };
   },

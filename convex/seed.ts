@@ -1,5 +1,6 @@
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import { insertTranscriptRow } from "./lib/transcripts";
 
 /**
  * Maintenance: dedupe projectDocuments by fileName (keeping the copy with
@@ -88,10 +89,11 @@ export const seedDemoProject = internalMutation({
       updatedAt: now,
     });
 
-    const transcriptId = await ctx.db.insert("transcripts", {
+    const transcriptId = await insertTranscriptRow(ctx, {
       projectId,
       content: TRANSCRIPT,
-      createdAt: now,
+      label: "Cascade Hydroponics interview",
+      position: 0,
     });
 
     const doc = buildDoc(
@@ -111,7 +113,7 @@ export const seedDemoProject = internalMutation({
 
     await ctx.db.insert("generations", {
       projectId,
-      transcriptId,
+      ...(transcriptId ? { transcriptId } : {}),
       status: "completed",
       currentStep: "Complete",
       agentOutputs: JSON.stringify({

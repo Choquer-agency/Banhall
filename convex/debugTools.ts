@@ -6,6 +6,7 @@
  */
 import { internalQuery } from "./_generated/server";
 import { v } from "convex/values";
+import { listProjectTranscripts } from "./lib/transcripts";
 
 export const findProjectsByClient = internalQuery({
   args: { needle: v.string() },
@@ -42,17 +43,15 @@ export const generationPostmortem = internalQuery({
       .query("projectDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .collect();
-    const transcript = await ctx.db
-      .query("transcripts")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .first();
+    const transcripts = await listProjectTranscripts(ctx, args.projectId);
     return {
       project: {
         title: project.title,
         status: project.status,
         createdAt: new Date(project.createdAt).toISOString(),
       },
-      transcriptChars: transcript?.content.length ?? 0,
+      transcriptCount: transcripts.length,
+      transcriptChars: transcripts.reduce((n, t) => n + t.content.length, 0),
       documents: documents.map((d) => ({
         fileName: d.fileName,
         fileType: d.fileType,

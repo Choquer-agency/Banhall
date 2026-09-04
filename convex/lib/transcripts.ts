@@ -106,6 +106,21 @@ export function buildTranscriptPromptText(parts: TranscriptPart[]): string {
 }
 
 /**
+ * A project's transcripts as one prompt string: the definition every backend
+ * reader shares, so the review agent and the science-code suggester see the
+ * same text a generation freezes.
+ */
+export async function projectTranscriptPromptText(
+  ctx: Ctx,
+  projectId: Id<"projects">
+): Promise<string> {
+  const rows = await listProjectTranscripts(ctx, projectId);
+  return buildTranscriptPromptText(
+    rows.map((row) => ({ label: transcriptLabel(row), content: row.content }))
+  );
+}
+
+/**
  * Locates a verbatim quote inside one part, so a claim can be cited against the
  * frozen source row it actually came from rather than the assembled prompt.
  * First match wins.
