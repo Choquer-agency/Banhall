@@ -2,8 +2,9 @@
 
 Original reproduction baseline: `f122b086d745acc40b4decca26b9aaafc7257f6a`.
 Reviewed implementation commit: `47f5f0a95b03f1965c0431650d9386c5a2c78e56`.
-Current verification baseline: `ffd761de7d7fe59e4f111d374f663775d68dfb0d`.
-The historical records below retain their original revisions and results. The rearmed verification section records current evidence separately.
+Current verification baseline: `0f5bd6b1c9161d2da7f4e828976177fe6f87003a`.
+Current status: done. Implementation behavior matches the contract; focused verification, the standard full suite and typecheck passed.
+The historical records below retain their original revisions and results. [Current focused verification](#coordinated-verification-at-0f5bd6b-2026-09-04) and [coordinated gates](#coordinated-gates-at-0f5bd6b) are recorded separately.
 
 ## Baseline reproduction
 
@@ -32,8 +33,8 @@ Tests  2 failed (2)
 | Malformed analysis fails before provider call | Parameterized invalid JSON, empty object and null cases assert no provider request and failed candidate run |
 | Legacy queued payload works | Payload with analysis omitted successfully runs one candidate-model analyzer and completes |
 | Frozen context, role trust, budget and digest policy | `generationAttribution.test.ts`, including updated direct-provider fixture and assertions for both entry flows |
-| Anthropic caching and unchanged other traffic | Parent-owned `instrument.test.ts` and final verification record |
-| Full test suite and type checks | Parent final verification record |
+| Anthropic caching and unchanged other traffic | `instrument.test.ts` and mixed-provider compare proof: [current focused verification](#coordinated-verification-at-0f5bd6b-2026-09-04), [exact output](verification-0f5bd6b-focused.log) |
+| Full test suite and type checks | [Coordinated gates at the current baseline](#coordinated-gates-at-0f5bd6b), passed |
 
 ## Targeted verification
 
@@ -149,3 +150,130 @@ Tests       2 failed | 1374 passed (1376)
 Failures were timeouts in `convex/chatTurns.test.ts:152` (30000 ms) and `src/lib/components/ui/formControlContract.test.ts:61` (5000 ms). Both passed in the successful serial suite. No production assertion or test expectation was changed to bypass these limits. The prior type check passed with zero errors and warnings; the redundant post-documentation type check was stopped after the default test gate failed again, with no diagnostics emitted.
 
 Final workflow status: blocked, `patch verification failed`. CAP-10 behavior is proved, but the exact default-suite requirement is not green on this host. Runtime source is unchanged. No additional provider limitation or application defect is inferred from these timing failures. The final commit preserves all referenced rearm logs, including ignored log files.
+
+
+## Coordinated verification at 0f5bd6b (2026-09-04)
+
+Historical pre-gate snapshot: the pending statements in this section were superseded by the successful results under [Coordinated gates](#coordinated-gates-at-0f5bd6b).
+
+Verification baseline: `0f5bd6b1c9161d2da7f4e828976177fe6f87003a`. The story and both frontmatter context files were read before inspection. The implementation behavior matches the contract; full-suite and typecheck acceptance gates remain pending. This pass makes no runtime or test changes. Historical failing-gate records above remain unchanged.
+
+Independent inspection confirms default-model compare analysis before fanout (`convex/ai/pipeline.ts:674`), artifact persistence with the existing brain-block envelope (`convex/ai/pipeline.ts:692`, `convex/generations.ts:1350`), runtime validation before drafting (`convex/ai/pipeline.ts:806`, `convex/ai/analyzerAgent.ts:92`), and legacy fallback only when analysis is absent (`convex/ai/pipeline.ts:370`). Generation-only direct caching preserves explicit policies and adds at most two cache markers (`convex/ai/instrument.ts:140`, `convex/ai/instrument.ts:204`). Root includes retain all currently generated SvelteKit include coverage and add shared modules (`tsconfig.json:6`).
+
+Command: `npx vitest run --project convex convex/ai/pipeline.compare.test.ts convex/ai/instrument.test.ts convex/generationAttribution.test.ts`
+
+Exit status: 0. [Exact native output](verification-0f5bd6b-focused.log):
+
+```text
+ Test Files  3 passed (3)
+      Tests  59 passed (59)
+   Start at  14:11:34
+   Duration  27.26s (transform 25.44s, setup 0ms, import 29.81s, tests 18.25s, environment 986ms)
+```
+
+The focused suite covers all six story matrix cases plus frozen-context, role, budget and usage attribution assertions. Full-suite and typecheck execution are held for the coordinator's verification slot; this result does not claim those gates passed at this revision. No assertion or timeout was changed. The existing deferred end-to-end action deadline limitation remains; these stubbed tests do not prove live provider cache hits.
+
+
+## Current inspection evidence
+
+[Exact read-only inspection output](verification-0f5bd6b-inspection.log) records worktree-local `vitest/package.json` resolution under this worktree's `node_modules`, version `4.1.10`. The TypeScript include comparison rebases each generated include to the repository root: no generated includes are missing, and the sole additional root include is `shared/**/*.ts` (`Comparison: PASS`).
+
+The same log preserves `git diff 0f5bd6b1c9161d2da7f4e828976177fe6f87003a --name-only`, which lists only the story and two audit documents. This supports the no-runtime/test-edit claim for this verification pass. Ignored logs do not appear in that diff; the files awaiting explicit force-add at that pre-gate snapshot were `verification-0f5bd6b-focused.log` and `verification-0f5bd6b-inspection.log`. The later gate logs were also committed. The focused log's original bytes are unchanged.
+
+## Coordinated gates at 0f5bd6b
+
+Status: passed. The coordinator granted this worker the verification slot before execution. Both commands used the standard settings at baseline `0f5bd6b1c9161d2da7f4e828976177fe6f87003a`; only story and audit documentation changed during this run. No assertions or timeouts were adjusted.
+
+`npm test`, exit 0. [Exact native output](verification-0f5bd6b-npm-test.log):
+
+```text
+ Test Files  128 passed (128)
+      Tests  1376 passed (1376)
+   Start at  14:15:21
+   Duration  59.97s (transform 23.11s, setup 0ms, import 39.77s, tests 21.89s, environment 13.63s)
+```
+
+`PUBLIC_CONVEX_URL=http://localhost npm run check`, exit 0. [Exact native output](verification-0f5bd6b-check.log):
+
+```text
+Getting Svelte diagnostics...
+
+svelte-check found 0 errors and 0 warnings
+```
+
+`git diff --check` passed. All six matrix cases ran in the focused suite and again within the standard full suite. Four review layers completed, with nine low-severity documentation patches, three rejected suggestions and no new deferred findings. The existing deferred action-chain deadline limitation remains unchanged. Follow-up review is recommended by the workflow's scoring rule: 0 high, 0 medium, 9 low, score 9.
+
+The four `verification-0f5bd6b-*.log` files retain native output and are included in commit `36772c9c3490bc360b628a60a251b9a5f211b807`. Historical unsuccessful verification runs above remain historical evidence.
+
+## Fresh evidence review (2026-09-04)
+
+Starting revision: `36772c9c3490bc360b628a60a251b9a5f211b807`, obtained with `git rev-parse HEAD`. The initial working tree contained only the supplied story's removed terminal-result section. This workflow restores its result after review. No runtime or test files changed in this pass. Four review layers found seven low documentation patches after deduplication, three rejected suggestions, and no intent, specification or verification gaps. Existing deferred entries remain unchanged.
+
+The [working-tree inventory](review-36772c9-status.log) was captured before documentation patches with `git status --short` followed by `git ls-files --others --exclude-standard`, both exit 0. Only the story was modified, and there were no nonignored untracked files. Ignored files added by this run are the six explicitly retained `review-36772c9-*.log` evidence files; they contain command output, not application changes.
+
+The four prior `verification-0f5bd6b-*.log` artifacts were verified with `git show --format=fuller --stat HEAD` as part of starting revision `36772c9c3490bc360b628a60a251b9a5f211b807` (exit 0).
+
+Reproduction prerequisites for a clean checkout: run `npm ci --ignore-scripts` and `npx svelte-kit sync` from the worktree root before comparing the generated configuration.
+
+Reproducible include comparison, executed from the worktree root with exit 0 ([output](review-36772c9-includes.log)):
+
+```sh
+node <<'JS'
+const ts = require('typescript');
+const path = require('node:path');
+const root = ts.readConfigFile('tsconfig.json', ts.sys.readFile).config.include;
+const generated = ts.readConfigFile('.svelte-kit/tsconfig.json', ts.sys.readFile).config.include.map(p => path.posix.normalize(path.posix.join('.svelte-kit', p)));
+const missing = generated.filter(p => !root.includes(p));
+const extra = root.filter(p => !generated.includes(p));
+console.log(JSON.stringify({missing, extra}, null, 2));
+if (missing.length || JSON.stringify(extra) !== JSON.stringify(['shared/**/*.ts'])) process.exitCode = 1;
+JS
+```
+
+There were no missing generated includes; `shared/**/*.ts` was the sole extra root include.
+
+Current command outcomes at the starting revision plus documentation edits:
+
+- `npx vitest run --project convex convex/ai/pipeline.compare.test.ts convex/ai/instrument.test.ts`, exit 0: 27 tests passed in 2 files; [native output](review-36772c9-focused.log).
+- `npm test`, exit 0: 1376 tests passed in 128 files; [native output](review-36772c9-npm-test.log).
+- `PUBLIC_CONVEX_URL=http://localhost npm run check`, exit 0: zero errors and warnings; [native output](review-36772c9-check.log).
+- `git diff --check`, exit 0 after final documentation edits; [empty successful output](review-36772c9-diff-check.log).
+
+Output tails:
+
+```text
+ Test Files  2 passed (2)
+      Tests  27 passed (27)
+
+ Test Files  128 passed (128)
+      Tests  1376 passed (1376)
+
+svelte-check found 0 errors and 0 warnings
+```
+
+Follow-up review recommended: true (patched high 0, medium 0, low 7; score 7). Stubbed action/SDK proof covers the contract's compare, persistence, failure, legacy, validation and cache-marker behaviors; live cache hits remain unmeasured. The existing deferred action deadline entry is unchanged.
+
+## Completion review (2026-09-04)
+
+Starting revision: `4d413b9413730e8291380bf84e913ed0804a2694`, obtained directly with `git rev-parse HEAD`. The initial working tree contained only the story's removed terminal-result section. This pass changes only the story, audit documents and three verification logs. The original verification baseline remains unchanged for cumulative review.
+
+Four review layers completed. One low documentation patch records clean-checkout prerequisites for the include comparison; nine suggestions were rejected. Edge-case and verification reviewers found no gaps, and the intent auditor found no material divergence. Follow-up score: 1 (high 0, medium 0, low 1), recommendation false. Existing deferred entries were not changed.
+
+Commands executed in this worktree (all exit 0):
+
+- `npx vitest run --project convex convex/ai/pipeline.compare.test.ts convex/ai/instrument.test.ts`: [output](review-4d413b9-focused.log), 27 tests passed in 2 files.
+- `npm test`: [output](review-4d413b9-npm-test.log), 1376 tests passed in 128 files. The documentation clarification was made while this command ran; runtime and test files were unchanged throughout.
+- `PUBLIC_CONVEX_URL=http://localhost npm run check`: [output](review-4d413b9-check.log), zero errors and warnings.
+- `git diff --check`: exit 0, no output after final documentation edits.
+
+Output tails (retained native logs have trailing blank lines normalized):
+
+```text
+ Test Files  2 passed (2)
+      Tests  27 passed (27)
+ Test Files  128 passed (128)
+      Tests  1376 passed (1376)
+svelte-check found 0 errors and 0 warnings
+```
+
+Finalization restores the terminal result and commits the reviewed documentation and logs. Tests establish the action/SDK contract, not live cache hits. Existing deferred risk is unchanged.
