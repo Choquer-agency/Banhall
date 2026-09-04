@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { Id } from "../convex/_generated/dataModel";
 import { sha256 } from "../convex/lib/contracts";
 import {
@@ -129,6 +129,7 @@ describe("snapshot audit state", () => {
       provenanceId: "provenance" as Id<"reportProvenance">,
       generationId: "generation" as Id<"generations">,
       sourceTranscriptId: "transcript" as Id<"transcripts">,
+      sourceTranscriptIds: ["transcript" as Id<"transcripts">],
     });
 
     const legacyGenerationOnly = await snapshotAuditFields(ctx, {
@@ -141,6 +142,7 @@ describe("snapshot audit state", () => {
       provenanceId: undefined,
       generationId: "generation" as Id<"generations">,
       sourceTranscriptId: "transcript" as Id<"transcripts">,
+      sourceTranscriptIds: ["transcript" as Id<"transcripts">],
     });
 
     const stale = await snapshotAuditFields(ctx, {
@@ -155,6 +157,7 @@ describe("snapshot audit state", () => {
       provenanceId: undefined,
       generationId: "generation" as Id<"generations">,
       sourceTranscriptId: "transcript" as Id<"transcripts">,
+      sourceTranscriptIds: ["transcript" as Id<"transcripts">],
     });
   });
 });

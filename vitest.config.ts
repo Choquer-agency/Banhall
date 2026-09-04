@@ -17,8 +17,17 @@ export default defineConfig({
       {
         extends: true,
         test: {
+          name: "legacy-unit",
+          include: ["tests/**/*.test.ts"],
+          exclude: [...configDefaults.exclude, "tests/aiUsage.test.ts", "tests/chatProposals.test.ts"],
+          environment: "node",
+        },
+      },
+      {
+        extends: true,
+        test: {
           name: "convex",
-          include: ["convex/**/*.test.ts", "tests/aiUsage.test.ts"],
+          include: ["convex/**/*.test.ts", "tests/aiUsage.test.ts", "tests/chatProposals.test.ts"],
           environment: "edge-runtime",
           // convex-test glob-imports the whole backend per test file, so the
           // first case in a file pays a module-graph cost that varies with

@@ -1,0 +1,35 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests
+
+ ❯ |convex| tests/chatProposals.test.ts (24 tests | 1 failed) 1774ms
+     × apply allows an unrelated authenticated writer and preserves revision audit integrity 38ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| tests/chatProposals.test.ts > proposal apply integrity > apply allows an unrelated authenticated writer and preserves revision audit integrity
+ConvexError: {"capability":"report.editProse","effectiveLevel":"own","code":"NOT_AUTHORIZED","message":"Only the project owner, an assigned collaborator, a manager, or an administrator can edit this report"}
+ ❯ domainError convex/lib/contracts.ts:37:9
+     35|   details?: Record<string, string>
+     36| ): never {
+     37|   throw new ConvexError({ ...details, code, message });
+       |         ^
+     38| }
+     39|
+ ❯ requireReportEditAccess convex/lib/roleCapabilities.ts:100:3
+ ❯ handler convex/chatV2.ts:390:31
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeMutation node_modules/convex/src/server/impl/registration_impl.ts:70:17
+ ❯ runMutationWithHandler node_modules/convex-test/dist/index.js:1562:31
+ ❯ Object.mutationFromPath node_modules/convex-test/dist/index.js:1693:32
+ ❯ mutation node_modules/convex-test/dist/index.js:1739:20
+ ❯ applyAndAssert tests/chatProposals.test.ts:72:18
+ ❯ tests/chatProposals.test.ts:270:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 23 passed (24)
+   Start at  13:46:50
+   Duration  3.53s (transform 1.50s, setup 0ms, import 926ms, tests 1.77s, environment 258ms)
+
