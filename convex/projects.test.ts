@@ -404,6 +404,7 @@ describe("project duplication", () => {
     });
     expect(copied.reports[0]).toMatchObject({
       sourceTranscriptId: destinationTranscriptId,
+      sourceTranscriptIds: [destinationTranscriptId],
       revisionNumber: 4,
     });
   });

@@ -80,6 +80,23 @@ export async function listProjectTranscripts(
     .slice(0, MAX_TRANSCRIPTS_PER_PROJECT);
 }
 
+/**
+ * The frozen transcript set of a generation, in the order it was fed to the
+ * model. A generation written before the set existed carries only
+ * `transcriptId`, which is that same set of one; a docs-only generation
+ * carries an empty set, which is not the same as an unknown one.
+ */
+export function generationTranscriptIds(
+  generation:
+    | Pick<Doc<"generations">, "transcriptId" | "transcriptIds">
+    | undefined
+    | null
+): Id<"transcripts">[] | undefined {
+  if (!generation) return undefined;
+  if (generation.transcriptIds) return generation.transcriptIds;
+  return generation.transcriptId ? [generation.transcriptId] : undefined;
+}
+
 function compareTranscripts(a: Doc<"transcripts">, b: Doc<"transcripts">) {
   const positionDelta =
     (a.position ?? Number.POSITIVE_INFINITY) -

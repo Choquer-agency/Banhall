@@ -1,6 +1,7 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { sha256 } from "./contracts";
+import { generationTranscriptIds } from "./transcripts";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -14,6 +15,7 @@ export type SnapshotAuditSource = {
   provenanceId?: Id<"reportProvenance">;
   generationId?: Id<"generations">;
   sourceTranscriptId?: Id<"transcripts">;
+  sourceTranscriptIds?: Id<"transcripts">[];
 };
 
 export type SnapshotAuditFields = {
@@ -21,6 +23,7 @@ export type SnapshotAuditFields = {
   provenanceId?: Id<"reportProvenance">;
   generationId?: Id<"generations">;
   sourceTranscriptId?: Id<"transcripts">;
+  sourceTranscriptIds?: Id<"transcripts">[];
 };
 
 async function validGeneration(
@@ -41,6 +44,18 @@ async function validTranscriptId(
   if (!transcriptId) return undefined;
   const transcript = await ctx.db.get(transcriptId);
   return transcript?.projectId === projectId ? transcriptId : undefined;
+}
+
+async function validTranscriptIds(
+  ctx: SnapshotCtx,
+  projectId: Id<"projects">,
+  transcriptIds?: Id<"transcripts">[]
+): Promise<Id<"transcripts">[] | undefined> {
+  if (!transcriptIds) return undefined;
+  const checked = await Promise.all(
+    transcriptIds.map((id) => validTranscriptId(ctx, projectId, id))
+  );
+  return checked.filter((id): id is Id<"transcripts"> => id !== undefined);
 }
 
 /**
@@ -70,6 +85,15 @@ export async function snapshotAuditFields(
     generation?.transcriptId
   );
   let sourceTranscriptId = generationTranscriptId ?? explicitTranscriptId;
+  // The list follows the generation and is never invented from a lone
+  // sourceTranscriptId: a legacy report says nothing about the rest of the set.
+  let sourceTranscriptIds =
+    (await validTranscriptIds(
+      ctx,
+      source.projectId,
+      generationTranscriptIds(generation)
+    )) ??
+    (await validTranscriptIds(ctx, source.projectId, source.sourceTranscriptIds));
   let provenanceId: Id<"reportProvenance"> | undefined;
 
   if (source.provenanceId) {
@@ -96,6 +120,17 @@ export async function snapshotAuditFields(
       );
       const provenanceTranscriptId =
         provenanceGenerationTranscriptId ?? explicitProvenanceTranscriptId;
+      const provenanceTranscriptIds =
+        (await validTranscriptIds(
+          ctx,
+          source.projectId,
+          generationTranscriptIds(provenanceGeneration)
+        )) ??
+        (await validTranscriptIds(
+          ctx,
+          source.projectId,
+          provenance.sourceTranscriptIds
+        ));
       const hasInvalidLineage =
         (provenance.generationId !== undefined && !provenanceGenerationId) ||
         (provenance.sourceTranscriptId !== undefined &&
@@ -115,6 +150,7 @@ export async function snapshotAuditFields(
       if (!hasInvalidLineage && !hasConflictingLineage) {
         generationId ??= provenanceGenerationId;
         sourceTranscriptId ??= provenanceTranscriptId;
+        sourceTranscriptIds ??= provenanceTranscriptIds;
         provenanceId = source.provenanceId;
       }
     }
@@ -125,7 +161,17 @@ export async function snapshotAuditFields(
     provenanceId,
     generationId,
     sourceTranscriptId,
+    sourceTranscriptIds,
   };
+}
+
+/** Snapshot dedupe treats an absent list and an empty list as different states. */
+export function sameTranscriptIds(
+  a?: readonly Id<"transcripts">[],
+  b?: readonly Id<"transcripts">[]
+): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return a.length === b.length && a.every((id, index) => id === b[index]);
 }
 
 type RetentionSnapshot<TId extends string> = {
