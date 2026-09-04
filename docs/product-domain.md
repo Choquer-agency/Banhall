@@ -1559,14 +1559,17 @@ it follow in `transcripts-2` through `transcripts-7`.
 
 ### 2026-09-04: Privacy at selected firm-wide knowledge boundaries (CAP-1)
 
-Records the approved AI engine sprint 2 learn/chat story 2 contract and closes
-its missing domain-contract documentation (DW42).
+Records the approved [story 2 contract](../_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/2-de-identification-before-firm-wide-knowledge.md)
+for [CAP-1](../_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/SPEC.md#capabilities).
+The documentation obligation originated as DW42 in the learn/chat run; that
+run-local label is not a canonical ticket identifier.
 
 - **De-identification:** `convex/lib/deidentify.ts` applies best-effort,
   project-record and regex matching, without a model call. The identifier set
   is `clientName`, `title`, `sredTitle`, `writer`, `interviewer`, and
-  `interviewees`, plus email and phone patterns. Blank identifiers and names
-  shorter than three characters are ignored. Replacements use `[redacted]`,
+  `interviewees`. Every project-record identifier string is trimmed; blank
+  values and values shorter than three characters are ignored, including
+  titles. Email and phone patterns are applied separately. Replacements use `[redacted]`,
   `[redacted email]`, and `[redacted phone]`, preserving prose layout rather
   than collapsing whitespace. False negatives are accepted in this sprint;
   this is not a guarantee that all client identifiers are removed.
@@ -1605,16 +1608,15 @@ its missing domain-contract documentation (DW42).
   and section-event write boundaries; existing stored content is not
   backfilled. CAP-1 does not extend scrubbing to other Brain import paths or
   other free-text learning streams. Their residual privacy exposure remains
-  recorded in story 2's deferred findings. This amendment makes no decision
-  about story 4's mixed-stream distillation policy.
+  recorded in [story 2's deferred findings](../_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/2-de-identification-before-firm-wide-knowledge.md).
 - **Verification pointers:** `convex/lib/deidentify.test.ts`,
   `convex/brainFeedback.test.ts`, `convex/generationLifecycle.test.ts`, and
   `convex/learning.test.ts` cover the helper, nomination, section writes,
   proposal reads, and publication gate. The per-kind checkbox and reset are
   covered by `src/routes/admin/reviews/reviewsPublishGate.component.test.ts`.
 - **Approval:** records the already approved CAP-1 contract in AI engine
-  sprint 2 learn/chat story 2 (`2-de-identification-before-firm-wide-knowledge`),
-  as authorized for the 2026-09-04 failed-story repair. No additional product
+  sprint 2 learn/chat story 2, as authorized for the 2026-09-04 failed-story
+  repair ([authorization record](../.audit/DW42/evidence.md#authorization-and-source-provenance)). No additional product
   policy or capability is introduced by this documentation amendment.
 
 ## Amendment process

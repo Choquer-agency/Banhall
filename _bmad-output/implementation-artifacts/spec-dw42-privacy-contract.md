@@ -2,7 +2,7 @@
 title: 'DW42: Record the approved firm-wide knowledge privacy contract'
 type: 'chore'
 created: '2026-09-04'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'b99f1eeef78348df5c14f68031f7f0276527ff3f'
 review_loop_iteration: 0
 context: []
@@ -28,6 +28,9 @@ context: []
 
 ## Code Map
 
+- Portable canonical reference: [story 2](../specs/spec-ai-engine-sprint-2-learn-chat/stories/2-de-identification-before-firm-wide-knowledge.md), including its deferred findings; [CAP-1 definition](../specs/spec-ai-engine-sprint-2-learn-chat/SPEC.md#capabilities). The absolute path inside frozen intent is historical and retained verbatim.
+- All implementation/test line citations below and in audit evidence refer to `b99f1eeef78348df5c14f68031f7f0276527ff3f`.
+
 - `docs/the-brain.md:66`: ingestion reference; add the missing nomination scrub boundary and link the approved domain contract, without changing other import instructions.
 
 - `docs/product-domain.md:165`: existing governed behavioral learning rules; retain these and add the amendment reference.
@@ -43,6 +46,8 @@ context: []
 ## Tasks & Acceptance
 
 **Execution:**
+- [x] `.audit/DW42/verify.py`: reproducible baseline, final scope, reference, source identity and frozen-intent checks.
+- [x] `.audit/DW42/review.md`: record root-reported independent review results and patch triage.
 - [x] `docs/the-brain.md`: document the existing nomination scrub and separate digest publication gate, with a link to the domain amendment.
 - [x] `docs/product-domain.md`: add dated approved-contract amendment and cross-reference, accurately recording boundaries and compatibility.
 - [x] `.audit/DW42/evidence.md`: record baseline omission, precise source evidence, verification and limitations.
@@ -60,7 +65,24 @@ context: []
 
 ## Verification
 
-- `git diff --check`: no whitespace errors.
-- `git diff --name-only`: authorized documentation and repair artifacts only.
+- `python3 .audit/DW42/verify.py`: compare the baseline to the final working candidate including staged/new files, allowlisting only repair artifacts and separately accounting for the three untracked review prompts.
+- `git diff b99f1eeef78348df5c14f68031f7f0276527ff3f --check`: no whitespace errors.
 - Read every added domain and Brain-reference paragraph against the Code Map and canonical story. Baseline must omit the newly recorded contract and nomination scrub; updated documents must contain them. Verify the Brain reference links to the actual domain amendment heading.
-- Independent BMAD review remains mandatory; if team capacity prevents dispatch, report the pending review to root without declaring the repair fully verified.
+- Root reported all three independent BMAD layers complete; triage and applied patches are recorded in `.audit/DW42/review.md`. Broader product runtime gates remain root-owned.
+
+## Suggested Review Order
+
+- Read the approved privacy boundaries and publication precondition.
+  [product-domain.md:1560](../../docs/product-domain.md#L1560)
+
+- See how nomination privacy fits the existing Brain ingestion reference.
+  [the-brain.md:80](../../docs/the-brain.md#L80)
+
+- Verify authorization and the exact source revision.
+  [evidence.md:7](../../.audit/DW42/evidence.md#L7)
+
+- Review dispositions for the ten independent findings.
+  [review.md:1](../../.audit/DW42/review.md#L1)
+
+- Rerun the static checks against the final candidate.
+  [verify.py:1](../../.audit/DW42/verify.py#L1)

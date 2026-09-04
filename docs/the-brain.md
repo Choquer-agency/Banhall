@@ -82,7 +82,8 @@ review full text → Approve.
 `convex/brain.ts`'s `nominateFromReport` applies `deidentify` to the report's
 plain-text content and the project-title portion of its label before creating
 a pending `brainSources` candidate. Administrator approval is still required
-before retrieval. The scrub uses project-record identifiers and email/phone
+before production retrieval of approved sources; pending sources remain
+available in the administrator review queue. The scrub uses project-record identifiers and email/phone
 patterns, preserves prose layout, and is best-effort; identifiers can survive.
 This boundary applies to new report nominations. It does not backfill existing
 sources or extend scrubbing to the bulk, curated, or writer-feedback import
