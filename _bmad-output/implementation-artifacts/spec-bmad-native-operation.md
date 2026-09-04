@@ -95,3 +95,7 @@ Observed: each role printed `codex gpt-6-astra medium`; all assertions passed. N
 
 
 Native provisioning follow-up: configured `scm.worktree_seed = ["node_modules"]` so fresh workers receive an independent complete installation. The paused schema project now replaces its ancestor dependency symlink with a physical copy; the learn-chat queue will finish its current item, then resume under the updated native policy. No alternate supervisor or launcher was introduced. The guide requires a lockfile-consistent source installation.
+
+## Deferred recovery clarification
+
+Installed 0.11.1 source confirms `DEFERRED` is terminal on same-run resume and `rearm_escalation` requires `ESCALATED`. Native sweep verification explicitly accepts an original ancestor baseline for existing-story follow-up review. The guide now records that route; no engine state or terminal result was edited. Learn-chat story 3's repaired implementation was preserved after its stale-baseline deferral and remains subject to native sweep closure.

@@ -128,7 +128,12 @@ bmad-loop resume --project /absolute/project/path RUN_ID
 ```
 
 For a stopped run without an escalation, preserve its work before `resume`;
-`resolve` does not apply. Never hand-edit `state.json`, terminal result markers,
+`resolve` does not apply. In engine 0.11.1, `deferred` is terminal within that
+run: `resume` skips it, and escalation resolution cannot re-arm it. Preserve the
+implementation and use the native deferred-work sweep to prove and close the
+remaining obligation. A sweep can review an existing story against its original
+ancestor baseline. Keep the failed run's historical status intact and link the
+successful sweep evidence; do not relabel the old attempt as successful. Never hand-edit `state.json`, terminal result markers,
 or story statuses to manufacture completion. Never synthesize session hook events; use native session recovery.
 
 Preserve existing deferred-work entries exactly. An unchanged ledger append
