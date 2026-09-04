@@ -67,7 +67,7 @@ export function checkCRAOpeners(section246Text: string): CRAOpenerResult {
   };
 }
 
-// ─── Check 2: BECAUSE clause detection for 242 P5 ──────────────────────────
+// ─── Check 2: BECAUSE clause detection throughout 242 ──────────────────────────
 
 export interface BecauseClauseResult {
   uncertaintyCount: number;
@@ -80,8 +80,7 @@ export interface BecauseClauseResult {
 
 export function checkBecauseClauses(section242Text: string): BecauseClauseResult {
   const paragraphs = section242Text.split(/\n\n+/).filter((p) => p.trim());
-  // P5 is the last paragraph (index 4)
-  const p5 = paragraphs[4] ?? "";
+
 
   // Split on uncertainty markers
   const uncertaintyMarkers = [
@@ -91,7 +90,7 @@ export function checkBecauseClauses(section242Text: string): BecauseClauseResult
   ];
 
   // Find all uncertainty statements by splitting on sentences
-  const sentences = p5.split(/(?<=\.)\s+/);
+  const sentences = paragraphs.flatMap((paragraph) => paragraph.split(/(?<=[.!?])\s+/));
   const uncertaintySentences: Array<{ excerpt: string; hasBecause: boolean }> = [];
 
   for (const sentence of sentences) {
@@ -243,9 +242,8 @@ export function sectionDeterministicFindings(
     });
   }
 
-  // Positional/structural scans assume the default skeleton; a writer-defined
-  // architecture (reportSkeleton waived) makes them meaningless, not wrong.
-  if (section === "s242" && !overrides.reportSkeleton) {
+  // Substantive uncertainty checks are independent of the writer's skeleton.
+  if (section === "s242") {
     const because = checkBecauseClauses(text);
     for (const d of because.details) {
       if (!d.hasBecause) {
@@ -321,14 +319,10 @@ export function runDeterministicChecks(
   summary += `\n`;
 
   // BECAUSE clauses
-  summary += `### BECAUSE Clause Detection (242 P5)\n`;
-  if (overrides.reportSkeleton) {
-    summary += `WAIVED by writer profile — this writer's own document defines the section architecture, so the default because-clause structure does not apply. Do not deduct for its absence.\n`;
-  } else {
-    summary += `Uncertainties with BECAUSE clauses: ${because.withBecause}/${because.uncertaintyCount}\n`;
-    for (const d of because.details) {
-      summary += `- ${d.hasBecause ? "PASS" : "FAIL"} — "${d.excerpt}"\n`;
-    }
+  summary += `### BECAUSE Clause Detection (242, all paragraphs)\n`;
+  summary += `Uncertainties with BECAUSE clauses: ${because.withBecause}/${because.uncertaintyCount}\n`;
+  for (const d of because.details) {
+    summary += `- ${d.hasBecause ? "PASS" : "FAIL"} — "${d.excerpt}"\n`;
   }
   summary += `\n`;
 

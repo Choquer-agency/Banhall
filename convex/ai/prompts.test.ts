@@ -191,7 +191,8 @@ describe("reportSkeleton waiver", () => {
     expect(prompt).toContain("### CRA Keyword Visibility Check: WAIVED");
     expect(prompt).not.toContain("Does Section 242 contain all 5 required paragraphs");
     expect(prompt).not.toContain("If not, flag and deduct 5 points from 242");
-    expect(prompt).toContain("ADVISORY");
+    // User absolute CAP-8 resolution supersedes the methodology waiver.
+    expect(prompt).toContain("Substantive CRA methodology remains mandatory under every skeleton");
     // Faithfulness and prose checks survive.
     expect(prompt).toContain("### Faithfulness");
     expect(prompt).toContain("### Human Prose Check");

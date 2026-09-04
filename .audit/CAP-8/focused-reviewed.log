@@ -1,0 +1,8 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-qa/.bmad-loop/runs/20260904-121607-3217/worktrees/8
+
+
+ Test Files  3 passed (3)
+      Tests  129 passed (129)
+   Start at  12:47:34
+   Duration  4.56s (transform 3.47s, setup 0ms, import 2.32s, tests 3.84s, environment 608ms)

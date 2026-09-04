@@ -1601,6 +1601,16 @@ report, what they decided, or which revision they had actually read.
 - **Approval:** proposed 2026-09-04 from the approved sprint spec; recorded
   here before the behavior change ships.
 
+### 2026-09-04: absolute blocking QA (CAP-8)
+
+
+The user approved CAP-8 as an absolute gate on filing readiness and client publishing for the current report revision and actual content. Missing because clauses on recognized uncertainty statements anywhere in section 242 and explicit false `cra_compliance.why_how_why_intact` or `cra_compliance.uncertainties_distinguished` in validated QA are non-waivable, including manager/admin and writer `reportSkeleton` overrides. This supersedes only the conflicting blocking-QA portion of the 2026-09-01 skeleton amendment. House-style opener/verbiage, banned words and repetition remain advisory with existing style waivers. Feedback and later passing scores cannot resolve a failure on unchanged content; human content corrections produce a new revision. Saving or restoring byte-identical content retains its known methodology failures on the resulting revision. Missing QA or missing compliance data alone is not a blocker.
+
+- **Scope and approval:** sprint 2 boundary CAP-8, story 8; product-owner invocation on 2026-09-04 explicitly resolved the policy as absolute, with no waiver.
+- **Compatibility:** additive `qaFindings` rows, no backfill; legacy reports are checked deterministically at readiness/publish. New post-QA revision references are optional for older callers, whose unpinned results cannot establish methodology findings.
+- **Authorization:** existing role/capability checks remain; `QA_BLOCKING` rejects publish before writes. Human workflow stages are unchanged.
+- **Tests:** `convex/qaBlocking.test.ts`, detector/prompt/extraction suites and existing project authorization tests.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

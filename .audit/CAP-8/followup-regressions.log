@@ -1,0 +1,63 @@
+New extraction cases before fix: npx vitest run convex/qaBlocking.test.ts
+     62|   const before = await f.t.run((ctx) => ctx.db.get(f.projectId));
+     63|   await expect(f.t.withIdentity({ subject }).mutation(api.projects.pub…
+ ❯ convex/qaBlocking.test.ts:300:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 27 passed (31)
+   Start at  13:00:21
+   Duration  2.62s (transform 1.24s, setup 0ms, import 882ms, tests 1.19s, environment 163ms)
+
+
+Deletion against entry HEAD: npx vitest run convex/qaFindingsCleanup.test.ts -t deletion
+       |                                ^
+     57|     expect(await f.t.run(ctx => ctx.db.get(f.retainedFindingId))).not.…
+     58|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 skipped (5)
+   Start at  13:02:38
+   Duration  3.36s (transform 1.62s, setup 0ms, import 665ms, tests 1.85s, environment 173ms)
+
+
+Intermediate parser regression: npx vitest run convex/qaBlocking.test.ts
+     62|   const before = await f.t.run((ctx) => ctx.db.get(f.projectId));
+     63|   await expect(f.t.withIdentity({ subject }).mutation(api.projects.pub…
+ ❯ convex/qaBlocking.test.ts:307:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 31 passed (32)
+   Start at  13:02:23
+   Duration  8.49s (transform 5.05s, setup 0ms, import 2.93s, tests 5.02s, environment 181ms)
+
+
+After fixes: npx vitest run convex/ai/qaChecks.test.ts convex/projects.test.ts convex/qaBlocking.test.ts convex/lib/tiptapReport.test.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-qa/.bmad-loop/runs/20260904-121607-3217/worktrees/8
+
+
+ Test Files  4 passed (4)
+      Tests  146 passed (146)
+   Start at  13:03:02
+   Duration  6.01s (transform 4.47s, setup 0ms, import 2.28s, tests 6.81s, environment 716ms)
+
+
+After cleanup: npx vitest run convex/qaFindingsCleanup.test.ts convex/projects.test.ts convex/dashboardStageCounts.test.ts convex/workItems.test.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-qa/.bmad-loop/runs/20260904-121607-3217/worktrees/8
+
+
+ Test Files  4 passed (4)
+      Tests  120 passed (120)
+   Start at  13:02:52
+   Duration  7.92s (transform 7.23s, setup 0ms, import 6.59s, tests 4.15s, environment 483ms)
+
