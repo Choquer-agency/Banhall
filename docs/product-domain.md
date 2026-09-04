@@ -168,6 +168,7 @@ Rules:
 - Before the first post-amendment candidate is saved, the system freezes the pre-amendment active digest (or explicit absence) so deployment cannot silently change production behavior.
 - Personal digests cannot be published globally. Per-writer activation requires a separately approved scope and privacy contract.
 - Brain sources remain governed separately. Digest publication does not ingest report content into the Brain or alter deterministic CRA scoring rules.
+- The [2026-09-04 privacy amendment](#2026-09-04-privacy-at-selected-firm-wide-knowledge-boundaries-cap-1) defines the approved de-identification boundaries and the privacy review required to publish a digest.
 
 ## Role and capability matrix
 
@@ -1555,6 +1556,66 @@ it follow in `transcripts-2` through `transcripts-7`.
 - **Approval:** product owner requested several transcripts per project and a
   working two-hour transcript at the 2026-08-26 client meeting; recorded here
   before any code relies on the contract.
+
+### 2026-09-04: Privacy at selected firm-wide knowledge boundaries (CAP-1)
+
+Records the approved AI engine sprint 2 learn/chat story 2 contract and closes
+its missing domain-contract documentation (DW42).
+
+- **De-identification:** `convex/lib/deidentify.ts` applies best-effort,
+  project-record and regex matching, without a model call. The identifier set
+  is `clientName`, `title`, `sredTitle`, `writer`, `interviewer`, and
+  `interviewees`, plus email and phone patterns. Blank identifiers and names
+  shorter than three characters are ignored. Replacements use `[redacted]`,
+  `[redacted email]`, and `[redacted phone]`, preserving prose layout rather
+  than collapsing whitespace. False negatives are accepted in this sprint;
+  this is not a guarantee that all client identifiers are removed.
+- **Write boundaries:** `nominateFromReport` scrubs the report's plain-text
+  content and the project-title portion of its label before importing a
+  `brainSources` candidate. It still enters the pending approval queue.
+  `approveSectionDraft` scrubs `sectionEditEvents.draftText` and
+  `approvedText` before insertion and scrubs `ghostText` when patched later.
+  The edit ratio continues to use raw prose, and report/section prose itself
+  is unchanged by this scrub.
+- **Read boundary:** `proposalWordingEditEvents` retain their raw stored
+  `originalText` and `editedText`. `getProposalWordingEditsForDigest` scrubs
+  those fields when returning learning input, using the current project
+  record. If the project no longer exists, email and phone patterns still
+  apply. A renamed project's previous identifiers may survive this read.
+- **Digest instruction:** both QA-calibration and drafting-style distillation
+  prompts require generic rules and prohibit carrying company names, person
+  names, project titles, email addresses, or phone numbers from events into
+  rules, including identifiers missed by the best-effort scrub.
+- **Publication precondition:** an administrator with `settings.configure`
+  must explicitly submit `privacyReviewed: true` to `selectDigest` for every
+  non-null `digestId`, confirming review for client identifiers. This also
+  applies when restoring an older version or selecting the same version.
+  An absent or false flag rejects the publish operation before a selection
+  event is written. `digestId: null` still disables guidance, including a
+  rollback to no guidance, without privacy attestation; authorization and
+  the current-selection concurrency check still apply. The reviews page
+  holds a separate checkbox for each digest kind, gates its publish buttons,
+  and clears that kind's checkbox after successful publication. Disable
+  guidance is not gated by the privacy checkbox.
+- **Governance and compatibility:** candidates remain immutable and inactive
+  until administrator selection; personal digests cannot be published
+  globally. Existing selection-history and Brain-approval governance remain
+  unchanged. No schema field or persisted privacy-attestation field is added
+  to `learningDigestSelections`. Scrubbing is forward-only for the nomination
+  and section-event write boundaries; existing stored content is not
+  backfilled. CAP-1 does not extend scrubbing to other Brain import paths or
+  other free-text learning streams. Their residual privacy exposure remains
+  recorded in story 2's deferred findings. This amendment makes no decision
+  about story 4's mixed-stream distillation policy.
+- **Verification pointers:** `convex/lib/deidentify.test.ts`,
+  `convex/brainFeedback.test.ts`, `convex/generationLifecycle.test.ts`, and
+  `convex/learning.test.ts` cover the helper, nomination, section writes,
+  proposal reads, and publication gate. The per-kind checkbox and reset are
+  covered by `src/routes/admin/reviews/reviewsPublishGate.component.test.ts`.
+- **Approval:** records the already approved CAP-1 contract in AI engine
+  sprint 2 learn/chat story 2 (`2-de-identification-before-firm-wide-knowledge`),
+  as authorized for the 2026-09-04 failed-story repair. No additional product
+  policy or capability is introduced by this documentation amendment.
 
 ## Amendment process
 
