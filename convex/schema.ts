@@ -482,6 +482,7 @@ export default defineSchema({
   })
     .index("by_createdAt", ["createdAt"])
     .index("by_projectId", ["projectId"])
+    .index("by_projectId_and_createdAt", ["projectId", "createdAt"])
     .index("by_generationId", ["generationId"]),
 
   transcripts: defineTable({
@@ -842,6 +843,7 @@ export default defineSchema({
   // The agent UIMessage cannot durably express turn start/end, so app-owned
   // timing keeps queued and terminal states stable across reloads and races.
   chatTurns: defineTable({
+    userId: v.optional(v.id("users")),
     agentThreadId: v.string(),
     promptMessageId: v.string(),
     order: v.number(),
@@ -861,6 +863,7 @@ export default defineSchema({
       "promptMessageId",
     ])
     .index("by_agentThreadId_and_order", ["agentThreadId", "order"])
+    .index("by_userId_and_status", ["userId", "status"])
     // Stale-turn reaper: sweep queued/running rows regardless of thread.
     .index("by_status", ["status"]),
 

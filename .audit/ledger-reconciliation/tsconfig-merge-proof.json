@@ -1,0 +1,11 @@
+{
+  "baseline": "88298943a5b8f2c91503caeeb729c84315a6debe",
+  "incoming": "ccc42b3ed819d5aadf8d4d0cf72f8ddfc02b2836",
+  "compilerOptionsUnchanged": true,
+  "extendsUnchanged": true,
+  "previousFiles": 245,
+  "resultingFiles": 245,
+  "missing": [],
+  "topLevelIncludeKeys": 1,
+  "decision": "Use one root-relative include list; .svelte-kit/**/*.d.ts retains all explicitly named generated declaration paths. Other include patterns, extends and compiler options are unchanged."
+}

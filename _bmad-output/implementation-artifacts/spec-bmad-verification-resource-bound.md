@@ -80,3 +80,7 @@ Applied the schema lane's independently reviewed source-audit timeout repair (f0
 Applied the independently reviewed two-worker cap and the schema lane's focused source-audit timeout repair (f009b43) to this pinned recovery base. The prior unmodified pipeline gate still lacked the committed worker cap. The source audit remains selected exactly once, with its assertions unchanged; only its parse-heavy suite has a 30-second timeout. This recovery is pending the native dev, independent review, and final deterministic gate. Historical passing evidence above belongs to the original repair worktree and does not certify this pipeline revision.
 
 Pipeline follow-up: native run `20260904-121631-a914` subsequently completed story10 with both development and two independent review passes, final accepted commit `f9389a46d26d1a45efe1645e4b965eb3cf40da8a`. Its pending wording above records the recovery-entry state; native acceptance is now preserved in `.audit/native-completions/pipeline/native-proof.json`.
+
+## Chat-spend recovery application
+
+Applied the schema lane's independently reviewed dedicated source-audit timeout repair (f009b43) after the standard command repeatedly exceeded the five-second source-parser budget. Assertions and test selection are unchanged; the audit is selected once with a 30-second limit and the existing worker cap remains. This recovery base awaits serial native dev, review and final verification. Earlier passing logs certify their recorded historical revisions only.
