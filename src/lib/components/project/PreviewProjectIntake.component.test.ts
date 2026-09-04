@@ -35,7 +35,8 @@ function transcriptRow(id: string, label: string, wordCount: number) {
 }
 
 function seedIntakeProject(
-  transcripts = [transcriptRow("t-1", "Kickoff interview.docx", 11)]
+  transcripts = [transcriptRow("t-1", "Kickoff interview.docx", 11)],
+  mode: "full" | "review" = "full"
 ) {
   __setQueryData("projects:getProject", {
     _id: "project-1",
@@ -50,7 +51,7 @@ function seedIntakeProject(
     industry: null,
     scienceCode: null,
     tagIds: [],
-    mode: "full",
+    mode,
     status: "draft",
     workflowStage: "intake",
     shareToken: "tok-1",
@@ -65,11 +66,13 @@ function seedIntakeProject(
   __setQueryData("transcripts:listTranscripts", transcripts);
   // The stub keys by function name, so either open disclosure resolves to this
   // body; the suite asserts which rows exist and which one is expanded.
-  __setQueryData("transcripts:getTranscriptContent", {
-    _id: transcripts[0]._id,
-    label: transcripts[0].label,
-    content: TRANSCRIPT_BODY,
-  });
+  if (transcripts.length > 0) {
+    __setQueryData("transcripts:getTranscriptContent", {
+      _id: transcripts[0]._id,
+      label: transcripts[0].label,
+      content: TRANSCRIPT_BODY,
+    });
+  }
   __setQueryData("users:getCurrentUser", {
     _id: "u-1",
     role: "writer",
@@ -86,11 +89,12 @@ const pane = (name: "work" | "context") =>
 async function mountIntake(
   width: number,
   height = 900,
-  transcripts?: ReturnType<typeof transcriptRow>[]
+  transcripts?: ReturnType<typeof transcriptRow>[],
+  mode?: "full" | "review"
 ) {
   __setPageUrl("/project/project-1");
   __setPageParams({ id: "project-1" });
-  seedIntakeProject(transcripts);
+  seedIntakeProject(transcripts, mode);
   await browserPage.viewport(width, height);
   await render(PreviewProjectPage, {});
   await expect.poll(() => workbench()).not.toBeNull();
@@ -211,6 +215,48 @@ describe("PreviewProjectPage intake workbench", () => {
     expect(__activeQueryCount("transcripts:getTranscriptContent")).toBe(1);
     expect(__activeQueryArgs("transcripts:getTranscriptContent")).toEqual([
       { transcriptId: "t-9" },
+    ]);
+  });
+
+  it("hides the transcript block and the Draft-generation section in review mode with no transcripts", async () => {
+    await mountIntake(1440, 900, [], "review");
+
+    // The context pane rendered — the absence below is the transcript block's,
+    // not a pane that never mounted.
+    expect(pane("context")!.textContent).toContain("Files");
+    expect(transcriptTriggers()).toHaveLength(0);
+    // The block's heading goes with it, so deleting only the `{#if}` gate
+    // fails here rather than passing on an empty `{#each}`.
+    const headings = Array.from(pane("context")!.querySelectorAll("h2, h3")).map((h) =>
+      h.textContent?.trim()
+    );
+    expect(headings).not.toContain("Transcript");
+    expect(headings).not.toContain("Transcripts");
+    // A review project with no transcript generates from the feedback report's
+    // own button; the intake gate offers no second path.
+    expect(pane("work")!.textContent).not.toContain("Draft generation");
+    expect(__activeQueryCount("transcripts:getTranscriptContent")).toBe(0);
+  });
+
+  it("opens no transcript by default in review mode, and none is subscribed until asked", async () => {
+    await mountIntake(1440, 900, [
+      transcriptRow("t-1", "Kickoff interview.docx", 11),
+      transcriptRow("t-2", "Follow-up call.docx", 240),
+    ], "review");
+
+    const triggers = transcriptTriggers();
+    expect(triggers).toHaveLength(2);
+    // 2026-08-10: in review mode the written PD is the focus, so every
+    // transcript starts collapsed and no body is fetched.
+    expect(triggers.map((t) => t.getAttribute("aria-expanded"))).toEqual(["false", "false"]);
+    expect(__activeQueryCount("transcripts:getTranscriptContent")).toBe(0);
+
+    triggers[1].click();
+    await expect
+      .poll(() => transcriptTriggers()[1].getAttribute("aria-expanded"))
+      .toBe("true");
+    expect(__activeQueryArgs("transcripts:getTranscriptContent")).toEqual([
+      { transcriptId: "t-2" },
     ]);
   });
 
