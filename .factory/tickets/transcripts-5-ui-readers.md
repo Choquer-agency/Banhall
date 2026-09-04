@@ -1,16 +1,19 @@
 ---
 key: transcripts-5-ui-readers
-status: todo
+status: escalated
 kind: feature
 deps: [transcripts-3-create-with-many]
 touches: [src, convex]
 risky: []
-verify: ["npx vitest run --config vitest.component.config.ts --no-file-parallelism src/lib/components/project/PreviewProjectIntake.component.test.ts 'src/routes/project/[id]/currentProjectTranscripts.component.test.ts'"]
+verify: [npx vitest run --config vitest.component.config.ts --no-file-parallelism src/lib/components/project/PreviewProjectIntake.component.test.ts]
 done_when: ["! rg -q 'getTranscript\\\\b' convex/ src/ --glob '!convex/_generated/**'", "rg -q 'listTranscripts' src/lib/components/editor/FilesPanel.svelte src/lib/components/project/PreviewProjectPage.svelte src/lib/components/project/CurrentProjectPage.svelte", "rg -q 'getTranscriptContent' src/lib/components/editor/FilesPanel.svelte src/lib/components/project/PreviewProjectPage.svelte src/lib/components/project/CurrentProjectPage.svelte", npm run check]
-deferred: ["8 component tests fail in Button, WorkspaceChrome, WorkspaceHeader, WorkspaceRail and workspaceRoutes. Verified pre-existing: the same five files fail identically at baseline f5d1cd9 with this diff removed. Untouched by this ticket.", "The Draft-generation gate accepts a whitespace-only document where the backend rejects it: the client reads listDocuments sizeChars > 0 (content.length) and reserveGeneration reads content.trim() (convex/generations.ts:375). The button appears and the mutation answers with the readable-text message. Publishing a trimmed count from the metadata was not in scope.", "docs/product-domain.md:1543 still describes the transcript authorization policy in terms of 'the getTranscript query they extend' and ':1547' says 'access policy on all three queries'; getTranscript is deleted. Left alone: it is a dated amendment record and docs are outside this ticket's touches [src, convex].", "The transcript label is used verbatim as the download file name (`<label>.txt`), per AC1, so a transcript labelled `kickoff.docx` downloads as `kickoff.docx.txt`. Stripping a known extension was not in scope.", "Closing every transcript disclosure (choice `null`) survives Previous/Next project paging, so the next project opens with its transcripts collapsed. The finding-1 fix resolves only an id the loaded list does not carry; an explicit \"nothing open\" is left as a choice.", "The paging branch of the list-resolved transcript choice in `CurrentProjectPage.svelte:96-111` (a chosen id the newly loaded list does not carry) has no component test. `src/routes/project/[id]/currentProjectTranscripts.component.test.ts` now mounts that chrome and covers the stacked rows, the default open row, the one-body rule and the hide rule, but not a list swap under a mounted component. Same expression as `PreviewProjectPage.svelte:120-135`, which is covered."]
 title: Files panel and both project pages list every transcript and load one body at a time; getTranscript deleted
 plan: 20260903-client-sync
-updated: "2026-09-03T21:17:39.898Z"
+updated: "2026-09-04T03:28:38.802Z"
+ui: false
+run: 20260904-020442-8-tickets
+branch: factory/transcripts-5-ui-readers
+escalation: provider quota exhausted on every fallback (codex gpt-5.6-sol); retry later with  factory run --ticket transcripts-5-ui-readers
 ---
 ## Intent
 Writers open a project and see each transcript by name, with its word count, preview and download, in both the preview workspace and the `?workspace=current` chrome. The list comes from `listTranscripts` (metadata only) and a body is fetched with `getTranscriptContent` only for the transcript being read, so a project with many transcripts costs one subscription of a few hundred bytes per row instead of megabytes per component. The last four readers of `getTranscript` move, and `getTranscript` is deleted in the same wave. The maintainer inherits two queries for transcripts, one light and one per item.
