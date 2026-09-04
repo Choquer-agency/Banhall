@@ -1,0 +1,8 @@
+- id: '11'
+  title: Chat spend budget and queue limit
+  description: CAP-11. sendMessage refuses when project 24h aiUsage cost exceeds an appSettings budget
+    or the user has too many queued turns.
+  spec_checkpoint: false
+  invoke_dev_with: Read touchpoints.md row CAP-11. Typed error codes; defaults generous (e.g. $50/day,
+    3 queued). Dependency satisfied 2026-09-04 - CAP-8 chat context bounds is on main (CHAT_CONTEXT_OPTIONS
+    in convex/ai/chatAgentV2.ts), so this no longer waits on sprint-1b.

@@ -1,0 +1,7 @@
+- id: '10'
+  title: Analyzer once per generation with prompt caching
+  description: CAP-10. Compare mode stores analysis in generationArtifacts and reuses it per candidate;
+    cache_control on system prompt and transcript for Anthropic models.
+  spec_checkpoint: false
+  invoke_dev_with: Read touchpoints.md row CAP-10. iterative.ts already does analyzer-once; mirror it.
+    Prove one analyzer call for two candidates with a stubbed client.
