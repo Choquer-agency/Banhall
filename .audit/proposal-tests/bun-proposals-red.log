@@ -1,0 +1,277 @@
+bun test v1.3.14 (0d9b296a)
+
+tests/chatProposals.test.ts:
+(pass) proposal access > allows an internal manager to query proposals [21.09ms]
+(pass) proposal access > allows an internal admin to query proposals [0.59ms]
+(pass) proposal access > allows an unrelated authenticated writer to query proposals [0.58ms]
+(pass) proposal access > rejects an anonymous proposal reader [3.56ms]
+(pass) proposal creation integrity > rejects a target copied from an unapplied candidate [2.52ms]
+594 |       kind: "edit",
+595 |       targetText: "exact target",
+596 |       newText: "approved replacement",
+597 |     });
+598 | 
+599 |     expect(result).toMatchObject({ ok: true });
+                         ^
+error: expect(received).toMatchObject(expected)
+
+  {
+-   "ok": true,
++   "ok": false,
++   "reason": "The writer stopped this reply.",
++   "stopped": true,
+  }
+
+- Expected  - 1
++ Received  + 3
+
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:599:20)
+(fail) proposal creation integrity > stores tool association and enforces uniqueness for a valid edit [9.44ms]
+(pass) proposal creation integrity > deduplicates repeated tool execution [3.42ms]
+(pass) proposal wording edits > updates candidate wording without changing the canonical target [2.93ms]
+(pass) proposal wording edits > refuses to change replacement targets [2.60ms]
+apply-time scrub policy lookup failed 240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:223:12)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at async applyAndAssert (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:512:24)
+      at async <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:671:11)
+
+240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getHouseRuleModes (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/houseStyle.ts:41:6)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:220:5)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at async applyAndAssert (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:512:24)
+      at async <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:671:11)
+(fail) proposal apply integrity > apply updates the pinned report and complete audit tuple [10.90ms]
+apply-time scrub policy lookup failed 240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:223:12)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at async <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:685:11)
+
+240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getHouseRuleModes (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/houseStyle.ts:41:6)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:220:5)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at async <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:685:11)
+(fail) proposal apply integrity > a researched V2 edit keeps its evidence session on the version checkpoint [2.93ms]
+apply-time scrub policy lookup failed 240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:223:12)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:714:17)
+
+240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getHouseRuleModes (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/houseStyle.ts:41:6)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:220:5)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:714:17)
+(fail) proposal apply integrity > a single-target proposal (requireUniqueTarget flag) never replaces an ambiguous repeated passage [6.58ms]
+apply-time scrub policy lookup failed 240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:223:12)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:714:17)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:714:17)
+
+240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getHouseRuleModes (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/houseStyle.ts:41:6)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:220:5)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:714:17)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:714:17)
+(fail) proposal apply integrity > a single-target proposal (legacy researchSessionId fallback) never replaces an ambiguous repeated passage [2.00ms]
+apply-time scrub policy lookup failed 240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:223:12)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at async <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:726:26)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:714:17)
+
+240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getHouseRuleModes (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/houseStyle.ts:41:6)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:220:5)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at async <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:726:26)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:714:17)
+(fail) proposal apply integrity > a missing target becomes stale and cannot be retried [1.72ms]
+apply-time scrub policy lookup failed 240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:223:12)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at async <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:738:11)
+
+240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getHouseRuleModes (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/houseStyle.ts:41:6)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:220:5)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at async <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:738:11)
+(fail) proposal apply integrity > applying an already-applied proposal is idempotent [5.34ms]
+apply-time scrub policy lookup failed 240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:223:12)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at async <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:753:26)
+
+240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getHouseRuleModes (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/houseStyle.ts:41:6)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:220:5)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at async <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:753:26)
+(fail) proposal apply integrity > apply preserves deletion-only replacement behavior [2.50ms]
+apply-time scrub policy lookup failed 240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:223:12)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at async <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:768:26)
+
+240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at getHouseRuleModes (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/houseStyle.ts:41:6)
+      at getEffectiveWriterStyle (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/writerProfiles.ts:220:5)
+      at <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:421:27)
+      at async <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:768:26)
+(fail) proposal apply integrity > apply preserves ordered replacement-list behavior [1.28ms]
+240 |     }
+241 |     return null;
+242 |   }
+243 | 
+244 |   query(table: keyof TestTables) {
+245 |     return new QueryBuilder([...this.tables[table]]);
+                                           ^
+TypeError: Spread syntax requires ...iterable not be null or undefined
+      at query (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:245:38)
+      at requireReportEditAccess (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/lib/roleCapabilities.ts:93:8)
+      at async <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/convex/chatV2.ts:390:37)
+      at async applyAndAssert (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:512:24)
+      at async <anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/tests/chatProposals.test.ts:778:11)
+(fail) proposal apply integrity > apply allows an unrelated authenticated writer and preserves revision audit integrity [1.73ms]
+(pass) proposal apply integrity > an anonymous caller cannot apply a proposal [0.73ms]
+(pass) proposal rejection > an internal manager can reject a proposal [0.98ms]
+(pass) proposal rejection > an unrelated authenticated writer can reject a proposal [0.54ms]
+(pass) proposal rejection > an anonymous caller cannot reject a proposal [0.34ms]
+
+ 12 pass
+ 10 fail
+ 57 expect() calls
+Ran 22 tests across 1 file. [685.00ms]
