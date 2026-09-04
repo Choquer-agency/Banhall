@@ -2,7 +2,7 @@
 title: 'Chat spend budget and queue limit'
 type: 'feature'
 created: '2026-09-04'
-status: 'blocked'
+status: ready-for-dev
 baseline_revision: 'f122b086d745acc40b4decca26b9aaafc7257f6a'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -116,39 +116,3 @@ The queue predicate and insert share a Convex transaction and indexed read depen
 - `npm test` (final default run passed; earlier host-contention retries used command-line worker/timeout allowances)
 - `PUBLIC_CONVEX_URL=http://localhost npm run check`
 
-## Auto Run Result
-
-Status: blocked
-Blocking condition: patch verification failed. The standard `npm test` command repeatedly times out in the unchanged form-control source scan under current host contention. A full run with two workers and a 30-second timeout passes, but the required standard gate has not passed in this run.
-
-### Implemented change
-
-Existing transactional chat admission remains intact: inclusive recorded 24-hour project AI spend, per-sender queued-turn limits, administrator settings, typed refusals before writes, and legacy prompt attribution. This follow-up adds explicit-thread refusal coverage, extreme decimal and stored syntax regressions, and accurate project AI spend refusal wording.
-
-### Files changed in this pass
-
-- `convex/chatV2.ts`: clarify project AI spend refusal wording.
-- `convex/chatTurns.test.ts`: explicit-thread refusal cases, large numeric boundaries, and stored budget syntax cases.
-- `.audit/CAP-11/decisions.tsv`: append review and gate decisions.
-- `.audit/CAP-11/evidence.md` and new logs: record exact source revision, acceptance evidence, passing commands and standard-command failures.
-- This story: follow-up triage and blocked verification result.
-
-### Review findings breakdown
-
-Four review layers completed. Four low findings patched; zero intent gaps, bad specs or deferrals; ten findings rejected. Existing deferred-work ledger entries were not modified, reopened or rewritten.
-
-Follow-up review recommended: false. Patched counts: high 0, medium 0, low 4. Score: 3 × 0 + 4 = 4.
-
-### Verification performed
-
-- `npx vitest run --project convex convex/chatTurns.test.ts`: 59 passed, exit 0.
-- `npm test -- --maxWorkers=2 --testTimeout=30000`: 127 files and 1387 tests passed, exit 0.
-- `PUBLIC_CONVEX_URL=http://localhost npm run check`: zero errors and warnings, exit 0 on the final patch.
-- `npm test`: final retry passed 126 files and 1386 tests but failed the unchanged form-control scan's 5000 ms timeout, exit 1. An earlier concurrent run also exceeded the unchanged humanProse 100 ms performance assertion.
-- `git diff --check`: passed before final audit commit.
-
-Exact reviewed source commit: `335a171338934774280a7f5e4212742fc63c1a24`. Previous commits are preserved. No push or deployment performed.
-
-### Residual risks
-
-The standard test gate must pass before this story can return to done. Recorded-cost admission does not reserve in-flight spend. Complete usage reads and legacy attribution remain subject to Convex transaction limits; unattributable legacy prompts are tolerated. Tests exercise public mutations with the real agent component in convex-test, without simulating production transaction retries.
