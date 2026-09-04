@@ -86,3 +86,77 @@ svelte-check found 0 errors and 0 warnings
 ```
 
 `git diff --check` passed with no output before committing. All 127 test files / 1,370 tests pass with the command-line host-contention allowance; focused 42 tests pass, and the required check reports zero errors and warnings. No functional scope remains incomplete.
+
+## Review patch
+
+The review found binary floating-point accumulation violated the strict budget boundary: a public send with usage `0.1 + 0.2` was rejected against a `0.3` setting. The added public mutation regression failed before the fix against source revision `55caeff` (same implementation as `88142de`); `.audit/CAP-11/logs/review-red.log` records that actual failure.
+
+`usdDecimalUnits` parses each finite number's canonical decimal representation, including scientific notation, into BigInt units at 324 decimal places. This covers the canonical decimal representation of every finite Number, including `Number.MIN_VALUE`, without rounding or truncating any cost. `projectRollingCostUsdUnits` sums those exact local units over the complete indexed range, and admission compares against the budget converted to the same units. BigInt arithmetic stays within the mutation; usage storage and logging do not change.
+
+Additional public mutation regressions:
+
+| Review request | Proof in `convex/chatTurns.test.ts` |
+| --- | --- |
+| Exact decimal budget boundary, meaningful excess | `compares exact decimal costs at a fractional budget` admits `0.1 + 0.2` at `0.3`, then rejects another `0.000001` |
+| Scientific notation and tiny costs remain significant | Parameterized `preserves scientific-notation cost ... without rounding away an excess` uses `1e-20` and `Number.MIN_VALUE` |
+| Repeated fractions and no arbitrary range truncation | `sums 10000 fractional rows exactly and includes the decisive last range row` admits 10,000 rows of `0.00003` at `0.3`, then rejects the 10,001st row |
+| Actual mixed call sites | Default-budget test now combines `chat` and `generation:242`; exact-decimal test also uses `financial`, and the large fixture alternates chat/financial |
+| Malformed budget fallback enforced without queue masking | Four `malformed budget ... rejects over default with free queue and no side effects` cases compare complete refusal state |
+| Valid fractional budget independent of malformed queue | `keeps a valid fractional budget while a malformed queue independently defaults to three` proves both queue default and persisted `0.3` spend limit with capacity released |
+| Updates take effect, no duplicate settings | `updates both existing settings without duplicate keys and immediately raises or lowers admission` exercises both directions for both values and verifies exactly two key rows |
+| Expired usage releases spend block | `readmits a blocked project after recorded usage expires` advances frozen time beyond 24 hours and admits a formerly blocked project |
+
+The complete suite passed before a behavior-preserving helper rename. The post-rename focused suite and type check verify the final source spelling; no repeat broad run was needed for that rename.
+
+### Final review-patch verification
+
+Exact final source revision: `145a1feabdcda68a6d78e7204ce5b0f3906161bb`.
+
+Command: `npx vitest run --project convex convex/chatTurns.test.ts`
+
+Output: `.audit/CAP-11/logs/review-focused-renamed.log`
+
+```text
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+
+
+ Test Files  1 passed (1)
+      Tests  53 passed (53)
+   Start at  12:41:35
+   Duration  2.38s (transform 756ms, setup 0ms, import 724ms, tests 1.46s, environment 51ms)
+
+```
+
+Command: `npm test -- --maxWorkers=2 --testTimeout=30000`
+
+Output: `.audit/CAP-11/logs/review-full.log`
+
+```text
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+
+
+ Test Files  127 passed (127)
+      Tests  1381 passed (1381)
+   Start at  12:41:03
+   Duration  24.64s (transform 6.74s, setup 0ms, import 13.07s, tests 12.01s, environment 4.77s)
+
+```
+
+Command: `PUBLIC_CONVEX_URL=http://localhost npm run check`
+
+Output: `.audit/CAP-11/logs/review-check.log`
+
+```text
+
+> banhall-app@0.1.0 check
+> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
+
+Loading svelte-check in workspace: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+Getting Svelte diagnostics...
+
+svelte-check found 0 errors and 0 warnings
+```
+
+Final result: 53 focused tests, all 127 files / 1,381 full-suite tests, and zero type-check errors or warnings. `git diff --check` passed. All six review patch requests are addressed, with the intent contract and story file unchanged.
