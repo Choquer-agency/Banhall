@@ -1571,12 +1571,12 @@ describe("CAP-11 chat admission", () => {
     const s = await setup();
     await recordCost(s, 25);
     await recordCost(s, 25, Date.now(), s.projectId, "chat");
-    const { turn } = await sendQueuedTurn(s);
+    const { turn, result } = await sendQueuedTurn(s);
     expect(turn.userId).toBe(s.userId);
     await recordCost(s, 0.01);
     const before = await state(s);
-    for (const newThread of [true, false]) {
-      await expect(s.actor.mutation(api.chatV2.sendMessage, { reportId: s.reportId, content: "refused", newThread }))
+    for (const target of [{ newThread: true }, { newThread: false }, { threadId: result.threadId }]) {
+      await expect(s.actor.mutation(api.chatV2.sendMessage, { reportId: s.reportId, content: "refused", ...target }))
         .rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
       expect(await state(s)).toEqual(before);
     }
@@ -1607,11 +1607,11 @@ describe("CAP-11 chat admission", () => {
       return ctx.db.insert("reports", { projectId, content: "{}", version: 1, generatedAt: Date.now(), updatedAt: Date.now() });
     });
     const first = await sendQueuedTurn(s);
-    await sendQueuedTurn({ ...s, reportId: otherReport });
+    const other = await sendQueuedTurn({ ...s, reportId: otherReport });
     await sendQueuedTurn(s);
     const before = await state(s);
-    for (const newThread of [true, false]) {
-      await expect(s.actor.mutation(api.chatV2.sendMessage, { reportId: otherReport, content: "full", newThread }))
+    for (const target of [{ newThread: true }, { newThread: false }, { threadId: other.result.threadId }]) {
+      await expect(s.actor.mutation(api.chatV2.sendMessage, { reportId: otherReport, content: "full", ...target }))
         .rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
     }
     expect(await state(s)).toEqual(before);
@@ -1752,6 +1752,29 @@ describe("CAP-11 chat admission", () => {
     await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
   });
 
+  test.each([1e21, Number.MAX_VALUE])("admits exact large budget %s and rejects a tiny excess", async (dailyBudgetUsd) => {
+    const s = await setup();
+    const actor = await admin(s);
+    await actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd, maxQueuedTurns: 3 });
+    await recordCost(s, dailyBudgetUsd);
+    await sendQueuedTurn(s);
+    await recordCost(s, Number.MIN_VALUE);
+    const before = await state(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+    expect(await state(s)).toEqual(before);
+  });
+
+  test("reads whitespace-padded scientific budget from stored settings", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => ctx.db.insert("appSettings", {
+      key: "ai.chatDailyBudgetUsd", value: "  5E-1  ", updatedBy: s.userId, updatedAt: Date.now(),
+    }));
+    await recordCost(s, 0.5);
+    await sendQueuedTurn(s);
+    await recordCost(s, 0.01);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+  });
+
   test("sums 10000 fractional rows exactly and includes the decisive last range row", async () => {
     const s = await setup();
     const actor = await admin(s);
@@ -1806,7 +1829,7 @@ describe("CAP-11 chat admission", () => {
     ]);
   });
 
-  test.each(["bad", "Infinity", "0", "-1"])("malformed budget %s rejects over default with free queue and no side effects", async (value) => {
+  test.each(["bad", "Infinity", "0", "-1", "0x10", "", "   "])("malformed budget %s rejects over default with free queue and no side effects", async (value) => {
     const s = await setup();
     await s.t.run(async (ctx) => ctx.db.insert("appSettings", {
       key: "ai.chatDailyBudgetUsd", value, updatedBy: s.userId, updatedAt: Date.now(),

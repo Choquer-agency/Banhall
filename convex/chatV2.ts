@@ -242,7 +242,7 @@ async function assertChatAdmission(
 ): Promise<void> {
   const limits = await chatAdmissionLimits(ctx);
   if (await projectRollingCostUsdUnits(ctx, { projectId, now: Date.now() }) > usdDecimalUnits(limits.dailyBudgetUsd)) {
-    domainError("CHAT_SPEND_BUDGET_EXCEEDED", "Project chat spending budget exceeded");
+    domainError("CHAT_SPEND_BUDGET_EXCEEDED", "Project AI spending budget exceeded; chat is unavailable");
   }
   let queued = 0;
   const ownTurns = ctx.db.query("chatTurns")
