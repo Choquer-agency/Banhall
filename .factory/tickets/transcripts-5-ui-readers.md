@@ -7,6 +7,7 @@ touches: [src, convex]
 risky: []
 verify: [npx vitest run --config vitest.component.config.ts --no-file-parallelism src/lib/components/project/PreviewProjectIntake.component.test.ts]
 done_when: ["! rg -q 'getTranscript\\\\b' convex/ src/ --glob '!convex/_generated/**'", "rg -q 'listTranscripts' src/lib/components/editor/FilesPanel.svelte src/lib/components/project/PreviewProjectPage.svelte src/lib/components/project/CurrentProjectPage.svelte", "rg -q 'getTranscriptContent' src/lib/components/editor/FilesPanel.svelte src/lib/components/project/PreviewProjectPage.svelte src/lib/components/project/CurrentProjectPage.svelte", npm run check]
+deferred: ["8 component tests fail in Button, WorkspaceChrome, WorkspaceHeader, WorkspaceRail and workspaceRoutes. Verified pre-existing: the same five files fail identically at baseline f5d1cd9 with this diff removed. Untouched by this ticket.", "FilesPanel has no component test of its own, so AC1's rows (per-row preview, per-row download naming) are proved by code walk plus svelte-check, not by a browser run. A FilesPanel.component.test.ts would pin them.", "The transcript label is used verbatim as the download file name (`<label>.txt`), per AC1, so a transcript labelled `kickoff.docx` downloads as `kickoff.docx.txt`. Stripping a known extension was not in scope."]
 title: Files panel and both project pages list every transcript and load one body at a time; getTranscript deleted
 plan: 20260903-client-sync
 updated: "2026-09-03T21:17:39.898Z"
