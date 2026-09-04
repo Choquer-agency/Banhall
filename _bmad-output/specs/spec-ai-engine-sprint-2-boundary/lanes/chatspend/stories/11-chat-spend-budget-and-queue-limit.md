@@ -2,8 +2,8 @@
 title: 'Chat spend budget and queue limit'
 type: 'feature'
 created: '2026-09-04'
-status: ready-for-dev
-baseline_revision: 'f122b086d745acc40b4decca26b9aaafc7257f6a'
+status: done
+baseline_revision: '495b3bbf828fbc52381b557378bc7b0b1cd1a2cf'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -106,6 +106,18 @@ deferred: []
   - `[low]` `[patch]` Verify large positive exponents and Number.MAX_VALUE at exact equality and with a subnormal excess through public mutations.
   - `[low]` `[patch]` Verify hexadecimal/blank stored budgets fall back and whitespace-padded scientific notation is honored.
 
+### 2026-09-04 Rearmed review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 0, medium 0, low 4)
+- defer: 0
+- reject: 6: (high 0, medium 0, low 6)
+- addressed_findings:
+  - `[low]` `[patch]` Preserve initial failure and final verification logs as tracked audit artifacts.
+  - `[low]` `[patch]` Record exact dependency repair commands and the superseded link target.
+  - `[low]` `[patch]` Record dependency versions, lockfile compatibility, local resolution, and isolation evidence.
+  - `[low]` `[patch]` Distinguish the original implementation baseline from the rearmed review baseline.
+
 ## Design Notes
 
 The queue predicate and insert share a Convex transaction and indexed read dependencies. Legacy ownership is resolved from the component prompt, because a shared thread's creator may differ from a turn's sender. Missing legacy attribution remains tolerated. Usage uses event `createdAt`, not insertion time. `projectRollingCostUsdUnits` accumulates canonical decimal costs in local BigInt units at 324 decimal places, enough for every finite JavaScript Number, without rounding. The budget is converted with the same `usdDecimalUnits` helper; these large integers are never stored or returned through Convex. No frontend caller is touched.
@@ -116,3 +128,20 @@ The queue predicate and insert share a Convex transaction and indexed read depen
 - `npm test` (final default run passed; earlier host-contention retries used command-line worker/timeout allowances)
 - `PUBLIC_CONVEX_URL=http://localhost npm run check`
 
+## Auto Run Result
+
+Status: done.
+
+CAP-11 enforces recorded rolling project AI spend and authenticated sender queue limits transactionally before chat writes or scheduling. Defaults are USD 50 per rolling 24 hours and 3 queued turns, configurable by administrators. Refusals use `CHAT_SPEND_BUDGET_EXCEEDED` and `CHAT_QUEUE_LIMIT_EXCEEDED`. CAP-8 context bounds are preserved. This rearmed run verified the existing implementation; no production source edits were needed.
+
+Files changed this run:
+- `.audit/CAP-11/evidence.md`: distinguishes baselines, records isolated dependency setup, acceptance proof, and exact verification outcomes.
+- `.audit/CAP-11/decisions.tsv`: appends dependency-isolation and verification decisions.
+- `.audit/CAP-11/logs/`: preserves initial failures, superseded shared-dependency results, isolated provenance, and final command outputs.
+- This story file: updates runtime baseline, review triage, and completion status.
+
+Review: four independent layers; four low-severity documentation patches, zero deferred, six rejected. Patched counts: high 0, medium 0, low 4. Follow-up score: 4. Follow-up review recommended: false.
+
+Final verification used an independent APFS clone of the original checkout dependencies, with no external dependency symlinks and matching lockfiles. Local SvelteKit configuration was regenerated. `npx vitest run --project convex convex/chatTurns.test.ts` passed 59 tests; `npm test` passed 127 files and 1387 tests; `PUBLIC_CONVEX_URL=http://localhost npm run check` passed with zero errors and warnings. Every matrix row maps to active tests that ran and passed. `git diff --check` passed.
+
+Residual risks: the initial isolated full run hit the existing five-second form-control source-scan timeout; an unchanged standard-command retry passed. Both outputs are retained. Recorded-cost admission does not reserve future spend, and complete rolling usage/legacy ownership reads remain subject to Convex transaction limits. No push or deployment was performed.

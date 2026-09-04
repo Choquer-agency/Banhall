@@ -1,6 +1,6 @@
 # CAP-11 verification evidence
 
-Baseline: `f122b086d745acc40b4decca26b9aaafc7257f6a`.
+Original implementation baseline: `f122b086d745acc40b4decca26b9aaafc7257f6a`.
 
 Scope: dispatched story `11-chat-spend-budget-and-queue-limit.md`, in the existing engine worktree. No generated source files were edited. The additional root `tsconfig.json` include list preserves Svelte generated categories and includes `shared/**/*.ts`; it fixes the baseline OXC failure loading `shared/workItems.ts` through inherited include paths.
 
@@ -231,3 +231,99 @@ Final standard-command retry, after this session's type check completed: `npm te
    Start at  12:55:31
    Duration  56.92s (transform 164.05s, setup 0ms, import 196.58s, tests 137.05s, environment 26.19s)
 ```
+
+## Initial rearmed verification (2026-09-04, superseded by isolated verification)
+
+Exact verified source commit: `495b3bbf828fbc52381b557378bc7b0b1cd1a2cf`. No production source changes were needed. All nine matrix rows were inspected against active public-mutation tests and passed in the focused suite. CAP-8 context tests are unchanged.
+
+The first focused attempt failed before collection because generated SvelteKit configuration was absent. The initial check generated it but reported three unresolved existing relative dependency imports. An ignored local `node_modules/@convex-dev` symlink to the installed ancestor dependency directory restored resolution. Initial failures are retained in `logs/rearmed-focused.log` and `logs/rearmed-check.log`.
+
+Command: `npx vitest run --project convex convex/chatTurns.test.ts`. Exit 0. Output: `.audit/CAP-11/logs/rearmed-parent-focused.log`.
+
+```text
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+
+
+ Test Files  1 passed (1)
+      Tests  59 passed (59)
+   Start at  13:22:47
+   Duration  2.70s (transform 841ms, setup 0ms, import 827ms, tests 1.67s, environment 52ms)
+
+```
+
+Command: `npm test`. Exit 0. Output: `.audit/CAP-11/logs/rearmed-parent-full.log`.
+
+```text
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+
+
+ Test Files  127 passed (127)
+      Tests  1387 passed (1387)
+   Start at  13:22:53
+   Duration  24.58s (transform 8.49s, setup 0ms, import 13.80s, tests 12.54s, environment 4.26s)
+
+```
+
+Command: `PUBLIC_CONVEX_URL=http://localhost npm run check`. Exit 0. Output: `.audit/CAP-11/logs/rearmed-parent-check.log`.
+
+```text
+
+> banhall-app@0.1.0 check
+> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
+
+Loading svelte-check in workspace: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+Getting Svelte diagnostics...
+
+svelte-check found 0 errors and 0 warnings
+```
+
+The standard gates now pass without command-line timeout allowances. This supersedes the prior blocked result. Existing production transaction-limit caveats remain; this run adds no runtime behavior. `git diff --check` passed.
+
+## Isolated dependency verification (2026-09-04)
+
+Rearmed review baseline and verified production source: `495b3bbf828fbc52381b557378bc7b0b1cd1a2cf`. The user required independent dependencies before final verification. The worker-only cache directory and temporary shared link were moved to `/tmp/cap11-node-modules-shared-20260904`; then `cp -cR /Users/johnnynguyen/Documents/Repos/Banhall/node_modules node_modules` created independent APFS clones. Ancestor packages were not modified. The temporary link had targeted `/Users/johnnynguyen/Documents/Repos/Banhall/node_modules/@convex-dev`; it is absent from the final worker dependency tree.
+
+Dependency provenance is retained in `.audit/CAP-11/logs/isolated-dependencies.log`: zero external symlinks, independent sampled package inodes, matching checkout lockfile SHA-256 values, installed package versions and worker-local resolution paths. The logged `git diff HEAD -- convex src shared tests package.json package-lock.json vitest.config.ts tsconfig.json` is empty. The existing root `vitest.config.ts` sets two workers; no command-line worker or timeout overrides were used. The acceptance mapping above applies unchanged, including the CAP-8 tests in the focused file. Raw initial failure and final verification logs are included as committed audit artifacts.
+
+The first isolated `npm test` run failed only on the unchanged form-control source scan exceeding 5000 ms: 126 files and 1386 tests passed. `.audit/CAP-11/logs/isolated-full.log` preserves that failure. A sequential retry of the exact same command and unchanged files passed all 127 files and 1387 tests. This is recorded as an intermittent standard-gate timeout, not a production fix.
+
+Command: `PUBLIC_CONVEX_URL=http://localhost npm run check`. Exit 0. Output: `.audit/CAP-11/logs/isolated-check.log`.
+
+```text
+
+> banhall-app@0.1.0 check
+> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
+
+Loading svelte-check in workspace: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+Getting Svelte diagnostics...
+
+svelte-check found 0 errors and 0 warnings
+```
+
+Command: `npx vitest run --project convex convex/chatTurns.test.ts`. Exit 0. Output: `.audit/CAP-11/logs/isolated-focused.log`.
+
+```text
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+
+
+ Test Files  1 passed (1)
+      Tests  59 passed (59)
+   Start at  13:31:55
+   Duration  2.36s (transform 795ms, setup 0ms, import 753ms, tests 1.38s, environment 52ms)
+
+```
+
+Command: `npm test`. Exit 0. Output: `.audit/CAP-11/logs/isolated-full-retry.log`.
+
+```text
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+
+
+ Test Files  127 passed (127)
+      Tests  1387 passed (1387)
+   Start at  13:33:15
+   Duration  44.91s (transform 21.32s, setup 0ms, import 27.92s, tests 27.72s, environment 8.77s)
+
+```
+
+Final verification uses only worker-local cloned dependencies. All acceptance criteria and matrix rows pass; CAP-8 context assertions remain intact. Remaining caveats are the pre-existing intermittent source-scan timeout and documented production transaction-size limits.
