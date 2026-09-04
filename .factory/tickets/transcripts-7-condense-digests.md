@@ -1,6 +1,6 @@
 ---
 key: transcripts-7-condense-digests
-status: todo
+status: done
 kind: feature
 deps: [transcripts-6-provenance-sets]
 touches: [convex]
@@ -9,7 +9,14 @@ verify: [npx vitest run convex/ai/condenseAgent.test.ts convex/transcriptDigests
 done_when: [test -f convex/ai/condense.ts, test -f convex/ai/condenseAgent.ts, test -f convex/transcriptDigests.ts, "rg -q 'condense' convex/ai/promptProgram.ts", "rg -q 'ensureCondensedInputs' convex/ai/pipeline.ts convex/ai/iterative.ts", "rg -q 'decideInputMode' convex/generations.ts", "rg -q 'CONDENSE_VERSION' convex/transcriptDigests.ts", npx vitest run convex/ai/condenseAgent.test.ts convex/transcriptDigests.test.ts]
 title: "Over-budget transcript sets are condensed to stored, reusable, provenance-linked digests before the prompt program runs"
 plan: 20260903-client-sync
-updated: "2026-09-03T21:17:39.898Z"
+updated: "2026-09-04T09:19:44.519Z"
+ui: false
+run: 20260904-083708-2-tickets
+branch: factory/transcripts-7-condense-digests
+merged: 5c4211c
+verdict: test-verified
+evidence: .audit/transcripts-7-condense-digests/evidence.md
+deferred: ["A 20-transcript project cannot condense inside one action: 20 windows at concurrency 4 is 5 waves x 120s = 600s against 540s remaining, so fitsCondenseBudget rejects it before any provider call. The ticket's recorded follow-up applies: one scheduled condense action per transcript via @convex-dev/workflow, with a continuation back into generateReport.", "Digest reuse is keyed on transcriptId, so a transcript copied by reference (createProject fromTranscriptId, reviewFromProject) condenses again although sourceContentHash already identifies the bytes. Validation-2 low; the index laid down in transcripts-1 leads with transcriptId, so changing it is a schema change.", "The condense pre-check reserves RESERVED_NON_REQUEST_MS (60s) for everything after condensation, but the Brain retrieval brief that follows is itself a provider call with a 240s timeout. The reserve is the ticket's number, not a measured one.", "convex/_generated/api.d.ts was edited by hand (three modules registered) because npx convex codegen needs CONVEX_DEPLOYMENT and project access, which this worktree has neither of. Re-run codegen on a machine with the deployment configured to confirm byte equality.", "describeTranscriptInput still reports the full transcript word count in digest mode; architecture.md's richer line (\"... 312,000 chars, over the 200,000 budget\") was left to whoever owns that helper, since no acceptance criterion here pins it."]
 ---
 ## Intent
 A two-hour transcript or several transcripts exceed what the model handles well. When the combined frozen transcript text exceeds `budgetChars`, each transcript is reduced by one structured Sonnet call to a digest that keeps the SR&ED facts (who/what/when, technological uncertainties, hypotheses, experiments, results, dates, numbers, names, verbatim key quotes). Digests are stored, keyed by transcript content, reused on regeneration, frozen as `transcript_digest` source rows, and the generation says `inputMode: "digest"` with `digestIds`. Below budget nothing changes. The maintainer inherits three constants in the prompt program, one condensation module shared by the compare and iterative flows, and a digest table they can open to see exactly what the model read.
