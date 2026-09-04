@@ -1,0 +1,6 @@
+{
+  "missing": [],
+  "extra": [
+    "shared/**/*.ts"
+  ]
+}

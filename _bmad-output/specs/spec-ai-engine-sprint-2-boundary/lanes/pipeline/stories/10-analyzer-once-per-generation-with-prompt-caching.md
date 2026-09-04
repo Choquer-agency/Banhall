@@ -2,10 +2,10 @@
 title: 'Analyzer once per generation with prompt caching'
 type: 'feature'
 created: '2026-09-04'
-status: ready-for-dev
-baseline_revision: 'ffd761de7d7fe59e4f111d374f663775d68dfb0d'
+status: done
+baseline_revision: '0f5bd6b1c9161d2da7f4e828976177fe6f87003a'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - convex/_generated/ai/guidelines.md
   - .factory/AGENTS.factory.md
@@ -80,6 +80,10 @@ deferred:
 
 ## Spec Change Log
 
+- 2026-09-04: The coordinated standard full suite and typecheck subsequently passed, recorded in `36772c9c3490bc360b628a60a251b9a5f211b807`. This follow-up review clarifies historical pending labels and evidence provenance; runtime and tests remain unchanged.
+
+- 2026-09-04: Rearmed verification at `0f5bd6b1c9161d2da7f4e828976177fe6f87003a`, distinct from reviewed implementation `47f5f0a95b03f1965c0431650d9386c5a2c78e56` and original reproduction baseline `f122b086d745acc40b4decca26b9aaafc7257f6a`. Implementation behavior is unchanged; current focused proof passed, with coordinated full-suite and typecheck gates pending.
+
 - 2026-09-04: Added explicit root-relative TypeScript includes after normal Vitest failed with `TSCONFIG_ERROR`; all generated SvelteKit include coverage is preserved and shared modules are added. No runtime behavior or feature scope changed.
 
 ## Review Triage Log
@@ -134,6 +138,55 @@ Four independent review layers found no material intent divergence. The existing
 
 Four review layers found no runtime gap. Twelve documentation suggestions were deduplicated into ten low-severity corrections. No implementation or test edits were needed; existing deferred entries remain unchanged.
 
+### 2026-09-04: Coordinated native verification review
+- intent_gap: 0
+- bad_spec: 0
+- patch: 9: (high 0, medium 0, low 9)
+- defer: 0
+- reject: 3: (high 0, medium 0, low 3)
+- addressed_findings:
+  - `[low]` `[patch]` Update the current verification baseline while preserving historical revision records.
+  - `[low]` `[patch]` Limit the pre-gate completion claim to implemented behavior.
+  - `[low]` `[patch]` Include the ignored native focused log in the final reviewed artifact.
+  - `[low]` `[patch]` Replace ambiguous parent evidence references with direct current evidence links.
+  - `[low]` `[patch]` Record worktree-local dependency resolution and the Vitest version.
+  - `[low]` `[patch]` Preserve the generated TypeScript include comparison output.
+  - `[low]` `[patch]` Distinguish the current status from the historical verification block.
+  - `[low]` `[patch]` Record the rearm baseline transition in the Spec Change Log.
+  - `[low]` `[patch]` Preserve the baseline file comparison supporting the absence of runtime and test edits.
+
+All four review layers completed. Edge-case and verification-gap reviewers found no gaps. The intent auditor confirmed that the existing real entry/candidate tests exercise the requested orchestration and stubbed provider surfaces. The implementation is inherited from the baseline; this pass verifies it. Pending gate execution was already explicitly acknowledged, and aggregate focused output together with source inspection establishes that the unskipped matrix tests ran. No new deferred items were added.
+
+### 2026-09-04: Fresh evidence review
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7: (high 0, medium 0, low 7)
+- defer: 0
+- reject: 3: (high 0, medium 0, low 3)
+- addressed_findings:
+  - `[low]` `[patch]` Correct the pending acceptance-map label and identify pre-gate evidence as a historical snapshot.
+  - `[low]` `[patch]` Record the subsequent successful gates in the story change log.
+  - `[low]` `[patch]` Label the two-log staging inventory as the pre-gate inventory.
+  - `[low]` `[patch]` Preserve an executable include-comparison procedure and its fresh output.
+  - `[low]` `[patch]` Supplement tracked-file comparison with current working-tree and untracked-file inventory.
+  - `[low]` `[patch]` Record current verification commands, exit codes and starting revision, including final whitespace verification.
+  - `[low]` `[patch]` Identify the commit containing the four prior verification logs.
+
+All four review layers completed. Edge-case and verification-gap reviews found no gaps; the intent auditor found no material divergence. Related stale-label findings were deduplicated. Existing deferred entries remain untouched and no new entries were added.
+
+### 2026-09-04: Completion review
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 1: (high 0, medium 0, low 1)
+- defer: 0
+- reject: 9: (high 0, medium 0, low 9)
+- addressed_findings:
+  - `[low]` `[patch]` State dependency installation and SvelteKit synchronization prerequisites for reproducing the generated-include comparison from a clean checkout.
+
+All four review layers completed. Edge-case and verification reviewers found no gaps; the intent auditor found no material divergence. The finalization below restores the terminal result removed before invocation. No runtime or test changes were needed. Existing deferred entries remain untouched.
+
 ## Design Notes
 
 Pass serialized analysis in an optional internal action argument to avoid a new database query surface and retain old queued payloads. Parse using the analyzer's runtime contract. The normal fanout never invokes the fallback. One analyzer run means one logical invocation; existing structured-output repair and SDK retry behavior remains in place on malformed responses or transport errors.
@@ -145,4 +198,21 @@ Pass serialized analysis in an optional internal action argument to avoid a new 
 - `PUBLIC_CONVEX_URL=http://localhost npm run check`
 - `git diff --check`
 
+## Auto Run Result
 
+Status: done.
+
+The inherited implementation analyzes compare input once, persists validated analysis before candidate fanout, and marks generation-owned direct Anthropic prefixes for caching. This pass clarifies verification prerequisites and restores the story's terminal result.
+
+Files changed in this pass:
+
+- This story: completion review, terminal status and result.
+- `.audit/CAP-10/evidence.md`: clean-checkout prerequisites and fresh verification outcomes.
+- `.audit/CAP-10/decisions.tsv`: append-only review decision.
+- Three `.audit/CAP-10/review-4d413b9-*.log` files: focused tests, full suite and typecheck output.
+
+Review: one low documentation patch, zero new deferred items, nine rejected suggestions. Follow-up review recommended: false; patched high 0, medium 0, low 1, score 1.
+
+Verification at starting revision `4d413b9413730e8291380bf84e913ed0804a2694` plus documentation edits: focused tests passed (27 tests), `npm test` passed (1376 tests), `PUBLIC_CONVEX_URL=http://localhost npm run check` passed (zero errors and warnings), and `git diff --check` passed. Evidence and native logs are retained under `.audit/CAP-10/`.
+
+Residual risks: stubbed tests do not establish live provider cache hits. Existing deferred entries remain unchanged. No push, PR or deployment performed.
