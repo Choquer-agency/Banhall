@@ -128,7 +128,7 @@ function observingPipelineClientFactory(calls: ObservedPipelineCall[]) {
 
 type OpenRouterRequest = {
   messages?: Array<{ role?: string; content?: string }>;
-  tool_choice?: { function?: { name?: string } };
+  tool_choice?: { function?: { name?: string }; name?: string };
 };
 
 function successfulOpenRouterFetch(requests: OpenRouterRequest[]) {
@@ -138,7 +138,15 @@ function successfulOpenRouterFetch(requests: OpenRouterRequest[]) {
     }
     const request = JSON.parse(init.body) as OpenRouterRequest;
     requests.push(request);
-    const toolName = request.tool_choice?.function?.name;
+    const toolName = request.tool_choice?.function?.name ?? request.tool_choice?.name;
+    // Entry analysis can use the direct Anthropic model. Return its real
+    // response envelope so analyzer validation succeeds for both gateways.
+    if (request.tool_choice?.name) {
+      return new Response(JSON.stringify({
+        ...generationResponseFor(toolName),
+        usage: { input_tokens: 0, output_tokens: 0 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     const response = generationResponseFor(toolName);
     const tool = response.content.find((block) => block.type === "tool_use");
     return new Response(
@@ -2196,7 +2204,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
         "Context budget (100 tokens) shortened notes.md.",
       );
 
-      if (candidateMode === "iterative") {
+      {
         const userText = analyzerUserTextOf(requests);
         expect(userText).toContain(
           `--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\n${CANDIDATE_DOCUMENT_BODY.slice(0, 4)}\n[TRUNCATED: 38 of 42 characters omitted to fit the context budget.]\n--- END`,
@@ -2312,7 +2320,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
       });
       expect(documentRow.contextBudget?.included).toBe(true);
 
-      if (candidateMode === "iterative") {
+      {
         const userText = analyzerUserTextOf(requests);
         expect(userText).toContain(
           `--- BEGIN [INTERVIEW TRANSCRIPT] ---\n${DIGEST_TEXT}\n--- END [INTERVIEW TRANSCRIPT] ---`,
@@ -2344,10 +2352,8 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
       // that must have landed by the time the action returns.
       await t.action(action, { generationId });
 
-      if (candidateMode === "iterative") {
-        // The iterative flow calls the analyzer itself (one-shot delegates to
-        // generateCandidate, fenced above): the message it sends must be the
-        // trusted-context one, not the raw joined transcript.
+      {
+        // Both entry flows analyze once using the trusted frozen context.
         const userText = analyzerUserTextOf(requests);
         expect(userText).toContain(CONTEXT_INPUTS_GUIDANCE);
         expect(userText).toContain("--- BEGIN [INTERVIEW TRANSCRIPT] ---");

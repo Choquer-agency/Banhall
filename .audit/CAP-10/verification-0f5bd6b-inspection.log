@@ -1,0 +1,14 @@
+Baseline: 0f5bd6b1c9161d2da7f4e828976177fe6f87003a
+Command: require.resolve("vitest/package.json") and package version
+Resolved: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/vitest/package.json
+Version: 4.1.10
+Worktree-local: true
+Command: read-only TypeScript include rebase comparison
+Generated rebased includes: [".svelte-kit/ambient.d.ts",".svelte-kit/env.d.ts",".svelte-kit/non-ambient.d.ts",".svelte-kit/types/**/$types.d.ts","vite.config.js","vite.config.ts","src/**/*.js","src/**/*.ts","src/**/*.svelte","test/**/*.js","test/**/*.ts","test/**/*.svelte","tests/**/*.js","tests/**/*.ts","tests/**/*.svelte"]
+Missing generated includes: []
+Additional root includes: ["shared/**/*.ts"]
+Comparison: PASS
+Command: git diff 0f5bd6b1c9161d2da7f4e828976177fe6f87003a --name-only
+.audit/CAP-10/decisions.tsv
+.audit/CAP-10/evidence.md
+_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/pipeline/stories/10-analyzer-once-per-generation-with-prompt-caching.md

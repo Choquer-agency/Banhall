@@ -546,4 +546,10 @@ location: convex/reviews.ts:40;convex/reviews.ts:200
 source_spec: `9-review-artifacts-pinned-to-revision-and-content-hash.md`
 severity: medium
 reason: submitWriterReview and saveQaItemFeedback accept target IDs without an expected revision or content hash. Existing callers may submit after another actor edits the report. CAP-9 preserves these public call shapes and records the current mutation-time target; caller observation fencing remains a separate existing workflow limitation.
+### DW-46: End-to-end provider chains can exceed the Convex action deadline; shared analysis now joins the entry chain, as it already does in iterative generation.
+origin: spec-deferred 5e1fa4cb0ca5
+location: convex/ai/pipeline.ts:679
+source_spec: `10-analyzer-once-per-generation-with-prompt-caching.md`
+severity: medium
+reason: convex/ai/condense.ts:124-139 reserves only non-request time after condensation. Brain retrieval and analysis then execute sequentially. convex/ai/providers.ts:32-48 explicitly documents that provider timeout bounds apply to one slot rather than a complete action; stale-generation recovery remains the fallback. Durable per-phase scheduling is a broader existing pipeline limitation.
 status: open

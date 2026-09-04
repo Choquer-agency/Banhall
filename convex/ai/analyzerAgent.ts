@@ -88,6 +88,11 @@ const analysisSchema: z.ZodType<TranscriptAnalysis> = z.object({
   useful_quotes: z.array(z.string()).default([]),
 });
 
+/** Validate serialized analysis from a durable generation handoff. */
+export function parseTranscriptAnalysis(json: string): TranscriptAnalysis {
+  return analysisSchema.parse(JSON.parse(json));
+}
+
 export const ANALYZER_REQUEST = {
   userScaffolds: CONTEXT_SCAFFOLDS,
   roleOrder: ["system", "user"],

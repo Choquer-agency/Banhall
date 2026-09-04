@@ -3,6 +3,7 @@ title: Bound verification worker resource use
 type: bugfix
 created: 2026-09-04
 status: in-progress
+status: done
 review_loop_iteration: 0
 baseline_commit: 6cc8c41ef9b00886fd48cfb2df61d7029e55f900
 context: []
@@ -39,6 +40,8 @@ context: []
 **Execution:**
 - [ ] `vitest.config.ts`: cap workers at two in the common test config with a comment explaining concurrent native worktree resource use.
 - [ ] `.audit/bmad-verification-fix/`: capture baseline, normal npm test, complete native gate, and review evidence.
+- [x] `vitest.config.ts`: cap workers at two in the common test config with a comment explaining concurrent native worktree resource use.
+- [x] `.audit/bmad-verification-fix/`: capture baseline, normal npm test, complete native gate, and review evidence.
 
 **Acceptance Criteria:**
 - Given installed dependencies in this worktree, when normal npm test runs, then every existing test project runs and passes without a scanner timeout.
@@ -50,6 +53,7 @@ context: []
 ## Design Notes
 
 The cap applies to the global pool rather than independently increasing per-project parallel demand. Two workers is the previously successful recovery bound. It trades some isolated-suite throughput for reliable concurrent native runs. CLI overrides remain available for intentional local experimentation. The repeated source parse is a legitimate contract assertion and should remain fully exercised.
+The cap applies to the common pool within each Vitest invocation. Aggregate workers still increase with active worktrees; this does not cap individual-worker memory. Two workers reproduced a passing normal suite in this checkout after the unrestricted baseline failed. It trades some isolated-suite throughput for reliable concurrent native runs. CLI overrides remain available for intentional local experimentation. The repeated source parse is a legitimate contract assertion and should remain fully exercised.
 
 ## Verification
 
@@ -63,3 +67,17 @@ Approval: user delegated verification repairs and routine implementation choices
 ## Chat-spend recovery application
 
 Applied the schema lane's independently reviewed dedicated source-audit timeout repair (f009b43) after the standard command repeatedly exceeded the five-second source-parser budget. Assertions and test selection are unchanged; the audit is selected once with a 30-second limit and the existing worker cap remains. This recovery base awaits serial native dev, review and final verification. Earlier passing logs certify their recorded historical revisions only.
+## Verification Results
+
+Baseline `6cc8c41ef9b00886fd48cfb2df61d7029e55f900`: normal `npm test` failed only the source scanner at its 5,000 ms deadline (1,357 passed, one failed). Patch `8168e20a13d8ccd79903d4e0dc05a713ee3470f1`: normal `npm test` passed 127 files and 1,358 tests in 49.04 seconds. The complete `bash scripts/loop-verify.sh` then exited 0: Convex tsc passed, Svelte checking reported zero errors/warnings, all 1,358 tests passed again in 82.25 seconds, and PowerShell/Bash uploader harnesses passed 50/18 cases. Other native checks were concurrently active; these timings are observations rather than a controlled resource benchmark.
+
+Independent BMAD blind, edge-case, and verification-gap reviews completed. Evidence wording was qualified; edge-case and verification-gap reviewers found no remaining issues. All existing deadlines, test selection, and assertions remain unchanged. Detailed local evidence: `.audit/bmad-verification-fix/{baseline-test.log,post-change-test.log,native-gate-complete.log,evidence.md,review.md}`.
+
+## Suggested Review Order
+
+- Bound concurrent workers for every existing unit-test project.
+  [vitest.config.ts:14](../../vitest.config.ts#L14)
+
+## Pipeline recovery application
+
+Applied the independently reviewed two-worker cap and the schema lane's focused source-audit timeout repair (f009b43) to this pinned recovery base. The prior unmodified pipeline gate still lacked the committed worker cap. The source audit remains selected exactly once, with its assertions unchanged; only its parse-heavy suite has a 30-second timeout. This recovery is pending the native dev, independent review, and final deterministic gate. Historical passing evidence above belongs to the original repair worktree and does not certify this pipeline revision.
