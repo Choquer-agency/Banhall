@@ -59,13 +59,14 @@ export const ANTHROPIC_TIMEOUT_MS = 240_000;
  * Worst-case count of provider calls that run one after another in wall time
  * inside a single generateCandidate action (pipeline.ts, runPipelineForModel).
  * Calls that run in parallel share a slot because their wall time overlaps:
- *   1. analyzer
+ *   1. analyzer (legacy queued payloads only; new fanout shares entry analysis)
  *   2. section drafts 242 / 244 / 246 (Promise.all: one slot)
  *   3. compression pass 1 (compressToFit, parallel across sections: one slot)
  *   4. compression pass 2 (the 0.85 squeeze, parallel across sections: one slot)
  *   5. QA scorecard + chronology (Promise.allSettled: one slot)
  * Slots 3 and 4 only run for sections still over the CRA form limit, so the
- * typical chain is shorter; the budget must hold for the worst case.
+ * typical chain is shorter. New candidates have four slots at most, but
+ * retain the five-slot bound while legacy queued payloads remain supported.
  */
 export const SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE = 5;
 

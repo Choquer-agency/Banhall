@@ -74,3 +74,9 @@ Independent BMAD blind, edge-case, and verification-gap reviews completed. Evide
 ## Learn-chat recovery application
 
 Applied the schema lane's independently reviewed source-audit timeout repair (f009b43) to the pinned recovery base after the source parser exceeded its five-second default during story 3 verification. The audit remains selected exactly once with unchanged assertions; only this parse-heavy suite has a 30-second budget. The two-worker cap remains. The resumed native story queue must verify the resulting configuration using the standard gate, without command-line timeout overrides. Historical evidence belongs to its original revision.
+
+## Pipeline recovery application
+
+Applied the independently reviewed two-worker cap and the schema lane's focused source-audit timeout repair (f009b43) to this pinned recovery base. The prior unmodified pipeline gate still lacked the committed worker cap. The source audit remains selected exactly once, with its assertions unchanged; only its parse-heavy suite has a 30-second timeout. This recovery is pending the native dev, independent review, and final deterministic gate. Historical passing evidence above belongs to the original repair worktree and does not certify this pipeline revision.
+
+Pipeline follow-up: native run `20260904-121631-a914` subsequently completed story10 with both development and two independent review passes, final accepted commit `f9389a46d26d1a45efe1645e4b965eb3cf40da8a`. Its pending wording above records the recovery-entry state; native acceptance is now preserved in `.audit/native-completions/pipeline/native-proof.json`.

@@ -7,7 +7,7 @@ import { v } from "convex/values";
 import { instrumentedAnthropic } from "./instrument";
 import { clientForModel } from "./providers";
 import type { GenerationClient } from "./openrouterCore";
-import { runAnalyzerAgent } from "./analyzerAgent";
+import { runAnalyzerAgent, parseTranscriptAnalysis, type TranscriptAnalysis } from "./analyzerAgent";
 import {
   buildTrustedContext,
   DEFAULT_CONTEXT_BUDGET,
@@ -23,7 +23,7 @@ import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
 import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
-import { CANDIDATE_MODELS, candidateModelsForMode } from "./model";
+import { MODEL, CANDIDATE_MODELS, candidateModelsForMode } from "./model";
 import { normalizeProviderError } from "./providers";
 import { buildTiptapDocument } from "../lib/tiptapReport";
 import {
@@ -221,9 +221,8 @@ export function toContextDocs(
  * The analyzer's user message for one frozen generation input.
  *
  * Deterministic in the frozen rows and the budget resolved by
- * `getGenerationInput`, so `generateReport` (which records the outcome) and
- * each `generateCandidate` (which only sends it) build identical bytes without
- * carrying a multi-hundred-KB string through the scheduler payload.
+ * `getGenerationInput`. Entry actions record and send it once; legacy queued
+ * candidates rebuild it only when no shared analysis was supplied.
  */
 export function buildAnalyzerContext(input: {
   transcriptParts: TrustedTranscriptPart[];
@@ -360,14 +359,15 @@ export async function runPipelineForModel(
   qaCalibrationDigestId?: Id<"learningDigests">,
   draftStyleDigestId?: Id<"learningDigests">,
   writerFlavor?: string,
-  styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES
+  styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES,
+  sharedAnalysis?: TranscriptAnalysis
 ): Promise<{
   content: string;
   agentOutputs: string;
   qaScore: number | null;
   claimDrafts: ProvenanceDraft[];
 }> {
-  const analysis = await runAnalyzerAgent(
+  const analysis = sharedAnalysis ?? await runAnalyzerAgent(
     anthropicFor("generation:analyzer"),
     analyzerUserMessage,
     modelId,
@@ -581,8 +581,7 @@ export const generateReport = internalAction({
 
       // Bound and delimit what the analyzer sees, once per generation, and
       // record the outcome on the frozen rows before any candidate fans out.
-      // Each candidate rebuilds the identical message from the same frozen
-      // input; only the recording happens here.
+      // The validated result is handed to every candidate below.
       const analyzerContext = buildAnalyzerContext(input);
       await recordContextBudget(ctx, genId, analyzerContext.report);
       // Report what the budget actually kept, not what was frozen: a writer
@@ -672,6 +671,35 @@ export const generateReport = internalAction({
 
       const { writerFlavor, styleOverrides } = await writerStylePromise;
 
+      // Compare analysis uses the default model, independent of pair order.
+      // Single mode preserves its selected model, as in iterative generation.
+      const analysisModel = input.candidateMode === "compare"
+        ? MODEL
+        : candidateModels[0]?.id ?? MODEL;
+      await log("Analyzing the transcript once for all candidate drafts.");
+      const analysis = await runAnalyzerAgent(
+        clientForModel(ctx, analysisModel, {
+          callSite: "generation:analyzer",
+          projectId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+          attribution: { generationId: genId },
+        }),
+        analyzerContext.userMessage,
+        analysisModel,
+        brainBlocks.analyzer
+      );
+      const serializedAnalysis = JSON.stringify(analysis);
+      await ctx.runMutation(internal.generations.saveIterativeArtifacts, {
+        generationId: genId,
+        analysis: serializedAnalysis,
+        brainBlocks: JSON.stringify({
+          blocks: brainBlocks,
+          styleGuidance: buildStyleGuidance(draftStyle, writerFlavor, styleOverrides ?? NO_STYLE_OVERRIDES),
+          ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
+          styleOverrides: styleOverrides ?? NO_STYLE_OVERRIDES,
+        }),
+      });
+
       const candidateLabel =
         candidateModels.length === 1 ? "candidate draft" : "candidate drafts";
       await log(
@@ -694,9 +722,9 @@ export const generateReport = internalAction({
             candidateRunId,
             generationId: genId,
             brainExemplars: brainBlocks,
-            // The budget the report above was recorded under, so every
-            // candidate sends the bytes the frozen rows describe even if an
-            // admin retunes the settings mid-generation.
+            analysis: serializedAnalysis,
+            // Retained for legacy analyzer fallback compatibility; shared
+            // analysis already reflects this recorded frozen-context budget.
             contextBudget: analyzerContext.report.budget,
             ...(qaCalibration ? { qaCalibration } : {}),
             ...(draftStyle ? { draftStyle } : {}),
@@ -725,6 +753,7 @@ export const generateCandidate = internalAction({
   args: {
     candidateRunId: v.id("generationCandidateRuns"),
     generationId: v.id("generations"),
+    analysis: v.optional(v.string()),
     brainExemplars: v.object({
       analyzer: v.string(),
       s242: v.string(),
@@ -774,15 +803,21 @@ export const generateCandidate = internalAction({
         },
       });
     try {
+      const sharedAnalysis = args.analysis === undefined
+        ? undefined
+        : parseTranscriptAnalysis(args.analysis);
+      const analyzerUserMessage = sharedAnalysis === undefined
+        ? buildAnalyzerContext({
+            ...input,
+            contextBudget: args.contextBudget ?? input.contextBudget,
+          }).userMessage
+        : "";
       const { content, agentOutputs, qaScore, claimDrafts } =
         await runPipelineForModel(
           clientFor,
           run.model,
           input.transcript,
-          buildAnalyzerContext({
-            ...input,
-            contextBudget: args.contextBudget ?? input.contextBudget,
-          }).userMessage,
+          analyzerUserMessage,
           input.title,
           args.brainExemplars,
           input.lengthTarget,
@@ -791,7 +826,8 @@ export const generateCandidate = internalAction({
           args.qaCalibrationDigestId,
           args.draftStyleDigestId,
           args.writerFlavor,
-          normalizeStyleOverrides(args.styleOverrides)
+          normalizeStyleOverrides(args.styleOverrides),
+          sharedAnalysis
         );
       const claims = await Promise.all(
         claimDrafts.map(async (claim) => {
