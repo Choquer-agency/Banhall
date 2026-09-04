@@ -22,7 +22,7 @@ import {
   requireInternalProjectAccess,
 } from "./lib/auth";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
-import { pruneSnapshots, snapshotAuditFields } from "./lib/snapshots";
+import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import {
   applyReplacements,
@@ -466,27 +466,10 @@ export const applyProposal = mutation({
     const content = JSON.stringify(updated);
     const revisionNumber = report.revisionNumber ?? 0;
     const now = Date.now();
-    const auditFields = await snapshotAuditFields(ctx, report);
-    // Provenance for version history. The research layer owns the evidence
-    // policy (brain patterns never count) and stored the number at review time.
-    const researchSourceCount = proposal.researchSessionId
-      ? ((await ctx.db.get(proposal.researchSessionId))?.evidenceSourceCount ?? 0)
-      : 0;
-    await ctx.db.insert("reportSnapshots", {
-      projectId: report.projectId,
-      reportId: report._id,
-      content: report.content,
-      ...auditFields,
-      sourceRevisionNumber: revisionNumber,
-      reason: "pre_chat_edit",
-      label: proposal.researchSessionId ? "Before researched edit" : "Before AI edit",
-      createdByRole: "system",
+    await writePreEditSnapshot(ctx, report, "pre_chat_edit", {
       createdAt: now,
       ...(proposal.researchSessionId
-        ? {
-            researchSessionId: proposal.researchSessionId,
-            researchSourceCount,
-          }
+        ? { researchSessionId: proposal.researchSessionId }
         : {}),
     });
     await ctx.db.patch(report._id, {
@@ -583,18 +566,7 @@ export const markProposalApplied = mutation({
     }
 
     const now = Date.now();
-    const auditFields = await snapshotAuditFields(ctx, report);
-    await ctx.db.insert("reportSnapshots", {
-      projectId: report.projectId,
-      reportId: report._id,
-      content: report.content,
-      ...auditFields,
-      sourceRevisionNumber: revisionNumber,
-      reason: "pre_chat_edit",
-      label: "Before AI edit",
-      createdByRole: "system",
-      createdAt: now,
-    });
+    await writePreEditSnapshot(ctx, report, "pre_chat_edit", { createdAt: now });
     await ctx.db.patch(report._id, {
       content: args.content,
       contentHash: await sha256(args.content),
