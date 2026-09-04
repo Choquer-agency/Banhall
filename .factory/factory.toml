@@ -15,6 +15,8 @@ max_dev_attempts = 2          # fresh implementer sessions per ticket
 max_fix_loops = 4             # gates → evidence → review → external → qa, each failure = one fix session
 stall_min = 10                # no output from a session for this long → kill + retry (fallback model if it was a quota)
 session_timeout_min = 120
+quota_wait_min = 30           # every model in a role's fallback chain reported a usage limit: wait, then walk the chain again
+quota_rounds = 6              # waits per session before the ticket escalates (6 x 30 min = 3 h)
 merge_strategy = "merge"      # merge | ff | squash
 keep_branches = false
 min_verdict = "test-verified" # unproven | typecheck-only | test-verified | live-verified. QA's verdict must reach this or the fix loop continues
