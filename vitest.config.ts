@@ -11,6 +11,8 @@ export default defineConfig({
     },
   },
   test: {
+    // Bound resource use when native verification runs in concurrent worktrees.
+    maxWorkers: 2,
     projects: [
       {
         extends: true,
