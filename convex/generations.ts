@@ -1611,7 +1611,18 @@ export const getIterativeSectionInput = internalQuery({
   },
 });
 
-/** Input bundle for the post-assembly QA pass (iterative reports). */
+/** Capture the active attempt even when there is no report prose to evaluate. */
+export const getPostQaAttempt = internalQuery({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    return generation?.postQaStatus === "running"
+      ? { startedAt: generation.postQaStartedAt ?? null }
+      : null;
+  },
+});
+
+/** Input bundle for the post-assembly QA pass over the current report. */
 export const getPostQaInput = internalQuery({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
@@ -1736,6 +1747,7 @@ export const getPostQaInput = internalQuery({
 export const saveReportQa = internalMutation({
   args: {
     generationId: v.id("generations"),
+    attemptStartedAt: v.optional(v.union(v.number(), v.null())),
     capturedRef: v.optional(v.object({ reportId: v.id("reports"), revisionNumber: v.number(), contentHash: v.string() })),
     qa: v.optional(v.string()),
     chronology: v.optional(v.string()),
@@ -1745,12 +1757,23 @@ export const saveReportQa = internalMutation({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return;
+    // A delayed completion must not settle a replacement attempt or overwrite
+    // results that have already completed, even when the report is unchanged.
+    if (args.attemptStartedAt !== undefined &&
+      (generation.postQaStatus !== "running" ||
+        (generation.postQaStartedAt ?? null) !== args.attemptStartedAt)) return;
     const report = await ctx.db.query("reports")
       .withIndex("by_generationId", q => q.eq("generationId", generation._id)).first();
     if (args.capturedRef) {
-      if (!report) return;
-      const current = await reportQaRef(report);
-      if (current.reportId !== args.capturedRef.reportId || current.revisionNumber !== args.capturedRef.revisionNumber || current.contentHash !== args.capturedRef.contentHash) return;
+      const current = report ? await reportQaRef(report) : null;
+      if (!current || current.reportId !== args.capturedRef.reportId || current.revisionNumber !== args.capturedRef.revisionNumber || current.contentHash !== args.capturedRef.contentHash) {
+        // Only an identified active attempt may release the retry lock. Its
+        // stale scorecard and chronology never become current evidence.
+        if (args.attemptStartedAt !== undefined) {
+          await ctx.db.patch(generation._id, { postQaStatus: "failed" });
+        }
+        return;
+      }
     }
     if (report) {
       await persistDeterministicFindings(ctx, report._id);
@@ -1835,12 +1858,14 @@ export const requestReportQa = mutation({
     // Idempotent: a pass already in flight keeps running across panel
     // close/reopen — never double-spend the API call.
     if (generation.postQaStatus === "running") return null;
+    const attemptStartedAt = Math.max(Date.now(), (generation.postQaStartedAt ?? 0) + 1);
     await ctx.db.patch(generation._id, {
       postQaStatus: "running",
-      postQaStartedAt: Date.now(),
+      postQaStartedAt: attemptStartedAt,
     });
     await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
       generationId: generation._id,
+      attemptStartedAt,
     });
     return null;
   },
@@ -2232,6 +2257,7 @@ export const approveSectionDraft = mutation({
     });
     await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
       generationId: generation._id,
+      attemptStartedAt: doneAt,
     });
     return reportId;
   },

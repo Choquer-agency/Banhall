@@ -278,3 +278,31 @@ describe("CAP-8 review regressions", () => {
     expect(await rows(copied)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(copied)), check: "because_clause", blocking: true })]));
   });
 });
+
+
+describe("CAP-8 extraction bypass regressions", () => {
+  test.each(["punctuated", "renamed", "removed", "nested"])("%s uncertainty headings retain blocking prose", async variant => {
+    const doc = buildTiptapDocument("Title", FAILURE, "Work.", "Knowledge.");
+    if (variant === "punctuated") doc.content[1] = { type: "heading", content: [{ type: "text", text: "Line 242 — Technological Uncertainty." }] };
+    if (variant === "renamed") doc.content[1] = { type: "heading", content: [{ type: "text", text: "Uncertainties" }] };
+    if (variant === "removed") doc.content.splice(1, 1);
+    const content = variant === "nested"
+      ? JSON.stringify({ type: "doc", content: [{ type: "blockquote", content: doc.content }] })
+      : JSON.stringify(doc);
+    const f = await setup(content);
+    await expectBlocked(f);
+    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
+    expect((await rows(f)).some(row => row.check === "because_clause" && row.blocking)).toBe(true);
+  });
+
+  test("legacy whitespace-only blank lines separate unrelated explanations", async () => {
+    const f = await setup("Line 242: Uncertainty\nIt was uncertain whether the alloy holds\n \t \nWe ran tests because evidence was needed.\nLine 244: Work\nTests.");
+    await expectBlocked(f);
+  });
+});
+
+
+test("legacy heading-like body sentences cannot hide uncertainty", async () => {
+  const f = await setup("Line 242: Uncertainty\nLine 244 — It was uncertain whether the alloy holds.\nLine 244: Work\nTests.");
+  await expectBlocked(f);
+});

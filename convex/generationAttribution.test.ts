@@ -19,6 +19,7 @@ import {
 } from "./ai/promptProgram";
 import schema from "./schema";
 import { sha256 } from "./lib/contracts";
+import { buildTiptapDocument } from "./lib/tiptapReport";
 import { NO_STYLE_OVERRIDES } from "../shared/styleOverrides";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -819,6 +820,108 @@ describe("generation payload provenance", () => {
     expect(JSON.stringify(qaRequest?.params)).toContain(
       "Do not flag supported technical detail as excessive.",
     );
+  });
+
+  it("settles stale QA without attribution and permits a fenced retry", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
+      await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
+      const input = await t.query(internal.generations.getPostQaInput, { generationId: fixture.generationId });
+      if (!input) throw new Error("Missing QA input");
+      const response = successfulOpenRouterFetch([], { why_how_why_intact: false });
+      let edited = false;
+      vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: { body?: unknown }) => {
+        if (!edited) {
+          edited = true;
+          await t.withIdentity({ subject: AUTH_ID }).mutation(api.reports.updateReportContent, {
+            reportId: input.capturedRef.reportId,
+            content: "Human corrected content",
+            expectedRevisionNumber: 0,
+          });
+        }
+        return response(url, init);
+      }));
+      await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId, attemptStartedAt: fixture.now });
+      expect((await t.run(ctx => ctx.db.get(fixture.generationId)))?.postQaStatus).toBe("failed");
+      expect(await t.run(ctx => ctx.db.query("qaFindings").collect())).not.toEqual(expect.arrayContaining([expect.objectContaining({ check: "cra_methodology" })]));
+      const beforeRetry = await t.run(ctx => ctx.db.get(fixture.generationId));
+      expect(JSON.parse(beforeRetry?.agentOutputs ?? "{}").qa).toBeUndefined();
+      vi.stubGlobal("fetch", successfulOpenRouterFetch([], { why_how_why_intact: true }));
+      await t.withIdentity({ subject: AUTH_ID }).mutation(api.generations.requestReportQa, { generationId: fixture.generationId });
+      const retry = await t.run(ctx => ctx.db.get(fixture.generationId));
+      expect(retry?.postQaStatus).toBe("running");
+      expect(retry?.postQaStartedAt).toBeGreaterThan(fixture.now);
+      // A late failure from the old attempt cannot release the new retry lock.
+      await t.mutation(internal.generations.saveReportQa, {
+        generationId: fixture.generationId, attemptStartedAt: fixture.now,
+        capturedRef: input.capturedRef, failed: true,
+      });
+      expect(await t.run(ctx => ctx.db.get(fixture.generationId))).toEqual(retry);
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      const completed = await t.run(ctx => ctx.db.get(fixture.generationId));
+      expect(completed?.postQaStatus).toBe("done");
+      // Neither a duplicate old action nor its completion may overwrite success.
+      await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId, attemptStartedAt: fixture.now });
+      await t.mutation(internal.generations.saveReportQa, {
+        generationId: fixture.generationId, attemptStartedAt: fixture.now,
+        capturedRef: input.capturedRef, qa: JSON.stringify({ ...TEST_QA_SCORECARD, cra_compliance: { why_how_why_intact: false } }),
+      });
+      expect(await t.run(ctx => ctx.db.get(fixture.generationId))).toEqual(completed);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("settles empty QA input and recovers after content is restored", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
+      await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
+      const report = await t.run(ctx => ctx.db.query("reports").unique());
+      if (!report) throw new Error("Missing report");
+      await t.run(ctx => ctx.db.patch(report._id, { content: JSON.stringify({ type: "doc", content: [] }) }));
+      const fetch = successfulOpenRouterFetch([]);
+      vi.stubGlobal("fetch", fetch);
+      await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId, attemptStartedAt: fixture.now });
+      expect(fetch).not.toHaveBeenCalled();
+      expect((await t.run(ctx => ctx.db.get(fixture.generationId)))?.postQaStatus).toBe("failed");
+      await t.withIdentity({ subject: AUTH_ID }).mutation(api.reports.updateReportContent, {
+        reportId: report._id, content: "Restored prose", expectedRevisionNumber: 0,
+      });
+      await t.withIdentity({ subject: AUTH_ID }).mutation(api.generations.requestReportQa, { generationId: fixture.generationId });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      expect((await t.run(ctx => ctx.db.get(fixture.generationId)))?.postQaStatus).toBe("done");
+      expect(fetch).toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("iterative QA captures all current sections instead of frozen approved runs", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
+    const content = JSON.stringify(buildTiptapDocument("Current report", "Current uncertainty", "Current investigation", "Current advancement"));
+    const reportId = await t.run(async ctx => {
+      await ctx.db.patch(fixture.generationId, { candidateMode: "iterative" });
+      for (const kind of ["analysis", "brain_blocks"] as const) {
+        await ctx.db.insert("generationArtifacts", { generationId: fixture.generationId, kind, content: JSON.stringify(kind === "analysis" ? TEST_ANALYSIS : { styleOverrides: NO_STYLE_OVERRIDES }) });
+      }
+      for (const section of ["s242", "s244", "s246"] as const) {
+        await ctx.db.insert("generationSectionRuns", {
+          generationId: fixture.generationId, projectId: fixture.projectId, section,
+          status: "approved", approvedText: `Frozen approved ${section}`,
+          model: "openai/gpt-5.6-luna", label: "Luna", attempt: 1, queuedAt: fixture.now,
+        });
+      }
+      const report = await ctx.db.query("reports").unique();
+      if (!report) throw new Error("Missing report");
+      await ctx.db.patch(report._id, { content, revisionNumber: 3 });
+      return report._id;
+    });
+    const input = await t.query(internal.generations.getPostQaInput, { generationId: fixture.generationId });
+    expect(input?.section242.trim()).toBe("Current uncertainty");
+    expect(input?.section244.trim()).toBe("Current investigation");
+    expect(input?.section246.trim()).toBe("Current advancement");
+    expect(input?.capturedRef).toEqual({ reportId, revisionNumber: 3, contentHash: await sha256(content) });
   });
 
   it("post-QA provider methodology failures persist and block current readiness and publishing", async () => {

@@ -534,7 +534,6 @@ export default defineSchema({
   })
     .index("by_reportId_and_revisionNumber_and_contentHash_and_findingKey", ["reportId", "revisionNumber", "contentHash", "findingKey"])
     .index("by_reportId_and_contentHash_and_check_and_message_and_blocking", ["reportId", "contentHash", "check", "message", "blocking"])
-    .index("by_reportId_and_revisionNumber_and_contentHash_and_check_and_message", ["reportId", "revisionNumber", "contentHash", "check", "message"])
     .index("by_reportId_and_revisionNumber_and_contentHash_and_blocking", ["reportId", "revisionNumber", "contentHash", "blocking"]),
 
   reports: defineTable({

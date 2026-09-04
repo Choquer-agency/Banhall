@@ -105,3 +105,10 @@ test("preserves soft line wraps in legacy uncertainty explanations", () => {
   const sections = extractReportSections("Line 242 — Uncertainty\nIt was uncertain whether\nthe alloy holds because its response was unknown.\n\nNext paragraph.");
   expect(sections.s242.trim()).toBe("It was uncertain whether\nthe alloy holds because its response was unknown.\n\nNext paragraph.");
 });
+
+
+test("nested rich-text containers preserve actual section boundaries", () => {
+  const doc = buildTiptapDocument("Title", "Uncertainty.", "Work.", "Knowledge.");
+  const sections = extractReportSections(JSON.stringify({ type: "doc", content: [{ type: "blockquote", content: doc.content }] }));
+  expect(sections).toEqual({ s242: "Uncertainty.\n\n", s244: "Work.\n\n", s246: "Knowledge.\n\n" });
+});
