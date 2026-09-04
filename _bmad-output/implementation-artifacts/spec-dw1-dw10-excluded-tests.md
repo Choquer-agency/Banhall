@@ -2,7 +2,7 @@
 title: 'DW1 DW10 restore excluded legacy test coverage'
 type: 'bugfix'
 created: '2026-09-04'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 baseline_commit: 'c7075572f14e51433b524026db55d5520eddde03'
 context:
@@ -101,3 +101,7 @@ Three independent BMAD layers completed. Restored both original cross-paragraph 
 - Snapshot expectations match the implemented lineage contract.
   [snapshots.test.ts:132](../../tests/snapshots.test.ts#L132)
 
+
+## Integrated verification acceptance
+
+At integrated revision `717c75897cc04256c008a2ed42747df66f6fc6b5`, the standard `bash scripts/loop-verify.sh` exited 0: Convex typechecking passed, Svelte reported 0 errors and 0 warnings, all 1,726 tests in 148 files passed, and uploader harnesses passed 50 and 18 checks. Source changes from this repair are present in that ancestry; the merged snapshot tests separately passed 9 cases and integrated legacy/Unicode checks passed 233 cases. Evidence: `.audit/ledger-reconciliation/integrated-full-gate.log` and `integrated-repair-focused.log`. This supersedes the prior verification hold for this repair. Native original-story ledger closure, browser verification and remaining learning stories are tracked separately; no native run state was hand-edited.

@@ -2,7 +2,7 @@
 title: 'Boundary DW-33/DW-37/DW-40 Unicode marker repair'
 type: bugfix
 created: '2026-09-04'
-status: in-review
+status: done
 baseline_commit: c7075572f14e51433b524026db55d5520eddde03
 review_loop_iteration: 0
 context:
@@ -89,3 +89,7 @@ Candidate remains in-review pending root's native full verification gate. Focuse
   [trustedContext.test.ts:348](../../convex/ai/trustedContext.test.ts#L348)
 - Chat tests retain the full supported dash matrix at the second caller.
   [chatEvidence.test.ts:268](../../convex/ai/chatEvidence.test.ts#L268)
+
+## Integrated verification acceptance
+
+At integrated revision `717c75897cc04256c008a2ed42747df66f6fc6b5`, the standard `bash scripts/loop-verify.sh` exited 0: Convex typechecking passed, Svelte reported 0 errors and 0 warnings, all 1,726 tests in 148 files passed, and uploader harnesses passed 50 and 18 checks. Source changes from this repair are present in that ancestry; the merged snapshot tests separately passed 9 cases and integrated legacy/Unicode checks passed 233 cases. Evidence: `.audit/ledger-reconciliation/integrated-full-gate.log` and `integrated-repair-focused.log`. This supersedes the prior verification hold for this repair. Native original-story ledger closure, browser verification and remaining learning stories are tracked separately; no native run state was hand-edited.
