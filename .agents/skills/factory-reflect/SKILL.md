@@ -1,6 +1,6 @@
 ---
 name: factory-reflect
-description: Reflect role. Mines a finished factory run (events, findings files, review and QA reports, decision trails) for durable lessons and proposes edits: project skill-notes, config changes, new gates, structural encodings. Never applies anything itself. Runs from `factory reflect`.
+description: "Reflect role. Mines a finished factory run (events, findings files, review and QA reports, decision trails) for durable lessons and proposes edits: project skill-notes, config changes, new gates, structural encodings. Never applies anything itself. Runs from `factory reflect`."
 ---
 
 # factory-reflect

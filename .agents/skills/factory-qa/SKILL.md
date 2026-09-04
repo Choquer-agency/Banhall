@@ -1,6 +1,6 @@
 ---
 name: factory-qa
-description: QA role. Independently proves a ticket's change with runtime evidence (gates, ticket verification, smoke, reproduce-before/pass-after for bugs, live drive through .factory/verify when present), audits the implementer's evidence, and returns a verdict on the ladder (live-verified / test-verified / typecheck-only / unproven). Runs headless under a hard tool allowlist; can be invoked by hand with ticket=<path>. Returns {status, verdict, evidence_path, summary, checks}.
+description: "QA role. Independently proves a ticket's change with runtime evidence (gates, ticket verification, smoke, reproduce-before/pass-after for bugs, live drive through .factory/verify when present), audits the implementer's evidence, and returns a verdict on the ladder (live-verified / test-verified / typecheck-only / unproven). Runs headless under a hard tool allowlist; can be invoked by hand with ticket=<path>. Returns {status, verdict, evidence_path, summary, checks}."
 ---
 
 # factory-qa
@@ -27,7 +27,7 @@ Hard limits:
 2. **Ticket verification**: `## Verification`, `verify:`, `done_when:`. Level 4.
 3. **Smoke**: `smoke` commands relevant to the diff's surfaces. Level 4.
 4. **Criteria coverage**: for each acceptance criterion name the test that covers it, confirm it ran in 1–2 and read it to confirm it asserts that criterion. No covering test → `failed`. Level 4 when a real test asserts it, 2 when only pointed at.
-5. **Evidence audit**: every claim in the implementer's `evidence.md` must resolve: commit sha equals HEAD, named tests exist, tails match what you saw, ladder levels claimed are earned. A claim that does not hold → `failed` with the claim quoted.
+5. **Evidence audit**: every claim in the implementer's `evidence.md` must resolve: commit sha equals HEAD, named tests exist, tails match what you saw, ladder levels claimed are earned. A claim that does not hold → `failed` with the claim quoted. For a `ui: true` ticket, open each `*before*` / `*after*` image under `.audit/<key>/`: the app identity must be visible, the two must be the same surface, and the after must show the acceptance criterion. A screenshot that cannot be tied to a command in `## Live surface` is a failed claim.
 6. **Kind proof**: bug → rerun the reproduction at `baseline` (stash if needed, check out baseline, run, restore) and at HEAD; record failure then pass, level 5 if on the real surface. refactor → rerun the pin. perf → rerun the measurement once and compare to `## After` within noise.
 7. **Live drive** (only with a verify skill, or a hermetic harness already in the allowlist): launch, doctor, drive the mapped feature(s) the diff touches through the real user path, capture action and resulting state (screenshot with app identity visible, or CLI stdout/stderr/exit), verify side effects with a read-only second view, cleanup. Level 5. Shared or production data is never a fixture; record `skipped: shared-environment`.
 

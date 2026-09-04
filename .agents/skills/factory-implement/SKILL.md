@@ -1,11 +1,11 @@
 ---
 name: factory-implement
-description: Implementer role. Implements one ticket inside its worktree following the playbook for its kind (feature, bug, refactor, perf, chore), keeps a decision trail (decisions.tsv) and writes runtime evidence (evidence.md), runs the gates, commits. mode=fix addresses a findings file from gates, evidence, review, external review, QA verdict or done_when predicates. Runs headless from the factory engine; can be invoked by hand with ticket=<path>.
+description: "Implementer role. Implements one ticket inside its worktree following the playbook for its kind (feature, bug, refactor, perf, chore), keeps a decision trail (decisions.tsv) and writes runtime evidence (evidence.md), runs the gates, commits. mode=fix addresses a findings file from gates, evidence, review, external review, QA verdict or done_when predicates. Runs headless from the factory engine; can be invoked by hand with ticket=<path>."
 ---
 
 # factory-implement
 
-Arguments: `ticket=<path> worktree=. baseline=<sha> audit=.audit/<key> mode=implement|fix kind=feature|bug|refactor|perf|chore [attempt=n] [findings=<path>] verify='<cmd && cmd>'`.
+Arguments: `ticket=<path> worktree=. baseline=<sha> audit=.audit/<key> mode=implement|fix kind=feature|bug|refactor|perf|chore ui=yes|no [attempt=n] [findings=<path>] verify='<cmd && cmd>'`.
 
 You are inside a git worktree on branch `factory/<key>`. It is yours. Nothing outside it is.
 
@@ -16,6 +16,9 @@ Keep `<audit>/decisions.tsv`, tab-separated, header exactly `ts	phase	decision	w
 
 ## Throughput checkpoint (before the first edit, any kind)
 Write four rows into decisions.tsv, phase `plan`: blocking first steps; independent workstreams; shared mutable state you will touch; smallest safe decomposition. `n/a: <reason>` is a valid value. Name the data shape or organizing structure you will use before writing logic (model the domain).
+
+## Blast radius (before the first edit, any kind)
+For each symbol or contract you will change: `rg` its callers, the tests that cover them, and anything three hops downstream (wire formats, persisted data, other packages, scheduled jobs). Write one row `phase=plan decision=blast radius` listing the callers you will migrate and the ones you deliberately leave. A caller you did not list and did not migrate is a defect the reviewer will find.
 
 ## mode=implement, by kind
 
@@ -30,6 +33,13 @@ Write four rows into decisions.tsv, phase `plan`: blocking first steps; independ
 **kind=perf.** Capture a baseline measurement first (trace, timing, memory) with the exact command; median of at least 3 runs; record under `## Baseline`. Name the mechanism you expect to change. Change, re-measure the same way, record under `## After` with the delta. A change that does not move the metric past noise is reverted in full. Cite the artifact paths.
 
 **kind=chore.** Smallest change; gates green; evidence lists what was touched and the commands that prove nothing else changed.
+
+**ui=yes (any kind).** The proof a reviewer can see is a picture. Capture the surface before your change and after it, same viewport, same state, app identity visible: `<audit>/<name>-before.png` and `<audit>/<name>-after.png` (any image format; the words `before` and `after` in the file names are what the engine and the PR look for). Use `.factory/verify` when present, otherwise the project's browser harness or a one-off Playwright script. If the surface cannot be driven here, write `untested: <why>` under `## Live surface` and the exact command a human should run; do not fake a screenshot.
+
+## Write it clean (every kind)
+- **tdd where a cheap test path exists**: failing test, minimal code to pass, then refactor. Say in decisions.tsv when you skipped it and why.
+- **no narrating comments**: a comment survives only for a non-obvious why (a workaround, a constraint from outside the file, a link to the incident). Delete comments that restate the code, including ones you find nearby.
+- **unslop before commit**: re-read the diff as a stranger. Remove dead branches, defensive checks with no failing path, one-caller wrappers, `as any`, duplicated helpers the repo already has, and anything the ticket did not ask for. The diff should be smaller after this pass, not larger.
 
 ## Evidence file
 Write `<audit>/evidence.md`:
@@ -46,14 +56,14 @@ commit: <sha>   branch: <branch>   baseline: <sha>   date: <iso>   kind: <kind>
 ## Before / After            (bug: failing then passing repro output, verbatim)
 ## Pin / After               (refactor: the pin and the equivalence proof)
 ## Baseline / After          (perf: numbers, command, artifact paths, delta)
-## Live surface              (what you drove for real, screenshots/logs under <audit>/, or `untested: <why>`)
+## Live surface              (what you drove for real; screenshots as <audit>/*before*.png + *after*.png, logs under <audit>/, or `untested: <why>`)
 ## Not proven
 - <what> — <why> — <exact command a human should run>
 ```
 A criterion with no covering test goes under `## Not proven`, never silently omitted. Every ladder level you claim (1–5) is honest; below 4 say `unproven`.
 
 ## Commit and return
-Commit everything in the worktree, including `<audit>/`. Leave the tree clean. Return JSON matching `implement-result.json`: `status: done`, `commits: [shas]`, `summary` (for the consumer: what changes for them; for the maintainer: what they inherit; then what is not proven), `deferred: [findings you chose not to fix, one line each]`. Also write `deferred` into the ticket's frontmatter as `deferred: [...]`.
+Commit every product change in the worktree. `<audit>/` is gitignored on purpose: the engine copies it to the integration checkout after each stage and `factory ship` force-adds it to the PR branch, so do not `git add -f` it yourself. Leave the tree clean. Return JSON matching `implement-result.json`: `status: done`, `commits: [shas]`, `summary` (for the consumer: what changes for them; for the maintainer: what they inherit; then what is not proven), `deferred: [findings you chose not to fix, one line each]`. Also write `deferred` into the ticket's frontmatter as `deferred: [...]`.
 
 ## mode=fix
 Read `findings`. It is one of: a gate failure with output, an evidence gap (missing section for the kind), review findings (`[severity/bucket] file:line — claim`), CodeRabbit output, a QA failure with failed checks, a verdict below the required level, or a failed `done_when` predicate.

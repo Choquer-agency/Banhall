@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["route", "intent", "confidence", "matches", "ticket", "answer_file", "questions", "arena", "summary"],
+  "properties": {
+    "route": { "type": "string", "enum": ["answer", "run-existing", "run-new", "plan", "needs_input", "blocked"] },
+    "intent": { "type": "string", "enum": ["question", "bug", "feature", "refactor", "perf", "chore", "brainstorm"] },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "confidence", "why"],
+        "properties": {
+          "key": { "type": "string" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "why": { "type": "string" }
+        }
+      }
+    },
+    "ticket": { "type": ["string", "null"] },
+    "answer_file": { "type": ["string", "null"] },
+    "questions": { "type": "array", "items": { "type": "string" } },
+    "arena": { "type": "boolean" },
+    "summary": { "type": "string" }
+  }
+}

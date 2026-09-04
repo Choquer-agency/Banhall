@@ -1,6 +1,6 @@
 ---
 name: factory-review
-description: Reviewer role, read-only. target=ticket reviews a worktree diff against its baseline for correctness, intent, boundaries and evidence honesty. target=lead merges a panel of reviews into Act on / Consider / Noted / Dismissed. target=plan validates a plan by tracing it against the code. target=arena scores competing plan candidates per rubric and picks a base plus grafts. Structured output; a different model family than the author by design.
+description: "Reviewer role, read-only. target=ticket reviews a worktree diff against its baseline for correctness, intent, boundaries and evidence honesty. target=lead merges a panel of reviews into Act on / Consider / Noted / Dismissed. target=plan validates a plan by tracing it against the code. target=arena scores competing plan candidates per rubric and picks a base plus grafts. Structured output; a different model family than the author by design."
 ---
 
 # factory-review

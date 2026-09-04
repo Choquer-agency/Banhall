@@ -1,6 +1,6 @@
 ---
 name: factory-principles
-description: The engineering principles every factory role applies. Read once per session; name the principle behind each recorded decision (decisions.tsv `why`, review claims, plan rationale). One line each; the rule is the whole skill.
+description: "The engineering principles every factory role applies. Read once per session; name the principle behind each recorded decision (decisions.tsv `why`, review claims, plan rationale). One line each; the rule is the whole skill."
 ---
 
 # factory-principles
@@ -17,6 +17,7 @@ Cite a principle only when it changed a decision. A citation with no decision be
 7. **Experience first.** User delight over implementation convenience; fewer polished features over more rough ones.
 8. **Exhaust the design space.** A novel decision gets 2–3 competing candidates compared side by side before committing.
 9. **Build the lever.** Build the tool that does or proves it (codemod, script, generator, gate); the tool is the artifact a reviewer reruns.
+9a. **Blast radius before the first edit.** Enumerate callers, tests and anything three hops downstream of every contract you change; migrate or list each one explicitly.
 
 ## Architecture
 10. **Model the domain.** Encode the domain in a structure (state machine, typed model, table, reducer, boundary) instead of scattered conditionals.
@@ -36,6 +37,8 @@ Cite a principle only when it changed a decision. A citation with no decision be
 20. **Guard the context window.** Route bulk to subagents; keep summaries in the main thread.
 21. **Never block on the human.** Proceed, present the result, let the human course-correct; reserve confirmation for irreversible actions (force-push, deploy, data deletion, customer messages).
 22. **Safe means a verdict from an agent that did not write the code.** CI green is an input to a verdict, not a verdict. A new head SHA voids the old verdict.
+22a. **Completions are events, not conclusions.** A finished session means "read its artifacts now"; nothing is assumed to have worked because the process exited 0.
+22b. **The brief is the product.** Standing orders travel verbatim into every ticket and prompt; a vague brief produces a vague fix loop.
 
 ## Meta
 23. **Encode lessons in structure.** A recurring correction becomes a lint, gate, metadata flag, runtime check or script, not more prose.

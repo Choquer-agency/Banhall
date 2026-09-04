@@ -1,6 +1,6 @@
 ---
 name: factory-verify-skill
-description: Verifier role. Generates (mode=create) or maintains (mode=maintain) the project's verification skill at .factory/verify/: Launch / Doctor / Drive / Evidence / Cleanup sections, helper scripts, and a feature map, then proves it by running it once end to end. QA uses it to reach live-verified without touching shared deployments. Runs from `factory verify-skill`.
+description: "Verifier role. Generates (mode=create) or maintains (mode=maintain) the project's verification skill at .factory/verify/: Launch / Doctor / Drive / Evidence / Cleanup sections, helper scripts, and a feature map, then proves it by running it once end to end. QA uses it to reach live-verified without touching shared deployments. Runs from `factory verify-skill`."
 ---
 
 # factory-verify-skill
