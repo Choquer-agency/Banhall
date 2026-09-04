@@ -1,0 +1,7 @@
+ts	phase	decision	why	evidence	result
+2026-09-04T20:46:27.214965+00:00	plan	Reuse shared DASH vocabulary	Avoid chat/generation drift without new grammar	convex/ai/trustedContext.ts:244	approved scope
+2026-09-04T20:46:27.214965+00:00	prove	Reproduce metadata bypass before production edit	Real baseline failure evidence	.audit/unicode-marker-repair/red.log	19 failed / 44 passed
+2026-09-04T20:46:27.214965+00:00	build	Remove chat-local workaround	Shared sanitizer now covers both callers	convex/ai/chatEvidence.ts:140	implemented
+2026-09-04T20:54:18.491677+00:00	review	Accept five focused coverage improvements	Independent blind review; edge/gap empty	.audit/unicode-marker-repair/review-triage.md	5 patch / 5 reject
+2026-09-04T20:54:18.491677+00:00	prove	Rerun focused boundary suites	Verify review repairs	.audit/unicode-marker-repair/review-green.log	152 passed
+2026-09-04T20:54:18.491677+00:00	ship	Hold candidate in-review	Root owns native full verification	_bmad-output/implementation-artifacts/spec-boundary-dw33-unicode-marker-repair.md	Not done

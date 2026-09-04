@@ -1,0 +1,8 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-unicode-fix
+
+
+ Test Files  3 passed (3)
+      Tests  139 passed (139)
+   Start at  13:46:02
+   Duration  8.61s (transform 5.94s, setup 0ms, import 8.32s, tests 1.09s, environment 1.09s)

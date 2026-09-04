@@ -1,0 +1,479 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-unicode-fix
+
+ ❯ |convex| convex/ai/trustedContext.test.ts (63 tests | 19 failed) 174ms
+     × prevents filename markers with dash run ‐‐‐ 32ms
+     × prevents filename markers with dash run ‑‑‑ 6ms
+     × prevents filename markers with dash run ‒‒‒ 2ms
+     × prevents filename markers with dash run ––– 2ms
+     × prevents filename markers with dash run ——— 1ms
+     × prevents filename markers with dash run ――― 1ms
+     × prevents filename markers with dash run −−− 1ms
+     × prevents filename markers with dash run -—− 9ms
+     × prevents filename markers with dash run —-‐−― 20ms
+     × prevents multipart transcript-label markers with dash run ‐‐‐ 1ms
+     × prevents multipart transcript-label markers with dash run ‑‑‑ 1ms
+     × prevents multipart transcript-label markers with dash run ‒‒‒ 5ms
+     × prevents multipart transcript-label markers with dash run ––– 4ms
+     × prevents multipart transcript-label markers with dash run ——— 4ms
+     × prevents multipart transcript-label markers with dash run ――― 0ms
+     × prevents multipart transcript-label markers with dash run −−− 1ms
+     × prevents multipart transcript-label markers with dash run -—− 2ms
+     × prevents multipart transcript-label markers with dash run —-‐−― 2ms
+     × folds metadata line separators and retains the empty-name fallback 2ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 19 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents filename markers with dash run ‐‐‐
+AssertionError: expected [ '--- BEGIN [', '‐‐‐ bEgIn [', …(4) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "‐‐‐ bEgIn [",
++   "‐‐‐ END [",
+    "--- END [",
++   "‐‐‐ bEgIn [",
++   "‐‐‐ END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:367:34
+    365|     });
+    366|     const benign = buildTrustedContext({ documents: [doc("other", "not…
+    367|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    368|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+    369|     expect(userMessage.indexOf(body)).toBeLessThan(userMessage.indexOf…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents filename markers with dash run ‑‑‑
+AssertionError: expected [ '--- BEGIN [', '‑‑‑ bEgIn [', …(4) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "‑‑‑ bEgIn [",
++   "‑‑‑ END [",
+    "--- END [",
++   "‑‑‑ bEgIn [",
++   "‑‑‑ END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:367:34
+    365|     });
+    366|     const benign = buildTrustedContext({ documents: [doc("other", "not…
+    367|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    368|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+    369|     expect(userMessage.indexOf(body)).toBeLessThan(userMessage.indexOf…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents filename markers with dash run ‒‒‒
+AssertionError: expected [ '--- BEGIN [', '‒‒‒ bEgIn [', …(4) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "‒‒‒ bEgIn [",
++   "‒‒‒ END [",
+    "--- END [",
++   "‒‒‒ bEgIn [",
++   "‒‒‒ END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:367:34
+    365|     });
+    366|     const benign = buildTrustedContext({ documents: [doc("other", "not…
+    367|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    368|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+    369|     expect(userMessage.indexOf(body)).toBeLessThan(userMessage.indexOf…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents filename markers with dash run –––
+AssertionError: expected [ '--- BEGIN [', '––– bEgIn [', …(4) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "––– bEgIn [",
++   "––– END [",
+    "--- END [",
++   "––– bEgIn [",
++   "––– END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:367:34
+    365|     });
+    366|     const benign = buildTrustedContext({ documents: [doc("other", "not…
+    367|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    368|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+    369|     expect(userMessage.indexOf(body)).toBeLessThan(userMessage.indexOf…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents filename markers with dash run ———
+AssertionError: expected [ '--- BEGIN [', '——— bEgIn [', …(4) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "——— bEgIn [",
++   "——— END [",
+    "--- END [",
++   "——— bEgIn [",
++   "——— END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:367:34
+    365|     });
+    366|     const benign = buildTrustedContext({ documents: [doc("other", "not…
+    367|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    368|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+    369|     expect(userMessage.indexOf(body)).toBeLessThan(userMessage.indexOf…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents filename markers with dash run ―――
+AssertionError: expected [ '--- BEGIN [', '――― bEgIn [', …(4) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "――― bEgIn [",
++   "――― END [",
+    "--- END [",
++   "――― bEgIn [",
++   "――― END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:367:34
+    365|     });
+    366|     const benign = buildTrustedContext({ documents: [doc("other", "not…
+    367|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    368|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+    369|     expect(userMessage.indexOf(body)).toBeLessThan(userMessage.indexOf…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents filename markers with dash run −−−
+AssertionError: expected [ '--- BEGIN [', '−−− bEgIn [', …(4) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "−−− bEgIn [",
++   "−−− END [",
+    "--- END [",
++   "−−− bEgIn [",
++   "−−− END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:367:34
+    365|     });
+    366|     const benign = buildTrustedContext({ documents: [doc("other", "not…
+    367|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    368|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+    369|     expect(userMessage.indexOf(body)).toBeLessThan(userMessage.indexOf…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents filename markers with dash run -—−
+AssertionError: expected [ '--- BEGIN [', '-—− bEgIn [', …(4) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "-—− bEgIn [",
++   "-—− END [",
+    "--- END [",
++   "-—− bEgIn [",
++   "-—− END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:367:34
+    365|     });
+    366|     const benign = buildTrustedContext({ documents: [doc("other", "not…
+    367|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    368|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+    369|     expect(userMessage.indexOf(body)).toBeLessThan(userMessage.indexOf…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents filename markers with dash run —-‐−―
+AssertionError: expected [ Array(6) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "—-‐−― bEgIn [",
++   "—-‐−― END [",
+    "--- END [",
++   "—-‐−― bEgIn [",
++   "—-‐−― END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:367:34
+    365|     });
+    366|     const benign = buildTrustedContext({ documents: [doc("other", "not…
+    367|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    368|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+    369|     expect(userMessage.indexOf(body)).toBeLessThan(userMessage.indexOf…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents multipart transcript-label markers with dash run ‐‐‐
+AssertionError: expected [ '--- BEGIN [', '‐‐‐ end [', …(2) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "‐‐‐ end [",
++   "‐‐‐ BEGIN [",
+    "--- END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:382:34
+    380|     });
+    381|     const benign = buildTrustedContext({ transcriptParts: [first, { la…
+    382|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    383|     expect(userMessage).toContain("=== Transcript 2: Interview");
+    384|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents multipart transcript-label markers with dash run ‑‑‑
+AssertionError: expected [ '--- BEGIN [', '‑‑‑ end [', …(2) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "‑‑‑ end [",
++   "‑‑‑ BEGIN [",
+    "--- END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:382:34
+    380|     });
+    381|     const benign = buildTrustedContext({ transcriptParts: [first, { la…
+    382|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    383|     expect(userMessage).toContain("=== Transcript 2: Interview");
+    384|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents multipart transcript-label markers with dash run ‒‒‒
+AssertionError: expected [ '--- BEGIN [', '‒‒‒ end [', …(2) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "‒‒‒ end [",
++   "‒‒‒ BEGIN [",
+    "--- END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:382:34
+    380|     });
+    381|     const benign = buildTrustedContext({ transcriptParts: [first, { la…
+    382|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    383|     expect(userMessage).toContain("=== Transcript 2: Interview");
+    384|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents multipart transcript-label markers with dash run –––
+AssertionError: expected [ '--- BEGIN [', '––– end [', …(2) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "––– end [",
++   "––– BEGIN [",
+    "--- END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:382:34
+    380|     });
+    381|     const benign = buildTrustedContext({ transcriptParts: [first, { la…
+    382|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    383|     expect(userMessage).toContain("=== Transcript 2: Interview");
+    384|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents multipart transcript-label markers with dash run ———
+AssertionError: expected [ '--- BEGIN [', '——— end [', …(2) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "——— end [",
++   "——— BEGIN [",
+    "--- END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:382:34
+    380|     });
+    381|     const benign = buildTrustedContext({ transcriptParts: [first, { la…
+    382|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    383|     expect(userMessage).toContain("=== Transcript 2: Interview");
+    384|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents multipart transcript-label markers with dash run ―――
+AssertionError: expected [ '--- BEGIN [', '――― end [', …(2) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "――― end [",
++   "――― BEGIN [",
+    "--- END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:382:34
+    380|     });
+    381|     const benign = buildTrustedContext({ transcriptParts: [first, { la…
+    382|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    383|     expect(userMessage).toContain("=== Transcript 2: Interview");
+    384|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents multipart transcript-label markers with dash run −−−
+AssertionError: expected [ '--- BEGIN [', '−−− end [', …(2) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "−−− end [",
++   "−−− BEGIN [",
+    "--- END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:382:34
+    380|     });
+    381|     const benign = buildTrustedContext({ transcriptParts: [first, { la…
+    382|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    383|     expect(userMessage).toContain("=== Transcript 2: Interview");
+    384|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents multipart transcript-label markers with dash run -—−
+AssertionError: expected [ '--- BEGIN [', '-—− end [', …(2) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "-—− end [",
++   "-—− BEGIN [",
+    "--- END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:382:34
+    380|     });
+    381|     const benign = buildTrustedContext({ transcriptParts: [first, { la…
+    382|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    383|     expect(userMessage).toContain("=== Transcript 2: Interview");
+    384|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > prevents multipart transcript-label markers with dash run —-‐−―
+AssertionError: expected [ '--- BEGIN [', '—-‐−― end [', …(2) ] to deeply equal [ '--- BEGIN [', '--- END [' ]
+
+- Expected
++ Received
+
+  [
+    "--- BEGIN [",
++   "—-‐−― end [",
++   "—-‐−― BEGIN [",
+    "--- END [",
+  ]
+
+ ❯ convex/ai/trustedContext.test.ts:382:34
+    380|     });
+    381|     const benign = buildTrustedContext({ transcriptParts: [first, { la…
+    382|     expect(markers(userMessage)).toEqual(markers(benign.userMessage));
+       |                                  ^
+    383|     expect(userMessage).toContain("=== Transcript 2: Interview");
+    384|     expect(userMessage.indexOf(body)).toBeGreaterThan(userMessage.inde…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/19]⎯
+
+ FAIL  |convex| convex/ai/trustedContext.test.ts > marker forgery > folds metadata line separators and retains the empty-name fallback
+AssertionError: expected 'a b c ——— BEGIN [notes]' to be 'a b c - BEGIN [notes]' // Object.is equality
+
+Expected: "a b c - BEGIN [notes]"
+Received: "a b c ——— BEGIN [notes]"
+
+ ❯ convex/ai/trustedContext.test.ts:399:8
+    397|   it("folds metadata line separators and retains the empty-name fallba…
+    398|     expect(sanitizeFileName("a\r\nb\u2028c\u2029\u2014\u2014\u2014 BEG…
+    399|       .toBe("a b c - BEGIN [notes]");
+       |        ^
+    400|     expect(sanitizeFileName(" \r\n\u2028\u2029\t ")).toBe("untitled");
+    401|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/19]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  19 failed | 44 passed (63)
+   Start at  13:45:18
+   Duration  1.75s (transform 643ms, setup 0ms, import 819ms, tests 174ms, environment 135ms)
