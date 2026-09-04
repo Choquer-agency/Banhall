@@ -9,7 +9,6 @@ verify: [npx vitest run convex/reviewFromProject.test.ts convex/projects.test.ts
 done_when: ["! rg -qF 'query(\"transcripts\")' convex/reviewFromProject.ts convex/pdReviews.ts", "test \"$(rg -cF 'query(\"transcripts\")' convex/projects.ts)\" = 1", "test \"$(rg -cF 'query(\"transcripts\")' convex/debugTools.ts)\" = 1", "rg -q 'transcriptIds' convex/reviewFromProject.ts", "rg -q 'copyTranscriptRow' convex/reviewFromProject.ts", "rg -q 'position' convex/seed.ts", npx vitest run convex/reviewFromProject.test.ts]
 title: "Review-from-project copies every transcript; review input, science-code context, debug tools and seed read the list"
 plan: 20260903-client-sync
-deferred: ["convex/researchReviewMode.test.ts imports ../node_modules/@convex-dev/... by relative path, so it fails in any bare git worktree; symlinking the repo-root @convex-dev in makes the suite 117/117. Untouched by this ticket."]
 updated: "2026-09-03T21:17:39.898Z"
 ---
 ## Intent
