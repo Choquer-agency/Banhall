@@ -276,8 +276,10 @@
   $effect(() => {
     const rows = sourceTranscriptsQ?.data;
     if (!fromProjectId || !rows?.length || transcriptsPrefilled) return;
-    if (transcriptItems.length) return;
+    // Arrival is the one chance to prefill: a writer who already built a list
+    // keeps it, and keeps it after removing an item.
     transcriptsPrefilled = true;
+    if (transcriptItems.length) return;
     transcriptItems = rows.map((row) => ({
       id: `t-${transcriptItemSeq++}`,
       label: row.label,
@@ -300,14 +302,14 @@
   // Each imported file becomes a row in the list; the extracted text is kept
   // behind the scenes instead of being dumped into a textarea.
   async function handleTranscriptFiles(files: File[]) {
-    const rejected = files.filter(
-      (file) => !file.name.toLowerCase().endsWith(".docx")
+    const accepted = files.filter((file) =>
+      file.name.toLowerCase().endsWith(".docx")
     );
-    transcriptFileError = rejected.length
-      ? `Transcripts must be Word (.docx) files — Teams exports are. Put other documents in the context slots below, or paste the transcript text instead.`
-      : "";
-    for (const file of files) {
-      if (rejected.includes(file)) continue;
+    transcriptFileError =
+      accepted.length === files.length
+        ? ""
+        : `Transcripts must be Word (.docx) files — Teams exports are. Put other documents in the context slots below, or paste the transcript text instead.`;
+    for (const file of accepted) {
       parsingTranscript = file.name;
       try {
         const parsed = await parseFileToText(file);
@@ -1127,7 +1129,9 @@
               <div class="flex items-center gap-3">
                 {#if wordCount > 0}
                   <span class="text-xs text-gray-400">
-                    {#if transcriptItems.length > 1}{transcriptItems.length} transcripts · {/if}{wordCount.toLocaleString()} words
+                    {transcriptItems.length > 1
+                      ? `${transcriptItems.length} transcripts · `
+                      : ""}{wordCount.toLocaleString()} words
                   </span>
                 {/if}
                 <!-- BNH-31: upload OR paste — one shown at a time to keep the page short -->

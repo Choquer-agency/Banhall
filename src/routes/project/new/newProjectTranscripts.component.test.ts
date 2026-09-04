@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-svelte";
+import JSZip from "jszip";
 import NewProjectPage from "./+page.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
@@ -26,6 +27,11 @@ const itemLabels = () =>
     button.getAttribute("aria-label")!.replace("Remove ", "")
   );
 
+const itemWordCounts = () =>
+  [...document.querySelectorAll('button[aria-label^="Remove "]')].map(
+    (button) => button.closest("li")?.textContent?.match(/[\d,]+ words/)?.[0] ?? ""
+  );
+
 function buttonByText(text: string) {
   return [...document.querySelectorAll("button")].find(
     (candidate) => candidate.textContent?.trim() === text
@@ -36,6 +42,20 @@ function buttonByText(text: string) {
 async function clickText(text: string) {
   await expect.poll(() => buttonByText(text)?.disabled).toBe(false);
   buttonByText(text)!.click();
+}
+
+async function clickTextContaining(text: string) {
+  const find = () =>
+    [...document.querySelectorAll("button")].find((candidate) =>
+      candidate.textContent?.includes(text)
+    );
+  await expect.poll(() => find()).not.toBeUndefined();
+  find()!.click();
+}
+
+async function pollFor<T extends Element>(selector: string) {
+  await expect.poll(() => document.querySelector(selector)).not.toBeNull();
+  return document.querySelector<T>(selector)!;
 }
 
 async function clickLabel(label: string) {
@@ -49,6 +69,41 @@ function setInputValue(selector: string, value: string) {
   const field = document.querySelector<HTMLInputElement>(selector)!;
   field.value = value;
   field.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/**
+ * A real Word package, small enough to build here: the upload path runs
+ * mammoth on these bytes, so the list rows come from the same extraction the
+ * writer's Teams export goes through.
+ */
+async function docxFile(name: string, words: string[]) {
+  const zip = new JSZip();
+  zip.file(
+    "[Content_Types].xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`
+  );
+  zip.file(
+    "_rels/.rels",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`
+  );
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${words.join(
+      " "
+    )}</w:t></w:r></w:p></w:body></w:document>`
+  );
+  const blob = await zip.generateAsync({ type: "blob" });
+  return new File([blob], name, {
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+}
+
+function selectFiles(files: File[]) {
+  const transfer = new DataTransfer();
+  for (const file of files) transfer.items.add(file);
+  const input = transcriptFileInput()!;
+  input.files = transfer.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 async function addPaste(text: string) {
@@ -94,18 +149,44 @@ describe("/project/new transcript list", () => {
     await expect.poll(itemLabels).toEqual(["Pasted transcript 2"]);
   });
 
-  it("accepts several files in one chooser and rejects non-.docx", async () => {
+  it("adds three .docx from one chooser and appends more on reuse", async () => {
     __setPageUrl("/project/new");
     await render(NewProjectPage, {});
 
     await expect.poll(transcriptFileInput).not.toBeNull();
     expect(transcriptFileInput()?.multiple).toBe(true);
 
-    const transfer = new DataTransfer();
-    transfer.items.add(new File(["notes"], "notes.txt", { type: "text/plain" }));
-    const input = transcriptFileInput()!;
-    input.files = transfer.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
+    selectFiles([
+      await docxFile("Day 1.docx", ["alpha", "beta", "gamma"]),
+      await docxFile("Day 2.docx", ["delta", "epsilon"]),
+      await docxFile("Day 3.docx", ["zeta", "eta", "theta", "iota"]),
+    ]);
+    await expect
+      .poll(itemLabels)
+      .toEqual(["Day 1.docx", "Day 2.docx", "Day 3.docx"]);
+    // Word counts come out of the real mammoth extraction, per file and total.
+    expect(itemWordCounts()).toEqual(["3 words", "2 words", "4 words"]);
+    await expect
+      .poll(() => document.body.textContent)
+      .toContain("3 transcripts · 9 words");
+
+    selectFiles([await docxFile("Day 4.docx", ["kappa", "lambda"])]);
+    await expect
+      .poll(itemLabels)
+      .toEqual(["Day 1.docx", "Day 2.docx", "Day 3.docx", "Day 4.docx"]);
+
+    await clickLabel("Remove Day 2.docx");
+    await expect
+      .poll(itemLabels)
+      .toEqual(["Day 1.docx", "Day 3.docx", "Day 4.docx"]);
+  });
+
+  it("rejects a non-.docx file with the existing message", async () => {
+    __setPageUrl("/project/new");
+    await render(NewProjectPage, {});
+
+    await expect.poll(transcriptFileInput).not.toBeNull();
+    selectFiles([new File(["notes"], "notes.txt", { type: "text/plain" })]);
 
     await expect
       .poll(() => document.body.textContent)
@@ -258,5 +339,43 @@ describe("/project/new duplicate prefill", () => {
       toProjectId: "project-copy",
       targetTranscriptId: "copied-1",
     });
+  });
+
+  it("omits the copy target when the source has no transcript", async () => {
+    __setQueryData("transcripts:listTranscripts", []);
+    __setMutationResult("projects:createProject", {
+      projectId: "project-copy",
+      transcriptIds: [],
+    });
+    await render(NewProjectPage, {});
+
+    await expect.poll(() => document.querySelector("#title")).not.toBeNull();
+    // A context note is the only source, so the submit is allowed with an
+    // empty transcript list.
+    await clickTextContaining("Add files or paste text");
+    await clickText("Paste text instead");
+    const note = await pollFor<HTMLTextAreaElement>(
+      'textarea[placeholder="Paste text, notes, or links"]'
+    );
+    note.value = "Scoping call notes";
+    note.dispatchEvent(new Event("input", { bubbles: true }));
+
+    await clickText("Next");
+    await clickText("Generate Report");
+
+    await expect
+      .poll(() => __mutationCalls("projects:createProject").length)
+      .toBe(1);
+    expect(
+      (__mutationCalls("projects:createProject")[0] as { transcripts: unknown[] })
+        .transcripts
+    ).toEqual([]);
+
+    await expect
+      .poll(() => __mutationCalls("projectDuplication:copyProjectContent").length)
+      .toBe(1);
+    expect(
+      __mutationCalls("projectDuplication:copyProjectContent")[0]
+    ).not.toHaveProperty("targetTranscriptId");
   });
 });
