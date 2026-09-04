@@ -91,9 +91,8 @@ That immutable live proof applies to pre-review manifest SHA256
 `883c509231cd17cec4496c306e2568645dc5cd6b83e76e01a4bd7a091f11a87d`, not the
 post-review manifest above. Its recorded digest and events remain unchanged.
 Root previously installed that version into pipeline, chat-spend and learn-chat;
-distribution and verification of this revised manifest remain root-owned.
-Root will add original journal path/digest and extraction provenance, plus final
-per-project policy/digest evidence after distribution. No synthetic native run
+distribution and verification of this revised manifest are recorded in the final acceptance section below.
+Original journal path/digest and extraction provenance are in live-pipeline-provenance.json; final per-project policy/digest evidence is in project-deployment-proof.json. No synthetic native run
 events or state edits were used. Native full story gates remain pending.
 
 ## Review preservation
@@ -103,3 +102,7 @@ The current results supersede the incomplete original copier reproduction.
 Current fixture journals are isolated from production journals and do not assert
 business-story completion. No engine-level fake events or real business-story
 failure runs were needed; the enforcing native source path is documented above.
+
+## Final reviewed-manifest live acceptance
+
+The revised manifest passed real native setup in chat-spend run20260904-121647-f30f before session11-dev-1-g2. See live-reviewed-manifest-proof.json and chatspend-journal-snapshot.jsonl for exact ordering, final digest, source journal provenance and filesystem/command checks. The six configured project copies preserve other policy and Astra medium roles. Integration has the same tracked manifest and passed native validate with16OK,0warnings,0problems after init. All operational acceptance checks and review patches pass. Final product-story/browser gates remain separate and are not claimed here.

@@ -2,7 +2,7 @@
 title: 'Native BMAD dependency bootstrap'
 type: 'bugfix'
 created: '2026-09-04'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'c7075572f14e51433b524026db55d5520eddde03'
 review_loop_iteration: 0
 context: ['docs/bmad-loop.md']
@@ -51,7 +51,7 @@ context: ['docs/bmad-loop.md']
 - [x] Add the native declarative plugin using pre_worktree_setup and bounded fail-closed install plus Svelte sync.
 - [x] Correct the policy example and guide; install the same project plugin in the held pipeline lane and future learn-chat queue; remove dependency seeds only, preserving all other policy.
 - [x] Verify actual native setup precedes session start and local executable entrypoints work. Exercise a real failing install through the native hook bus and inspect its veto.
-- [ ] Complete independent review and preserve exact artifacts and revision provenance.
+- [x] Complete independent review and preserve exact artifacts and revision provenance.
 
 **Acceptance Criteria:**
 - Given the paused pipeline run, when it resumes with the plugin, then native setup succeeds before its Astra session and the local TypeScript/Vitest executables resolve without ancestor dependencies.
@@ -82,3 +82,24 @@ The live pipeline run `20260904-121631-a914` resumed at worker revision `0f5bd6b
 ## Review patch verification
 
 Three independent Astra medium layers completed. No frozen-intent changes were required. The reviewed manifest digest is `20fb58d4717b0377b3cc47ee3fc7f5074b48e3f6943472dd39c7d521972c687a`; 14 native-hook fixtures and isolated timeout pass, including successful npm install followed by failed sync/tsc/vitest, parent-project protection and containment. Complete TypeScript-layout copy fails with the native copier while the symlink-preserving control passes. `review-triage.md` records each finding. `project-deployment-proof.json` verifies six project copies, seed removal, other policy preservation and Astra medium roles. `live-pipeline-provenance.json` plus the original journal snapshot provide replayable provenance for the pre-review live run. A fresh live worker using the final reviewed manifest remains to be observed before this operational repair is marked done.
+
+## Final operational acceptance
+
+The final reviewed manifest `20fb58d4717b0377b3cc47ee3fc7f5074b48e3f6943472dd39c7d521972c687a` passed in real chat-spend run `20260904-121647-f30f`: native blocking `pre_worktree_setup` returned0 before Astra dev session `11-dev-1-g2`. Worker package/config ownership and local TypeScript/Vitest probes passed. `live-reviewed-manifest-proof.json` records the exact source journal path and digest, full surrounding event slice, worker/lockfile revision, filesystem checks and command outputs; `chatspend-journal-snapshot.jsonl` preserves the source. All operational acceptance checks and independent review patches are complete. Product story completion and final integrated application/browser gates are separate obligations and remain tracked by their native runs. No canonical story/epic status was changed by this repair.
+
+## Suggested Review Order
+
+- Native enforcing hook validates local package ownership before installing dependencies.
+  [plugin.toml:9](../../.bmad-loop/plugins/npm-bootstrap/plugin.toml#L9)
+
+- Install, sync and verify executable/config containment before coding.
+  [plugin.toml:57](../../.bmad-loop/plugins/npm-bootstrap/plugin.toml#L57)
+
+- Document the native setup lifecycle and safe recovery boundaries.
+  [bmad-loop.md:45](../../docs/bmad-loop.md#L45)
+
+- Inspect real native ordering and final-manifest worker proof.
+  [live-reviewed-manifest-proof.json:3](../../.audit/native-dependency-bootstrap/live-reviewed-manifest-proof.json#L3)
+
+- Replay isolated real-transport success and failure cases.
+  [verify-native-hook.py:1](../../.audit/native-dependency-bootstrap/verify-native-hook.py#L1)
