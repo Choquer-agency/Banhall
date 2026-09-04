@@ -1,0 +1,5 @@
+ts	phase	decision	why	evidence	result
+2026-09-04T20:24:53.627158+00:00	implementation	Reuse exact source audit confirmation transactionally	No schema additions allowed; preserve compensation	convex/brain.ts	implemented
+2026-09-04T20:24:53.627158+00:00	verification	Reproduce before production edits	Verify retained review defect	.audit/sprint1b-12-repair/red-reproduction.log	2 failed;23 passed
+2026-09-04T20:24:53.627158+00:00	verification	Run focused regression suite	Verify fence and retained safety checks	.audit/sprint1b-12-repair/focused-green.log	25 passed
+2026-09-04T20:31:28.277647+00:00	verification	Final native gate and post-review targeted checks	Verify final patch	.audit/sprint1b-12-repair/native-gate.log	1364 tests;68 uploader checks;27 focused tests;tsc green

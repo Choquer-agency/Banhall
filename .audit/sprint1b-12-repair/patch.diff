@@ -1,0 +1,197 @@
+diff --git a/_bmad-output/specs/spec-ai-engine-sprint-1b/stories/12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.md b/_bmad-output/specs/spec-ai-engine-sprint-1b/stories/12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.md
+index 5ef961d..73277c2 100644
+--- a/_bmad-output/specs/spec-ai-engine-sprint-1b/stories/12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.md
++++ b/_bmad-output/specs/spec-ai-engine-sprint-1b/stories/12-confirmed-unlearn-with-failure-evidence-and-retry-free-embeds.md
+@@ -105,7 +105,7 @@ deferred:
+ - Erasure confirmation is a positive read, never an absence of throw: `brain.getEntry` returns `null` before deleting (already absent) or after `brain.delete` (confirmed). Anything else is a failure.
+ - `unlearn_confirmed` is written exactly once per erased entry and only after confirmation or already-absent.
+ - On failure: `ragEntryId` holds the un-erased remote id as evidence, the source stays non-approved, an `unlearn_failed` audit row is written, deletion-only remediation is scheduled (bounded), and the failure is rethrown from the action.
+-- No path re-approves a revoked source, writes `ragEntryId` for a non-approved source, or schedules an embed as remediation.
++- No path re-approves a revoked source or schedules an embed as remediation. Writing `ragEntryId` for a non-approved source is allowed only as the specified unconfirmed-erasure failure evidence; a stale failure after confirmation must not restore it.
+ - `api.brain.revokeSource` stays a `mutation` with unchanged args (`src/lib/components/admin/SourceRow.svelte:50` uses `useMutation`). No frontend file is edited.
+ - Schema changes are additive only: `brainAuditLog.action` gains `unlearn_confirmed` and `unlearn_failed`. Nothing else.
+ - Convex edits follow `convex/_generated/ai/guidelines.md`.
+@@ -168,13 +168,15 @@ deferred:
+ 
+ **Acceptance Criteria:**
+ - Given the two new audit literals, when `npm run check` runs, then the `brainAuditLog` union is the only schema change and no other table or field is touched.
+-- Given any erasure failure anywhere in the story, when the run settles, then no `unlearn_confirmed` row exists for that entry id and exactly one `unlearn_failed` row does.
++- Given an unconfirmed erasure attempt fails, when its bookkeeping settles against a still-existing non-approved source, then one `unlearn_failed` row records that failed attempt and no confirmation is written for that failure. If remediation later confirms erasure, exactly one `unlearn_confirmed` row exists per source and erased entry, with prior failure evidence retained; stale failure delivery after confirmation adds no failure evidence or retry.
+ - Given remediation is scheduled after a failure, when the scheduled job runs, then it is `unlearnSource` (deletion only) and never `embedSource`, and the number of remediation attempts is bounded by the named cap.
+ - Given `requeueAllApprovedEmbeds` or `removeSourcePermanently` calls `unlearnSource` without a `sourceId`, when erasure confirms, then no audit row is written and no `brainSources` row is patched.
+ - Given a search hit whose `metadata.sourceId` points at a `revoked` (or deleted) source row, when the served results are assembled, then that hit is absent while approved and legacy (no `sourceId`) hits are unaffected; verified with the RAG search seam mocked to return the hit.
+ 
+ ## Spec Change Log
+ 
++- 2026-09-04 retained-review clarification: failure evidence is per failed attempt before confirmation; eventual successful remediation records exactly one confirmation per source/entry. The non-approved id-write prohibition retains its already specified failure-evidence exception. No new policy or schema change.
++
+ - 2026-09-02 plan checkpoint (Claude Fable 5.1, reviewer): approved with one widening amendment. The plan deferred the fact that an un-erased entry stays searchable until deletion succeeds; CAP-10 (c) and (f) require the source to be non-servable, and `retrieve.ts:219-228` already resolves `metadata.sourceId`, so the served-result status join is pulled into scope as matrix row (g). Deferred item removed accordingly. Erase seam, audit literals, idempotent revoke, no-throw `embedSource`, and the unified compensation path approved as planned. `brainAuditLog.reason` carries the failure error text; no new field.
+ 
+ ## Review Triage Log
+diff --git a/convex/brain.ts b/convex/brain.ts
+index 1fa08a1..b058dd7 100644
+--- a/convex/brain.ts
++++ b/convex/brain.ts
+@@ -435,6 +435,21 @@ export const unlearnSource = internalAction({
+   },
+ });
+ 
++/** Existing audit evidence is the durable source/entry fence, including old rows. */
++async function hasUnlearnConfirmation(
++  ctx: MutationCtx,
++  sourceId: Id<"brainSources">,
++  ragEntryId: string,
++): Promise<boolean> {
++  const reason = `Erasure confirmed for entry ${ragEntryId}`;
++  for await (const row of ctx.db
++    .query("brainAuditLog")
++    .withIndex("by_source", (q) => q.eq("sourceId", sourceId))) {
++    if (row.action === "unlearn_confirmed" && row.reason === reason) return true;
++  }
++  return false;
++}
++
+ /**
+  * Success bookkeeping. Clears `ragEntryId` ONLY if it still equals the erased
+  * id (a re-ingest may have written a newer one) and writes the single
+@@ -450,6 +465,7 @@ export const recordUnlearnConfirmed = internalMutation({
+     if (!args.sourceId) return;
+     const s = await ctx.db.get(args.sourceId);
+     if (!s || s.status === "approved") return;
++    if (await hasUnlearnConfirmation(ctx, args.sourceId, args.ragEntryId)) return;
+     if (s.ragEntryId === args.ragEntryId) {
+       await ctx.db.patch(args.sourceId, { ragEntryId: undefined });
+     }
+@@ -477,6 +493,9 @@ export const recordUnlearnFailure = internalMutation({
+   },
+   handler: async (ctx, args) => {
+     if (args.sourceId) {
++      // A concurrent attempt may have confirmed erasure before this failure
++      // arrived. Never restore its handle, log a stale failure, or retry it.
++      if (await hasUnlearnConfirmation(ctx, args.sourceId, args.ragEntryId)) return;
+       const s = await ctx.db.get(args.sourceId);
+       if (s && s.status !== "approved") {
+         if (!s.ragEntryId) {
+diff --git a/convex/brainUnlearn.test.ts b/convex/brainUnlearn.test.ts
+index cfbce39..c18c60c 100644
+--- a/convex/brainUnlearn.test.ts
++++ b/convex/brainUnlearn.test.ts
+@@ -293,6 +293,71 @@ describe("confirmed unlearn (CAP-10)", () => {
+     expect(actions(rows, "unlearn_confirmed")).toHaveLength(1);
+   });
+ 
++  test("repeated pre-drain revokes and confirmation deliveries confirm an entry once", async () => {
++    const { t, admin } = await setup();
++    const sourceId = await insertSource(t, { ragEntryId: ENTRY_ID });
++    await Promise.all([
++      admin.mutation(api.brain.revokeSource, { sourceId }),
++      admin.mutation(api.brain.revokeSource, { sourceId }),
++    ]);
++    expect(await scheduledUnlearns(t)).toHaveLength(2);
++    eraseMock.mockResolvedValueOnce("confirmed").mockResolvedValue("already_absent");
++    await unlearnDrain(t)();
++    await Promise.all([
++      t.mutation(internal.brain.recordUnlearnConfirmed, { sourceId, ragEntryId: ENTRY_ID }),
++      t.mutation(internal.brain.recordUnlearnConfirmed, { sourceId, ragEntryId: ENTRY_ID }),
++    ]);
++    expect(actions(await auditRows(t), "revoke")).toHaveLength(1);
++    expect(actions(await auditRows(t), "unlearn_confirmed")).toHaveLength(1);
++    expect((await sourceRow(t, sourceId))?.ragEntryId).toBeUndefined();
++  });
++
++  test("successful remediation fences a stale failure without losing earlier evidence", async () => {
++    const { t } = await setup();
++    const sourceId = await insertSource(t, { status: "revoked", ragEntryId: ENTRY_ID });
++    eraseMock.mockRejectedValueOnce(new Error("initial outage"));
++    await expect(t.action(internal.brain.unlearnSource, {
++      sourceId, ragEntryId: ENTRY_ID,
++    })).rejects.toThrow("initial outage");
++    await unlearnDrain(t)();
++    const jobs = await scheduledUnlearns(t);
++    eraseMock.mockRejectedValueOnce(new Error("stale failure"));
++    await expect(t.action(internal.brain.unlearnSource, {
++      sourceId, ragEntryId: ENTRY_ID,
++    })).rejects.toThrow("stale failure");
++    expect((await sourceRow(t, sourceId))?.ragEntryId).toBeUndefined();
++    expect(await scheduledUnlearns(t)).toEqual(jobs);
++    const rows = await auditRows(t);
++    expect(actions(rows, "unlearn_confirmed")).toHaveLength(1);
++    expect(actions(rows, "unlearn_failed")).toHaveLength(1);
++    expect(actions(rows, "unlearn_failed")[0].reason).toContain("initial outage");
++  });
++
++  test("confirmation fence is scoped to both source and exact entry", async () => {
++    const { t } = await setup();
++    const first = await insertSource(t, { status: "revoked" });
++    const second = await insertSource(t, { status: "revoked", ragKey: "other" });
++    for (const [sourceId, ragEntryId] of [
++      [first, ENTRY_ID], [first, `${ENTRY_ID}_suffix`], [second, ENTRY_ID],
++    ] as const) {
++      await t.mutation(internal.brain.recordUnlearnConfirmed, { sourceId, ragEntryId });
++    }
++    expect(actions(await auditRows(t), "unlearn_confirmed")).toHaveLength(3);
++  });
++
++  test("failed erasure after reapproval never restores an id or writes failure evidence", async () => {
++    const { t } = await setup();
++    const sourceId = await insertSource(t, { status: "revoked" });
++    await t.run(async (ctx) => ctx.db.patch(sourceId, { status: "approved" }));
++    eraseMock.mockRejectedValueOnce(new Error("late failure"));
++    await expect(t.action(internal.brain.unlearnSource, {
++      sourceId, ragEntryId: ENTRY_ID,
++    })).rejects.toThrow("late failure");
++    expect((await sourceRow(t, sourceId))?.ragEntryId).toBeUndefined();
++    expect((await sourceRow(t, sourceId))?.status).toBe("approved");
++    expect(await auditRows(t)).toHaveLength(0);
++  });
++
+   test("(d') re-revoking after a failed erasure restarts remediation without a second revoke row", async () => {
+     const { t, admin } = await setup();
+     const drain = unlearnDrain(t);
+@@ -502,6 +567,7 @@ describe("confirmed unlearn (CAP-10)", () => {
+   test("(g) served results drop hits whose source is no longer approved", async () => {
+     const { t } = await setup();
+     const approved = await insertSource(t, { ragKey: "brain:approved" });
++    const pending = await insertSource(t, { status: "pending", ragKey: "brain:pending" });
+     const revoked = await insertSource(t, {
+       status: "revoked",
+       ragKey: "brain:revoked",
+@@ -524,12 +590,14 @@ describe("confirmed unlearn (CAP-10)", () => {
+ 
+     vi.spyOn(brain, "search").mockResolvedValue({
+       results: [
++        hit("e_pending", 0.99),
+         hit("e_ok", 0.9),
+         hit("e_revoked", 0.8),
+         hit("e_deleted", 0.75),
+         hit("e_legacy", 0.7),
+       ],
+       entries: [
++        entry("e_pending", pending),
+         entry("e_ok", approved),
+         entry("e_revoked", revoked),
+         entry("e_deleted", deleted),
+@@ -554,6 +622,7 @@ describe("confirmed unlearn (CAP-10)", () => {
+   test("(g') non-servable hits are dropped before ranking, so they never consume top-k slots", async () => {
+     const { t } = await setup();
+     const approved = await insertSource(t, { ragKey: "brain:approved" });
++    const pending = await insertSource(t, { status: "pending", ragKey: "brain:pending" });
+     const revoked = await insertSource(t, {
+       status: "revoked",
+       ragKey: "brain:revoked",
+@@ -578,6 +647,7 @@ describe("confirmed unlearn (CAP-10)", () => {
+     // servable hits are served.
+     vi.spyOn(brain, "search").mockResolvedValue({
+       results: [
++        hit("e_pending", 0.99),
+         hit("e_rev_1", 0.95),
+         hit("e_rev_2", 0.9),
+         hit("e_ok_1", 0.85),
+@@ -585,6 +655,7 @@ describe("confirmed unlearn (CAP-10)", () => {
+         hit("e_legacy", 0.75),
+       ],
+       entries: [
++        entry("e_pending", pending),
+         entry("e_rev_1", revoked),
+         entry("e_rev_2", revoked),
+         entry("e_ok_1", approved),

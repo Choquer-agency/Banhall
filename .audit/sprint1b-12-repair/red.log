@@ -1,0 +1,27 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-unlearn-fix
+
+ ❯ |convex| convex/brainUnlearn.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/brainUnlearn.test.ts [ convex/brainUnlearn.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'shared/workItems.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /Users/johnnynguyen/Documents/Repos/Banhall-bmad-unlearn-fix/shared/workItems.ts
+ ❯ transformWithOxc node_modules/vite/dist/node/chunks/node.js:4033:19
+ ❯ TransformPluginContext.transform node_modules/vite/dist/node/chunks/node.js:4104:26
+ ❯ EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/node.js:30201:51
+ ❯ loadAndTransform node_modules/vite/dist/node/chunks/node.js:20124:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  3 passed (3)
+   Start at  13:23:13
+   Duration  1.06s (transform 508ms, setup 0ms, import 271ms, tests 29ms, environment 162ms)
+
