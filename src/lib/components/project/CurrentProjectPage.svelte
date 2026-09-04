@@ -93,13 +93,22 @@
   // generate-mode projects open the first transcript, review-mode projects open
   // none. One id, so exactly one body can be subscribed.
   let openChoice = $state<Id<"transcripts"> | "default" | null>("default");
-  const openTranscriptId = $derived(
-    openChoice === "default"
-      ? projectQ.data?.mode === "review"
-        ? null
-        : (transcriptsQ.data?.[0]?._id ?? null)
-      : openChoice
-  );
+  const openTranscriptId = $derived.by(() => {
+    const transcripts = transcriptsQ.data;
+    // Paging to the previous/next project keeps this component mounted, so a
+    // chosen id can outlive the list it came from. An id no loaded row carries
+    // is not a choice: it falls back to the default rather than holding a body
+    // subscription nothing on screen shows.
+    const choice =
+      openChoice !== null &&
+      openChoice !== "default" &&
+      transcripts !== undefined &&
+      !transcripts.some((t) => t._id === openChoice)
+        ? "default"
+        : openChoice;
+    if (choice !== "default") return choice;
+    return projectQ.data?.mode === "review" ? null : (transcripts?.[0]?._id ?? null);
+  });
   function toggleTranscript(transcriptId: Id<"transcripts">) {
     openChoice = openTranscriptId === transcriptId ? null : transcriptId;
   }

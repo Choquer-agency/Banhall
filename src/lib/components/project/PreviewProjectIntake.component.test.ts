@@ -5,6 +5,7 @@ import PreviewProjectPage from "./PreviewProjectPage.svelte";
 import { __resetPage, __setPageParams, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import {
+  __activeQueryArgs,
   __activeQueryCount,
   __clientQueryCalls,
   __resetConvexStub,
@@ -177,6 +178,40 @@ describe("PreviewProjectPage intake workbench", () => {
     await expect.poll(openBody).toContain(TRANSCRIPT_BODY);
     // Still one subscription: opening a row closes the one that was open.
     expect(__activeQueryCount("transcripts:getTranscriptContent")).toBe(1);
+  });
+
+  it("drops a transcript choice the newly loaded list does not carry", async () => {
+    await mountIntake(1440, 900, [
+      transcriptRow("t-1", "Kickoff interview.docx", 11),
+      transcriptRow("t-2", "Follow-up call.docx", 240),
+    ]);
+
+    transcriptTriggers()[1].click();
+    await expect
+      .poll(() => transcriptTriggers()[1].getAttribute("aria-expanded"))
+      .toBe("true");
+
+    // Previous/Next project paging swaps the list under a component that stays
+    // mounted: t-2 belongs to the project the reader left.
+    __setQueryData("transcripts:listTranscripts", [
+      transcriptRow("t-9", "Site visit.docx", 30),
+      transcriptRow("t-10", "Lab walkthrough.docx", 60),
+    ]);
+    __setQueryData("transcripts:getTranscriptContent", {
+      _id: "t-9",
+      label: "Site visit.docx",
+      content: TRANSCRIPT_BODY,
+    });
+
+    await expect.poll(() => transcriptTriggers()[0]?.textContent).toContain("Site visit.docx");
+    expect(transcriptTriggers()[0].getAttribute("aria-expanded")).toBe("true");
+    expect(transcriptTriggers()[1].getAttribute("aria-expanded")).toBe("false");
+    // Still one body, and it is the new list's first transcript — the dead id
+    // holds no subscription.
+    expect(__activeQueryCount("transcripts:getTranscriptContent")).toBe(1);
+    expect(__activeQueryArgs("transcripts:getTranscriptContent")).toEqual([
+      { transcriptId: "t-9" },
+    ]);
   });
 
   it("uses explicit Work/Context switches with one visible pane at a time on narrow screens", async () => {
