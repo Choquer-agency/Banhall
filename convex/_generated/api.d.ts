@@ -103,6 +103,7 @@ import type * as projectEvidence from "../projectEvidence.js";
 import type * as projectWorkflow from "../projectWorkflow.js";
 import type * as projects from "../projects.js";
 import type * as providerReadiness from "../providerReadiness.js";
+import type * as reportEditDistance from "../reportEditDistance.js";
 import type * as reportViews from "../reportViews.js";
 import type * as reports from "../reports.js";
 import type * as research from "../research.js";
@@ -222,6 +223,7 @@ declare const fullApi: ApiFromModules<{
   projectWorkflow: typeof projectWorkflow;
   projects: typeof projects;
   providerReadiness: typeof providerReadiness;
+  reportEditDistance: typeof reportEditDistance;
   reportViews: typeof reportViews;
   reports: typeof reports;
   research: typeof research;
