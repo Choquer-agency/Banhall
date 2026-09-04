@@ -1,0 +1,5 @@
+ts	phase	decision	why	evidence	result
+2026-09-04	scope	Document existing approved CAP-1 contract only	Root delegated DW42 domain-contract repair	_bmad-output/implementation-artifacts/spec-dw42-privacy-contract.md	No runtime or policy change
+2026-09-04	verify	Compare amendment with approved story and source	Avoid expanding best-effort privacy guarantee	.audit/DW42/evidence.md	Static verification passed; independent review pending
+2026-09-04	scope	Include Brain reference target named by DW42	Correct missing documentation obligation without changing frozen intent	docs/the-brain.md	Both documentation targets prepared for independent review
+2026-09-04	review	Apply ten root-triaged independent review patches	Improve portability, precision and reproducible evidence	.audit/DW42/review.md	Documentation-only patches; frozen intent preserved
