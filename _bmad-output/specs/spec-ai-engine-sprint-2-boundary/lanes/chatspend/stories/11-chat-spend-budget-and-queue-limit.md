@@ -2,8 +2,8 @@
 title: 'Chat spend budget and queue limit'
 type: 'feature'
 created: '2026-09-04'
-status: ready-for-dev
-baseline_revision: '495b3bbf828fbc52381b557378bc7b0b1cd1a2cf'
+status: done
+baseline_revision: 'ccc42b3ed819d5aadf8d4d0cf72f8ddfc02b2836'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -77,6 +77,8 @@ deferred: []
 
 ## Spec Change Log
 
+- 2026-09-04: Recovery verification baseline advanced from `495b3bbf828fbc52381b557378bc7b0b1cd1a2cf` to `ccc42b3ed819d5aadf8d4d0cf72f8ddfc02b2836`, incorporating the operator repair that runs the form-control source audit in its own Vitest project with a 30-second timeout. The original implementation baseline remains recorded in `.audit/CAP-11/evidence.md`; the intent contract is unchanged.
+
 ## Review Triage Log
 
 ### 2026-09-04 Review pass
@@ -127,6 +129,27 @@ deferred: []
 - addressed_findings:
   - `[low]` `[patch]` Describe archived command logs consistently as whitespace-normalized rather than raw; substantive output is preserved.
 
+### 2026-09-04 Serial recovery review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 0, medium 0, low 4)
+- defer: 0
+- reject: 6: (high 0, medium 0, low 6)
+- addressed_findings:
+  - `[low]` `[patch]` Include ignored recovery command logs in the reviewed artifacts and explicitly track them at finalization.
+  - `[low]` `[patch]` Append a verification completion decision with log references, preserving the prior pending entry.
+  - `[low]` `[patch]` Describe the baseline's committed source-audit project and its 30-second timeout precisely.
+  - `[low]` `[patch]` Record the recovery baseline transition while preserving the original implementation baseline.
+
+### 2026-09-04 Fresh recovery documentation review
+- intent_gap: 0
+- bad_spec: 0
+- patch: 0
+- defer: 0
+- reject: 10: (high 0, medium 0, low 10)
+- addressed_findings:
+  - none
+
 ## Design Notes
 
 The queue predicate and insert share a Convex transaction and indexed read dependencies. Legacy ownership is resolved from the component prompt, because a shared thread's creator may differ from a turn's sender. Missing legacy attribution remains tolerated. Usage uses event `createdAt`, not insertion time. `projectRollingCostUsdUnits` accumulates canonical decimal costs in local BigInt units at 324 decimal places, enough for every finite JavaScript Number, without rounding. The budget is converted with the same `usdDecimalUnits` helper; these large integers are never stored or returned through Convex. No frontend caller is touched.
@@ -137,3 +160,20 @@ The queue predicate and insert share a Convex transaction and indexed read depen
 - `npm test` (final default run passed; earlier host-contention retries used command-line worker/timeout allowances)
 - `PUBLIC_CONVEX_URL=http://localhost npm run check`
 
+## Auto Run Result
+
+Status: done
+
+The existing CAP-11 implementation provides transactional spend and queue admission limits, administrator settings, exact cost comparisons, and legacy sender attribution. This invocation completed a fresh review of the recovery documentation; no production or test changes were needed.
+
+Files changed since the recovery baseline:
+- This story: recovery baseline, review triage, and completion result.
+- `.audit/CAP-11/evidence.md`: corrected coverage wording and verification/review evidence.
+- `.audit/CAP-11/decisions.tsv`: append-only recovery and review decisions.
+- Six `.audit/CAP-11/logs/recovery-*.log` files: retained initial and final recovery command evidence.
+
+This pass: four independent review layers completed; zero patches, zero deferred findings, ten rejected suggestions. Patched counts: high 0, medium 0, low 0. Follow-up score is 0 under the workflow rule (three points per medium patch, one per low patch; any high patch or score at least five recommends follow-up). Follow-up review recommended: false.
+
+Verification: inspected the tracked recovery-final logs, which record exit 0 for 59 focused tests, all 127 files and 1387 full-suite tests, and zero typecheck errors or warnings. The complete change inventory since `ccc42b3ed819d5aadf8d4d0cf72f8ddfc02b2836` contains only story/audit artifacts. Those retained runs remain applicable; no tests were rerun for this documentation-only pass. Git whitespace and final clean-worktree checks are performed at finalization.
+
+Residual risks: admission counts recorded spending without reserving in-flight cost; complete usage and legacy queue reads remain subject to Convex transaction limits. Existing deferred-work ledger entries were untouched.

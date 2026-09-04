@@ -1,0 +1,7 @@
+RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+
+
+ Test Files  1 passed (1)
+      Tests  59 passed (59)
+   Start at  14:33:01
+   Duration  2.18s (transform 684ms, setup 0ms, import 709ms, tests 1.21s, environment 50ms)
