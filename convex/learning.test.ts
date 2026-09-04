@@ -366,9 +366,9 @@ describe("proposal wording edits leave their project de-identified", () => {
         proposalId,
         userId,
         originalText:
-          "Acme Farms tested the Raspberry Cane Trial; email jo@acme.ca.",
+          "Acme Farms tested the Raspberry Cane Trial; email jo@acme.ca.\n613\n555\n0134",
         editedText:
-          "Johnny Test rewrote it for Acme Farms. Call (613) 555-0134.",
+          "Johnny Test rewrote it for Acme Farms. Call (613) 555-0134.\n613\n555\n0134",
         createdAt: 1,
       });
       // The orphan case: the row survives its project document.
@@ -387,6 +387,8 @@ describe("proposal wording edits leave their project de-identified", () => {
     );
 
     expect(rows).toHaveLength(1);
+    expect(rows[0].originalText).toContain("[redacted email].\n613\n555\n0134");
+    expect(rows[0].editedText).toContain("[redacted phone].\n613\n555\n0134");
     const combined = `${rows[0].originalText} ${rows[0].editedText}`;
     expect(combined).not.toMatch(/Acme Farms/i);
     expect(combined).not.toMatch(/Johnny Test/i);
@@ -399,7 +401,12 @@ describe("proposal wording edits leave their project de-identified", () => {
     const stored = await t.run((ctx) =>
       ctx.db.query("proposalWordingEditEvents").first(),
     );
-    expect(stored?.originalText).toContain("Acme Farms");
+    expect(stored?.originalText).toBe(
+      "Acme Farms tested the Raspberry Cane Trial; email jo@acme.ca.\n613\n555\n0134"
+    );
+    expect(stored?.editedText).toBe(
+      "Johnny Test rewrote it for Acme Farms. Call (613) 555-0134.\n613\n555\n0134"
+    );
   });
 
   test("a row whose project is gone still gets contact scrubbing", async () => {
@@ -412,6 +419,8 @@ describe("proposal wording edits leave their project de-identified", () => {
     );
 
     expect(rows).toHaveLength(1);
+    expect(rows[0].originalText).toContain("[redacted email].\n613\n555\n0134");
+    expect(rows[0].editedText).toContain("[redacted phone].\n613\n555\n0134");
     const combined = `${rows[0].originalText} ${rows[0].editedText}`;
     expect(combined).not.toContain("jo@acme.ca");
     expect(combined).not.toContain("555-0134");
