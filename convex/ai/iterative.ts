@@ -21,6 +21,11 @@ import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
 import { candidateModelsForMode } from "./model";
 import { normalizeProviderError } from "./providers";
+import {
+  anthropicCondenser,
+  describeGenerationFailure,
+  ensureCondensedInputs,
+} from "./condense";
 import { retrieveBrainBlocks } from "./brainRetrieval";
 import { describeTranscriptInput } from "../lib/transcripts";
 import {
@@ -60,20 +65,22 @@ export { ITERATIVE_PROMPT_SCAFFOLDS } from "./promptDefinitions";
 export const startIterativeGeneration = internalAction({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
+    const actionStartedAt = Date.now();
     if (!(await beginTrackedGeneration(ctx, args.generationId))) return;
-    const input = await ctx.runQuery(internal.generations.getGenerationInput, {
-      generationId: args.generationId,
-    });
-    if (!input) {
+    const reservedInput = await ctx.runQuery(
+      internal.generations.getGenerationInput,
+      { generationId: args.generationId }
+    );
+    if (!reservedInput) {
       await ctx.runMutation(internal.generations.failGeneration, {
         generationId: args.generationId,
         error: "The frozen generation input is unavailable.",
       });
       return;
     }
+    let input = reservedInput;
     const genId = input.generationId;
     const projectId = input.projectId;
-    const transcript = input.transcript;
     const title = input.title || "Untitled Report";
     const contextDocs = toContextDocs(input.contextDocs);
     // Iterative mode uses single-model semantics: the explicitly selected
@@ -118,6 +125,29 @@ export const startIterativeGeneration = internalAction({
         await log(`Using ${contextDocs.length} frozen contextual document(s), weighted by SR&ED priority.`);
       }
       await log(`Section-by-section drafting with ${model.label}.`);
+
+      // Over-budget transcript sets are reduced to stored digests and frozen
+      // as their own source rows before anything reads the transcript text;
+      // the re-read below returns the digest parts every later step cites.
+      if (input.inputMode === "digest") {
+        await ensureCondensedInputs(
+          ctx,
+          { generationId: genId, elapsedMs: Date.now() - actionStartedAt },
+          log,
+          anthropicCondenser(ctx, {
+            generationId: genId,
+            projectId,
+            ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+          })
+        );
+        const condensed = await ctx.runQuery(
+          internal.generations.getGenerationInput,
+          { generationId: args.generationId }
+        );
+        if (!condensed) throw new Error("The frozen generation input is unavailable.");
+        input = condensed;
+      }
+      const transcript = input.transcript;
 
       // Frozen once: Brain exemplar blocks (never re-retrieved per section).
       const brainBlocks = await retrieveBrainBlocks(ctx, {
@@ -244,10 +274,9 @@ export const startIterativeGeneration = internalAction({
         section: "s242",
       });
     } catch (error) {
-      const normalized = normalizeProviderError(error);
       await ctx.runMutation(internal.generations.failGeneration, {
         generationId: genId,
-        error: `${normalized.code}: ${normalized.message}`,
+        error: describeGenerationFailure(error),
       });
     }
   },

@@ -219,6 +219,9 @@ describe("generation prompt program", () => {
       "analyzer",
       "chronology",
       "compression",
+      // transcripts-7-condense-digests: over-budget transcript sets are
+      // condensed by their own structured call before drafting begins.
+      "condense",
       "qa",
       "retrievalBrief",
       "section242",

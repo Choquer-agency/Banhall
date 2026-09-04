@@ -33,6 +33,11 @@ import {
   describeTranscriptInput,
   mapClaimToPart,
 } from "../lib/transcripts";
+import {
+  anthropicCondenser,
+  describeGenerationFailure,
+  ensureCondensedInputs,
+} from "./condense";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
 import {
   scrubBannedWords,
@@ -407,20 +412,22 @@ export async function beginTrackedGeneration(
 export const generateReport = internalAction({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
+    const actionStartedAt = Date.now();
     if (!(await beginTrackedGeneration(ctx, args.generationId))) return;
-    const input = await ctx.runQuery(internal.generations.getGenerationInput, {
-      generationId: args.generationId,
-    });
-    if (!input) {
+    const reservedInput = await ctx.runQuery(
+      internal.generations.getGenerationInput,
+      { generationId: args.generationId }
+    );
+    if (!reservedInput) {
       await ctx.runMutation(internal.generations.failGeneration, {
         generationId: args.generationId,
         error: "The frozen generation input is unavailable.",
       });
       return;
     }
+    let input = reservedInput;
     const genId = input.generationId;
     const projectId = input.projectId;
-    const transcript = input.transcript;
     const title = input.title || "Untitled Report";
     const lengthTarget: LengthTarget = input.lengthTarget;
     const contextDocs = toContextDocs(input.contextDocs);
@@ -456,6 +463,29 @@ export const generateReport = internalAction({
       if (contextDocs.length > 0) {
         await log(`Using ${contextDocs.length} frozen contextual document(s), weighted by SR&ED priority.`);
       }
+
+      // Over-budget transcript sets are reduced to stored digests and frozen
+      // as their own source rows before anything reads the transcript text;
+      // the re-read below returns the digest parts every later step cites.
+      if (input.inputMode === "digest") {
+        await ensureCondensedInputs(
+          ctx,
+          { generationId: genId, elapsedMs: Date.now() - actionStartedAt },
+          log,
+          anthropicCondenser(ctx, {
+            generationId: genId,
+            projectId,
+            ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+          })
+        );
+        const condensed = await ctx.runQuery(
+          internal.generations.getGenerationInput,
+          { generationId: args.generationId }
+        );
+        if (!condensed) throw new Error("The frozen generation input is unavailable.");
+        input = condensed;
+      }
+      const transcript = input.transcript;
 
       // BNH-10: pull gold-standard reference passages from The Brain once per
       // generation (shared across all candidate models). Extracted to
@@ -571,10 +601,9 @@ export const generateReport = internalAction({
         });
       }
     } catch (error) {
-      const normalized = normalizeProviderError(error);
       await ctx.runMutation(internal.generations.failGeneration, {
         generationId: genId,
-        error: `${normalized.code}: ${normalized.message}`,
+        error: describeGenerationFailure(error),
       });
     }
   },
@@ -668,6 +697,7 @@ export const generateCandidate = internalAction({
           generationId: run.generationId,
           sourceTranscriptId: input.transcriptId,
           sourceTranscriptIds: input.transcriptIds,
+          digestIds: input.digestIds,
           content,
           claims,
         }

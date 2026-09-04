@@ -16,6 +16,27 @@ export const MAX_TRANSCRIPTS_PER_PROJECT = 20;
  */
 export const MAX_TOTAL_TRANSCRIPT_CHARS = 2_000_000;
 
+/** Per-transcript slice frozen into a `generationSources` row. */
+export const FROZEN_TRANSCRIPT_CHARS = 500_000;
+
+/**
+ * Combined frozen transcript characters above which a generation condenses
+ * each transcript into a stored digest instead of feeding the full text.
+ *
+ * The three condensation sizes live here, not in the prompt program:
+ * `convex/generations.ts` decides the mode in the default runtime and
+ * `convex/ai/promptProgram.ts` is a `"use node"` module, so the program reads
+ * them from here into `configuration.transcripts`. Starting values, not
+ * measured.
+ */
+export const TRANSCRIPT_BUDGET_CHARS = 200_000;
+
+/** Longest slice of one transcript a single condense call is given. */
+export const CONDENSE_WINDOW_CHARS = 160_000;
+
+/** Length the condense prompt asks each digest to land near. */
+export const DIGEST_TARGET_CHARS = 24_000;
+
 /**
  * Bumped by hand whenever the condense prompt, the digest schema or the size
  * constants change, so stored digests built under the old contract are never

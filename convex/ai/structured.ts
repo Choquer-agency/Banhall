@@ -75,15 +75,23 @@ export async function generateStructured<T>(
     model?: string;
     /** Runtime contract for the tool output. Strongly recommended. */
     validate?: z.ZodType<T>;
+    /**
+     * Total attempts, repair pass included. Defaults to the program's two. A
+     * call the whole generation waits on can ask for one, trading the repair
+     * for a bounded wall clock.
+     */
+    attempts?: number;
   }
 ): Promise<T> {
   const client = rawClient as GenerationClient;
+  const attempts = opts.attempts ?? STRUCTURED_OUTPUT_PROGRAM.attempts;
   let validationSummary = "";
 
   // A forced tool call can still omit required JSON fields. Retry once with
   // the concrete validation feedback; accepting a partial object would let a
   // malformed analysis fail much later after more paid generation work.
-  for (let attempt = 0; attempt < STRUCTURED_OUTPUT_PROGRAM.attempts; attempt += 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const lastAttempt = attempt === attempts - 1;
     const user =
       attempt === 0
         ? opts.user
@@ -118,7 +126,7 @@ export async function generateStructured<T>(
       // rejection, so it spends the same single repair attempt. Provider
       // errors (auth, billing, rate limit) are not repairable by re-prompting
       // and keep failing fast; the transport already retries rate limits.
-      if (attempt > 0 || !(error instanceof MalformedOutputError)) throw error;
+      if (lastAttempt || !(error instanceof MalformedOutputError)) throw error;
       validationSummary = error.message;
       console.warn(
         `${opts.toolName}: retrying after malformed provider output — ${error.message}`
@@ -129,7 +137,7 @@ export async function generateStructured<T>(
     const block = res.content.find((item) => item.type === "tool_use");
     if (!block || block.type !== "tool_use") {
       validationSummary = "the required tool was not called";
-      if (attempt === 0) continue;
+      if (!lastAttempt) continue;
       throw new Error(`${opts.toolName}: model did not return structured output`);
     }
     if (!opts.validate) return block.input as T;
@@ -155,7 +163,7 @@ export async function generateStructured<T>(
       `${opts.toolName}: tool output failed validation`,
       JSON.stringify(parsed.error.issues.slice(0, 10))
     );
-    if (attempt === 0) continue;
+    if (!lastAttempt) continue;
     throw new Error(
       `${opts.toolName}: model returned an unexpected shape — ${validationSummary}`
     );
