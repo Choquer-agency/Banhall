@@ -5,13 +5,12 @@ kind: feature
 deps: [transcripts-2-generation-reads-all]
 touches: [convex, src]
 risky: [rights]
-verify: [npx vitest run convex/projects.test.ts convex/reviewFromProject.test.ts convex/generationAttribution.test.ts, npx vitest run --config vitest.component.config.ts --no-file-parallelism src/routes/project/new/newProjectTranscripts.component.test.ts src/routes/project/new/newProjectPrefill.component.test.ts]
+verify: [npx vitest run convex/projects.test.ts convex/reviewFromProject.test.ts convex/generationAttribution.test.ts, npx vitest run --config vitest.component.config.ts --no-file-parallelism src/routes/project/new/newProjectTranscripts.component.test.ts src/routes/project/new/newProjectPrefill.component.test.ts src/routes/project/questionnaire/questionnaireSubmit.component.test.ts]
 done_when: ["! rg -q 'transcriptContent' convex/projects.ts src/routes", "rg -q 'transcripts: v.array' convex/projects.ts", "! rg -q '\\\\btranscriptId\\\\b' src/routes/project/new/+page.svelte src/routes/project/questionnaire/+page.svelte", "rg -Uq 'type=\\\"file\\\"[^>]*multiple' src/routes/project/new/+page.svelte", test -f src/routes/project/new/newProjectTranscripts.component.test.ts, "! rg -q 'transcriptId: v.optional' convex/generations.ts", "rg -qF 'targetTranscriptId: v.optional(v.id(\\\"transcripts\\\"))' convex/projectDuplication.ts", npx vitest run convex/projects.test.ts]
 title: "New-project page takes an ordered list of transcripts (multi .docx upload, paste, remove, copy-by-reference); createProject stores them; generation no longer takes a transcript id"
 plan: 20260903-client-sync
 deferred:
   - "8 pre-existing component-suite failures (WorkspaceRail x4, WorkspaceChrome, WorkspaceHeader, Button, workspaceRoutes) reproduce with the baseline convex-svelte stub and touch no file this ticket changes; they are outside the CI gate."
-  - "src/routes/project/questionnaire/+page.svelte has no component test in this repo, so its one-item transcripts call is typecheck-only (ladder 2), not run."
   - "review-0 medium/consider: an unsaved pasteDraft survives a switch to the Upload tab and is folded in at submit as an invisible extra transcript; the behaviour existed at baseline and the Home-handoff pin (newProjectPrefill.component.test.ts:86) requires the draft path, so it is left as-is."
   - "review-0 medium/consider: the 20-item and total-chars caps are enforced client-side only inside commit() as a Generate-time toast, with no component test; the server rejects both (convex/projects.test.ts:1187, :1202), so the invariant holds."
   - "review-0 low/noted: copy items still send a label alongside fromTranscriptId that resolveTranscriptInputs ignores (the source label always wins), so the field is dead weight in the validator."
