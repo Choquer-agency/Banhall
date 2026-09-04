@@ -230,9 +230,15 @@ describe("shared analysis failure and compatibility", () => {
     expect(await t.run((ctx) => ctx.db.query("generationArtifacts").collect())).toHaveLength(0);
     expect(await t.run((ctx) => ctx.db.get(generationId))).toMatchObject({ status: "failed" });
     expect(analyzerCalls()).toHaveLength(1);
+    const projects = await t.run((ctx) => ctx.db.query("projects").collect());
+    expect(projects[0].status).toBe("draft");
+    expect(projects[0].activeGenerationId).toBeUndefined();
   });
 
-  it.each(["{", "{}", "null"])("fails invalid shared analysis %s before any provider request", async (analysis) => {
+  it.each(["{", "{}", "null", JSON.stringify({
+    ...analysisOutput,
+    work_performed: { experiments_iterations: [{ results: 42 }] },
+  })])("fails invalid shared analysis %s before any provider request", async (analysis) => {
     const t = convexTest(schema, modules);
     const generationId = await fixture(t);
     await t.action(internal.ai.pipeline.generateReport, { generationId });

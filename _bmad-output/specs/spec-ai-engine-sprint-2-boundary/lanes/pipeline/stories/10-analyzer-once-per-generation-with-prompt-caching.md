@@ -5,7 +5,7 @@ created: '2026-09-04'
 status: 'done'
 baseline_revision: 'f122b086d745acc40b4decca26b9aaafc7257f6a'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - convex/_generated/ai/guidelines.md
   - .factory/AGENTS.factory.md
@@ -102,6 +102,18 @@ deferred:
 
 The intent auditor confirmed that CAP-10's explicit compare and cache-marker contract is exercised at the real action and SDK surfaces. Live provider cache hits and a global exactly-once guarantee across historical queued or iterative ghost work are not claimed. Three rejected findings concerned inert artifacts after cancellation (candidate execution remains fenced), unchanged seeded-retry semantics, and redundant structured-repair coverage of the already tested analyzer rejection path. The broader action-chain deadline limitation is recorded in frontmatter.
 
+### 2026-09-04: Follow-up review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 2: (high 0, medium 0, low 2)
+- defer: 0
+- reject: 10: (high 0, medium 0, low 10)
+- addressed_findings:
+  - `[low]` `[patch]` Assert project status restoration and active-generation clearing after shared analyzer failure.
+  - `[low]` `[patch]` Exercise an otherwise populated shared analysis with a wrongly typed nested experiment result; assert failure before any provider request.
+
+Four independent review layers found no material intent divergence. The existing action-deadline concern was recognized without reopening or editing its deferred entry. Additional suggested coverage and live cache-hit proof did not establish another defect in the explicit action/SDK-boundary contract. No new deferred items were added. Existing deferred-work ledger edits belong to the orchestrator and remain untouched.
+
 ## Design Notes
 
 Pass serialized analysis in an optional internal action argument to avoid a new database query surface and retain old queued payloads. Parse using the analyzer's runtime contract. The normal fanout never invokes the fallback. One analyzer run means one logical invocation; existing structured-output repair and SDK retry behavior remains in place on malformed responses or transport errors.
@@ -117,32 +129,14 @@ Pass serialized analysis in an optional internal action argument to avoid a new 
 
 Status: done
 
-Compare generation now runs validated analysis once, stores it through the existing generationArtifacts writer, and passes the serialized result to every candidate. Candidates draft from that shared result; legacy queued payloads retain their analyzer fallback. Direct Anthropic generation requests mark system and transcript prefixes for ephemeral caching while preserving existing explicit cache policies and OpenRouter message shapes.
+Fresh review retained the existing analyzer-once orchestration and Anthropic prefix caching. Added two failure-path assertions in `convex/ai/pipeline.compare.test.ts`: project recovery after analyzer rejection and rejection of wrongly typed nested analysis before drafting.
 
-### Files changed
+Files changed in this follow-up:
+- `convex/ai/pipeline.compare.test.ts`: two focused verification improvements.
+- `.audit/CAP-10/decisions.tsv` and `evidence.md`: review decisions and fresh gate results.
+- `.audit/CAP-10/followup-{targeted,npm-test,check}.log`: retained actual command output.
+- This story: fresh review triage and terminal result.
 
-- `convex/ai/pipeline.ts`: shared entry analysis, artifact persistence, optional handoff, legacy-only context assembly.
-- `convex/ai/analyzerAgent.ts`: validates serialized shared analysis with the existing schema.
-- `convex/ai/instrument.ts`: adds generation-owned cache markers at the direct SDK boundary.
-- `convex/ai/providers.ts`: documents four normal candidate slots and the retained legacy five-slot bound.
-- `convex/ai/pipeline.compare.test.ts`: real action, persistence, drafting, usage, mixed-provider and failure proofs using stubbed transports.
-- `convex/ai/instrument.test.ts`: cache markers, preserved policies, real multimodal block shapes and unchanged non-generation requests.
-- `convex/generationAttribution.test.ts`: retains budget, trust and digest assertions for both entry flows.
-- `tsconfig.json`: explicit rebased SvelteKit include coverage plus shared modules for native test-transformer discovery.
-- Story spec and `.audit/CAP-10/`: decisions, baseline failure, review triage and verification evidence.
+Review: two low patches, zero medium/high patches, zero new deferrals, ten rejected findings. Follow-up recommendation: false; score = 3 × 0 + 2 = 2. Existing deferred entries remain unchanged.
 
-### Review results
-
-Eight patches applied: medium 1, low 7, high 0. One existing pipeline action-budget limitation deferred; three findings rejected. Follow-up review recommended: true. Score = 3 × 1 + 7 = 10; the recommendation reflects the added verification coverage, not a failing gate.
-
-### Verification
-
-- Baseline compare proof: two analyzer requests for two candidates in either model order.
-- Final focused compare/instrumentation proof: 26 tests passed, including one analyzer request for two candidates, persisted shared analysis, actual section inputs, cache markers and usage ownership.
-- `npm test`: 128 files, 1375 tests passed.
-- `PUBLIC_CONVEX_URL=http://localhost npm run check`: 0 errors, 0 warnings.
-- `git diff --check`: passed.
-
-### Residual limits
-
-The existing action-chain deadline limitation remains recorded in frontmatter. Provider cache hits were not measured; deterministic tests prove cache markers and correct attribution. Structured-output repair and SDK transport retries remain possible on invalid output or failures; the one-call proof uses valid stubbed output as requested.
+Verification after patches: targeted 27/27; full suite 1376/1376 across 128 files; Svelte check 0 errors and 0 warnings; diff whitespace check passed. See `.audit/CAP-10/evidence.md` for commands and retained output. Live provider cache savings are not claimed; the previously recorded action deadline limitation remains.

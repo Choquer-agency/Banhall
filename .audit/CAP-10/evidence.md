@@ -80,3 +80,14 @@ Known limitation: the existing end-to-end action-chain budget does not guarantee
 ## Verified implementation revision
 
 `47f5f0a95b03f1965c0431650d9386c5a2c78e56` contains the reviewed implementation, story result and verification artifacts. The following audit-only commit records this identifier; it does not change runtime code or tests. Captured logs retain command output with trailing blank lines normalized.
+
+## Fresh review verification (2026-09-04)
+
+Starting revision: `db9f1effd03bf8ee94245b6095ba2c0724d14113`. Two test-only patches add project recovery assertions after analyzer failure and a populated nested-type rejection case. Runtime source remains unchanged from that revision.
+
+- `npx vitest run --project convex convex/ai/pipeline.compare.test.ts convex/ai/instrument.test.ts`: 27 tests passed in 2 files; [output](followup-targeted.log).
+- `npm test`: 1376 tests passed in 128 files; [output](followup-npm-test.log).
+- `PUBLIC_CONVEX_URL=http://localhost npm run check`: 0 errors, 0 warnings; [output](followup-check.log).
+- `git diff --check`: passed after normalizing trailing blank lines in authored artifacts.
+
+All commands above were rerun after the patches. Four review layers produced two low patches and ten rejected suggestions after deduplication. No new deferred entries. Cache hit rates and worst-case action latency are not established by these tests. The orchestrator-owned deferred-work ledger was already modified at entry and has not been opened for inspection, edited, staged, or committed by this follow-up.
