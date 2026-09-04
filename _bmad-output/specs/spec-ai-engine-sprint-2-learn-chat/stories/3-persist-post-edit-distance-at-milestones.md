@@ -399,3 +399,7 @@ Both series queries are bounded (`.order("desc").take(LIMIT)` then restored to o
 - `PUBLIC_CONVEX_URL=http://localhost npm run check` -- expected: no new type or svelte-check errors.
 - `npx vitest run convex/lib/editDistance.test.ts convex/reportEditDistance.test.ts` -- expected: all new tests pass.
 - `npm test` -- expected: full backend suite green, with `convex/reports.test.ts`, `convex/snapshots.test.ts`, `convex/generationLifecycle.test.ts`, and `convex/projects.test.ts` unaffected.
+
+## Recovery verification context (2026-09-04)
+
+The implementation and prior review artifacts have been preserved on the pinned native target branch before restart. Reuse the existing work and verify all acceptance criteria. The earlier run recorded hand-edited registrations in `convex/_generated/api.d.ts`; regenerate that artifact with the supported Convex code-generation command, without deploying backend functions, and retain the command evidence. Never hand-edit generated files. Preserve existing deferred-work entries byte-for-byte; committing an unchanged engine-produced append as bookkeeping is permitted. Run the normal verification gate and the independent BMAD review before terminal completion.
