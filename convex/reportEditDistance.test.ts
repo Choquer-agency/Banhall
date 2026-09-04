@@ -410,6 +410,31 @@ describe("no baseline", () => {
 });
 
 describe("seriesForReport", () => {
+  it("denies authenticated callers without internal eligibility", async () => {
+    const { t, writer, anonAdmin, reportId } = await setup();
+    await writer.mutation(api.snapshots.createMilestoneSnapshot, {
+      reportId,
+      label: "R1 internal milestone",
+      expectedRevisionNumber: 0,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", { authId: "ped-no-role" });
+    });
+
+    for (const caller of [
+      anonAdmin,
+      t.withIdentity({ subject: "ped-no-role" }),
+      t.withIdentity({ subject: "ped-unmapped" }),
+    ]) {
+      expect(
+        await caller.query(api.reportEditDistance.seriesForReport, { reportId })
+      ).toBeNull();
+    }
+    expect(
+      await writer.query(api.reportEditDistance.seriesForReport, { reportId })
+    ).toHaveLength(1);
+  });
+
   it("returns null without internal access and rows oldest-first with it", async () => {
     const { t, admin, reportId, generationId } = await setup();
     await t.run(async (ctx) => {
