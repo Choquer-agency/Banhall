@@ -9,6 +9,8 @@ import {
 import { v } from "convex/values";
 import { requireCapability } from "./lib/roleCapabilities";
 import { MIN_PROMOTABLE_FEEDBACK_CHARS } from "./brain";
+import { deidentify } from "./lib/deidentify";
+import type { Doc, Id } from "./_generated/dataModel";
 
 /**
  * Learning loop storage + governed publication.
@@ -62,7 +64,14 @@ export const getCandidateFeedbackForDigest = internalQuery({
   },
 });
 
-/** Direct edits to AI proposal wording, including edits made in normal chat. */
+/**
+ * Direct edits to AI proposal wording, including edits made in normal chat.
+ *
+ * CAP-1: the chat write site stores this text raw, so de-identification
+ * happens here, at the boundary where the rows leave their project and become
+ * firm-wide digest input. Stored rows are never rewritten. A row whose project
+ * document is gone still gets the email/phone pass, just no name pass.
+ */
 export const getProposalWordingEditsForDigest = internalQuery({
   args: { limit: v.number() },
   handler: async (ctx, args) => {
@@ -70,11 +79,20 @@ export const getProposalWordingEditsForDigest = internalQuery({
       .query("proposalWordingEditEvents")
       .order("desc")
       .take(args.limit);
-    return rows.map((row) => ({
-      originalText: row.originalText.slice(0, 2000),
-      editedText: row.editedText.slice(0, 2000),
-      updatedAt: row.createdAt,
-    }));
+    const projects = new Map<Id<"projects">, Doc<"projects"> | null>();
+    const results = [];
+    for (const row of rows) {
+      if (!projects.has(row.projectId)) {
+        projects.set(row.projectId, await ctx.db.get(row.projectId));
+      }
+      const project = projects.get(row.projectId) ?? null;
+      results.push({
+        originalText: deidentify(row.originalText, project).slice(0, 2000),
+        editedText: deidentify(row.editedText, project).slice(0, 2000),
+        updatedAt: row.createdAt,
+      });
+    }
+    return results;
   },
 });
 
@@ -290,6 +308,10 @@ export const selectDigest = mutation({
     digestId: v.union(v.id("learningDigests"), v.null()),
     expectedSelectionId: v.union(v.id("learningDigestSelections"), v.null()),
     reason: v.optional(v.string()),
+    // CAP-1: de-identification is best effort, so publishing a digest
+    // firm-wide requires an administrator to confirm they read it and found
+    // no client identifier. Only required on the publish path.
+    privacyReviewed: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const { user } = await requireCapability(ctx, "settings.configure");
@@ -301,6 +323,11 @@ export const selectDigest = mutation({
     }
 
     if (args.digestId) {
+      if (args.privacyReviewed !== true) {
+        throw new Error(
+          "Confirm the privacy review before publishing: this version must be free of client names, project titles, emails, and phone numbers.",
+        );
+      }
       const digest = await ctx.db.get(args.digestId);
       if (!digest || digest.kind !== args.kind)
         throw new Error("Digest not found for this guidance type");
