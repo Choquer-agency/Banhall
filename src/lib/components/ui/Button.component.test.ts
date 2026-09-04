@@ -52,9 +52,11 @@ describe("Button", () => {
   it.each([undefined, "/project/new"])("transitions colors and opacity with a reduced-motion escape (href=%s)", async (href) => {
     await render(Button, { href, children: label });
     const control = document.querySelector<HTMLElement>(href ? "a" : "button")!;
-    expect(getComputedStyle(control).transitionProperty).toBe("color, background-color, border-color, opacity");
-    expect(getComputedStyle(control).transitionDuration).toBe("0.2s");
     try {
+      await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
+      expect(window.matchMedia("(prefers-reduced-motion: no-preference)").matches).toBe(true);
+      expect(getComputedStyle(control).transitionProperty).toBe("color, background-color, border-color, opacity");
+      expect(getComputedStyle(control).transitionDuration).toBe("0.2s");
       await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
       expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
       expect(getComputedStyle(control).transitionProperty).toBe("none");

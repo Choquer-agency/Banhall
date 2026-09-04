@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { page as browserPage, userEvent } from "vitest/browser";
+import { page as browserPage, userEvent, cdp } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { createRawSnippet } from "svelte";
 import { authClient } from "$lib/authClient";
@@ -16,6 +16,7 @@ const tallContent = createRawSnippet(() => ({
 
 describe("WorkspaceChrome", () => {
   beforeEach(() => {
+    vi.mocked(authClient.signOut).mockReset();
     __resetPage();
     __resetNavigation();
     __resetConvexStub();
@@ -103,6 +104,25 @@ describe("WorkspaceChrome", () => {
       expect(rows.map((row) => row.textContent?.trim())).toEqual(["Stay signed in", "Sign out"]);
       await expect.poll(() => rows.every((row) => row.getBoundingClientRect().height >= 44)).toBe(true);
       expect(trigger.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+      await expect.poll(() => confirmation.contains(document.activeElement)).toBe(true);
+      for (let step = 0; step < rows.length + 1; step += 1) {
+        await userEvent.keyboard("{Tab}");
+        expect(confirmation.contains(document.activeElement)).toBe(true);
+      }
+      for (let step = 0; step < rows.length + 1; step += 1) {
+        await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+        expect(confirmation.contains(document.activeElement)).toBe(true);
+      }
+      // Real hit tests account for ancestor stacking contexts, unlike z-index alone.
+      await expect.poll(() => rows.every((row) => {
+        const bounds = row.getBoundingClientRect();
+        return row.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+      })).toBe(true);
+      const drawerClose = drawer.querySelector<HTMLButtonElement>('button[aria-label="Close workspace navigation"]')!;
+      const closeBounds = drawerClose.getBoundingClientRect();
+      expect(drawer.contains(document.elementFromPoint(
+        closeBounds.x + closeBounds.width / 2, closeBounds.y + closeBounds.height / 2
+      ))).toBe(false);
       if (dismiss === "cancel") {
         await browserPage.getByRole("button", { name: "Stay signed in", exact: true }).click();
       } else {
@@ -119,4 +139,44 @@ describe("WorkspaceChrome", () => {
       signOut.mockClear();
     }
   });
+
+  it.each(["coarse", "fine"])("keeps actual drawer rows at their approved %s-pointer size", async (pointer) => {
+    await browserPage.viewport(390, 844);
+    try {
+      await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: pointer === "coarse" });
+      expect(window.matchMedia(`(pointer: ${pointer})`).matches).toBe(true);
+      expect(window.matchMedia(`(pointer: ${pointer === "coarse" ? "fine" : "coarse"})`).matches).toBe(false);
+      await render(WorkspaceChrome, { title: "Settings", children: tallContent });
+      await browserPage.getByRole("button", { name: "Open workspace navigation", exact: true }).click();
+      await expect.element(browserPage.getByRole("button", { name: "Close workspace navigation", exact: true })).toBeVisible();
+      const drawer = document.querySelector<HTMLElement>("[data-workspace-drawer]")!;
+      const rows = Array.from(drawer.querySelectorAll<HTMLElement>(".workspace-rail-row"));
+      expect(rows.length).toBeGreaterThanOrEqual(2);
+      await expect.poll(() => rows.map((row) => row.getBoundingClientRect().height))
+        .toEqual(rows.map(() => pointer === "coarse" ? 44 : 28));
+      await browserPage.getByRole("button", { name: "Close workspace navigation", exact: true }).click();
+      await expect.poll(() => drawer.isConnected).toBe(false);
+    } finally {
+      await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: false });
+    }
+  });
+
+  it("signs out once after confirmation and navigates to login", async () => {
+    await browserPage.viewport(390, 844);
+    const signOut = vi.mocked(authClient.signOut);
+    signOut.mockResolvedValueOnce({ data: { success: true }, error: null });
+    await render(WorkspaceChrome, { title: "Settings", children: tallContent });
+    await browserPage.getByRole("button", { name: "Open workspace navigation", exact: true }).click();
+    await expect.element(browserPage.getByRole("button", { name: "Close workspace navigation", exact: true })).toBeVisible();
+    await browserPage.getByRole("button", { name: "Sign out", exact: true }).click();
+    const confirmation = browserPage.getByRole("dialog", { name: "Sign out?", exact: true });
+    await expect.element(confirmation).toBeVisible();
+    expect(signOut).not.toHaveBeenCalled();
+    await confirmation.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect.poll(() => signOut.mock.calls.length).toBe(1);
+    await expect.poll(() => __navigationCalls.filter((call) => call.kind === "goto"))
+      .toEqual([{ kind: "goto", url: "/login" }]);
+    await expect.element(confirmation).not.toBeInTheDocument();
+  });
+
 });

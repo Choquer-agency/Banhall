@@ -29,6 +29,17 @@ const navLink = (label: string) =>
     (anchor) => anchor.textContent?.trim() === label
   );
 
+const ADMIN_DESTINATIONS = [
+  ["The Brain", "/admin/brain"],
+  ["OneDrive ingestion", "/admin/ingestion"],
+  ["Project tags", "/admin/tags"],
+  ["QA reviews", "/admin/reviews"],
+  ["Users & roles", "/admin/users"],
+  ["House rules", "/admin/house-rules"],
+  ["Model preferences", "/admin/models"],
+  ["AI usage & cost", "/admin/usage"],
+];
+
 describe("WorkspaceRail", () => {
   beforeEach(() => {
     __resetPage();
@@ -106,6 +117,17 @@ describe("WorkspaceRail", () => {
     expect(document.querySelector("[data-rail-scroll]")?.className).toContain("overflow-y-auto");
     expect(document.querySelector("[data-admin-group-toggle]")?.getAttribute("aria-expanded")).toBe("false");
     expect(document.querySelector("#workspace-admin-links")).toBeNull();
+    const toggle = document.querySelector<HTMLButtonElement>("[data-admin-group-toggle]")!;
+    expect(toggle.getAttribute("aria-controls")).toBe("workspace-admin-links");
+    toggle.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(Array.from(document.querySelectorAll<HTMLAnchorElement>("#workspace-admin-links a"))
+      .map((link) => [link.textContent?.trim(), link.getAttribute("href")])).toEqual(ADMIN_DESTINATIONS);
+    await userEvent.keyboard(" ");
+    await expect.poll(() => toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector("#workspace-admin-links")).toBeNull();
+    expect(document.activeElement).toBe(toggle);
   });
 
   it("presents Admin as an Attio-style left-chevron group with distinct icon colours", async () => {
@@ -132,9 +154,11 @@ describe("WorkspaceRail", () => {
 
   it.each([
     { role: "admin", isDeveloper: true, isOwner: false, visible: true },
+    { role: "admin", isDeveloper: true, isOwner: true, visible: true },
     { role: "admin", isDeveloper: false, isOwner: true, visible: true },
     { role: "admin", isDeveloper: false, isOwner: false, visible: false },
     { role: "writer", isDeveloper: true, isOwner: false, visible: false },
+    { role: "writer", isDeveloper: true, isOwner: true, visible: false },
     { role: "writer", isDeveloper: false, isOwner: true, visible: false },
   ])("gates Admin destinations for $role developer=$isDeveloper owner=$isOwner", async ({ visible, ...user }) => {
     // Product-domain exposure amendment: role AND either presentation flag.
@@ -142,16 +166,7 @@ describe("WorkspaceRail", () => {
     await render(WorkspaceRail, baseProps());
     const destinations = Array.from(document.querySelectorAll<HTMLAnchorElement>('#workspace-admin-links a'))
       .map((link) => [link.textContent?.trim(), link.getAttribute("href")]);
-    expect(destinations).toEqual(visible ? [
-      ["The Brain", "/admin/brain"],
-      ["OneDrive ingestion", "/admin/ingestion"],
-      ["Project tags", "/admin/tags"],
-      ["QA reviews", "/admin/reviews"],
-      ["Users & roles", "/admin/users"],
-      ["House rules", "/admin/house-rules"],
-      ["Model preferences", "/admin/models"],
-      ["AI usage & cost", "/admin/usage"],
-    ] : []);
+    expect(destinations).toEqual(visible ? ADMIN_DESTINATIONS : []);
     expect(document.querySelector("[data-admin-group-toggle]") !== null).toBe(visible);
   });
 
@@ -208,12 +223,16 @@ describe("WorkspaceRail", () => {
     expect(home?.className).toContain("workspace-rail-row");
     expect(home?.className).toContain(variant === "drawer" ? "min-h-11" : "h-7");
     expect(home).toBeDefined();
-    const style = getComputedStyle(home!);
-    expect(style.transitionDuration).toBe("0.15s");
-    expect(style.transitionProperty).toContain("color");
-    expect(style.transitionProperty).not.toMatch(/all|transform|height|width|opacity/);
     expect(home!.getBoundingClientRect().height).toBe(variant === "drawer" ? 44 : 28);
     try {
+      await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
+      expect(window.matchMedia("(prefers-reduced-motion: no-preference)").matches).toBe(true);
+      const style = getComputedStyle(home!);
+      expect(style.transitionDuration).toBe("0.15s");
+      expect(style.transitionProperty.split(",").map((property) => property.trim())).toEqual([
+        "color", "background-color", "border-color", "outline-color", "text-decoration-color",
+        "fill", "stroke", "--tw-gradient-from", "--tw-gradient-via", "--tw-gradient-to",
+      ]);
       await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
       expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
       expect(getComputedStyle(home!).transitionProperty).toBe("none");

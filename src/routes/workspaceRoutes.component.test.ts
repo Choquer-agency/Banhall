@@ -40,6 +40,8 @@ describe("canonical workspace routes", () => {
     ["layout=board&utm=x", "layout=board&utm=x&group=client"],
     ["layout=board&group=status&utm=x", "layout=board&group=status&utm=x"],
     ["utm=x", "utm=x&layout=list&group=client"],
+    ["group=status&utm=x", "group=status&utm=x&layout=list"],
+    ["utm=first&utm=second&note=R%26D%20%2B%20caf%C3%A9", "utm=first&utm=second&note=R%26D%20%2B%20caf%C3%A9&layout=list&group=client"],
   ])("/projects preserves query %s and supplies missing Projects defaults", async (query, projectsQuery) => {
     __setPageUrl(`/projects?${query}`);
     __setQueryData("workspaceRollout:getAccess", { available: true });
@@ -54,8 +56,16 @@ describe("canonical workspace routes", () => {
     expect(document.querySelector('[data-dashboard-experience="preview"]')).not.toBeNull();
     // 0b094ed4: Home preserves params; Projects adds only absent defaults.
     const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>("nav a"));
-    expect(anchors.some((a) => a.getAttribute("href") === `/my-work?${query}`)).toBe(true);
-    expect(anchors.some((a) => a.getAttribute("href") === `/projects?${projectsQuery}`)).toBe(true);
+    for (const [pathname, expectedQuery] of [["/my-work", query], ["/projects", projectsQuery]]) {
+      const link = anchors.find((anchor) => new URL(anchor.href).pathname === pathname);
+      expect(link).toBeDefined();
+      const actual = new URL(link!.href);
+      const expected = new URLSearchParams(expectedQuery);
+      expect([...actual.searchParams.keys()]).toEqual([...expected.keys()]);
+      for (const key of new Set(expected.keys())) {
+        expect(actual.searchParams.getAll(key)).toEqual(expected.getAll(key));
+      }
+    }
     expect(gotoUrls()).toHaveLength(0);
   });
 
