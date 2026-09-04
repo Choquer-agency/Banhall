@@ -9,6 +9,7 @@ import {
   reportChatAgent,
 } from "./ai/chatAgentV2";
 import type { ModelMessage } from "ai";
+import { CHAT_EVIDENCE_GUIDANCE } from "./ai/prompts";
 
 const modules = import.meta.glob("./**/*.ts");
 const authId = "auth-chat-turns";
@@ -281,6 +282,230 @@ describe("bounded chat context", () => {
 
     const finished = await setupResult.t.run(async (ctx) => ctx.db.get(turn._id));
     expect(finished?.status).toBe("completed");
+  });
+
+  /**
+   * Story 4 (CAP-4): the boundary is a property of the request the action
+   * actually issues, so it is asserted on the real payload. Source scanning
+   * cannot see that `getChatContextV2` stopped returning `evidenceBudget` or a
+   * document's `category`/`uploaderRole`: all three are optional, so the
+   * builder would silently fall back to defaults and client trust with every
+   * other test still green.
+   */
+  test("streamChatReply sends evidence in the user message and never in the system prompt", async () => {
+    const setupResult = await setup();
+    const reportBody = "The reactor seal failed at 400 kPa during cycle 12.";
+    const analyzerFinding = "ANALYZER-JSON-FINDING";
+    const documentBody = "NOTES-DOCUMENT-BODY";
+    await setupResult.t.run(async (ctx) => {
+      await ctx.db.patch(setupResult.reportId, {
+        content: JSON.stringify({
+          type: "doc",
+          content: [
+            { type: "paragraph", content: [{ type: "text", text: reportBody }] },
+          ],
+        }),
+      });
+      const transcriptId = await ctx.db.insert("transcripts", {
+        projectId: setupResult.projectId,
+        content: "Interview content",
+        createdAt: Date.now(),
+      });
+      await ctx.db.insert("generations", {
+        projectId: setupResult.projectId,
+        transcriptId,
+        status: "completed",
+        agentOutputs: JSON.stringify({ analyzer: { finding: analyzerFinding } }),
+        startedAt: Date.now(),
+      });
+      await ctx.db.insert("projectDocuments", {
+        projectId: setupResult.projectId,
+        fileName: "notes.md",
+        fileType: "md",
+        content: documentBody,
+        category: "writer_notes",
+        uploaderRole: "writer",
+        source: "upload",
+        uploadedBy: authId,
+        createdAt: Date.now(),
+      });
+    });
+    const { result, turn } = await sendQueuedTurn(setupResult);
+    const decisionTarget = "PRIOR-DECISION-TARGET";
+    await setupResult.t.run(async (ctx) => {
+      await ctx.db.insert("chatProposals", {
+        agentThreadId: result.threadId,
+        toolCallId: "call-prior",
+        projectId: setupResult.projectId,
+        reportId: setupResult.reportId,
+        kind: "edit",
+        targetText: decisionTarget,
+        newText: "PRIOR-DECISION-CANDIDATE",
+        state: "rejected",
+        createdAt: Date.now(),
+      });
+    });
+
+    const streamText = vi
+      .spyOn(reportChatAgent, "streamText")
+      .mockResolvedValue({
+        consumeStream: async () => {},
+      } as unknown as Awaited<ReturnType<typeof reportChatAgent.streamText>>);
+    await setupResult.t.action(internal.ai.chatAgentV2.streamChatReply, {
+      agentThreadId: result.threadId,
+      promptMessageId: result.messageId,
+      reportId: setupResult.reportId,
+    });
+
+    const call = streamText.mock.calls[0];
+    if (!call) throw new Error("streamText call missing");
+    const system = String(call[2]?.system ?? "");
+    const messages = call[2]?.messages ?? [];
+    expect(messages).toHaveLength(1);
+    const evidence = String(
+      (messages[0] as { role: string; content: unknown }).content
+    );
+    expect((messages[0] as { role: string }).role).toBe("user");
+
+    // Not one byte of client evidence carries system authority.
+    for (const secret of [reportBody, analyzerFinding, documentBody, decisionTarget]) {
+      expect(system).not.toContain(secret);
+      expect(evidence).toContain(secret);
+    }
+    // The report arrives inside its own markers, under the guidance.
+    expect(evidence).toContain(CHAT_EVIDENCE_GUIDANCE);
+    const open = evidence.indexOf("--- BEGIN [CURRENT REPORT] ---");
+    const close = evidence.indexOf("--- END [CURRENT REPORT] ---");
+    expect(open).toBeGreaterThan(-1);
+    expect(evidence.indexOf(reportBody)).toBeGreaterThan(open);
+    expect(evidence.indexOf(reportBody)).toBeLessThan(close);
+    // The document's stored provenance reached the marker line.
+    expect(evidence).toContain(
+      "--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---"
+    );
+
+    const finished = await setupResult.t.run(async (ctx) => ctx.db.get(turn._id));
+    expect(finished?.status).toBe("completed");
+  });
+
+  test("streamChatReply applies the evidence budget the query resolved", async () => {
+    const setupResult = await setup();
+    await setupResult.t.run(async (ctx) => {
+      const adminId = await ctx.db.insert("users", {
+        authId: `${authId}-budget-admin`,
+        role: "admin",
+      });
+      // One document allowed; the second must never reach the provider.
+      await ctx.db.insert("appSettings", {
+        key: "ai.chatMaxEvidenceDocuments",
+        value: "1",
+        updatedBy: adminId,
+        updatedAt: Date.now(),
+      });
+      for (const name of ["first.md", "second.md"]) {
+        await ctx.db.insert("projectDocuments", {
+          projectId: setupResult.projectId,
+          fileName: name,
+          fileType: "md",
+          content: `Body of ${name}`,
+          category: "other",
+          source: "upload",
+          uploadedBy: authId,
+          createdAt: Date.now(),
+        });
+      }
+    });
+    const { result } = await sendQueuedTurn(setupResult);
+
+    const streamText = vi
+      .spyOn(reportChatAgent, "streamText")
+      .mockResolvedValue({
+        consumeStream: async () => {},
+      } as unknown as Awaited<ReturnType<typeof reportChatAgent.streamText>>);
+    // Captured, not silenced: the line is the story's only operator signal.
+    const infoLines: string[] = [];
+    const info = vi
+      .spyOn(console, "info")
+      .mockImplementation((...parts: unknown[]) => {
+        infoLines.push(parts.map(String).join(" "));
+      });
+    try {
+      await setupResult.t.action(internal.ai.chatAgentV2.streamChatReply, {
+        agentThreadId: result.threadId,
+        promptMessageId: result.messageId,
+        reportId: setupResult.reportId,
+      });
+    } finally {
+      info.mockRestore();
+    }
+
+    const call = streamText.mock.calls[0];
+    if (!call) throw new Error("streamText call missing");
+    const evidence = String(
+      (call[2]?.messages?.[0] as { content: unknown }).content
+    );
+    expect(evidence).toContain("first.md");
+    expect(evidence).not.toContain("Body of second.md");
+    expect(evidence.match(/--- BEGIN \[OTHER SUPPORTING MATERIAL\]/g)).toHaveLength(1);
+    // The dropped document is named in the message and in the cut log, so a
+    // budget gap never reads as an interview gap.
+    expect(evidence).toContain(
+      "[1 further attached document(s) were omitted to fit the context budget.]"
+    );
+    const cutLine = infoLines.find((line) =>
+      line.startsWith(`chat evidence ${result.threadId}`)
+    );
+    expect(cutLine).toBeDefined();
+    expect(cutLine).toContain(setupResult.reportId);
+    expect(cutLine).toContain("left out second.md");
+  });
+
+  test("streamChatReply keeps the sender's style preferences in the system prompt", async () => {
+    const setupResult = await setup();
+    const preferences = "PREFER-FIRST-PERSON-PLURAL";
+    const userId = await setupResult.t.run(async (ctx) => {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_authId", (q) => q.eq("authId", authId))
+        .unique();
+      if (!user) throw new Error("writer missing");
+      await ctx.db.insert("writerProfiles", {
+        userId: user._id,
+        customInstructions: preferences,
+        enabled: true,
+        styleOverrides: { bannedWords: true },
+        updatedBy: user._id,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      return user._id;
+    });
+    const { result } = await sendQueuedTurn(setupResult);
+
+    const streamText = vi
+      .spyOn(reportChatAgent, "streamText")
+      .mockResolvedValue({
+        consumeStream: async () => {},
+      } as unknown as Awaited<ReturnType<typeof reportChatAgent.streamText>>);
+    await setupResult.t.action(internal.ai.chatAgentV2.streamChatReply, {
+      agentThreadId: result.threadId,
+      promptMessageId: result.messageId,
+      reportId: setupResult.reportId,
+      userId,
+    });
+
+    const call = streamText.mock.calls[0];
+    if (!call) throw new Error("streamText call missing");
+    const system = String(call[2]?.system ?? "");
+    const evidence = String(
+      (call[2]?.messages?.[0] as { content: unknown }).content
+    );
+    // The waiver footer points at these preferences; the action must forward
+    // them so the reference is never dangling, and they are the writer's own
+    // direction, so they stay out of the evidence message.
+    expect(system).toContain("WRITER'S PERSONAL STYLE PREFERENCES");
+    expect(system).toContain(preferences);
+    expect(evidence).not.toContain(preferences);
   });
 });
 

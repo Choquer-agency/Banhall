@@ -14,12 +14,19 @@ import {
   DEFAULT_CONTEXT_BUDGET,
   type ContextBudget,
 } from "./ai/trustedContext";
+import {
+  DEFAULT_CHAT_EVIDENCE_BUDGET,
+  type ChatEvidenceBudget,
+} from "./ai/chatEvidence";
 
 const DEFAULT_MODEL_KEY = "defaultModel";
 const ANALYZER_CONTEXT_BUDGET_KEY = "ai.analyzerContextBudgetTokens";
 const ANALYZER_TRANSCRIPT_BUDGET_KEY = "ai.analyzerTranscriptBudgetTokens";
 const ANALYZER_DOCUMENT_BUDGET_KEY = "ai.analyzerDocumentBudgetTokens";
 const ANALYZER_MAX_DOCUMENTS_KEY = "ai.analyzerMaxContextDocuments";
+const CHAT_EVIDENCE_BUDGET_KEY = "ai.chatEvidenceBudgetTokens";
+const CHAT_EVIDENCE_DOCUMENT_BUDGET_KEY = "ai.chatEvidenceDocumentBudgetTokens";
+const CHAT_MAX_EVIDENCE_DOCUMENTS_KEY = "ai.chatMaxEvidenceDocuments";
 const MY_WORK_KILL_SWITCH_KEY = "myWork.killSwitch";
 const MY_WORK_DEFAULT_VIEW_KEY = "myWork.defaultView";
 const MY_WORK_READINESS_KEY = "myWork.readiness";
@@ -64,6 +71,30 @@ export async function defaultModelId(ctx: QueryCtx | MutationCtx): Promise<strin
 }
 
 /**
+ * One admin-tunable positive integer. Shared by every budget reader so the
+ * silent-fallback rule is written once: absent, unparseable or non-positive
+ * means the module constant, never an exception.
+ */
+async function readPositiveInt(
+  ctx: QueryCtx | MutationCtx,
+  key: string,
+  fallback: number
+): Promise<number> {
+  const row = await ctx.db
+    .query("appSettings")
+    .withIndex("by_key", (q) => q.eq("key", key))
+    .unique();
+  if (!row) return fallback;
+  // Plain decimal digits only: Number() would happily read "1e9" or
+  // "0x2710" as a valid positive integer that means nothing like what an
+  // admin typed.
+  const raw = row.value.trim();
+  if (!/^\d+$/.test(raw)) return fallback;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
  * Admin-tunable analyzer context budget. Each field is read independently and
  * falls back to its module constant when the row is absent, unparseable or
  * non-positive — same rule as `defaultModelId`: a stale or fat-fingered
@@ -72,36 +103,56 @@ export async function defaultModelId(ctx: QueryCtx | MutationCtx): Promise<strin
 export async function analyzerContextBudget(
   ctx: QueryCtx | MutationCtx
 ): Promise<ContextBudget> {
-  const readPositiveInt = async (key: string, fallback: number) => {
-    const row = await ctx.db
-      .query("appSettings")
-      .withIndex("by_key", (q) => q.eq("key", key))
-      .unique();
-    if (!row) return fallback;
-    // Plain decimal digits only: Number() would happily read "1e9" or
-    // "0x2710" as a valid positive integer that means nothing like what an
-    // admin typed.
-    const raw = row.value.trim();
-    if (!/^\d+$/.test(raw)) return fallback;
-    const parsed = Number(raw);
-    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
-  };
   return {
     totalTokens: await readPositiveInt(
+      ctx,
       ANALYZER_CONTEXT_BUDGET_KEY,
       DEFAULT_CONTEXT_BUDGET.totalTokens
     ),
     transcriptTokens: await readPositiveInt(
+      ctx,
       ANALYZER_TRANSCRIPT_BUDGET_KEY,
       DEFAULT_CONTEXT_BUDGET.transcriptTokens
     ),
     perDocumentTokens: await readPositiveInt(
+      ctx,
       ANALYZER_DOCUMENT_BUDGET_KEY,
       DEFAULT_CONTEXT_BUDGET.perDocumentTokens
     ),
     maxDocuments: await readPositiveInt(
+      ctx,
       ANALYZER_MAX_DOCUMENTS_KEY,
       DEFAULT_CONTEXT_BUDGET.maxDocuments
+    ),
+  };
+}
+
+/**
+ * Admin-tunable chat evidence budget (CAP-4). Only the three knobs the SPEC
+ * names are settings: the total, the per-document cap and the document count.
+ * The report, analysis and prior-decision caps stay module constants because
+ * they are internal allocation of that total, not a policy an admin tunes.
+ * Same silent per-field fallback as the analyzer's budget.
+ */
+export async function chatEvidenceBudget(
+  ctx: QueryCtx | MutationCtx
+): Promise<ChatEvidenceBudget> {
+  return {
+    ...DEFAULT_CHAT_EVIDENCE_BUDGET,
+    totalTokens: await readPositiveInt(
+      ctx,
+      CHAT_EVIDENCE_BUDGET_KEY,
+      DEFAULT_CHAT_EVIDENCE_BUDGET.totalTokens
+    ),
+    perDocumentTokens: await readPositiveInt(
+      ctx,
+      CHAT_EVIDENCE_DOCUMENT_BUDGET_KEY,
+      DEFAULT_CHAT_EVIDENCE_BUDGET.perDocumentTokens
+    ),
+    maxDocuments: await readPositiveInt(
+      ctx,
+      CHAT_MAX_EVIDENCE_DOCUMENTS_KEY,
+      DEFAULT_CHAT_EVIDENCE_BUDGET.maxDocuments
     ),
   };
 }

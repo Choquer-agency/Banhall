@@ -3,8 +3,9 @@ import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
-import { analyzerContextBudget } from "./appSettings";
+import { analyzerContextBudget, chatEvidenceBudget } from "./appSettings";
 import { DEFAULT_CONTEXT_BUDGET } from "./ai/trustedContext";
+import { DEFAULT_CHAT_EVIDENCE_BUDGET } from "./ai/chatEvidence";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -112,5 +113,74 @@ describe("analyzer context budget settings", () => {
     expect(await f.t.run((ctx) => analyzerContextBudget(ctx))).toEqual(
       DEFAULT_CONTEXT_BUDGET
     );
+  });
+});
+
+/**
+ * Story 4: the three chat evidence knobs the SPEC names are admin-tunable and
+ * fall back per field, silently. The report/analysis/decision caps are not
+ * settings and must always come through as the module constants.
+ */
+describe("chat evidence budget settings", () => {
+  async function writeSetting(
+    f: Awaited<ReturnType<typeof setup>>,
+    key: string,
+    value: string
+  ) {
+    await f.t.run((ctx) =>
+      ctx.db.insert("appSettings", {
+        key,
+        value,
+        updatedBy: f.adminId,
+        updatedAt: Date.now(),
+      })
+    );
+  }
+
+  it("falls back to the module constants when nothing is configured", async () => {
+    const f = await setup();
+    expect(await f.t.run((ctx) => chatEvidenceBudget(ctx))).toEqual(
+      DEFAULT_CHAT_EVIDENCE_BUDGET
+    );
+  });
+
+  it("reads the three configured knobs and leaves the rest constant", async () => {
+    const f = await setup();
+    await writeSetting(f, "ai.chatEvidenceBudgetTokens", "90000");
+    await writeSetting(f, "ai.chatEvidenceDocumentBudgetTokens", " 8000 ");
+    await writeSetting(f, "ai.chatMaxEvidenceDocuments", "4");
+    expect(await f.t.run((ctx) => chatEvidenceBudget(ctx))).toEqual({
+      ...DEFAULT_CHAT_EVIDENCE_BUDGET,
+      totalTokens: 90_000,
+      perDocumentTokens: 8_000,
+      maxDocuments: 4,
+    });
+  });
+
+  it("falls back per field on unparseable, zero, negative and exotic notations", async () => {
+    const f = await setup();
+    await writeSetting(f, "ai.chatEvidenceBudgetTokens", "abc");
+    await writeSetting(f, "ai.chatEvidenceDocumentBudgetTokens", "0");
+    await writeSetting(f, "ai.chatMaxEvidenceDocuments", "-5");
+    expect(await f.t.run((ctx) => chatEvidenceBudget(ctx))).toEqual(
+      DEFAULT_CHAT_EVIDENCE_BUDGET
+    );
+
+    const g = await setup();
+    await writeSetting(g, "ai.chatEvidenceBudgetTokens", "1e9");
+    await writeSetting(g, "ai.chatEvidenceDocumentBudgetTokens", "0x2710");
+    await writeSetting(g, "ai.chatMaxEvidenceDocuments", "12 documents");
+    expect(await g.t.run((ctx) => chatEvidenceBudget(ctx))).toEqual(
+      DEFAULT_CHAT_EVIDENCE_BUDGET
+    );
+  });
+
+  it("keeps one configured field from disturbing the others", async () => {
+    const f = await setup();
+    await writeSetting(f, "ai.chatMaxEvidenceDocuments", "3");
+    expect(await f.t.run((ctx) => chatEvidenceBudget(ctx))).toEqual({
+      ...DEFAULT_CHAT_EVIDENCE_BUDGET,
+      maxDocuments: 3,
+    });
   });
 });
