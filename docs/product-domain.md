@@ -1556,6 +1556,61 @@ it follow in `transcripts-2` through `transcripts-7`.
   working two-hour transcript at the 2026-08-26 client meeting; recorded here
   before any code relies on the contract.
 
+### 2026-09-03 (second) — The preview workspace is on for every internal role
+
+Rollout amendment. Origin: the 2026-08-26 client meeting (the writers were
+still on the old UI and Michael could not reproduce their bugs) plus owner
+direction 2026-09-03. Landed by the `workspace-1-gate-on-for-everyone` and
+`workspace-2-drop-dead-gate-branches` tickets.
+
+- **Affected ticket/scope:** `workspace-1-gate-on-for-everyone` (backend gate,
+  admin rollout card and its tests) and `workspace-2-drop-dead-gate-branches`
+  (the dead resolver branches and the browser cases that modelled the retired
+  cohort). No other ticket depends on the rollout gate.
+- **Decision:** exposure of the preview workspace is no longer a rollout
+  decision. `workspaceRollout.getAccess` returns `{ available: true }` to any
+  authenticated caller holding `project.readInternal`, and denies everyone
+  else by throwing, which the client reads as the `error` state. There is no
+  internal cohort that sees the current dashboard by default.
+- **Supersedes:** the 2026-08-06 canonical-URLs clause "the rollout gate
+  (master switch AND per-user access, fail-closed) is reused unchanged"
+  (`:763-766`) no longer describes the system. Every other clause of that
+  amendment stands: `/dashboard` is still the permanent compatibility entry,
+  `/projects` and `/my-work` are still the canonical URLs, params are still
+  preserved, and a decision of `current` still soft-redirects rather than
+  404s. The 2026-08-11 "admins always" short-circuit was never an amendment —
+  it existed only in code comments (`workspaceRollout.ts` and
+  `WorkspaceGate.svelte`) and is recorded here only so a reader who finds it
+  in git history knows it carried no contract.
+- **Domain impact:** none on vocabulary, invariants, transitions or
+  permissions. Exposure is not authorization: every read and write inside the
+  workspace still passes its own capability check, unchanged. `?workspace=current`
+  remains the rollback surface — it wins on every gated route, mid-load and on
+  query error, and the access query is not even subscribed when it is present.
+  The route state is now a function of `?workspace=current` and the access
+  query outcome alone: `current`, `loading` while it is pending, `preview`
+  when it resolves available, `current` on error.
+- **Migration and compatibility:** no schema change and no backfill. The two
+  rollout tables (`workspaceDashboardAccess`, `workspaceDashboardRolloutEvents`)
+  and the `workspace.dashboard.v1.enabled` `appSettings` master row remain in
+  place and are no longer read as a gating input. Removing them is a separate,
+  narrow decision under the schema rollout rule (`:226`, `:247`); until it is
+  taken, nothing writes to them from the product surface. `getAccess` keeps its
+  `{ available: boolean }` return shape, so a future narrowing needs no client
+  change.
+- **Authorization/test impact:** no new or changed capability cells. Superseded
+  test contracts: the `workspaceRollout` gate tests, the admin rollout card
+  test and the resolver's `localDevelopment` cases are deleted; the browser
+  suites (`WorkspaceGate.component.test.ts`, `workspaceRoutes.component.test.ts`,
+  `projectRoute.component.test.ts`) reach the `current` outcome through
+  `?workspace=current` or a failed access query instead of an unflagged user.
+  Unchanged and green: `?workspace=current` precedence, the neutral loading
+  state, param preservation on every soft-redirect, and the fail-closed
+  `current` fallback on error.
+- **Approval:** product owner direction 2026-09-03, from the 2026-08-26 client
+  meeting ("the writers need the new dashboard"); recorded here in the same
+  wave as the code that relies on it.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

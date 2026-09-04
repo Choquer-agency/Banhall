@@ -14,7 +14,8 @@ import { getFunctionName, type FunctionReference } from "convex/server";
 const registry = $state<{
   queries: Record<string, unknown>;
   pages: Record<string, unknown[]>;
-}>({ queries: {}, pages: {} });
+  errors: Record<string, unknown>;
+}>({ queries: {}, pages: {}, errors: {} });
 
 // Mutation/action calls a suite can assert on, plus the value each one
 // resolves with — a wizard that destructures its mutation result needs one.
@@ -39,6 +40,11 @@ export function __setQueryData(name: string, data: unknown) {
   registry.queries[name] = data;
 }
 
+/** Puts a subscription in its error state, the way a thrown query does. */
+export function __setQueryError(name: string) {
+  registry.errors[name] = new Error(`${name} failed`);
+}
+
 export function __setPaginatedRows(name: string, rows: unknown[]) {
   registry.pages[name] = rows;
 }
@@ -60,6 +66,7 @@ export function __clientQueryCalls(name: string) {
 export function __resetConvexStub() {
   registry.queries = {};
   registry.pages = {};
+  registry.errors = {};
   argsGetters.clear();
   calls.length = 0;
   clientQueries.length = 0;
@@ -113,14 +120,16 @@ export function useQuery(query: FunctionReference<"query">, ...rest: unknown[]) 
   registerGetter(name, getArgs);
   return {
     get data() {
-      if (skipped(getArgs)) return undefined;
+      if (skipped(getArgs) || registry.errors[name] !== undefined) return undefined;
       return registry.queries[name];
     },
     get error() {
-      return undefined;
+      if (skipped(getArgs)) return undefined;
+      return registry.errors[name];
     },
     get isLoading() {
       if (skipped(getArgs)) return true;
+      if (registry.errors[name] !== undefined) return false;
       return registry.queries[name] === undefined;
     },
     get isStale() {

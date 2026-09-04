@@ -10,15 +10,17 @@ import {
   __resetConvexStub,
   __setPaginatedRows,
   __setQueryData,
+  __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 
 /**
  * Route wiring for the canonical workspace URLs (product-domain amendment
- * 2026-08-06): /projects and /my-work render the workspace for flagged
- * users and soft-redirect everyone else to the /dashboard compatibility
- * entry with `view` set and every other param preserved; the flagged
- * /dashboard soft-navigates to the canonical URL. `$app/environment` is
- * stubbed dev=false so the real gate decision path runs.
+ * 2026-08-06, amended 2026-09-03): /projects and /my-work render the
+ * workspace, and fall back to the /dashboard compatibility entry with `view`
+ * set and every other param preserved whenever the decision resolves to
+ * `current`; /dashboard soft-navigates to the canonical URL. With the preview
+ * on for every internal role, the fallback is reached through
+ * `?workspace=current` or a failed access query, not through a cohort.
  */
 function seedWorkspaceQueries() {
   __setQueryData("myWork:getViewConfig", { killSwitch: true, ready: false });
@@ -36,7 +38,7 @@ describe("canonical workspace routes", () => {
     __resetConvexStub();
   });
 
-  it("/projects renders the workspace shell for a flagged user", async () => {
+  it("/projects renders the workspace shell", async () => {
     __setPageUrl("/projects?layout=board");
     __setQueryData("workspaceRollout:getAccess", { available: true });
     seedWorkspaceQueries();
@@ -55,15 +57,15 @@ describe("canonical workspace routes", () => {
     expect(gotoUrls()).toHaveLength(0);
   });
 
-  it("/projects sends a non-flagged user to /dashboard?view=all_projects preserving params", async () => {
+  it("/projects falls back to /dashboard?view=all_projects preserving params when access fails", async () => {
     __setPageUrl("/projects?layout=list&utm=x");
-    __setQueryData("workspaceRollout:getAccess", { available: false });
+    __setQueryError("workspaceRollout:getAccess");
     await render(ProjectsPage, {});
 
     await expect.poll(() => gotoUrls()).toContain("/dashboard?layout=list&utm=x&view=all_projects");
   });
 
-  it("/my-work sends a non-flagged user to /dashboard?view=my_work preserving workspace=current", async () => {
+  it("/my-work sends ?workspace=current to /dashboard?view=my_work preserving the param", async () => {
     __setPageUrl("/my-work?workspace=current");
     await render(MyWorkPage, {});
 
@@ -81,7 +83,7 @@ describe("canonical workspace routes", () => {
     expect(gotoUrls()).toHaveLength(0);
   });
 
-  it("/dashboard soft-navigates a flagged user to the canonical URL, mapping ?view and keeping other params", async () => {
+  it("/dashboard soft-navigates to the canonical URL, mapping ?view and keeping other params", async () => {
     __setPageUrl("/dashboard?view=all_projects&layout=board");
     __setQueryData("workspaceRollout:getAccess", { available: true });
     await render(DashboardPage, {});
@@ -89,7 +91,7 @@ describe("canonical workspace routes", () => {
     await expect.poll(() => gotoUrls()).toContain("/projects?layout=board");
   });
 
-  it("/dashboard defaults the flagged redirect to /my-work", async () => {
+  it("/dashboard defaults the canonical redirect to /my-work", async () => {
     __setPageUrl("/dashboard");
     __setQueryData("workspaceRollout:getAccess", { available: true });
     await render(DashboardPage, {});
@@ -97,9 +99,9 @@ describe("canonical workspace routes", () => {
     await expect.poll(() => gotoUrls()).toContain("/my-work");
   });
 
-  it("/dashboard keeps the current experience mounted for non-flagged users — no navigation", async () => {
+  it("/dashboard keeps the current experience mounted when access fails — no navigation", async () => {
     __setPageUrl("/dashboard");
-    __setQueryData("workspaceRollout:getAccess", { available: false });
+    __setQueryError("workspaceRollout:getAccess");
     seedWorkspaceQueries();
     await render(DashboardPage, {});
 

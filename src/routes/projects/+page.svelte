@@ -1,10 +1,10 @@
 <script lang="ts">
-  // /projects — canonical URL of the dense project repository view for
-  // flagged workspace-preview users (product-domain amendment 2026-08-06).
-  // Non-flagged users (and `?workspace=current`) are soft-redirected to the
-  // compatibility entry `/dashboard?view=all_projects`, preserving `layout`,
-  // `workspace`, and unknown params — never a 404, never a preview flash;
-  // while the access decision loads, WorkspaceGate renders a neutral
+  // /projects — canonical URL of the dense project repository view
+  // (product-domain amendment 2026-08-06, amended 2026-09-03). A decision of
+  // `current` (`?workspace=current`, or a failed access query) soft-redirects
+  // to the compatibility entry `/dashboard?view=all_projects`, preserving
+  // `layout`, `workspace`, and unknown params — never a 404, never a preview
+  // flash; while the access decision loads, WorkspaceGate renders a neutral
   // loading state.
   import { resolve } from "$app/paths";
   import { page } from "$app/state";

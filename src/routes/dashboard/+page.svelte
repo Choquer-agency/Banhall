@@ -1,14 +1,13 @@
 <script lang="ts">
   // /dashboard — the PERMANENT compatibility entry (bookmarks, emails, the
   // rollback target; PRODUCT.md: "same canonical routes"). The current
-  // experience branch is unchanged forever: unflagged users, `?workspace=
-  // current`, load, and error states all mount the current dashboard
-  // immediately, exactly as before. Only the preview branch changed: instead
-  // of mounting the workspace here, flagged users soft-navigate
-  // (replaceState) to their canonical URL — /projects when
-  // `?view=all_projects`, otherwise /my-work — preserving `layout`,
-  // `workspace`, and any unknown params. All gating lives in the shared
-  // WorkspaceGate.
+  // experience branch is unchanged forever: `?workspace=current`, load, and
+  // error states all mount the current dashboard immediately, exactly as
+  // before. Only the preview branch changed: instead of mounting the
+  // workspace here, a preview decision soft-navigates (replaceState) to the
+  // canonical URL — /projects when `?view=all_projects`, otherwise /my-work —
+  // preserving `layout`, `workspace`, and any unknown params. All gating
+  // lives in the shared WorkspaceGate.
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
   import CurrentDashboard from "$lib/components/dashboard/CurrentDashboard.svelte";

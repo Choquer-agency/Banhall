@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import ProjectPage from "./+page.svelte";
 import { __resetPage, __setPageParams, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
-import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+import { __resetConvexStub, __setQueryData, __setQueryError } from "$lib/test/convex-svelte-stub.svelte";
 
 /**
  * Route-shape test for the real /project/[id] page (not gate mark snippets):
@@ -16,7 +16,6 @@ import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.
  * their loading states, which is all this test needs. Assertions stay at the
  * boundary: `[data-dashboard-experience]` and the gate's neutral
  * `aria-label="Loading workspace"` surface — no deep page internals.
- * `$app/environment` is stubbed dev=false so the real decision path runs.
  */
 const experience = (name: "current" | "preview") =>
   document.querySelector(`[data-dashboard-experience="${name}"]`);
@@ -49,9 +48,9 @@ describe("/project/[id] route shape", () => {
     expect(previewCohortMark()).toBeNull();
   });
 
-  it("renders exactly the current report when access is unavailable", async () => {
+  it("renders exactly the current report when the access query fails", async () => {
     __setPageUrl("/project/project-1");
-    __setQueryData("workspaceRollout:getAccess", { available: false });
+    __setQueryError("workspaceRollout:getAccess");
     await render(ProjectPage, {});
 
     await expect.poll(() => experience("current")).not.toBeNull();
@@ -61,7 +60,7 @@ describe("/project/[id] route shape", () => {
     expect(previewCohortMark()).toBeNull();
   });
 
-  it("lets ?workspace=current win immediately for a flagged user, with no navigation", async () => {
+  it("lets ?workspace=current win immediately, with no navigation", async () => {
     __setPageUrl("/project/project-1?workspace=current");
     __setQueryData("workspaceRollout:getAccess", { available: true });
     await render(ProjectPage, {});

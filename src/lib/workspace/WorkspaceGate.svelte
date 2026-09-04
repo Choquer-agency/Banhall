@@ -4,7 +4,8 @@
   // subscription, and the pure experience resolution; routes only declare
   // what to render (snippets) or where to send the user (hrefs).
   //
-  // Contract (fail-closed, product-domain 2026-08-06 amendment):
+  // Contract (fail-closed, product-domain 2026-08-06 amendment as amended
+  // 2026-09-03 — the preview is on for every internal role):
   // - `?workspace=current` always wins — the access query is never even
   //   subscribed (shouldQueryWorkspaceAccess), including mid-load and on
   //   query error, on every gated route.
@@ -17,16 +18,12 @@
   //   /my-work routes) renders a neutral loading state while the decision is
   //   pending and soft-redirects (replaceState) only once the decision is
   //   genuinely "current" — no 404, no preview flash, no redirect bounce.
-  // - Symmetrically, `previewHref` lets /dashboard soft-navigate flagged
-  //   users to their canonical URL while unflagged users' /dashboard stays
+  // - Symmetrically, `previewHref` lets /dashboard soft-navigate a preview
+  //   decision to the canonical URL; `?workspace=current` keeps /dashboard
   //   byte-identical.
-  // - Local development forces the preview so the flagged experience is
-  //   reviewable without mutating rollout data; prod-like builds are the
-  //   only place the gate is truly exercised.
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { page } from "$app/state";
-  import { dev } from "$app/environment";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import type { Snippet } from "svelte";
@@ -74,11 +71,7 @@
     if (accessQ.data === undefined) return { status: "loading" };
     return { status: "ready", available: accessQ.data.available === true };
   });
-  const routeState = $derived(
-    // Dev no longer forces the preview (owner direction 2026-08-11): the
-    // rollout allowlist + admin role govern in every environment.
-    resolveWorkspaceRouteState({ workspaceParam, access: accessState, localDevelopment: false })
-  );
+  const routeState = $derived(resolveWorkspaceRouteState({ workspaceParam, access: accessState }));
 
   // Soft-redirects preserve every query param the caller kept in the href.
   $effect(() => {

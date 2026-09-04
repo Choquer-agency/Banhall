@@ -4,7 +4,7 @@ import { createRawSnippet } from "svelte";
 import WorkspaceGate from "./WorkspaceGate.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
-import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+import { __resetConvexStub, __setQueryData, __setQueryError } from "$lib/test/convex-svelte-stub.svelte";
 import { __resetAuthState, __setAuthState } from "$lib/test/convex-auth-stub";
 
 /**
@@ -12,8 +12,11 @@ import { __resetAuthState, __setAuthState } from "$lib/test/convex-auth-stub";
  * /projects, and /my-work. These tests drive it in both route shapes:
  * canonical routes (preview snippet + currentHref redirect) and the
  * compatibility route (current snippet + previewHref redirect). The auth
- * stub is a settled, authenticated session; `$app/environment` is stubbed
- * dev=false so the production decision path is the one under test.
+ * stub is a settled, authenticated session.
+ *
+ * The preview is on for every internal role (product-domain 2026-09-03), so
+ * the only inputs that still resolve to `current` are `?workspace=current`
+ * and a failed access query — there is no unflagged cohort to model.
  */
 const previewMark = createRawSnippet(() => ({
   render: () => `<div data-testid="preview-mark">preview subtree</div>`,
@@ -75,7 +78,7 @@ describe("WorkspaceGate — canonical route shape (preview snippet + currentHref
 
   it("soft-redirects to the compatibility entry once the decision is genuinely current", async () => {
     __setPageUrl("/projects?layout=board");
-    __setQueryData("workspaceRollout:getAccess", { available: false });
+    __setQueryError("workspaceRollout:getAccess");
     await render(WorkspaceGate, {
       preview: previewMark,
       currentHref: "/dashboard?layout=board&view=all_projects",
@@ -115,9 +118,9 @@ describe("WorkspaceGate — compatibility route shape (current snippet + preview
     expect(gotoUrls()).toHaveLength(0);
   });
 
-  it("keeps the current subtree mounted on error and on an unavailable decision", async () => {
+  it("keeps the current subtree mounted when the access query fails", async () => {
     __setPageUrl("/dashboard");
-    __setQueryData("workspaceRollout:getAccess", { available: false });
+    __setQueryError("workspaceRollout:getAccess");
     await render(WorkspaceGate, { current: currentMark, previewHref: "/my-work" });
 
     await expect.poll(() => document.querySelector('[data-testid="current-mark"]')).not.toBeNull();
@@ -125,7 +128,7 @@ describe("WorkspaceGate — compatibility route shape (current snippet + preview
     expect(gotoUrls()).toHaveLength(0);
   });
 
-  it("soft-navigates flagged users to their canonical URL, preserving params via the caller's href", async () => {
+  it("soft-navigates to the canonical URL, preserving params via the caller's href", async () => {
     __setPageUrl("/dashboard?layout=board");
     __setQueryData("workspaceRollout:getAccess", { available: true });
     await render(WorkspaceGate, { current: currentMark, previewHref: "/my-work?layout=board" });
@@ -178,9 +181,9 @@ describe("WorkspaceGate — two-subtree report shape", () => {
     expect(document.querySelector('[data-testid="current-mark"]')).toBeNull();
   });
 
-  it("renders only current when report access is unavailable", async () => {
+  it("renders only current when the report access query fails", async () => {
     __setPageUrl("/project/project-1");
-    __setQueryData("workspaceRollout:getAccess", { available: false });
+    __setQueryError("workspaceRollout:getAccess");
     await render(WorkspaceGate, {
       current: currentMark,
       preview: previewMark,
