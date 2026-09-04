@@ -85,11 +85,20 @@ SEED = ("_bmad", "node_modules", ".env.local")
 
 
 def seed_worktree(worktree: Path):
-    """Symlink the gitignored essentials into a lane worktree."""
+    """Symlink the gitignored essentials into a lane worktree.
+
+    .gitignore lists `_bmad/` with a trailing slash, which matches directories
+    only, so a *symlink* named `_bmad` reads as untracked and bmad-loop refuses
+    to start on a dirty worktree. Exclude the seeds through this worktree's own
+    info/exclude, which never touches the main checkout."""
     for name in SEED:
         src, dst = REPO / name, worktree / name
         if src.exists() and not dst.exists():
             dst.symlink_to(src)
+    gitdir = Path(git("rev-parse", "--absolute-git-dir", cwd=worktree))
+    info = gitdir / "info"
+    info.mkdir(parents=True, exist_ok=True)
+    (info / "exclude").write_text("\n".join(f"/{n}" for n in SEED) + "\n")
 
 
 def lane_policy(worktree: Path, spec_rel: str):
