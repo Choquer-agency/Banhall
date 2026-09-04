@@ -179,9 +179,15 @@ For a stopped run without an escalation, preserve its work before `resume`;
 `resolve` does not apply. In engine 0.11.1, `deferred` is terminal within that
 run: `resume` skips it, and escalation resolution cannot re-arm it. Preserve the
 implementation and use the native deferred-work sweep to prove and close the
-remaining obligation. A sweep can review an existing story against its original
-ancestor baseline. Keep the failed run's historical status intact and link the
-successful sweep evidence; do not relabel the old attempt as successful. Never hand-edit `state.json`, terminal result markers,
+remaining obligation. Preserve the original story contract and historical
+implementation baseline as review context. For a story stored under a nested
+`_bmad-output/specs/.../stories` directory, create a standard follow-up result
+spec directly under `_bmad-output/implementation-artifacts` through
+`bmad-build-auto`. Engine 0.11.1 permits ancestor baselines during sweep
+verification, but its first-session artifact discovery is nonrecursive and
+cannot discover the adopted nested story as the result. Keep the failed run's
+historical status intact and link the successful sweep evidence; do not relabel
+the old attempt as successful. Never hand-edit `state.json`, terminal result markers,
 or story statuses to manufacture completion. Never synthesize session hook events; use native session recovery.
 
 Preserve existing deferred-work entries exactly. An unchanged ledger append
@@ -218,6 +224,15 @@ bmad-loop sweep --no-prompt
 The sweep's `bmad-loop-sweep` skill verifies entries against current code and
 leaves product decisions for the human. Do not treat every historical open
 entry as proof of a current failure.
+
+Keep the integration checkout fixed for the entire sweep, including while its
+workers are isolated. Engine 0.11.1 also scans a project-root artifact fallback;
+a concurrent merge can expose an unrelated spec there and bind it to the
+active unit. If a run crashes with an outside-worktree spec binding, preserve
+its work and use a fresh native sweep with standard follow-up artifacts.
+`resume` retains that poisoned absolute binding; `resolve` applies only to a
+real escalation. The [source audit and recovery evidence](../.audit/sweep-spec-recovery/report.md)
+record the observed failure and supported recovery constraints.
 
 After any sweep or review repair changes the tree, repeat the combined gate,
 applicable component tests, and review on that resulting revision. Only the
