@@ -122,10 +122,13 @@ python3 - <<'PYTHON'
 from pathlib import Path
 import hashlib, subprocess
 p = '_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/schema/stories/9-review-artifacts-pinned-to-revision-and-content-hash.md'
-old = subprocess.check_output(['git', 'show', '3db1dd0c8d750034b73e42eb0bf4e75c797afd45:' + p], text=True)
-new = Path(p).read_text()
+old = subprocess.check_output(['git', 'show', '3db1dd0c8d750034b73e42eb0bf4e75c797afd45:' + p])
+new = Path(p).read_bytes()
 def block(s):
-    return s.split('<intent-contract>', 1)[1].split('</intent-contract>', 1)[0]
+    start, end = b'<intent-contract>', b'</intent-contract>'
+    assert s.count(start) == s.count(end) == 1
+    assert s.index(start) < s.index(end)
+    return s.split(start, 1)[1].split(end, 1)[0]
 assert block(old) == block(new)
 print('Frozen intent matches baseline byte-for-byte: PASS')
 print('vitest.config.ts SHA-256:', hashlib.sha256(Path('vitest.config.ts').read_bytes()).hexdigest())
@@ -144,3 +147,63 @@ Fresh verification did not complete successfully. `bash scripts/loop-verify.sh` 
 A retry with the installed Vitest-supported `VITEST_MAX_WORKERS=2` setting completed Convex tsc after approximately eight minutes and began application check before deliberate termination (exit 143); see `fresh-review-bounded-interrupted.log`. `uptime` during the retry reported load averages `44.45 57.85 52.91`; this is evidence of contention, not proof that all failures are environmental. No executable configuration was changed to mask the failures. Earlier passing evidence remains historical; this fresh pass is blocked on patch verification.
 
 `git diff --check` passes for the documentation updates. Existing deferred-work ledger content and frontmatter entries remain unchanged.
+
+## Resumed implementation verification
+
+Reviewed and verified source revision: `4131c58bccbb5dbf6b0b92445e2d079e8332f104`.
+The requested implementation and all matrix tests are already present at this revision. Inspection of the six production review insert sites and their update paths found no missing implementation; no backend, frontend, public API, generated-file, or Vitest configuration changes were needed during this pass.
+
+The initial `bash scripts/loop-verify.sh` exited 1 before typechecking because `node_modules/.bin/tsc` was a regular copy of the executable instead of a symlink, causing `Cannot find module '../lib/tsc.js'`. Actual output: `resume-gate.log`. `npm rebuild --bin-links` exited 0 and restored the dependency executable links locally; actual output: `resume-dependencies.log`. No tracked dependency or lockfile was changed.
+
+After that local dependency repair, `bash scripts/loop-verify.sh` exited 0. Actual output: `resume-fixed-gate.log`:
+
+```text
+svelte-check found 0 errors and 0 warnings
+ Test Files  127 passed (127)
+      Tests  1366 passed (1366)
+   Duration  126.65s
+50 passed, 0 failed
+18 passed, 0 failed
+```
+
+Convex typechecking passed before the application check. The existing platform-specific PowerShell dotfile sub-case skip remains. The full suite exercised the matrix coverage listed above, with no test-selection changes. `git diff --check` exited 0 with no output.
+
+The frozen intent block matches immutable revision `4131c58bccbb5dbf6b0b92445e2d079e8332f104` byte-for-byte. Reproduce this comparison and the configuration digest from the repository root:
+
+```bash
+python3 - <<'PYTHON'
+from pathlib import Path
+import hashlib, subprocess
+revision = '4131c58bccbb5dbf6b0b92445e2d079e8332f104'
+p = '_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/schema/stories/9-review-artifacts-pinned-to-revision-and-content-hash.md'
+old = subprocess.check_output(['git', 'show', revision + ':' + p])
+new = Path(p).read_bytes()
+def block(s):
+    start, end = b'<intent-contract>', b'</intent-contract>'
+    assert s.count(start) == s.count(end) == 1
+    assert s.index(start) < s.index(end)
+    return s.split(start, 1)[1].split(end, 1)[0]
+assert block(old) == block(new)
+print('Frozen intent matches ' + revision + ' byte-for-byte: PASS')
+print('vitest.config.ts SHA-256:', hashlib.sha256(Path('vitest.config.ts').read_bytes()).hexdigest())
+PYTHON
+```
+
+Observed output, exit 0:
+
+```text
+Frozen intent matches 4131c58bccbb5dbf6b0b92445e2d079e8332f104 byte-for-byte: PASS
+vitest.config.ts SHA-256: 7ded8548bb9f244b65db0031259eef323c7a3e8ce2156843d9a6827cf3a496b2
+```
+
+This configuration digest includes the already-committed two-worker bound. Earlier interrupted evidence remains historical; this is a fresh complete passing gate. The existing caller-observation fencing deferral remains unchanged.
+
+Parent verification: `bash scripts/loop-verify.sh` exited 0 (`resume-parent-gate.log`): Convex typecheck passed; Svelte reported 0 errors/warnings; 127 files and 1366 tests passed; uploader harnesses reported 50 and 18 passed. Matrix test bodies were inspected directly in `convex/reviews.test.ts:262`, `convex/pdReviewProjection.test.ts:207`, `convex/reviewFromProject.test.ts:89`, and `convex/projects.test.ts:270`. All are registered by the unchanged Convex test include; the unfiltered run passed every test. `git diff --check` passed, and the current diff contains only audit and story records.
+
+Post-review verification: `bash scripts/loop-verify.sh` exited 0 (`resume-final-gate.log`), with Convex typecheck passing, Svelte 0 errors/warnings, 127 files and 1366 tests passing, and uploader harnesses 50 and 18 passing. The two review fixes changed audit documentation only. `git diff --check` passed.
+
+## Completion review verification
+
+Reviewed source revision: `5a175cfd2a1d12ebf8f51879be44873e402f2691`. Command: `bash scripts/loop-verify.sh`; exit 0. Actual output: `completion-review-gate.log`. Convex typecheck passed, Svelte reported 0 errors/warnings, 127 test files and 1366 tests passed, and uploader harnesses reported 50 and 18 passed. The existing PowerShell platform-specific dotfile sub-case skip remains.
+
+The two integrity commands above were executed after changing them to read raw bytes and require exactly one ordered delimiter pair. Both frozen-intent comparisons passed; the current configuration digest remains `7ded8548bb9f244b65db0031259eef323c7a3e8ce2156843d9a6827cf3a496b2`. Earlier digest outputs describe their historical source revisions. Existing deferred entries and the intent contract were also compared against the starting HEAD and remain unchanged. Only audit and story records changed. `git diff --check` passed.

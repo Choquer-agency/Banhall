@@ -2,8 +2,8 @@
 title: 'Review artifacts pinned to revision and content hash'
 type: 'feature'
 created: '2026-09-04'
-status: ready-for-dev
-baseline_revision: f122b086d745acc40b4decca26b9aaafc7257f6a
+status: done
+baseline_revision: 4131c58bccbb5dbf6b0b92445e2d079e8332f104
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -122,6 +122,26 @@ deferred:
   - `[low]` `[patch]` Record the exact executable comparison proving the frozen intent is unchanged.
   - `[low]` `[patch]` Record the configuration digest command and its observed output.
 
+### 2026-09-04: Resumed verification review
+- intent_gap: 0
+- bad_spec: 0
+- patch: 2 (high 0, medium 0, low 2)
+- defer: 0
+- reject: 10 (high 0, medium 0, low 10)
+- addressed_findings:
+  - `[low]` `[patch]` Record and execute the frozen-intent comparison against the immutable resumed baseline.
+  - `[low]` `[patch]` Append the independent parent gate result to the decision trail.
+
+### 2026-09-04: Fresh completion review
+- intent_gap: 0
+- bad_spec: 0
+- patch: 2 (high 0, medium 0, low 2)
+- defer: 0
+- reject: 8 (high 0, medium 0, low 8)
+- addressed_findings:
+  - `[low]` `[patch]` Compare raw bytes in the executable frozen-intent checks so line-ending normalization cannot mask a difference.
+  - `[low]` `[patch]` Require exactly one ordered pair of intent delimiters before comparing the frozen blocks.
+
 ## Design Notes
 
 CAP-7 already uses baseline revision 0 for legacy reports. Candidates and uploaded documents have no independent revision counter, so revision 0 plus their content hash identifies their baseline without adding a new lifecycle. Historical duplication carries evidence forward, like CAP-3 uploader provenance; missing historical evidence stays missing. New start/retry events always receive both fields. Current-time server pinning follows CAP-7; caller expected-revision fencing remains outside this additive schema story.
@@ -138,3 +158,22 @@ CAP-7 already uses baseline revision 0 for legacy reports. Candidates and upload
 
 Resume request: repair deterministic verification without changing the frozen intent contract. Feedback in `../../../../../../../../feedback/9-1.md` reports `bash scripts/loop-verify.sh` failed because the repository-wide form-control source audit exceeded its 5000ms timeout (9636ms under full-suite load). Type checks passed; 126 test files passed, one timed out. Investigate and repair verification reliability, preserve all assertions and backend behavior, and record reproduction and successful gate evidence.
 
+## Auto Run Result
+
+Status: done.
+
+The existing CAP-9 implementation remains unchanged: writer, QA, and PD reviews pin revision/content-hash provenance while preserving historical compatibility. This fresh review strengthened the documented integrity checks to compare raw bytes and reject duplicate or reversed intent delimiters.
+
+Files changed in this pass:
+- `.audit/CAP-9/evidence.md`: corrected executable integrity checks and current gate evidence.
+- `.audit/CAP-9/decisions.tsv`: appended review and verification decisions.
+- `.audit/CAP-9/completion-review-gate.log`: retained current full-gate output.
+- This story: review triage and completion status.
+
+Review findings: two low patches applied; zero new deferred items; eight rejected findings. Edge-case and verification-gap reviews found no issues. Intent alignment confirmed the diff documents verification of the existing implementation. Existing deferred-work entries were preserved unchanged.
+
+Follow-up review recommended: false. Patched counts: high 0, medium 0, low 2; weighted score 2.
+
+Verification: `bash scripts/loop-verify.sh` exited 0, with Convex typecheck passing, Svelte 0 errors/warnings, 127 test files and 1366 tests passing, and uploader harnesses 50 and 18 passing. Both executable frozen-intent comparisons passed. `git diff --check` passed. No executable source changed.
+
+Residual risks: the existing mutation-time provenance limitation remains as recorded in the unchanged deferral. The existing platform-specific PowerShell dotfile sub-case skip remains in the gate output.
