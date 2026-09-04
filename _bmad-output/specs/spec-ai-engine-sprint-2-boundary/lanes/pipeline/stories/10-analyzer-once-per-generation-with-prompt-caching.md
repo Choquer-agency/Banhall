@@ -2,7 +2,7 @@
 title: 'Analyzer once per generation with prompt caching'
 type: 'feature'
 created: '2026-09-04'
-status: 'done'
+status: 'blocked'
 baseline_revision: 'f122b086d745acc40b4decca26b9aaafc7257f6a'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -127,7 +127,10 @@ Pass serialized analysis in an optional internal action argument to avoid a new 
 
 ## Auto Run Result
 
-Status: done
+Status: blocked
+Blocking condition: finalization left repository dirty
+
+Implementation and verification are complete at `248c8931c49c24ac990dd5332406b2fbfde5fc47`. The only remaining working-copy modification is the pre-existing orchestrator-owned `_bmad-output/implementation-artifacts/deferred-work.md`. This follow-up did not change or stage it. The rendered workflow requires a clean working copy for terminal done status; the user's preservation instruction prevents clearing or incorporating the unrelated ledger modification.
 
 Fresh review retained the existing analyzer-once orchestration and Anthropic prefix caching. Added two failure-path assertions in `convex/ai/pipeline.compare.test.ts`: project recovery after analyzer rejection and rejection of wrongly typed nested analysis before drafting.
 

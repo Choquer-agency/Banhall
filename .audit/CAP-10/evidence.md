@@ -91,3 +91,5 @@ Starting revision: `db9f1effd03bf8ee94245b6095ba2c0724d14113`. Two test-only pat
 - `git diff --check`: passed after normalizing trailing blank lines in authored artifacts.
 
 All commands above were rerun after the patches. Four review layers produced two low patches and ten rejected suggestions after deduplication. No new deferred entries. Cache hit rates and worst-case action latency are not established by these tests. The orchestrator-owned deferred-work ledger was already modified at entry and has not been opened for inspection, edited, staged, or committed by this follow-up.
+
+Reviewed follow-up revision: `248c8931c49c24ac990dd5332406b2fbfde5fc47`. Post-commit `git status --short` reported only ` M _bmad-output/implementation-artifacts/deferred-work.md`. Finalization therefore records `blocked` under the workflow clean-tree rule; this is an ownership/finalization condition, not a failing test or unfinished implementation.
