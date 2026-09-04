@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -44,6 +44,11 @@ async function insertProject(
 }
 
 describe("PSOS-11 dashboard projections", () => {
+  // The backfill is a self-rescheduling chain of runAfter(0) jobs. With real
+  // timers finishAllScheduledFunctions returns before the first job fires and
+  // the assertions see an empty dashboard (the dashboardStageCounts pattern).
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
   it("backfills UTC ordering fields and paginates company summaries", async () => {
     const { t, asUser, userId } = await setup();
     await insertProject(t, userId, {
@@ -59,7 +64,7 @@ describe("PSOS-11 dashboard projections", () => {
     await insertProject(t, userId, { title: "Unnamed", clientName: "   " });
 
     await asUser.mutation(api.dashboardBackfill.run, { dryRun: false });
-    await t.finishAllScheduledFunctions(() => {});
+    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
 
     const companies = await asUser.query(api.dashboard.listCompanies, {
       paginationOpts: { cursor: null, numItems: 10 },
@@ -122,7 +127,7 @@ describe("PSOS-11 dashboard projections", () => {
       companiesDeleted: 0,
       runKey: undefined,
     });
-    await t.finishAllScheduledFunctions(() => {});
+    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
     project = await t.run((ctx) => ctx.db.get(projectId));
     expect(project?.generationActivity).toBeUndefined();
 
@@ -142,7 +147,7 @@ describe("PSOS-11 dashboard projections", () => {
       });
     }
     await asUser.mutation(api.dashboardBackfill.run, { dryRun: false });
-    await t.finishAllScheduledFunctions(() => {});
+    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
     const projects = await t.run((ctx) => ctx.db.query("projects").take(3));
     await asUser.mutation(api.projects.bulkUpdateProjects, {
       projectIds: [projects[0]!._id],
