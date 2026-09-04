@@ -13,20 +13,20 @@ max_parallel = 1              # tickets driven at once (disjoint `touches` only)
 cli = "claude"
 model = "claude-fable-5-1"
 effort = "high"
-fallback = [{ cli = "claude", model = "opus", effort = "high" }]
+fallback = [{ cli = "claude", model = "opus", effort = "high" }, { cli = "claude", model = "sonnet", effort = "high" }]
 
 
 [implementer]                 # implements a ticket in its worktree, writes evidence + decision trail, commits. Full permissions inside the worktree.
 cli = "claude"
 model = "opus"
 effort = "high"
-fallback = [{ cli = "codex", model = "gpt-5.6-sol", reasoning = "high" }]
+fallback = [{ cli = "claude", model = "claude-fable-5-1", effort = "high" }, { cli = "codex", model = "gpt-5.6-sol", reasoning = "high" }, { cli = "claude", model = "sonnet", effort = "high" }]
 
 [reviewer]                    # reviews diffs and validates plans. Read-only. Use a different model family than the implementer.
 cli = "claude"
 model = "claude-fable-5-1"
 effort = "high"
-fallback = [{ cli = "codex", model = "gpt-5.6-sol", reasoning = "high" }]
+fallback = [{ cli = "codex", model = "gpt-5.6-sol", reasoning = "high" }, { cli = "claude", model = "sonnet", effort = "high" }]
 
 
 # [lead]                      # lead judgment over the panel (Act on / Consider / Noted / Dismissed). Read-only. Defaults to [planner].
@@ -40,3 +40,4 @@ cli = "claude"
 model = "claude-fable-5-1"
 effort = "medium"
 max_turns = 60
+fallback = [{ cli = "claude", model = "opus", effort = "medium" }, { cli = "claude", model = "sonnet", effort = "medium" }]

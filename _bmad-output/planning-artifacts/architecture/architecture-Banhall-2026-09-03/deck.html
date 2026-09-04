@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Banhall system architecture, 2026-09-03</title>
+<style>
+:root {
+  --bg: #fbfaf7;
+  --surface: #ffffff;
+  --ink: #1c1c1a;
+  --ink-2: #4a4a46;
+  --ink-3: #7a7a74;
+  --line: #e3e1da;
+  --line-2: #cfccc3;
+  --accent: #1f5c8a;
+  --accent-wash: #e9f0f6;
+  --warn-wash: #fbf1e6;
+  --warn-line: #d9a86c;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+  font-family: var(--font);
+  font-weight: 400;
+  color: var(--ink);
+  background: var(--bg);
+  line-height: 1.45;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+strong, b, h1, h2, h3, th, dt { font-weight: 500; }
+code, kbd { font-family: var(--mono); font-size: 0.9em; background: #f1efe9; padding: 0.05em 0.35em; border-radius: 3px; color: var(--ink); }
+kbd { border: 1px solid var(--line-2); }
+h1 { font-size: 44px; line-height: 1.1; margin: 0 0 20px; letter-spacing: -0.01em; }
+h2 { font-size: 28px; line-height: 1.2; margin: 0 0 18px; letter-spacing: -0.01em; }
+h3 { font-size: 17px; margin: 22px 0 8px; color: var(--ink-2); }
+p { margin: 0 0 12px; }
+a { color: var(--accent); }
+
+#deck { position: absolute; inset: 0; display: flex; flex-direction: column; }
+#stage { flex: 1; min-height: 0; position: relative; }
+.slide {
+  position: absolute; inset: 0;
+  padding: 44px 64px 40px;
+  overflow: auto;
+  display: none;
+  background: var(--bg);
+}
+.slide.active { display: block; }
+.slide > .intro { font-size: 16px; color: var(--ink-2); max-width: 980px; margin-bottom: 18px; }
+.slide > .foot { font-size: 14px; color: var(--ink-3); margin-top: 18px; max-width: 980px; }
+
+#bar {
+  height: 52px; flex: none;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 24px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 13px; color: var(--ink-3);
+}
+#bar .left { display: flex; align-items: center; gap: 14px; }
+#bar button {
+  font: inherit; font-size: 13px; color: var(--ink-2);
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: 6px;
+  padding: 6px 12px; cursor: pointer;
+}
+#bar button:hover { background: var(--accent-wash); border-color: var(--accent); color: var(--accent); }
+#bar button:disabled { opacity: 0.4; cursor: default; }
+#counter { font-variant-numeric: tabular-nums; min-width: 60px; text-align: center; }
+#bar .title { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 50vw; }
+
+/* index overlay */
+#index {
+  position: absolute; inset: 0; z-index: 20;
+  background: rgba(251, 250, 247, 0.96);
+  display: none; overflow: auto; padding: 44px 64px;
+}
+#index.open { display: block; }
+#index h2 { margin-bottom: 14px; }
+#index ol { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 40px; max-width: 1100px; }
+#index li { break-inside: avoid; margin-bottom: 4px; }
+#index button {
+  font: inherit; font-size: 15px; color: var(--ink);
+  background: none; border: 0; padding: 6px 8px; border-radius: 6px;
+  width: 100%; text-align: left; cursor: pointer; display: flex; gap: 12px; align-items: baseline;
+}
+#index button:hover, #index button.current { background: var(--accent-wash); color: var(--accent); }
+.idx-num { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+#index .hint { font-size: 13px; color: var(--ink-3); margin-top: 18px; }
+
+/* title slide */
+.title-slide { display: none; }
+.title-slide.active { display: flex; align-items: center; }
+.title-block { max-width: 820px; }
+.kicker { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); margin-bottom: 18px; }
+.lede { font-size: 20px; color: var(--ink-2); max-width: 640px; line-height: 1.4; margin-bottom: 36px; }
+.meta { display: grid; grid-template-columns: repeat(4, auto); gap: 32px; margin: 0; justify-content: start; }
+.meta div { display: flex; flex-direction: column; gap: 2px; }
+.meta dt { font-size: 12px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.meta dd { margin: 0; font-size: 16px; }
+
+/* pipeline */
+.pipe {
+  display: grid; max-width: 1260px;
+  grid-template-columns: 1fr 26px 1fr 26px 1fr 26px 1fr 26px 1fr 26px 1fr;
+  grid-template-rows: auto 34px auto;
+  align-items: stretch;
+}
+.c1 { grid-column: 1; } .c2 { grid-column: 3; } .c3 { grid-column: 5; } .c4 { grid-column: 7; } .c5 { grid-column: 9; } .c6 { grid-column: 11; }
+.a1 { grid-column: 2; } .a2 { grid-column: 4; } .a3 { grid-column: 6; } .a4 { grid-column: 8; } .a5 { grid-column: 10; }
+.pbox, .parrow { grid-row: 1; }
+.pbox {
+  min-width: 0;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: 8px;
+  padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 4px;
+}
+.pbox strong { font-size: 15px; line-height: 1.25; }
+.pbox span { font-size: 13px; color: var(--ink-2); line-height: 1.35; }
+.pbox .pnum { font-family: var(--mono); font-size: 11px; color: var(--ink-3); margin-bottom: 2px; }
+.pbox-accent { border-color: var(--accent); background: var(--accent-wash); }
+.pbox-accent .pnum { color: var(--accent); }
+.parrow { flex: 0 0 26px; position: relative; align-self: center; height: 1px; background: var(--line-2); }
+.parrow::after {
+  content: ""; position: absolute; right: -1px; top: -4px;
+  border: 4.5px solid transparent; border-left: 7px solid var(--line-2); border-right: 0;
+}
+.side-link { grid-row: 2; position: relative; justify-self: center; width: 1px; background: var(--accent); }
+.side-link::before { content: ""; position: absolute; top: -1px; left: -4px; border: 4.5px solid transparent; border-bottom: 7px solid var(--accent); border-top: 0; }
+.l3 { grid-column: 5; }
+.l5 { grid-column: 9; }
+.sidecar {
+  grid-row: 3; grid-column: 5 / 10;
+  border: 1px dashed var(--accent); border-radius: 8px; padding: 14px 16px 10px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px 22px; background: var(--surface);
+}
+.sbox { display: flex; flex-direction: column; gap: 3px; }
+.sbox strong { font-size: 15px; color: var(--accent); }
+.sbox span { font-size: 13px; color: var(--ink-2); }
+.side-caption { grid-column: 1 / -1; font-size: 12px; color: var(--ink-3); margin: 2px 0 0; }
+
+/* paradigm */
+.paradigm { font-size: 22px; line-height: 1.35; max-width: 900px; margin-bottom: 14px; color: var(--ink); }
+.three { list-style: none; padding: 0; margin: 0 0 22px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; max-width: 1200px; }
+.three li { font-size: 14px; color: var(--ink-2); border-top: 2px solid var(--accent); padding-top: 10px; }
+.three strong { color: var(--ink); display: block; margin-bottom: 4px; }
+
+/* tables */
+table { border-collapse: collapse; width: 100%; max-width: 1200px; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+th { color: var(--ink-3); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--line-2); }
+td.num { font-family: var(--mono); font-size: 13px; color: var(--accent); white-space: nowrap; }
+td.nowrap { white-space: nowrap; }
+tr.blocker td { background: var(--warn-wash); }
+tr.blocker td.num { color: #9a5a12; }
+tr.blocker td.nowrap { color: #9a5a12; }
+
+/* diagrams */
+.diagram {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  padding: 16px; max-height: calc(100vh - 260px); overflow: auto; margin-bottom: 14px;
+}
+.diagram-out { min-height: 80px; }
+.diagram-out svg { max-width: 100%; height: auto; }
+.diagram .pending { color: var(--ink-3); font-size: 13px; }
+.diagram pre.render-error { color: #a23b2a; font-size: 12px; white-space: pre-wrap; margin: 0; font-family: var(--mono); }
+.diagram pre.render-source { color: var(--ink-3); font-size: 11px; white-space: pre-wrap; margin: 12px 0 0; font-family: var(--mono); }
+
+.compact { margin: 0; padding-left: 18px; font-size: 14px; color: var(--ink-2); max-width: 1100px; }
+.compact li { margin-bottom: 4px; }
+
+.callout { border-left: 3px solid var(--accent); background: var(--accent-wash); padding: 10px 14px; border-radius: 0 6px 6px 0; font-size: 14px; max-width: 980px; }
+.callout-warn { border-left-color: var(--warn-line); background: var(--warn-wash); }
+
+.legend { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 1200px; }
+.legend-item { font-size: 14px; color: var(--ink-2); padding: 10px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); }
+.legend-item strong { color: var(--ink); margin-right: 6px; }
+.swatch { display: inline-block; width: 22px; height: 0; border-top: 2px dashed var(--ink-3); margin-right: 8px; vertical-align: middle; }
+.legend-dead { border-color: #c9563f; }
+.legend-dead .swatch { border-top-color: #c9563f; }
+.legend-stub { border-color: var(--warn-line); }
+.legend-stub .swatch { border-top-color: var(--warn-line); }
+
+/* AD lists */
+.adlist { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 40px; max-width: 1200px; font-size: 15px; }
+.adlist li { display: flex; gap: 12px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); break-inside: avoid; }
+.adid { font-family: var(--mono); font-size: 12px; color: var(--accent); flex: 0 0 52px; }
+.adid-target { color: #9a5a12; }
+.adlist-target { columns: 1; max-width: 1000px; }
+.adlist-target li { font-size: 14px; }
+
+/* verdict */
+.verdict { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; max-width: 1240px; }
+.vcol { border-top: 2px solid var(--line-2); padding-top: 10px; }
+.vcol h3 { margin-top: 0; font-size: 20px; }
+.vcol-yes { border-top-color: var(--accent); }
+.vcol-yes h3 { color: var(--accent); }
+.vcol-no { border-top-color: #c9563f; }
+.vcol-no h3 { color: #c9563f; }
+.vcol ul { margin: 0; padding-left: 18px; font-size: 14px; color: var(--ink-2); }
+.vcol li { margin-bottom: 8px; }
+.vcol strong { color: var(--ink); }
+
+/* steps */
+.steps { list-style: none; margin: 0; padding: 0; max-width: 1000px; }
+.steps li { display: flex; gap: 18px; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 15px; color: var(--ink-2); }
+.steps strong { color: var(--ink); display: block; margin-bottom: 2px; }
+.stepid { flex: 0 0 32px; height: 32px; border-radius: 50%; border: 1px solid var(--accent); color: var(--accent); display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 13px; }
+
+@media (max-width: 1100px) {
+  .slide { padding: 28px 28px 32px; }
+  .three, .adlist, .verdict, .legend, #index ol { grid-template-columns: 1fr; columns: 1; }
+  .pipe { grid-template-columns: 1fr 1fr; grid-template-rows: auto; gap: 10px; }
+  .pipe .pbox, .pipe .parrow, .pipe .side-link, .pipe .sidecar { grid-column: auto; grid-row: auto; }
+  .parrow, .side-link { display: none; }
+  .sidecar { grid-column: 1 / -1; }
+}
+</style>
+</head>
+<body>
+<div id="deck">
+  <div id="stage">
+<section class="slide title-slide" data-index="1" data-title="Banhall system architecture">
+<div class="title-block">
+  <p class="kicker">Architecture spine, brownfield ratification</p>
+  <h1>Banhall system architecture</h1>
+  <p class="lede">Transcripts in, CRA-ready SR&amp;ED project descriptions out. One deck showing how the pieces relate, what is settled, and what is not.</p>
+  <dl class="meta">
+    <div><dt>Date</dt><dd>2026-09-03</dd></div>
+    <div><dt>HEAD</dt><dd><code>005f115</code></dd></div>
+    <div><dt>Status</dt><dd>final</dd></div>
+    <div><dt>Navigate</dt><dd>arrow keys, or press <kbd>i</kbd> for the index</dd></div>
+  </dl>
+</div>
+</section>
+<section class="slide pipeline-slide" data-index="2" data-title="The pipeline in one picture"><h2>The pipeline in one picture</h2>
+<p class="intro">Client material flows left to right through one Convex deployment. The Brain and learning digests sit beside the flow: they shape prompts, they never write prose or workflow state.</p>
+<div class="pipe">
+    <div class="pbox c1"><span class="pnum">1</span><strong>Transcripts and files</strong><span>interview transcripts, PDFs, writer's notes, uploader kit</span></div>
+    <div class="parrow a1"></div>
+    <div class="pbox c2"><span class="pnum">2</span><strong>Convex storage</strong><span>rows plus <code>_storage</code> blobs, text extracted at upload, frozen per generation</span></div>
+    <div class="parrow a2"></div>
+    <div class="pbox pbox-accent c3"><span class="pnum">3</span><strong>Generation engine</strong><span>analyzer, section agents (242 / 244 / 246), scrub, compress, QA</span></div>
+    <div class="parrow a3"></div>
+    <div class="pbox c4"><span class="pnum">4</span><strong>Report editor</strong><span>Tiptap JSON, snapshots, comments, revision fence</span></div>
+    <div class="parrow a4"></div>
+    <div class="pbox pbox-accent c5"><span class="pnum">5</span><strong>Chat with proposals</strong><span>agent proposes edits, a human applies them</span></div>
+    <div class="parrow a5"></div>
+    <div class="pbox c6"><span class="pnum">6</span><strong>Export .docx</strong><span>schedule60 template, re-authorized on revision and hash</span></div>
+    <div class="side-link l3"></div>
+    <div class="side-link l5"></div>
+    <div class="sidecar">
+      <div class="sbox"><strong>Brain</strong><span>RAG over admin-approved sources; retrieved exemplars feed the engine (3) and chat (5)</span></div>
+      <div class="sbox"><strong>Learning digests</strong><span>distilled from writer signals, admin-selected; feed the same prompts</span></div>
+      <p class="side-caption">Knowledge sidecar: shapes prompts, never writes prose or workflow state</p>
+    </div>
+</div>
+<p class="foot">Workflow stages (intake through delivered) run as a separate human-owned axis on <code>projects</code>; generation status never advances it.</p>
+</section>
+<section class="slide " data-index="3" data-title="Paradigm and layers"><h2>Paradigm and layers</h2>
+<p class="paradigm">Event-sourced workflow core + pipes-and-filters AI engine + governed-knowledge sidecar, all on Convex.</p>
+<ul class="three">
+  <li><strong>Workflow core.</strong> <code>projects</code> is the aggregate root; every human state change appends to <code>projectEvents</code> / <code>workItemEvents</code>; denormalized pointers and counters move in the same transaction.</li>
+  <li><strong>AI engine.</strong> Fixed pipelines (analyzer, section agents, scrub, compress, QA) composed as scheduled Convex actions with durable run rows and CAS claims. No generic agent framework, no supervisor swarm.</li>
+  <li><strong>Knowledge sidecar.</strong> Brain (RAG over admin-approved sources) and learning digests (admin-published candidates). Both feed prompts; neither writes prose or workflow state.</li>
+</ul>
+<table>
+  <thead><tr><th>Layer</th><th>Directory</th><th>Contents</th></tr></thead>
+  <tbody>
+    <tr><td>Workflow core</td><td><code>convex/*.ts</code></td><td>projects, projectWorkflow, workItems, reports, snapshots, comments, dashboard, myWork, users, invites, auth, http, crons, schema</td></tr>
+    <tr><td>AI engine</td><td><code>convex/ai/</code></td><td>pipeline, iterative, postQa, analyzerAgent, section24xAgent, qaAgent, chronologyAgent, chatAgentV2, research/, prompts, promptProgram, providers, openrouter, instrument, structured</td></tr>
+    <tr><td>Knowledge sidecar</td><td><code>convex/ai/brain/</code>, <code>convex/brain.ts</code>, <code>convex/learning.ts</code>, <code>convex/ai/learning.ts</code>, <code>convex/ai/brainRetrieval.ts</code></td><td>RAG ingest/retrieve/erase, brainSources governance, digest distillation and selection ledger</td></tr>
+    <tr><td>Shared pure helpers</td><td><code>convex/lib/</code></td><td>auth, roleCapabilities, contracts, dashboardProjection, snapshots, tiptapReport, lineLimits, transcripts, styleOverrides, providerConfig</td></tr>
+    <tr><td>Isomorphic contracts</td><td><code>shared/</code></td><td>capabilities, workflowStages, workflowTransitions, styleOverrides, generationModels, chatProposals, workItems, roles, bannedWords, humanProse</td></tr>
+    <tr><td>Client</td><td><code>src/routes</code>, <code>src/lib</code></td><td>SvelteKit SPA over convex-svelte reactive queries; bits-ui primitives, feature dirs, pure function modules</td></tr>
+  </tbody>
+</table>
+</section>
+<section class="slide " data-index="4" data-title="Dependency direction"><h2>Dependency direction</h2>
+<p class="intro">Arrows point at what a layer may import. <code>shared/</code> imports nothing app-specific; the client reaches Convex functions only through <code>convex/_generated/api</code>. Documented only today; a vitest import-direction check is the target enforcement (AD-1).</p>
+<div class="diagram" data-diagram="dependency"><div class="diagram-out"></div></div><script type="text/plain" data-mermaid="dependency">
+flowchart BT
+  SH[shared/]
+  LIB[convex/lib/]
+  AI[convex/ai/ + brain sidecar]
+  FN[convex/*.ts functions]
+  GEN[convex/_generated/api]
+  SRC[src/routes + src/lib]
+  LIB --> SH
+  AI --> LIB
+  AI --> SH
+  FN --> AI
+  FN --> LIB
+  FN --> SH
+  GEN -.generated from.-> FN
+  SRC --> SH
+  SRC --> GEN
+  SRC -.pure modules only.-> LIB
+</script></section>
+<section class="slide " data-index="5" data-title="Deployment topology"><h2>Deployment topology</h2><div class="diagram" data-diagram="deployment"><div class="diagram-out"></div></div><script type="text/plain" data-mermaid="deployment">
+flowchart LR
+  B[Browser SPA] -->|HTML shell + chunks| V["Vercel (adapter-vercel)<br/>hooks.server: cookie to JWT"]
+  B -->|/api/auth/* proxy| V
+  V -->|proxy| CH["Convex HTTP router<br/>better-auth routes / /ingestion/upload"]
+  B -->|WebSocket queries/mutations, JWT| CX["Convex deployment<br/>dev: energized-salamander-237<br/>prod: name not in repo (Q5)"]
+  CX --> AN[Anthropic]
+  CX --> OR[OpenRouter]
+  CX --> VY[Voyage embeddings + rerank]
+  CX --> MS["MS Graph OneDrive [optional]"]
+  CR[scripts/onedrive-crawler.mjs + client-uploader] -->|bearer INGEST_API_KEY| CH
+  GH["GitHub Actions<br/>ci.yml / publish-changelog.yml"] -->|convex run via deploy key| CX
+  VD["Vercel deploy hook (Q5: repository_dispatch wired?)"] --> GH
+  CX -.crons.-> CX
+</script>
+<h3>Operational envelope, as found</h3>
+<ul class="compact">
+  <li>Frontend on Vercel via the git integration; no CD workflow in the repo. Backend on Convex; prod deployed from a developer machine, no staging (AD-22 target).</li>
+  <li>Auth: Better Auth, email and password, invite-only in two layers, no email verification, no MFA (Q14).</li>
+  <li>Model egress: Anthropic direct, OpenRouter for openai/* and google/*, Voyage for embeddings and rerank, optional MS Graph OneDrive.</li>
+  <li>Crons: stale generations (30 min), stale PD reviews, post-QA and chat turns (15 min); oversight and my-work sweeps every 5 min; nightly digests 08:00 / 08:15 UTC.</li>
+  <li>CI runs <code>npm run check</code> and <code>npm test</code> only: no <code>convex tsc</code>, no build, no component tests, no deploy.</li>
+  <li>Inbound: no rate limits; <code>/ingestion/upload</code> is one shared bearer key, 15 MB cap, extension allowlist. Observability is <code>errorReports</code> and <code>aiUsage</code>; nobody is paged (Q13).</li>
+</ul>
+</section>
+<section class="slide " data-index="6" data-title="Core entities"><h2>Core entities</h2>
+<p class="intro">69 tables in <code>convex/schema.ts</code>; these are the ones that carry the invariants. Not present although the contract plans them: <code>reportBranches</code>, <code>productionOutcomes</code>, <code>clients</code>, <code>claimPeriods</code>, <code>notifications</code>.</p>
+<div class="diagram" data-diagram="er"><div class="diagram-out"></div></div><script type="text/plain" data-mermaid="er">
+erDiagram
+  users ||--o{ projects : "createdBy (immutable)"
+  users ||--o{ projects : "ownerId (authority)"
+  users ||--o{ invites : "createdBy / acceptedUserId"
+  projects ||--o{ transcripts : ""
+  projects ||--o{ projectDocuments : ""
+  projects ||--o{ reports : ""
+  projects ||--o{ generations : ""
+  projects |o--o| generations : "activeGenerationId"
+  projects ||--o{ workItems : ""
+  projects |o--o| workItems : "currentHandoffId"
+  projects ||--o{ projectEvents : "stage_changed / ownership_transferred"
+  projects |o--o| reports : "sharedReportId + shareToken"
+  projects ||--o{ pdReviews : ""
+  projects ||--o{ projectIdentityEvidence : ""
+  projects ||--o{ financialUploads : ""
+  projects }o--o| dashboardCompanies : "dashboardCompanyKey (projection)"
+  workItems ||--o{ workItemEvents : ""
+  workItems ||--o| workItemOversight : "manager pipeline projection"
+  reports ||--o{ reportSnapshots : ""
+  reports ||--o{ comments : ""
+  reports ||--o{ chatProposals : ""
+  reports ||--o{ writerReviews : ""
+  reports ||--o{ agentChatThreads : ""
+  generations ||--o{ reportCandidates : ""
+  generations ||--o{ generationSources : "frozen input bytes"
+  generations ||--o{ generationCandidateRuns : ""
+  reports |o--o| generations : "generationId (provenance)"
+  brainSources ||--o{ brainAuditLog : ""
+  learningDigests ||--o{ learningDigestSelections : "append-only ledger"
+</script></section>
+<section class="slide " data-index="7" data-title="Route tree"><h2>Route tree</h2>
+<p class="intro">Flat SvelteKit routes under one layout. Workspace pages sit behind <code>WorkspaceGate</code>; admin pages redirect client-side and are enforced by the Convex functions they call.</p>
+<div class="diagram" data-diagram="routes"><div class="diagram-out"></div></div><script type="text/plain" data-mermaid="routes">
+flowchart TD
+  L["+layout.svelte<br/>setupConvex / auth / ErrorBoundary / Toaster"]
+  L --> AUTH
+  L --> WS
+  L --> PROJ
+  L --> REV
+  L --> ADMIN
+  L --> MISC
+  subgraph AUTH[auth]
+    login["/login"]
+    signup["/signup/[token] invite accept"]
+    apiauth["/api/auth/[...all] proxy to Convex"]
+  end
+  subgraph WS[workspace via WorkspaceGate]
+    home["/ landing"]
+    dash["/dashboard (rollback surface)"]
+    projects["/projects board"]
+    mywork["/my-work lanes"]
+    requests["/requests"]
+    alerts["/alerts"]
+  end
+  subgraph PROJ[project]
+    pnew["/project/new intake"]
+    pq["/project/questionnaire"]
+    pid["/project/[id] report editor<br/>Current or Preview via gate"]
+    pfin["/project/[id]/financial"]
+  end
+  subgraph REV[review, anonymous]
+    rev["/review/[shareToken] NameGate then ReadOnlyEditor + comments"]
+  end
+  subgraph ADMIN[admin, role=admin client-checked, server-enforced]
+    users["/admin/users invites"]
+    models["/admin/models"]
+    brain["/admin/brain"]
+    ingest["/admin/ingestion"]
+    reviews["/admin/reviews digests"]
+    usage["/admin/usage"]
+    tags["/admin/tags"]
+    rules["/admin/house-rules"]
+    backfill["/admin/backfill"]
+  end
+  subgraph MISC[misc]
+    settings["/settings to /settings/account or /settings/writing"]
+    changelog["/changelog"]
+    guide["/styleguide"]
+  end
+</script></section>
+<section class="slide " data-index="8" data-title="Report page data flow"><h2>Report page data flow</h2>
+<p class="intro">Seven reactive subscriptions feed one container; every write goes back through a Convex mutation and the subscription is the optimistic layer. Export is a browser-only dynamic import.</p>
+<div class="diagram" data-diagram="reportpage"><div class="diagram-out"></div></div><script type="text/plain" data-mermaid="reportpage">
+flowchart LR
+  subgraph Q[useQuery subscriptions]
+    q1[projects.getProject]
+    q2[reports.getLatestReport]
+    q3[generations.getLatestGeneration]
+    q4[comments.listComments]
+    q5[pdReviews.getLatestPdReview]
+    q6[snapshots.getGhostSnapshot]
+    q7[generations.getIterativeState]
+  end
+  Q --> P["CurrentProjectPage / PreviewProjectPage<br/>(container, runes state)"]
+  P -->|content string| E["Editor.svelte<br/>svelte-tiptap getJSON()"]
+  E -->|debounced JSON| m1[reports.updateReportContent]
+  P --> m2[generations.requestGeneration / cancelIterative / requestReportQa]
+  P --> m3[snapshots.createManualSnapshot]
+  P --> m4[chatV2.markProposalApplied]
+  P --> m5["reports.authorizeExport then completeExport or failExport"]
+  P --> GEN["IterativeStepper<br/>approveSectionDraft / regenerateSectionDraft"]
+  P --> CHAT["AgentChatPanel<br/>chatProposals then applyProposal (human applies)"]
+  m5 -.lazy import.-> X["exportTemplateDocx (browser only)<br/>JSZip patch schedule60.docx"]
+  m1 --> CVX[(Convex)]
+  m2 --> CVX
+  m3 --> CVX
+  m4 --> CVX
+  m5 --> CVX
+  GEN --> CVX
+  CHAT --> CVX
+  CVX -.reactive push.-> Q
+</script></section>
+<section class="slide " data-index="9" data-title="Workflow stages"><h2>Workflow stages</h2>
+<p class="intro">The human axis on <code>projects.workflowStage</code>. Open matrix since the 2026-08-17 amendment: every stage may reach every other stage; the edges below show only non-default policy.</p>
+<div class="diagram" data-diagram="workflow"><div class="diagram-out"></div></div><script type="text/plain" data-mermaid="workflow">
+stateDiagram-v2
+  [*] --> intake : createProject (ownerId = caller)
+  note right of intake : Open matrix (2026-08-17 amendment). Every stage may reach every other stage. Edges below show only non-default policy.
+  intake --> interview_complete
+  interview_complete --> drafting
+  drafting --> internal_review : also via workItems.create(confirmedStageChange)
+  internal_review --> edits : + handoff_assignee authority
+  internal_review --> ready_for_delivery : + handoff_assignee, requires promoted_branch (fails closed)
+  edits --> client_review
+  client_review --> revisions
+  revisions --> ready_for_delivery : requires promoted_branch (fails closed)
+  ready_for_delivery --> delivered : requires delivery_outcome (fails closed)
+  drafting --> on_hold : note required
+  drafting --> abandoned : note required, no open workItems
+  delivered --> on_hold : manager/admin only, note required
+  abandoned --> drafting : manager/admin only, note required
+  delivered --> revisions : note required
+</script>
+<div class="callout callout-warn"><strong>Q1, product blocker.</strong> <code>ready_for_delivery</code> and <code>delivered</code> are unreachable until <code>reportBranches</code> and <code>productionOutcomes</code> exist. Both edges fail closed, so nothing can currently be marked delivered.</div>
+</section>
+<section class="slide " data-index="10" data-title="Agents propose, humans apply"><h2>Agents propose, humans apply</h2>
+<p class="intro">AI output that touches prose lands only as a <code>chatProposals</code> row in state <code>pending</code>. A human moves it to <code>applied</code> through one of the AD-3 revision writers.</p>
+<div class="diagram" data-diagram="sequence"><div class="diagram-out"></div></div><script type="text/plain" data-mermaid="sequence">
+sequenceDiagram
+  participant W as Writer (AgentChatPanel)
+  participant M as chatV2.sendMessage
+  participant C as components.agent
+  participant A as chatAgentV2.streamChatReply
+  participant T as proposeEdit tool
+  participant S as chatV2.saveProposal
+  participant P as chatV2.applyProposal
+  W->>M: sendMessage(reportId, content)
+  M->>C: createThread/saveMessage(user)
+  M->>M: insert chatTurns{queued}
+  M-->>A: scheduler.runAfter(0)
+  A->>M: markTurnStarted (queued to running)
+  A->>M: getChatContextV2 + writerProfiles
+  A->>M: isTurnActive?
+  A->>C: streamText(system=prompt+grounding, tools, recentMessages 30)
+  C-->>W: listMessages/syncStreams deltas
+  C->>T: tool call proposeEdit(targetText,newText)
+  T->>S: runMutation(saveProposal)
+  S->>S: turn active? target in report? unique?
+  S-->>T: {ok, proposalId}
+  A->>M: finishTurn(completed, stepCount)
+  W->>W: ProposalCard renders pending
+  W->>P: applyProposal(proposalId)
+  P->>P: requireReportEditAccess, re-scrub, applyReplacements
+  P->>P: reportSnapshots(pre_chat_edit), report.revision+1, state=applied
+  P-->>W: {applied:true,count}
+</script></section>
+<section class="slide " data-index="11" data-title="Proposal lifecycle"><h2>Proposal lifecycle</h2>
+<p class="intro">Every transition out of <code>pending</code> is a writer action. Reference-only proposals insert as <code>applied</code> because they carry no prose.</p>
+<div class="diagram" data-diagram="proposal"><div class="diagram-out"></div></div><script type="text/plain" data-mermaid="proposal">
+stateDiagram-v2
+  [*] --> pending: saveProposal (edit/replacements) / research.saveReviewResult
+  [*] --> applied: saveProposal kind=references
+  pending --> pending: updateProposalWording (writer)
+  pending --> applied: applyProposal (writer, editProse)
+  pending --> applied: markProposalApplied (writer, editProse, revision fence)
+  pending --> stale: applyProposal, target not found
+  pending --> rejected: rejectProposal (writer)
+  stale --> rejected: rejectProposal
+  applied --> [*]
+  rejected --> [*]
+  stale --> [*]
+</script></section>
+<section class="slide " data-index="12" data-title="Generation lifecycle"><h2>Generation lifecycle</h2>
+<p class="intro">Frozen inputs, stamped provenance, one active generation per project (AD-5). Single, compare, and iterative modes share the reserve, claim, complete, reap shape.</p>
+<div class="diagram" data-diagram="generation"><div class="diagram-out"></div></div><script type="text/plain" data-mermaid="generation">
+flowchart TD
+  RQ[requestGeneration / retryGeneration] -->|reserveGeneration: reserved| G
+  G{candidateMode}
+  G -->|compare / single| GR[pipeline.generateReport]
+  G -->|iterative| SI[iterative.startIterativeGeneration]
+  GR -->|beginTrackedGeneration then beginGeneration: running| BR[retrieveBrainBlocks + getActiveDigest + fetchWriterStyle]
+  BR -->|createCandidateRun: queued| GC[pipeline.generateCandidate]
+  GC -->|claimCandidateRun: running| RP[runPipelineForModel]
+  RP --> CC[completeCandidateRun: succeeded / failed]
+  CC -->|compare fan-in| AS[awaiting_selection]
+  CC -->|single| CP[completed + report]
+  CC -->|all failed| F[failed]
+  AS -->|selectReportCandidate| CP
+  AS -->|retryFailedCandidates| SUP[superseded, new reserved recovery gen]
+  SI -->|beginTrackedGeneration| SA[saveIterativeArtifacts + ghost run]
+  SA -->|createSectionRuns| GS[iterative.generateSection]
+  GS -->|claimSectionRun: running| CS[completeSectionRun, awaiting_input]
+  CS -->|approveSectionDraft| GS
+  CS -->|approveSectionDraft last| CP2[completed, postQa.runReportQa]
+  GS -->|failSectionRun| AI[awaiting_input]
+  AI -->|regenerateSectionDraft| GS
+  CR[cron failStaleGenerations] -->|reserved/running over 30m| F
+  CR -->|iterative section stale| AI
+  X[cancelIterativeGeneration] --> F
+  GR -->|catch then failGeneration| F
+</script></section>
+<section class="slide " data-index="13" data-title="Brain governance"><h2>Brain governance</h2>
+<p class="intro">Sources are candidates until an admin acts; the vector index holds only approved rows and every retrieval re-joins on status. Revoke is confirmed erasure (AD-6). Dotted edges are stubs.</p>
+<div class="diagram" data-diagram="brain"><div class="diagram-out"></div></div><script type="text/plain" data-mermaid="brain">
+flowchart LR
+  R[writerReviews score>=85] -->|live| N[nominateFromReport, pending]
+  F[brainFeedbackQueue approved] -->|live| N
+  U[ingestion approveItem] -->|live, skips pending| A
+  N -->|admin approveSource| A[approved]
+  A -->|embedPool embedSource| E[rag entry + ragEntryId]
+  E -->|searchBrainExemplars| Q[generation / chat searchBrain / research]
+  Q -->|live| P[generations.brainProvenance]
+  P -.->|stub: no reader| X[usefulness analytics]
+  Q -.->|stub: no source chips / citations| C[cite in UI]
+  W[writer submitBrainFeedback] -->|live| F
+  A -->|admin revokeSource| V[revoked]
+  V -->|unlearnSource then eraseBrainEntry| K[unlearn_confirmed / unlearn_failed]
+  E -->|retrieval join drops non-approved| Q
+  V -.->|stub: digests already distilled never unlearned| D[learningDigests]
+</script></section>
+<section class="slide " data-index="14" data-title="Learning loop"><h2>Learning loop</h2>
+<p class="intro">Solid edges are live. The loop closes into prompts and provenance, then stops: nothing reads the provenance back.</p>
+<div class="diagram" data-diagram="learning"><div class="diagram-out"></div></div><script type="text/plain" data-mermaid="learning">
+flowchart LR
+  subgraph signals
+    QF[reviews.saveQaItemFeedback to qaItemFeedback]
+    SC[generations.scoreCandidate to candidateScores]
+    SE[approveSectionDraft to sectionEditEvents + ghostText]
+    PW[chatV2 to proposalWordingEditEvents]
+    WR[reviews score>=85 to brain.nominateFromReport]
+    BF[brainFeedbackQueue approved]
+  end
+  QF -->|LIVE: runAfter 10m| QD[ai.learning.generateQaCalibrationDigest]
+  SC -->|LIVE: runAfter| SD[ai.learning.generateDraftStyleDigest]
+  BF -->|LIVE: brain.ts:696| SD
+  SE -->|LIVE: getSectionEditsForDigest| SD
+  PW -->|LIVE| SD
+  CRON[crons nightly] -->|LIVE| QD
+  CRON -->|LIVE| SD
+  QD -->|LIVE: saveDigest candidate| LD[(learningDigests)]
+  SD -->|LIVE| LD
+  LD -->|LIVE: admin selectDigest ledger| ACT[learning.getActiveDigest]
+  ACT -->|LIVE| PIPE[pipeline / iterative / postQa prompts]
+  PIPE -->|LIVE: unionLearningDigestIds| PROV[(generations.learningDigestIds + promptVersion)]
+  WR -->|LIVE: pending queue, admin approves| BRAIN[(Brain RAG)]
+  BRAIN -->|LIVE: retrieveBrainBlocks| PIPE
+  PIPE -->|LIVE write| BP[(generations.brainProvenance)]
+  BP -.->|DEAD-END: zero readers| NW1((no reader))
+  PED[reports.postEditDistance query] -.->|DEAD-END: computed on read, never stored, no UI caller| NW2((no reader))
+  PROV -.->|DEAD-END: no consumer joins provenance to outcomes| NW3((no reader))
+  CRA[cra_letter / craOutcome] -.->|STUB: schema only, no retrieval or weighting| NW4((no reader))
+</script>
+<div class="legend">
+  <div class="legend-item legend-dead"><span class="swatch"></span><strong>DEAD-END (3 edges)</strong> <code>generations.brainProvenance</code> has zero readers; <code>reports.postEditDistance</code> is computed on read, never stored, no UI caller; nothing joins provenance to outcomes.</div>
+  <div class="legend-item legend-stub"><span class="swatch"></span><strong>STUB (1 edge)</strong> <code>cra_letter</code> / <code>craOutcome</code> are schema only, no retrieval or weighting.</div>
+</div>
+</section>
+<section class="slide " data-index="15" data-title="What is solid"><h2>What is solid</h2>
+<p class="intro">Adopted invariants: reality already settled these, and most carry an enforcing test.</p>
+<ol class="adlist"><li><span class="adid">AD-1</span><span>Paradigm and dependency direction</span></li><li><span class="adid">AD-2</span><span>Three state axes on projects never cross-write</span></li><li><span class="adid">AD-3</span><span>One prose-write path</span></li><li><span class="adid">AD-4</span><span>Agents propose, humans apply</span></li><li><span class="adid">AD-5</span><span>Frozen inputs, stamped provenance, one active generation</span></li><li><span class="adid">AD-6</span><span>Knowledge is governed: Brain sources and learning digests are candidates until an admin acts</span></li><li><span class="adid">AD-7</span><span>Authorization is capability presets resolved in Convex functions</span></li><li><span class="adid">AD-8</span><span>Report canonical format is a Tiptap JSON string with H2 headings as the parse contract</span></li><li><span class="adid">AD-9</span><span>One provider routing point, one action budget, every call metered</span></li><li><span class="adid">AD-10</span><span>Schema rollout is widen, backfill, migrate consumers, then narrow</span></li><li><span class="adid">AD-14</span><span>projects.createdBy is immutable audit identity</span></li><li><span class="adid">AD-15</span><span>The domain contract wins over implementation shortcuts</span></li><li><span class="adid">AD-16</span><span>Style rules are tiered: Locked versus Waivable</span></li><li><span class="adid">AD-17</span><span>Never hand-edit convex/_generated/; Convex guidelines override training data</span></li><li><span class="adid">AD-18</span><span>Client is a Svelte 5 SPA over reactive queries with a client-side auth gate</span></li></ol>
+<p class="foot">AD-20 and AD-21 are adopted as policy but target in code; they appear on the next slide. Fifteen ADs are fully adopted.</p>
+</section>
+<section class="slide " data-index="16" data-title="What is agreed but not built"><h2>What is agreed but not built</h2>
+<p class="intro">Target rules: agreed in the spine, not yet enforced in code.</p>
+<ol class="adlist adlist-target"><li><span class="adid adid-target">AD-11</span><span>Trusted-context boundary: all client text enters as delimited, labelled, budgeted data blocks; system prompt is policy plus style only.</span></li><li><span class="adid adid-target">AD-11a</span><span>Interim before the next document-bearing feature: fence the transcript, remove the instruction grant from writer's notes, move chat grounding out of system, add an injection test.</span></li><li><span class="adid adid-target">AD-12</span><span>Learning must be measurable: every signal has a reader and a health metric at /admin; digests need writer and project diversity.</span></li><li><span class="adid adid-target">AD-13</span><span>De-identify before firm-wide knowledge: importSource strips client identities; raw signal rows store de-identified text.</span></li><li><span class="adid adid-target">AD-19</span><span>Project-scoped rows follow the project: a listed cascade with blobs, agent threads, and Brain tombstones; today 8 of 49 tables.</span></li><li><span class="adid adid-target">AD-20</span><span>Every egress of client text is registered and class-gated: a processing register, OpenRouter data_collection deny, research consent flag.</span></li><li><span class="adid adid-target">AD-21</span><span>Data classes C1 to C4 and their handling: no client text in logs or errorReports; read audit on non-owned projects.</span></li><li><span class="adid adid-target">AD-22</span><span>Environments and deploy path: dev, staging, prod; convex deploy from CI with a held key; codegen diff and build in CI.</span></li></ol>
+</section>
+<section class="slide " data-index="17" data-title="Is it a step up over pasting into ChatGPT?"><h2>Is it a step up over pasting into ChatGPT?</h2>
+<div class="verdict">
+  <div class="vcol vcol-yes">
+    <h3>Yes, today</h3>
+    <ul>
+      <li><strong>Workflow.</strong> Stages, ownership, work items, and handoffs are event-sourced with optimistic concurrency and a dashboard projection that moves in the same transaction (AD-2, AD-14).</li>
+      <li><strong>Provenance.</strong> Every generation freezes its inputs byte-for-byte and stamps prompt version and digest ids; export re-authorizes on revision and hash (AD-5, AD-8).</li>
+      <li><strong>Human-gated proposals.</strong> No tool can touch prose; a proposal is a pending row until a writer applies it through a fenced, snapshotting writer (AD-3, AD-4).</li>
+      <li><strong>Governed knowledge.</strong> Brain sources and digests are candidates until an admin acts; revoke is confirmed erasure; rollback is a ledger entry (AD-6).</li>
+      <li><strong>Cost metering.</strong> One routing point, one action budget, every call in <code>aiUsage</code> with generation and run attribution (AD-9).</li>
+    </ul>
+  </div>
+  <div class="vcol vcol-no">
+    <h3>Not yet</h3>
+    <ul>
+      <li><strong>The learning loop is not measurable.</strong> Provenance is written and never read; post-edit distance is never stored; no evals (AD-12, divergence #12).</li>
+      <li><strong>The trust boundary is open.</strong> Chat grounding lives in the system prompt, the transcript is unfenced, trust derives from a client-settable category (AD-11, #9).</li>
+      <li><strong>Data lifecycle and erasure.</strong> Delete cascades 8 of 49 project tables and no blobs; no egress register, no data classes, no retention windows (AD-19, AD-20, AD-21, #43, #44).</li>
+      <li><strong>Authorization ceiling.</strong> Roughly 50 write paths, including deletes, egress, and spend, authorize on the firm-wide read gate (AD-7, #39).</li>
+    </ul>
+  </div>
+</div>
+<p class="foot">Security review verdict: a good workflow spine and a weak confidentiality spine. Ship-blocking for a client-facing confidentiality claim; the interim AD-11a mitigations are the cheap fix for writers today.</p>
+</section>
+<section class="slide " data-index="18" data-title="Top risks"><h2>Top risks</h2>
+<p class="intro">The eight highest divergences from the register: where code contradicts the contract or the agreed rule.</p>
+<table class="risks">
+  <thead><tr><th>#</th><th>Divergence</th><th>Why it matters</th><th>Governing AD</th></tr></thead>
+  <tbody><tr><td class="num">#1</td><td>Delivery and branch lifecycles are stubs; ready_for_delivery and delivered fail closed</td><td>No project can reach a terminal stage, so the workflow cannot record the outcome it exists to produce.</td><td class="nowrap">AD-2, AD-15 (Q1)</td></tr><tr><td class="num">#9</td><td>Untrusted content in the chat system prompt; transcript unfenced; trust by category</td><td>Client documents are a first-class prompt-injection channel into the agent that proposes report edits.</td><td class="nowrap">AD-11</td></tr><tr><td class="num">#11</td><td>PII enters digests and the Brain verbatim; no deidentify</td><td>One client's names and titles can surface in another client's draft through retrieval or a firm-wide digest.</td><td class="nowrap">AD-13</td></tr><tr><td class="num">#12</td><td>brainProvenance write-only; post-edit distance never stored; no evals</td><td>There is no way to tell whether the Brain or the digests improve drafts, so the learning feature cannot be defended or tuned.</td><td class="nowrap">AD-12</td></tr><tr><td class="num">#39</td><td>~50 write paths authorize on the read gate; errorReports and upload URLs accept roleless users</td><td>Any role-bearing user can delete, spend, or send client text outside the deployment on any client's project.</td><td class="nowrap">AD-7 (Q10)</td></tr><tr><td class="num">#43</td><td>deleteProject cascades 8 of 49 projectId tables and no _storage blobs</td><td>A client's deletion request cannot be honoured or proven; frozen transcripts and original files survive.</td><td class="nowrap">AD-19</td></tr><tr><td class="num">#44</td><td>No OpenRouter data_collection setting; research egress has no consent flag; Graph uses Files.Read.All</td><td>Client text can be retained by downstream providers nobody approved, and a tenant-wide drive grant exists for one client's files.</td><td class="nowrap">AD-20</td></tr><tr><td class="num">#47</td><td>Only 3 of 7 revision writers fence on expectedRevisionNumber; two definitions of the current report</td><td>A proposal written against report A can apply after report B becomes current, and stale writes can clobber newer prose.</td><td class="nowrap">AD-3</td></tr></tbody>
+</table>
+</section>
+<section class="slide " data-index="19" data-title="Open questions"><h2>Open questions</h2>
+<p class="intro">Fourteen questions the spine could not settle alone. Q1 is highlighted: it blocks the product, not just the architecture.</p>
+<table class="questions">
+  <thead><tr><th>Id</th><th>Question</th><th>Class</th></tr></thead>
+  <tbody><tr class="blocker"><td class="num">Q1</td><td>Ship reportBranches and productionOutcomes, or amend the matrix so a project can reach a terminal stage today?</td><td class="nowrap">Product-level blocker</td></tr><tr class=""><td class="num">Q2</td><td>deleteProject authority: keep createdBy, or a project.delete capability on Owner/Admin?</td><td class="nowrap">Authorization</td></tr><tr class=""><td class="num">Q3</td><td>Generation request/retry/select have no capability cell; intended under firm-wide visibility, or align with report.editProse?</td><td class="nowrap">Authorization</td></tr><tr class=""><td class="num">Q4</td><td>Which orchestrator is canonical: factory (worktree per ticket) or bmad-loop (in-place)?</td><td class="nowrap">Process</td></tr><tr class=""><td class="num">Q5</td><td>Prod Convex deployment name and deploy owner; is the Vercel repository_dispatch wired?</td><td class="nowrap">Operations</td></tr><tr class=""><td class="num">Q6</td><td>Ingestion approveItem skips the pending review every other nomination path uses. Intentional?</td><td class="nowrap">Knowledge governance</td></tr><tr class=""><td class="num">Q7</td><td>Resolved by AD-11a: writer's notes rank highest for facts and framing only; no attached material issues instructions.</td><td class="nowrap">AI engine (closed)</td></tr><tr class=""><td class="num">Q8</td><td>14 bun-only tests are dead under vitest: port or delete? Component tests are not in CI: add?</td><td class="nowrap">Tests</td></tr><tr class=""><td class="num">Q9</td><td>Retention windows for generationSources, errorReports, agent threads, chatTurns. Proposed 90 / 90 / 180 / 180 days.</td><td class="nowrap">Data lifecycle</td></tr><tr class=""><td class="num">Q10</td><td>Interim capability mapping for destructive, egress, spend, and identity writes until the cells ship.</td><td class="nowrap">Authorization</td></tr><tr class=""><td class="num">Q11</td><td>Share-token lifecycle: rotation on unpublish and expiry window. Proposed rotate at 30 days, expire at 90.</td><td class="nowrap">Authorization</td></tr><tr class=""><td class="num">Q12</td><td>Per-project daily spend ceiling and per-call token budgets. Owner sets the numbers.</td><td class="nowrap">AI engine</td></tr><tr class=""><td class="num">Q13</td><td>Who is notified when a cron, reaper, or errorReports spike fires, and over what channel?</td><td class="nowrap">Operations</td></tr><tr class=""><td class="num">Q14</td><td>MFA and session idle timeout for accounts that can read every client. Blocked on an email or TOTP path.</td><td class="nowrap">Authorization</td></tr></tbody>
+</table>
+</section>
+<section class="slide " data-index="20" data-title="Next steps"><h2>Next steps</h2>
+<ol class="steps">
+  <li><span class="stepid">a</span><div><strong>Answer Q1, Q5, Q10, Q12, Q13.</strong> Delivery lifecycle, prod deployment and owner, interim capability mapping, spend ceilings, alert path. Each is an owner decision, not engineering.</div></li>
+  <li><span class="stepid">b</span><div><strong>Ship AD-11a interim now.</strong> Fence the transcript, drop the instruction grant on writer's notes, move chat grounding out of the system prompt, add the injection test. Required before the next document-bearing feature.</div></li>
+  <li><span class="stepid">c</span><div><strong>Sprint 2 via bmad-loop.</strong> Run the boundary spec (AD-11: trustedContext, uploader trust, chat evidence message) and the learn-chat spec (AD-12, AD-13: deidentify, reportEditDistance, /admin/learning, diversity gate).</div></li>
+  <li><span class="stepid">d</span><div><strong>AD-19 erasure cascade and AD-22 CI deploy.</strong> projectScopedTables list with a schema-drift test and blob deletion; staging deployment and convex deploy from GitHub Actions.</div></li>
+  <li><span class="stepid">e</span><div><strong>NFR evidence audit.</strong> Performance, security, reliability, and maintainability evidence against the spine's target rules, so the next ratification is on measured ground.</div></li>
+</ol>
+</section>
+
+    <div id="index" aria-hidden="false">
+      <h2>Slide index</h2>
+      <ol><li><button type="button" data-goto="1"><span class="idx-num">01</span>Banhall system architecture</button></li><li><button type="button" data-goto="2"><span class="idx-num">02</span>The pipeline in one picture</button></li><li><button type="button" data-goto="3"><span class="idx-num">03</span>Paradigm and layers</button></li><li><button type="button" data-goto="4"><span class="idx-num">04</span>Dependency direction</button></li><li><button type="button" data-goto="5"><span class="idx-num">05</span>Deployment topology</button></li><li><button type="button" data-goto="6"><span class="idx-num">06</span>Core entities</button></li><li><button type="button" data-goto="7"><span class="idx-num">07</span>Route tree</button></li><li><button type="button" data-goto="8"><span class="idx-num">08</span>Report page data flow</button></li><li><button type="button" data-goto="9"><span class="idx-num">09</span>Workflow stages</button></li><li><button type="button" data-goto="10"><span class="idx-num">10</span>Agents propose, humans apply</button></li><li><button type="button" data-goto="11"><span class="idx-num">11</span>Proposal lifecycle</button></li><li><button type="button" data-goto="12"><span class="idx-num">12</span>Generation lifecycle</button></li><li><button type="button" data-goto="13"><span class="idx-num">13</span>Brain governance</button></li><li><button type="button" data-goto="14"><span class="idx-num">14</span>Learning loop</button></li><li><button type="button" data-goto="15"><span class="idx-num">15</span>What is solid</button></li><li><button type="button" data-goto="16"><span class="idx-num">16</span>What is agreed but not built</button></li><li><button type="button" data-goto="17"><span class="idx-num">17</span>Is it a step up over pasting into ChatGPT?</button></li><li><button type="button" data-goto="18"><span class="idx-num">18</span>Top risks</button></li><li><button type="button" data-goto="19"><span class="idx-num">19</span>Open questions</button></li><li><button type="button" data-goto="20"><span class="idx-num">20</span>Next steps</button></li></ol>
+      <p class="hint">Press <kbd>i</kbd> or <kbd>Esc</kbd> to close. Arrow keys move between slides.</p>
+    </div>
+  </div>
+  <div id="bar">
+    <div class="left">
+      <button type="button" id="prev" aria-label="Previous slide">Prev</button>
+      <span id="counter">1 / 20</span>
+      <button type="button" id="next" aria-label="Next slide">Next</button>
+      <button type="button" id="index-btn" aria-expanded="false">Index (i)</button>
+    </div>
+    <span class="title" id="bar-title"></span>
+    <span>Banhall architecture spine, HEAD 005f115</span>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+(function () {
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var total = slides.length;
+  var current = 0;
+  var counter = document.getElementById('counter');
+  var titleEl = document.getElementById('bar-title');
+  var prevBtn = document.getElementById('prev');
+  var nextBtn = document.getElementById('next');
+  var indexEl = document.getElementById('index');
+  var indexBtn = document.getElementById('index-btn');
+  var rendered = {};
+  var mermaidReady = !!(window.mermaid);
+  var renderSeq = 0;
+
+  if (mermaidReady) {
+    try {
+      mermaid.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'loose' });
+    } catch (e) { mermaidReady = false; console.error(e); }
+  }
+
+  function showError(container, message, source) {
+    var out = container.querySelector('.diagram-out');
+    out.innerHTML = '';
+    var pre = document.createElement('pre');
+    pre.className = 'render-error';
+    pre.textContent = 'Diagram failed to render: ' + message;
+    out.appendChild(pre);
+    var src = document.createElement('pre');
+    src.className = 'render-source';
+    src.textContent = source;
+    out.appendChild(src);
+  }
+
+  // Post-render tinting only; the mermaid source is untouched.
+  function decorate(key, out) {
+    if (key !== 'learning' && key !== 'brain') return;
+    var labels = out.querySelectorAll('.edgeLabel');
+    Array.prototype.forEach.call(labels, function (el) {
+      var t = el.textContent || '';
+      var color = t.indexOf('DEAD-END') >= 0 ? '#c9563f' : (t.indexOf('STUB') >= 0 || t.indexOf('stub') >= 0) ? '#9a5a12' : null;
+      if (!color) return;
+      el.style.color = color;
+      Array.prototype.forEach.call(el.querySelectorAll('*'), function (c) { c.style.color = color; c.style.fill = color; });
+    });
+    var nodes = out.querySelectorAll('.node');
+    Array.prototype.forEach.call(nodes, function (n) {
+      if ((n.textContent || '').trim() === 'no reader') {
+        Array.prototype.forEach.call(n.querySelectorAll('circle, path, rect, polygon'), function (s) { s.style.stroke = '#c9563f'; s.style.fill = '#fbeae6'; });
+      }
+    });
+  }
+
+  function renderDiagrams(slide) {
+    var containers = slide.querySelectorAll('.diagram[data-diagram]');
+    Array.prototype.forEach.call(containers, function (container) {
+      var key = container.getAttribute('data-diagram');
+      if (rendered[key]) return;
+      rendered[key] = true;
+      var srcEl = slide.querySelector('script[data-mermaid="' + key + '"]');
+      var source = srcEl ? srcEl.textContent.trim() : '';
+      var out = container.querySelector('.diagram-out');
+      if (!mermaidReady) {
+        showError(container, 'Mermaid did not load from the CDN (offline?).', source);
+        return;
+      }
+      out.innerHTML = '<span class="pending">Rendering diagram...</span>';
+      var id = 'mmd-' + key + '-' + (++renderSeq);
+      var p;
+      try {
+        p = mermaid.render(id, source);
+      } catch (e) {
+        showError(container, String(e && e.message || e), source);
+        return;
+      }
+      Promise.resolve(p).then(function (res) {
+        out.innerHTML = res.svg;
+        if (res.bindFunctions) { try { res.bindFunctions(out); } catch (e) {} }
+        try { decorate(key, out); } catch (e) { console.error(e); }
+      }).catch(function (e) {
+        var stray = document.getElementById('d' + id) || document.getElementById(id);
+        if (stray && stray.parentNode) stray.parentNode.removeChild(stray);
+        showError(container, String(e && e.message || e), source);
+      });
+    });
+  }
+
+  function go(n) {
+    if (n < 0) n = 0;
+    if (n > total - 1) n = total - 1;
+    slides[current].classList.remove('active');
+    current = n;
+    var slide = slides[current];
+    slide.classList.add('active');
+    slide.scrollTop = 0;
+    counter.textContent = (current + 1) + ' / ' + total;
+    titleEl.textContent = slide.getAttribute('data-title');
+    prevBtn.disabled = current === 0;
+    nextBtn.disabled = current === total - 1;
+    try { history.replaceState(null, '', '#' + (current + 1)); } catch (e) {}
+    var items = indexEl.querySelectorAll('button[data-goto]');
+    Array.prototype.forEach.call(items, function (b) {
+      b.classList.toggle('current', parseInt(b.getAttribute('data-goto'), 10) === current + 1);
+    });
+    try { renderDiagrams(slide); } catch (e) { console.error(e); }
+  }
+
+  function toggleIndex(force) {
+    var open = typeof force === 'boolean' ? force : !indexEl.classList.contains('open');
+    indexEl.classList.toggle('open', open);
+    indexBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  prevBtn.addEventListener('click', function () { go(current - 1); });
+  nextBtn.addEventListener('click', function () { go(current + 1); });
+  indexBtn.addEventListener('click', function () { toggleIndex(); });
+  indexEl.addEventListener('click', function (ev) {
+    var b = ev.target.closest && ev.target.closest('button[data-goto]');
+    if (b) { toggleIndex(false); go(parseInt(b.getAttribute('data-goto'), 10) - 1); }
+    else if (ev.target === indexEl) { toggleIndex(false); }
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    var k = ev.key;
+    if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'j') { ev.preventDefault(); if (indexEl.classList.contains('open')) toggleIndex(false); go(current + 1); }
+    else if (k === 'ArrowLeft' || k === 'PageUp' || k === 'k') { ev.preventDefault(); if (indexEl.classList.contains('open')) toggleIndex(false); go(current - 1); }
+    else if (k === 'Home') { ev.preventDefault(); go(0); }
+    else if (k === 'End') { ev.preventDefault(); go(total - 1); }
+    else if (k === 'i' || k === 'I') { ev.preventDefault(); toggleIndex(); }
+    else if (k === 'Escape') { toggleIndex(false); }
+  });
+
+  var start = 0;
+  var m = /^#(\d+)$/.exec(location.hash || '');
+  if (m) start = Math.min(total - 1, Math.max(0, parseInt(m[1], 10) - 1));
+  go(start);
+})();
+</script>
+</body>
+</html>

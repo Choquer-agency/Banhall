@@ -3,7 +3,7 @@
   description: >-
     CAP-8. convex-test suites for completeCandidateRun fan-in, approveSectionDraft
     with and without ghost, selectReportCandidate, restoreSnapshot.
-  spec_checkpoint: true
+  spec_checkpoint: false
   invoke_dev_with: >-
     Read touchpoints.md row CAP-8. Tests only; no production code changes. If a test
     exposes a real defect, record it under deferred, do not fix it here.
@@ -14,7 +14,7 @@
   description: >-
     CAP-1. deidentify helper; applied at nomination and edit-event writes; privacy
     instruction in digest prompt; privacyReviewed required to publish a digest.
-  spec_checkpoint: true
+  spec_checkpoint: false
   invoke_dev_with: >-
     Read touchpoints.md row CAP-1. convex/chatV2.ts is off-limits; scrub
     proposalWordingEditEvents at the learning read side instead.
@@ -23,7 +23,7 @@
   description: >-
     CAP-2. reportEditDistance table written at candidate selection, milestone
     snapshots, and client publish; per-report and per-writer series query.
-  spec_checkpoint: true
+  spec_checkpoint: false
   invoke_dev_with: >-
     Read touchpoints.md row CAP-2. Extract the PED math into convex/lib/editDistance.ts
     and have reports.postEditDistance call it; do not otherwise edit convex/reports.ts.
@@ -33,7 +33,7 @@
     CAP-4. Require >=2 writers and >=2 projects per stream before saving a digest;
     record signal ids and per-producer counts on learningDigests; show them on the
     admin reviews page.
-  spec_checkpoint: true
+  spec_checkpoint: false
   invoke_dev_with: Read touchpoints.md row CAP-4.
 - id: "5"
   title: Chat answer feedback and Brain source chips
@@ -41,7 +41,7 @@
     CAP-7. Source chips under searchBrain steps; FeedbackBar per completed turn
     persisting to chatAnswerFeedback via new convex/chatFeedback.ts; distiller reads
     it as a signal stream.
-  spec_checkpoint: true
+  spec_checkpoint: false
   invoke_dev_with: >-
     Read touchpoints.md row CAP-7. Design-system rules apply (no font weight above 500,
     bits-ui primitives). Component test in browser mode.
@@ -52,21 +52,21 @@
   description: >-
     CAP-5. Regenerate control on failed and completed turns re-sends the originating
     prompt as a new turn; keyboard accessible.
-  spec_checkpoint: true
+  spec_checkpoint: false
   invoke_dev_with: Read touchpoints.md row CAP-5. Reuse the existing sendText path.
 - id: "7"
   title: Optimistic user bubble on send
   description: >-
     CAP-6. Local pending message keyed by request id, replaced when the server page
     catches up; inline error with retry on failure.
-  spec_checkpoint: true
+  spec_checkpoint: false
   invoke_dev_with: Read touchpoints.md row CAP-6.
 - id: "8"
   title: Admin learning-health page
   description: >-
     CAP-3. /admin/learning with PED trend, exemplar usage by Brain source, rerank
     fallback rate; queries in new convex/learningHealth.ts with tests.
-  spec_checkpoint: true
+  spec_checkpoint: false
   invoke_dev_with: >-
     Read touchpoints.md row CAP-3. Follow existing admin pages for layout (AdminWorkspacePage
     nav, PageBar). Charts: keep to simple SVG sparklines in the design system palette.
