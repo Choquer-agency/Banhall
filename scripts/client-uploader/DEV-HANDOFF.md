@@ -56,6 +56,37 @@ unset or shorter than 32 chars.
   (ternary, `??`, `-Parallel`, `#Requires -Version 7`) or on a second
   `Get-UploadCandidates` call site, so the client's machine cannot be the
   place where a PS7-only edit is discovered.
+- A zero-result run is self-diagnosing. `Found 0 document(s)` is followed by
+  `Format-ScanDiagnostics` output: files walked, per-reason skip counts, access
+  errors, the top 8 extensions seen, and `Under OneDrive sync root:
+  yes|no|unknown` (`Test-UnderOneDrive` compares the root against
+  `$env:OneDriveCommercial` / `$env:OneDrive` / `$env:OneDriveConsumer`;
+  `unknown` means none of the three is set). The same lines go to
+  `upload-log.txt` as `SCAN\t…`, so the next zero-result report from the
+  client is one file, not a screen share. Counts and extensions only, never a
+  document name.
+- `upload-log.txt` is cleared by the **first line a run writes**, inside
+  `Write-Log`'s `try`, not up front: those `SCAN` lines survive the zero-result
+  exit, a read-only kit folder still prints the diagnostics instead of dying on
+  the truncation, and a run that logs nothing leaves the last real log alone.
+  Both closing lines that mention the log are gated on `$script:logWritten`,
+  set only after an `Add-Content` returns: when the kit folder is read-only the
+  run asks for a screenshot instead of pointing the client at a file that was
+  never written.
+- Client folder names hold wildcard characters (`Applications [2024]`). Every
+  path read parses literally - `Get-Item -LiteralPath`, `Get-FileHash
+  -LiteralPath`, `Test-RootUsable` (which uses `Test-Path -LiteralPath`) - and
+  `-InFile`, which has no literal twin, is fed a
+  `[WildcardPattern]::Escape`d path. A wildcard read of such a folder returns
+  nothing rather than failing, so the symptom is an empty root or a null hash,
+  not an error. The harness asserts this on the AST.
+- Cloud-only files are announced before uploading (`N files are cloud-only and
+  will be downloaded by OneDrive while uploading`). `Test-CloudOnly` matches
+  the `Offline` attribute or bit `0x400000` (`RecallOnDataAccess`, which has no
+  named member on .NET Framework 4.8).
+- `Test-RootUsable` returns `ok | is_file | missing` and backs both root
+  checks: a dropped file is skipped with a message, a configured or typed file
+  path exits with `That path is a file, not a folder`.
 - Corrupt/unreadable files land in the Failed tab and are retried on each
   re-run (cheap; visible to the admin).
 - The only file either script writes is `upload-log.txt` beside itself.

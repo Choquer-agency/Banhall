@@ -79,7 +79,7 @@ function Pick-Folder([string]$start) {
         Add-Type -AssemblyName System.Windows.Forms
         $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
         $dlg.Description = "Choose the folder that holds your client documents"
-        if ($start -and (Test-Path $start)) { $dlg.SelectedPath = $start }
+        if ((Test-RootUsable $start) -eq "ok") { $dlg.SelectedPath = $start }
         if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             return $dlg.SelectedPath
         }
@@ -105,9 +105,10 @@ $droppedMode = $false
 if ($Paths -and $Paths.Count -gt 0) {
     $droppedMode = $true
     foreach ($p in $Paths) {
-        if (Test-Path $p -PathType Container) {
-            $roots += (Get-Item $p).FullName
-        } elseif (Test-Path $p) {
+        $dropState = Test-RootUsable $p
+        if ($dropState -eq "ok") {
+            $roots += (Get-Item -LiteralPath $p).FullName
+        } elseif ($dropState -eq "is_file") {
             Write-Host "  ! skipped (drop folders, not single files): $p" -ForegroundColor Yellow
         } else {
             Write-Host "  ! skipped (not found): $p" -ForegroundColor Yellow
@@ -123,11 +124,19 @@ if ($Paths -and $Paths.Count -gt 0) {
     $foundOneDrive = $null
     # A remembered folder is a default, not a lock-in: confirm it each run and
     # offer the chooser again (client feedback Aug 18).
-    if ($root -and (Test-Path $root)) {
+    $rememberedState = Test-RootUsable $root
+    if ($rememberedState -eq "ok") {
         Write-Host "Last time you scanned:"
         Write-Host "  $root"
         $again = Read-Host "Scan this folder again? (y = yes / c = choose a different folder)"
         if ($again -notmatch "^[Yy]") { $root = Pick-Folder $root }
+    } elseif ($rememberedState -eq "is_file") {
+        # A remembered path that now names a file is a broken config, not a
+        # folder to guess past: stop the same way a typed one does.
+        Write-Host "That path is a file, not a folder: $root" -ForegroundColor Red
+        Write-Host "Choose the folder that holds your client documents instead."
+        Read-Host "Press Enter to close"
+        exit 1
     } elseif ($root) {
         Write-Host "The remembered folder no longer exists: $root"
         $root = ""
@@ -163,12 +172,18 @@ if ($Paths -and $Paths.Count -gt 0) {
             $root = Pick-Folder $HOME
         }
     }
-    if (-not $root -or -not (Test-Path $root)) {
-        Write-Host "That folder does not exist: $root" -ForegroundColor Red
+    $rootState = Test-RootUsable $root
+    if ($rootState -ne "ok") {
+        if ($rootState -eq "is_file") {
+            Write-Host "That path is a file, not a folder: $root" -ForegroundColor Red
+            Write-Host "Choose the folder that holds your client documents instead."
+        } else {
+            Write-Host "That folder does not exist: $root" -ForegroundColor Red
+        }
         Read-Host "Press Enter to close"
         exit 1
     }
-    $root = (Get-Item $root).FullName
+    $root = (Get-Item -LiteralPath $root).FullName
     # Persist so the next run scans the same folder without asking again.
     Save-Root $root
     $roots = @($root)
@@ -209,6 +224,28 @@ function Get-DropPrefix([string]$abs) {
     if ($tail) { return "$tail/" } else { return "" }
 }
 
+# Log incrementally (UTF-8): a crash, Ctrl-C, or closed window mid-run must
+# not lose the record of what was already sent. The previous run's log is
+# cleared by the first line this run writes, inside the same try as the write:
+# a read-only kit folder must not kill the run before it prints the very
+# diagnostics the client is being asked for, and a run that uploads nothing
+# leaves the last real log alone.
+# $logWritten is what the closing lines are allowed to claim: a read-only kit
+# folder swallows every write, and telling the client to send a file that was
+# never written recreates the unactionable report this run exists to end.
+$script:logStarted = $false
+$script:logWritten = $false
+function Write-Log([string]$line) {
+    try {
+        if (-not $script:logStarted) {
+            Set-Content -Path $logPath -Value @() -Encoding UTF8
+            $script:logStarted = $true
+        }
+        Add-Content -Path $logPath -Value $line -Encoding UTF8
+        $script:logWritten = $true
+    } catch {}
+}
+
 # Collect candidate files across every root. Get-UploadCandidates decides what
 # counts as a document: real links (symlinks, junctions) are skipped, OneDrive
 # cloud placeholders are kept (note: PS 5.1's -Recurse can still traverse
@@ -216,9 +253,11 @@ function Get-DropPrefix([string]$abs) {
 # (nested/overlapping drops) are uploaded once.
 $entries = New-Object System.Collections.Generic.List[object]
 $seenRel = New-Object 'System.Collections.Generic.HashSet[string]'
+$scans = New-Object System.Collections.Generic.List[object]
 foreach ($r in $roots) {
     $prefix = if ($droppedMode) { Get-DropPrefix $r } else { "" }
     $scan = Get-UploadCandidates $r $allowedExt
+    $scans.Add([pscustomobject]@{ Root = $r; Scan = $scan })
     foreach ($f in $scan.Candidates) {
         $rel = $prefix + ($f.FullName.Substring($r.Length).TrimStart("\", "/") -replace "\\", "/")
         if ($seenRel.Add($rel)) {
@@ -229,7 +268,33 @@ foreach ($r in $roots) {
 $entries = $entries | Sort-Object Rel
 
 Write-Host ("Found {0} document(s) (.docx/.doc/.pdf/.txt/.vtt)." -f @($entries).Count)
+
+# Dehydrated Files On-Demand documents upload fine, but each one blocks while
+# OneDrive fetches it. Say so before the run instead of leaving the client
+# watching a stalled progress line.
+$cloudOnly = @($entries | Where-Object { Test-CloudOnly $_.File }).Count
+if ($cloudOnly -gt 0) {
+    Write-Host ("{0} files are cloud-only and will be downloaded by OneDrive while uploading" -f $cloudOnly)
+}
+
+# Zero found is the report that used to arrive with nothing to act on. Print
+# and log the breakdown: counts and extensions only, never a document name.
 if (@($entries).Count -eq 0) {
+    foreach ($s in $scans) {
+        if ($scans.Count -gt 1) {
+            Write-Host ("  Root: {0}" -f $s.Root)
+            Write-Log ("SCAN`tRoot: {0}" -f $s.Root)
+        }
+        foreach ($line in (Format-ScanDiagnostics $s.Scan (Test-UnderOneDrive $s.Root))) {
+            Write-Host ("  " + $line)
+            Write-Log ("SCAN`t" + $line)
+        }
+    }
+    if ($script:logWritten) {
+        Write-Host "The same breakdown was saved to upload-log.txt - send that file to the dev team."
+    } else {
+        Write-Host "Could not write upload-log.txt next to the script - send a screenshot of this window instead." -ForegroundColor Yellow
+    }
     Read-Host "Nothing to upload. Press Enter to close"
     exit 0
 }
@@ -259,12 +324,6 @@ if (@($entries).Count -gt $testCap) {
 }
 
 $staged = 0; $skipped = 0; $tooLarge = 0; $failed = 0
-# Log incrementally (UTF-8): a crash, Ctrl-C, or closed window mid-run must
-# not lose the record of what was already sent.
-Set-Content -Path $logPath -Value @() -Encoding UTF8
-function Write-Log([string]$line) {
-    try { Add-Content -Path $logPath -Value $line -Encoding UTF8 } catch {}
-}
 
 foreach ($e in $entries) {
     $f = $e.File
@@ -278,13 +337,16 @@ foreach ($e in $entries) {
     # A single locked/ACL-denied/cloud-dehydration-failed file must not kill
     # the whole run under $ErrorActionPreference = "Stop".
     try {
-        $hash = (Get-FileHash -Path $f.FullName -Algorithm SHA256).Hash.ToLower()
+        $hash = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLower()
     } catch {
         $failed++
         Write-Host ("  x unreadable  {0}" -f $rel) -ForegroundColor Yellow
         Write-Log "READ_ERROR`t$rel"
         continue
     }
+    # -InFile has no -LiteralPath twin: it resolves wildcards, so a client
+    # folder named "Applications [2024]" would fail to open. Escape it.
+    $inFile = [Management.Automation.WildcardPattern]::Escape($f.FullName)
     $mtime = [DateTimeOffset]::new($f.LastWriteTimeUtc, [TimeSpan]::Zero).ToUnixTimeMilliseconds()
     $uri = "$appUrl/ingestion/upload?path=$([uri]::EscapeDataString($rel))&hash=$hash&mtime=$mtime"
 
@@ -294,7 +356,7 @@ foreach ($e in $entries) {
             $resp = Invoke-RestMethod -Method Post -Uri $uri `
                 -Headers @{ Authorization = "Bearer $key" } `
                 -ContentType "application/octet-stream" `
-                -InFile $f.FullName
+                -InFile $inFile
             if ($resp.skipped) {
                 $skipped++
                 Write-Host ("  - skipped     {0} ({1})" -f $rel, $resp.reason) -ForegroundColor DarkGray
@@ -357,6 +419,10 @@ foreach ($e in $entries) {
 
 Write-Host ""
 Write-Host ("Done. Uploaded: {0}   Skipped: {1}   Too large: {2}   Failed: {3}" -f $staged, $skipped, $tooLarge, $failed) -ForegroundColor Cyan
-Write-Host "A log was saved to upload-log.txt next to this script."
+if ($script:logWritten) {
+    Write-Host "A log was saved to upload-log.txt next to this script."
+} else {
+    Write-Host "Could not write upload-log.txt next to this script - send a screenshot of this window instead." -ForegroundColor Yellow
+}
 Write-Host "Files now wait in the Banhall review queue - nothing is in the AI until approved."
 Read-Host "Press Enter to close"
