@@ -1,0 +1,26 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-schema/.bmad-loop/runs/20260904-121620-6b94/worktrees/9
+
+ ❯ |shared| shared/workflowStages.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |shared| shared/workflowStages.test.ts [ shared/workflowStages.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[TSCONFIG_ERROR] [0mFailed to load tsconfig for 'shared/workflowStages.test.ts': Tsconfig not found
+
+  Plugin: vite:oxc
+  File: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-schema/.bmad-loop/runs/20260904-121620-6b94/worktrees/9/shared/workflowStages.test.ts
+ ❯ transformWithOxc node_modules/vite/dist/node/chunks/node.js:4033:19
+ ❯ TransformPluginContext.transform node_modules/vite/dist/node/chunks/node.js:4104:26
+ ❯ EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/node.js:30201:51
+ ❯ loadAndTransform node_modules/vite/dist/node/chunks/node.js:20124:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  12:28:37
+   Duration  2.20s (transform 0ms, setup 0ms, import 0ms, tests 0ms, environment 0ms)

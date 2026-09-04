@@ -1,0 +1,11 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-schema/.bmad-loop/runs/20260904-121620-6b94/worktrees/9
+
+ ✓ |source-audit| src/lib/components/ui/formControlContract.test.ts > borderless form-control source contract > routes every visible native data-entry field through the shared contract 5060ms
+ ✓ |source-audit| src/lib/components/ui/formControlContract.test.ts > borderless form-control source contract > keeps button-backed date fields on the same borderless contract 1ms
+ ✓ |source-audit| src/lib/components/ui/formControlContract.test.ts > borderless form-control source contract > defines focus and validation as inset-only treatments 4ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  12:49:09
+   Duration  8.68s (transform 112ms, setup 0ms, import 3.17s, tests 5.07s, environment 0ms)

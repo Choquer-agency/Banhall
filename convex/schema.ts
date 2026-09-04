@@ -1543,10 +1543,13 @@ export default defineSchema({
   // One review per writer per report version. Surfaced to the admin alongside
   // the AI QA score; NEVER auto-applied to the brain (manual review only).
   writerReviews: defineTable({
+    // New judgments pin content; baseline revision is 0. Historical rows may lack both.
+    revisionNumber: v.optional(v.number()),
+    contentHash: v.optional(v.string()),
     projectId: v.id("projects"),
     reportId: v.id("reports"),
     reportVersion: v.optional(v.number()),
-    userId: v.string(),
+    userId: v.id("users"),
     writerName: v.optional(v.string()),
     score: v.number(), // writer's 0–100 quality score
     comment: v.optional(v.string()),
@@ -1586,6 +1589,9 @@ export default defineSchema({
   // Per-writer feedback on individual generated QA observations. Target keys
   // survive candidate deletion after selection; item text is copied for admin review.
   qaItemFeedback: defineTable({
+    // New judgments pin content; baseline revision is 0. Historical rows may lack both.
+    revisionNumber: v.optional(v.number()),
+    contentHash: v.optional(v.string()),
     targetKey: v.string(),
     projectId: v.id("projects"),
     reportId: v.optional(v.id("reports")),
@@ -1653,6 +1659,9 @@ export default defineSchema({
   // (source "review_pd"); `result` holds the structured feedback report JSON
   // (strengths / risks / suggested strengthening / qualitative score).
   pdReviews: defineTable({
+    // New judgments pin content; baseline revision is 0. Historical rows may lack both.
+    revisionNumber: v.optional(v.number()),
+    contentHash: v.optional(v.string()),
     projectId: v.id("projects"),
     documentId: v.id("projectDocuments"),
     sourceFileName: v.string(),

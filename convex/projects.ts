@@ -950,6 +950,12 @@ async function copyProjectInputRows(
       projectId: args.toProjectId,
       documentId,
       sourceFileName: review.sourceFileName,
+      ...(review.revisionNumber !== undefined
+        ? { revisionNumber: review.revisionNumber }
+        : {}),
+      ...(review.contentHash !== undefined
+        ? { contentHash: review.contentHash }
+        : {}),
       status: review.status,
       ...(review.result ? { result: review.result } : {}),
       ...(review.model ? { model: review.model } : {}),

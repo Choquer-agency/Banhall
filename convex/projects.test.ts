@@ -375,6 +375,23 @@ describe("project duplication", () => {
         createdAt: now,
         completedAt: now,
       });
+      for (const provenance of [
+        { revisionNumber: 7, contentHash: "historical-hash" },
+        { revisionNumber: 0, contentHash: "" },
+        { revisionNumber: 9 },
+        { contentHash: "hash-only-history" },
+      ]) {
+        await ctx.db.insert("pdReviews", {
+          projectId,
+          documentId: reviewDoc,
+          sourceFileName: "Existing PD.docx",
+          status: "completed",
+          result: "attributed review",
+          createdBy: "Owner",
+          createdAt: now,
+          ...provenance,
+        });
+      }
       return {
         destinationProjectId: destination,
         destinationTranscriptId: transcriptId,
@@ -392,7 +409,7 @@ describe("project duplication", () => {
 
     expect(result.documents).toHaveLength(5);
     expect(result.evidenceCopied).toBe(1);
-    expect(result.pdReviewsCopied).toBe(1);
+    expect(result.pdReviewsCopied).toBe(5);
     expect(result.reportId).toBeTruthy();
     const copied = await t.run(async (ctx) => ({
       documents: await ctx.db
@@ -439,6 +456,16 @@ describe("project duplication", () => {
       sourceFileName: "Existing PD.docx",
       result: "review output",
     });
+    expect(copied.reviews[0]).not.toHaveProperty("revisionNumber");
+    expect(copied.reviews[0]).not.toHaveProperty("contentHash");
+    expect(copied.reviews.slice(1)).toEqual([
+      expect.objectContaining({ revisionNumber: 7, contentHash: "historical-hash" }),
+      expect.objectContaining({ revisionNumber: 0, contentHash: "" }),
+      expect.objectContaining({ revisionNumber: 9 }),
+      expect.objectContaining({ contentHash: "hash-only-history" }),
+    ]);
+    expect(copied.reviews[3]).not.toHaveProperty("contentHash");
+    expect(copied.reviews[4]).not.toHaveProperty("revisionNumber");
     expect(copied.reports[0]).toMatchObject({
       sourceTranscriptId: destinationTranscriptId,
       sourceTranscriptIds: [destinationTranscriptId],
