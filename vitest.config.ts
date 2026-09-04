@@ -52,9 +52,6 @@ export default defineConfig({
         extends: true,
         test: {
           name: "src",
-          // Source-contract tests parse every Svelte file; allow the same
-          // loaded-worktree budget as the backend module-graph checks.
-          testTimeout: 30_000,
           include: ["src/**/*.test.ts"],
           // Component tests match the include glob above but need a real
           // browser; they run from vitest.component.config.ts instead. The
