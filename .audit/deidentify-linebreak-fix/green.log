@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-deidentify-linebreak-fix
+
+
+ Test Files  4 passed (4)
+      Tests  92 passed (92)
+   Start at  16:52:08
+   Duration  1.19s (transform 779ms, setup 0ms, import 586ms, tests 951ms, environment 177ms)
+

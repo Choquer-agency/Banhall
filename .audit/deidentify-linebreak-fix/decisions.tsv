@@ -1,0 +1,6 @@
+ts	phase	decision	why	evidence	result
+2026-09-04T23:52:08.251609+00:00	reproduce	Add helper matrix and real consumer assertions before production edit	Prove reported line consumption against baseline	.audit/deidentify-linebreak-fix/red.log	8 failed and 84 passed
+2026-09-04T23:52:08.251854+00:00	build	Exclude CR LF LS PS at every separator position	Preserve other whitespace and consistent bare separators	convex/lib/deidentify.ts	Narrow regex repair
+2026-09-04T23:53:49.767501+00:00	verify	Run complete repository gate after targeted green	Include Convex typecheck and both uploader harnesses	.audit/deidentify-linebreak-fix/gate.log	Exit 0; 1744 tests and 68 uploader cases passed
+2026-09-04T23:56:52.271949+00:00	review	Complete three BMAD layers before triage	Honor review separation despite capacity limits	.audit/deidentify-linebreak-fix/review.md	No production fixes needed; closeout documentation only
+2026-09-04T23:57:12.278178+00:00	closeout	Commit reviewed implementation before evidence packaging	Let evidence name an immutable verified code revision	ae1c59b39beb0a85867c0df539152c01569be65b	Local only; no production edits after passing gate
