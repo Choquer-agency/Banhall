@@ -19,6 +19,9 @@ const registry = $state<{
 // Mutation/action calls a suite can assert on, plus the value each one
 // resolves with — a wizard that destructures its mutation result needs one.
 const calls: Array<{ name: string; args: unknown }> = [];
+// One-shot `client.query(...)` calls, kept apart from subscriptions: a fetch
+// on click is not a live subscription and must not count against a budget.
+const clientQueries: Array<{ name: string; args: unknown }> = [];
 const results: Record<string, unknown> = {};
 
 // Args getters per function name (one per mounted hook instance) — lets
@@ -49,11 +52,17 @@ export function __mutationCalls(name: string) {
   return calls.filter((call) => call.name === name).map((call) => call.args);
 }
 
+/** Args of every one-shot `client.query(name, ...)`, in call order. */
+export function __clientQueryCalls(name: string) {
+  return clientQueries.filter((call) => call.name === name).map((call) => call.args);
+}
+
 export function __resetConvexStub() {
   registry.queries = {};
   registry.pages = {};
   argsGetters.clear();
   calls.length = 0;
+  clientQueries.length = 0;
   for (const key of Object.keys(results)) delete results[key];
 }
 
@@ -89,7 +98,13 @@ export function setupConvex(_url?: string) {
 }
 
 export function useConvexClient() {
-  return {};
+  return {
+    async query(query: FunctionReference<"query">, args?: unknown) {
+      const name = getFunctionName(query);
+      clientQueries.push({ name, args });
+      return registry.queries[name];
+    },
+  };
 }
 
 export function useQuery(query: FunctionReference<"query">, ...rest: unknown[]) {

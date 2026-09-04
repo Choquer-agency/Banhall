@@ -109,7 +109,42 @@
   const generationQ = useQuery(api.generations.getLatestGeneration, () =>
     auth.isAuthenticated ? { projectId } : "skip"
   );
-  const transcriptQ = useQuery(api.transcripts.getTranscript, () =>
+  const transcriptsQ = useQuery(api.transcripts.listTranscripts, () =>
+    auth.isAuthenticated ? { projectId } : "skip"
+  );
+  // Which transcript is open. "default" means the reader has not chosen yet:
+  // generate-mode projects open the first transcript, review-mode projects open
+  // none (2026-08-10: there the written PD is the focus). One id, so exactly
+  // one body can be subscribed.
+  let openChoice = $state<Id<"transcripts"> | "default" | null>("default");
+  const openTranscriptId = $derived.by(() => {
+    const transcripts = transcriptsQ.data;
+    // Paging to the previous/next project keeps this component mounted, so a
+    // chosen id can outlive the list it came from. An id no loaded row carries
+    // is not a choice: it falls back to the default rather than holding a body
+    // subscription nothing on screen shows.
+    const choice =
+      openChoice !== null &&
+      openChoice !== "default" &&
+      transcripts !== undefined &&
+      !transcripts.some((t) => t._id === openChoice)
+        ? "default"
+        : openChoice;
+    if (choice !== "default") return choice;
+    return projectQ.data?.mode === "review" ? null : (transcripts?.[0]?._id ?? null);
+  });
+  function toggleTranscript(transcriptId: Id<"transcripts">) {
+    openChoice = openTranscriptId === transcriptId ? null : transcriptId;
+  }
+
+  // Metadata only above; the body of the one open transcript below. A project
+  // with ten interviews costs ten rows of a few hundred bytes, not ten bodies.
+  const openTranscriptQ = useQuery(api.transcripts.getTranscriptContent, () =>
+    auth.isAuthenticated && openTranscriptId
+      ? { transcriptId: openTranscriptId }
+      : "skip"
+  );
+  const documentsQ = useQuery(api.documents.listDocuments, () =>
     auth.isAuthenticated ? { projectId } : "skip"
   );
   const userQ = useQuery(api.users.getCurrentUser, () =>
@@ -206,7 +241,8 @@
   const project = $derived(projectQ.data);
   const report = $derived(reportQ.data);
   const generation = $derived(generationQ.data);
-  const transcript = $derived(transcriptQ.data);
+  const transcripts = $derived(transcriptsQ.data ?? []);
+  const openTranscript = $derived(openTranscriptQ.data);
   const user = $derived(userQ.data);
   const canShare = $derived(
     Boolean(
@@ -521,11 +557,9 @@
   let contextOpen = $state(true);
   let mobileIntakeView = $state<"work" | "context">("work");
   // Review-mode projects (client meeting 2026-08-10): the written PD and its
-  // feedback report are the focus, so the interview transcript collapses to a
-  // compact disclosure row by default — one click to expand. Generate-mode
-  // projects keep the always-visible transcript.
-  let reviewTranscriptOpen = $state(false);
-  const reviewTranscriptBodyId = "review-transcript-body";
+  // feedback report are the focus, so every transcript starts collapsed —
+  // one click to expand. Generate-mode projects open the first one.
+  const transcriptBodyIdPrefix = "transcript-body";
   // Review workbench (2026-08-13): the verdict leads the work pane, so the
   // metadata grid demotes into a collapsed disclosure. The page bar already
   // carries the route's h1 title.
@@ -533,10 +567,15 @@
   // project inside the bounded page the invoking Projects surface stashed.
   // Recomputed per projectId; null when the reader arrived another way.
   const pagingPosition = $derived(projectPagingPosition(projectId));
-  const transcriptWordCount = $derived(
-    transcript?.content
-      ? transcript.content.trim().split(/\s+/).filter(Boolean).length
-      : 0
+  // The generation gate the backend enforces (convex/generations.ts:371-383):
+  // a transcript, or failing that a context document with readable text. A
+  // review project with no transcript keeps generating from the feedback
+  // report's own button, as it does today.
+  const canGenerate = $derived(
+    transcriptsQ.data !== undefined &&
+      (transcripts.length > 0 ||
+        (project?.mode !== "review" &&
+          (documentsQ.data ?? []).some((doc) => !doc.archived && doc.sizeChars > 0)))
   );
   let intakeEl: HTMLDivElement | null = $state(null);
   let contextDragging = $state(false);
@@ -765,7 +804,6 @@
   );
 
   async function runGenerate(source: "transcript" | "review", force: boolean) {
-    if (!transcript) return;
     confirmRegenerate = null;
     generationError = "";
     if (source === "review") {
@@ -1595,7 +1633,7 @@
                   <div class="mb-4">
                     <PdReviewReport
                       review={pdReview}
-                      hasTranscript={Boolean(transcript?.content?.trim())}
+                      hasTranscript={transcripts.length > 0}
                       onGenerate={handleGenerateFromReview}
                     />
                   </div>
@@ -2020,7 +2058,6 @@
          The state stays HONEST: no report and no chat exist here — the
          left pane is source context, never a fabricated conversation. -->
     {#if showIntakeWorkbench}
-      {@const transcriptVisible = !(project.mode === "review" && !transcript?.content?.trim())}
       <div class="flex shrink-0 items-center justify-center gap-0.5 border-b border-line-soft bg-white px-3 py-2 lg:hidden" role="group" aria-label="Project intake pane">
         <button
           type="button"
@@ -2061,7 +2098,7 @@
             {#if project.mode === "review" && pdReview}
               <PdReviewReport
                 review={pdReview}
-                hasTranscript={Boolean(transcript?.content?.trim())}
+                hasTranscript={transcripts.length > 0}
                 onGenerate={handleGenerateFromReview}
               />
             {:else if project.mode === "review" && pdReviewQ.data === null}
@@ -2071,7 +2108,7 @@
               <PdReviewStart projectId={project._id} />
             {/if}
 
-            {#if transcript && transcriptVisible}
+            {#if canGenerate}
               <section aria-labelledby="intake-generation-heading" class="mt-8">
                 <h2 id="intake-generation-heading" class="text-sm font-semibold uppercase tracking-wide text-gray-400">
                   Draft generation
@@ -2191,39 +2228,44 @@
                  what happened to its uploads. -->
             <FilesPanel {projectId} />
 
-            {#if transcriptVisible}
+            {#if transcripts.length > 0}
               <div class="mt-6">
-                {#if project.mode === "review"}
-                  <!-- Review mode: the written PD/feedback is the focus — the
-                       transcript stays behind a compact disclosure row
-                       (collapsed by default; FilesPanel disclosure grammar). -->
-                  <h2 class="m-0">
+                <h2 class="text-sm font-medium uppercase tracking-wide text-gray-400">
+                  {transcripts.length === 1 ? "Transcript" : "Transcripts"}
+                </h2>
+                <!-- One disclosure per transcript, one body loaded at a time:
+                     the open row subscribes its content, the rest cost their
+                     metadata only. -->
+                {#each transcripts as transcriptRow (transcriptRow._id)}
+                  {@const bodyId = `${transcriptBodyIdPrefix}-${transcriptRow._id}`}
+                  {@const open = openTranscriptId === transcriptRow._id}
+                  <h3 class="m-0 mt-1">
                     <button
                       type="button"
-                      onclick={() => (reviewTranscriptOpen = !reviewTranscriptOpen)}
-                      aria-expanded={reviewTranscriptOpen}
-                      aria-controls={reviewTranscriptBodyId}
+                      onclick={() => toggleTranscript(transcriptRow._id)}
+                      aria-expanded={open}
+                      aria-controls={bodyId}
                       class="flex min-h-9 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
                     >
-                      <span class="text-sm font-medium uppercase tracking-wide text-gray-400">
-                        Transcript
+                      <span class="truncate text-sm text-ink">
+                        {transcriptRow.label}
                       </span>
-                      {#if transcript && transcriptWordCount > 0}
-                        <span class="text-xs text-gray-400">
-                          · {transcriptWordCount.toLocaleString()} words
+                      {#if transcriptRow.wordCount > 0}
+                        <span class="flex-shrink-0 text-xs text-gray-400">
+                          · {transcriptRow.wordCount.toLocaleString()} words
                         </span>
                       {/if}
                       <span class="ml-auto flex items-center" aria-hidden="true">
-                        <DisclosureChevron open={reviewTranscriptOpen} />
+                        <DisclosureChevron {open} />
                       </span>
                     </button>
-                  </h2>
-                  <Disclosure id={reviewTranscriptBodyId} open={reviewTranscriptOpen}>
+                  </h3>
+                  <Disclosure id={bodyId} {open}>
                     <div class="pt-1">
-                      {#if transcript}
+                      {#if openTranscript?._id === transcriptRow._id}
                         <div class="rounded-lg border border-gray-200 bg-white p-4">
                           <p class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-700">
-                            {normalizeExtractedText(transcript.content)}
+                            {normalizeExtractedText(openTranscript.content)}
                           </p>
                         </div>
                       {:else}
@@ -2233,22 +2275,7 @@
                       {/if}
                     </div>
                   </Disclosure>
-                {:else}
-                  <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-400">
-                    Transcript
-                  </h2>
-                  {#if transcript}
-                    <div class="mt-3 rounded-lg border border-gray-200 bg-white p-4">
-                      <p class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-700">
-                        {normalizeExtractedText(transcript.content)}
-                      </p>
-                    </div>
-                  {:else}
-                    <p class="mt-3 text-sm text-gray-400">
-                      Loading transcript...
-                    </p>
-                  {/if}
-                {/if}
+                {/each}
               </div>
             {/if}
           </div>

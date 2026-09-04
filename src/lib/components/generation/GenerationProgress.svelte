@@ -224,7 +224,7 @@
           {retrying ? "Restarting…" : "Try again"}
         </Button>
         <span class="text-xs text-gray-400">
-          Reruns all drafts from the same transcript.
+          Reruns all drafts from the same transcripts.
         </span>
       </div>
       {#if retryError}

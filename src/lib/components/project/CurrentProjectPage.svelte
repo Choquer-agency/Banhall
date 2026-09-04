@@ -50,6 +50,8 @@
   import PdReviewStart from "$lib/components/review-pd/PdReviewStart.svelte";
   import TagPicker from "$lib/components/project-new/TagPicker.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
+  import Disclosure from "$lib/components/ui/Disclosure.svelte";
+  import DisclosureChevron from "$lib/components/ui/DisclosureChevron.svelte";
   import IndustryField from "$lib/components/project/IndustryField.svelte";
   import FiscalYearField from "$lib/components/project/FiscalYearField.svelte";
   import ScienceCodeField from "$lib/components/project/ScienceCodeField.svelte";
@@ -84,7 +86,40 @@
   const generationQ = useQuery(api.generations.getLatestGeneration, () =>
     auth.isAuthenticated ? { projectId } : "skip"
   );
-  const transcriptQ = useQuery(api.transcripts.getTranscript, () =>
+  const transcriptsQ = useQuery(api.transcripts.listTranscripts, () =>
+    auth.isAuthenticated ? { projectId } : "skip"
+  );
+  // Which transcript is open. "default" means the reader has not chosen yet:
+  // generate-mode projects open the first transcript, review-mode projects open
+  // none. One id, so exactly one body can be subscribed.
+  let openChoice = $state<Id<"transcripts"> | "default" | null>("default");
+  const openTranscriptId = $derived.by(() => {
+    const transcripts = transcriptsQ.data;
+    // Paging to the previous/next project keeps this component mounted, so a
+    // chosen id can outlive the list it came from. An id no loaded row carries
+    // is not a choice: it falls back to the default rather than holding a body
+    // subscription nothing on screen shows.
+    const choice =
+      openChoice !== null &&
+      openChoice !== "default" &&
+      transcripts !== undefined &&
+      !transcripts.some((t) => t._id === openChoice)
+        ? "default"
+        : openChoice;
+    if (choice !== "default") return choice;
+    return projectQ.data?.mode === "review" ? null : (transcripts?.[0]?._id ?? null);
+  });
+  function toggleTranscript(transcriptId: Id<"transcripts">) {
+    openChoice = openTranscriptId === transcriptId ? null : transcriptId;
+  }
+  const transcriptBodyIdPrefix = "transcript-body";
+  // Metadata only above; the body of the one open transcript below.
+  const openTranscriptQ = useQuery(api.transcripts.getTranscriptContent, () =>
+    auth.isAuthenticated && openTranscriptId
+      ? { transcriptId: openTranscriptId }
+      : "skip"
+  );
+  const documentsQ = useQuery(api.documents.listDocuments, () =>
     auth.isAuthenticated ? { projectId } : "skip"
   );
   const userQ = useQuery(api.users.getCurrentUser, () =>
@@ -122,7 +157,16 @@
   const project = $derived(projectQ.data);
   const report = $derived(reportQ.data);
   const generation = $derived(generationQ.data);
-  const transcript = $derived(transcriptQ.data);
+  const transcripts = $derived(transcriptsQ.data ?? []);
+  const openTranscript = $derived(openTranscriptQ.data);
+  // The generation gate the backend enforces (convex/generations.ts:371-383):
+  // a transcript, or failing that a context document with readable text.
+  const canGenerate = $derived(
+    transcriptsQ.data !== undefined &&
+      (transcripts.length > 0 ||
+        (projectQ.data?.mode !== "review" &&
+          (documentsQ.data ?? []).some((doc) => !doc.archived && doc.sizeChars > 0)))
+  );
   const user = $derived(userQ.data);
   const canShare = $derived(
     Boolean(
@@ -605,7 +649,6 @@
   );
 
   async function runGenerate(source: "transcript" | "review", force: boolean) {
-    if (!transcript) return;
     confirmRegenerate = null;
     generationError = "";
     if (source === "review") {
@@ -1644,7 +1687,7 @@
           <div class="mt-8">
             <PdReviewReport
               review={pdReview}
-              hasTranscript={Boolean(transcript?.content?.trim())}
+              hasTranscript={transcripts.length > 0}
               onGenerate={handleGenerateFromReview}
             />
           </div>
@@ -1657,12 +1700,12 @@
           </div>
         {/if}
 
-        <div class="mt-8" hidden={project.mode === "review" && !transcript?.content?.trim()}>
+        <div class="mt-8" hidden={project.mode === "review" && transcripts.length === 0}>
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-400">
-              Transcript
+              {transcripts.length === 1 ? "Transcript" : "Transcripts"}
             </h2>
-            {#if transcript}
+            {#if canGenerate}
               <div class="flex flex-wrap items-center gap-2 sm:justify-end">
                 {#if project.mode !== "review"}
                   <div
@@ -1719,17 +1762,46 @@
               </div>
             {/if}
           </div>
-          {#if transcript}
-            <div class="mt-3 rounded-lg border border-gray-200 bg-white p-4">
-              <p class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-700">
-                {transcript.content}
-              </p>
-            </div>
-          {:else}
-            <p class="mt-3 text-sm text-gray-400">
-              Loading transcript...
-            </p>
-          {/if}
+          <!-- One disclosure per transcript, one body loaded at a time: the
+               open row subscribes its content, the rest cost their metadata. -->
+          {#each transcripts as transcriptRow (transcriptRow._id)}
+            {@const bodyId = `${transcriptBodyIdPrefix}-${transcriptRow._id}`}
+            {@const open = openTranscriptId === transcriptRow._id}
+            <h3 class="m-0 mt-2">
+              <button
+                type="button"
+                onclick={() => toggleTranscript(transcriptRow._id)}
+                aria-expanded={open}
+                aria-controls={bodyId}
+                class="flex min-h-9 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none"
+              >
+                <span class="truncate text-sm text-gray-700">{transcriptRow.label}</span>
+                {#if transcriptRow.wordCount > 0}
+                  <span class="flex-shrink-0 text-xs text-gray-400">
+                    · {transcriptRow.wordCount.toLocaleString()} words
+                  </span>
+                {/if}
+                <span class="ml-auto flex items-center" aria-hidden="true">
+                  <DisclosureChevron {open} />
+                </span>
+              </button>
+            </h3>
+            <Disclosure id={bodyId} {open}>
+              <div class="pt-1">
+                {#if openTranscript?._id === transcriptRow._id}
+                  <div class="rounded-lg border border-gray-200 bg-white p-4">
+                    <p class="whitespace-pre-wrap font-serif text-sm leading-relaxed text-gray-700">
+                      {openTranscript.content}
+                    </p>
+                  </div>
+                {:else}
+                  <p class="text-sm text-gray-400">
+                    Loading transcript...
+                  </p>
+                {/if}
+              </div>
+            </Disclosure>
+          {/each}
         </div>
       </main>
     {/if}

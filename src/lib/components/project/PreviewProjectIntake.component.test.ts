@@ -4,7 +4,13 @@ import { render } from "vitest-browser-svelte";
 import PreviewProjectPage from "./PreviewProjectPage.svelte";
 import { __resetPage, __setPageParams, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
-import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+import {
+  __activeQueryArgs,
+  __activeQueryCount,
+  __clientQueryCalls,
+  __resetConvexStub,
+  __setQueryData,
+} from "$lib/test/convex-svelte-stub.svelte";
 
 /**
  * 2026-08-08 Obvious-parity amendment (second), project half — the
@@ -21,7 +27,17 @@ import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.
  *   disclosure (aria-expanded + aria-controls resolving to a real region).
  * The state stays honest — no chat or report surface is implied.
  */
-function seedIntakeProject() {
+const TRANSCRIPT_BODY =
+  "Interviewer: describe the thermal uncertainty.\nEngineer: we could not predict flow.";
+
+function transcriptRow(id: string, label: string, wordCount: number) {
+  return { _id: id, label, position: 0, createdAt: 1753747200000, charCount: wordCount * 6, wordCount };
+}
+
+function seedIntakeProject(
+  transcripts = [transcriptRow("t-1", "Kickoff interview.docx", 11)],
+  mode: "full" | "review" = "full"
+) {
   __setQueryData("projects:getProject", {
     _id: "project-1",
     title: "Acme FY24 thermal narrative",
@@ -35,7 +51,7 @@ function seedIntakeProject() {
     industry: null,
     scienceCode: null,
     tagIds: [],
-    mode: "full",
+    mode,
     status: "draft",
     workflowStage: "intake",
     shareToken: "tok-1",
@@ -47,11 +63,16 @@ function seedIntakeProject() {
   __setQueryData("reportViews:getViewSummary", null);
   __setQueryData("tags:listTags", []);
   __setQueryData("documents:listDocuments", []);
-  __setQueryData("transcripts:getTranscript", {
-    _id: "t-1",
-    projectId: "project-1",
-    content: "Interviewer: describe the thermal uncertainty.\nEngineer: we could not predict flow.",
-  });
+  __setQueryData("transcripts:listTranscripts", transcripts);
+  // The stub keys by function name, so either open disclosure resolves to this
+  // body; the suite asserts which rows exist and which one is expanded.
+  if (transcripts.length > 0) {
+    __setQueryData("transcripts:getTranscriptContent", {
+      _id: transcripts[0]._id,
+      label: transcripts[0].label,
+      content: TRANSCRIPT_BODY,
+    });
+  }
   __setQueryData("users:getCurrentUser", {
     _id: "u-1",
     role: "writer",
@@ -65,14 +86,24 @@ const workbench = () => document.querySelector<HTMLElement>("[data-intake-workbe
 const pane = (name: "work" | "context") =>
   document.querySelector<HTMLElement>(`[data-intake-pane="${name}"]`);
 
-async function mountIntake(width: number, height = 900) {
+async function mountIntake(
+  width: number,
+  height = 900,
+  transcripts?: ReturnType<typeof transcriptRow>[],
+  mode?: "full" | "review"
+) {
   __setPageUrl("/project/project-1");
   __setPageParams({ id: "project-1" });
-  seedIntakeProject();
+  seedIntakeProject(transcripts, mode);
   await browserPage.viewport(width, height);
   await render(PreviewProjectPage, {});
   await expect.poll(() => workbench()).not.toBeNull();
 }
+
+const transcriptTriggers = () =>
+  Array.from(
+    pane("context")!.querySelectorAll<HTMLButtonElement>("h3 > button[aria-expanded]")
+  );
 
 describe("PreviewProjectPage intake workbench", () => {
   beforeEach(() => {
@@ -109,6 +140,124 @@ describe("PreviewProjectPage intake workbench", () => {
     expect(Number(separator!.getAttribute("aria-valuenow"))).toBeGreaterThanOrEqual(24);
     // No chat is implied anywhere in the intake state.
     expect(document.querySelector('[aria-label="AI assistant"]')).toBeNull();
+  });
+
+  it("lists every transcript, opens the first by default and subscribes one body at a time", async () => {
+    await mountIntake(1440, 900, [
+      transcriptRow("t-1", "Kickoff interview.docx", 11),
+      transcriptRow("t-2", "Follow-up call.docx", 240),
+    ]);
+
+    const triggers = transcriptTriggers();
+    expect(triggers).toHaveLength(2);
+    expect(triggers[0].textContent).toContain("Kickoff interview.docx");
+    expect(triggers[1].textContent).toContain("Follow-up call.docx");
+    // Word counts come from the metadata list; no body is fetched for them.
+    expect(triggers[1].textContent).toContain("240 words");
+    // The first transcript is open, the second holds no body until asked.
+    expect(triggers[0].getAttribute("aria-expanded")).toBe("true");
+    expect(triggers[1].getAttribute("aria-expanded")).toBe("false");
+    expect(
+      document.getElementById(triggers[0].getAttribute("aria-controls")!)!.textContent
+    ).toContain(TRANSCRIPT_BODY);
+    expect(document.getElementById(triggers[1].getAttribute("aria-controls")!)).toBeNull();
+    expect(__activeQueryCount("transcripts:getTranscriptContent")).toBe(1);
+
+    triggers[1].click();
+    await expect
+      .poll(() => transcriptTriggers()[1].getAttribute("aria-expanded"))
+      .toBe("true");
+    expect(transcriptTriggers()[0].getAttribute("aria-expanded")).toBe("false");
+    // The body query trails the row by a round trip, so until it answers for
+    // t-2 the row says so rather than painting its neighbour's transcript.
+    const openBody = () =>
+      document.getElementById(transcriptTriggers()[1].getAttribute("aria-controls")!)
+        ?.textContent;
+    await expect.poll(openBody).toContain("Loading transcript...");
+    __setQueryData("transcripts:getTranscriptContent", {
+      _id: "t-2",
+      label: "Follow-up call.docx",
+      content: TRANSCRIPT_BODY,
+    });
+    await expect.poll(openBody).toContain(TRANSCRIPT_BODY);
+    // Still one subscription: opening a row closes the one that was open.
+    expect(__activeQueryCount("transcripts:getTranscriptContent")).toBe(1);
+  });
+
+  it("drops a transcript choice the newly loaded list does not carry", async () => {
+    await mountIntake(1440, 900, [
+      transcriptRow("t-1", "Kickoff interview.docx", 11),
+      transcriptRow("t-2", "Follow-up call.docx", 240),
+    ]);
+
+    transcriptTriggers()[1].click();
+    await expect
+      .poll(() => transcriptTriggers()[1].getAttribute("aria-expanded"))
+      .toBe("true");
+
+    // Previous/Next project paging swaps the list under a component that stays
+    // mounted: t-2 belongs to the project the reader left.
+    __setQueryData("transcripts:listTranscripts", [
+      transcriptRow("t-9", "Site visit.docx", 30),
+      transcriptRow("t-10", "Lab walkthrough.docx", 60),
+    ]);
+    __setQueryData("transcripts:getTranscriptContent", {
+      _id: "t-9",
+      label: "Site visit.docx",
+      content: TRANSCRIPT_BODY,
+    });
+
+    await expect.poll(() => transcriptTriggers()[0]?.textContent).toContain("Site visit.docx");
+    expect(transcriptTriggers()[0].getAttribute("aria-expanded")).toBe("true");
+    expect(transcriptTriggers()[1].getAttribute("aria-expanded")).toBe("false");
+    // Still one body, and it is the new list's first transcript — the dead id
+    // holds no subscription.
+    expect(__activeQueryCount("transcripts:getTranscriptContent")).toBe(1);
+    expect(__activeQueryArgs("transcripts:getTranscriptContent")).toEqual([
+      { transcriptId: "t-9" },
+    ]);
+  });
+
+  it("hides the transcript block and the Draft-generation section in review mode with no transcripts", async () => {
+    await mountIntake(1440, 900, [], "review");
+
+    // The context pane rendered — the absence below is the transcript block's,
+    // not a pane that never mounted.
+    expect(pane("context")!.textContent).toContain("Files");
+    expect(transcriptTriggers()).toHaveLength(0);
+    // The block's heading goes with it, so deleting only the `{#if}` gate
+    // fails here rather than passing on an empty `{#each}`.
+    const headings = Array.from(pane("context")!.querySelectorAll("h2, h3")).map((h) =>
+      h.textContent?.trim()
+    );
+    expect(headings).not.toContain("Transcript");
+    expect(headings).not.toContain("Transcripts");
+    // A review project with no transcript generates from the feedback report's
+    // own button; the intake gate offers no second path.
+    expect(pane("work")!.textContent).not.toContain("Draft generation");
+    expect(__activeQueryCount("transcripts:getTranscriptContent")).toBe(0);
+  });
+
+  it("opens no transcript by default in review mode, and none is subscribed until asked", async () => {
+    await mountIntake(1440, 900, [
+      transcriptRow("t-1", "Kickoff interview.docx", 11),
+      transcriptRow("t-2", "Follow-up call.docx", 240),
+    ], "review");
+
+    const triggers = transcriptTriggers();
+    expect(triggers).toHaveLength(2);
+    // 2026-08-10: in review mode the written PD is the focus, so every
+    // transcript starts collapsed and no body is fetched.
+    expect(triggers.map((t) => t.getAttribute("aria-expanded"))).toEqual(["false", "false"]);
+    expect(__activeQueryCount("transcripts:getTranscriptContent")).toBe(0);
+
+    triggers[1].click();
+    await expect
+      .poll(() => transcriptTriggers()[1].getAttribute("aria-expanded"))
+      .toBe("true");
+    expect(__activeQueryArgs("transcripts:getTranscriptContent")).toEqual([
+      { transcriptId: "t-2" },
+    ]);
   });
 
   it("uses explicit Work/Context switches with one visible pane at a time on narrow screens", async () => {
@@ -166,8 +315,70 @@ describe("PreviewProjectPage intake workbench", () => {
     const controlsId = trigger!.getAttribute("aria-controls");
     expect(controlsId).toBeTruthy();
 
+    // The page already holds one body subscription for the open intake
+    // disclosure; the panel adds none until a row is previewed.
+    const bodiesBefore = __activeQueryCount("transcripts:getTranscriptContent");
+
     trigger!.click();
     await expect.poll(() => trigger!.getAttribute("aria-expanded")).toBe("true");
     await expect.poll(() => document.getElementById(controlsId!)).not.toBeNull();
+
+    // The row is drawn from the metadata list alone: label and word count,
+    // no body.
+    const region = document.getElementById(controlsId!)!;
+    expect(region.textContent).toContain("Kickoff interview.docx");
+    expect(region.textContent).toContain("11 words");
+    expect(__activeQueryCount("transcripts:getTranscriptContent")).toBe(bodiesBefore);
+
+    // Preview subscribes that one transcript's body, and only while it is open.
+    region.querySelector<HTMLButtonElement>('button[title="Preview transcript"]')!.click();
+    await expect
+      .poll(() => __activeQueryCount("transcripts:getTranscriptContent"))
+      .toBe(bodiesBefore + 1);
+    const modal = () =>
+      document
+        .querySelector<HTMLElement>('button[title="Close transcript"]')
+        ?.closest<HTMLElement>(".fixed");
+    await expect.poll(() => modal()?.textContent).toContain(TRANSCRIPT_BODY);
+    expect(modal()!.textContent).toContain("Kickoff interview.docx");
+
+    document.querySelector<HTMLButtonElement>('button[title="Close transcript"]')!.click();
+    await expect
+      .poll(() => __activeQueryCount("transcripts:getTranscriptContent"))
+      .toBe(bodiesBefore);
+  });
+
+  it("downloads a transcript as <label>.txt, fetching its body once through the client", async () => {
+    await mountIntake(1440);
+
+    const filesTrigger = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+      (b) => b.hasAttribute("aria-expanded") && b.textContent?.includes("Files")
+    )!;
+    filesTrigger.click();
+    const region = () => document.getElementById(filesTrigger.getAttribute("aria-controls")!);
+    await expect.poll(region).not.toBeNull();
+
+    // The anchor is built, clicked and removed inside the handler, so its file
+    // name exists for one instant: capture it rather than let the browser
+    // start a real download.
+    const downloaded: string[] = [];
+    const realClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      downloaded.push(this.download);
+    };
+    try {
+      const bodiesBefore = __activeQueryCount("transcripts:getTranscriptContent");
+      region()!
+        .querySelector<HTMLButtonElement>('button[title="Download transcript"]')!
+        .click();
+      await expect.poll(() => downloaded).toEqual(["Kickoff interview.docx.txt"]);
+      // One fetch on click, for that row's id, and no new subscription.
+      expect(__clientQueryCalls("transcripts:getTranscriptContent")).toEqual([
+        { transcriptId: "t-1" },
+      ]);
+      expect(__activeQueryCount("transcripts:getTranscriptContent")).toBe(bodiesBefore);
+    } finally {
+      HTMLAnchorElement.prototype.click = realClick;
+    }
   });
 });
