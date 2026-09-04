@@ -110,3 +110,37 @@ Verified configuration SHA-256: `013eec3395ad1ede28d65ff04483220ce06b34721aa1b32
 Final post-review verification: `bash scripts/loop-verify.sh` exited 0 (`timeout-final-gate.log`), with 0 Svelte errors/warnings, 127 files and 1366 tests passing, and uploader harnesses 50 and 18 passing. `git diff --check` passed. New logs retain output with trailing blank lines normalized. Three documentation review patches were applied; executable configuration was unchanged after the first passing parent gate.
 
 Verified repair commit: `f009b43b10d6faf6408841b89a6ae993d3f947c8`. This identifier binds the configuration and retained passing logs to the repaired source; the following evidence-only commit records it.
+
+## Fresh review integrity checks
+
+Reviewed source revision: `b3e0c2ad2740c827be17a7cd0d777d95d6ee6b35`. This pass makes only audit/story documentation changes.
+
+Reproduce the frozen-intent comparison and configuration digest from the repository root:
+
+```bash
+python3 - <<'PYTHON'
+from pathlib import Path
+import hashlib, subprocess
+p = '_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/schema/stories/9-review-artifacts-pinned-to-revision-and-content-hash.md'
+old = subprocess.check_output(['git', 'show', '3db1dd0c8d750034b73e42eb0bf4e75c797afd45:' + p], text=True)
+new = Path(p).read_text()
+def block(s):
+    return s.split('<intent-contract>', 1)[1].split('</intent-contract>', 1)[0]
+assert block(old) == block(new)
+print('Frozen intent matches baseline byte-for-byte: PASS')
+print('vitest.config.ts SHA-256:', hashlib.sha256(Path('vitest.config.ts').read_bytes()).hexdigest())
+PYTHON
+```
+
+Observed output, exit 0:
+
+```text
+Frozen intent matches baseline byte-for-byte: PASS
+vitest.config.ts SHA-256: 013eec3395ad1ede28d65ff04483220ce06b34721aa1b3287d3ed8808e6d76fe
+```
+
+Fresh verification did not complete successfully. `bash scripts/loop-verify.sh` passed Convex tsc and Svelte check (0 errors/warnings), then reported timeout-related failures in `convex/generationEntryFailure.test.ts` and `convex/chatTurns.test.ts`. The stalled run was terminated (exit 143); see `fresh-review-default-interrupted.log`. No complete test-suite summary or uploader result was produced.
+
+A retry with the installed Vitest-supported `VITEST_MAX_WORKERS=2` setting completed Convex tsc after approximately eight minutes and began application check before deliberate termination (exit 143); see `fresh-review-bounded-interrupted.log`. `uptime` during the retry reported load averages `44.45 57.85 52.91`; this is evidence of contention, not proof that all failures are environmental. No executable configuration was changed to mask the failures. Earlier passing evidence remains historical; this fresh pass is blocked on patch verification.
+
+`git diff --check` passes for the documentation updates. Existing deferred-work ledger content and frontmatter entries remain unchanged.
