@@ -7,7 +7,6 @@ touches: [src, docs]
 risky: []
 verify: [npx vitest run src/lib/dashboard/workspaceExperience.test.ts, npx vitest run --config vitest.component.config.ts --no-file-parallelism src/lib/workspace/WorkspaceGate.component.test.ts src/routes/workspaceRoutes.component.test.ts]
 done_when: ["! rg -q 'localDevelopment' src/lib/dashboard/workspaceExperience.ts src/lib/workspace/WorkspaceGate.svelte", "! rg -q 'resolveWorkspaceExperience' src/", "! rg -q 'from \"\\\\$app/environment\"' src/lib/workspace/WorkspaceGate.svelte", "rg -q '2026-09-03' docs/product-domain.md", npx vitest run src/lib/dashboard/workspaceExperience.test.ts]
-deferred: ["component suites importing src/lib/chat/agentInternal.ts cannot run in a factory worktree: it imports ../../../node_modules/@convex-dev/agent/dist/*.js, which only resolves from the main checkout (worked around locally with a node_modules/@convex-dev symlink)", "convex/schema.ts:1755-1758 still documents the master switch + allowlist as the live gate; the ticket forbids touching convex/", "src/routes/layout.css:299 still calls it 'the flagged dashboard workspace'"]
 title: "Delete the dead localDevelopment branch and the callerless resolveWorkspaceExperience; retire \"not flagged\" cases from workspace tests; record the domain amendment"
 plan: 20260903-client-sync
 updated: "2026-09-03T21:17:39.899Z"
