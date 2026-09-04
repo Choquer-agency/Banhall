@@ -42,7 +42,7 @@ printf '# Overnight run %s\n\n' "$STAMP" > "$SUMMARY"
 log "start; base $(git rev-parse --short HEAD) on $(git rev-parse --abbrev-ref HEAD)"
 
 # ---------- guards ----------
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+if [ -n "$(git status --porcelain --untracked-files=no -- . ':(exclude)scripts/run-overnight.sh')" ]; then
   log "working tree dirty; commit first"; exit 1
 fi
 if ! git remote get-url origin >/dev/null 2>&1; then
@@ -68,8 +68,18 @@ wait_factory() {
   done
 }
 
+# Quota pauses: bmad-loop classifies a captured usage-limit line as an environment
+# fault (see .bmad-loop/profiles/claude.toml) and pauses the run with its budget
+# intact. Wait for the window to reset, then resume. Bounded so a dead provider
+# cannot hold the night hostage.
+RESUME_WAIT_S="${RESUME_WAIT_S:-1800}"
+RESUME_MAX="${RESUME_MAX:-6}"
+
+loop_state() {  # prints: <status> <paused_stage> <paused_reason>
+  bmad-loop status --json "$1" 2>/dev/null | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('status') or '', d.get('paused_stage') or '', (d.get('paused_reason') or '').replace(chr(10),' ')[:160])" 2>/dev/null || echo "unknown"
+}
+
 # bmad-loop runs in the foreground and returns when the run finishes, pauses or stops.
-# Returns the run id via stdout of `bmad-loop list`.
 run_loop() {
   local spec="$1" branch="$2" label="$3"
   log "bmad-loop $label on $branch"
@@ -80,7 +90,25 @@ run_loop() {
   bmad-loop run --spec "$spec" >>"$OUT/$label.log" 2>&1
   local rc=$?
   local id; id="$(bmad-loop list 2>/dev/null | awk 'NR==2{print $4}')"
-  local st; st="$(bmad-loop status --json "$id" 2>/dev/null | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('status'),d.get('paused_stage') or '')" 2>/dev/null || echo "unknown")"
+  local st; st="$(loop_state "$id")"
+  local tries=0
+  while [ "$tries" -lt "$RESUME_MAX" ]; do
+    case "$st" in
+      *"environment fault"*|*"limit"*|*"rate"*|*"quota"*|*"transport"*) ;;
+      *) break ;;
+    esac
+    tries=$((tries+1))
+    log "$label paused on provider fault (try $tries/$RESUME_MAX): $st; sleeping ${RESUME_WAIT_S}s"
+    note "- pause $tries: $st"
+    sleep "$RESUME_WAIT_S"
+    # An environment-fault pause is an escalation: re-arm the story with a fresh
+    # budget and resume without the interactive resolve agent. Plain `resume`
+    # refuses escalation pauses.
+    bmad-loop resolve "$id" --no-interactive --resume >>"$OUT/$label.log" 2>&1 \
+      || bmad-loop resume "$id" >>"$OUT/$label.log" 2>&1
+    rc=$?
+    st="$(loop_state "$id")"
+  done
   log "$label finished rc=$rc run=$id state=$st"
   note "## $label"
   note "- run \`$id\`, state: $st (rc $rc)"
@@ -101,6 +129,13 @@ run_loop() {
 if [ "$SKIP_FACTORY" = 0 ]; then
   log "factory: re-driving escalated tickets"
   note "## factory"
+  # Adopt a factory run already in flight (relaunch after a wrapper restart).
+  latest="$(ls -t .factory/runs 2>/dev/null | head -1)"
+  if [ -n "$latest" ] && [ "$(python3 -c "import json;print(json.load(open('.factory/runs/$latest/state.json'))['status'])" 2>/dev/null)" = "running" ]; then
+    log "adopting in-flight factory run $latest"
+    st="$(wait_factory "$latest")"
+    log "$latest -> $st"; note "- adopted $latest: $st"
+  fi
   # Re-drive escalated tickets one by one (they already carry implementations).
   for t in $(factory tickets 2>/dev/null | awk '$2=="escalated"{print $1}'); do
     log "factory run --ticket $t"
