@@ -2043,6 +2043,11 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
         status: "awaiting_input",
       });
     await t.run(async (ctx) => {
+      await ctx.db.insert("generationArtifacts", {
+        generationId,
+        kind: "brain_blocks",
+        content: JSON.stringify({ styleOverrides: { bannedWords: true } }),
+      });
       for (const [index, section] of (["s242", "s244", "s246"] as const).entries()) {
         await ctx.db.insert("generationSectionRuns", {
           generationId,
@@ -2051,7 +2056,7 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
           status: section === "s246" ? "awaiting_review" : "approved",
           ...(section === "s246"
             ? { draftText: "Drafted 246" }
-            : { approvedText: section === "s242" ? "It was uncertain whether this scales." : `Approved ${section}` }),
+            : { approvedText: section === "s242" ? "The robust solution. It was uncertain whether this scales." : `Approved ${section}` }),
           model: "claude-sonnet-5",
           label: "Sonnet 5",
           attempt: 1,
@@ -2097,7 +2102,9 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
       sourceTranscriptIds: transcriptIds,
     });
     if (!written.report) throw new Error("Missing iterative report");
-    expect(await t.run(ctx => ctx.db.query("qaFindings").collect())).toEqual(expect.arrayContaining([expect.objectContaining({ reportId: written.report._id, revisionNumber: 0, contentHash: await sha256(written.report.content), section: "s242", check: "because_clause", blocking: true })]));
+    const findings = await t.run(ctx => ctx.db.query("qaFindings").collect());
+    expect(findings).toEqual(expect.arrayContaining([expect.objectContaining({ reportId: written.report._id, revisionNumber: 0, contentHash: await sha256(written.report.content), section: "s242", check: "because_clause", blocking: true })]));
+    expect(findings.filter(row => row.reportId === written.report?._id && row.check === "banned_word")).toEqual([]);
     expect(written.snapshots).toHaveLength(2);
     for (const snapshot of written.snapshots) {
       expect(snapshot).toMatchObject({

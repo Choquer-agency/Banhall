@@ -1,0 +1,2 @@
+Command: git diff --exit-code 9da55bece5948da12129720dd2330a3032c985bf -- _bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/qa/stories/8-blocking-qa-policy.md _bmad-output/implementation-artifacts/deferred-work.md src convex/_generated
+Exit: 0

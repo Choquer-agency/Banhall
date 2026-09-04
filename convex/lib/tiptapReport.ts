@@ -108,12 +108,33 @@ export function extractReportSections(content: string): { s242: string; s244: st
   type Section = keyof typeof sections;
   type Block = { text: string; heading: boolean; richText?: boolean };
   function nodeText(node: unknown): string {
-    if (!node || typeof node !== "object") return "";
-    if ("text" in node && typeof node.text === "string") return node.text;
-    if ("type" in node && node.type === "hardBreak") return "\n";
-    if (!("content" in node) || !Array.isArray(node.content)) return "";
-    const inline = "type" in node && ["paragraph", "heading", "codeBlock"].includes(String(node.type));
-    return node.content.map(nodeText).join(inline ? "" : "\n\n");
+    type TextTask = { kind: "node"; node: unknown } | { kind: "separator" };
+    const pending: TextTask[] = [{ kind: "node", node }];
+    const text: string[] = [];
+    // User-saved documents can be deeply nested. Keep traversal on the heap,
+    // including nested inline content, while retaining each parent's separator.
+    while (pending.length) {
+      const task = pending.pop();
+      if (!task) break;
+      if (task.kind === "separator") {
+        text.push("\n\n");
+        continue;
+      }
+      const current = task.node;
+      if (!current || typeof current !== "object") continue;
+      if ("text" in current && typeof current.text === "string") {
+        text.push(current.text);
+      } else if ("type" in current && current.type === "hardBreak") {
+        text.push("\n");
+      } else if ("content" in current && Array.isArray(current.content)) {
+        const inline = "type" in current && ["paragraph", "heading", "codeBlock"].includes(String(current.type));
+        for (let index = current.content.length - 1; index >= 0; index--) {
+          pending.push({ kind: "node", node: current.content[index] });
+          if (index > 0 && !inline) pending.push({ kind: "separator" });
+        }
+      }
+    }
+    return text.join("");
   }
   function sectionHeading(text: string, richText = false): Section | undefined {
     // A section label must never consume a statement recognized by the QA
@@ -131,28 +152,30 @@ export function extractReportSections(content: string): { s242: string; s244: st
     return match[1] === "244" ? "s244" : match[1] === "246" ? "s246" : "s242";
   }
   let blocks: Block[] | undefined;
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(content);
-    if (parsed && typeof parsed === "object" && "type" in parsed && parsed.type === "doc") {
-      blocks = [];
-      if ("content" in parsed && Array.isArray(parsed.content)) {
-        const extracted: Block[] = [];
-        function visit(node: unknown): void {
-          if (!node || typeof node !== "object") return;
-          if ("type" in node && (node.type === "paragraph" || node.type === "heading" || node.type === "codeBlock")) {
-            extracted.push({ text: nodeText(node), heading: node.type === "heading", richText: true });
-          } else if ("content" in node && Array.isArray(node.content)) {
-            node.content.forEach(visit);
-          } else {
-            const text = nodeText(node);
-            if (text) extracted.push({ text, heading: false });
+    parsed = JSON.parse(content);
+  } catch { /* Plaintext is a supported legacy format. */ }
+  if (parsed && typeof parsed === "object" && "type" in parsed && parsed.type === "doc") {
+    blocks = [];
+    if ("content" in parsed && Array.isArray(parsed.content)) {
+      const pending: unknown[] = [...parsed.content].reverse();
+      while (pending.length) {
+        const node = pending.pop();
+        if (!node || typeof node !== "object") continue;
+        if ("type" in node && (node.type === "paragraph" || node.type === "heading" || node.type === "codeBlock")) {
+          blocks.push({ text: nodeText(node), heading: node.type === "heading", richText: true });
+        } else if ("content" in node && Array.isArray(node.content)) {
+          for (let index = node.content.length - 1; index >= 0; index--) {
+            pending.push(node.content[index]);
           }
+        } else {
+          const text = nodeText(node);
+          if (text) blocks.push({ text, heading: false });
         }
-        parsed.content.forEach(visit);
-        blocks = extracted;
       }
     }
-  } catch { /* Plaintext is a supported legacy format. */ }
+  }
   if (!blocks) {
     blocks = [];
     let body: string[] = [];

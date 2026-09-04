@@ -1,0 +1,40 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup
+
+ ❯ |convex| convex/generationAttribution.test.ts (36 tests | 1 failed | 35 skipped) 151ms
+     × stamps the frozen set on the iterative report and its ghost comparison snapshot 150ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/generationAttribution.test.ts > provenance sets on generated report artifacts (AC1) > stamps the frozen set on the iterative report and its ghost comparison snapshot
+AssertionError: expected [ { …(10) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "_creationTime": 1788565690671,
++     "_id": "0000000000000000010013qaFindings",
++     "blocking": false,
++     "check": "banned_word",
++     "contentHash": "cbfbd5d439456f5ac1be591d32b1caff2b29127c3de3a4e19734a7e77b1caa39",
++     "findingKey": "[\"s242\",\"banned_word\",\"Banned word \\\"robust\\\": ...The robust solution. It was uncertain wh...\"]",
++     "message": "Banned word \"robust\": ...The robust solution. It was uncertain wh...",
++     "reportId": "0000000000000000000010012reports",
++     "revisionNumber": 0,
++     "section": "s242",
++   },
++ ]
+
+ ❯ convex/generationAttribution.test.ts:2107:105
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 35 skipped (36)
+   Start at  16:48:09
+   Duration  984ms (transform 510ms, setup 0ms, import 675ms, tests 151ms, environment 42ms)

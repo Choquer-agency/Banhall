@@ -60,10 +60,12 @@ async function readiness(f: Fixture) {
 async function expectBlocked(f: Fixture, subject = "qa-owner") {
   expect((await readiness(f)).blockers.map((b) => b.code)).toContain("QA_BLOCKING");
   const before = await f.t.run((ctx) => ctx.db.get(f.projectId));
+  const scheduledBefore = await f.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
   await expect(f.t.withIdentity({ subject }).mutation(api.projects.publishForReview, {
     projectId: f.projectId, reportId: f.reportId,
   })).rejects.toMatchObject({ data: { code: "QA_BLOCKING" } });
   expect(await f.t.run((ctx) => ctx.db.get(f.projectId))).toEqual(before);
+  expect(await f.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).toEqual(scheduledBefore);
 }
 async function saveQa(f: Fixture, compliance: Record<string, boolean>) {
   await f.t.mutation(internal.generations.saveReportQa, { generationId: f.generationId, capturedRef: await ref(f), qa: scorecard(compliance) });
@@ -356,6 +358,25 @@ test("legacy punctuated cross-references do not move following uncertainty into 
 
 
 describe("DW-92 native follow-up extraction regressions", () => {
+  test.each(["block containers", "inline containers"])("deep %s retain uncertainty on save and at both gates", async variant => {
+    const depth = 5000;
+    const content = variant === "block containers"
+      ? '{"type":"doc","content":[' + '{"type":"blockquote","content":['.repeat(depth)
+        + JSON.stringify({ type: "paragraph", content: [{ type: "text", text: FAILURE }] })
+        + ']}'.repeat(depth) + ']}'
+      : '{"type":"doc","content":[{"type":"paragraph","content":['
+        + '{"type":"inlineContainer","content":['.repeat(depth)
+        + JSON.stringify({ type: "text", text: FAILURE })
+        + ']}'.repeat(depth) + ']}]}';
+    const f = await setup(content);
+    await expectBlocked(f);
+    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
+    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({
+      ...(await ref(f)), section: "s242", check: "because_clause", blocking: true,
+    })]));
+    await expectBlocked(f);
+  });
+
   test("unpunctuated legacy cross-references preserve uncertainty at both gates and on save", async () => {
     const content = "Line 242: Uncertainty\nContext.\nLine 244: This work is discussed below\n" + FAILURE + "\nLine 244: Work\nTests.";
     const f = await setup(content);

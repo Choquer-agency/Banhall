@@ -1,0 +1,13 @@
+{
+  "recorded_at": "2026-09-04T23:39:46.872723+00:00",
+  "followup_baseline": "9da55bece5948da12129720dd2330a3032c985bf",
+  "historical_revisions": {
+    "f122b086d745acc40b4decca26b9aaafc7257f6a": "f122b086d745acc40b4decca26b9aaafc7257f6a fix(loop): copy _bmad into lane worktrees (the loop rejects a symlink)",
+    "b13d5ce9f93fe00ad0d02e15294954a20961b69d": "b13d5ce9f93fe00ad0d02e15294954a20961b69d CAP-8 enforce absolute current-revision QA blocking",
+    "5b2bed6a0f129af3c9799f8bc80e0fa3ec1e3a01": "5b2bed6a0f129af3c9799f8bc80e0fa3ec1e3a01 CAP-8 harden QA extraction, retry lifecycle and finding cleanup",
+    "40d34059ae38b891023681ac00989d040f9fc973": "40d34059ae38b891023681ac00989d040f9fc973 CAP-8 preserve uncertainty across section labels and code blocks",
+    "f1a61c44f80268df68b5ebd29bc848eee23490a2": "f1a61c44f80268df68b5ebd29bc848eee23490a2 DW-92 repair QA extraction bypasses and commit native review evidence",
+    "a62e1760a9931c9451c34baa2df8af29fa1e9538": "a62e1760a9931c9451c34baa2df8af29fa1e9538 DW-92 finalize original QA story after verified evidence commit"
+  },
+  "worker_stage": "implementation inspection; parent final verification and four-layer review pending"
+}
