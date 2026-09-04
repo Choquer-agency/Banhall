@@ -30,6 +30,13 @@ state() {  # <status> <paused_stage> <paused_reason>
   bmad-loop status --json "$1" 2>/dev/null | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('status') or '', d.get('paused_stage') or '', (d.get('paused_reason') or '').replace(chr(10),' ')[:200])" 2>/dev/null || echo unknown
 }
 
+# bmad-loop names run branches bmad-loop/<run-id>; a plain branch called `bmad-loop`
+# makes every worktree open fail ("'refs/heads/bmad-loop' exists") and the run
+# defers every story in seconds. Refuse to start on that footgun.
+if git rev-parse --verify -q refs/heads/bmad-loop >/dev/null; then
+  echo "a branch named 'bmad-loop' exists and shadows bmad-loop/<run-id>; rename it first: git branch -m bmad-loop archive/bmad-loop" >&2; exit 2
+fi
+
 if [ -n "$BRANCH" ]; then
   git rev-parse --verify -q "$BRANCH" >/dev/null || git branch "$BRANCH"
   sed -i '' "s|^target_branch = .*|target_branch = \"$BRANCH\"|" "$POLICY"
@@ -54,6 +61,13 @@ while [ "$n" -lt "$MAX" ]; do
   rc=$?
   st="$(state "$id")"
 done
+
+# A run that ends in seconds with every story deferred is an environment problem, not a verdict.
+if ! rg -q '"kind": "session-start"' ".bmad-loop/runs/$id/journal.jsonl" 2>/dev/null; then
+  log "run $id never started a session; first failure:"
+  rg -m1 -o '"error": "[^"]{0,300}' ".bmad-loop/runs/$id/journal.jsonl" 2>/dev/null | head -1
+  exit 1
+fi
 
 log "run $id: $st (rc $rc)"
 if [ -n "$BRANCH" ] && [ "$PUSH" = 1 ]; then
