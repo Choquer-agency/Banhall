@@ -36,6 +36,19 @@ import {
   ANALYZER_CATEGORY_ORDER,
   ANALYZER_REQUEST,
 } from "./analyzerAgent";
+import {
+  CONDENSE_CONCURRENCY,
+  CONDENSE_REQUEST,
+  CONDENSE_SCHEMA,
+  CONDENSE_SYSTEM_PROMPT,
+  CONDENSE_TIMEOUT_MS,
+} from "./condenseAgent";
+import {
+  CONDENSE_VERSION,
+  CONDENSE_WINDOW_CHARS,
+  DIGEST_TARGET_CHARS,
+  TRANSCRIPT_BUDGET_CHARS,
+} from "../lib/transcripts";
 import { SECTION_242_REQUEST } from "./section242Agent";
 import { SECTION_244_REQUEST } from "./section244Agent";
 import { SECTION_246_REQUEST } from "./section246Agent";
@@ -261,6 +274,17 @@ export const generationPromptProgram = {
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
     },
+    condense: {
+      kind: "structured",
+      systemTemplate: CONDENSE_SYSTEM_PROMPT,
+      request: CONDENSE_REQUEST,
+      schema: CONDENSE_SCHEMA,
+      model: { kind: "fixed", modelId: MODEL },
+      thinking: { kind: "omitted" },
+      // One attempt, not the repair pass: the whole generation waits on this
+      // call before any drafting starts.
+      structuredPolicy: "single-attempt",
+    },
     analyzer: {
       kind: "structured",
       systemTemplate: ANALYZER_SYSTEM_PROMPT,
@@ -354,6 +378,14 @@ export const generationPromptProgram = {
         cap: "section-word-cap",
       },
       derivedWordBudgets,
+    },
+    transcripts: {
+      budgetChars: TRANSCRIPT_BUDGET_CHARS,
+      condenseWindowChars: CONDENSE_WINDOW_CHARS,
+      digestTargetChars: DIGEST_TARGET_CHARS,
+      condenseVersion: CONDENSE_VERSION,
+      condenseTimeoutMs: CONDENSE_TIMEOUT_MS,
+      condenseConcurrency: CONDENSE_CONCURRENCY,
     },
     brain: {
       namespace: BRAIN_NAMESPACE,

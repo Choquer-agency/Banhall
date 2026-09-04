@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildContextBlock } from "./analyzerAgent";
+import { CONDENSE_SCHEMA, CONDENSE_SYSTEM_PROMPT } from "./condenseAgent";
+import { generationPromptProgram, hashPromptProgram } from "./promptProgram";
+import {
+  CONDENSE_VERSION,
+  CONDENSE_WINDOW_CHARS,
+  DIGEST_TARGET_CHARS,
+  TRANSCRIPT_BUDGET_CHARS,
+} from "../lib/transcripts";
 import { priorSectionsBlock } from "./iterative";
 import { buildStyleGuidance, lengthBudgetBlock } from "./pipeline";
 import { CONTEXT_INPUTS_GUIDANCE, waivedCategoryLabels } from "./prompts";
@@ -87,5 +95,54 @@ describe("prompt scaffold composition", () => {
         "\n\n" +
         "--- BEGIN [OTHER SUPPORTING MATERIAL] misc.txt ---\nMisc content.\n--- END [OTHER SUPPORTING MATERIAL] misc.txt ---",
     );
+  });
+});
+
+/**
+ * transcripts-7-condense-digests: the condense call and the three transcript
+ * sizes are part of the deployment's prompt contract, so a change to either
+ * moves promptVersion and is disclosed on every generation that reads them.
+ */
+describe("the condense call belongs to the prompt program (AC5)", () => {
+  it("declares the call with its fixed model, schema and single-attempt policy", () => {
+    expect(generationPromptProgram.calls.condense).toEqual({
+      kind: "structured",
+      systemTemplate: CONDENSE_SYSTEM_PROMPT,
+      request: generationPromptProgram.calls.condense.request,
+      schema: CONDENSE_SCHEMA,
+      model: {
+        kind: "fixed",
+        modelId: generationPromptProgram.configuration.models.defaultModelId,
+      },
+      thinking: { kind: "omitted" },
+      structuredPolicy: "single-attempt",
+    });
+  });
+
+  it("publishes the transcript budget every reader shares", () => {
+    expect(generationPromptProgram.configuration.transcripts).toEqual({
+      budgetChars: 200_000,
+      condenseWindowChars: 160_000,
+      digestTargetChars: 24_000,
+      condenseVersion: CONDENSE_VERSION,
+      condenseTimeoutMs: 120_000,
+      condenseConcurrency: 4,
+    });
+    expect(TRANSCRIPT_BUDGET_CHARS).toBe(200_000);
+    expect(CONDENSE_WINDOW_CHARS).toBe(160_000);
+    expect(DIGEST_TARGET_CHARS).toBe(24_000);
+  });
+
+  it("moves promptVersion, so no generation reports a stale contract", async () => {
+    const { condense: _condense, ...callsWithout } =
+      generationPromptProgram.calls;
+    const { transcripts: _transcripts, ...configurationWithout } =
+      generationPromptProgram.configuration;
+    const before = await hashPromptProgram({
+      ...generationPromptProgram,
+      calls: callsWithout,
+      configuration: configurationWithout,
+    });
+    expect(await hashPromptProgram(generationPromptProgram)).not.toBe(before);
   });
 });

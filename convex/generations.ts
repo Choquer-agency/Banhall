@@ -38,10 +38,12 @@ import { sectionMetrics } from "./lib/lineLimits";
 import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
 import {
   buildTranscriptPromptText,
+  FROZEN_TRANSCRIPT_CHARS,
   generationTranscriptIds,
   listProjectTranscripts,
   MAX_TRANSCRIPTS_PER_PROJECT,
   transcriptLabel,
+  TRANSCRIPT_BUDGET_CHARS,
 } from "./lib/transcripts";
 
 // ─── Generation status helpers ───────────────────────────────────────────────
@@ -345,6 +347,17 @@ function validatedCompareModelIds(
   }
   return resolved.map((model) => model.id);
 }
+
+/**
+ * Whether a generation feeds the model the full frozen transcript text or a
+ * stored digest per transcript. Pure and total over the combined frozen
+ * character count, so the boundary is one testable line rather than a
+ * condition spread across the reserve mutation and the pipeline.
+ */
+export function decideInputMode(totalChars: number): "full" | "digest" {
+  return totalChars > TRANSCRIPT_BUDGET_CHARS ? "digest" : "full";
+}
+
 async function reserveGeneration(
   ctx: MutationCtx,
   project: Doc<"projects">,
@@ -425,11 +438,17 @@ async function reserveGeneration(
   }
 
   const now = Date.now();
+  const frozenTranscripts = transcripts.map((row) => ({
+    row,
+    content: row.content.slice(0, FROZEN_TRANSCRIPT_CHARS),
+  }));
   const generationId = await ctx.db.insert("generations", {
     projectId: project._id,
     transcriptId: transcripts[0]?._id,
     transcriptIds: transcripts.map((row) => row._id),
-    inputMode: "full",
+    inputMode: decideInputMode(
+      frozenTranscripts.reduce((total, item) => total + item.content.length, 0)
+    ),
     status: "reserved",
     requestedAt: now,
     requestedBy,
@@ -448,18 +467,17 @@ async function reserveGeneration(
     candidatesFailed: 0,
     startedAt: now,
   });
-  for (const transcript of transcripts) {
-    const content = transcript.content.slice(0, 500_000);
+  for (const { row, content } of frozenTranscripts) {
     await ctx.db.insert("generationSources", {
       generationId,
       projectId: project._id,
       kind: "transcript",
-      transcriptId: transcript._id,
-      label: transcriptLabel(transcript),
+      transcriptId: row._id,
+      label: transcriptLabel(row),
       content,
       contentHash: await sha256(content),
-      truncated: content.length !== transcript.content.length,
-      originalLength: transcript.content.length,
+      truncated: content.length !== row.content.length,
+      originalLength: row.content.length,
       capturedAt: now,
     });
   }
@@ -787,25 +805,51 @@ export const getGenerationInput = internalQuery({
     const sources = await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(MAX_TRANSCRIPTS_PER_PROJECT + 51);
+      // One transcript row and one digest row per transcript, plus the 50
+      // context documents. A tighter bound would drop the digest rows of a
+      // many-transcript project — the case digest mode exists for — and hand
+      // the model the over-budget full text instead.
+      .take(2 * MAX_TRANSCRIPTS_PER_PROJECT + 51);
+    const transcriptIds = generationTranscriptIds(generation);
+    const inputMode = generation.inputMode ?? "full";
+    const toPart = (source: Doc<"generationSources">) => ({
+      sourceId: source._id,
+      contentHash: source.contentHash,
+      content: source.content,
+      label: source.label,
+    });
+    // Digest rows are written concurrently, so the frozen transcript set — not
+    // insertion order — decides which digest is part 1. A generation in digest
+    // mode that has not been condensed yet reads its transcript rows; the
+    // pipeline condenses and reads again.
+    const digestRows = sources.filter(
+      (source) => source.kind === "transcript_digest"
+    );
+    const orderedDigests = (transcriptIds ?? []).flatMap((id) => {
+      const row = digestRows.find((source) => source.transcriptId === id);
+      return row ? [row] : [];
+    });
+    const digestParts =
+      inputMode === "digest" &&
+      transcriptIds !== undefined &&
+      orderedDigests.length === transcriptIds.length
+        ? orderedDigests
+        : undefined;
     // Insertion order is reservation order, which is the project's transcript
     // order; every offset the pipeline cites is relative to one of these rows.
-    const transcriptParts = sources
-      .filter((source) => source.kind === "transcript")
-      .map((source) => ({
-        sourceId: source._id,
-        contentHash: source.contentHash,
-        content: source.content,
-        label: source.label,
-      }));
+    const transcriptParts = (
+      digestParts ?? sources.filter((source) => source.kind === "transcript")
+    ).map(toPart);
     return {
+      inputMode,
+      digestIds: generation.digestIds,
       generationId: generation._id,
       projectId: project._id,
       // Usage attribution: the user who requested this generation (may differ
       // from the project creator, e.g. an admin retry).
       requestedBy: generation.requestedBy,
       transcriptId: generation.transcriptId,
-      transcriptIds: generationTranscriptIds(generation),
+      transcriptIds,
       transcript: buildTranscriptPromptText(transcriptParts),
       transcriptParts,
       title: project.title,
