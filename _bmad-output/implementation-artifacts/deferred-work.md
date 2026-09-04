@@ -357,3 +357,11 @@ source_spec: `7-review-decisions-required-to-leave-internal-review.md`
 severity: low
 reason: The new INVALID_STATE ("no report revision to record a review decision against") is raised only after submission. workflowStageOptions has no report knowledge, so StageChangeDialog still renders both completion edges as selectable. Recorded in the 2026-09-04 product-domain amendment; the escape hatch is moving to any other stage under unchanged default policy.
 status: open
+
+### DW-46: End-to-end provider chains can exceed the Convex action deadline; shared analysis now joins the entry chain, as it already does in iterative generation.
+origin: spec-deferred 5e1fa4cb0ca5
+location: convex/ai/pipeline.ts:679
+source_spec: `10-analyzer-once-per-generation-with-prompt-caching.md`
+severity: medium
+reason: convex/ai/condense.ts:124-139 reserves only non-request time after condensation. Brain retrieval and analysis then execute sequentially. convex/ai/providers.ts:32-48 explicitly documents that provider timeout bounds apply to one slot rather than a complete action; stale-generation recovery remains the fallback. Durable per-phase scheduling is a broader existing pipeline limitation.
+status: open

@@ -2,7 +2,7 @@
 title: 'Analyzer once per generation with prompt caching'
 type: 'feature'
 created: '2026-09-04'
-status: 'blocked'
+status: ready-for-dev
 baseline_revision: 'f122b086d745acc40b4decca26b9aaafc7257f6a'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -125,21 +125,3 @@ Pass serialized analysis in an optional internal action argument to avoid a new 
 - `PUBLIC_CONVEX_URL=http://localhost npm run check`
 - `git diff --check`
 
-## Auto Run Result
-
-Status: blocked
-Blocking condition: finalization left repository dirty
-
-Implementation and verification are complete at `248c8931c49c24ac990dd5332406b2fbfde5fc47`. The only remaining working-copy modification is the pre-existing orchestrator-owned `_bmad-output/implementation-artifacts/deferred-work.md`. This follow-up did not change or stage it. The rendered workflow requires a clean working copy for terminal done status; the user's preservation instruction prevents clearing or incorporating the unrelated ledger modification.
-
-Fresh review retained the existing analyzer-once orchestration and Anthropic prefix caching. Added two failure-path assertions in `convex/ai/pipeline.compare.test.ts`: project recovery after analyzer rejection and rejection of wrongly typed nested analysis before drafting.
-
-Files changed in this follow-up:
-- `convex/ai/pipeline.compare.test.ts`: two focused verification improvements.
-- `.audit/CAP-10/decisions.tsv` and `evidence.md`: review decisions and fresh gate results.
-- `.audit/CAP-10/followup-{targeted,npm-test,check}.log`: retained actual command output.
-- This story: fresh review triage and terminal result.
-
-Review: two low patches, zero medium/high patches, zero new deferrals, ten rejected findings. Follow-up recommendation: false; score = 3 × 0 + 2 = 2. Existing deferred entries remain unchanged.
-
-Verification after patches: targeted 27/27; full suite 1376/1376 across 128 files; Svelte check 0 errors and 0 warnings; diff whitespace check passed. See `.audit/CAP-10/evidence.md` for commands and retained output. Live provider cache savings are not claimed; the previously recorded action deadline limitation remains.
