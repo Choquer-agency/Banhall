@@ -5,6 +5,12 @@ import { configDefaults, defineConfig } from "vitest/config";
 // of plain TS modules do not boot the SvelteKit plugin. Only the $lib alias is
 // mirrored here so src/lib modules resolve.
 export default defineConfig({
+  // OXC's automatic tsconfig discovery fails for shared modules in this test
+  // setup. Keep unit-test transpilation explicit; the verification gate
+  // still runs the unchanged Convex and Svelte typecheck configurations.
+  oxc: {
+    tsconfig: { compilerOptions: { target: "ESNext", strict: true } },
+  },
   resolve: {
     alias: {
       $lib: fileURLToPath(new URL("./src/lib", import.meta.url)),

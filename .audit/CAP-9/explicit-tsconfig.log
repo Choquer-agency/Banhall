@@ -1,0 +1,25 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-schema/.bmad-loop/runs/20260904-121620-6b94/worktrees/9
+
+ ❯ |shared| shared/workflowStages.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |shared| shared/workflowStages.test.ts [ shared/workflowStages.test.ts ]
+Error: Value is none of these types `bool`, `BindingTsconfigRawOptions`,  on BindingEnhancedTransformOptions.tsconfig
+  Plugin: vite:oxc
+  File: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-schema/.bmad-loop/runs/20260904-121620-6b94/worktrees/9/shared/workflowStages.test.ts
+ ❯ transformSync node_modules/rolldown/dist/shared/resolve-tsconfig-DxqIJB3x.mjs:94:58
+ ❯ transformWithOxc node_modules/vite/dist/node/chunks/node.js:4016:17
+ ❯ TransformPluginContext.transform node_modules/vite/dist/node/chunks/node.js:4104:26
+ ❯ EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/node.js:30201:51
+ ❯ loadAndTransform node_modules/vite/dist/node/chunks/node.js:20124:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  12:30:04
+   Duration  1.21s (transform 0ms, setup 0ms, import 0ms, tests 0ms, environment 0ms)
+

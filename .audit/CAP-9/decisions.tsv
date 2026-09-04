@@ -1,0 +1,12 @@
+ts	phase	decision	why	evidence	result
+2026-09-04T20:00:00Z	plan	Use baseline revision 0 for unversioned targets	Reuse existing initial revision convention without inventing a lifecycle	convex/generations.ts:1032;convex/schema.ts:753;convex/schema.ts:960	planned
+2026-09-04T20:00:00Z	plan	Preserve historical PD-copy provenance including absence	Copying an old judgment is not a fresh review or backfill	convex/projects.ts:936	planned
+2026-09-04T19:20:20.456244+00:00	plan	Correct initial decision timestamps	Initial two entries used a placeholder timestamp; this entry records actual planning time	.audit/CAP-9/decisions.tsv:2	corrected
+2026-09-04T19:27:21.387622+00:00	implementation	Pin server-side target content at each write	Preserve public arguments and upsert keys	convex/reviews.ts	Writer and QA derive actual target provenance
+2026-09-04T19:27:21.393679+00:00	implementation	Hash PD document text at start and retry	Documents have no revision lifecycle	convex/pdReviews.ts	Revision baseline 0
+2026-09-04T19:27:21.393712+00:00	implementation	Copy optional historical fields conditionally	Copy is not a new judgment	convex/projects.ts	Absence and empty strings preserved
+2026-09-04T19:27:21.393721+00:00	verification	Use temporary OXC discovery override diagnostically	Standard runner fails before loading tests	 .audit/CAP-9/focused-tests.log	Canonical loop gate remains separate
+2026-09-04T19:32:52.359342+00:00	verification	Set Vitest inline OXC compiler options	Unmodified shared test reproduced automatic discovery failure	.audit/CAP-9/unchanged-runner-repro.log	Standard focused suite passes 99 tests
+2026-09-04T19:36:27.525403+00:00	verification	Stop redundant parent full-gate rerun	Canonical gate already passed on the same unmodified artifact; direct diff and test-matrix audit complete	.audit/CAP-9/loop-verify.log	No new verification claim from interrupted duplicate
+2026-09-04T19:38:45.703496+00:00	review	Mark both initial timestamps unknown	Rows 2 and 3 each used 20:00 placeholders; neither timestamp is an observed event time, and exact individual times are unknown	.audit/CAP-9/decisions.tsv:2;.audit/CAP-9/decisions.tsv:3	Treat both timestamps as unknown; prior correction records a later observed time
+2026-09-04T19:38:45.703725+00:00	review	Strengthen coverage and preserve verification artifacts	Independent review identified legacy-upgrade and partial-field cases worth exercising	.audit/CAP-9/review.diff	Six test patches and two audit patches accepted
