@@ -1,25 +1,3 @@
-- id: "1"
-  lane: seam
-  title: Orchestration seam tests
-  description: >-
-    CAP-8. convex-test suites for completeCandidateRun fan-in, approveSectionDraft
-    with and without ghost, selectReportCandidate, restoreSnapshot.
-  spec_checkpoint: false
-  invoke_dev_with: >-
-    Read touchpoints.md row CAP-8. Tests only; no production code changes. If a test
-    exposes a real defect, record it under deferred, do not fix it here.
-    Existing coverage on main to extend, not duplicate: convex/generationRecovery.test.ts
-    (approveSectionDraft, selectReportCandidate gates from 4ea1bb9) and convex/comments.test.ts.
-- id: "2"
-  lane: deid
-  title: De-identification before firm-wide knowledge
-  description: >-
-    CAP-1. deidentify helper; applied at nomination and edit-event writes; privacy
-    instruction in digest prompt; privacyReviewed required to publish a digest.
-  spec_checkpoint: false
-  invoke_dev_with: >-
-    Read touchpoints.md row CAP-1. convex/chatV2.ts is off-limits; scrub
-    proposalWordingEditEvents at the learning read side instead.
 - id: "3"
   lane: deid
   title: Persist post-edit distance at milestones
