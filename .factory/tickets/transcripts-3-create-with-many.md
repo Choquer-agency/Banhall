@@ -9,6 +9,9 @@ verify: [npx vitest run convex/projects.test.ts convex/reviewFromProject.test.ts
 done_when: ["! rg -q 'transcriptContent' convex/projects.ts src/routes", "rg -q 'transcripts: v.array' convex/projects.ts", "! rg -q '\\\\btranscriptId\\\\b' src/routes/project/new/+page.svelte src/routes/project/questionnaire/+page.svelte", "rg -Uq 'type=\\\"file\\\"[^>]*multiple' src/routes/project/new/+page.svelte", test -f src/routes/project/new/newProjectTranscripts.component.test.ts, "! rg -q 'transcriptId: v.optional' convex/generations.ts", "rg -qF 'targetTranscriptId: v.optional(v.id(\\\"transcripts\\\"))' convex/projectDuplication.ts", npx vitest run convex/projects.test.ts]
 title: "New-project page takes an ordered list of transcripts (multi .docx upload, paste, remove, copy-by-reference); createProject stores them; generation no longer takes a transcript id"
 plan: 20260903-client-sync
+deferred:
+  - "8 pre-existing component-suite failures (WorkspaceRail x4, WorkspaceChrome, WorkspaceHeader, Button, workspaceRoutes) reproduce with the baseline convex-svelte stub and touch no file this ticket changes; they are outside the CI gate."
+  - "src/routes/project/questionnaire/+page.svelte has no component test in this repo, so its one-item transcripts call is typecheck-only (ladder 2), not run."
 updated: "2026-09-03T21:17:39.897Z"
 ---
 ## Intent
