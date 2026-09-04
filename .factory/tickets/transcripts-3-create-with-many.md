@@ -12,6 +12,11 @@ plan: 20260903-client-sync
 deferred:
   - "8 pre-existing component-suite failures (WorkspaceRail x4, WorkspaceChrome, WorkspaceHeader, Button, workspaceRoutes) reproduce with the baseline convex-svelte stub and touch no file this ticket changes; they are outside the CI gate."
   - "src/routes/project/questionnaire/+page.svelte has no component test in this repo, so its one-item transcripts call is typecheck-only (ladder 2), not run."
+  - "review-0 medium/consider: an unsaved pasteDraft survives a switch to the Upload tab and is folded in at submit as an invisible extra transcript; the behaviour existed at baseline and the Home-handoff pin (newProjectPrefill.component.test.ts:86) requires the draft path, so it is left as-is."
+  - "review-0 medium/consider: the 20-item and total-chars caps are enforced client-side only inside commit() as a Generate-time toast, with no component test; the server rejects both (convex/projects.test.ts:1187, :1202), so the invariant holds."
+  - "review-0 low/noted: copy items still send a label alongside fromTranscriptId that resolveTranscriptInputs ignores (the source label always wins), so the field is dead weight in the validator."
+  - "review-0 low/noted: handleTranscriptFiles has one error slot, so in a mixed batch a later parse failure overwrites the non-.docx rejection message."
+  - "review-0 low/noted: src/routes/project/new/+page.svelte is 1471 lines (1331 at baseline); extracting the transcript list block into a component is a follow-up, not this ticket."
 updated: "2026-09-03T21:17:39.897Z"
 ---
 ## Intent
