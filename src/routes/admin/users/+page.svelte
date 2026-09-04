@@ -7,7 +7,6 @@
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import RoleGuideSheet from "$lib/components/roles/RoleGuideSheet.svelte";
-  import WorkspaceRolloutCard from "$lib/components/admin/WorkspaceRolloutCard.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { goto } from "$app/navigation";
   import { useQuery, useMutation } from "convex-svelte";
@@ -760,9 +759,6 @@
             {/if}
           </div>
         {/if}
-
-        <!-- Workspace preview rollout (exposure only, never authorization) -->
-        <WorkspaceRolloutCard members={users} currentUserId={currentUserQ.data?._id} />
       {/if}
   </AdminWorkspacePage>
     {#if isAdmin}
