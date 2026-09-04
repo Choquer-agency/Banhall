@@ -1,0 +1,39 @@
+commit 0b094ed4f5500f3401164cdbe0449bbc996bc951
+Author: conquerthecrowns <bryce@choquercreative.com>
+Date:   Wed Aug 19 22:53:22 2026 -0700
+
+    feat: workspace/project UI polish + in-flight backend iteration
+    
+    - ungrouped Projects list renders board cards, not table rows
+    - filter row only when filters active; sort lives in Display menu
+    - Display popover matches Group/Filters anatomy; toolbar triggers unified
+    - project page: stacked stage, no owner avatar, even detail rows,
+      seamless details collapse, AI Suggests gradient sheen
+    - fields white with hairline; scrollbars hidden app-wide
+    - sidebar + uses brand button colors
+    - carries in-flight convex ingestion-port, docs, uploader script work
+    
+    Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
+diff --git a/src/lib/components/workspace/WorkspaceDashboard.svelte b/src/lib/components/workspace/WorkspaceDashboard.svelte
+index f375021..af8ba81 100644
+--- a/src/lib/components/workspace/WorkspaceDashboard.svelte
++++ b/src/lib/components/workspace/WorkspaceDashboard.svelte
+@@ -145,8 +145,15 @@
+   function viewHref(target: DashboardView): string {
+     const url = new URL(page.url);
+     url.searchParams.delete("view");
+-    const path = target === "all_projects" ? resolve("/projects") : resolve("/my-work");
+-    return `${path}${url.search}`;
++    if (target === "all_projects") {
++      // Projects always opens as the client-grouped List (2026-08-19 owner
++      // direction): the params ride the URL so the default view is explicit
++      // and shareable, overriding any stored layout preference.
++      if (!url.searchParams.has("layout")) url.searchParams.set("layout", "list");
++      if (!url.searchParams.has("group")) url.searchParams.set("group", "client");
++      return `${resolve("/projects")}${url.search}`;
++    }
++    return `${resolve("/my-work")}${url.search}`;
+   }
+ 
+   function selectView(target: DashboardView) {

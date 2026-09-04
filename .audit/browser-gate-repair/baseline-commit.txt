@@ -1,0 +1,12 @@
+commit 717c75897cc04256c008a2ed42747df66f6fc6b5
+Merge: 8829894 ccc42b3
+Author:     conquerthecrowns <bryce@choquercreative.com>
+AuthorDate: Fri Sep 4 14:35:50 2026 -0700
+Commit:     conquerthecrowns <bryce@choquercreative.com>
+CommitDate: Fri Sep 4 14:35:50 2026 -0700
+
+    merge: stage preserved chat spend limits for combined verification
+    
+    # Conflicts:
+    #       _bmad-output/implementation-artifacts/spec-bmad-verification-resource-bound.md
+    #       tsconfig.json

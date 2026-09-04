@@ -1,0 +1,198 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/routes/workspaceRoutes.component.test.ts src/lib/components/ui/Button.component.test.ts src/lib/components/workspace/WorkspaceChrome.component.test.ts src/lib/components/workspace/WorkspaceHeader.component.test.ts src/lib/components/workspace/WorkspaceRail.component.test.ts
+
+2:41:47 PM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix
+
+2:41:48 PM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix - using default configuration.
+2:41:48 PM [vite] (client) Re-optimizing dependencies because vite config has changed
+2:41:48 PM [vite] (ssr) Re-optimizing dependencies because vite config has changed
+2:41:58 PM [vite] (client) [optimizer] bundling dependencies...
+ ❯ |component (chromium)| src/lib/components/workspace/WorkspaceRail.component.test.ts (14 tests | 4 failed) 910ms
+     × keeps the drawer chrome fixed, scrolls only its links, and starts Admin compact 355ms
+     × presents Admin as an Attio-style left-chevron group with distinct icon colours 117ms
+     × moves the Admin records group below the primary workspace links 77ms
+     × shares the compact rail rhythm with fine-pointer drawers without shrinking touch targets 58ms
+2:42:38 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:42:38 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:42:38 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:42:38 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:42:38 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > autofocuses the modal drawer and layers its 44px account menu above the drawer
+https://svelte.dev/e/derived_inert
+stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > autofocuses the modal drawer and layers its 44px account menu above the drawer
+https://svelte.dev/e/derived_inert
+stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > autofocuses the modal drawer and layers its 44px account menu above the drawer
+https://svelte.dev/e/derived_inert
+stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > autofocuses the modal drawer and layers its 44px account menu above the drawer
+https://svelte.dev/e/derived_inert
+stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > autofocuses the modal drawer and layers its 44px account menu above the drawer
+https://svelte.dev/e/derived_inert
+ ❯ |component (chromium)| src/lib/components/workspace/WorkspaceChrome.component.test.ts (4 tests | 1 failed) 301ms
+     × autofocuses the modal drawer and layers its 44px account menu above the drawer 201ms
+ ❯ |component (chromium)| src/routes/workspaceRoutes.component.test.ts (7 tests | 1 failed) 264ms
+     × /projects renders the workspace shell for a flagged user 145ms
+ ❯ |component (chromium)| src/lib/components/workspace/WorkspaceHeader.component.test.ts (10 tests | 1 failed) 124ms
+     × uses the shared theme-aware default button for the page-level creation action 89ms
+ ❯ |component (chromium)| src/lib/components/ui/Button.component.test.ts (6 tests | 1 failed) 93ms
+     × renders an anchor with the variant classes and min-h-11 passthrough when href is set 86ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/routes/workspaceRoutes.component.test.ts > canonical workspace routes > /projects renders the workspace shell for a flagged user
+AssertionError: expected false to be true // Object.is equality
+
+Failure screenshot:
+  - src/routes/__screenshots__/workspaceRoutes.component.test.ts/canonical-workspace-routes--projects-renders-the-workspace-shell-for-a-flagged-user-1.png
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ src/routes/workspaceRoutes.component.test.ts:54:85
+     52|     const anchors = Array.from(document.querySelectorAll<HTMLAnchorEle…
+     53|     expect(anchors.some((a) => a.getAttribute("href") === "/my-work?la…
+     54|     expect(anchors.some((a) => a.getAttribute("href") === "/projects?l…
+       |                                                                                     ^
+     55|     expect(gotoUrls()).toHaveLength(0);
+     56|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  |component (chromium)| src/lib/components/ui/Button.component.test.ts > Button > renders an anchor with the variant classes and min-h-11 passthrough when href is set
+AssertionError: expected 'inline-flex items-center justify-cent…' to contain 'transition-colors'
+
+Failure screenshot:
+  - src/lib/components/ui/__screenshots__/Button.component.test.ts/Button-renders-an-anchor-with-the-variant-classes-and-min-h-11-passthrough-when-href-is-set-1.png
+
+Expected: [32m"transition-color[7ms[27m"[39m
+Received: [31m"[7minline-flex items-center justify-center rounded-lg font-medium [27mtransition-[7m[[27mcolor[7m,background-color,border-color,opacity] duration-200 ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 px-4 py-2.5 text-sm border border-transparent bg-action-primary text-action-primary-foreground hover:bg-action-primary-hover focus-visible:ring-action-primary min-h-11[27m"[39m
+
+ ❯ src/lib/components/ui/Button.component.test.ts:46:70
+     44|
+     45|     const classes = anchor?.className ?? "";
+     46|     for (const token of [...CORE_TOKENS, "min-h-11"]) expect(classes).…
+       |                                                                      ^
+     47|     // Primary variant (default) consumes the theme-aware action role.
+     48|     for (const token of ["bg-action-primary", "text-action-primary-for…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  |component (chromium)| src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > autofocuses the modal drawer and layers its 44px account menu above the drawer
+TypeError: Cannot read properties of null (reading 'click')
+
+Failure screenshot:
+  - src/lib/components/workspace/__screenshots__/WorkspaceChrome.component.test.ts/WorkspaceChrome-autofocuses-the-modal-drawer-and-layers-its-44px-account-menu-above-the-drawer-1.png
+
+ ❯ src/lib/components/workspace/WorkspaceChrome.component.test.ts:87:83
+     85|
+     86|     const dialog = document.querySelector<HTMLElement>('[role="dialog"…
+     87|     dialog.querySelector<HTMLButtonElement>('button[aria-label="Settin…
+       |                                                                                   ^
+     88|     await expect.poll(() => document.querySelector('[data-menu-layer="…
+     89|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  |component (chromium)| src/lib/components/workspace/WorkspaceHeader.component.test.ts > WorkspaceHeader > uses the shared theme-aware default button for the page-level creation action
+AssertionError: expected 'inline-flex items-center justify-cent…' to contain 'py-2.5'
+
+Failure screenshot:
+  - src/lib/components/workspace/__screenshots__/WorkspaceHeader.component.test.ts/WorkspaceHeader-uses-the-shared-theme-aware-default-button-for-the-page-level-creation-action-1.png
+
+Expected: [32m"py-2.5"[39m
+Received: [31m"inline-flex items-center justify-center rounded-lg font-medium transition-[color,background-color,border-color,opacity] duration-200 ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 h-8 px-3 text-[0.8125rem] border border-transparent bg-action-primary text-action-primary-foreground hover:bg-action-primary-hover focus-visible:ring-action-primary gap-1.5 motion-reduce:transition-none"[39m
+
+ ❯ src/lib/components/workspace/WorkspaceHeader.component.test.ts:164:34
+    162|     expect(newProject?.className).toContain("text-action-primary-foreg…
+    163|     expect(newProject?.className).not.toContain("bg-fir");
+    164|     expect(newProject?.className).toContain("py-2.5");
+       |                                  ^
+    165|     expect(newProject?.className).not.toContain("sm:h-7");
+    166|     expect(newProject?.parentElement?.className).toContain("ml-auto");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  |component (chromium)| src/lib/components/workspace/WorkspaceRail.component.test.ts > WorkspaceRail > keeps the drawer chrome fixed, scrolls only its links, and starts Admin compact
+AssertionError: expected undefined to be 'false' // Object.is equality
+
+Failure screenshot:
+  - src/lib/components/workspace/__screenshots__/WorkspaceRail.component.test.ts/WorkspaceRail-keeps-the-drawer-chrome-fixed--scrolls-only-its-links--and-starts-Admin-compact-1.png
+
+[32m- Expected:[39m
+"false"
+
+[31m+ Received:[39m
+undefined
+
+ ❯ src/lib/components/workspace/WorkspaceRail.component.test.ts:106:95
+    104|     expect(document.querySelector("[data-rail-drawer-header]")?.classN…
+    105|     expect(document.querySelector("[data-rail-scroll]")?.className).to…
+    106|     expect(document.querySelector("[data-admin-group-toggle]")?.getAtt…
+       |                                                                                               ^
+    107|     expect(document.querySelector("#workspace-admin-links")).toBeNull(…
+    108|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  |component (chromium)| src/lib/components/workspace/WorkspaceRail.component.test.ts > WorkspaceRail > presents Admin as an Attio-style left-chevron group with distinct icon colours
+AssertionError: the given combination of arguments (undefined and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string
+
+Failure screenshot:
+  - src/lib/components/workspace/__screenshots__/WorkspaceRail.component.test.ts/WorkspaceRail-presents-Admin-as-an-Attio-style-left-chevron-group-with-distinct-icon-colours-1.png
+
+ ❯ src/lib/components/workspace/WorkspaceRail.component.test.ts:115:31
+    113|
+    114|     const group = document.querySelector<HTMLButtonElement>("[data-adm…
+    115|     expect(group?.textContent).toContain("Admin");
+       |                               ^
+    116|     expect(group?.getAttribute("aria-expanded")).toBe("true");
+    117|     expect(group?.firstElementChild?.tagName).toBe("svg");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  |component (chromium)| src/lib/components/workspace/WorkspaceRail.component.test.ts > WorkspaceRail > moves the Admin records group below the primary workspace links
+AssertionError: the given combination of arguments (undefined and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string
+
+Failure screenshot:
+  - src/lib/components/workspace/__screenshots__/WorkspaceRail.component.test.ts/WorkspaceRail-moves-the-Admin-records-group-below-the-primary-workspace-links-1.png
+
+ ❯ src/lib/components/workspace/WorkspaceRail.component.test.ts:173:67
+    171|     await render(WorkspaceRail, baseProps());
+    172|
+    173|     expect(document.querySelector("[data-rail-admin]")?.className).toC…
+       |                                                                   ^
+    174|   });
+    175|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  |component (chromium)| src/lib/components/workspace/WorkspaceRail.component.test.ts > WorkspaceRail > shares the compact rail rhythm with fine-pointer drawers without shrinking touch targets
+AssertionError: expected 'min-h-11 workspace-rail-row flex w-fu…' to contain 'duration-300'
+
+Failure screenshot:
+  - src/lib/components/workspace/__screenshots__/WorkspaceRail.component.test.ts/WorkspaceRail-shares-the-compact-rail-rhythm-with-fine-pointer-drawers-without-shrinking-touch-targets-1.png
+
+Expected: [32m"duration-300"[39m
+Received: [31m"min-h-11 workspace-rail-row flex w-full items-center gap-2 rounded-md pl-2 pr-1 [&>svg]:shrink-0 text-left text-sm font-medium leading-5 tracking-[-0.01em] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none text-ink hover:bg-workspace-rail-hover"[39m
+
+ ❯ src/lib/components/workspace/WorkspaceRail.component.test.ts:183:28
+    181|     expect(home?.className).toContain("workspace-rail-row");
+    182|     expect(home?.className).toContain("min-h-11");
+    183|     expect(home?.className).toContain("duration-300");
+       |                            ^
+    184|     expect(document.querySelector("[data-rail-admin]")?.className).toC…
+    185|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+
+ Test Files  5 failed (5)
+      Tests  8 failed | 33 passed (41)
+   Start at  14:41:48
+   Duration  53.24s (transform 0ms, setup 1.45s, import 15.77s, tests 1.69s, environment 0ms)
+
