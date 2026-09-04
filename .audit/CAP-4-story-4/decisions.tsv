@@ -1,0 +1,5 @@
+ts	phase	decision	why	evidence	result
+2026-09-04T20:47:55.709517+00:00	planning	Resolved story 4 and read CAP-4 touchpoints	User dispatch fixes scope	_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/touchpoints.md:10	complete
+2026-09-04T20:47:55.763886+00:00	environment	Started worker-local npm ci --no-audit --no-fund	Operator identified incomplete seeded dependencies	/root tool session 16778	running
+2026-09-04T20:47:55.763890+00:00	planning	Stopped before implementation for mixed-stream policy decision	Rendered step-02 requires an intent-gap halt for observably different readings	_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/4-digest-diversity-gate-and-signal-provenance.md	blocked
+2026-09-04T20:54:20.951403+00:00	environment	Completed worker-local dependency installation	Operator-requested environment repair	.audit/CAP-4-story-4/npm-ci.log	exit 0; pending script warnings recorded

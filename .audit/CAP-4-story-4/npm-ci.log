@@ -1,0 +1,16 @@
+Command: npm ci --no-audit --no-fund
+Exit code: 0
+Earlier output:
+> banhall-app@0.1.0 prepare
+> svelte-kit sync || echo ''
+
+Final output:
+
+added 601 packages in 10m
+npm warn allow-scripts 4 packages have install scripts not yet covered by allowScripts:
+npm warn allow-scripts   esbuild@0.27.0 (postinstall: node install.js)
+npm warn allow-scripts   esbuild@0.28.1 (postinstall: node install.js)
+npm warn allow-scripts   fsevents@2.3.3 (install: (install scripts present))
+npm warn allow-scripts   fsevents@2.3.2 (install: (install scripts present))
+npm warn allow-scripts
+npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review, or `npm approve-scripts <pkg>` to allow.
