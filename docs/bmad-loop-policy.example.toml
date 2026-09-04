@@ -1,0 +1,36 @@
+# Copy to .bmad-loop/policy.toml after native bmad-loop init.
+# Local machine policy; the native engine owns run state and hook registration.
+[gates]
+mode = "none"
+retrospective = "notify"
+
+[adapter]
+name = "codex"
+model = "gpt-6-astra"
+extra_args = ["--dangerously-bypass-approvals-and-sandbox", "-c", 'model_reasoning_effort="medium"']
+cleanup_session_on_finish = true
+
+# All stages inherit the adapter/model/effort above.
+[review]
+enabled = true
+trigger = "always"
+on_timeout = "retry"
+
+[scm]
+isolation = "worktree"
+branch_per = "run"
+max_parallel = 1
+merge_strategy = "merge"
+delete_branch = false
+keep_failed = true
+seed_adapter_defaults = true
+
+[verify]
+commands = ["bash scripts/loop-verify.sh"]
+
+[stories]
+source = "stories"
+spec_folder = "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat"
+
+[sweep]
+auto = "never"
