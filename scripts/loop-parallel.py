@@ -79,6 +79,19 @@ def build_lane_spec(spec: Path, lane: str, stories: list) -> Path:
     return out
 
 
+# Gitignored paths a fresh worktree still needs: bmad-loop refuses to start
+# without _bmad/bmm/config.yaml, and the verify gate runs npm.
+SEED = ("_bmad", "node_modules", ".env.local")
+
+
+def seed_worktree(worktree: Path):
+    """Symlink the gitignored essentials into a lane worktree."""
+    for name in SEED:
+        src, dst = REPO / name, worktree / name
+        if src.exists() and not dst.exists():
+            dst.symlink_to(src)
+
+
 def lane_policy(worktree: Path, spec_rel: str):
     """Each worktree needs its own policy: same knobs, lane's spec folder.
     policy.toml is gitignored, so it is copied rather than inherited."""
@@ -139,6 +152,7 @@ def main():
         git("branch", "-f", branch, "HEAD")
         git("worktree", "add", "--quiet", str(wt), branch)
         rel = str(lane_spec.relative_to(REPO))
+        seed_worktree(wt)
         lane_policy(wt, rel)
         log = LANE_ROOT / f"{epic}-{lane}.log"
         env = {k: v for k, v in os.environ.items()
@@ -156,9 +170,11 @@ def main():
         rc = p.wait()
         print(f"  lane {lane} exited rc={rc}  ({log})")
 
-    # 4. collect
-    git("checkout", "-q", base)
-    git("branch", "-f", collect, base)
+    # 4. collect. When collect == base that branch is already checked out here,
+    # so `branch -f` would fail; merge the lanes into it in place instead.
+    if collect != base:
+        git("checkout", "-q", base)
+        git("branch", "-f", collect, base)
     git("checkout", "-q", collect)
     conflicts = []
     for lane, (_p, branch, _wt, _log) in procs.items():
