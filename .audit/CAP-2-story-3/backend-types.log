@@ -1,0 +1,2 @@
+Command: npx tsc -p convex/tsconfig.json --noEmit
+Exit status: 0

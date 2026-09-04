@@ -1,0 +1,8 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260904-065146-9a65/worktrees/3
+
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  13:24:32
+   Duration  5.85s (transform 121ms, setup 0ms, import 2.18s, tests 3.20s, environment 0ms)

@@ -1,0 +1,12 @@
+
+> banhall-app@0.1.0 test
+> vitest run --testTimeout=30000
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260904-065146-9a65/worktrees/3
+
+
+ Test Files  126 passed (126)
+      Tests  1290 passed (1290)
+   Start at  13:27:40
+   Duration  204.80s (transform 115.46s, setup 0ms, import 161.35s, tests 123.00s, environment 26.48s)

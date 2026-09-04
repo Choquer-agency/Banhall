@@ -2,7 +2,7 @@
 title: 'Persist post-edit distance at milestones (CAP-2)'
 type: 'feature'
 created: '2026-09-04'
-status: 'in-review'
+status: 'done'
 baseline_revision: '740008e1369faaf6eab001f95efeb10a9e52d1e5'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -248,6 +248,34 @@ deferred:
     location: >-
       convex/lib/editDistance.ts:120
     severity: low
+  - summary: >-
+      Recovery review reconfirmed that scheduled publish readings use drain-time content and ownership.
+    evidence: |-
+      convex/projects.ts schedules recordAtPublish with reportId only; convex/reportEditDistance.ts:119 loads the report when that mutation runs. The existing recovery deferral is retained for orchestrator resolution.
+    location: >-
+      convex/reportEditDistance.ts:119
+    severity: low
+  - summary: >-
+      Recovery review reconfirmed that malformed JSON is interpreted as empty text by the existing extractor.
+    evidence: |-
+      convex/lib/reportEdits.ts:168 returns empty text on parse failure; convex/lib/editDistance.ts uses that same extractor to preserve the read-time formula. The existing recovery deferral is retained for orchestrator resolution.
+    location: >-
+      convex/lib/editDistance.ts:116
+    severity: medium
+  - summary: >-
+      Recovery review reconfirmed historical writer-series rows survive deletion and ownership changes.
+    evidence: |-
+      convex/reportEditDistance.ts:91 reads the writer index without loading current projects; the existing deletion and ownership deferrals remain reserved for orchestrator resolution.
+    location: >-
+      convex/reportEditDistance.ts:91
+    severity: medium
+  - summary: >-
+      Recovery review reconfirmed that bounded series responses do not include truncation metadata.
+    evidence: |-
+      convex/reportEditDistance.ts uses take(SERIES_FOR_REPORT_LIMIT) and take(SERIES_FOR_WRITER_LIMIT) and returns arrays. The existing pagination deferral remains reserved for CAP-3.
+    location: >-
+      convex/reportEditDistance.ts:30
+    severity: low
 ---
 
 <intent-contract>
@@ -305,7 +333,7 @@ deferred:
 - `convex/lib/snapshots.ts:237` -- `pruneSnapshots`; confirms baselines are retention-exempt, so a recorded PED row always has a surviving baseline.
 - `convex/learning.test.ts:1-27` -- the `convexTest(schema, modules)` + `t.withIdentity({ subject })` fixture shape to copy. `convex/lib/deidentify.test.ts` -- the pure-helper test shape for `convex/lib/editDistance.test.ts`.
 - `convex/aiUsage.ts:264` -- `ctx.scheduler.runAfter(0, internal.X.Y, args)` call precedent.
-- `convex/_generated/api.d.ts` -- has no `reportEditDistance` entry and `npx convex codegen` needs a `CONVEX_DEPLOYMENT` this worktree does not have. Attempt codegen first; if it refuses, add the two lines (import + map entry) byte-identically to codegen output, in sorted position, and record it as deferred work.
+- `convex/_generated/api.d.ts`: regenerate with the supported `npx convex codegen` command using the authorized existing deployment configuration. Never hand-edit generated files. Recovery on 2026-09-04 successfully regenerated this file, retaining reportEditDistance and adding six previously missing module registrations; evidence is in `.audit/CAP-2-story-3/codegen.log`.
 - No existing caller of `postEditDistance` anywhere in `convex/` or `src/` (`docs/system-map.md:359` records it as a dead end), so the extraction has no consumer risk.
 
 ## Tasks & Acceptance
@@ -369,6 +397,20 @@ deferred:
 
 Existing deferred entries remain unchanged and are reserved for orchestrator resolution. Legacy owner compatibility follows the optional-owner migration in `docs/product-domain.md:30`; the recorder does not substitute `createdBy`. The pure computation remains independently callable, and its extracted formula and the required scheduler call are unchanged.
 
+### 2026-09-04 Recovery review
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 0, medium 1, low 3)
+- defer: 4: (high 0, medium 2, low 2)
+- reject: 16: (high 0, medium 0, low 16)
+- addressed_findings:
+  - `[medium]` `[patch]` Added a public seriesForReport regression with readings from two projects, queried by an internal writer for one report; asserts exact reading IDs.
+  - `[low]` `[patch]` Added exact formula assertions for repeated words, duplicate-paragraph consumption, Unicode, and punctuation normalization.
+  - `[low]` `[patch]` Restored the original reports.postEditDistance documentation to honor the literal extraction-only file boundary.
+  - `[low]` `[patch]` Replaced the obsolete Code Map fallback allowing hand-edited generated declarations with the required supported codegen procedure and retained successful regeneration evidence. Historical deferred entries remain unchanged.
+
+All four independent review layers completed. The historical orchestration script and separate concurrency-repair artifact are inherited baseline-range changes, not changes made by this recovery. Their unrelated findings were excluded from this story's patch scope. Existing deferred entries were preserved byte-for-byte; reconfirmed findings are appended for the orchestrator. The orphan-report scenario is not reachable through the existing atomic project deletion cascade.
+
 ## Design Notes
 
 Extraction boundary — the query keeps I/O and auth, the module keeps math:
@@ -403,3 +445,33 @@ Both series queries are bounded (`.order("desc").take(LIMIT)` then restored to o
 ## Recovery verification context (2026-09-04)
 
 The implementation and prior review artifacts have been preserved on the pinned native target branch before restart. Reuse the existing work and verify all acceptance criteria. The earlier run recorded hand-edited registrations in `convex/_generated/api.d.ts`; regenerate that artifact with the supported Convex code-generation command, without deploying backend functions, and retain the command evidence. Never hand-edit generated files. Preserve existing deferred-work entries byte-for-byte; committing an unchanged engine-produced append as bookkeeping is permitted. Run the normal verification gate and the independent BMAD review before terminal completion.
+
+## Auto Run Result
+
+Status: done
+
+Preserved and verified CAP-2: shared PED computation, persistence at candidate selection, milestone snapshots and client publication, and bounded report/writer series. The final reports.ts diff is restricted to removing the extracted helpers/math, importing computeEditDistance, and delegating the computation with the same response fields, baseline lookup and authorization.
+
+Recovery changes:
+- `convex/reports.ts`: restored the original query documentation to keep the cumulative diff within the extraction boundary.
+- `convex/lib/editDistance.test.ts`: exact repeated-word, duplicate-paragraph, Unicode and punctuation regressions.
+- `convex/reportEditDistance.test.ts`: public query isolation between readings from separate projects.
+- `convex/_generated/api.d.ts`: regenerated by supported `npx convex codegen`, retaining reportEditDistance and adding six missing module registrations automatically.
+- This story spec: review triage, corrected codegen procedure and terminal evidence.
+- `.audit/CAP-2-story-3/`: command logs, acceptance mapping and decision trail.
+
+Review: four independent layers completed; 4 patches (high 0, medium 1, low 3), 4 reconfirmed deferrals appended, 16 findings rejected. Follow-up review recommended: true; score = 3 × 1 + 3 = 6. The final regression additions and generated declarations also received independent verification review.
+
+Verification:
+- `npx convex codegen`: exit 0 after the user supplied the authorized project credential in ignored local configuration. Real regeneration and its TypeScript check completed; retained redacted output: `.audit/CAP-2-story-3/codegen.log`. No deployment command ran and no generated file was hand-edited.
+- `npx tsc -p convex/tsconfig.json --noEmit`: exit 0.
+- `PUBLIC_CONVEX_URL=http://localhost npm run check`: exit 0, zero errors and warnings.
+- `npx vitest run convex/lib/editDistance.test.ts convex/reportEditDistance.test.ts`: 35 passed.
+- `npm test`: 1,289 passed, one unrelated source-contract scan exceeded its five-second timeout. Its isolated extended-timeout rerun passed all three tests.
+- `npm test -- --testTimeout=30000`: exit 0, 126 files and 1,290 tests passed. Timeout accommodation is command-local; repository test configuration was not changed by this recovery.
+- `git diff --check`: passed.
+- Original deferred entries were checked byte-for-byte against the recovery starting revision and remain unchanged.
+
+Code revision: `3e575b7c68a80ef560b746be78e1b016e1dda750`.
+
+Residual risks: the existing deferred product decisions remain reserved for orchestrator resolution. The historical generated-file deferral is now resolved by real regeneration, although its original text is intentionally preserved. Standard-timeout source scanning was sensitive to host load; the final complete suite passed with the documented timeout accommodation.
