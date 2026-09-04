@@ -2,7 +2,7 @@
 title: 'Chat spend budget and queue limit'
 type: 'feature'
 created: '2026-09-04'
-status: done
+status: blocked
 baseline_revision: '495b3bbf828fbc52381b557378bc7b0b1cd1a2cf'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -118,6 +118,15 @@ deferred: []
   - `[low]` `[patch]` Record dependency versions, lockfile compatibility, local resolution, and isolation evidence.
   - `[low]` `[patch]` Distinguish the original implementation baseline from the rearmed review baseline.
 
+### 2026-09-04 Fresh documentation review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 1: (high 0, medium 0, low 1)
+- defer: 0
+- reject: 9: (high 0, medium 0, low 9)
+- addressed_findings:
+  - `[low]` `[patch]` Describe archived command logs consistently as whitespace-normalized rather than raw; substantive output is preserved.
+
 ## Design Notes
 
 The queue predicate and insert share a Convex transaction and indexed read dependencies. Legacy ownership is resolved from the component prompt, because a shared thread's creator may differ from a turn's sender. Missing legacy attribution remains tolerated. Usage uses event `createdAt`, not insertion time. `projectRollingCostUsdUnits` accumulates canonical decimal costs in local BigInt units at 324 decimal places, enough for every finite JavaScript Number, without rounding. The budget is converted with the same `usdDecimalUnits` helper; these large integers are never stored or returned through Convex. No frontend caller is touched.
@@ -130,18 +139,19 @@ The queue predicate and insert share a Convex transaction and indexed read depen
 
 ## Auto Run Result
 
-Status: done.
+Status: blocked.
+Blocking condition: patch verification failed.
 
-CAP-11 enforces recorded rolling project AI spend and authenticated sender queue limits transactionally before chat writes or scheduling. Defaults are USD 50 per rolling 24 hours and 3 queued turns, configurable by administrators. Refusals use `CHAT_SPEND_BUDGET_EXCEEDED` and `CHAT_QUEUE_LIMIT_EXCEEDED`. CAP-8 context bounds are preserved. This rearmed run verified the existing implementation; no production source edits were needed.
+CAP-11 chat spend and sender queue admission remain implemented in the existing baseline. This invocation performed a fresh review of the documentation changes since `495b3bbf828fbc52381b557378bc7b0b1cd1a2cf`; production source and tests were unchanged.
 
 Files changed this run:
-- `.audit/CAP-11/evidence.md`: distinguishes baselines, records isolated dependency setup, acceptance proof, and exact verification outcomes.
-- `.audit/CAP-11/decisions.tsv`: appends dependency-isolation and verification decisions.
-- `.audit/CAP-11/logs/`: preserves initial failures, superseded shared-dependency results, isolated provenance, and final command outputs.
-- This story file: updates runtime baseline, review triage, and completion status.
+- `.audit/CAP-11/evidence.md`: corrects normalized-log wording and records this run's failed and interrupted verification.
+- `.audit/CAP-11/decisions.tsv`: appends review and operator-recovery decisions.
+- `.audit/CAP-11/logs/fresh-review-*.log`: preserves focused success, full-suite failure, and interrupted typecheck output.
+- This story: records fresh triage and blocked status for native escalation.
 
-Review: four independent layers; four low-severity documentation patches, zero deferred, six rejected. Patched counts: high 0, medium 0, low 4. Follow-up score: 4. Follow-up review recommended: false.
+Review: four independent layers; one low documentation patch, zero deferred, nine rejected. Patched counts: high 0, medium 0, low 1. Follow-up score: 1. Follow-up review recommended: false. Existing deferred-work ledger entries were untouched.
 
-Final verification used an independent APFS clone of the original checkout dependencies, with no external dependency symlinks and matching lockfiles. Local SvelteKit configuration was regenerated. `npx vitest run --project convex convex/chatTurns.test.ts` passed 59 tests; `npm test` passed 127 files and 1387 tests; `PUBLIC_CONVEX_URL=http://localhost npm run check` passed with zero errors and warnings. Every matrix row maps to active tests that ran and passed. `git diff --check` passed.
+Verification at source revision `115cc42dc1e29001f0e5e5f221f94796873508ea`: focused chat suite passed 59 tests. Standard `npm test` exited 1 with 126 files and 1386 tests passing and one failure: the existing source scanner at `src/lib/components/ui/formControlContract.test.ts:61` exceeded 5000 ms. The follow-on typecheck was stopped at the operator's request and exited 137; it did not complete or pass. No further broad checks were launched, and no final gate was waived.
 
-Residual risks: the initial isolated full run hit the existing five-second form-control source-scan timeout; an unchanged standard-command retry passed. Both outputs are retained. Recorded-cost admission does not reserve future spend, and complete rolling usage/legacy ownership reads remain subject to Convex transaction limits. No push or deployment was performed.
+Residual risk: required standard verification is incomplete. Native escalation must pause this lane until the operator applies the source-audit repair and rearms it after the other full gate finishes. Earlier successful verification is historical evidence only. No push or deployment was performed.

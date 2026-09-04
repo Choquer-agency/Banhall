@@ -283,7 +283,7 @@ The standard gates now pass without command-line timeout allowances. This supers
 
 Rearmed review baseline and verified production source: `495b3bbf828fbc52381b557378bc7b0b1cd1a2cf`. The user required independent dependencies before final verification. The worker-only cache directory and temporary shared link were moved to `/tmp/cap11-node-modules-shared-20260904`; then `cp -cR /Users/johnnynguyen/Documents/Repos/Banhall/node_modules node_modules` created independent APFS clones. Ancestor packages were not modified. The temporary link had targeted `/Users/johnnynguyen/Documents/Repos/Banhall/node_modules/@convex-dev`; it is absent from the final worker dependency tree.
 
-Dependency provenance is retained in `.audit/CAP-11/logs/isolated-dependencies.log`: zero external symlinks, independent sampled package inodes, matching checkout lockfile SHA-256 values, installed package versions and worker-local resolution paths. The logged `git diff HEAD -- convex src shared tests package.json package-lock.json vitest.config.ts tsconfig.json` is empty. The existing root `vitest.config.ts` sets two workers; no command-line worker or timeout overrides were used. The acceptance mapping above applies unchanged, including the CAP-8 tests in the focused file. Raw initial failure and final verification logs are included as committed audit artifacts.
+Dependency provenance is retained in `.audit/CAP-11/logs/isolated-dependencies.log`: zero external symlinks, independent sampled package inodes, matching checkout lockfile SHA-256 values, installed package versions and worker-local resolution paths. The logged `git diff HEAD -- convex src shared tests package.json package-lock.json vitest.config.ts tsconfig.json` is empty. The existing root `vitest.config.ts` sets two workers; no command-line worker or timeout overrides were used. The acceptance mapping above applies unchanged, including the CAP-8 tests in the focused file. Whitespace-normalized initial failure and final verification logs are included as committed audit artifacts.
 
 The first isolated `npm test` run failed only on the unchanged form-control source scan exceeding 5000 ms: 126 files and 1386 tests passed. `.audit/CAP-11/logs/isolated-full.log` preserves that failure. A sequential retry of the exact same command and unchanged files passed all 127 files and 1387 tests. This is recorded as an intermittent standard-gate timeout, not a production fix.
 
@@ -329,3 +329,14 @@ Command: `npm test`. Exit 0. Output: `.audit/CAP-11/logs/isolated-full-retry.log
 Final verification uses only worker-local cloned dependencies. All acceptance criteria and matrix rows pass; CAP-8 context assertions remain intact. Remaining caveats are the pre-existing intermittent source-scan timeout and documented production transaction-size limits.
 
 Archived command logs retain their substantive output; trailing whitespace and extra terminal blank lines were normalized for Git whitespace checks. Story frontmatter was parsed with Ruby YAML and validated as done, with an empty deferred list and follow-up recommendation false.
+
+## Fresh documentation review (2026-09-04)
+
+Exact source revision tested: `115cc42dc1e29001f0e5e5f221f94796873508ea`. The diff from the story baseline `495b3bbf828fbc52381b557378bc7b0b1cd1a2cf` contains only audit and story documentation. Four independent review layers completed; one low documentation patch corrects the description of whitespace-normalized logs. No production source or test was changed. Existing deferred-work entries were not modified.
+
+- `npx vitest run --project convex convex/chatTurns.test.ts`: exit 0, 59 tests passed. Output: `.audit/CAP-11/logs/fresh-review-focused.log`.
+- `npm test`: exit 1, 126 files and 1386 tests passed; one test failed after exceeding 5000 ms at `src/lib/components/ui/formControlContract.test.ts:61`. Total duration: 653.64 seconds. Output: `.audit/CAP-11/logs/fresh-review-full.log`.
+
+The standard gate is blocked in this run. Earlier passing runs remain historical evidence and do not replace this failure. The existing recurring source-scan timeout is outside the chat admission intent; no source or timeout setting was changed to bypass it.
+
+`PUBLIC_CONVEX_URL=http://localhost npm run check`: interrupted at the operator's request after the full-suite failure; exit 137, not a passing or completed check. SIGTERM was requested first; the still-running lane-local svelte-check process was then stopped with SIGKILL. Output: `.audit/CAP-11/logs/fresh-review-check.log`. No other lane process was stopped. No further broad checks were launched. The operator will repair the source audit and rearm this lane after the other full gate finishes; no final gate is waived.
