@@ -333,3 +333,83 @@ source_spec: `2-de-identification-before-firm-wide-knowledge.md`
 severity: medium
 reason: AGENTS.md requires contract-level transitions and permissions to be recorded in docs/product-domain.md; that file still only states "Personal digests cannot be published globally" and says nothing about de-identification at the firm-wide boundary or about publication now requiring an administrator privacy attestation. docs/the-brain.md still describes Brain ingestion without the scrub step. Out of this story because its acceptance criteria restrict the diff to files in the Execution task list, which names no documentation file.
 status: open
+
+### DW-43: deleteProject cascades to reports, comments, generations and pdReviews but not to reportEditDistance, so a deleted project's readings stay in a writer's series forever.
+origin: spec-deferred e70759c09196
+location: convex/projects.ts:1140
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: medium
+reason: convex/projects.ts:1140-1184 enumerates the cascade; reportEditDistance is absent. seriesForWriter (convex/reportEditDistance.ts) keys on writerUserId, not project access, so orphaned rows stay readable. Not routed as a patch because the same cascade already omits reportSnapshots, reportProvenance, writerReviews, candidateScores and modelSelections -- this is a house-wide retention gap, and the story's intent-contract restricts convex/projects.ts to the scheduled publish call.
+status: open
+
+### DW-44: A report whose content JSON fails to parse persists a bogus ped 1 reading instead of recording nothing.
+origin: spec-deferred f8ab36ad866f
+location: convex/lib/editDistance.ts
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: medium
+reason: extractPlainText (convex/lib/reportEdits.ts:168-193) swallows JSON.parse failures and returns "". recordReportEditDistance then computes computeEditDistance(draft, "") = ped 1 and writes it as a legitimate "fully rewritten" data point; if both sides fail it writes ped 0. The read-time query has always had the same blind spot, but persistence makes the bogus point permanent in the trend.
+status: open
+
+### DW-45: Prose that chatV2 applied from accepted AI proposals is counted as writer rework, inflating the metric that is supposed to measure draft quality.
+origin: spec-deferred 6e91e4620108
+location: convex/lib/editDistance.ts
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: convex/chatV2.ts applies accepted proposals directly to reports.content, so the delta against the generated baseline mixes writer keystrokes with AI-applied edits. The row carries no way to separate them. Pre-existing in the PED formula, which CAP-2 explicitly leaves unchanged, but it bounds how the CAP-3 trend can be read.
+status: open
+
+### DW-46: docs/system-map.md still labels reports.postEditDistance a dead end that is "never stored".
+origin: spec-deferred 6c8361a5abe1
+location: docs/system-map.md:359
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: docs/system-map.md:359 reads `PED[reports.postEditDistance query] -.->|DEAD-END: computed on read, never stored, no UI caller| NW2((no reader))`. Half of that is now false. Left for CAP-3, which adds the UI reader and makes the other half false too, so the line can be rewritten once instead of twice.
+status: open
+
+### DW-47: No PED reading is taken at project finalization, so client-review rework is never measured.
+origin: spec-deferred 08156ed5084f
+location: convex/schema.ts reportEditDistance.trigger
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: The trigger union stops at client_publish. projects.finalizeProject (convex/projects.ts:1059) is the state where the writer has actually stopped editing; every round of client-review rework after first publish is invisible to the series. CAP-2's success criterion names only the three implemented triggers, so this is an extension, not a miss.
+status: open
+
+### DW-48: Reports that already hold a generated baseline start with an empty series and can never recover their candidate-selection origin point.
+origin: spec-deferred 27fd0c6fbcba
+location: convex/reportEditDistance.ts
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: recordReportEditDistance only runs at new triggers, so existing reports get their first row at the next milestone or publish. A one-shot internal backfill over existing reason:"generated" snapshots would seed the trend; the story's intent-contract explicitly excludes backfill.
+status: open
+
+### DW-49: The client_publish reading is taken by a scheduled mutation, so a report edited between publishForReview and the drain records post-publish content.
+origin: spec-deferred a130a6b3b7a0
+location: convex/reportEditDistance.ts recordAtPublish
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: convex/projects.ts calls ctx.scheduler.runAfter(0, internal.reportEditDistance.recordAtPublish, ...) and recordAtPublish re-reads the report at drain time. The intent-contract mandates exactly this scheduled shape, so tightening it (passing revisionNumber and refusing to record if it moved) is a change to the contract, not a patch.
+status: open
+
+### DW-50: convex/_generated/api.d.ts carries a two-line hand edit registering reportEditDistance, which AGENTS.md forbids.
+origin: spec-deferred 27754f688994
+location: convex/_generated/api.d.ts
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: npx convex codegen refuses in this worktree (No CONVEX_DEPLOYMENT set), so the module could not be registered by regeneration. The two added lines are byte-identical to codegen output and correctly sorted; a real npx convex dev supersedes them and will also add the still-missing lib/deidentify and lib/editDistance entries.
+status: open
+
+### DW-51: The generated-baseline lookup filters reason over the whole by_reportId range instead of using a [reportId, reason] index.
+origin: spec-deferred a452c2117b78
+location: convex/lib/editDistance.ts
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: convex/lib/editDistance.ts generatedBaseline and convex/reports.ts postEditDistance both run withIndex("by_reportId").filter(reason === "generated").first(). On a report with many snapshots this scans the range inside every milestone and publish mutation. Pre-existing in reports.ts; persistence just puts it on two more write paths.
+status: open
+
+### DW-52: seriesForReport and seriesForWriter declare no returns validator, which a convex-lint hook flags.
+origin: spec-deferred d71aecfc8256
+location: convex/reportEditDistance.ts
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: recordAtPublish declares returns: v.null(); the two queries in convex/reportEditDistance.ts do not. Adding them widens the diff beyond the intent-contract's described surface, so it belongs to a convention sweep rather than this story.
+status: open

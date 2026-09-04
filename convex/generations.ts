@@ -36,6 +36,7 @@ import { defaultModelId } from "./appSettings";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { sectionMetrics } from "./lib/lineLimits";
 import { deidentify } from "./lib/deidentify";
+import { recordReportEditDistance } from "./lib/editDistance";
 import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
 import {
   buildTranscriptPromptText,
@@ -1001,6 +1002,10 @@ async function createGeneratedReportArtifacts(
     createdByRole: "system",
     createdAt: now,
   });
+  // BNH-10 flywheel: freeze the PED origin point (ped 0) the moment the
+  // baseline exists. One hook here covers all three candidate-selection paths.
+  const report = await ctx.db.get(reportId);
+  if (report) await recordReportEditDistance(ctx, report, "candidate_selection");
   return reportId;
 }
 

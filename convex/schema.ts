@@ -1263,6 +1263,31 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_projectId_and_milestoneKey", ["projectId", "milestoneKey"]),
 
+  // BNH-10 flywheel: persisted post-edit distance readings. One row per report
+  // per milestone (candidate selection / milestone snapshot / client publish),
+  // so the north-star "are drafts getting better" metric has a trend instead of
+  // a read-time-only number.
+  reportEditDistance: defineTable({
+    reportId: v.id("reports"),
+    projectId: v.id("projects"),
+    generationId: v.optional(v.id("generations")),
+    // projects.ownerId — the durable accountable writer (PSOS-07), never
+    // createdBy. Optional while legacy projects still lack an owner; those
+    // rows simply never appear in a per-writer series.
+    writerUserId: v.optional(v.id("users")),
+    revisionNumber: v.number(),
+    ped: v.number(),
+    computedAt: v.number(),
+    trigger: v.union(
+      v.literal("candidate_selection"),
+      v.literal("milestone"),
+      v.literal("client_publish")
+    ),
+  })
+    .index("by_reportId", ["reportId"])
+    .index("by_projectId", ["projectId"])
+    .index("by_writerUserId_and_computedAt", ["writerUserId", "computedAt"]),
+
   // Human-verified claimant/participant identity and relationship evidence.
   // Rows are retained and rejected/superseded rather than deleted.
   projectIdentityEvidence: defineTable({

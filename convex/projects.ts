@@ -6,6 +6,7 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   getInternalProjectAccessOrNull,
@@ -1035,6 +1036,11 @@ export const publishForReview = mutation({
       sharedReportId: report._id,
       status: "client_review",
       updatedAt: Date.now(),
+    });
+    // BNH-10 flywheel: record the PED reading at the client-review milestone.
+    // Scheduled so recording can never fail the publish itself.
+    await ctx.scheduler.runAfter(0, internal.reportEditDistance.recordAtPublish, {
+      reportId: report._id,
     });
   },
 });

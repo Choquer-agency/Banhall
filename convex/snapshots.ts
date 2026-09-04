@@ -12,6 +12,7 @@ import {
   snapshotAuditFields,
 } from "./lib/snapshots";
 import { domainError } from "./lib/contracts";
+import { recordReportEditDistance } from "./lib/editDistance";
 
 const MILESTONE_LABELS: Record<string, string> = {
   R0: "R0 draft",
@@ -253,6 +254,8 @@ export const createMilestoneSnapshot = mutation({
       createdAt: Date.now(),
     });
     await pruneSnapshots(ctx, args.reportId);
+    // BNH-10 flywheel: a named workflow checkpoint is a natural PED reading.
+    await recordReportEditDistance(ctx, report, "milestone");
     return id;
   },
 });
