@@ -2,6 +2,7 @@
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import { resolve } from "$app/paths";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import { goto } from "$app/navigation";
   import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -32,6 +33,13 @@
   let showStyleHistory = $state(false);
   let changingDigest = $state<string | null>(null);
   let digestError = $state<string | null>(null);
+  // CAP-1: publishing a digest firm-wide needs an explicit human confirmation
+  // that it carries no client identifier. Per digest kind; never gates
+  // "Disable guidance", which must always stay reachable.
+  let privacyReviewed = $state<{ qa_calibration: boolean; draft_style: boolean }>({
+    qa_calibration: false,
+    draft_style: false,
+  });
 
   function digestDate(ms: number) {
     return new Date(ms).toLocaleString("en-CA", {
@@ -68,7 +76,15 @@
     changingDigest = `${kind}:${digestId ?? "disabled"}`;
     digestError = null;
     try {
-      await selectDigest({ kind, digestId, expectedSelectionId, reason });
+      await selectDigest({
+        kind,
+        digestId,
+        expectedSelectionId,
+        reason,
+        ...(digestId ? { privacyReviewed: privacyReviewed[kind] } : {}),
+      });
+      // Confirmation is per publish, never sticky across versions.
+      if (digestId) privacyReviewed[kind] = false;
     } catch (error) {
       digestError = error instanceof Error ? error.message : "Learning guidance could not be updated.";
     } finally {
@@ -213,6 +229,12 @@
                 {showCalibrationHistory ? "Hide" : "Show"} previous versions ({digestHistory.length})
               </button>
               {#if showCalibrationHistory}
+                <div class="mt-3 rounded-xl border border-line bg-surface p-4">
+                  <Checkbox
+                    bind:checked={privacyReviewed.qa_calibration}
+                    labelText="I reviewed this version and it contains no client names, project titles, emails, or phone numbers."
+                  />
+                </div>
                 <div class="mt-3 space-y-3">
                   {#each digestHistory as digest (digest._id)}
                     <div class={`card p-5 ${digest._id === calibration.publishedDigestId ? "border-primary" : ""}`}>
@@ -228,7 +250,8 @@
                         {#if digest._id !== calibration.publishedDigestId && !digest.isPersonal}
                           <button
                             onclick={() => changePublishedDigest("qa_calibration", digest._id, calibration.selectionId, "Published after administrator review")}
-                            disabled={changingDigest !== null}
+                            disabled={changingDigest !== null || !privacyReviewed.qa_calibration}
+                            title={privacyReviewed.qa_calibration ? undefined : "Confirm the privacy review above first"}
                             class="min-h-11 rounded-lg bg-primary-selected px-3 text-xs font-semibold text-white hover:bg-primary-dark disabled:opacity-50"
                           >Publish this version</button>
                         {/if}
@@ -296,6 +319,12 @@
                 {showStyleHistory ? "Hide" : "Show"} previous versions ({styleHistory.length})
               </button>
               {#if showStyleHistory}
+                <div class="mt-3 rounded-xl border border-line bg-surface p-4">
+                  <Checkbox
+                    bind:checked={privacyReviewed.draft_style}
+                    labelText="I reviewed this version and it contains no client names, project titles, emails, or phone numbers."
+                  />
+                </div>
                 <div class="mt-3 space-y-3">
                   {#each styleHistory as digest (digest._id)}
                     <div class={`card p-5 ${digest._id === style.publishedDigestId ? "border-primary" : ""}`}>
@@ -311,7 +340,8 @@
                         {#if digest._id !== style.publishedDigestId && !digest.isPersonal}
                           <button
                             onclick={() => changePublishedDigest("draft_style", digest._id, style.selectionId, "Published after administrator review")}
-                            disabled={changingDigest !== null}
+                            disabled={changingDigest !== null || !privacyReviewed.draft_style}
+                            title={privacyReviewed.draft_style ? undefined : "Confirm the privacy review above first"}
                             class="min-h-11 rounded-lg bg-primary-selected px-3 text-xs font-semibold text-white hover:bg-primary-dark disabled:opacity-50"
                           >Publish this version</button>
                         {/if}

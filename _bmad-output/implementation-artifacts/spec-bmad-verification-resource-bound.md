@@ -70,3 +70,7 @@ Independent BMAD blind, edge-case, and verification-gap reviews completed. Evide
 
 - Bound concurrent workers for every existing unit-test project.
   [vitest.config.ts:14](../../vitest.config.ts#L14)
+
+## Learn-chat recovery application
+
+Applied the schema lane's independently reviewed source-audit timeout repair (f009b43) to the pinned recovery base after the source parser exceeded its five-second default during story 3 verification. The audit remains selected exactly once with unchanged assertions; only this parse-heavy suite has a 30-second budget. The two-worker cap remains. The resumed native story queue must verify the resulting configuration using the standard gate, without command-line timeout overrides. Historical evidence belongs to its original revision.

@@ -1046,6 +1046,10 @@ export const publishForReview = mutation({
       status: "client_review",
       updatedAt: Date.now(),
     });
+    // BNH-10 / CAP-2: freeze the post-edit distance at client publish.
+    await ctx.scheduler.runAfter(0, internal.reportEditDistance.recordAtPublish, {
+      reportId: report._id,
+    });
   },
 });
 

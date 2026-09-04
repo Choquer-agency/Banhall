@@ -15,6 +15,7 @@ import { eraseBrainEntry } from "./ai/brain/erase";
 import { requireBrainConfigured } from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { extractPlainText } from "./lib/reportEdits";
+import { deidentify } from "./lib/deidentify";
 import {
   getCurrentUserOrNull,
   requireInternalProjectAccess,
@@ -225,13 +226,17 @@ export const nominateFromReport = internalMutation({
     if (!report) return;
     const project = await ctx.db.get(report.projectId);
     if (!project) return;
-    const content = extractPlainText(report.content);
-    if (!content.trim()) return;
+    const rawContent = extractPlainText(report.content);
+    if (!rawContent.trim()) return;
+    // CAP-1: this row becomes firm-wide Brain knowledge, and both its content
+    // and its title reach drafting prompts (the title as the exemplar label).
+    // Scrub client identifiers out of both before they leave the project.
+    const content = deidentify(rawContent, project);
     await importSource(
       ctx,
       {
         kind: "pd_pair",
-        title: `${project.title} (writer-rated ${args.score}/100)`,
+        title: `${deidentify(project.title, project)} (writer-rated ${args.score}/100)`,
         industry: project.industry ?? "general",
         writerName: args.writerName,
         // Conservative default weight; the admin reweights on approval.
