@@ -423,3 +423,18 @@ export const usageReport = query({
     };
   },
 });
+
+/** Recorded project spend in the inclusive rolling 24-hour window. */
+export async function projectRollingCostUsd(
+  ctx: Pick<QueryCtx, "db">,
+  { projectId, now }: { projectId: Id<"projects">; now: number }
+): Promise<number> {
+  const rows = ctx.db.query("aiUsage")
+    .withIndex("by_projectId_and_createdAt", (q) => q
+      .eq("projectId", projectId)
+      .gte("createdAt", now - 24 * 60 * 60 * 1000)
+      .lte("createdAt", now));
+  let costUsd = 0;
+  for await (const row of rows) costUsd += row.costUsd;
+  return costUsd;
+}

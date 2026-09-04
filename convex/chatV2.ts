@@ -33,7 +33,9 @@ import { getEffectiveWriterStyle } from "./writerProfiles";
 import { domainError, sha256 } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { proposalPairs } from "../shared/chatProposals";
-import { chatEvidenceBudget } from "./appSettings";
+import { chatAdmissionLimits, chatEvidenceBudget } from "./appSettings";
+import { projectRollingCostUsd } from "./aiUsage";
+import type { Id } from "./_generated/dataModel";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -233,6 +235,38 @@ export const listTurns = query({
 
 // ─── Mutations ───────────────────────────────────────────────────────────────
 
+async function assertChatAdmission(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  userId: Id<"users">
+): Promise<void> {
+  const limits = await chatAdmissionLimits(ctx);
+  if (await projectRollingCostUsd(ctx, { projectId, now: Date.now() }) > limits.dailyBudgetUsd) {
+    domainError("CHAT_SPEND_BUDGET_EXCEEDED", "Project chat spending budget exceeded");
+  }
+  let queued = 0;
+  const ownTurns = ctx.db.query("chatTurns")
+    .withIndex("by_userId_and_status", (q) => q.eq("userId", userId).eq("status", "queued"));
+  for await (const turn of ownTurns) {
+    queued += 1;
+    if (queued >= limits.maxQueuedTurns) {
+      domainError("CHAT_QUEUE_LIMIT_EXCEEDED", "Your queued chat turn limit has been reached");
+    }
+  }
+  // Legacy turns belong to their prompt sender, never the shared thread creator.
+  const legacyTurns = ctx.db.query("chatTurns")
+    .withIndex("by_userId_and_status", (q) => q.eq("userId", undefined).eq("status", "queued"));
+  for await (const turn of legacyTurns) {
+    const [prompt] = await ctx.runQuery(components.agent.messages.getMessagesByIds, {
+      messageIds: [turn.promptMessageId],
+    });
+    if (prompt?.userId === userId) queued += 1;
+    if (queued >= limits.maxQueuedTurns) {
+      domainError("CHAT_QUEUE_LIMIT_EXCEEDED", "Your queued chat turn limit has been reached");
+    }
+  }
+}
+
 export const sendMessage = mutation({
   args: {
     reportId: v.id("reports"),
@@ -285,22 +319,21 @@ export const sendMessage = mutation({
             .withIndex("by_reportId", (q) => q.eq("reportId", args.reportId))
             .order("desc")
             .first();
-      if (latest) {
-        agentThreadId = latest.agentThreadId;
-      } else {
-        const title = args.content.trim().slice(0, 60) || "New chat";
-        agentThreadId = await createThread(ctx, components.agent, {
-          userId,
-          title,
-        });
-        await ctx.db.insert("agentChatThreads", {
-          projectId: report.projectId,
-          reportId: args.reportId,
-          agentThreadId,
-          title,
-          createdAt: Date.now(),
-        });
-      }
+      agentThreadId = latest?.agentThreadId;
+    }
+
+    await assertChatAdmission(ctx, report.projectId, userId);
+
+    if (!agentThreadId) {
+      const title = args.content.trim().slice(0, 60) || "New chat";
+      agentThreadId = await createThread(ctx, components.agent, { userId, title });
+      await ctx.db.insert("agentChatThreads", {
+        projectId: report.projectId,
+        reportId: args.reportId,
+        agentThreadId,
+        title,
+        createdAt: Date.now(),
+      });
     }
 
     const excerpt = args.highlight
@@ -319,6 +352,7 @@ export const sendMessage = mutation({
     });
 
     await ctx.db.insert("chatTurns", {
+      userId,
       agentThreadId,
       promptMessageId: messageId,
       order: message.order,
