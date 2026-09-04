@@ -1,0 +1,404 @@
+Read `/Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix/_bmad/render/bmad-build/banhall-bmad-browser-fix-9946eb0a892b/ffd9c16dbeac0bcf68cb/review-prompts/edge-case-hunter.md` completely and follow it as your review instructions.
+
+Review content:
+
+diff --git a/src/lib/components/ui/Button.component.test.ts b/src/lib/components/ui/Button.component.test.ts
+index 04ebd84..10b784a 100644
+--- a/src/lib/components/ui/Button.component.test.ts
++++ b/src/lib/components/ui/Button.component.test.ts
+@@ -1,4 +1,5 @@
+ import { describe, expect, it, vi } from "vitest";
++import { cdp } from "vitest/browser";
+ import { render } from "vitest-browser-svelte";
+ import { createRawSnippet } from "svelte";
+ import Button from "./Button.svelte";
+@@ -26,7 +27,6 @@ const CORE_TOKENS = [
+   "px-4",
+   "text-sm",
+   "font-medium",
+-  "transition-colors",
+   "focus-visible:outline-none",
+   "focus-visible:ring-2",
+   "focus-visible:ring-offset-2",
+@@ -49,6 +49,20 @@ describe("Button", () => {
+       expect(classes).toContain(token);
+   });
+ 
++  it.each([undefined, "/project/new"])("transitions colors and opacity with a reduced-motion escape (href=%s)", async (href) => {
++    await render(Button, { href, children: label });
++    const control = document.querySelector<HTMLElement>(href ? "a" : "button")!;
++    expect(getComputedStyle(control).transitionProperty).toBe("color, background-color, border-color, opacity");
++    expect(getComputedStyle(control).transitionDuration).toBe("0.2s");
++    try {
++      await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
++      expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
++      expect(getComputedStyle(control).transitionProperty).toBe("none");
++    } finally {
++      await cdp().send("Emulation.setEmulatedMedia", { features: [] });
++    }
++  });
++
+   it("renders the secondary variant anchor with the secondary tokens", async () => {
+     await render(Button, {
+       href: "/login",
+@@ -101,7 +115,10 @@ describe("Button", () => {
+   });
+ 
+   it("keeps disabled on the button branch only", async () => {
+-    const view = await render(Button, { disabled: true, children: label });
++    const onclick = vi.fn();
++    const view = await render(Button, { disabled: true, onclick, children: label });
++    document.body.querySelector("button")?.click();
++    expect(onclick).not.toHaveBeenCalled();
+     expect(document.body.querySelector("button")?.disabled).toBe(true);
+     view.unmount();
+ 
+diff --git a/src/lib/components/workspace/WorkspaceChrome.component.test.ts b/src/lib/components/workspace/WorkspaceChrome.component.test.ts
+index b4b8d1d..55c5c54 100644
+--- a/src/lib/components/workspace/WorkspaceChrome.component.test.ts
++++ b/src/lib/components/workspace/WorkspaceChrome.component.test.ts
+@@ -1,12 +1,15 @@
+-import { beforeEach, describe, expect, it } from "vitest";
+-import { page as browserPage } from "vitest/browser";
++import { beforeEach, describe, expect, it, vi } from "vitest";
++import { page as browserPage, userEvent } from "vitest/browser";
+ import { render } from "vitest-browser-svelte";
+ import { createRawSnippet } from "svelte";
++import { authClient } from "$lib/authClient";
+ import WorkspaceChrome from "./WorkspaceChrome.svelte";
+ import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
+ import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
+ import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+ 
++vi.mock("$lib/authClient", () => ({ authClient: { signOut: vi.fn() } }));
++
+ const tallContent = createRawSnippet(() => ({
+   render: () => `<div data-testid="tall-content" style="height:1800px">Utility content</div>`,
+ }));
+@@ -66,7 +69,7 @@ describe("WorkspaceChrome", () => {
+     ).not.toContain("/projects");
+   });
+ 
+-  it("autofocuses the modal drawer and layers its 44px account menu above the drawer", async () => {
++  it.each(["cancel", "Escape"])("layers sign-out confirmation above the drawer and restores focus on %s", async (dismiss) => {
+     await browserPage.viewport(390, 844);
+     __setQueryData("users:getCurrentUser", {
+       _id: "admin-1",
+@@ -83,18 +86,37 @@ describe("WorkspaceChrome", () => {
+       .poll(() => document.activeElement?.getAttribute("aria-label"))
+       .toBe("Close workspace navigation");
+ 
+-    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+-    dialog.querySelector<HTMLButtonElement>('button[aria-label="Settings menu"]')!.click();
+-    await expect.poll(() => document.querySelector('[data-menu-layer="drawer"]')).not.toBeNull();
+-
+-    const menu = document.querySelector<HTMLElement>('[data-menu-layer="drawer"]')!;
+-    expect(Number.parseInt(getComputedStyle(menu).zIndex, 10)).toBeGreaterThan(110);
+-    const rows = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+-    expect(rows.length).toBeGreaterThan(0);
+-    // Measure after the sanctioned 300ms scale/fade settles; transformed
+-    // in-flight bounds are intentionally smaller than the layout box.
+-    await expect
+-      .poll(() => rows.every((row) => row.getBoundingClientRect().height >= 44))
+-      .toBe(true);
++    const drawer = document.querySelector<HTMLElement>('[role="dialog"]')!;
++    const trigger = drawer.querySelector<HTMLButtonElement>('button[aria-label="Sign out"]')!;
++    const signOut = vi.mocked(authClient.signOut);
++    signOut.mockClear();
++    try {
++      trigger.focus();
++      await userEvent.keyboard("{Enter}");
++      await expect.element(browserPage.getByRole("dialog", { name: "Sign out?", exact: true })).toBeVisible();
++      const confirmation = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
++        .find((element) => element !== drawer)!;
++      expect(drawer.contains(confirmation)).toBe(false);
++      expect(Number.parseInt(getComputedStyle(confirmation.parentElement!).zIndex, 10))
++        .toBeGreaterThan(Number.parseInt(getComputedStyle(drawer).zIndex, 10));
++      const rows = Array.from(confirmation.querySelectorAll<HTMLButtonElement>("button"));
++      expect(rows.map((row) => row.textContent?.trim())).toEqual(["Stay signed in", "Sign out"]);
++      await expect.poll(() => rows.every((row) => row.getBoundingClientRect().height >= 44)).toBe(true);
++      expect(trigger.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
++      if (dismiss === "cancel") {
++        await browserPage.getByRole("button", { name: "Stay signed in", exact: true }).click();
++      } else {
++        await userEvent.keyboard("{Escape}");
++      }
++      await expect.poll(() => document.activeElement).toBe(trigger);
++      await expect.poll(() => confirmation.isConnected).toBe(false);
++      expect(drawer.isConnected).toBe(true);
++      expect(signOut).not.toHaveBeenCalled();
++      expect(__navigationCalls.filter((call) => call.kind === "goto")).toEqual([]);
++      await browserPage.getByRole("button", { name: "Close workspace navigation", exact: true }).click();
++      await expect.poll(() => drawer.isConnected).toBe(false);
++    } finally {
++      signOut.mockClear();
++    }
+   });
+ });
+diff --git a/src/lib/components/workspace/WorkspaceHeader.component.test.ts b/src/lib/components/workspace/WorkspaceHeader.component.test.ts
+index c02dd2e..3490403 100644
+--- a/src/lib/components/workspace/WorkspaceHeader.component.test.ts
++++ b/src/lib/components/workspace/WorkspaceHeader.component.test.ts
+@@ -154,14 +154,16 @@ describe("WorkspaceHeader", () => {
+     expect(document.querySelector('a[href="/project/new"]')).toBeNull();
+   });
+ 
+-  it("uses the shared theme-aware default button for the page-level creation action", async () => {
++  it.each([390, 1440])("uses the shared compact creation action at %ipx", async (width) => {
++    await browserPage.viewport(width, 900);
+     await render(WorkspaceHeader, baseProps());
+ 
+     const newProject = document.querySelector<HTMLAnchorElement>('a[href="/project/new"]');
+     expect(newProject?.className).toContain("bg-action-primary");
+     expect(newProject?.className).toContain("text-action-primary-foreground");
+     expect(newProject?.className).not.toContain("bg-fir");
+-    expect(newProject?.className).toContain("py-2.5");
++    expect(newProject?.getBoundingClientRect().height).toBe(32);
++    await expect.element(browserPage.getByRole("link", { name: "New project", exact: true })).toHaveAttribute("href", "/project/new");
+     expect(newProject?.className).not.toContain("sm:h-7");
+     expect(newProject?.parentElement?.className).toContain("ml-auto");
+     expect(newProject?.parentElement?.className).not.toContain("md:ml-0");
+diff --git a/src/lib/components/workspace/WorkspaceRail.component.test.ts b/src/lib/components/workspace/WorkspaceRail.component.test.ts
+index ed271e3..f663322 100644
+--- a/src/lib/components/workspace/WorkspaceRail.component.test.ts
++++ b/src/lib/components/workspace/WorkspaceRail.component.test.ts
+@@ -1,4 +1,5 @@
+ import { beforeEach, describe, expect, it, vi } from "vitest";
++import { cdp, userEvent } from "vitest/browser";
+ import { render } from "vitest-browser-svelte";
+ import WorkspaceRail from "./WorkspaceRail.svelte";
+ import { __resetPage } from "$lib/test/app-state-stub.svelte";
+@@ -98,7 +99,7 @@ describe("WorkspaceRail", () => {
+   });
+ 
+   it("keeps the drawer chrome fixed, scrolls only its links, and starts Admin compact", async () => {
+-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
++    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
+     await render(WorkspaceRail, baseProps({ variant: "drawer" }));
+ 
+     expect(document.querySelector("[data-rail-drawer-header]")?.className).toContain("shrink-0");
+@@ -108,7 +109,7 @@ describe("WorkspaceRail", () => {
+   });
+ 
+   it("presents Admin as an Attio-style left-chevron group with distinct icon colours", async () => {
+-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
++    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
+     await render(WorkspaceRail, baseProps());
+ 
+     const group = document.querySelector<HTMLButtonElement>("[data-admin-group-toggle]");
+@@ -117,17 +118,43 @@ describe("WorkspaceRail", () => {
+     expect(group?.firstElementChild?.tagName).toBe("svg");
+ 
+     const iconTiles = Array.from(document.querySelectorAll<HTMLElement>("[data-admin-icon-tone]"));
+-    expect(iconTiles).toHaveLength(7);
+-    expect(new Set(iconTiles.map((tile) => tile.className.match(/bg-[a-z]+-500/)?.[0])).size).toBe(7);
++    expect(iconTiles).toHaveLength(8);
++    expect(new Set(iconTiles.map((tile) => tile.className.match(/bg-[a-z]+-500/)?.[0])).size).toBe(8);
+     expect(document.querySelector('[data-admin-icon-tone="ingestion"] svg')).not.toBeNull();
+     expect(document.querySelector("#workspace-admin-links")?.className).toContain("gap-1");
+ 
+-    group?.click();
++    group?.focus();
++    await userEvent.keyboard("{Enter}");
+     await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+     expect(group?.getAttribute("aria-expanded")).toBe("false");
+     expect(document.querySelector("#workspace-admin-links")).toBeNull();
+   });
+ 
++  it.each([
++    { role: "admin", isDeveloper: true, isOwner: false, visible: true },
++    { role: "admin", isDeveloper: false, isOwner: true, visible: true },
++    { role: "admin", isDeveloper: false, isOwner: false, visible: false },
++    { role: "writer", isDeveloper: true, isOwner: false, visible: false },
++    { role: "writer", isDeveloper: false, isOwner: true, visible: false },
++  ])("gates Admin destinations for $role developer=$isDeveloper owner=$isOwner", async ({ visible, ...user }) => {
++    // Product-domain exposure amendment: role AND either presentation flag.
++    __setQueryData("users:getCurrentUser", user);
++    await render(WorkspaceRail, baseProps());
++    const destinations = Array.from(document.querySelectorAll<HTMLAnchorElement>('#workspace-admin-links a'))
++      .map((link) => [link.textContent?.trim(), link.getAttribute("href")]);
++    expect(destinations).toEqual(visible ? [
++      ["The Brain", "/admin/brain"],
++      ["OneDrive ingestion", "/admin/ingestion"],
++      ["Project tags", "/admin/tags"],
++      ["QA reviews", "/admin/reviews"],
++      ["Users & roles", "/admin/users"],
++      ["House rules", "/admin/house-rules"],
++      ["Model preferences", "/admin/models"],
++      ["AI usage & cost", "/admin/usage"],
++    ] : []);
++    expect(document.querySelector("[data-admin-group-toggle]") !== null).toBe(visible);
++  });
++
+   it("shows only What's new from the utility links for non-developers", async () => {
+     __setQueryData("users:getCurrentUser", {
+       role: "admin",
+@@ -167,25 +194,37 @@ describe("WorkspaceRail", () => {
+   });
+ 
+   it("moves the Admin records group below the primary workspace links", async () => {
+-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
++    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
+     await render(WorkspaceRail, baseProps());
+ 
+     expect(document.querySelector("[data-rail-admin]")?.className).toContain("mt-5");
+   });
+ 
+-  it("shares the compact rail rhythm with fine-pointer drawers without shrinking touch targets", async () => {
+-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
+-    await render(WorkspaceRail, baseProps({ variant: "drawer" }));
++  it.each(["rail", "drawer"])("keeps 150ms color motion and the standalone %s target size", async (variant) => {
++    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
++    await render(WorkspaceRail, baseProps({ variant }));
+ 
+     const home = navLink("Home");
+     expect(home?.className).toContain("workspace-rail-row");
+-    expect(home?.className).toContain("min-h-11");
+-    expect(home?.className).toContain("duration-300");
++    expect(home?.className).toContain(variant === "drawer" ? "min-h-11" : "h-7");
++    expect(home).toBeDefined();
++    const style = getComputedStyle(home!);
++    expect(style.transitionDuration).toBe("0.15s");
++    expect(style.transitionProperty).toContain("color");
++    expect(style.transitionProperty).not.toMatch(/all|transform|height|width|opacity/);
++    expect(home!.getBoundingClientRect().height).toBe(variant === "drawer" ? 44 : 28);
++    try {
++      await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
++      expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
++      expect(getComputedStyle(home!).transitionProperty).toBe("none");
++    } finally {
++      await cdp().send("Emulation.setEmulatedMedia", { features: [] });
++    }
+     expect(document.querySelector("[data-rail-admin]")?.className).toContain("mt-5");
+   });
+ 
+   it("keeps the component expanded because full collapse is owned by WorkspaceShell", async () => {
+-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
++    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
+     await render(WorkspaceRail, baseProps({ collapsed: true, onToggleRail: () => {} }));
+ 
+     expect(document.querySelector('a[aria-label="Admin Writer dashboard"]')?.textContent).toContain("Admin Writer");
+@@ -197,7 +236,7 @@ describe("WorkspaceRail", () => {
+   });
+ 
+   it("ignores collapsed inside the mobile drawer — the drawer instance always renders expanded", async () => {
+-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
++    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
+     await render(WorkspaceRail, baseProps({ variant: "drawer", collapsed: true }));
+ 
+     expect(document.querySelector('a[aria-label="Admin Writer dashboard"]')?.textContent).toContain("Admin Writer");
+diff --git a/src/routes/workspaceRoutes.component.test.ts b/src/routes/workspaceRoutes.component.test.ts
+index 575660b..134a6da 100644
+--- a/src/routes/workspaceRoutes.component.test.ts
++++ b/src/routes/workspaceRoutes.component.test.ts
+@@ -36,8 +36,12 @@ describe("canonical workspace routes", () => {
+     __resetConvexStub();
+   });
+ 
+-  it("/projects renders the workspace shell for a flagged user", async () => {
+-    __setPageUrl("/projects?layout=board");
++  it.each([
++    ["layout=board&utm=x", "layout=board&utm=x&group=client"],
++    ["layout=board&group=status&utm=x", "layout=board&group=status&utm=x"],
++    ["utm=x", "utm=x&layout=list&group=client"],
++  ])("/projects preserves query %s and supplies missing Projects defaults", async (query, projectsQuery) => {
++    __setPageUrl(`/projects?${query}`);
+     __setQueryData("workspaceRollout:getAccess", { available: true });
+     seedWorkspaceQueries();
+     await browserPage.viewport(1440, 900);
+@@ -48,10 +52,10 @@ describe("canonical workspace routes", () => {
+       .poll(() => document.querySelector("div[data-workspace-shell]"))
+       .not.toBeNull();
+     expect(document.querySelector('[data-dashboard-experience="preview"]')).not.toBeNull();
+-    // The rail links carry ?layout through between the canonical routes.
++    // 0b094ed4: Home preserves params; Projects adds only absent defaults.
+     const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>("nav a"));
+-    expect(anchors.some((a) => a.getAttribute("href") === "/my-work?layout=board")).toBe(true);
+-    expect(anchors.some((a) => a.getAttribute("href") === "/projects?layout=board")).toBe(true);
++    expect(anchors.some((a) => a.getAttribute("href") === `/my-work?${query}`)).toBe(true);
++    expect(anchors.some((a) => a.getAttribute("href") === `/projects?${projectsQuery}`)).toBe(true);
+     expect(gotoUrls()).toHaveLength(0);
+   });
+ 
+diff --git a/Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix/_bmad-output/implementation-artifacts/spec-browser-gate-reconciliation.md b/Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix/_bmad-output/implementation-artifacts/spec-browser-gate-reconciliation.md
+new file mode 100644
+index 0000000..f7b7a4b
+--- /dev/null
++++ b/Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix/_bmad-output/implementation-artifacts/spec-browser-gate-reconciliation.md
+@@ -0,0 +1,74 @@
++---
++title: 'Reconcile workspace browser coverage with approved UI behavior'
++type: 'bugfix'
++created: '2026-09-04'
++status: 'in-review'
++baseline_commit: '717c75897cc04256c008a2ed42747df66f6fc6b5'
++review_loop_iteration: 0
++context:
++  - '{project-root}/docs/svelte-migration.md'
++---
++
++<frozen-after-approval reason="human-owned intent; existing authorization covers failed browser test repair">
++
++## Intent
++
++**Problem:** The integrated browser gate has eight failures across five suites. Existing assertions and fixtures predate deliberate workspace navigation, account, and shared-button changes, preventing the broader BMAD completion gate from establishing trustworthy regression coverage.
++
++**Approach:** Reproduce the five suites at the recorded baseline and reconcile them against product-domain amendments and exact introducing commits. Preserve approved application behavior while repairing stale fixtures/assertions and strengthening their corresponding behavior checks. Fix production code only if a reproducible violation of the approved contract emerges.
++
++## Boundaries & Constraints
++
++**Always:** Work only in Banhall-bmad-browser-fix on codex/bmad-browser-fix. Preserve existing accessibility and authorization coverage, shared design tokens, Svelte conventions, and the real Chromium runner. Record evidence for every revised expectation. The root agent owns integration, all native BMAD runs, final type/unit gates, and review orchestration.
++
++**Ask First:** A genuine ambiguity in product policy or a production behavior change not already covered by the approved contract requires escalation to the root agent while independent work continues.
++
++**Never:** Revert intentional UI improvements to appease old assertions; remove tests or weaken assertions to existence-only checks; modify Convex, native runs, ledgers, sprint state, integration files, or remote refs. Do not run full unit/type gates. No push or merge.
++
++## I/O & Edge-Case Matrix
++
++| Scenario | Input / State | Expected Output / Behavior | Error Handling |
++|----------|--------------|---------------------------|----------------|
++| Canonical navigation | Flagged Projects route, explicit layout and unknown params | Home preserves params; Projects preserves explicit choices and adds missing client grouping | No redirect while preview renders |
++| Admin exposure | Admin with developer or workspace Owner flag | Eight distinct destinations; desktop starts expanded, drawer compact; disclosure remains keyboard accessible | Role-only admin and flagged non-admin do not gain admin navigation |
++| Rail footer | Mobile drawer open, Sign out invoked | Confirmation above drawer, 44px controls, cancellation returns focus without signing out | Escape retains drawer access |
++| Shared controls | Anchor/button and header creation action | Theme tokens and anchor/button parity; explicit color/opacity transition, reduced motion; compact 32px header button | Disabled button stays disabled; links retain canonical href |
++| Rail motion | Drawer/desktop navigation | 150ms color-only transition and reduced-motion escape; touch drawer rows retain 44px minimum | Existing unavailable-Home prevention remains covered |
++
++</frozen-after-approval>
++
++## Code Map
++
++- `src/routes/workspaceRoutes.component.test.ts`: stale Projects href expects no default group. `WorkspaceDashboard.svelte:viewHref` adds missing layout=list/group=client while retaining explicit values; introduced by `0b094ed4f5500f3401164cdbe0449bbc996bc951`.
++- `src/lib/components/workspace/WorkspaceRail.component.test.ts`: role-only fixtures no longer expose admin navigation. `docs/product-domain.md:1259` requires admin AND developer/Owner. Eight links include House rules in `66f131b00482af027bc83b9786d85d9050a6dec4`.
++- `src/lib/components/workspace/WorkspaceRail.svelte:rowBase`: 150ms color transitions intentionally introduced by `c7167fb59d3eb46b7a21aafbad6a292ed25ea0df`. Older blanket 300ms design prose is superseded for these controls by this exact source history.
++- `src/lib/components/workspace/WorkspaceChrome.component.test.ts`: obsolete Settings popup was replaced by independent Settings link and Sign out confirmation in `UserMenu.svelte`, commit `66f131b00482af027bc83b9786d85d9050a6dec4`. Preserve real portal layering and drawer focus coverage using current confirmation.
++- `src/lib/components/ui/Button.component.test.ts`: `113ef7c77479552d0b254110ff05bf7c5f1a2cb6` deliberately transitions opacity plus colors over 200ms, with reduced-motion fallback. Assert browser computed style rather than obsolete transition-colors token.
++- `src/lib/components/workspace/WorkspaceHeader.component.test.ts`: `d0f659e654d0571ba1d8e00ca97402fd8c23c099` introduced shared xs size, h-8, for 49px toolbars. Retain primary token assertions and validate actual geometry/name.
++- `.audit/browser-gate-repair/before.log`: focused baseline output. Run starts after `npx svelte-kit sync`; initial missing generated tsconfig caused optimizer startup failure, not a test result.
++- `vitest.component.config.ts`: serial Chromium runner with faithful route/auth stubs. Do not add sveltekit plugin or alter suite discovery.
++
++## Tasks & Acceptance
++
++**Execution:**
++- [x] `src/routes/workspaceRoutes.component.test.ts`: reconcile URL defaults and preserve explicit/unknown query values.
++- [x] `src/lib/components/workspace/WorkspaceRail.component.test.ts`: correct authorized fixtures, check exact eight destinations and positive/negative exposure cases, retain disclosure/touch/motion coverage.
++- [x] `src/lib/components/workspace/WorkspaceChrome.component.test.ts`: exercise real sign-out confirmation layering, touch controls, cancellation, and focus restoration.
++- [x] `src/lib/components/ui/Button.component.test.ts` and `src/lib/components/workspace/WorkspaceHeader.component.test.ts`: reconcile transition and compact-size assertions with computed geometry/style and existing tokens.
++- [x] `.audit/browser-gate-repair/evidence.md`: retain baseline failures, focused pass and full component outcome with exact commands. Report unverified claims candidly.
++
++**Acceptance Criteria:**
++- Given baseline tests, when the five suites run, then all eight known failures reproduce before edits.
++- Given repaired suites, when focused Chromium runs, then all matrix behaviors pass without skipped tests.
++- Given the candidate, when the full component suite runs once, then every component passes or remaining failures are reported with raw evidence and resolved before completion.
++- Given a test-only repair, when the diff is inspected, then production behavior remains unchanged; any necessary production change requires real before/after screenshots and review.
++
++## Spec Change Log
++
++## Verification
++
++**Commands:**
++- `npm run test:component -- src/routes/workspaceRoutes.component.test.ts src/lib/components/ui/Button.component.test.ts src/lib/components/workspace/WorkspaceChrome.component.test.ts src/lib/components/workspace/WorkspaceHeader.component.test.ts src/lib/components/workspace/WorkspaceRail.component.test.ts`: record red baseline and green focused result.
++- `npm run test:component`: one full candidate browser gate after focused pass.
++
++Root conducts three independent step-04 reviewers after handoff. Candidate remains in-review until that process completes; this repair does not mark the broader task done.
+
+Do not invoke any skill. If the instruction file is unreadable, report that exact failure and stop. Return only the review result.

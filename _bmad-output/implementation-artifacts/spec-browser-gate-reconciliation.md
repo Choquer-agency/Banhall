@@ -2,7 +2,7 @@
 title: 'Reconcile workspace browser coverage with approved UI behavior'
 type: 'bugfix'
 created: '2026-09-04'
-status: 'in-review'
+status: 'done'
 baseline_commit: '717c75897cc04256c008a2ed42747df66f6fc6b5'
 review_loop_iteration: 0
 context:
@@ -72,3 +72,30 @@ context:
 - `npm run test:component`: one full candidate browser gate after focused pass.
 
 Root conducts three independent step-04 reviewers after handoff. Candidate remains in-review until that process completes; this repair does not mark the broader task done.
+
+## Review and completion evidence
+
+Three independent Astra medium reviewers completed BMAD step04. All ten bounded patch findings were addressed. Final focused Chromium60/60, full Chromium311/311 across52suites, and local Svelte check0errors/0warnings passed at code5a3aad0f109749d3257e16424e0cc51ee3d8855e. Production files are unchanged. Evidence and raw logs are in `.audit/browser-gate-repair/`. `story_key` is unset, so sprint synchronization is correctly skipped. Root still owns full integration, native recovery, and shipping.
+
+## Suggested Review Order
+
+**Account boundaries and interaction**
+
+- Prove modal focus, hit-testing, cancellation, pointer sizing, and confirmed sign-out.
+  [WorkspaceChrome.component.test.ts:73](../../src/lib/components/workspace/WorkspaceChrome.component.test.ts#L73)
+
+**Navigation and access**
+
+- Pin eight destinations and test the complete admin presentation boundary.
+  [WorkspaceRail.component.test.ts:32](../../src/lib/components/workspace/WorkspaceRail.component.test.ts#L32)
+
+- Preserve explicit defaults, repeated parameters, and encoded values across canonical navigation.
+  [workspaceRoutes.component.test.ts:39](../../src/routes/workspaceRoutes.component.test.ts#L39)
+
+**Shared visual behavior**
+
+- Verify actual transitions, reduced motion, and disabled behavior.
+  [Button.component.test.ts:52](../../src/lib/components/ui/Button.component.test.ts#L52)
+
+- Preserve the approved compact creation control across viewport sizes.
+  [WorkspaceHeader.component.test.ts:157](../../src/lib/components/workspace/WorkspaceHeader.component.test.ts#L157)

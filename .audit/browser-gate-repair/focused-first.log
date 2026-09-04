@@ -1,0 +1,66 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/routes/workspaceRoutes.component.test.ts src/lib/components/ui/Button.component.test.ts src/lib/components/workspace/WorkspaceChrome.component.test.ts src/lib/components/workspace/WorkspaceHeader.component.test.ts src/lib/components/workspace/WorkspaceRail.component.test.ts
+
+2:45:24 PM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix
+
+2:45:24 PM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix - using default configuration.
+2:45:41 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:45:41 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:45:41 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:45:41 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:45:41 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:45:41 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:45:41 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:45:41 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:45:41 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > layers sign-out confirmation above the drawer and restores focus on cancel
+https://svelte.dev/e/derived_inert
+stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > layers sign-out confirmation above the drawer and restores focus on cancel
+https://svelte.dev/e/derived_inert
+stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > layers sign-out confirmation above the drawer and restores focus on cancel
+https://svelte.dev/e/derived_inert
+stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > layers sign-out confirmation above the drawer and restores focus on cancel
+https://svelte.dev/e/derived_inert
+stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > layers sign-out confirmation above the drawer and restores focus on cancel
+https://svelte.dev/e/derived_inert
+stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > layers sign-out confirmation above the drawer and restores focus on Escape
+https://svelte.dev/e/derived_inert
+stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > layers sign-out confirmation above the drawer and restores focus on Escape
+https://svelte.dev/e/derived_inert
+stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > layers sign-out confirmation above the drawer and restores focus on Escape
+https://svelte.dev/e/derived_inert
+stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > layers sign-out confirmation above the drawer and restores focus on Escape
+https://svelte.dev/e/derived_inert
+ ❯ |component (chromium)| src/lib/components/workspace/WorkspaceChrome.component.test.ts (5 tests | 2 failed) 633ms
+     × layers sign-out confirmation above the drawer and restores focus on cancel 332ms
+     × layers sign-out confirmation above the drawer and restores focus on Escape 173ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > layers sign-out confirmation above the drawer and restores focus on cancel
+ FAIL  |component (chromium)| src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > layers sign-out confirmation above the drawer and restores focus on Escape
+Error: The property "signOut" is not defined on the function.
+
+Failure screenshots:
+  - src/lib/components/workspace/__screenshots__/WorkspaceChrome.component.test.ts/WorkspaceChrome-layers-sign-out-confirmation-above-the-drawer-and-restores-focus-on-cancel-1.png
+  - src/lib/components/workspace/__screenshots__/WorkspaceChrome.component.test.ts/WorkspaceChrome-layers-sign-out-confirmation-above-the-drawer-and-restores-focus-on-Escape-1.png
+
+ ❯ src/lib/components/workspace/WorkspaceChrome.component.test.ts:89:23
+     87|     const drawer = document.querySelector<HTMLElement>('[role="dialog"…
+     88|     const trigger = drawer.querySelector<HTMLButtonElement>('button[ar…
+     89|     const signOut = vi.spyOn(authClient, "signOut").mockResolvedValue(…
+       |                       ^
+     90|     try {
+     91|       trigger.focus();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  2 failed | 50 passed (52)
+   Start at  14:45:24
+   Duration  22.44s (transform 0ms, setup 777ms, import 17.68s, tests 1.41s, environment 0ms)
+
