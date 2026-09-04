@@ -7,12 +7,6 @@ touches: [convex]
 risky: [provenance]
 verify: [npx vitest run convex/ai/condenseAgent.test.ts convex/transcriptDigests.test.ts convex/ai/promptScaffolds.test.ts]
 done_when: [test -f convex/ai/condense.ts, test -f convex/ai/condenseAgent.ts, test -f convex/transcriptDigests.ts, "rg -q 'condense' convex/ai/promptProgram.ts", "rg -q 'ensureCondensedInputs' convex/ai/pipeline.ts convex/ai/iterative.ts", "rg -q 'decideInputMode' convex/generations.ts", "rg -q 'CONDENSE_VERSION' convex/transcriptDigests.ts", npx vitest run convex/ai/condenseAgent.test.ts convex/transcriptDigests.test.ts]
-deferred:
-  - "A 20-transcript project cannot condense inside one action: 20 windows at concurrency 4 is 5 waves x 120s = 600s against 540s remaining, so fitsCondenseBudget rejects it before any provider call. The ticket's recorded follow-up applies: one scheduled condense action per transcript via @convex-dev/workflow, with a continuation back into generateReport."
-  - "Digest reuse is keyed on transcriptId, so a transcript copied by reference (createProject fromTranscriptId, reviewFromProject) condenses again although sourceContentHash already identifies the bytes. Validation-2 low; the index laid down in transcripts-1 leads with transcriptId, so changing it is a schema change."
-  - "The condense pre-check reserves RESERVED_NON_REQUEST_MS (60s) for everything after condensation, but the Brain retrieval brief that follows is itself a provider call with a 240s timeout. The reserve is the ticket's number, not a measured one."
-  - "convex/_generated/api.d.ts was edited by hand (three modules registered) because npx convex codegen needs CONVEX_DEPLOYMENT and project access, which this worktree has neither of. Re-run codegen on a machine with the deployment configured to confirm byte equality."
-  - "describeTranscriptInput still reports the full transcript word count in digest mode; architecture.md's richer line (\"... 312,000 chars, over the 200,000 budget\") was left to whoever owns that helper, since no acceptance criterion here pins it."
 title: "Over-budget transcript sets are condensed to stored, reusable, provenance-linked digests before the prompt program runs"
 plan: 20260903-client-sync
 updated: "2026-09-03T21:17:39.898Z"
