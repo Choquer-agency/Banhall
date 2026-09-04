@@ -293,6 +293,110 @@ describe("confirmed unlearn (CAP-10)", () => {
     expect(actions(rows, "unlearn_confirmed")).toHaveLength(1);
   });
 
+  test("repeated pre-drain revokes and confirmation deliveries confirm an entry once", async () => {
+    const { t, admin } = await setup();
+    const sourceId = await insertSource(t, { ragEntryId: ENTRY_ID });
+    await Promise.all([
+      admin.mutation(api.brain.revokeSource, { sourceId }),
+      admin.mutation(api.brain.revokeSource, { sourceId }),
+    ]);
+    expect(await scheduledUnlearns(t)).toHaveLength(2);
+    eraseMock.mockResolvedValueOnce("confirmed").mockResolvedValue("already_absent");
+    await unlearnDrain(t)();
+    await Promise.all([
+      t.mutation(internal.brain.recordUnlearnConfirmed, { sourceId, ragEntryId: ENTRY_ID }),
+      t.mutation(internal.brain.recordUnlearnConfirmed, { sourceId, ragEntryId: ENTRY_ID }),
+    ]);
+    expect(actions(await auditRows(t), "revoke")).toHaveLength(1);
+    expect(actions(await auditRows(t), "unlearn_confirmed")).toHaveLength(1);
+    expect((await sourceRow(t, sourceId))?.ragEntryId).toBeUndefined();
+  });
+
+  test("successful remediation fences a stale failure without losing earlier evidence", async () => {
+    const { t } = await setup();
+    const sourceId = await insertSource(t, { status: "revoked", ragEntryId: ENTRY_ID });
+    eraseMock.mockRejectedValueOnce(new Error("initial outage"));
+    await expect(t.action(internal.brain.unlearnSource, {
+      sourceId, ragEntryId: ENTRY_ID,
+    })).rejects.toThrow("initial outage");
+    await unlearnDrain(t)();
+    const jobs = await scheduledUnlearns(t);
+    eraseMock.mockRejectedValueOnce(new Error("stale failure"));
+    await expect(t.action(internal.brain.unlearnSource, {
+      sourceId, ragEntryId: ENTRY_ID,
+    })).rejects.toThrow("stale failure");
+    expect((await sourceRow(t, sourceId))?.ragEntryId).toBeUndefined();
+    expect(await scheduledUnlearns(t)).toEqual(jobs);
+    const rows = await auditRows(t);
+    expect(actions(rows, "unlearn_confirmed")).toHaveLength(1);
+    expect(actions(rows, "unlearn_failed")).toHaveLength(1);
+    expect(actions(rows, "unlearn_failed")[0].reason).toContain("initial outage");
+  });
+
+  test("an overlapping erase failure cannot undo another attempt's confirmation", async () => {
+    const { t } = await setup();
+    const sourceId = await insertSource(t, { status: "revoked", ragEntryId: ENTRY_ID });
+    let releaseFailure = () => {};
+    let signalStarted = () => {};
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    eraseMock.mockImplementationOnce(() => new Promise<EraseOutcome>((_resolve, reject) => {
+      releaseFailure = () => reject(new Error("overlapping failure"));
+      signalStarted();
+    }));
+    const failure = expect(t.action(internal.brain.unlearnSource, {
+      sourceId, ragEntryId: ENTRY_ID,
+    })).rejects.toThrow("overlapping failure");
+    await started;
+    await t.action(internal.brain.unlearnSource, { sourceId, ragEntryId: ENTRY_ID });
+    releaseFailure();
+    await failure;
+    expect((await sourceRow(t, sourceId))?.ragEntryId).toBeUndefined();
+    expect(actions(await auditRows(t), "unlearn_confirmed")).toHaveLength(1);
+    expect(actions(await auditRows(t), "unlearn_failed")).toHaveLength(0);
+    expect(await scheduledUnlearns(t)).toHaveLength(0);
+  });
+
+  test("historical confirmation clears a matching stale handle and fences later failure", async () => {
+    const { t } = await setup();
+    const sourceId = await insertSource(t, { status: "revoked", ragEntryId: ENTRY_ID });
+    await t.run(async (ctx) => ctx.db.insert("brainAuditLog", {
+      action: "unlearn_confirmed", sourceId, actorId: "system",
+      reason: `Erasure confirmed for entry ${ENTRY_ID}`, at: Date.now(),
+    }));
+    await t.mutation(internal.brain.recordUnlearnConfirmed, { sourceId, ragEntryId: ENTRY_ID });
+    await t.mutation(internal.brain.recordUnlearnFailure, {
+      sourceId, ragEntryId: ENTRY_ID, attempt: 1, error: "stale",
+    });
+    expect((await sourceRow(t, sourceId))?.ragEntryId).toBeUndefined();
+    expect(await auditRows(t)).toHaveLength(1);
+    expect(await scheduledUnlearns(t)).toHaveLength(0);
+  });
+
+  test("confirmation fence is scoped to both source and exact entry", async () => {
+    const { t } = await setup();
+    const first = await insertSource(t, { status: "revoked" });
+    const second = await insertSource(t, { status: "revoked", ragKey: "other" });
+    for (const [sourceId, ragEntryId] of [
+      [first, ENTRY_ID], [first, `${ENTRY_ID}_suffix`], [second, ENTRY_ID],
+    ] as const) {
+      await t.mutation(internal.brain.recordUnlearnConfirmed, { sourceId, ragEntryId });
+    }
+    expect(actions(await auditRows(t), "unlearn_confirmed")).toHaveLength(3);
+  });
+
+  test("failed erasure after reapproval never restores an id or writes failure evidence", async () => {
+    const { t } = await setup();
+    const sourceId = await insertSource(t, { status: "revoked" });
+    await t.run(async (ctx) => ctx.db.patch(sourceId, { status: "approved" }));
+    eraseMock.mockRejectedValueOnce(new Error("late failure"));
+    await expect(t.action(internal.brain.unlearnSource, {
+      sourceId, ragEntryId: ENTRY_ID,
+    })).rejects.toThrow("late failure");
+    expect((await sourceRow(t, sourceId))?.ragEntryId).toBeUndefined();
+    expect((await sourceRow(t, sourceId))?.status).toBe("approved");
+    expect(await auditRows(t)).toHaveLength(0);
+  });
+
   test("(d') re-revoking after a failed erasure restarts remediation without a second revoke row", async () => {
     const { t, admin } = await setup();
     const drain = unlearnDrain(t);
@@ -502,6 +606,7 @@ describe("confirmed unlearn (CAP-10)", () => {
   test("(g) served results drop hits whose source is no longer approved", async () => {
     const { t } = await setup();
     const approved = await insertSource(t, { ragKey: "brain:approved" });
+    const pending = await insertSource(t, { status: "pending", ragKey: "brain:pending" });
     const revoked = await insertSource(t, {
       status: "revoked",
       ragKey: "brain:revoked",
@@ -524,12 +629,14 @@ describe("confirmed unlearn (CAP-10)", () => {
 
     vi.spyOn(brain, "search").mockResolvedValue({
       results: [
+        hit("e_pending", 0.99),
         hit("e_ok", 0.9),
         hit("e_revoked", 0.8),
         hit("e_deleted", 0.75),
         hit("e_legacy", 0.7),
       ],
       entries: [
+        entry("e_pending", pending),
         entry("e_ok", approved),
         entry("e_revoked", revoked),
         entry("e_deleted", deleted),
@@ -554,6 +661,7 @@ describe("confirmed unlearn (CAP-10)", () => {
   test("(g') non-servable hits are dropped before ranking, so they never consume top-k slots", async () => {
     const { t } = await setup();
     const approved = await insertSource(t, { ragKey: "brain:approved" });
+    const pending = await insertSource(t, { status: "pending", ragKey: "brain:pending" });
     const revoked = await insertSource(t, {
       status: "revoked",
       ragKey: "brain:revoked",
@@ -578,6 +686,7 @@ describe("confirmed unlearn (CAP-10)", () => {
     // servable hits are served.
     vi.spyOn(brain, "search").mockResolvedValue({
       results: [
+        hit("e_pending", 0.99),
         hit("e_rev_1", 0.95),
         hit("e_rev_2", 0.9),
         hit("e_ok_1", 0.85),
@@ -585,6 +694,7 @@ describe("confirmed unlearn (CAP-10)", () => {
         hit("e_legacy", 0.75),
       ],
       entries: [
+        entry("e_pending", pending),
         entry("e_rev_1", revoked),
         entry("e_rev_2", revoked),
         entry("e_ok_1", approved),
