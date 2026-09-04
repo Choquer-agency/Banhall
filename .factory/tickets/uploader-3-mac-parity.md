@@ -9,10 +9,6 @@ verify: [bash scripts/client-uploader/tests/run-tests.sh]
 done_when: [test -f scripts/client-uploader/tests/run-tests.sh, "rg -q 'run-tests.sh' scripts/loop-verify.sh", "rg -q 'READ_ERROR' scripts/client-uploader/banhall-uploader.sh", "rg -q 'SCAN' scripts/client-uploader/banhall-uploader.sh", bash scripts/client-uploader/tests/run-tests.sh]
 title: "Mac uploader mirrors the zero-result diagnostics, adds the missing READ_ERROR path and root-is-file check"
 plan: 20260903-client-sync
-deferred:
-  - "Mac has no cloud-only pre-warning (the ps1 Test-CloudOnly count line). Not in the ACs; macOS exposes no cheap per-file dataless flag through stat, so a count would need a per-file probe on every walked entry."
-  - "A file name containing a newline still breaks the find | read walk in collect_candidates (pre-existing on both scripts; -print0 would need a bash 3.2 read -d '' loop and changes the FILELIST format)."
-  - "Under OneDrive sync root: yes is proved against a synthetic $HOME/Library/CloudStorage/OneDrive-* tree, never a real synced root; no OneDrive corpus is reachable from this machine."
 updated: "2026-09-03T21:17:39.899Z"
 ---
 ## Intent
