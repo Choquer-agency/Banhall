@@ -1,6 +1,6 @@
 ---
 key: workspace-2-drop-dead-gate-branches
-status: todo
+status: escalated
 kind: refactor
 deps: [workspace-1-gate-on-for-everyone]
 touches: [src, docs]
@@ -9,7 +9,11 @@ verify: [npx vitest run src/lib/dashboard/workspaceExperience.test.ts, npx vites
 done_when: ["! rg -q 'localDevelopment' src/lib/dashboard/workspaceExperience.ts src/lib/workspace/WorkspaceGate.svelte", "! rg -q 'resolveWorkspaceExperience' src/", "! rg -q 'from \"\\\\$app/environment\"' src/lib/workspace/WorkspaceGate.svelte", "rg -q '2026-09-03' docs/product-domain.md", npx vitest run src/lib/dashboard/workspaceExperience.test.ts]
 title: "Delete the dead localDevelopment branch and the callerless resolveWorkspaceExperience; retire \"not flagged\" cases from workspace tests; record the domain amendment"
 plan: 20260903-client-sync
-updated: "2026-09-03T21:17:39.899Z"
+updated: "2026-09-04T09:59:37.101Z"
+ui: false
+run: 20260904-083708-2-tickets
+branch: factory/workspace-2-drop-dead-gate-branches
+escalation: merge conflict
 ---
 ## Intent
 With the gate on for everyone, the resolver's `localDevelopment` parameter (hardcoded `false` at the only call site since 2026-08-11), the `resolveWorkspaceExperience` function (no production caller; only its own test imports it, `src/lib/dashboard/workspaceExperience.test.ts:3`) and the browser tests that model a "not flagged" user describe states that cannot occur or code that nothing runs. The maintainer inherits one resolver, `resolveWorkspaceRouteState({ workspaceParam, access })`, plus `shouldQueryWorkspaceAccess`, the two `WorkspaceGate.svelte:36-37` actually uses, with tests that pin the states that remain: `current` by param, `loading`, `preview`, and `current` on error. The domain amendment for "on for everyone" is recorded here, right after the gate change merges.
