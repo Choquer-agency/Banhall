@@ -233,8 +233,36 @@ describe("PreviewProjectPage intake workbench", () => {
     const controlsId = trigger!.getAttribute("aria-controls");
     expect(controlsId).toBeTruthy();
 
+    // The page already holds one body subscription for the open intake
+    // disclosure; the panel adds none until a row is previewed.
+    const bodiesBefore = __activeQueryCount("transcripts:getTranscriptContent");
+
     trigger!.click();
     await expect.poll(() => trigger!.getAttribute("aria-expanded")).toBe("true");
     await expect.poll(() => document.getElementById(controlsId!)).not.toBeNull();
+
+    // The row is drawn from the metadata list alone: label and word count,
+    // no body.
+    const region = document.getElementById(controlsId!)!;
+    expect(region.textContent).toContain("Kickoff interview.docx");
+    expect(region.textContent).toContain("11 words");
+    expect(__activeQueryCount("transcripts:getTranscriptContent")).toBe(bodiesBefore);
+
+    // Preview subscribes that one transcript's body, and only while it is open.
+    region.querySelector<HTMLButtonElement>('button[title="Preview transcript"]')!.click();
+    await expect
+      .poll(() => __activeQueryCount("transcripts:getTranscriptContent"))
+      .toBe(bodiesBefore + 1);
+    const modal = () =>
+      document
+        .querySelector<HTMLElement>('button[title="Close transcript"]')
+        ?.closest<HTMLElement>(".fixed");
+    await expect.poll(() => modal()?.textContent).toContain(TRANSCRIPT_BODY);
+    expect(modal()!.textContent).toContain("Kickoff interview.docx");
+
+    document.querySelector<HTMLButtonElement>('button[title="Close transcript"]')!.click();
+    await expect
+      .poll(() => __activeQueryCount("transcripts:getTranscriptContent"))
+      .toBe(bodiesBefore);
   });
 });
