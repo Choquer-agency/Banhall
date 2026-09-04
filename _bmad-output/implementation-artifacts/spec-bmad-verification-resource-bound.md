@@ -59,3 +59,7 @@ The cap applies to the global pool rather than independently increasing per-proj
 - `git diff --check`: no whitespace errors.
 
 Approval: user delegated verification repairs and routine implementation choices; no additional checkpoint is required for this bounded configuration repair.
+
+## Learn-chat recovery application
+
+Applied the schema lane's independently reviewed source-audit timeout repair (f009b43) to the pinned recovery base after the source parser exceeded its five-second default during story 3 verification. The audit remains selected exactly once with unchanged assertions; only this parse-heavy suite has a 30-second budget. The two-worker cap remains. The resumed native story queue must verify the resulting configuration using the standard gate, without command-line timeout overrides. Historical evidence belongs to its original revision.
