@@ -1,6 +1,6 @@
 ---
 key: transcripts-5-ui-readers
-status: todo
+status: escalated
 kind: feature
 deps: [transcripts-3-create-with-many]
 touches: [src, convex]
@@ -9,7 +9,11 @@ verify: [npx vitest run --config vitest.component.config.ts --no-file-parallelis
 done_when: ["! rg -q 'getTranscript\\\\b' convex/ src/ --glob '!convex/_generated/**'", "rg -q 'listTranscripts' src/lib/components/editor/FilesPanel.svelte src/lib/components/project/PreviewProjectPage.svelte src/lib/components/project/CurrentProjectPage.svelte", "rg -q 'getTranscriptContent' src/lib/components/editor/FilesPanel.svelte src/lib/components/project/PreviewProjectPage.svelte src/lib/components/project/CurrentProjectPage.svelte", npm run check]
 title: Files panel and both project pages list every transcript and load one body at a time; getTranscript deleted
 plan: 20260903-client-sync
-updated: "2026-09-03T21:17:39.898Z"
+updated: "2026-09-04T03:28:38.802Z"
+ui: false
+run: 20260904-020442-8-tickets
+branch: factory/transcripts-5-ui-readers
+escalation: provider quota exhausted on every fallback (codex gpt-5.6-sol); retry later with  factory run --ticket transcripts-5-ui-readers
 ---
 ## Intent
 Writers open a project and see each transcript by name, with its word count, preview and download, in both the preview workspace and the `?workspace=current` chrome. The list comes from `listTranscripts` (metadata only) and a body is fetched with `getTranscriptContent` only for the transcript being read, so a project with many transcripts costs one subscription of a few hundred bytes per row instead of megabytes per component. The last four readers of `getTranscript` move, and `getTranscript` is deleted in the same wave. The maintainer inherits two queries for transcripts, one light and one per item.
