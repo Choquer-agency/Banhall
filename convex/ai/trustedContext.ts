@@ -245,6 +245,7 @@ export interface TrustedContextInput {
 const DASH = "[-\\u2010-\\u2015\\u2212]";
 const MARKER_TEXT = new RegExp(`${DASH}{3,}[ \\t]*(?:BEGIN|END)[ \\t]*\\[`, "gi");
 const DASH_RUN = new RegExp(`${DASH}+`);
+const METADATA_DASH_RUN = new RegExp(`${DASH}{3,}`, "g");
 
 export function neutralizeMarkers(text: string): string {
   return text.replace(MARKER_TEXT, (match) =>
@@ -260,11 +261,11 @@ function foldLines(text: string): string {
 /**
  * File names are interpolated into the marker line itself, so a name carrying
  * a newline or a dash run could split the line or forge a second delimiter.
- * Only a run of three or more dashes can start a marker; `report--final.txt`
- * keeps its name.
+ * Use the same dash vocabulary as body marker neutralization. Only a run of
+ * three or more dashes can start a marker; `report--final.txt` keeps its name.
  */
 export function sanitizeFileName(fileName: string): string {
-  return foldLines(fileName).replace(/-{3,}/g, "-").trim() || "untitled";
+  return foldLines(fileName).replace(METADATA_DASH_RUN, "-").trim() || "untitled";
 }
 
 /**

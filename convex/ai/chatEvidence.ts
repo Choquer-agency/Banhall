@@ -137,23 +137,10 @@ function labelledBlock(label: string, body: string): string {
   return `${D.beginPrefix}${line}${D.contentPrefix}${body}${D.contentSuffix}${D.endPrefix}${line}`;
 }
 
-/**
- * `neutralizeMarkers` treats en, em, figure, horizontal-bar and minus-sign
- * runs as the same delimiter as `---`, but `sanitizeFileName` collapses only
- * ASCII runs, so a name such as `\u2014\u2014\u2014 BEGIN [WRITER'S NOTES ...] x.md`
- * would survive into the marker line intact. Chat closes that gap locally
- * rather than widening the shared helper, whose analyzer bytes are frozen.
- */
-const UNICODE_DASH_RUN = /[-\u2010-\u2015\u2212]{3,}/g;
-
-function markerFileName(fileName: string): string {
-  return sanitizeFileName(fileName).replace(UNICODE_DASH_RUN, "-");
-}
-
 /** A document block: label plus the sanitized file name in the marker line. */
 function documentBlock(doc: ChatEvidenceDoc, body: string): string {
   const label = ANALYZER_CATEGORY_LABELS[docCategory(doc)];
-  const line = `${label}${D.categoryToFile}${markerFileName(doc.fileName)}${D.lineSuffix}`;
+  const line = `${label}${D.categoryToFile}${sanitizeFileName(doc.fileName)}${D.lineSuffix}`;
   return `${D.beginPrefix}${line}${D.contentPrefix}${body}${D.contentSuffix}${D.endPrefix}${line}`;
 }
 
