@@ -325,3 +325,35 @@ source_spec: `5-injection-boundary-test-suite.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-030217-50fa; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
+
+### DW-42: The report the decision is pinned to is chosen by creation order, not by the highest revisionNumber.
+origin: spec-deferred cb1e5b7a494c
+location: convex/projectWorkflow.ts (setWorkflowStage report lookup)
+source_spec: `7-review-decisions-required-to-leave-internal-review.md`
+severity: medium
+reason: setWorkflowStage resolves the report with by_projectId + .order("desc").first(), copied verbatim from convex/reports.ts:35 and used elsewhere in the repo. With more than one reports row on a project the newest-created row need not hold the highest revisionNumber, so the audit row can pin a revision other than the one under review. Pre-existing convention, newly load-bearing for an audit record; no test inserts two reports for one project.
+status: open
+
+### DW-43: Nothing pins that the only production caller actually sends reviewDecision, so a UI regression would make leaving internal review impossible while the suite stays green.
+origin: spec-deferred 1f2999995097
+location: src/lib/components/project/ProjectWorkflowMenu.svelte:288
+source_spec: `7-review-decisions-required-to-leave-internal-review.md`
+severity: medium
+reason: ProjectWorkflowMenu.svelte submitStage is the sole setWorkflowStage client. Every reviewDecision assertion lives in convex/projectWorkflow.test.ts and constructs the arguments itself. No ProjectWorkflowMenu component test exists; ProjectHighlights.component.test.ts mounts the menu with workflowStage "drafting" and never opens the dialog. Removing the conditional spread breaks review completion in the app and fails no test.
+status: open
+
+### DW-44: The decision is pinned to whatever revision is current at commit time, with no caller-supplied fence proving the reviewer read that revision.
+origin: spec-deferred 340ddc7b1883
+location: convex/projectWorkflow.ts (reviewDecisions insert)
+source_spec: `7-review-decisions-required-to-leave-internal-review.md`
+severity: medium
+reason: setWorkflowStage already fences the stage field with expectedVersion, but the review decision takes no expected revisionNumber or contentHash. If the report is edited between the reviewer reading it and confirming the transition, the row silently attests a judgement against the newer revision. The story chose server-side resolution deliberately; closing this needs a client-supplied baseline and UI plumbing.
+status: open
+
+### DW-45: A project sitting in internal_review with no reports row cannot leave via either completion edge, and the UI gives no advance signal.
+origin: spec-deferred 0d92b63b042d
+location: shared/workflowLabels.ts:69 (workflowStageOptions)
+source_spec: `7-review-decisions-required-to-leave-internal-review.md`
+severity: low
+reason: The new INVALID_STATE ("no report revision to record a review decision against") is raised only after submission. workflowStageOptions has no report knowledge, so StageChangeDialog still renders both completion edges as selectable. Recorded in the 2026-09-04 product-domain amendment; the escape hatch is moving to any other stage under unchanged default policy.
+status: open

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { WORKFLOW_STAGES } from "../../../shared/workflowStages";
 import {
+  TRANSITION_REQUIREMENT_BLOCKERS,
   WORKFLOW_STAGE_DESCRIPTIONS,
   WORKFLOW_STAGE_LABELS,
   effectiveWorkflowStage,
@@ -53,6 +54,17 @@ describe("workflow labels and options", () => {
     );
     const resume = workflowStageOptions("on_hold", ["owner"]);
     expect(resume.find((option) => option.to === "internal_review")?.disabledReason).toBeNull();
+    // `review_decision` is satisfied in the same request (the caller supplies
+    // the decision), so it must NOT disable a row: a non-null disabledReason
+    // hard-disables the option in StageChangeDialog and would make completing
+    // an internal review unreachable from the UI.
+    const review = workflowStageOptions("internal_review", ["owner"]);
+    expect(review.find((option) => option.to === "edits")?.disabledReason).toBeNull();
+    // The approve edge still shows exactly the promoted-branch reason — the
+    // review requirement must not be concatenated onto it.
+    expect(review.find((option) => option.to === "ready_for_delivery")?.disabledReason).toBe(
+      TRANSITION_REQUIREMENT_BLOCKERS.promoted_branch
+    );
   });
 
   it("carries audit-note requirements from the matrix", () => {

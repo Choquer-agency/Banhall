@@ -9,6 +9,7 @@
   import type { Id } from "../../../../convex/_generated/dataModel";
   import type { FunctionReturnType } from "convex/server";
   import type { WorkflowStage } from "../../../../shared/workflowStages";
+  import { reviewDecisionForStage } from "../../../../shared/workflowTransitions";
   import StageBadge from "$lib/components/ui/StageBadge.svelte";
   import {
     WORKFLOW_STAGE_LABELS,
@@ -283,10 +284,18 @@
     stageBusy = true;
     stageError = null;
     try {
+      // Leaving internal review records a reviewer decision in the same
+      // mutation. The value is derived from the destination edge (the shared
+      // matrix helper), so the dialog needs no extra control.
+      const decision =
+        header?.workflowStage === "internal_review"
+          ? reviewDecisionForStage(toStage)
+          : undefined;
       const result = await setWorkflowStage({
         projectId,
         toStage,
         note,
+        ...(decision ? { reviewDecision: { decision } } : {}),
         expectedVersion: baseline.version,
       });
       if (result.status === "updated") {
