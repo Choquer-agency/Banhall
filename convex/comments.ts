@@ -1,3 +1,4 @@
+import { persistDeterministicFindings } from "./lib/qaFindings";
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import {
@@ -193,6 +194,7 @@ export const acceptEdit = mutation({
       provenanceId: undefined,
       updatedAt: now,
     });
+    await persistDeterministicFindings(ctx, report._id);
     await ctx.db.patch(args.commentId, { resolved: true });
     await pruneSnapshots(ctx, report._id);
   },

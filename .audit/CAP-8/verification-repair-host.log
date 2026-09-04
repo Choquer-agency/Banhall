@@ -1,0 +1,6 @@
+$ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-09-04T21:05:45Z
+$ uptime
+14:05  up 3 days,  3:21, 14 users, load averages: 69.76 84.40 86.29
+$ sysctl -n hw.logicalcpu
+10

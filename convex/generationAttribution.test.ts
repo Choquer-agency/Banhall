@@ -18,6 +18,8 @@ import {
   hashPromptProgram,
 } from "./ai/promptProgram";
 import schema from "./schema";
+import { sha256 } from "./lib/contracts";
+import { buildTiptapDocument } from "./lib/tiptapReport";
 import { NO_STYLE_OVERRIDES } from "../shared/styleOverrides";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -131,7 +133,7 @@ type OpenRouterRequest = {
   tool_choice?: { function?: { name?: string } };
 };
 
-function successfulOpenRouterFetch(requests: OpenRouterRequest[]) {
+function successfulOpenRouterFetch(requests: OpenRouterRequest[], compliance: Record<string, boolean> = {}) {
   return vi.fn(async (_input: unknown, init?: { body?: unknown }) => {
     if (typeof init?.body !== "string") {
       throw new Error("OpenRouter test request had no JSON body");
@@ -153,7 +155,7 @@ function successfulOpenRouterFetch(requests: OpenRouterRequest[]) {
                       id: tool.id,
                       function: {
                         name: tool.name,
-                        arguments: JSON.stringify(tool.input),
+                        arguments: JSON.stringify(toolName === "submit_qa_scorecard" ? { ...TEST_QA_SCORECARD, cra_compliance: compliance } : tool.input),
                       },
                     },
                   ],
@@ -818,6 +820,124 @@ describe("generation payload provenance", () => {
     expect(JSON.stringify(qaRequest?.params)).toContain(
       "Do not flag supported technical detail as excessive.",
     );
+  });
+
+  it("settles stale QA without attribution and permits a fenced retry", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
+      await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
+      const input = await t.query(internal.generations.getPostQaInput, { generationId: fixture.generationId });
+      if (!input) throw new Error("Missing QA input");
+      const response = successfulOpenRouterFetch([], { why_how_why_intact: false });
+      let edited = false;
+      vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: { body?: unknown }) => {
+        if (!edited) {
+          edited = true;
+          await t.withIdentity({ subject: AUTH_ID }).mutation(api.reports.updateReportContent, {
+            reportId: input.capturedRef.reportId,
+            content: "Human corrected content",
+            expectedRevisionNumber: 0,
+          });
+        }
+        return response(url, init);
+      }));
+      await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId, attemptStartedAt: fixture.now });
+      expect((await t.run(ctx => ctx.db.get(fixture.generationId)))?.postQaStatus).toBe("failed");
+      expect(await t.run(ctx => ctx.db.query("qaFindings").collect())).not.toEqual(expect.arrayContaining([expect.objectContaining({ check: "cra_methodology" })]));
+      const beforeRetry = await t.run(ctx => ctx.db.get(fixture.generationId));
+      expect(JSON.parse(beforeRetry?.agentOutputs ?? "{}").qa).toBeUndefined();
+      vi.stubGlobal("fetch", successfulOpenRouterFetch([], { why_how_why_intact: true }));
+      await t.withIdentity({ subject: AUTH_ID }).mutation(api.generations.requestReportQa, { generationId: fixture.generationId });
+      const retry = await t.run(ctx => ctx.db.get(fixture.generationId));
+      expect(retry?.postQaStatus).toBe("running");
+      expect(retry?.postQaStartedAt).toBeGreaterThan(fixture.now);
+      // A late failure from the old attempt cannot release the new retry lock.
+      await t.mutation(internal.generations.saveReportQa, {
+        generationId: fixture.generationId, attemptStartedAt: fixture.now,
+        capturedRef: input.capturedRef, failed: true,
+      });
+      expect(await t.run(ctx => ctx.db.get(fixture.generationId))).toEqual(retry);
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      const completed = await t.run(ctx => ctx.db.get(fixture.generationId));
+      expect(completed?.postQaStatus).toBe("done");
+      // Neither a duplicate old action nor its completion may overwrite success.
+      await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId, attemptStartedAt: fixture.now });
+      await t.mutation(internal.generations.saveReportQa, {
+        generationId: fixture.generationId, attemptStartedAt: fixture.now,
+        capturedRef: input.capturedRef, qa: JSON.stringify({ ...TEST_QA_SCORECARD, cra_compliance: { why_how_why_intact: false } }),
+      });
+      expect(await t.run(ctx => ctx.db.get(fixture.generationId))).toEqual(completed);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("settles empty QA input and recovers after content is restored", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
+      await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
+      const report = await t.run(ctx => ctx.db.query("reports").unique());
+      if (!report) throw new Error("Missing report");
+      await t.run(ctx => ctx.db.patch(report._id, { content: JSON.stringify({ type: "doc", content: [] }) }));
+      const fetch = successfulOpenRouterFetch([]);
+      vi.stubGlobal("fetch", fetch);
+      await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId, attemptStartedAt: fixture.now });
+      expect(fetch).not.toHaveBeenCalled();
+      expect((await t.run(ctx => ctx.db.get(fixture.generationId)))?.postQaStatus).toBe("failed");
+      await t.withIdentity({ subject: AUTH_ID }).mutation(api.reports.updateReportContent, {
+        reportId: report._id, content: "Restored prose", expectedRevisionNumber: 0,
+      });
+      await t.withIdentity({ subject: AUTH_ID }).mutation(api.generations.requestReportQa, { generationId: fixture.generationId });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      expect((await t.run(ctx => ctx.db.get(fixture.generationId)))?.postQaStatus).toBe("done");
+      expect(fetch).toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("iterative QA captures all current sections instead of frozen approved runs", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
+    const content = JSON.stringify(buildTiptapDocument("Current report", "Current uncertainty", "Current investigation", "Current advancement"));
+    const reportId = await t.run(async ctx => {
+      await ctx.db.patch(fixture.generationId, { candidateMode: "iterative" });
+      for (const kind of ["analysis", "brain_blocks"] as const) {
+        await ctx.db.insert("generationArtifacts", { generationId: fixture.generationId, kind, content: JSON.stringify(kind === "analysis" ? TEST_ANALYSIS : { styleOverrides: NO_STYLE_OVERRIDES }) });
+      }
+      for (const section of ["s242", "s244", "s246"] as const) {
+        await ctx.db.insert("generationSectionRuns", {
+          generationId: fixture.generationId, projectId: fixture.projectId, section,
+          status: "approved", approvedText: `Frozen approved ${section}`,
+          model: "openai/gpt-5.6-luna", label: "Luna", attempt: 1, queuedAt: fixture.now,
+        });
+      }
+      const report = await ctx.db.query("reports").unique();
+      if (!report) throw new Error("Missing report");
+      await ctx.db.patch(report._id, { content, revisionNumber: 3 });
+      return report._id;
+    });
+    const input = await t.query(internal.generations.getPostQaInput, { generationId: fixture.generationId });
+    expect(input?.section242.trim()).toBe("Current uncertainty");
+    expect(input?.section244.trim()).toBe("Current investigation");
+    expect(input?.section246.trim()).toBe("Current advancement");
+    expect(input?.capturedRef).toEqual({ reportId, revisionNumber: 3, contentHash: await sha256(content) });
+  });
+
+  it("post-QA provider methodology failures persist and block current readiness and publishing", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
+    await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
+    vi.stubGlobal("fetch", successfulOpenRouterFetch([], { why_how_why_intact: false }));
+    await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId });
+    const report = await t.run(ctx => ctx.db.query("reports").unique());
+    if (!report) throw new Error("Missing report");
+    const findings = await t.run(ctx => ctx.db.query("qaFindings").collect());
+    expect(findings).toEqual(expect.arrayContaining([expect.objectContaining({ reportId: report._id, revisionNumber: 0, contentHash: await sha256(report.content), check: "cra_methodology", blocking: true })]));
+    const actor = t.withIdentity({ subject: AUTH_ID });
+    const readiness = await actor.query(api.projects.getProjectReadiness, { projectId: fixture.projectId, reportId: report._id });
+    expect(readiness?.blockers.map(row => row.code)).toContain("QA_BLOCKING");
+    await expect(actor.mutation(api.projects.publishForReview, { projectId: fixture.projectId, reportId: report._id })).rejects.toMatchObject({ data: { code: "QA_BLOCKING" } });
   });
 
   it("fetches but omits a selected blank post-QA digest through the real provider path", async () => {
@@ -1923,7 +2043,7 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
           status: section === "s246" ? "awaiting_review" : "approved",
           ...(section === "s246"
             ? { draftText: "Drafted 246" }
-            : { approvedText: `Approved ${section}` }),
+            : { approvedText: section === "s242" ? "It was uncertain whether this scales." : `Approved ${section}` }),
           model: "claude-sonnet-5",
           label: "Sonnet 5",
           attempt: 1,
@@ -1968,6 +2088,8 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
       sourceTranscriptId: transcriptIds[0],
       sourceTranscriptIds: transcriptIds,
     });
+    if (!written.report) throw new Error("Missing iterative report");
+    expect(await t.run(ctx => ctx.db.query("qaFindings").collect())).toEqual(expect.arrayContaining([expect.objectContaining({ reportId: written.report._id, revisionNumber: 0, contentHash: await sha256(written.report.content), section: "s242", check: "because_clause", blocking: true })]));
     expect(written.snapshots).toHaveLength(2);
     for (const snapshot of written.snapshots) {
       expect(snapshot).toMatchObject({

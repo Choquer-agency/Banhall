@@ -1,3 +1,4 @@
+import { persistDeterministicFindings } from "./lib/qaFindings";
 import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -67,6 +68,7 @@ export const updateReportContent = mutation({
       provenanceId: undefined,
       updatedAt: Date.now(),
     });
+    await persistDeterministicFindings(ctx, args.reportId);
     return revisionNumber + 1;
   },
 });

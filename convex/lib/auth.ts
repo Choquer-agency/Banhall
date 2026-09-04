@@ -1,3 +1,4 @@
+import { hasBlockingQa } from "./qaFindings";
 import type { QueryCtx, MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
@@ -135,6 +136,10 @@ export async function getFilingReadiness(
   const blockers: FilingReadiness["blockers"] = [];
   const add = (code: FilingBlockerCode, message: string, claimId?: string) =>
     blockers.push({ code, message, ...(claimId ? { claimId } : {}) });
+
+  if (report && await hasBlockingQa(ctx, report)) {
+    add("QA_BLOCKING", "Current report has unresolved substantive QA findings");
+  }
 
   const evidence = await ctx.db
     .query("projectIdentityEvidence")
