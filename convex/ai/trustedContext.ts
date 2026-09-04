@@ -186,7 +186,12 @@ export const DEFAULT_CONTEXT_BUDGET: ContextBudget = {
 };
 
 export interface TrustedContextSource {
-  kind: "transcript" | "document";
+  /**
+   * Which slot of the assembled message this source occupied. The analyzer
+   * only ever produces `transcript` and `document`; the chat evidence builder
+   * (`convex/ai/chatEvidence.ts`) reuses this row shape for its own slots.
+   */
+  kind: "transcript" | "document" | "report" | "analysis" | "decisions";
   sourceId?: Id<"generationSources">;
   label: string;
   trust: TrustLevel;
@@ -197,11 +202,19 @@ export interface TrustedContextSource {
   truncated: boolean;
 }
 
-export interface TrustedContextReport {
-  budget: ContextBudget;
+/**
+ * Report shape parameterized by the budget that produced it. The analyzer uses
+ * `ContextBudget`; chat evidence uses its own budget with the same source rows
+ * and the same arithmetic, so everything that only reads `totalTokens` (e.g.
+ * `describeContextCuts`) works for both without a second implementation.
+ */
+export interface TrustedContextReportOf<B extends { totalTokens: number }> {
+  budget: B;
   includedTokens: number;
   sources: TrustedContextSource[];
 }
+
+export type TrustedContextReport = TrustedContextReportOf<ContextBudget>;
 
 export interface TrustedTranscriptPart {
   label: string;
@@ -258,7 +271,7 @@ export function sanitizeFileName(fileName: string): string {
  * Cut to at most `limit` UTF-16 code units without splitting a surrogate pair
  * — a lone surrogate would travel to the provider as invalid JSON text.
  */
-function cutToBudget(text: string, limit: number): string {
+export function cutToBudget(text: string, limit: number): string {
   if (text.length <= limit) return text;
   const code = text.charCodeAt(limit - 1);
   const splitsPair = code >= 0xd800 && code <= 0xdbff;
@@ -274,13 +287,19 @@ function formatCount(n: number): string {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-function truncationNotice(omitted: number, original: number): string {
+export function truncationNotice(omitted: number, original: number): string {
   return `[TRUNCATED: ${formatCount(omitted)} of ${formatCount(
     original
   )} characters omitted to fit the context budget.]`;
 }
 
-function omittedMaterialsNotice(count: number): string {
+/**
+ * Every attached document was dropped by the budget. Says so in the message
+ * rather than letting the materials silently disappear: an absent block reads
+ * to the model as "not provided", which is exactly the state that invites a
+ * fabricated gap. Shared with `./chatEvidence`.
+ */
+export function omittedMaterialsNotice(count: number): string {
   return `[All ${formatCount(count)} attached document(s) were omitted to fit the context budget.]`;
 }
 
@@ -491,9 +510,18 @@ export function buildTrustedContext(input: TrustedContextInput): {
  * material never reached the model: a gap in the report caused by the budget
  * would otherwise look like a gap in the interview.
  */
-export function describeContextCuts(report: TrustedContextReport): string | null {
+export function describeContextCuts(report: {
+  budget: { totalTokens: number };
+  sources: TrustedContextSource[];
+}): string | null {
   const truncated = report.sources.filter((source) => source.included && source.truncated);
-  const dropped = report.sources.filter((source) => !source.included);
+  // A source that carried no text was never cut by the budget: an
+  // extraction that produced nothing (`reference_only`, `could_not_read`)
+  // is a document-intake fact, not a context cut, so it must not read as
+  // "left out" in the log on every turn.
+  const dropped = report.sources.filter(
+    (source) => !source.included && source.originalLength > 0
+  );
   if (!truncated.length && !dropped.length) return null;
   // Labels are client file names: fold line breaks so the sentence stays one
   // progress-log line.

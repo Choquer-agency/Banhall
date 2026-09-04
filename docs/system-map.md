@@ -279,7 +279,7 @@ sequenceDiagram
   A->>M: markTurnStarted (queued to running)
   A->>M: getChatContextV2 + writerProfiles
   A->>M: isTurnActive?
-  A->>C: streamText(system=prompt+grounding, tools, recentMessages 30)
+  A->>C: streamText(system=policy+writer style, messages=[evidence user msg], tools, recentMessages 30)
   C-->>W: listMessages/syncStreams deltas
   C->>T: tool call proposeEdit(targetText,newText)
   T->>S: runMutation(saveProposal)
@@ -374,7 +374,7 @@ Read the solid arrows: the loop from writer signal to digest to prompt is live a
 | Every model call is metered and attributed | Yes | AD-9 |
 | Style rules are tiered so CRA limits cannot be waived | Yes | AD-16 |
 | Learning is measurable (does the Brain or a digest reduce editing?) | No: write-only signals | AD-12 |
-| Client text cannot steer the model (trust boundary) | Partial: transcript unfenced, chat grounding in system prompt, trust by client-settable category | AD-11, AD-11a |
+| Client text cannot steer the model (trust boundary) | Partial: transcript fenced (CAP-2), trust from uploader role (CAP-3), chat evidence in a delimited user message (CAP-4); remaining CAP items open | AD-11, AD-11a |
 | Client identities are stripped before firm-wide knowledge | No | AD-13 |
 | Deleting a project erases its data | No: 8 of 49 tables, no blobs | AD-19 |
 | Egress to AI providers is registered and class-gated | No register; OpenRouter has no `data_collection: deny` | AD-20, AD-21 |
@@ -389,7 +389,7 @@ Summary: the workflow, provenance, and human-gating foundations are real and tes
 | # | Divergence | Why it matters |
 | --- | --- | --- |
 | 1 | `ready_for_delivery` and `delivered` fail closed | No project can be finished (Q1, product blocker) |
-| 9 | Transcript unfenced; chat grounding in system prompt; writer's notes may "govern how you work" via a client-settable category | Prompt injection channel; AD-11a is the cheap interim fix |
+| 9 | Transcript fencing, uploader-role trust and the chat evidence boundary landed (CAP-2, CAP-3, CAP-4); the rest of AD-11 is open | Prompt injection channel narrowed; remaining CAP items are the follow-up |
 | 11 | Verbatim client text and titles enter digests and the Brain | Client A's sentences and name can surface in client B's draft |
 | 12 | `brainProvenance` and post-edit distance are write-only | Cannot prove learning works or roll back a bad digest on evidence |
 | 39 | ~50 writes (delete document and blob, delete comment, research egress, chat spend, identity fields) need only "any role" | Any invited writer can act destructively on any client's project with no trail |
@@ -425,7 +425,7 @@ svelte 5.56.6, @sveltejs/kit 2.70.1, vite 8.1.5, tailwindcss 4.3.3, bits-ui 2.18
 ## 16. Where to go next
 
 1. Owner decisions taken 2026-09-04 (Q1, Q5, Q10, Q12, Q13, Q14). Still owner-level: Q2, Q3, Q6, Q11, and the Q12 threshold number.
-2. Ship AD-11a now (four small changes: fence the transcript, demote writer's notes to facts and framing, move chat grounding to a user message, one injection fixture).
+2. AD-11a shipped (transcript fenced, writer's notes demoted, chat grounding moved to a user message, injection fixtures); continue with the remaining AD-11 CAP items.
 3. Run the two Sprint 2 specs (`spec-ai-engine-sprint-2-boundary`, `spec-ai-engine-sprint-2-learn-chat`) through sprint planning; they build AD-11, AD-12, AD-13.
 4. New stories not in either spec: AD-19 erasure cascade, `reportBranches` + `productionOutcomes` (Q1), Owner-or-Admin interim gate (Q10), in-app alerts (Q12, Q13), CI codegen diff and build (AD-22).
 5. NFR evidence audit (`bmad-testarch-nfr`) once AD-11a and AD-19 land.

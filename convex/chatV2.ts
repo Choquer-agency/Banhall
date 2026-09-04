@@ -33,6 +33,7 @@ import { getEffectiveWriterStyle } from "./writerProfiles";
 import { domainError, sha256 } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { proposalPairs } from "../shared/chatProposals";
+import { chatEvidenceBudget } from "./appSettings";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -1010,8 +1011,19 @@ export const getChatContextV2 = internalQuery({
       agentOutputs: generation?.agentOutputs ?? null,
       documents: documents
         .filter((d) => !d.archived) // BNH-24: archived docs are out of AI context
-        .map((d) => ({ fileName: d.fileName, content: d.content })),
+        // CAP-3/CAP-4: provenance travels with the document. Trust and the
+        // marker label are derived from stored facts, so the action never
+        // invents them; absent fields fail closed in `chatEvidence`.
+        .map((d) => ({
+          fileName: d.fileName,
+          content: d.content,
+          ...(d.category ? { category: d.category } : {}),
+          ...(d.uploaderRole ? { uploaderRole: d.uploaderRole } : {}),
+        })),
       decisions,
+      // Resolved in the query, exactly as `getGenerationInput` resolves the
+      // analyzer's: the action sends context, it does not decide policy.
+      evidenceBudget: await chatEvidenceBudget(ctx),
     };
   },
 });

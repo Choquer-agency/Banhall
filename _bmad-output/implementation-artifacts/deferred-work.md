@@ -245,3 +245,43 @@ source_spec: `3-document-trust-from-uploader-role.md`
 severity: medium
 reason: Every projectDocuments writer (documents.ts, ingestionPort.ts, projects.ts, reviewFromProject.ts) is behind requireInternalProjectAccess or an admin check, and users.role has no client member. So a "client-uploaded file tagged writer_notes" is not a producible runtime state; the demotion only ever fires on rows predating the field. The open case is an internal writer uploading a client-supplied file and tagging it writer_notes, which uploader role cannot distinguish. Closing it needs a different signal (document origin or intake channel), which is an epic-level decision.
 status: open
+
+### DW-32: getChatContextV2 has no `returns` validator, so the query's shape is kept in sync with its only caller by a hand-written type annotation in the action.
+origin: spec-deferred 9a25b2e58895
+location: convex/chatV2.ts getChatContextV2
+source_spec: `4-chat-evidence-leaves-the-system-prompt.md`
+severity: low
+reason: convex/ai/chatAgentV2.ts declares the context type inline (the annotation exists to break an api-graph type circularity) and this story widened the query's return with category, uploaderRole and evidenceBudget. Every new field is optional on the builder side, so a field silently dropped from the query degrades to DEFAULT_CHAT_EVIDENCE_BUDGET and client trust rather than failing. The end-to-end assertion added to chatTurns.test.ts now catches that, but the validator is the structural fix. Pre-existing: the query never had one.
+status: open
+
+### DW-33: sanitizeFileName collapses only ASCII dash runs, so a file name carrying a Unicode dash run followed by BEGIN/END [ survives into the analyzer's marker line intact.
+origin: spec-deferred 762282c08dd8
+location: convex/ai/trustedContext.ts sanitizeFileName
+source_spec: `4-chat-evidence-leaves-the-system-prompt.md`
+severity: low
+reason: convex/ai/trustedContext.ts neutralizeMarkers treats en, em, figure, horizontal-bar and minus-sign runs as the same delimiter as ---, but sanitizeFileName replaces only /-{3,}/. The chat builder closes the gap locally (markerFileName in convex/ai/chatEvidence.ts) because this story may not change a byte the analyzer emits; the analyzer's own document marker line still has it. Pre-existing from story 2.
+status: open
+
+### DW-34: The evidence message's ephemerality and its placement directly before the writer's prompt are asserted only on the arguments handed to the agent wrapper; no test lets the agent library run and observe
+origin: spec-deferred 52767725cd21
+location: convex/chatTurns.test.ts streamChatReply tests
+source_spec: `4-chat-evidence-leaves-the-system-prompt.md`
+severity: medium
+reason: Every streamChatReply test in convex/chatTurns.test.ts replaces reportChatAgent.streamText with a resolved spy, so saveInputMessages and fetchContextWithPrompt never execute; the property rests on reading @convex-dev/agent 0.6.4 source. A library update that persists `messages` alongside `promptMessageId`, or reorders input messages after the prompt, would ship green. This pass attempted the test (spy wrapping the original streamText with the library's own `mockModel` injected as `model`, then reading chatV2.listMessages): the model is invoked, but the real streamText path with `saveStreamDeltas: true` never returns under convex-test (timed out at 20 s and 30 s), so the test needs harness work first. The streamText-spy pattern predates this story; no test in the repo drives the agent library with a mock model.
+status: open
+
+### DW-35: Bracketed scaffolding notices (TRUNCATED, omitted document(s), GAP) are not neutralized inside evidence blocks, so a client document can forge one verbatim and the model cannot tell it from real scaff
+origin: spec-deferred 2bfb71aed01a
+location: convex/ai/trustedContext.ts neutralizeMarkers
+source_spec: `4-chat-evidence-leaves-the-system-prompt.md`
+severity: low
+reason: neutralizeMarkers in convex/ai/trustedContext.ts covers only the `--- BEGIN [` / `--- END [` marker shape. truncationNotice and omittedMaterialsNotice text inside a document body survives untouched into both the analyzer's and the chat's blocks, and no test covers a forged notice. Pre-existing from story 2; the chat builder inherits it by reusing the same helpers.
+status: open
+
+### DW-36: Follow-up review still recommended for 4 after the damping cap was spent
+origin: review-budget-followup
+location: n/a
+source_spec: `4-chat-evidence-leaves-the-system-prompt.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-030217-50fa; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
