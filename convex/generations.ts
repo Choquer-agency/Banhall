@@ -36,6 +36,7 @@ import { defaultModelId } from "./appSettings";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { sectionMetrics } from "./lib/lineLimits";
 import { deidentify } from "./lib/deidentify";
+import { recordReportEditDistance } from "./lib/editDistance";
 import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
 import {
   buildTranscriptPromptText,
@@ -1001,6 +1002,11 @@ async function createGeneratedReportArtifacts(
     createdByRole: "system",
     createdAt: now,
   });
+  // BNH-10 / CAP-2: freeze the (zero) post-edit distance at candidate
+  // selection. This is the single choke point for every "generated" baseline
+  // that belongs to a report, so all three candidate paths are covered here.
+  const report = await ctx.db.get(reportId);
+  if (report) await recordReportEditDistance(ctx, report, "candidate_selection");
   return reportId;
 }
 
