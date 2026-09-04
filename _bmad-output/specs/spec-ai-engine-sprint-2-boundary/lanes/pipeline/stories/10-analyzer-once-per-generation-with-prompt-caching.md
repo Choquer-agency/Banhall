@@ -2,10 +2,10 @@
 title: 'Analyzer once per generation with prompt caching'
 type: 'feature'
 created: '2026-09-04'
-status: ready-for-dev
-baseline_revision: 'f122b086d745acc40b4decca26b9aaafc7257f6a'
+status: blocked
+baseline_revision: 'ffd761de7d7fe59e4f111d374f663775d68dfb0d'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - convex/_generated/ai/guidelines.md
   - .factory/AGENTS.factory.md
@@ -114,6 +114,26 @@ The intent auditor confirmed that CAP-10's explicit compare and cache-marker con
 
 Four independent review layers found no material intent divergence. The existing action-deadline concern was recognized without reopening or editing its deferred entry. Additional suggested coverage and live cache-hit proof did not establish another defect in the explicit action/SDK-boundary contract. No new deferred items were added. Existing deferred-work ledger edits belong to the orchestrator and remain untouched.
 
+### 2026-09-04: Rearmed verification review
+- intent_gap: 0
+- bad_spec: 0
+- patch: 10: (high 0, medium 0, low 10)
+- defer: 0
+- reject: 0
+- addressed_findings:
+  - `[low]` `[patch]` Retain ignored verification logs in the reviewed artifact and final commit.
+  - `[low]` `[patch]` Rerun the unmodified default gate to distinguish it from the serial verification command.
+  - `[low]` `[patch]` Describe machine contention as suspected and avoid attributing success to one of multiple runner adjustments.
+  - `[low]` `[patch]` Preserve installation output and correct its evidence pointer.
+  - `[low]` `[patch]` Distinguish ancestor dependency provenance and rerun focused proof locally.
+  - `[low]` `[patch]` Add source references for the independent implementation inspection.
+  - `[low]` `[patch]` Include concise command output tails.
+  - `[low]` `[patch]` Distinguish reproduction, implementation and verification revisions.
+  - `[low]` `[patch]` Explain resolution of the prior dirty-tree block at the current clean baseline.
+  - `[low]` `[patch]` Identify the unrelated 100 ms timing assertion precisely.
+
+Four review layers found no runtime gap. Twelve documentation suggestions were deduplicated into ten low-severity corrections. No implementation or test edits were needed; existing deferred entries remain unchanged.
+
 ## Design Notes
 
 Pass serialized analysis in an optional internal action argument to avoid a new database query surface and retain old queued payloads. Parse using the analyzer's runtime contract. The normal fanout never invokes the fallback. One analyzer run means one logical invocation; existing structured-output repair and SDK retry behavior remains in place on malformed responses or transport errors.
@@ -125,3 +145,22 @@ Pass serialized analysis in an optional internal action argument to avoid a new 
 - `PUBLIC_CONVEX_URL=http://localhost npm run check`
 - `git diff --check`
 
+
+## Auto Run Result
+
+Status: blocked
+Blocking condition: patch verification failed. The unmodified `npm test` gate repeatedly times out in unrelated chat-context and form-control source-contract tests on this host.
+
+The existing implementation already mirrors iterative generation: analyze once, persist the analysis before fanout, pass validated analysis to both candidates, and mark generation-owned Anthropic prefixes for caching. No runtime or test changes were required in this run.
+
+Files changed:
+- This story: current baseline, review triage, follow-up flag and blocked verification result.
+- `.audit/CAP-10/evidence.md`: source inspection, revision provenance, matrix mapping and fresh gate results.
+- `.audit/CAP-10/decisions.tsv`: append-only inspection and verification decisions.
+- `.audit/CAP-10/rearm-*.log`: retained installation, failing attempts and passing command output.
+
+Review: 10 low documentation/evidence patches applied, 0 medium, 0 high; 0 new deferred items and 0 rejected items after deduplication. Follow-up review recommended: true (score 10 under the workflow formula). Four layers identified no runtime gap.
+
+Verification: local focused suite passed 27 tests; serial full suite passed all 1376 tests in 128 files with `npm test -- --maxWorkers=1 --testTimeout=30000`; type check passed with zero errors and warnings. Latest unmodified `npm test` passed 1374 tests and timed out in 2. The redundant post-documentation type check was stopped after that failure. Diff whitespace verification passed.
+
+The six matrix cases are covered by executed tests. The existing action-chain deadline risk remains deferred; live provider cache hits are not claimed. See [verification evidence](../../../../../../.audit/CAP-10/evidence.md) for exact revisions, commands and output tails. No push, PR or deployment was performed.

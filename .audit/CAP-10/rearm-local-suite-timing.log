@@ -1,0 +1,29 @@
+
+> banhall-app@0.1.0 test
+> vitest run --maxWorkers=2 --testTimeout=30000
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10
+
+ ❯ |shared| shared/humanProse.test.ts (10 tests | 1 failed) 203ms
+     × stays linear on long input 130ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |shared| shared/humanProse.test.ts > findDashConnectors > stays linear on long input
+AssertionError: expected 110.55341699999997 to be less than 100
+ ❯ shared/humanProse.test.ts:58:36
+     56|     const t0 = performance.now();
+     57|     findDashConnectors(long);
+     58|     expect(performance.now() - t0).toBeLessThan(100);
+       |                                    ^
+     59|   });
+     60| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 127 passed (128)
+      Tests  1 failed | 1375 passed (1376)
+   Start at  13:19:39
+   Duration  164.78s (transform 80.29s, setup 0ms, import 113.99s, tests 103.63s, environment 23.71s)
