@@ -1,0 +1,8 @@
+
+> banhall-app@0.1.0 check
+> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
+
+Loading svelte-check in workspace: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-qa/.bmad-loop/runs/20260904-121607-3217/worktrees/8
+Getting Svelte diagnostics...
+
+svelte-check found 0 errors and 0 warnings

@@ -306,3 +306,50 @@ test("legacy heading-like body sentences cannot hide uncertainty", async () => {
   const f = await setup("Line 242: Uncertainty\nLine 244 — It was uncertain whether the alloy holds.\nLine 244: Work\nTests.");
   await expectBlocked(f);
 });
+
+
+test.each(["legacy label", "rich heading", "split code block"])("%s retains substantive uncertainty at both gates", async variant => {
+  const doc = buildTiptapDocument("Title", "", "Work.", "Knowledge.");
+  doc.content.splice(2, 0, variant === "rich heading"
+    ? { type: "heading", content: [{ type: "text", text: "Line 244: " + FAILURE }] }
+    : { type: "codeBlock", content: [{ type: "text", text: "It was " }, { type: "text", text: "uncertain whether the alloy holds." }] });
+  const content = variant === "legacy label"
+    ? "Line 242: Uncertainty\nLine 244: It was uncertain whether the alloy holds\nLine 244: Work\nTests."
+    : JSON.stringify(doc);
+  const f = await setup(content);
+  await expectBlocked(f);
+  await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
+  expect((await rows(f)).some(row => row.check === "because_clause" && row.blocking)).toBe(true);
+});
+
+
+test("punctuated legacy work headings keep work prose outside the uncertainty gate", async () => {
+  const f = await setup("Line 242: Uncertainty\n" + FIXED + "\nLine 244: Work performed.\n" + FAILURE);
+  expect((await readiness(f)).blockers.map(b => b.code)).not.toContain("QA_BLOCKING");
+  await f.actor.mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: f.reportId });
+});
+
+test("selecting a candidate rejects invalid stored scorecards as blocking evidence", async () => {
+  const f = await setup();
+  const candidateId = await f.t.run(async ctx => {
+    await ctx.db.delete(f.reportId);
+    await ctx.db.patch(f.generationId, { status: "awaiting_selection", candidateMode: "compare" });
+    return ctx.db.insert("reportCandidates", {
+      generationId: f.generationId, projectId: f.projectId, model: "test-model", label: "A",
+      content: contentFor(FIXED), createdAt: 1,
+      agentOutputs: JSON.stringify({ qa: { overall_score: "high", cra_compliance: { why_how_why_intact: false } } }),
+    });
+  });
+  await f.actor.mutation(api.generations.selectReportCandidate, { generationId: f.generationId, candidateId });
+  const report = await f.actor.query(api.reports.getLatestReport, { projectId: f.projectId });
+  if (!report) throw new Error("candidate produced no report");
+  const generated = { ...f, reportId: report._id };
+  expect((await rows(generated)).filter(row => row.check === "cra_methodology")).toEqual([]);
+  expect((await readiness(generated)).blockers.map(b => b.code)).not.toContain("QA_BLOCKING");
+  await f.actor.mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: report._id });
+});
+
+test("legacy punctuated cross-references do not move following uncertainty into work", async () => {
+  const f = await setup("Line 242: Uncertainty\nContext.\nLine 244: This work is discussed below.\n" + FAILURE + "\nLine 244: Work\nTests.");
+  await expectBlocked(f);
+});

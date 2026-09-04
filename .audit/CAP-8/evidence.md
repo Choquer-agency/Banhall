@@ -102,3 +102,34 @@ Tests  1408 passed (1408)
 The gate's first command, `npx tsc -p convex/tsconfig.json --noEmit`, passed silently under `set -e`. The source was committed unchanged after this gate. `git diff --check` passed, and baseline-to-current `src/` and generated Convex files remained unchanged.
 
 The existing BMAD-engine ledger append is committed only as operator-authorized bookkeeping. Its entry and final content digest is SHA-256 `4bb7eaacb7e1d45159335c8fc89e0eb9e7dfee8f5f9768d12e012c607bc663d5`. No entry text, status or resolution was edited. Existing story deferrals were preserved and no new items were added.
+
+
+## Second fresh review verification (2026-09-04)
+
+Entry revision: `4403c6232e0e8c528644cd272e89ffa942c1162e`.
+
+| Acceptance or review behavior | Runtime evidence |
+|---|---|
+| Legacy labels and rich-text subtitles retain recognized uncertainty | `convex/qaBlocking.test.ts`: parameterized substantive uncertainty case, legacy label and rich heading variants |
+| Code-block inline fragments preserve recognized uncertainty | Same parameterized case, split code block variant |
+| Punctuated work labels do not produce false blockers | `convex/qaBlocking.test.ts`: punctuated legacy work heading case |
+| Cross-reference sentences do not create section boundaries | `convex/qaBlocking.test.ts`: legacy punctuated cross-reference case |
+| Invalid stored scorecards cannot create methodology blockers | `convex/qaBlocking.test.ts`: candidate selection through persistence, readiness, and successful publish |
+
+Before repair, the three hidden-uncertainty cases failed because readiness lacked `QA_BLOCKING`, and the punctuated work-label case failed because readiness incorrectly included it. Logs: `second-review-before.log`, `second-review-before-extra.log`. The invalid-scorecard case passed before repair and guards existing validation. A follow-up inspection reproduced a cross-reference regression in the initial repair; `second-review-crossref-before.log` records its failure before the correction.
+
+The final focused command, `npx vitest run convex/ai/qaChecks.test.ts convex/projects.test.ts convex/qaBlocking.test.ts convex/lib/tiptapReport.test.ts`, passed 152 tests in four files. Output: `second-review-focused.log`.
+
+Existing deferred-work ledger bytes and the existing story deferral are preserved. No frontend or generated Convex files changed relative to the story baseline. The initial parallel broad checks were stopped after source repairs so final validation could use the settled source; they are not counted as passing evidence.
+
+Final full gate: `bash scripts/loop-verify.sh`, exit 0. Output: `second-review-gate.log`.
+
+```text
+svelte-check found 0 errors and 0 warnings
+Test Files  129 passed (129)
+Tests  1414 passed (1414)
+50 passed, 0 failed
+18 passed, 0 failed
+```
+
+The final cross-reference repair landed before the full suite ran. Both type checks were subsequently repeated against the settled source: `npx tsc -p convex/tsconfig.json --noEmit` exited 0; `PUBLIC_CONVEX_URL=placeholder npm run check` exited 0 with no errors or warnings. Output: `second-review-final-check.log`; Convex TypeScript passed silently. `git diff --check` passed, the baseline-relative frontend/generated diff was empty, and exact comparison confirmed no change to either the deferred-work ledger or the existing story deferral.

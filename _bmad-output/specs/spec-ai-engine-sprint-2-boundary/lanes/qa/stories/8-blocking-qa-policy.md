@@ -136,6 +136,21 @@ Review interpretation: CAP-8 explicitly scopes stored blockers to the current re
 
 The intent audit confirms the exact-evidence interpretation already recorded above: changed content receives deterministic reevaluation without requiring a fresh AI assessment; identical content cannot waive an established methodology failure. No existing deferred item or ledger status is changed.
 
+
+### 2026-09-04: Second fresh review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 2, medium 2, low 0)
+- defer: 0
+- reject: 7: (high 0, medium 7, low 0)
+- addressed_findings:
+  - `[high]` `[patch]` Section labels could consume recognized uncertainty prose, including unpunctuated legacy labels and rich-text subtitles. Reuse the existing detector to preserve these statements as body prose.
+  - `[high]` `[patch]` Split text nodes in code blocks broke uncertainty markers. Preserve inline cohesion for supported code blocks.
+  - `[medium]` `[patch]` Punctuated legacy work labels were not recognized and incorrectly exposed section 244 prose to section 242 QA. Accept punctuation on established legacy labels while retaining substantive prose and cross-reference sentences.
+  - `[medium]` `[patch]` Add candidate-selection coverage proving invalid stored scorecards cannot create methodology rows or block readiness and publishing.
+
+The existing exact-content interpretation and existing deferred entries remain unchanged. Four gate failures were reproduced on the entry source before extraction repairs; a cross-reference regression in the initial repair was also reproduced and fixed. The invalid-scorecard case already passed and now guards that accepted behavior.
+
 ## Design Notes
 
 Known methodology failures are carried to a new revision only when the same report has exactly the same content hash; this prevents no-op saves and restores from acting as waivers. Section identity participates in finding deduplication.
@@ -151,32 +166,24 @@ An open row is evidence of an unresolved failure for its exact content revision.
 - `npx tsc -p convex/tsconfig.json --noEmit`: no errors.
 - `git diff --name-only -- src/`: empty.
 
-
 ## Auto Run Result
 
-Status: done.
+Status: done
 
-The fresh review hardens section extraction, settles obsolete QA attempts without misattribution, and removes findings belonging to deleted reports in bounded batches. All original blocking-policy behavior remains in place.
+The current-report QA gate retains the absolute because/methodology policy. This review repaired section extraction so recognized uncertainty cannot disappear inside heading labels or split code-block text, and punctuated legacy work labels remain separate from uncertainty without treating cross-reference sentences as boundaries. Candidate-selection coverage proves invalid stored scorecards do not become blocking methodology evidence.
 
 Files changed in this pass:
-- `convex/lib/tiptapReport.ts`: preserve section boundaries through nested nodes, changed headings and whitespace-only paragraph separators; retain conservative legacy heading detection.
-- `convex/ai/postQa.ts`, `convex/generations.ts`: capture attempt identity, fence completion and release only the obsolete attempt's retry lock.
-- `convex/projects.ts`, `convex/schema.ts`: schedule bounded orphan cleanup and remove an unused index.
-- `convex/qaBlocking.test.ts`, `convex/lib/tiptapReport.test.ts`: regressions for extraction and readiness/publish gates.
-- `convex/generationAttribution.test.ts`: real action/retry lifecycle and iterative current-content attribution coverage.
-- `convex/qaFindingsCleanup.test.ts`: deletion, authorization, continuation and isolation coverage.
-- `.audit/CAP-8/`: review decisions and observed command evidence.
+- `convex/lib/tiptapReport.ts`: preserve recognized statements and code-block inline text; distinguish established punctuated legacy labels from prose.
+- `convex/qaBlocking.test.ts`: six runtime regression cases exercise persistence, readiness, publishing, and candidate selection.
+- `.audit/CAP-8/decisions.tsv`, `.audit/CAP-8/evidence.md`, and second-review logs: append decisions, before/after failures, and verification evidence.
+- This story spec: record triage and completed verification.
 
-Review findings: eight patches (three high, four medium, one low); zero new deferrals; six rejected findings. Follow-up review recommended: true. Weighted medium/low score: 13; high-severity fixes independently warrant follow-up review.
+Review: 4 patches (2 high, 2 medium, 0 low); 0 new deferrals; 7 rejected findings. Follow-up review recommended: true, because high findings were patched; weighted medium/low score is 6. Existing ledger entries and the existing story deferral were preserved exactly.
 
-Existing deferred entries and their status were preserved. The pre-existing orchestrator ledger change was retained byte-for-byte, with SHA-256 `4bb7eaacb7e1d45159335c8fc89e0eb9e7dfee8f5f9768d12e012c607bc663d5`.
+Verification:
+- Focused QA, projects, and extraction suites: 152 tests passed in four files.
+- `bash scripts/loop-verify.sh`: exit 0; 129 test files and 1,414 tests passed; both type checks passed; PowerShell 50/50 and Bash 18/18 harness cases passed.
+- Repeated against final source: `npx tsc -p convex/tsconfig.json --noEmit` exited 0; `PUBLIC_CONVEX_URL=placeholder npm run check` exited 0 with no errors or warnings.
+- `git diff --check`: passed; no baseline-relative frontend or generated Convex changes.
 
-Residual risks: the existing sentence-level detector limitation remains as already recorded. Changed-byte reports receive deterministic reevaluation without mandatory AI reassessment, per the original contract. Deleted-report finding cleanup is asynchronous and runs in bounded transactions.
-
-
-Verification completed on source commit `5b2bed6a0f129af3c9799f8bc80e0fa3ec1e3a01`:
-- `bash scripts/loop-verify.sh`: exit 0; Convex TypeScript passed, Svelte reported zero errors/warnings, 129 test files and 1,408 tests passed, uploader harnesses passed 50 PowerShell and 18 Bash cases.
-- Focused QA/parser run: 146 tests passed. Focused cleanup run: 120 tests passed. Lifecycle/attribution/recovery run: 84 tests passed.
-- `git diff --check`: passed. Baseline-to-current `src/` and `convex/_generated/` diff: empty.
-- Ledger SHA-256 verified unchanged before final bookkeeping commit. The operator explicitly authorized committing the unchanged engine append.
-- Retained evidence: `.audit/CAP-8/followup-gate.log`, `.audit/CAP-8/followup-regressions.log`, `.audit/CAP-8/evidence.md`.
+Residual limits: the existing sentence-level uncertainty detector and exact-content methodology evidence policy remain as specified. No new linguistic classifier or fresh-AI-pass requirement was introduced.

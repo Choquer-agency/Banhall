@@ -1,0 +1,26 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-qa/.bmad-loop/runs/20260904-121607-3217/worktrees/8
+
+ ❯ |convex| convex/qaBlocking.test.ts (37 tests | 1 failed | 35 skipped) 8676ms
+   × punctuated legacy work headings keep work prose outside the uncertainty gate 5147ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > punctuated legacy work headings keep work prose outside the uncertainty gate
+AssertionError: expected [ 'QA_BLOCKING', …(3) ] to not include 'QA_BLOCKING'
+ ❯ convex/qaBlocking.test.ts:328:62
+    326| test("punctuated legacy work headings keep work prose outside the unce…
+    327|   const f = await setup("Line 242: Uncertainty\n" + FIXED + "\nLine 24…
+    328|   expect((await readiness(f)).blockers.map(b => b.code)).not.toContain…
+       |                                                              ^
+    329|   await f.actor.mutation(api.projects.publishForReview, { projectId: f…
+    330| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed | 35 skipped (37)
+   Start at  13:28:39
+   Duration  15.64s (transform 10.11s, setup 0ms, import 5.19s, tests 8.68s, environment 588ms)
+

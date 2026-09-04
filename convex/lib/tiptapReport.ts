@@ -1,3 +1,5 @@
+import { checkBecauseClauses } from "../ai/qaChecks";
+
 // Framework-free Tiptap report-document construction, shared by the node
 // generation pipeline (convex/ai/pipeline.ts) and the default-runtime
 // iterative-assembly mutations (convex/generations.ts). No "use node", no
@@ -110,17 +112,22 @@ export function extractReportSections(content: string): { s242: string; s244: st
     if ("text" in node && typeof node.text === "string") return node.text;
     if ("type" in node && node.type === "hardBreak") return "\n";
     if (!("content" in node) || !Array.isArray(node.content)) return "";
-    const inline = "type" in node && ["paragraph", "heading"].includes(String(node.type));
+    const inline = "type" in node && ["paragraph", "heading", "codeBlock"].includes(String(node.type));
     return node.content.map(nodeText).join(inline ? "" : "\n\n");
   }
   function sectionHeading(text: string, richText = false): Section | undefined {
-    // Rich text supplies a heading node. Plaintext needs a conservative label
-    // grammar so a heading-like body sentence cannot disappear from QA.
-    const pattern = richText
-      ? /^(?:#{1,6}\s*)?(?:Line|Section)\s+(242|244|246)(?:\s*[-—–:]\s*[^\n]*)?$/i
-      : /^(?:#{1,6}\s*)?(?:Line|Section)\s+(242|244|246)(?:\s*[-—–:]\s*[^.!?]*)?$/i;
+    // A section label must never consume a statement recognized by the QA
+    // detector, including labels with no terminal punctuation.
+    if (checkBecauseClauses(text).uncertaintyCount > 0) return undefined;
+    const pattern = /^(?:#{1,6}\s*)?(?:Line|Section)\s+(242|244|246)(?:\s*[-—–:]\s*([^\n]*))?$/i;
     const match = text.trim().match(pattern);
-    return match ? match[1] === "244" ? "s244" : match[1] === "246" ? "s246" : "s242" : undefined;
+    if (!match) return undefined;
+    // Plaintext has no node kind to distinguish a heading from a sentence.
+    // Permit punctuation only on known labels, not prose cross-references.
+    const label = match[2] ?? "";
+    if (!richText && /[.!?]/.test(label) &&
+      !/^(?:(?:Scientific\/)?Technological Uncertainty|Uncertainty|Work(?: Performed)?|(?:Scientific\/)?Technological Advancement|Advancement)[.!?]$/i.test(label)) return undefined;
+    return match[1] === "244" ? "s244" : match[1] === "246" ? "s246" : "s242";
   }
   let blocks: Block[] | undefined;
   try {
@@ -131,7 +138,7 @@ export function extractReportSections(content: string): { s242: string; s244: st
         const extracted: Block[] = [];
         function visit(node: unknown): void {
           if (!node || typeof node !== "object") return;
-          if ("type" in node && (node.type === "paragraph" || node.type === "heading")) {
+          if ("type" in node && (node.type === "paragraph" || node.type === "heading" || node.type === "codeBlock")) {
             extracted.push({ text: nodeText(node), heading: node.type === "heading", richText: true });
           } else if ("content" in node && Array.isArray(node.content)) {
             node.content.forEach(visit);

@@ -1,0 +1,31 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-qa/.bmad-loop/runs/20260904-121607-3217/worktrees/8
+
+ ❯ |convex| convex/qaBlocking.test.ts (35 tests | 3 failed | 32 skipped) 5869ms
+   × legacy label retains substantive uncertainty at both gates 5770ms
+   × rich heading retains substantive uncertainty at both gates 40ms
+   × split code block retains substantive uncertainty at both gates 38ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > legacy label retains substantive uncertainty at both gates
+ FAIL  |convex| convex/qaBlocking.test.ts > rich heading retains substantive uncertainty at both gates
+ FAIL  |convex| convex/qaBlocking.test.ts > split code block retains substantive uncertainty at both gates
+AssertionError: expected [ 'IDENTITY_EVIDENCE_REQUIRED', …(2) ] to include 'QA_BLOCKING'
+ ❯ expectBlocked convex/qaBlocking.test.ts:61:60
+     59| }
+     60| async function expectBlocked(f: Fixture, subject = "qa-owner") {
+     61|   expect((await readiness(f)).blockers.map((b) => b.code)).toContain("…
+       |                                                            ^
+     62|   const before = await f.t.run((ctx) => ctx.db.get(f.projectId));
+     63|   await expect(f.t.withIdentity({ subject }).mutation(api.projects.pub…
+ ❯ convex/qaBlocking.test.ts:320:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 32 skipped (35)
+   Start at  13:27:26
+   Duration  12.05s (transform 7.20s, setup 0ms, import 4.35s, tests 5.87s, environment 228ms)
+
