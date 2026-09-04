@@ -2,7 +2,7 @@
 title: 'Blocking QA policy'
 type: 'feature'
 created: '2026-09-04'
-status: 'in-review'
+status: 'done'
 baseline_revision: '0dd0d6bd98c28e54107ae10fe06a90fd83c6dab2'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -170,6 +170,19 @@ The existing exact-content interpretation and existing deferred entries remain u
 
 All four review layers completed. Edge-case and verification-gap reviewers reported no findings. Intent review confirms this pass records diagnosis and a temporary hold; it does not yet establish successful native verification. Follow-up recommendation is true from nine low patches (score 9). Full verification remains pending under the operator scheduling instruction.
 
+### 2026-09-04: DW-92 native follow-up review
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3: (high 3, medium 0, low 0)
+- defer: 0
+- reject: 7: (high 0, medium 7, low 0)
+- addressed_findings:
+  - `[high]` `[patch]` Unpunctuated legacy cross-references could hide section 242 uncertainty. Require established plaintext labels regardless of terminal punctuation.
+  - `[high]` `[patch]` A late uncertainty appendix could suppress earlier renamed uncertainty content. Determine preamble handling from the first recognized section.
+  - `[high]` `[patch]` Rich-text whitespace-only blank lines could borrow an unrelated explanation. Normalize blank lines while preserving soft wraps.
+
+All four Astra-medium review layers completed; a subsequent edge-case inspection found no actionable repair issue. Four boundary regressions failed on entry product source before fixes and now pass. Exact review triage and command output are committed under `.audit/DW-92/`. The frozen contract, baseline, prior reviews, and existing deferral remain unchanged. The bundle's instruction to run current gates supersedes the historical scheduling hold for this follow-up only.
+
 ## Design Notes
 
 Known methodology failures are carried to a new revision only when the same report has exactly the same content hash; this prevents no-op saves and restores from acting as waivers. Section identity participates in finding deduplication.
@@ -224,7 +237,9 @@ Verification:
 
 Residual limits: the existing sentence-level uncertainty detector and exact-content methodology evidence policy remain as specified. No new linguistic classifier or fresh-AI-pass requirement was introduced.
 
-## Auto Run Result
+## Historical Deferred Auto Run Result
+
+The following deferred result is preserved from entry revision `137d77f87db77d8296f5e759ebfa7e2a55709c25`; its scheduling hold describes the prior run.
 
 Status: in-review
 Blocking condition: operator verification slot pending.
@@ -238,3 +253,22 @@ Review: nine low audit-clarity patches, zero deferrals, two rejected findings. F
 Verification: the isolated source-contract file passed all three tests in 12.63s using one worker and the existing timeout; `git diff --check` passed; frozen-intent and deferral comparisons passed; product/test/config diff was empty. The original failure artifact matches supplied feedback byte for byte.
 
 Required remaining work: after explicit slot grant, run `bash scripts/loop-verify.sh` and the spec-focused command, record outcomes, then finalize and commit locally. Full-suite and full type checks have not been launched during this repair. No verification requirement is waived. If the native gate times out again, perform targeted diagnosis with contemporaneous metrics before choosing any repair.
+
+
+## Auto Run Result
+
+Status: done
+
+DW-92 native review, repairs, and current-code verification are complete. Reviewed product source and fresh audit evidence were committed as `f1a61c44f80268df68b5ebd29bc848eee23490a2` before this final status write-back. This run repairs three current-content extraction bypasses without changing the absolute QA contract or the historical baseline.
+
+Files changed:
+- `convex/lib/tiptapReport.ts`: preserve substantive uncertainty across ambiguous legacy labels, late section headings, and rich-text blank lines.
+- `convex/qaBlocking.test.ts`: four registered query/mutation regressions prove readiness, atomic publish rejection, and exact-reference persistence.
+- `.audit/DW-92/`: fresh review, decisions, provenance, failure/pass logs, and acceptance mapping, explicitly staged despite ignore rules.
+- This original story spec: preserve the deferred result and append current review and verification.
+
+Review: three high patches, zero new deferrals, seven rejected findings. Follow-up review recommended: true (high 3, medium 0, low 0; medium/low score 0).
+
+Verification: `bash scripts/loop-verify.sh` exited 0 on final product source: 148 files and 1,730 tests passed, Svelte check had zero errors/warnings, Convex TypeScript passed, PowerShell harness 50/50 and Bash harness 18/18 passed. The exact spec-focused command passed 145 tests in three files. Before/after extraction proof: four failures on entry product source, then 81 passing tests across the three relevant suites. No frontend, generated Convex, or ledger files changed in this follow-up.
+
+Residual limits: the frozen sentence-level uncertainty detector, exact-content methodology evidence, and existing deferral remain as specified. Native orchestrator acceptance is a subsequent orchestrator operation; it is not inferred from preservation or integration commits.

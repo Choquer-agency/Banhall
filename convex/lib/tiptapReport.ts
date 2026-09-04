@@ -123,10 +123,11 @@ export function extractReportSections(content: string): { s242: string; s244: st
     const match = text.trim().match(pattern);
     if (!match) return undefined;
     // Plaintext has no node kind to distinguish a heading from a sentence.
-    // Permit punctuation only on known labels, not prose cross-references.
+    // Only established labels can disambiguate plaintext cross-references,
+    // whether or not the sentence has terminal punctuation.
     const label = match[2] ?? "";
-    if (!richText && /[.!?]/.test(label) &&
-      !/^(?:(?:Scientific\/)?Technological Uncertainty|Uncertainty|Work(?: Performed)?|(?:Scientific\/)?Technological Advancement|Advancement)[.!?]$/i.test(label)) return undefined;
+    if (!richText && label &&
+      !/^(?:(?:Scientific\/)?Technological Uncertainty|Uncertainty|Work(?: Performed)?|(?:Scientific\/)?Technological Advancement|Advancement)[.!?]?$/i.test(label)) return undefined;
     return match[1] === "244" ? "s244" : match[1] === "246" ? "s246" : "s242";
   }
   let blocks: Block[] | undefined;
@@ -164,14 +165,19 @@ export function extractReportSections(content: string): { s242: string; s244: st
     }
     if (body.length) blocks.push({ text: body.join("\n"), heading: false });
   }
-  // Only a recognized uncertainty heading proves where its preamble ends.
-  // If that heading was renamed/deleted, retain preceding prose in section 242.
-  const hasUncertaintyHeading = blocks.some(block => block.heading && sectionHeading(block.text, block.richText) === "s242");
-  let section: Section | undefined = hasUncertaintyHeading ? undefined : "s242";
+  // Only an initial uncertainty section proves where its preamble ends.
+  // A later appendix cannot hide prose before the first work/advancement section.
+  const firstSection = blocks.find(block => block.heading && sectionHeading(block.text, block.richText));
+  const startsWithUncertainty = firstSection && sectionHeading(firstSection.text, firstSection.richText) === "s242";
+  let section: Section | undefined = startsWithUncertainty ? undefined : "s242";
   for (const block of blocks) {
     const next = block.heading ? sectionHeading(block.text, block.richText) : undefined;
     if (next) section = next;
-    else if (section && block.text.trim()) sections[section] += block.text.trim() + "\n\n";
+    else if (section && block.text.trim()) {
+      // Hard breaks in rich text can encode the same blank paragraphs as
+      // legacy text. Keep soft wraps, but normalize whitespace-only blank lines.
+      sections[section] += block.text.replace(/\r\n?/g, "\n").replace(/\n[^\S\n]+(?=\n)/g, "\n").trim() + "\n\n";
+    }
   }
   return sections;
 }

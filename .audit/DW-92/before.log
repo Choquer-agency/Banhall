@@ -1,0 +1,56 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-145336-4d56/worktrees/dw-blocking-qa-native-followup
+
+ ❯ |convex| convex/qaBlocking.test.ts (42 tests | 4 failed | 38 skipped) 197ms
+     × unpunctuated legacy cross-references preserve uncertainty at both gates and on save 188ms
+     × late uncertainty heading cannot hide earlier renamed section in legacy 3ms
+     × late uncertainty heading cannot hide earlier renamed section in rich text 3ms
+     × rich-text whitespace-only blank lines cannot borrow an unrelated explanation 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > DW-92 native follow-up extraction regressions > unpunctuated legacy cross-references preserve uncertainty at both gates and on save
+AssertionError: expected [ 'IDENTITY_EVIDENCE_REQUIRED', …(2) ] to include 'QA_BLOCKING'
+ ❯ expectBlocked convex/qaBlocking.test.ts:61:60
+     59| }
+     60| async function expectBlocked(f: Fixture, subject = "qa-owner") {
+     61|   expect((await readiness(f)).blockers.map((b) => b.code)).toContain("…
+       |                                                            ^
+     62|   const before = await f.t.run((ctx) => ctx.db.get(f.projectId));
+     63|   await expect(f.t.withIdentity({ subject }).mutation(api.projects.pub…
+ ❯ convex/qaBlocking.test.ts:362:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > DW-92 native follow-up extraction regressions > late uncertainty heading cannot hide earlier renamed section in legacy
+ FAIL  |convex| convex/qaBlocking.test.ts > DW-92 native follow-up extraction regressions > late uncertainty heading cannot hide earlier renamed section in rich text
+AssertionError: expected [ 'IDENTITY_EVIDENCE_REQUIRED', …(2) ] to include 'QA_BLOCKING'
+ ❯ expectBlocked convex/qaBlocking.test.ts:61:60
+     59| }
+     60| async function expectBlocked(f: Fixture, subject = "qa-owner") {
+     61|   expect((await readiness(f)).blockers.map((b) => b.code)).toContain("…
+       |                                                            ^
+     62|   const before = await f.t.run((ctx) => ctx.db.get(f.projectId));
+     63|   await expect(f.t.withIdentity({ subject }).mutation(api.projects.pub…
+ ❯ convex/qaBlocking.test.ts:375:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > DW-92 native follow-up extraction regressions > rich-text whitespace-only blank lines cannot borrow an unrelated explanation
+AssertionError: expected [ 'IDENTITY_EVIDENCE_REQUIRED', …(2) ] to include 'QA_BLOCKING'
+ ❯ expectBlocked convex/qaBlocking.test.ts:61:60
+     59| }
+     60| async function expectBlocked(f: Fixture, subject = "qa-owner") {
+     61|   expect((await readiness(f)).blockers.map((b) => b.code)).toContain("…
+       |                                                            ^
+     62|   const before = await f.t.run((ctx) => ctx.db.get(f.projectId));
+     63|   await expect(f.t.withIdentity({ subject }).mutation(api.projects.pub…
+ ❯ convex/qaBlocking.test.ts:389:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 38 skipped (42)
+   Start at  16:09:48
+   Duration  612ms (transform 268ms, setup 0ms, import 234ms, tests 197ms, environment 46ms)
