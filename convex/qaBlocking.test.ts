@@ -353,3 +353,41 @@ test("legacy punctuated cross-references do not move following uncertainty into 
   const f = await setup("Line 242: Uncertainty\nContext.\nLine 244: This work is discussed below.\n" + FAILURE + "\nLine 244: Work\nTests.");
   await expectBlocked(f);
 });
+
+
+describe("DW-92 native follow-up extraction regressions", () => {
+  test("unpunctuated legacy cross-references preserve uncertainty at both gates and on save", async () => {
+    const content = "Line 242: Uncertainty\nContext.\nLine 244: This work is discussed below\n" + FAILURE + "\nLine 244: Work\nTests.";
+    const f = await setup(content);
+    await expectBlocked(f);
+    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
+    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ check: "because_clause", blocking: true, ...(await ref(f)) })]));
+  });
+
+  test.each(["legacy", "rich text"])("late uncertainty heading cannot hide earlier renamed section in %s", async variant => {
+    const doc = buildTiptapDocument("Title", FAILURE, "Work.", "Knowledge.");
+    doc.content[1] = { type: "heading", content: [{ type: "text", text: "Uncertainties" }] };
+    doc.content.push({ type: "heading", content: [{ type: "text", text: "Line 242: Uncertainty" }] });
+    const content = variant === "legacy"
+      ? "Uncertainties\n" + FAILURE + "\nLine 244: Work\nTests.\nLine 242: Uncertainty\nAppendix."
+      : JSON.stringify(doc);
+    const f = await setup(content);
+    await expectBlocked(f);
+    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
+    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ check: "because_clause", blocking: true, ...(await ref(f)) })]));
+  });
+
+  test("rich-text whitespace-only blank lines cannot borrow an unrelated explanation", async () => {
+    const doc = buildTiptapDocument("Title", "", "Work.", "Knowledge.");
+    doc.content.splice(2, 0, { type: "paragraph", content: [
+      { type: "text", text: "It was uncertain whether the alloy holds" },
+      { type: "hardBreak" }, { type: "text", text: " \t " }, { type: "hardBreak" },
+      { type: "text", text: "We ran tests because evidence was needed." },
+    ] });
+    const content = JSON.stringify(doc);
+    const f = await setup(content);
+    await expectBlocked(f);
+    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
+    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ check: "because_clause", blocking: true, ...(await ref(f)) })]));
+  });
+});

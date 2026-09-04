@@ -1,0 +1,14 @@
+{
+  "checked_at": "2026-09-04T23:08:57.155067+00:00",
+  "entry_revision": "137d77f87db77d8296f5e759ebfa7e2a55709c25",
+  "baseline_revision": "0dd0d6bd98c28e54107ae10fe06a90fd83c6dab2",
+  "original_implementation_baseline": "f122b086d745acc40b4decca26b9aaafc7257f6a",
+  "baseline_is_ancestor": true,
+  "original_is_ancestor": true,
+  "frozen_contract_sha256": "8b0af222fac74a72c44242e453508be9d99b471bc23684619d4d39ccd12199f1",
+  "entry_worktree_clean": true,
+  "review_diffs": {
+    "baseline.diff": "ce3d9c37970c52dfe0856edc45729bfd9b4eddb11689d8c454b4ad8c834fd5b5",
+    "implementation.diff": "0120f042ece931848a58d78f5740398a86b78f239b80311d9fbba922118a8a5e"
+  }
+}

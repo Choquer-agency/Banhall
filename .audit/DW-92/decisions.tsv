@@ -1,0 +1,5 @@
+ts	phase	decision	why	evidence	result
+2026-09-04T23:11:32.204664+00:00	route	Adopt original in-review story and preserve both historical baselines	Bundle explicitly authorizes native follow-up and current gates	_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/qa/stories/8-blocking-qa-policy.md	No replacement spec or ledger edit
+2026-09-04T23:11:32.204844+00:00	review	Retain exact-evidence interpretation and existing detector boundary	Frozen contract explicitly constrains methodology and detector scope	.audit/DW-92/review.md	Three extraction patches accepted; seven findings rejected
+2026-09-04T23:11:32.204847+00:00	prove	Reproduce extraction failures before product changes	Readiness and publish are required outer surfaces	.audit/DW-92/before.log	Four regression cases failed on entry product source
+2026-09-04T23:11:32.204850+00:00	build	Repair only extraction and add boundary regressions	Recognized uncertainty must survive current-content extraction	convex/lib/tiptapReport.ts	Targeted 81 tests passed
