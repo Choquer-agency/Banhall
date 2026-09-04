@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-09-04T23:11:35.470137+00:00",
+  "scope": "Only ignored installed node_modules in four completed, clean, fully integrated root repair worktrees. Source commits and audit evidence retained; all active native/integration/learning dependencies untouched.",
+  "records": [
+    {
+      "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-unlearn-fix",
+      "commit_preserved_in_integration": "b3338523c10085426a094bb8e5b13ccc55f9f7cf",
+      "removed": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-unlearn-fix/node_modules",
+      "tracked_status_after": ""
+    },
+    {
+      "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-unicode-fix",
+      "commit_preserved_in_integration": "2462c4cc6eb67501d4f412d15674435e8adfd43b",
+      "removed": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-unicode-fix/node_modules",
+      "tracked_status_after": ""
+    },
+    {
+      "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests",
+      "commit_preserved_in_integration": "176817b4230a7d0153d397134f846de2e9441bde",
+      "removed": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests/node_modules",
+      "tracked_status_after": ""
+    },
+    {
+      "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix",
+      "commit_preserved_in_integration": "410fcbd27d8acdb519a07bffd1281d1810cd83d4",
+      "removed": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix/node_modules",
+      "tracked_status_after": ""
+    }
+  ]
+}

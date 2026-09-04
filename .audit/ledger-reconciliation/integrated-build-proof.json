@@ -1,0 +1,9 @@
+{
+  "commit": "ce2ab07159de52ca07c30619dab61f403e2cf2e5",
+  "command": "PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site npm run build",
+  "exit_code": 0,
+  "log": ".audit/ledger-reconciliation/integrated-build.log",
+  "log_sha256": "3ebf35151a3d753fcec1fb4f9c60aabfd0bc60fb1e058aaa55dc3fefc3d0140d",
+  "result": "SvelteKit/Vite production build and Vercel adapter completed",
+  "limitation": "Build uses public placeholder endpoints; no live backend request or deployment is claimed. Initial attempt lacked PUBLIC_CONVEX_SITE_URL and is preserved in integrated-build-initial.log; adding the required build environment resolved it without code changes."
+}
