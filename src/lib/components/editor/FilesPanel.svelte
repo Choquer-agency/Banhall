@@ -1,7 +1,7 @@
 <!--
   Port of src/components/editor/FilesPanel.tsx.
-  Collapsible panel of the project's supporting files: pinned interview
-  transcript, per-file preview/download/archive/restore/delete, and an optional
+  Collapsible panel of the project's supporting files: the pinned interview
+  transcripts, per-file preview/download/archive/restore/delete, and an optional
   "revise the report" chat handoff when removing a file (BNH-24).
 -->
 <script module lang="ts">
@@ -116,12 +116,17 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   // svelte-ignore state_referenced_locally
   let isOpen = $state(initiallyOpen);
   let preview = $state<DocRow | null>(null);
-  let showTranscript = $state(false);
+  // The transcript whose body is on screen. One id, so at most one transcript
+  // body is ever subscribed no matter how many the project carries.
+  let previewTranscriptId = $state<Id<"transcripts"> | null>(null);
   let removal = $state<{ doc: DocRow; action: "archive" | "delete" } | null>(null);
   let removalBusy = $state<"revise" | "just" | null>(null);
 
   const documentsQ = useQuery(api.documents.listDocuments, () => ({ projectId }));
-  const transcriptQ = useQuery(api.transcripts.getTranscript, () => ({ projectId }));
+  const transcriptsQ = useQuery(api.transcripts.listTranscripts, () => ({ projectId }));
+  const previewTranscriptQ = useQuery(api.transcripts.getTranscriptContent, () =>
+    previewTranscriptId ? { transcriptId: previewTranscriptId } : "skip"
+  );
   const client = useConvexClient();
   const setArchived = useMutation(api.documents.setDocumentArchived);
   const deleteDoc = useMutation(api.documents.deleteDocument);
@@ -136,7 +141,10 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   const failUploadAttempt = useMutation(api.uploadAttempts.failUploadAttempt);
 
   const documents = $derived(documentsQ.data);
-  const transcript = $derived(transcriptQ.data);
+  const transcripts = $derived(transcriptsQ.data ?? []);
+  const previewTranscript = $derived(
+    transcripts.find((row) => row._id === previewTranscriptId) ?? null
+  );
   const count = $derived(documents?.length ?? 0);
 
   // null means the server refused to say, which is not the same as "none".
@@ -165,6 +173,28 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
         .map((row) => [row.documentId, row.canReplace])
     )
   );
+
+  /**
+   * The body is fetched on click, never subscribed: a writer who only reads
+   * the row pays for its few hundred bytes of metadata.
+   */
+  async function downloadTranscript(row: { _id: Id<"transcripts">; label: string }) {
+    try {
+      const body = await client.query(api.transcripts.getTranscriptContent, {
+        transcriptId: row._id,
+      });
+      if (!body) {
+        toast.error("That transcript is no longer available.");
+        return;
+      }
+      triggerDownload(
+        new Blob([body.content], { type: "text/plain" }),
+        `${row.label}.txt`
+      );
+    } catch (error) {
+      toast.error(userErrorMessage(error, "The transcript could not be downloaded."));
+    }
+  }
 
   /**
    * What a document row says under its badge. `null` for anything that needs
@@ -473,8 +503,9 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
 
   <Disclosure id={panelBodyId} open={isOpen}>
     <div class="border-t border-gray-100 px-5 py-3">
-      <!-- Pinned source: the interview transcript (so writers can re-read it) -->
-      {#if transcript}
+      <!-- Pinned sources: the project's interview transcripts, in order (so
+           writers can re-read them) -->
+      {#each transcripts as transcript (transcript._id)}
         <div class="flex items-center gap-3 border-b border-gray-100 py-2.5">
           <div
             class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-navy/10 text-navy"
@@ -489,7 +520,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
           </div>
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
-              <p class="truncate text-sm font-medium text-gray-800">Interview transcript</p>
+              <p class="truncate text-sm font-medium text-gray-800">{transcript.label}</p>
               <span
                 class="flex-shrink-0 rounded-full bg-navy/10 px-2 py-0.5 text-[10px] font-medium text-navy"
               >
@@ -497,12 +528,12 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
               </span>
             </div>
             <p class="text-xs text-gray-400">
-              {transcript.content.split(/\s+/).filter(Boolean).length.toLocaleString()} words
+              {transcript.wordCount.toLocaleString()} words
             </p>
           </div>
           <button
             type="button"
-            onclick={() => (showTranscript = true)}
+            onclick={() => (previewTranscriptId = transcript._id)}
             title="Preview transcript"
             class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
           >
@@ -517,12 +548,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
           </button>
           <button
             type="button"
-            onclick={() =>
-              transcript &&
-              triggerDownload(
-                new Blob([transcript.content], { type: "text/plain" }),
-                "interview-transcript.txt"
-              )}
+            onclick={() => downloadTranscript(transcript)}
             title="Download transcript"
             class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-primary-wash hover:text-navy"
           >
@@ -535,7 +561,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
             </svg>
           </button>
         </div>
-      {/if}
+      {/each}
 
       {#if attemptsDenied}
         <!-- Replaces the whole body: showing "no files yet" underneath a denial
@@ -808,12 +834,12 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   {/if}
 
   <!-- Transcript preview modal -->
-  {#if showTranscript && transcript}
+  {#if previewTranscript}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-6"
-      onclick={() => (showTranscript = false)}
+      onclick={() => (previewTranscriptId = null)}
     >
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -822,10 +848,10 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
         onclick={(e) => e.stopPropagation()}
       >
         <div class="flex items-center justify-between border-b border-gray-200 px-5 py-3">
-          <span class="text-sm font-medium text-gray-800">Interview transcript</span>
+          <span class="text-sm font-medium text-gray-800">{previewTranscript.label}</span>
           <button
             type="button"
-            onclick={() => (showTranscript = false)}
+            onclick={() => (previewTranscriptId = null)}
             title="Close transcript"
             class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-primary-wash hover:text-gray-600"
           >
@@ -835,7 +861,11 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
           </button>
         </div>
         <div class="flex-1 overflow-auto bg-canvas">
-          <pre class="whitespace-pre-wrap px-6 py-6 font-serif text-sm leading-relaxed text-gray-700">{normalizeExtractedText(transcript.content)}</pre>
+          {#if previewTranscriptQ.data}
+            <pre class="whitespace-pre-wrap px-6 py-6 font-serif text-sm leading-relaxed text-gray-700">{normalizeExtractedText(previewTranscriptQ.data.content)}</pre>
+          {:else}
+            <p class="px-6 py-6 text-sm text-gray-400">Loading transcript...</p>
+          {/if}
         </div>
       </div>
     </div>

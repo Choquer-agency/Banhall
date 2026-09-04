@@ -252,46 +252,6 @@ describe("getTranscriptContent", () => {
   });
 });
 
-describe("getTranscript", () => {
-  it("returns the first transcript of the ordered set (AC6)", async () => {
-    const f = await setup([
-      { label: "second.docx", position: 1, content: "Second body", createdAt: 100 },
-      { label: "first.docx", position: 0, content: "First body", createdAt: 900 },
-    ]);
-
-    const got = await f.writer.query(api.transcripts.getTranscript, {
-      projectId: f.projectId,
-    });
-
-    expect(got?._id).toBe(f.transcriptIds[1]);
-    expect(got?.content).toBe("First body");
-  });
-
-  it("skips empty legacy placeholder rows (AC2, AC6)", async () => {
-    const f = await setup([
-      { content: "", createdAt: 100 },
-      { content: "Real legacy body", createdAt: 200 },
-    ]);
-
-    const got = await f.writer.query(api.transcripts.getTranscript, {
-      projectId: f.projectId,
-    });
-
-    expect(got?._id).toBe(f.transcriptIds[1]);
-  });
-
-  it("returns null with no transcripts and without access (AC3, AC6)", async () => {
-    const f = await setup([]);
-
-    expect(
-      await f.writer.query(api.transcripts.getTranscript, { projectId: f.projectId })
-    ).toBeNull();
-    expect(
-      await f.roleless.query(api.transcripts.getTranscript, { projectId: f.projectId })
-    ).toBeNull();
-  });
-});
-
 describe("buildTranscriptPromptText", () => {
   it("passes a single transcript through unchanged", () => {
     expect(
