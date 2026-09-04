@@ -2,10 +2,10 @@
 title: 'Chat spend budget and queue limit'
 type: 'feature'
 created: '2026-09-04'
-status: 'done'
+status: 'blocked'
 baseline_revision: 'f122b086d745acc40b4decca26b9aaafc7257f6a'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - convex/_generated/ai/guidelines.md
   - .factory/AGENTS.factory.md
@@ -94,6 +94,18 @@ deferred: []
   - `[low]` `[patch]` Window tests never advanced the clock. Prove a blocked project is admitted after the relevant usage expires.
   - `[low]` `[patch]` A handful of usage rows could not detect a future truncation. Exercise 10,000 fractional rows and a decisive 10,001st row.
 
+### 2026-09-04 Follow-up review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 0, medium 0, low 4)
+- defer: 0
+- reject: 10: (high 0, medium 0, low 10)
+- addressed_findings:
+  - `[low]` `[patch]` Add explicit-thread spend and queue refusal cases with unchanged component/app state, covering the conversation continuation path.
+  - `[low]` `[patch]` Clarify the spend refusal message to identify project AI usage, which includes non-chat calls.
+  - `[low]` `[patch]` Verify large positive exponents and Number.MAX_VALUE at exact equality and with a subnormal excess through public mutations.
+  - `[low]` `[patch]` Verify hexadecimal/blank stored budgets fall back and whitespace-padded scientific notation is honored.
+
 ## Design Notes
 
 The queue predicate and insert share a Convex transaction and indexed read dependencies. Legacy ownership is resolved from the component prompt, because a shared thread's creator may differ from a turn's sender. Missing legacy attribution remains tolerated. Usage uses event `createdAt`, not insertion time. `projectRollingCostUsdUnits` accumulates canonical decimal costs in local BigInt units at 324 decimal places, enough for every finite JavaScript Number, without rounding. The budget is converted with the same `usdDecimalUnits` helper; these large integers are never stored or returned through Convex. No frontend caller is touched.
@@ -106,42 +118,37 @@ The queue predicate and insert share a Convex transaction and indexed read depen
 
 ## Auto Run Result
 
-Status: done
+Status: blocked
+Blocking condition: patch verification failed. The standard `npm test` command repeatedly times out in the unchanged form-control source scan under current host contention. A full run with two workers and a 30-second timeout passes, but the required standard gate has not passed in this run.
 
 ### Implemented change
 
-Public `sendMessage` enforces recorded rolling 24-hour project spend and the authenticated sender's queued turns across projects before any write or scheduling. Defaults are USD 50 and 3 queued turns. Administrator settings are persisted through `setChatAdmissionLimits`, validated atomically, and read with independent fallbacks. Refusals use `CHAT_SPEND_BUDGET_EXCEEDED` and `CHAT_QUEUE_LIMIT_EXCEEDED`. Accepted turns store their sender; legacy rows resolve prompt ownership. Decimal accumulation preserves exact recorded values, including fractional boundaries.
+Existing transactional chat admission remains intact: inclusive recorded 24-hour project AI spend, per-sender queued-turn limits, administrator settings, typed refusals before writes, and legacy prompt attribution. This follow-up adds explicit-thread refusal coverage, extreme decimal and stored syntax regressions, and accurate project AI spend refusal wording.
 
-### Files changed
+### Files changed in this pass
 
-- `convex/schema.ts`: optional turn sender and additive project/time and sender/status indexes.
-- `convex/appSettings.ts`: admission settings reader and protected administrator mutation.
-- `convex/aiUsage.ts`: complete inclusive rolling cost query and exact decimal accumulation.
-- `convex/chatV2.ts`: transactional admission and sender persistence.
-- `convex/lib/contracts.ts`: typed refusal codes.
-- `convex/chatTurns.test.ts`: public mutation regressions for every matrix row and review findings.
-- `tsconfig.json`: explicit include paths fix the baseline Vite/OXC config resolution issue while preserving Svelte coverage.
-- `.audit/CAP-11/`: append-only decision trail, acceptance mapping, actual command logs and exact verified source revisions.
-- This story spec: planning, acceptance, triage and completion record.
+- `convex/chatV2.ts`: clarify project AI spend refusal wording.
+- `convex/chatTurns.test.ts`: explicit-thread refusal cases, large numeric boundaries, and stored budget syntax cases.
+- `.audit/CAP-11/decisions.tsv`: append review and gate decisions.
+- `.audit/CAP-11/evidence.md` and new logs: record exact source revision, acceptance evidence, passing commands and standard-command failures.
+- This story: follow-up triage and blocked verification result.
 
 ### Review findings breakdown
 
-Four review layers completed: blind hunter, edge-case hunter, verification-gap reviewer and intent-alignment auditor. After deduplication, 7 findings patched (1 medium, 6 low), 0 deferred, 8 rejected. No intent gap or spec repair loop was required.
+Four review layers completed. Four low findings patched; zero intent gaps, bad specs or deferrals; ten findings rejected. Existing deferred-work ledger entries were not modified, reopened or rewritten.
 
-Follow-up review recommended: true. Patched severity counts: high 0, medium 1, low 6. Score: 3 × 1 + 6 = 9. This is the workflow's recommendation based on the number of patches; no known unresolved defect remains.
+Follow-up review recommended: false. Patched counts: high 0, medium 0, low 4. Score: 3 × 0 + 4 = 4.
 
 ### Verification performed
 
-- `npx vitest run --project convex convex/chatTurns.test.ts`: 53 tests passed after the review changes and helper rename.
-- `npm test -- --maxWorkers=2 --testTimeout=30000`: 127 files, 1381 tests passed.
-- `npm test`: final default run passed 127 files and 1381 tests in 35.02 seconds, resolving earlier unrelated five-second source-scan timeouts under host contention.
-- `PUBLIC_CONVEX_URL=http://localhost npm run check`: 0 errors, 0 warnings.
-- `git diff --check`: clean.
-- Every matrix row maps to a passing real public-mutation test in `.audit/CAP-11/evidence.md`; existing chat-context tests are retained and passed.
-- Fractional-budget regression reproduced rejection at USD 0.1 + USD 0.2 against USD 0.3 before the exact-decimal patch and passed afterward; the saved red/green logs are in `.audit/CAP-11/logs/`.
+- `npx vitest run --project convex convex/chatTurns.test.ts`: 59 passed, exit 0.
+- `npm test -- --maxWorkers=2 --testTimeout=30000`: 127 files and 1387 tests passed, exit 0.
+- `PUBLIC_CONVEX_URL=http://localhost npm run check`: zero errors and warnings, exit 0 on the final patch.
+- `npm test`: final retry passed 126 files and 1386 tests but failed the unchanged form-control scan's 5000 ms timeout, exit 1. An earlier concurrent run also exceeded the unchanged humanProse 100 ms performance assertion.
+- `git diff --check`: passed before final audit commit.
 
-Verified implementation revision: `145a1feabdcda68a6d78e7204ce5b0f3906161bb`. Earlier implementation and audit commits are preserved. No push or deployment performed.
+Exact reviewed source commit: `335a171338934774280a7f5e4212742fc63c1a24`. Previous commits are preserved. No push or deployment performed.
 
 ### Residual risks
 
-Recorded cost admission does not reserve in-flight spend. Complete cost reads and legacy prompt lookups remain subject to Convex transaction limits. Legacy rows with no recoverable prompt sender remain unattributable. Concurrency safety relies on Convex transactional indexed read conflicts; convex-test does not simulate production transaction retries. Administrator configuration is exposed through the backend API.
+The standard test gate must pass before this story can return to done. Recorded-cost admission does not reserve in-flight spend. Complete usage reads and legacy attribution remain subject to Convex transaction limits; unattributable legacy prompts are tolerated. Tests exercise public mutations with the real agent component in convex-test, without simulating production transaction retries.

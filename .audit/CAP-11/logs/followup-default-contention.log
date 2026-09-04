@@ -1,0 +1,45 @@
+
+> banhall-app@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+
+ ❯ |shared| shared/humanProse.test.ts (10 tests | 1 failed) 153ms
+     × stays linear on long input 138ms
+ ❯ |src| src/lib/components/ui/formControlContract.test.ts (3 tests | 1 failed) 8995ms
+     × routes every visible native data-entry field through the shared contract 8978ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |shared| shared/humanProse.test.ts > findDashConnectors > stays linear on long input
+AssertionError: expected 128.43395899999996 to be less than 100
+ ❯ shared/humanProse.test.ts:58:36
+     56|     const t0 = performance.now();
+     57|     findDashConnectors(long);
+     58|     expect(performance.now() - t0).toBeLessThan(100);
+       |                                    ^
+     59|   });
+     60| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |src| src/lib/components/ui/formControlContract.test.ts > borderless form-control source contract > routes every visible native data-entry field through the shared contract
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/lib/components/ui/formControlContract.test.ts:61:3
+     59|
+     60| describe("borderless form-control source contract", () => {
+     61|   it("routes every visible native data-entry field through the shared …
+       |   ^
+     62|     const violations: string[] = [];
+     63|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 125 passed (127)
+      Tests  2 failed | 1385 passed (1387)
+   Start at  12:53:46
+   Duration  40.17s (transform 92.64s, setup 0ms, import 137.38s, tests 70.53s, environment 24.24s)
+

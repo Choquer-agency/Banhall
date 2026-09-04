@@ -164,3 +164,70 @@ Final result: 53 focused tests, all 127 files / 1,381 full-suite tests, and zero
 ## Final parent verification
 
 The normal `npm test` command passed after host contention eased: 127 files and 1381 tests, 35.02 seconds, exit 0. Full output: `.audit/CAP-11/logs/final-default.log`. This supersedes the earlier default-command timeout limitation. The verified source revision remains `145a1feabdcda68a6d78e7204ce5b0f3906161bb`; subsequent changes only record evidence and story completion. Parent independently inspected the complete implementation, expanded tests, acceptance mapping, and successful check output.
+
+## Follow-up review verification (2026-09-04)
+
+Exact reviewed source commit: `335a171338934774280a7f5e4212742fc63c1a24`.
+
+Four independent review layers completed. Four low-severity findings were patched: explicit-thread refusal coverage, accurate project AI spend wording, large positive exponent boundaries, and stored budget syntax. No deferred-work ledger was edited. Existing review and implementation commits remain intact.
+
+| Added verification | Public surface evidence |
+| --- | --- |
+| Explicit selected conversation refuses both limits | Default-budget and cross-project queue tests now pass an explicit `threadId` and compare the unchanged app/component fixture state |
+| Large exact values and tiny excess | `admits exact large budget %s and rejects a tiny excess`, with `1e21`, `Number.MAX_VALUE`, and `Number.MIN_VALUE` |
+| Stored syntax behavior | Whitespace-padded uppercase scientific notation is honored; hexadecimal, empty and whitespace-only values use the default |
+| Accurate refusal wording | `convex/chatV2.ts:245` identifies total project AI spending |
+
+Fixture snapshots cover all messages and relevant threads seeded by these small refusal tests; they are not a production pagination audit. Complete range reads and legacy attribution still have the transaction-limit caveat documented above. No claim of production concurrency simulation is made.
+
+Command: `npx vitest run --project convex convex/chatTurns.test.ts`. Exit 0. Output: `.audit/CAP-11/logs/followup-focused.log`.
+
+```text
+RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+
+
+ Test Files  1 passed (1)
+      Tests  59 passed (59)
+   Start at  12:52:01
+   Duration  10.15s (transform 2.59s, setup 0ms, import 3.05s, tests 6.42s, environment 233ms)
+```
+
+Command: `npm test -- --maxWorkers=2 --testTimeout=30000`. Exit 0. Output: `.audit/CAP-11/logs/followup-full.log`.
+
+```text
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+
+
+ Test Files  127 passed (127)
+      Tests  1387 passed (1387)
+   Start at  12:52:16
+   Duration  78.38s (transform 33.12s, setup 0ms, import 51.87s, tests 43.15s, environment 15.24s)
+```
+
+Command: `PUBLIC_CONVEX_URL=http://localhost npm run check`. Exit 0. Output: `.audit/CAP-11/logs/followup-check.log`.
+
+```text
+> banhall-app@0.1.0 check
+> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
+
+Loading svelte-check in workspace: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+Getting Svelte diagnostics...
+
+svelte-check found 0 errors and 0 warnings
+```
+
+The initial default run timed out in the pre-existing form-control source scan. A concurrent final-source default run also exceeded the pre-existing 100 ms humanProse performance assertion. Exact outputs are saved in `followup-initial-default-timeout.log` and `followup-default-contention.log`; neither is reported as passing.
+
+Final standard-command retry, after this session's type check completed: `npm test`, exit 1. 126 files and 1386 tests passed; the unchanged form-control source scan exceeded its 5000 ms timeout. Output: `.audit/CAP-11/logs/followup-final-default-timeout.log`. This leaves the required standard verification gate blocked despite the complete passing run with contention allowances. No unrelated source or timeout setting was changed.
+
+```text
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 126 passed (127)
+      Tests  1 failed | 1386 passed (1387)
+   Start at  12:55:31
+   Duration  56.92s (transform 164.05s, setup 0ms, import 196.58s, tests 137.05s, environment 26.19s)
+```
