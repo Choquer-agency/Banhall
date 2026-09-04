@@ -34,7 +34,7 @@ import { domainError, sha256 } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { proposalPairs } from "../shared/chatProposals";
 import { chatAdmissionLimits, chatEvidenceBudget } from "./appSettings";
-import { projectRollingCostUsd } from "./aiUsage";
+import { projectRollingCostUsdUnits, usdDecimalUnits } from "./aiUsage";
 import type { Id } from "./_generated/dataModel";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
@@ -241,7 +241,7 @@ async function assertChatAdmission(
   userId: Id<"users">
 ): Promise<void> {
   const limits = await chatAdmissionLimits(ctx);
-  if (await projectRollingCostUsd(ctx, { projectId, now: Date.now() }) > limits.dailyBudgetUsd) {
+  if (await projectRollingCostUsdUnits(ctx, { projectId, now: Date.now() }) > usdDecimalUnits(limits.dailyBudgetUsd)) {
     domainError("CHAT_SPEND_BUDGET_EXCEEDED", "Project chat spending budget exceeded");
   }
   let queued = 0;

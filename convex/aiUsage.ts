@@ -424,17 +424,30 @@ export const usageReport = query({
   },
 });
 
-/** Recorded project spend in the inclusive rolling 24-hour window. */
-export async function projectRollingCostUsd(
+/**
+ * Exact units for a finite USD number's canonical decimal representation.
+ * 324 decimal places covers every finite Number, including 5e-324. BigInt
+ * retains all those places, so this is not rounding to a currency quantum.
+ * These local arithmetic values are never persisted or returned over Convex.
+ */
+export function usdDecimalUnits(value: number): bigint {
+  const [mantissa, exponent = "0"] = String(value).split("e");
+  const [whole, fraction = ""] = mantissa.split(".");
+  const power = 324 + Number(exponent) - fraction.length;
+  return BigInt(whole + fraction) * 10n ** BigInt(power);
+}
+
+/** Complete inclusive rolling spend, in the exact units of usdDecimalUnits. */
+export async function projectRollingCostUsdUnits(
   ctx: Pick<QueryCtx, "db">,
   { projectId, now }: { projectId: Id<"projects">; now: number }
-): Promise<number> {
+): Promise<bigint> {
   const rows = ctx.db.query("aiUsage")
     .withIndex("by_projectId_and_createdAt", (q) => q
       .eq("projectId", projectId)
       .gte("createdAt", now - 24 * 60 * 60 * 1000)
       .lte("createdAt", now));
-  let costUsd = 0;
-  for await (const row of rows) costUsd += row.costUsd;
+  let costUsd = 0n;
+  for await (const row of rows) costUsd += usdDecimalUnits(row.costUsd);
   return costUsd;
 }

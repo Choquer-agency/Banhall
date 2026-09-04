@@ -1548,9 +1548,9 @@ describe("bounded turn and proposal reads", () => {
 
 
 describe("CAP-11 chat admission", () => {
-  async function recordCost(s: Awaited<ReturnType<typeof setup>>, costUsd: number, createdAt = Date.now(), projectId = s.projectId) {
+  async function recordCost(s: Awaited<ReturnType<typeof setup>>, costUsd: number, createdAt = Date.now(), projectId = s.projectId, callSite = "generation:242") {
     await s.t.mutation(internal.aiUsage.logUsage, {
-      projectId, callSite: "generation:242", model: "test", inputTokens: 0, outputTokens: 0, costUsd, createdAt,
+      projectId, callSite, model: "test", inputTokens: 0, outputTokens: 0, costUsd, createdAt,
     });
   }
 
@@ -1570,7 +1570,7 @@ describe("CAP-11 chat admission", () => {
   test("admits exactly the default budget, sums all call sites, and rejects without side effects", async () => {
     const s = await setup();
     await recordCost(s, 25);
-    await recordCost(s, 25);
+    await recordCost(s, 25, Date.now(), s.projectId, "chat");
     const { turn } = await sendQueuedTurn(s);
     expect(turn.userId).toBe(s.userId);
     await recordCost(s, 0.01);
@@ -1729,4 +1729,111 @@ describe("CAP-11 chat admission", () => {
     for (let i = 0; i < admitted; i++) await sendQueuedTurn(s);
     await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
   });
+
+  test("compares exact decimal costs at a fractional budget", async () => {
+    const s = await setup();
+    const actor = await admin(s);
+    await actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd: 0.3, maxQueuedTurns: 3 });
+    await recordCost(s, 0.1);
+    await recordCost(s, 0.2, Date.now(), s.projectId, "chat");
+    await sendQueuedTurn(s);
+    await recordCost(s, 0.000001, Date.now(), s.projectId, "financial");
+    const before = await state(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+    expect(await state(s)).toEqual(before);
+  });
+
+  test.each([1e-20, Number.MIN_VALUE])("preserves scientific-notation cost %s without rounding away an excess", async (extra) => {
+    const s = await setup();
+    const actor = await admin(s);
+    await actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd: 0.3, maxQueuedTurns: 3 });
+    await recordCost(s, 0.3);
+    await recordCost(s, extra);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+  });
+
+  test("sums 10000 fractional rows exactly and includes the decisive last range row", async () => {
+    const s = await setup();
+    const actor = await admin(s);
+    await actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd: 0.3, maxQueuedTurns: 3 });
+    for (let batch = 0; batch < 20; batch++) {
+      await s.t.run(async (ctx) => {
+        for (let offset = 0; offset < 500; offset++) {
+          await ctx.db.insert("aiUsage", {
+            projectId: s.projectId, callSite: offset % 2 ? "chat" : "financial", model: "test",
+            inputTokens: 0, outputTokens: 0, costUsd: 0.00003,
+            createdAt: Date.now() - 10000 + batch * 500 + offset,
+          });
+        }
+      });
+    }
+    await sendQueuedTurn(s);
+    await recordCost(s, 0.00001);
+    const before = await state(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+    expect(await state(s)).toEqual(before);
+  });
+
+  test("readmits a blocked project after recorded usage expires", async () => {
+    const s = await setup();
+    await recordCost(s, 51);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+    vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000 + 1);
+    await sendQueuedTurn(s);
+  });
+
+  test("updates both existing settings without duplicate keys and immediately raises or lowers admission", async () => {
+    const s = await setup();
+    const actor = await admin(s);
+    const setLimits = (dailyBudgetUsd: number, maxQueuedTurns: number) => actor.mutation(
+      api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd, maxQueuedTurns }
+    );
+    await setLimits(0.5, 3);
+    await recordCost(s, 0.4);
+    await sendQueuedTurn(s);
+    await setLimits(0.3, 3);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+    await setLimits(0.5, 3);
+    await sendQueuedTurn(s);
+    await setLimits(0.5, 1);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
+    await setLimits(0.5, 3);
+    await sendQueuedTurn(s);
+    const rows = await s.t.run(async (ctx) => ctx.db.query("appSettings").collect());
+    expect(rows.map(({ key, value }) => ({ key, value })).sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { key: "ai.chatDailyBudgetUsd", value: "0.5" },
+      { key: "ai.chatMaxQueuedTurns", value: "3" },
+    ]);
+  });
+
+  test.each(["bad", "Infinity", "0", "-1"])("malformed budget %s rejects over default with free queue and no side effects", async (value) => {
+    const s = await setup();
+    await s.t.run(async (ctx) => ctx.db.insert("appSettings", {
+      key: "ai.chatDailyBudgetUsd", value, updatedBy: s.userId, updatedAt: Date.now(),
+    }));
+    await recordCost(s, 50.01);
+    const before = await state(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+    expect(await state(s)).toEqual(before);
+  });
+
+  test("keeps a valid fractional budget while a malformed queue independently defaults to three", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      for (const [key, value] of [["ai.chatDailyBudgetUsd", "0.3"], ["ai.chatMaxQueuedTurns", "bad"]]) {
+        await ctx.db.insert("appSettings", { key, value, updatedBy: s.userId, updatedAt: Date.now() });
+      }
+    });
+    await recordCost(s, 0.3);
+    const { turn } = await sendQueuedTurn(s);
+    await sendQueuedTurn(s);
+    await sendQueuedTurn(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
+    await s.t.run(async (ctx) => ctx.db.patch(turn._id, { status: "completed" }));
+    await recordCost(s, 0.01);
+    const before = await state(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+    expect(await state(s)).toEqual(before);
+  });
+
 });
