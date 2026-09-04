@@ -11,7 +11,7 @@ All admission tests exercise public `api.chatV2.sendMessage` with the real agent
 | Acceptance or matrix row | Proof in `convex/chatTurns.test.ts` |
 | --- | --- |
 | Default allowance, exact USD 50, authenticated sender stored | `admits exactly the default budget, sums all call sites, and rejects without side effects` |
-| Recorded project costs across non-chat call sites, strict budget comparison | Same test seeds two generation usage records, admits USD 50, rejects USD 50.01 |
+| Recorded project costs across non-chat call sites, strict budget comparison | Same test seeds generation and chat usage records, admits USD 50, rejects USD 50.01 |
 | Inclusive window endpoints; old, future, and other-project exclusion | `includes both window endpoints and excludes old, future, and other-project cost` |
 | No thread/message/turn/job on spend refusal, including new-thread path | First test compares complete app thread/turn/job records plus real component thread and message queries before and after both refusal paths |
 | Cross-project sender queue and other-sender isolation; no refusal side effects | `counts queued turns across projects and releases capacity on start` |
@@ -340,3 +340,102 @@ Exact source revision tested: `115cc42dc1e29001f0e5e5f221f94796873508ea`. The di
 The standard gate is blocked in this run. Earlier passing runs remain historical evidence and do not replace this failure. The existing recurring source-scan timeout is outside the chat admission intent; no source or timeout setting was changed to bypass it.
 
 `PUBLIC_CONVEX_URL=http://localhost npm run check`: interrupted at the operator's request after the full-suite failure; exit 137, not a passing or completed check. SIGTERM was requested first; the still-running lane-local svelte-check process was then stopped with SIGKILL. Output: `.audit/CAP-11/logs/fresh-review-check.log`. No other lane process was stopped. No further broad checks were launched. The operator will repair the source audit and rearm this lane after the other full gate finishes; no final gate is waived.
+
+## Serial recovery verification (2026-09-04)
+
+Exact source revision tested: `ccc42b3ed819d5aadf8d4d0cf72f8ddfc02b2836`. The operator source audit budget repair is already in this baseline: `vitest.config.ts` excludes `src/lib/components/ui/formControlContract.test.ts` from the ordinary Node test project and includes it in a dedicated Node `source-audit` project with `testTimeout: 30_000`. The audit still runs in `npm test`; the larger timeout is confined to that project and is committed configuration, not a command-line override. This run changes only story and audit documentation; the CAP-11 implementation and CAP-8 context bounds are unchanged.
+
+All commands ran sequentially with no command-line worker or timeout overrides:
+
+- `npx vitest run --project convex convex/chatTurns.test.ts`: exit 0, 59 tests passed. Output: `.audit/CAP-11/logs/recovery-focused.log`.
+- `npm test`: exit 0, 127 files and 1387 tests passed in 21.98 seconds. Output: `.audit/CAP-11/logs/recovery-full.log`.
+- `PUBLIC_CONVEX_URL=http://localhost npm run check`: exit 0, zero errors and warnings. Output: `.audit/CAP-11/logs/recovery-check.log`.
+
+The verification review inspected the real public-mutation tests at `convex/chatTurns.test.ts:1570` through the end of the file. Every one of the nine matrix rows has active coverage, all 59 tests ran, and none was skipped. The acceptance mappings above remain applicable. These successful current gates supersede the prior blocked verification result. Admission still uses recorded spend without in-flight reservations, and complete reads remain subject to Convex transaction limits.
+
+Command output tails:
+
+```text
+RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+
+
+ Test Files  1 passed (1)
+      Tests  59 passed (59)
+   Start at  14:33:01
+   Duration  2.18s (transform 684ms, setup 0ms, import 709ms, tests 1.21s, environment 50ms)
+```
+
+```text
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+
+
+ Test Files  127 passed (127)
+      Tests  1387 passed (1387)
+   Start at  14:33:16
+   Duration  21.98s (transform 7.38s, setup 0ms, import 11.52s, tests 12.34s, environment 4.07s)
+```
+
+```text
+> banhall-app@0.1.0 check
+> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
+
+Loading svelte-check in workspace: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+Getting Svelte diagnostics...
+
+svelte-check found 0 errors and 0 warnings
+```
+
+The source comparison `git diff 495b3bbf828fbc52381b557378bc7b0b1cd1a2cf -- convex/chatV2.ts convex/aiUsage.ts convex/appSettings.ts convex/schema.ts convex/lib/contracts.ts convex/chatTurns.test.ts convex/ai/chatAgentV2.ts` returned no output during this run. The earlier verified CAP-11 code and CAP-8 context assertions are unchanged.
+
+## Completed recovery review
+
+Four independent review layers completed. Four low documentation findings were patched, six findings rejected, and none deferred. No implementation gaps were found. Follow-up score: 4 (zero high, zero medium, four low); recommendation: false.
+
+Mandatory post-patch verification ran sequentially on the same unchanged production source. All commands exited 0. The final logs include actual start/end timestamps and captured process exit codes:
+
+- `.audit/CAP-11/logs/recovery-final-focused.log`: 59 tests passed.
+- `.audit/CAP-11/logs/recovery-final-full.log`: 127 files and 1387 tests passed.
+- `.audit/CAP-11/logs/recovery-final-check.log`: zero errors and warnings.
+
+```text
+
+ Test Files  1 passed (1)
+      Tests  59 passed (59)
+   Start at  14:36:44
+   Duration  2.50s (transform 955ms, setup 0ms, import 805ms, tests 1.49s, environment 58ms)
+
+
+Finished: 2026-09-04T21:36:47.166454+00:00
+Exit code: 0
+```
+
+```text
+
+ Test Files  127 passed (127)
+      Tests  1387 passed (1387)
+   Start at  14:36:47
+   Duration  31.87s (transform 10.43s, setup 0ms, import 18.40s, tests 16.19s, environment 5.37s)
+
+
+Finished: 2026-09-04T21:37:19.628554+00:00
+Exit code: 0
+```
+
+```text
+> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
+
+Loading svelte-check in workspace: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11
+Getting Svelte diagnostics...
+
+svelte-check found 0 errors and 0 warnings
+
+Finished: 2026-09-04T21:37:49.128255+00:00
+Exit code: 0
+```
+
+## Fresh recovery documentation review (2026-09-04)
+
+Reviewed HEAD: `aacdf1b5ca4840335d551466dc48e3141b4513ca`. Four layers completed: blind hunter, edge-case hunter, verification-gap reviewer, and intent-alignment auditor. No actionable findings remained: zero patches, zero deferrals, ten rejected suggestions. This pass changes only review records and restores the completion result removed from the incoming story working copy.
+
+The parent inspected all three tracked `recovery-final-*.log` files and their captured successful exit codes. A complete `git diff --name-only ccc42b3ed819d5aadf8d4d0cf72f8ddfc02b2836` lists only audit/story artifacts. Thus the retained 59 focused tests, 1387 full-suite tests, and clean typecheck apply to the unchanged runtime and tests. No fresh test execution is claimed or needed for this documentation-only review. Existing deferred-work ledger entries were not read or changed.
