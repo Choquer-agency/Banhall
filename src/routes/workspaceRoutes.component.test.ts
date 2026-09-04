@@ -50,10 +50,13 @@ describe("canonical workspace routes", () => {
       .poll(() => document.querySelector("div[data-workspace-shell]"))
       .not.toBeNull();
     expect(document.querySelector('[data-dashboard-experience="preview"]')).not.toBeNull();
-    // The rail links carry ?layout through between the canonical routes.
+    // The rail links carry ?layout through between the canonical routes. The
+    // Projects link also carries the client-grouped default (2026-08-14 owner
+    // direction, docs/product-domain.md:312-314), which only fills `group`
+    // because the URL does not set it.
     const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>("nav a"));
     expect(anchors.some((a) => a.getAttribute("href") === "/my-work?layout=board")).toBe(true);
-    expect(anchors.some((a) => a.getAttribute("href") === "/projects?layout=board")).toBe(true);
+    expect(anchors.some((a) => a.getAttribute("href") === "/projects?layout=board&group=client")).toBe(true);
     expect(gotoUrls()).toHaveLength(0);
   });
 
