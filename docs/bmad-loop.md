@@ -42,13 +42,46 @@ If trust blocks a session, use Codex's normal workspace/hook trust UI for that
 exact path, then confirm a subsequent genuine event reaches the native run.
 Registration alone is not proof of hook delivery.
 
-Install the native project's dependencies with `npm ci` before starting its
-queue. The policy's `worktree_seed = ["node_modules"]` copies that physical
-installation into each worker through native provisioning. Keep the source
-installation consistent with the lockfile on the intended recovery base; refresh
-it after dependency changes. Each worker owns its dependencies and generated
-build files. The existing verify script installs missing dependencies with
-`npm ci`; do not share `node_modules` or `.svelte-kit` between active workers.
+The tracked project extension
+[`.bmad-loop/plugins/npm-bootstrap/plugin.toml`](../.bmad-loop/plugins/npm-bootstrap/plugin.toml)
+installs each worker's dependencies from that worker's lockfile using
+`npm ci --include=dev`. Native 0.11.1 loads declarative plugins directly from the
+project folder; this extension has no Python module and needs no Python trust
+enablement. Keep the same manifest in every independently configured native
+project, including the pipeline lane and learn-chat queue.
+
+The blocking `pre_worktree_setup` hook runs after native provisioning mounts the
+worker and before its coding session. It first requires a local regular
+`package.json` and either `package-lock.json` or `npm-shrinkwrap.json`, so npm
+cannot search an ancestor project for installation inputs. It explicitly runs that worker's
+`./node_modules/.bin/svelte-kit sync`, TypeScript, and Vitest version probes.
+The explicit sync is required because package.json's prepare script tolerates
+sync errors. A nonzero exit vetoes setup; `fail_closed = true` also vetoes timeout
+or transport failure, with a bounded 20-minute readiness budget (1200 seconds).
+The native engine records a defer
+outcome and must not start coding for that unit. `post_worktree_setup` is
+observe-only in this engine version and cannot enforce readiness.
+
+Remove only `node_modules` from existing `scm.worktree_seed` lists, preserving
+all other seeds and policy. Do not seed dependencies: native 0.11.1's copier
+follows npm executable symlinks and can flatten `.bin` entrypoints into broken
+regular files. Each worker needs a physical local installation and generated
+Svelte files; the hook rejects symlinked `node_modules` or `.svelte-kit` before
+installation and repeats the ownership checks after installation and sync.
+It verifies all three executable targets resolve inside the worker's
+`node_modules`, and the generated `tsconfig.json` resolves inside its
+`.svelte-kit`. Never share either directory between active workers.
+
+For readiness evidence, inspect the native journal for `plugins-active` whose
+plugin list includes `npm-bootstrap`, then a successful `plugin-hook` for
+`npm-bootstrap` at `pre_worktree_setup` with `rc: 0`, before the unit's `session-start`. In the
+worker, rerun the explicit local TypeScript/Vitest probes and verify their
+resolved executable targets stay inside that worker's `node_modules`. A
+folder's existence, ancestor-resolved commands, or hook registration alone does
+not prove successful installation. The full story gate still runs afterward.
+The isolated registry probe records `plugin-loaded` with `mode: "declarative"`
+because it passes a journal to the registry. The live engine builds its registry
+without that journal, so use `plugins-active` for runtime activation evidence.
 
 ## Run and inspect an epic
 
@@ -86,6 +119,21 @@ The source files are `_bmad-output/specs/<epic>/stories.yaml` and the generated
 `.bmad-loop/runs/<run-id>/`.
 
 ## Recover an interrupted attempt
+
+The native registry is loaded once per runner. For an existing active item,
+allow it to finish after a local `npm ci --include=dev` repair if necessary;
+coordinate the repair while its coding process is not using the dependency
+tree. Explicitly run local Svelte sync and binary probes after the repair.
+Stop gracefully at a safe item boundary, install the manifest and remove only
+dependency seeds in the owning project's policy, then resume natively so the
+new registry applies. Never mutate an active worker's index or native state.
+For setup failures, inspect the recorded `plugin-hook` nonzero exit or
+`plugin-hook-error` and the native veto/deferred outcome before recovery. Do not
+claim the unit completed or let it fall back to ancestor dependencies.
+Native 0.11.1's timeout stops the hook subprocess but does not guarantee every
+npm descendant has ended. After a timeout, inspect and finish stopping the old
+installer before retrying or reusing that worker. The defer veto still prevents
+coding; do not patch the engine or add a custom controller to bypass it.
 
 Read native status, `ATTENTION`, session results, verification output, and Git
 status first. Preserve the run branch plus all dirty tracked/untracked artifacts

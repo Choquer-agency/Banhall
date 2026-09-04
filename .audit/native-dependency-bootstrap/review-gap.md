@@ -1,0 +1,3 @@
+# Independent verification gap review
+
+The explicit Svelte sync failure is not exercised after successful installation. Current missing-lockfile test stops before sync; other negatives exercise transport, symlink guards and replacement timeout; live proof is successful only. Adding `|| true` to sync would leave supplied probes passing while suppressing the intended veto. Run actual manifest via HookBus against successful-install fixture with failing local sync and successful version probes; assert defer and that later probes never execute. Consumer is installed engine.py _gate_unit at line1848.

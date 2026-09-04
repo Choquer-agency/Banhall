@@ -1,0 +1,16 @@
+{
+  "native": {
+    "symlink": false,
+    "typescript_package_present": true,
+    "rc": 1,
+    "stdout": "",
+    "stderr": "node:internal/modules/cjs/loader:1520\n  throw err;\n  ^\n\nError: Cannot find module '../lib/tsc.js'\nRequire stack:\n- /private/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/bmad-copy-baseline-q2uno0s1/native/node_modules/.bin/tsc\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1517:15)\n    at wrapResolveFilename (node:internal/modules/cjs/loader:1071:27)\n    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1095:10)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1122:12)\n    at Module._load (node:internal/modules/cjs/loader:1294:5)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)\n    at Module.require (node:internal/modules/cjs/loader:1617:12)\n    at require (node:internal/modules/helpers:153:16)\n    at Object.<anonymous> (/private/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/bmad-copy-baseline-q2uno0s1/native/node_modules/.bin/tsc:2:1)\n    at Module._compile (node:internal/modules/cjs/loader:1872:14) {\n  code: 'MODULE_NOT_FOUND',\n  requireStack: [\n    '/private/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/bmad-copy-baseline-q2uno0s1/native/node_modules/.bin/tsc'\n  ]\n}\n\nNode.js v24.19.0\n"
+  },
+  "symlink_preserving_control": {
+    "symlink": true,
+    "typescript_package_present": true,
+    "rc": 0,
+    "stdout": "Version 5.9.3\n",
+    "stderr": ""
+  }
+}

@@ -1,0 +1,322 @@
+{
+  "revision": "c7075572f14e51433b524026db55d5520eddde03",
+  "manifest_sha256": "20fb58d4717b0377b3cc47ee3fc7f5074b48e3f6943472dd39c7d521972c687a",
+  "cases": [
+    {
+      "name": "missing local package preserves installed parent sentinel",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup exited 1: npm-bootstrap: local regular package.json required",
+        "plugin_id": "npm-bootstrap"
+      },
+      "journal": [
+        {
+          "kind": "plugin-hook",
+          "plugin": "npm-bootstrap",
+          "stage": "pre_worktree_setup",
+          "rc": 1,
+          "blocking": true
+        }
+      ],
+      "parent_install_rc": 0,
+      "parent_sentinel_sha256_before": "246afac15e52d8f98ebeb8be57e61d07de3880a4f89f99a34740ee29b43ec4a2",
+      "parent_sentinel_sha256_after": "246afac15e52d8f98ebeb8be57e61d07de3880a4f89f99a34740ee29b43ec4a2"
+    },
+    {
+      "name": "missing local lockfile guard",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup exited 1: npm-bootstrap: local regular package-lock.json or npm-shrinkwrap.json required",
+        "plugin_id": "npm-bootstrap"
+      },
+      "journal": [
+        {
+          "kind": "plugin-hook",
+          "plugin": "npm-bootstrap",
+          "stage": "pre_worktree_setup",
+          "rc": 1,
+          "blocking": true
+        }
+      ]
+    },
+    {
+      "name": "actual npm ci invalid lockfile failure",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup exited 1: m error   --include-workspace-root\nnpm error     Include the workspace root when workspaces are enabled for a command.\nnpm error\nnpm error   --install-links\nnpm error     When set file: protocol dependencies will be packed and installed as\nnpm error\nnpm error\nnpm error aliases: clean-install, ic, install-clean, isntall-clean\nnpm error\nnpm error Run \"npm help ci\" for more info\nnpm error A complete log of this run can be found in: /Users/johnnynguyen/.npm/_logs/2026-09-04T21_16_39_825Z-debug-0.log",
+        "plugin_id": "npm-bootstrap"
+      },
+      "journal": [
+        {
+          "kind": "plugin-hook",
+          "plugin": "npm-bootstrap",
+          "stage": "pre_worktree_setup",
+          "rc": 1,
+          "blocking": true
+        }
+      ]
+    },
+    {
+      "name": "actual missing cwd transport failure",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup errored: [Errno 2] No such file or directory: '/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/bmad-hook-isolated-2vz9o41h/absent'",
+        "plugin_id": "npm-bootstrap"
+      },
+      "journal": [
+        {
+          "kind": "plugin-hook-error",
+          "plugin": "npm-bootstrap",
+          "stage": "pre_worktree_setup",
+          "error": "[Errno 2] No such file or directory: '/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/bmad-hook-isolated-2vz9o41h/absent'"
+        }
+      ]
+    },
+    {
+      "name": "actual node_modules symlink refusal",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup exited 1: npm-bootstrap: node_modules and .svelte-kit must belong to this worker",
+        "plugin_id": "npm-bootstrap"
+      },
+      "journal": [
+        {
+          "kind": "plugin-hook",
+          "plugin": "npm-bootstrap",
+          "stage": "pre_worktree_setup",
+          "rc": 1,
+          "blocking": true
+        }
+      ]
+    },
+    {
+      "name": "actual .svelte-kit symlink refusal",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup exited 1: npm-bootstrap: node_modules and .svelte-kit must belong to this worker",
+        "plugin_id": "npm-bootstrap"
+      },
+      "journal": [
+        {
+          "kind": "plugin-hook",
+          "plugin": "npm-bootstrap",
+          "stage": "pre_worktree_setup",
+          "rc": 1,
+          "blocking": true
+        }
+      ]
+    },
+    {
+      "name": "actual npm ci then pass fixture",
+      "veto": null,
+      "journal": [
+        {
+          "kind": "plugin-hook",
+          "plugin": "npm-bootstrap",
+          "stage": "pre_worktree_setup",
+          "rc": 0,
+          "blocking": true
+        }
+      ],
+      "trace": [
+        "install",
+        "svelte-kit",
+        "prepare-end",
+        "svelte-kit",
+        "tsc",
+        "vitest"
+      ],
+      "executables": "isolated lifecycle fixture scripts, not production tool binaries"
+    },
+    {
+      "name": "actual npm ci then svelte-kit fixture",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup exited 7: > native-hook-fixture@1.0.0 prepare\n> node fixture.cjs && (./node_modules/.bin/svelte-kit sync || echo suppressed >> trace) && echo prepare-end >> trace\n\n\nup to date in 639ms",
+        "plugin_id": "npm-bootstrap"
+      },
+      "journal": [
+        {
+          "kind": "plugin-hook",
+          "plugin": "npm-bootstrap",
+          "stage": "pre_worktree_setup",
+          "rc": 7,
+          "blocking": true
+        }
+      ],
+      "trace": [
+        "install",
+        "svelte-kit",
+        "suppressed",
+        "prepare-end",
+        "svelte-kit"
+      ],
+      "executables": "isolated lifecycle fixture scripts, not production tool binaries"
+    },
+    {
+      "name": "actual npm ci then tsc fixture",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup exited 7: > native-hook-fixture@1.0.0 prepare\n> node fixture.cjs && (./node_modules/.bin/svelte-kit sync || echo suppressed >> trace) && echo prepare-end >> trace\n\n\nup to date in 479ms",
+        "plugin_id": "npm-bootstrap"
+      },
+      "journal": [
+        {
+          "kind": "plugin-hook",
+          "plugin": "npm-bootstrap",
+          "stage": "pre_worktree_setup",
+          "rc": 7,
+          "blocking": true
+        }
+      ],
+      "trace": [
+        "install",
+        "svelte-kit",
+        "prepare-end",
+        "svelte-kit",
+        "tsc"
+      ],
+      "executables": "isolated lifecycle fixture scripts, not production tool binaries"
+    },
+    {
+      "name": "actual npm ci then vitest fixture",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup exited 7: > native-hook-fixture@1.0.0 prepare\n> node fixture.cjs && (./node_modules/.bin/svelte-kit sync || echo suppressed >> trace) && echo prepare-end >> trace\n\n\nup to date in 636ms",
+        "plugin_id": "npm-bootstrap"
+      },
+      "journal": [
+        {
+          "kind": "plugin-hook",
+          "plugin": "npm-bootstrap",
+          "stage": "pre_worktree_setup",
+          "rc": 7,
+          "blocking": true
+        }
+      ],
+      "trace": [
+        "install",
+        "svelte-kit",
+        "prepare-end",
+        "svelte-kit",
+        "tsc",
+        "vitest"
+      ],
+      "executables": "isolated lifecycle fixture scripts, not production tool binaries"
+    },
+    {
+      "name": "actual post-install/sync node_modules ownership refusal",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup exited 1: > native-hook-fixture@1.0.0 prepare\n> node fixture.cjs && (./node_modules/.bin/svelte-kit sync || echo suppressed >> trace) && echo prepare-end >> trace\n\n\nup to date in 814ms\nsh: ./node_modules/.bin/svelte-kit: No such file or directory\nnpm-bootstrap: node_modules and .svelte-kit must belong to this worker",
+        "plugin_id": "npm-bootstrap"
+      },
+      "journal": [
+        {
+          "kind": "plugin-hook",
+          "plugin": "npm-bootstrap",
+          "stage": "pre_worktree_setup",
+          "rc": 1,
+          "blocking": true
+        }
+      ]
+    },
+    {
+      "name": "actual post-install/sync .svelte-kit ownership refusal",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup exited 1: > native-hook-fixture@1.0.0 prepare\n> node fixture.cjs && (./node_modules/.bin/svelte-kit sync || echo suppressed >> trace) && echo prepare-end >> trace\n\n\nup to date in 760ms\nnpm-bootstrap: node_modules and .svelte-kit must belong to this worker",
+        "plugin_id": "npm-bootstrap"
+      },
+      "journal": [
+        {
+          "kind": "plugin-hook",
+          "plugin": "npm-bootstrap",
+          "stage": "pre_worktree_setup",
+          "rc": 1,
+          "blocking": true
+        }
+      ]
+    },
+    {
+      "name": "actual post-install/sync binary ownership refusal",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup exited 1: > native-hook-fixture@1.0.0 prepare\n> node fixture.cjs && (./node_modules/.bin/svelte-kit sync || echo suppressed >> trace) && echo prepare-end >> trace\n\n\nup to date in 603ms\nnpm-bootstrap: /private/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/bmad-hook-isolated-2vz9o41h/escape-binary/node_modules/.bin/tsc escapes /private/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/bmad-hook-isolated-2vz9o41h/escape-binary/node_modules",
+        "plugin_id": "npm-bootstrap"
+      },
+      "journal": [
+        {
+          "kind": "plugin-hook",
+          "plugin": "npm-bootstrap",
+          "stage": "pre_worktree_setup",
+          "rc": 1,
+          "blocking": true
+        }
+      ]
+    },
+    {
+      "name": "actual post-install/sync generated ownership refusal",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup exited 1: > native-hook-fixture@1.0.0 prepare\n> node fixture.cjs && (./node_modules/.bin/svelte-kit sync || echo suppressed >> trace) && echo prepare-end >> trace\n\n\nup to date in 882ms\nnpm-bootstrap: .svelte-kit/tsconfig.json escapes /private/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/bmad-hook-isolated-2vz9o41h/escape-generated/.svelte-kit",
+        "plugin_id": "npm-bootstrap"
+      },
+      "journal": [
+        {
+          "kind": "plugin-hook",
+          "plugin": "npm-bootstrap",
+          "stage": "pre_worktree_setup",
+          "rc": 1,
+          "blocking": true
+        }
+      ]
+    }
+  ],
+  "policy_parser": "PASS",
+  "project_loader": "PASS",
+  "isolated_dispatch_plugins": [
+    "npm-bootstrap"
+  ],
+  "timeout_fixture": {
+    "command": "exec sleep 5",
+    "timeout_sec": 1,
+    "blocking": true,
+    "fail_closed": true,
+    "veto": {
+      "action": "defer",
+      "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup errored: timed out after 1s",
+      "plugin_id": "npm-bootstrap"
+    },
+    "journal": [
+      {
+        "kind": "plugin-hook-error",
+        "plugin": "npm-bootstrap",
+        "stage": "pre_worktree_setup",
+        "error": "timed out after 1s"
+      }
+    ]
+  },
+  "registry_probe_journal": [
+    {
+      "kind": "plugin-loaded",
+      "plugin": "example",
+      "mode": "declarative"
+    },
+    {
+      "kind": "plugin-untrusted",
+      "plugin": "tea",
+      "reason": "[python] module requires [plugins] enabled"
+    },
+    {
+      "kind": "plugin-untrusted",
+      "plugin": "unity",
+      "reason": "[python] module requires [plugins] enabled"
+    },
+    {
+      "kind": "plugin-loaded",
+      "plugin": "npm-bootstrap",
+      "mode": "declarative"
+    }
+  ]
+}

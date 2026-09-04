@@ -1,0 +1,75 @@
+{
+  "observed_at": "2026-09-04T21:18:18.208429+00:00",
+  "projects": [
+    {
+      "project": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "manifest_path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/plugins/npm-bootstrap/plugin.toml",
+      "manifest_sha256": "20fb58d4717b0377b3cc47ee3fc7f5074b48e3f6943472dd39c7d521972c687a",
+      "policy_sha256": "1e85a0e49fe868162388c5e2967513f70794913129579999f94f8bf5d0b760bf",
+      "seeds_before": [
+        "node_modules"
+      ],
+      "seeds_after": [],
+      "other_policy_unchanged": true,
+      "roles": "gpt-6-astra medium for dev/review/triage",
+      "activation": "Next native runner startup; existing registry snapshots remain unchanged."
+    },
+    {
+      "project": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat",
+      "manifest_path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/plugins/npm-bootstrap/plugin.toml",
+      "manifest_sha256": "20fb58d4717b0377b3cc47ee3fc7f5074b48e3f6943472dd39c7d521972c687a",
+      "policy_sha256": "1e85a0e49fe868162388c5e2967513f70794913129579999f94f8bf5d0b760bf",
+      "seeds_before": [],
+      "seeds_after": [],
+      "other_policy_unchanged": true,
+      "roles": "gpt-6-astra medium for dev/review/triage",
+      "activation": "Next native runner startup; existing registry snapshots remain unchanged."
+    },
+    {
+      "project": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-qa",
+      "manifest_path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-qa/.bmad-loop/plugins/npm-bootstrap/plugin.toml",
+      "manifest_sha256": "20fb58d4717b0377b3cc47ee3fc7f5074b48e3f6943472dd39c7d521972c687a",
+      "policy_sha256": "e2988adb2aa0c0d70dd06b26ac2b8fd3faa1735d47afc7fadd700a0808e2ec54",
+      "seeds_before": [],
+      "seeds_after": [],
+      "other_policy_unchanged": true,
+      "roles": "gpt-6-astra medium for dev/review/triage",
+      "activation": "Next native runner startup; existing registry snapshots remain unchanged."
+    },
+    {
+      "project": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-schema",
+      "manifest_path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-schema/.bmad-loop/plugins/npm-bootstrap/plugin.toml",
+      "manifest_sha256": "20fb58d4717b0377b3cc47ee3fc7f5074b48e3f6943472dd39c7d521972c687a",
+      "policy_sha256": "de1ed77b282d5f07835b36295ef84e8370048b922ed856147c0424b557d51297",
+      "seeds_before": [
+        "node_modules"
+      ],
+      "seeds_after": [],
+      "other_policy_unchanged": true,
+      "roles": "gpt-6-astra medium for dev/review/triage",
+      "activation": "Next native runner startup; existing registry snapshots remain unchanged."
+    },
+    {
+      "project": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline",
+      "manifest_path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/plugins/npm-bootstrap/plugin.toml",
+      "manifest_sha256": "20fb58d4717b0377b3cc47ee3fc7f5074b48e3f6943472dd39c7d521972c687a",
+      "policy_sha256": "bc4e3883912778347a9551f09f2658351b2b6caa5e0a7893841f0f5a43c4d885",
+      "seeds_before": [],
+      "seeds_after": [],
+      "other_policy_unchanged": true,
+      "roles": "gpt-6-astra medium for dev/review/triage",
+      "activation": "Next native runner startup; existing registry snapshots remain unchanged."
+    },
+    {
+      "project": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend",
+      "manifest_path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/plugins/npm-bootstrap/plugin.toml",
+      "manifest_sha256": "20fb58d4717b0377b3cc47ee3fc7f5074b48e3f6943472dd39c7d521972c687a",
+      "policy_sha256": "511b3cae5227866c251642eb851dc1ceefc90227c360c480e787aaa076c63797",
+      "seeds_before": [],
+      "seeds_after": [],
+      "other_policy_unchanged": true,
+      "roles": "gpt-6-astra medium for dev/review/triage",
+      "activation": "Next native runner startup; existing registry snapshots remain unchanged."
+    }
+  ]
+}

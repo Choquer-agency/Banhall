@@ -24,7 +24,8 @@ merge_strategy = "merge"
 delete_branch = false
 keep_failed = true
 seed_adapter_defaults = true
-worktree_seed = ["node_modules"]
+# Dependencies are installed by the tracked npm-bootstrap project plugin.
+worktree_seed = []
 
 [verify]
 commands = ["bash scripts/loop-verify.sh"]

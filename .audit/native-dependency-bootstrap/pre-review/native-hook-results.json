@@ -1,0 +1,108 @@
+{
+  "revision": "c7075572f14e51433b524026db55d5520eddde03",
+  "manifest_sha256": "883c509231cd17cec4496c306e2568645dc5cd6b83e76e01a4bd7a091f11a87d",
+  "policy_parser": "PASS",
+  "project_loader": "PASS",
+  "cases": [
+    {
+      "name": "actual npm ci without lockfile",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup exited 1: m error   --include-workspace-root\nnpm error     Include the workspace root when workspaces are enabled for a command.\nnpm error\nnpm error   --install-links\nnpm error     When set file: protocol dependencies will be packed and installed as\nnpm error\nnpm error\nnpm error aliases: clean-install, ic, install-clean, isntall-clean\nnpm error\nnpm error Run \"npm help ci\" for more info\nnpm error A complete log of this run can be found in: /Users/johnnynguyen/.npm/_logs/2026-09-04T20_56_32_604Z-debug-0.log",
+        "plugin_id": "npm-bootstrap"
+      }
+    },
+    {
+      "name": "actual missing cwd transport failure",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup errored: [Errno 2] No such file or directory: '/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/bmad-npm-failure-f4bogagz/absent'",
+        "plugin_id": "npm-bootstrap"
+      }
+    },
+    {
+      "name": "actual node_modules symlink refusal",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup exited 1: npm-bootstrap: node_modules and .svelte-kit must belong to this worker",
+        "plugin_id": "npm-bootstrap"
+      }
+    },
+    {
+      "name": "actual .svelte-kit symlink refusal",
+      "veto": {
+        "action": "defer",
+        "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup exited 1: npm-bootstrap: node_modules and .svelte-kit must belong to this worker",
+        "plugin_id": "npm-bootstrap"
+      }
+    }
+  ],
+  "timeout_fixture": {
+    "command": "exec sleep 5",
+    "timeout_sec": 1,
+    "blocking": true,
+    "fail_closed": true,
+    "veto": {
+      "action": "defer",
+      "reason": "plugin 'npm-bootstrap' hook pre_worktree_setup errored: timed out after 1s",
+      "plugin_id": "npm-bootstrap"
+    },
+    "journal": [
+      {
+        "kind": "plugin-hook-error",
+        "plugin": "npm-bootstrap",
+        "stage": "pre_worktree_setup",
+        "error": "timed out after 1s"
+      }
+    ]
+  },
+  "journal": [
+    {
+      "kind": "plugin-loaded",
+      "plugin": "example",
+      "mode": "declarative"
+    },
+    {
+      "kind": "plugin-untrusted",
+      "plugin": "tea",
+      "reason": "[python] module requires [plugins] enabled"
+    },
+    {
+      "kind": "plugin-untrusted",
+      "plugin": "unity",
+      "reason": "[python] module requires [plugins] enabled"
+    },
+    {
+      "kind": "plugin-loaded",
+      "plugin": "npm-bootstrap",
+      "mode": "declarative"
+    },
+    {
+      "kind": "plugin-hook",
+      "plugin": "npm-bootstrap",
+      "stage": "pre_worktree_setup",
+      "rc": 1,
+      "blocking": true
+    },
+    {
+      "kind": "plugin-hook-error",
+      "plugin": "npm-bootstrap",
+      "stage": "pre_worktree_setup",
+      "error": "[Errno 2] No such file or directory: '/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/bmad-npm-failure-f4bogagz/absent'"
+    },
+    {
+      "kind": "plugin-hook",
+      "plugin": "npm-bootstrap",
+      "stage": "pre_worktree_setup",
+      "rc": 1,
+      "blocking": true
+    },
+    {
+      "kind": "plugin-hook",
+      "plugin": "npm-bootstrap",
+      "stage": "pre_worktree_setup",
+      "rc": 1,
+      "blocking": true
+    }
+  ]
+}

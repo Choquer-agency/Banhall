@@ -1,0 +1,70 @@
+[plugin]
+name = "npm-bootstrap"
+version = "1.0.0"
+api_version = 1
+description = "Install each native worker's locked npm dependencies before coding."
+
+# Native provisioning has mounted ctx.worktree before this enforcing gate.
+# post_worktree_setup is observe-only and cannot block a coding session.
+[hooks.pre_worktree_setup]
+cmd = '''
+set -eu
+if [ ! -f package.json ] || [ -L package.json ]; then
+  echo "npm-bootstrap: local regular package.json required" >&2
+  exit 1
+fi
+if [ -L package-lock.json ] || [ -L npm-shrinkwrap.json ]; then
+  echo "npm-bootstrap: lockfiles must be local regular files" >&2
+  exit 1
+fi
+if { [ ! -f package-lock.json ] || [ -L package-lock.json ]; } &&
+   { [ ! -f npm-shrinkwrap.json ] || [ -L npm-shrinkwrap.json ]; }; then
+  echo "npm-bootstrap: local regular package-lock.json or npm-shrinkwrap.json required" >&2
+  exit 1
+fi
+check_owned() {
+  if [ -L node_modules ] || [ -L .svelte-kit ]; then
+    echo "npm-bootstrap: node_modules and .svelte-kit must belong to this worker" >&2
+    exit 1
+  fi
+}
+check_paths() {
+  node --input-type=module - "$@" <<'NODE'
+import fs from 'node:fs';
+import path from 'node:path';
+try {
+  const worker = fs.realpathSync('.');
+  function inside(target, root) {
+    const relative = path.relative(root, fs.realpathSync(target));
+    if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error(`npm-bootstrap: ${target} escapes ${root}`);
+    }
+  }
+  const modules = path.join(worker, 'node_modules');
+  for (const name of ['svelte-kit', 'tsc', 'vitest']) {
+    inside(path.join(modules, '.bin', name), modules);
+  }
+  if (process.argv[2] === 'generated') {
+    inside('.svelte-kit/tsconfig.json', path.join(worker, '.svelte-kit'));
+  }
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
+NODE
+}
+check_owned
+npm ci --include=dev --no-audit --no-fund
+check_owned
+check_paths
+./node_modules/.bin/svelte-kit sync
+check_owned
+check_paths generated
+./node_modules/.bin/tsc --version
+./node_modules/.bin/vitest --version
+check_owned
+check_paths generated
+'''
+timeout_sec = 1200
+blocking = true
+fail_closed = true
