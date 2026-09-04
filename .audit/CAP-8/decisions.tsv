@@ -6,3 +6,6 @@ ts	phase	decision	why	evidence	result
 2026-09-04T19:38:13.999264+00:00	verify	Use two test workers and 30-second source-scan timeout	Existing wall-clock and all-Svelte parse tests failed under concurrent worktree load	vitest.config.ts	assertions unchanged; full gate rerunning
 2026-09-04T19:53:50.348042+00:00	prove	Accept reviewed implementation	Full factory gate and all matrix cases passed	.audit/CAP-8/gate-reviewed.log	1393 tests; both type checks; 68 uploader cases passed
 2026-09-04T19:54:29.621777+00:00	ship	Commit reviewed implementation locally	Authorized story complete; no push	b13d5ce9f93fe00ad0d02e15294954a20961b69d	committed
+2026-09-04T20:01:57.673407+00:00	review	Repair extraction, attempt lifecycle and orphan cleanup	Fresh review found gate bypasses and lifecycle gaps	convex/qaBlocking.test.ts	Four parser failures reproduced before fix; 42 focused tests pass
+2026-09-04T20:23:58.170783+00:00	prove	Accept follow-up fixes after complete gate	All required gates passed despite host contention	.audit/CAP-8/followup-gate.log	1408 tests; both type checks; 68 harness cases passed
+2026-09-04T20:23:58.171912+00:00	ship	Commit unchanged engine ledger append as bookkeeping	Explicit operator authorization; digest preserved	5b2bed6a0f129af3c9799f8bc80e0fa3ec1e3a01	No entry modifications or new deferrals

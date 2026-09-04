@@ -357,3 +357,11 @@ source_spec: `7-review-decisions-required-to-leave-internal-review.md`
 severity: low
 reason: The new INVALID_STATE ("no report revision to record a review decision against") is raised only after submission. workflowStageOptions has no report knowledge, so StageChangeDialog still renders both completion edges as selectable. Recorded in the 2026-09-04 product-domain amendment; the escape hatch is moving to any other stage under unchanged default policy.
 status: open
+
+### DW-46: The existing because detector treats multiple recognized uncertainties in one sentence as one statement.
+origin: spec-deferred bf65f7833aeb
+location: convex/ai/qaChecks.ts:93
+source_spec: `8-blocking-qa-policy.md`
+severity: medium
+reason: Baseline f122b086d745acc40b4decca26b9aaafc7257f6a convex/ai/qaChecks.ts uses uncertaintyMarkers.some and one /because/i check per sentence. One because clause can therefore satisfy another uncertainty in the same sentence. The new gate reuses that existing detector rather than adding a linguistic classifier.
+status: open

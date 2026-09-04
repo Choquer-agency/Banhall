@@ -118,6 +118,24 @@ deferred:
 Review interpretation: CAP-8 explicitly scopes stored blockers to the current report revision, so it does not mandate a fresh AI assessment after every change. Exact unchanged content still retains established failures. The two existing structured substantive compliance flags provide the machine-readable methodology surface; freeform issue-text classification was not invented. Read-side display remains optional. Ghost output is a snapshot; canonical iterative assembly already uses the shared creation helper. Tooling changes were needed to execute the required gate. Interim status/evidence observations are completed during finalization.
 
 
+### 2026-09-04: Fresh review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 8: (high 3, medium 4, low 1)
+- defer: 0
+- reject: 6: (high 0, medium 5, low 1)
+- addressed_findings:
+  - `[high]` `[patch]` Recognize punctuation in section-heading subtitles so section 242 remains visible to the gate.
+  - `[high]` `[patch]` Preserve uncertainty prose when the section 242 heading is renamed or removed while later headings remain.
+  - `[high]` `[patch]` Normalize whitespace-only legacy blank lines so unrelated explanations cannot satisfy another paragraph's uncertainty.
+  - `[medium]` `[patch]` Traverse rich-text containers while retaining paragraph and heading boundaries.
+  - `[medium]` `[patch]` Settle stale QA attempts with an attempt-identity fence so retries recover without overwriting newer results.
+  - `[medium]` `[patch]` Delete orphaned findings through bounded cleanup after authorized project deletion.
+  - `[medium]` `[patch]` Add a runtime fence proving iterative QA receives all three current canonical sections and their exact reference.
+  - `[low]` `[patch]` Remove an unused findings index.
+
+The intent audit confirms the exact-evidence interpretation already recorded above: changed content receives deterministic reevaluation without requiring a fresh AI assessment; identical content cannot waive an established methodology failure. No existing deferred item or ledger status is changed.
+
 ## Design Notes
 
 Known methodology failures are carried to a new revision only when the same report has exactly the same content hash; this prevents no-op saves and restores from acting as waivers. Section identity participates in finding deduplication.
@@ -133,46 +151,32 @@ An open row is evidence of an unresolved failure for its exact content revision.
 - `npx tsc -p convex/tsconfig.json --noEmit`: no errors.
 - `git diff --name-only -- src/`: empty.
 
+
 ## Auto Run Result
 
-Status: done
+Status: done.
 
-### Implemented change
+The fresh review hardens section extraction, settles obsolete QA attempts without misattribution, and removes findings belonging to deleted reports in bounded batches. All original blocking-policy behavior remains in place.
 
-Blocking QA is persisted and enforced at current-revision filing readiness and client publish with `QA_BLOCKING`. Because findings ignore writer waivers; the existing structured substantive methodology failures are also blocking. Known failures survive byte-identical saves/restores. Current-content QA uses a captured report/revision/hash, so late completion cannot relabel an edited report. Findings retain section identity, and the QA rail is unchanged.
+Files changed in this pass:
+- `convex/lib/tiptapReport.ts`: preserve section boundaries through nested nodes, changed headings and whitespace-only paragraph separators; retain conservative legacy heading detection.
+- `convex/ai/postQa.ts`, `convex/generations.ts`: capture attempt identity, fence completion and release only the obsolete attempt's retry lock.
+- `convex/projects.ts`, `convex/schema.ts`: schedule bounded orphan cleanup and remove an unused index.
+- `convex/qaBlocking.test.ts`, `convex/lib/tiptapReport.test.ts`: regressions for extraction and readiness/publish gates.
+- `convex/generationAttribution.test.ts`: real action/retry lifecycle and iterative current-content attribution coverage.
+- `convex/qaFindingsCleanup.test.ts`: deletion, authorization, continuation and isolation coverage.
+- `.audit/CAP-8/`: review decisions and observed command evidence.
 
-### Files changed
+Review findings: eight patches (three high, four medium, one low); zero new deferrals; six rejected findings. Follow-up review recommended: true. Weighted medium/low score: 13; high-severity fixes independently warrant follow-up review.
 
-- `convex/ai/qaChecks.ts`: non-waivable because checks across section 242 paragraphs.
-- `convex/ai/prompts.ts`: substantive methodology remains mandatory under custom skeletons.
-- `convex/lib/qaFindings.ts`: indexed persistence, retry identity, exact-content carry, and shared blocking evaluation.
-- `convex/lib/tiptapReport.ts`: safe current-section extraction for Tiptap and legacy text.
-- `convex/schema.ts`: additive findings table with exact-reference indexes.
-- `convex/lib/contracts.ts`: typed QA_BLOCKING codes.
-- `convex/lib/auth.ts`: filing-readiness blocker.
-- `convex/projects.ts`: pre-write publish gate and copied-report persistence.
-- `convex/reports.ts`, `convex/chatV2.ts`, `convex/comments.ts`, `convex/snapshots.ts`: transactional findings on human content writes.
-- `convex/generations.ts`: canonical creation persistence and captured current-content QA input/storage.
-- `convex/ai/postQa.ts`: captured reference forwarded through action completion.
-- `convex/qaBlocking.test.ts`: persistence, publish, revision, waiver, parser, copy and alternate-writer regressions.
-- `convex/generationAttribution.test.ts`: real provider-to-gate and iterative-assembly persistence assertions.
-- `convex/ai/qaChecks.test.ts`, `convex/ai/prompts.test.ts`, `convex/lib/tiptapReport.test.ts`: detector, prompt and extraction fences.
-- `docs/product-domain.md`: approved absolute-QA amendment and compatibility notes.
-- `tsconfig.json`, `vitest.config.ts`: explicit source includes and stable verification scheduling/timeouts for this worktree.
-- This story and `.audit/CAP-8/`: completed tasks, decisions, acceptance mapping and retained runtime evidence.
+Existing deferred entries and their status were preserved. The pre-existing orchestrator ledger change was retained byte-for-byte, with SHA-256 `4bb7eaacb7e1d45159335c8fc89e0eb9e7dfee8f5f9768d12e012c607bc663d5`.
 
-### Review findings
+Residual risks: the existing sentence-level detector limitation remains as already recorded. Changed-byte reports receive deterministic reevaluation without mandatory AI reassessment, per the original contract. Deleted-report finding cleanup is asynchronous and runs in bounded transactions.
 
-Eleven patches applied: high 2, medium 6, low 3. One pre-existing detector limitation deferred; seven findings rejected. The Review Triage Log records the decisions. Follow-up review recommended: true, because two patches were high severity and the weighted score is 3 × 6 + 3 = 21.
 
-### Verification
-
-- `bash scripts/loop-verify.sh`: exit 0. Convex TypeScript passed; application check reported 0 errors and 0 warnings; `npm test` passed 128 files and 1393 tests; PowerShell uploader harness passed 50 cases; Bash uploader harness passed 18 cases.
-- `npx vitest run convex/ai/qaChecks.test.ts convex/projects.test.ts convex/qaBlocking.test.ts`: 3 files, 129 tests passed after review fixes.
-- Review-focused provider/extraction/persistence batch: 5 files, 123 tests passed. Final extraction/QA regression rerun: 2 files, 36 tests passed.
-- `git diff --check`: clean. No changes under `src/` or `convex/_generated/`.
-- Evidence: `.audit/CAP-8/evidence.md`, `.audit/CAP-8/gate-reviewed.log`, `.audit/CAP-8/decisions.tsv`.
-
-### Residual risks
-
-The existing detector treats multiple recognized uncertainty clauses in one sentence as one statement and can consider one because clause sufficient; recorded in `deferred`. Methodology findings rely on the two explicit validated compliance flags, not a new freeform-text classifier. A fresh AI assessment after every changed revision is not required by this story; exact unchanged content retains its known findings.
+Verification completed on source commit `5b2bed6a0f129af3c9799f8bc80e0fa3ec1e3a01`:
+- `bash scripts/loop-verify.sh`: exit 0; Convex TypeScript passed, Svelte reported zero errors/warnings, 129 test files and 1,408 tests passed, uploader harnesses passed 50 PowerShell and 18 Bash cases.
+- Focused QA/parser run: 146 tests passed. Focused cleanup run: 120 tests passed. Lifecycle/attribution/recovery run: 84 tests passed.
+- `git diff --check`: passed. Baseline-to-current `src/` and `convex/_generated/` diff: empty.
+- Ledger SHA-256 verified unchanged before final bookkeeping commit. The operator explicitly authorized committing the unchanged engine append.
+- Retained evidence: `.audit/CAP-8/followup-gate.log`, `.audit/CAP-8/followup-regressions.log`, `.audit/CAP-8/evidence.md`.
