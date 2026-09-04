@@ -485,3 +485,35 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: convex/lib/editDistance.ts compares (trigger, revisionNumber, ped) against by_reportId .order("desc").first(). publish then milestone then publish with no edit in between writes a third row because the newest row's trigger differs. This is the literal reading of the intent's repeat-trigger row; a per-trigger comparison would suppress it.
 status: open
+
+### DW-62: Recovery review reconfirmed that scheduled publish readings use drain-time content and ownership.
+origin: spec-deferred 62f4c7d4491a
+location: convex/reportEditDistance.ts:119
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: convex/projects.ts schedules recordAtPublish with reportId only; convex/reportEditDistance.ts:119 loads the report when that mutation runs. The existing recovery deferral is retained for orchestrator resolution.
+status: open
+
+### DW-63: Recovery review reconfirmed that malformed JSON is interpreted as empty text by the existing extractor.
+origin: spec-deferred 732eabc3e917
+location: convex/lib/editDistance.ts:116
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: medium
+reason: convex/lib/reportEdits.ts:168 returns empty text on parse failure; convex/lib/editDistance.ts uses that same extractor to preserve the read-time formula. The existing recovery deferral is retained for orchestrator resolution.
+status: open
+
+### DW-64: Recovery review reconfirmed historical writer-series rows survive deletion and ownership changes.
+origin: spec-deferred 65c0249ac3e4
+location: convex/reportEditDistance.ts:91
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: medium
+reason: convex/reportEditDistance.ts:91 reads the writer index without loading current projects; the existing deletion and ownership deferrals remain reserved for orchestrator resolution.
+status: open
+
+### DW-65: Recovery review reconfirmed that bounded series responses do not include truncation metadata.
+origin: spec-deferred 176045d2b1ac
+location: convex/reportEditDistance.ts:30
+source_spec: `3-persist-post-edit-distance-at-milestones.md`
+severity: low
+reason: convex/reportEditDistance.ts uses take(SERIES_FOR_REPORT_LIMIT) and take(SERIES_FOR_WRITER_LIMIT) and returns arrays. The existing pagination deferral remains reserved for CAP-3.
+status: open
