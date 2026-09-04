@@ -45,3 +45,5 @@ The PowerShell harness reports one platform-specific dotfile sub-case skip, expl
 Final artifact check: `uv run --with pyyaml python .audit/DW-92/verify_preservation.py` exited 0 (`preservation.json`), confirming unchanged contract, parsed YAML deferral and baseline, retained prior result/reviews, and no frontend/generated/ledger edits. Initial attempts to load YAML from Node and system Python found no installed YAML package; the isolated uv environment supplied PyYAML for the successful check. `git diff --check` passed.
 
 Log finalization removed extra terminal blank lines only, after staged whitespace validation flagged them; diagnostic lines and test output are unchanged.
+
+Verified product source and fresh review/evidence commit: `f1a61c44f80268df68b5ebd29bc848eee23490a2`. The finalization commit changes only audit/spec bookkeeping; product and test source remain byte-identical to this verified commit. Evidence was committed while the adopted story was still in-review, before writing done. Native orchestrator acceptance and ledger resolution remain orchestrator responsibilities.

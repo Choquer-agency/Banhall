@@ -2,7 +2,7 @@
 title: 'Blocking QA policy'
 type: 'feature'
 created: '2026-09-04'
-status: 'in-review'
+status: 'done'
 baseline_revision: '0dd0d6bd98c28e54107ae10fe06a90fd83c6dab2'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -257,9 +257,9 @@ Required remaining work: after explicit slot grant, run `bash scripts/loop-verif
 
 ## Auto Run Result
 
-Status: in-review
+Status: done
 
-DW-92 native review and current-code verification are complete; local evidence commit and final status write-back are in progress. This run repairs three current-content extraction bypasses without changing the absolute QA contract or the historical baseline.
+DW-92 native review, repairs, and current-code verification are complete. Reviewed product source and fresh audit evidence were committed as `f1a61c44f80268df68b5ebd29bc848eee23490a2` before this final status write-back. This run repairs three current-content extraction bypasses without changing the absolute QA contract or the historical baseline.
 
 Files changed:
 - `convex/lib/tiptapReport.ts`: preserve substantive uncertainty across ambiguous legacy labels, late section headings, and rich-text blank lines.
