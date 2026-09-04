@@ -1519,6 +1519,31 @@ export default defineSchema({
     .index("by_user_report", ["userId", "reportId"])
     .index("by_projectId", ["projectId"]),
 
+  // ─── Reviewer decision recorded when a project leaves internal review ──────
+  // Required (fail-closed, typed REVIEW_DECISION_REQUIRED) on the two
+  // internal-review completion edges — `internal_review` → `edits` and
+  // `internal_review` → `ready_for_delivery` — and written by
+  // `setWorkflowStage` in the same transaction as the stage patch and the
+  // `stage_changed` event. The row pins the judgement to the exact report
+  // revision that was read (`revisionNumber` + `contentHash`), so "the review
+  // is done" is an audited fact rather than an unattributed stage flip.
+  // `toStage` is inlined rather than imported from lib/contracts to keep the
+  // schema free of runtime imports; only the two completion destinations are
+  // representable.
+  reviewDecisions: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    reviewerId: v.id("users"),
+    revisionNumber: v.number(),
+    contentHash: v.string(),
+    decision: v.union(v.literal("approve"), v.literal("return")),
+    toStage: v.union(v.literal("edits"), v.literal("ready_for_delivery")),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_reportId", ["reportId"]),
+
   // Per-writer feedback on individual generated QA observations. Target keys
   // survive candidate deletion after selection; item text is copied for admin review.
   qaItemFeedback: defineTable({

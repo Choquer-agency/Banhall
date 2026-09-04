@@ -6,6 +6,7 @@ import { getInternalProjectAccessOrNull } from "./lib/auth";
 import { requireCapability } from "./lib/roleCapabilities";
 import {
   domainError,
+  sha256,
   workflowStageValidator,
 } from "./lib/contracts";
 import {
@@ -15,6 +16,7 @@ import {
 } from "./lib/teamRoster";
 import {
   findWorkflowTransition,
+  reviewDecisionForStage,
   type TransitionAuthority,
 } from "../shared/workflowTransitions";
 import { MAX_WORKFLOW_NOTE_CHARS } from "../shared/workflowLabels";
@@ -318,6 +320,14 @@ export const setWorkflowStage = mutation({
     projectId: v.id("projects"),
     toStage: workflowStageValidator,
     note: v.optional(v.string()),
+    // Optional in the validator so every non-review edge keeps its exact
+    // current argument shape; the requirement is enforced per-edge in the
+    // handler from the transition matrix's `review_decision` requirement.
+    reviewDecision: v.optional(
+      v.object({
+        decision: v.union(v.literal("approve"), v.literal("return")),
+      })
+    ),
     expectedVersion: v.number(),
   },
   returns: v.object({
@@ -354,6 +364,56 @@ export const setWorkflowStage = mutation({
     const note = normalizedNote(args.note);
     if (transition.requiresNote && !note) {
       domainError("INVALID_INPUT", "Add a reason for this workflow transition");
+    }
+    // Review decision (2026-09-04 amendment). Checked BEFORE the fail-closed
+    // requirements below so it stays observable on the `ready_for_delivery`
+    // edge, which `promoted_branch` otherwise rejects on every call.
+    const needsDecision = transition.requirements?.includes("review_decision") === true;
+    const expectedDecision = reviewDecisionForStage(args.toStage);
+    if (!needsDecision && args.reviewDecision) {
+      domainError(
+        "INVALID_INPUT",
+        "A reviewer decision applies only to internal-review completion"
+      );
+    }
+    let reviewedReport: Doc<"reports"> | null = null;
+    let reviewedStage: "edits" | "ready_for_delivery" | null = null;
+    if (needsDecision) {
+      if (!args.reviewDecision) {
+        domainError(
+          "REVIEW_DECISION_REQUIRED",
+          "Record an approve or return decision to complete this review"
+        );
+      }
+      // Derive the audited destination explicitly rather than by construction,
+      // and do it BEFORE comparing against `expectedDecision`: if a third edge
+      // ever gains `review_decision`, `reviewDecisionForStage` returns
+      // undefined, so the comparison below would always fire and mask the real
+      // problem behind an "does not match" INVALID_INPUT. Fail closed here
+      // instead of silently recording it as one of the two completion stages.
+      if (args.toStage !== "edits" && args.toStage !== "ready_for_delivery") {
+        domainError(
+          "INVALID_STATE",
+          "This transition requires a reviewer decision but is not an internal-review completion edge"
+        );
+      }
+      if (args.reviewDecision.decision !== expectedDecision) {
+        domainError("INVALID_INPUT", "The reviewer decision does not match this transition");
+      }
+      reviewedStage = args.toStage;
+      // The decision is pinned to the project's latest report revision; with
+      // no report there is nothing to pin it to.
+      reviewedReport = await ctx.db
+        .query("reports")
+        .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+        .order("desc")
+        .first();
+      if (!reviewedReport) {
+        domainError(
+          "INVALID_STATE",
+          "This project has no report revision to record a review decision against"
+        );
+      }
     }
     if (transition.requirements?.includes("delivery_outcome")) {
       domainError(
@@ -406,6 +466,33 @@ export const setWorkflowStage = mutation({
       ...(note ? { note } : {}),
       at: now,
     });
+    if (needsDecision) {
+      // Fail closed: the insert is keyed off the requirement, not off the
+      // resolved values, so a stage patch + stage_changed event can never
+      // commit without its decision row. The checks above should make this
+      // unreachable; if they ever do not, the whole transaction aborts.
+      if (!reviewedReport || !reviewedStage || !args.reviewDecision) {
+        domainError(
+          "INVALID_STATE",
+          "The reviewer decision could not be recorded for this transition"
+        );
+      }
+      // Same transaction as the stage patch and the stage_changed event: the
+      // decision and the stage move are one atomic audit fact.
+      await ctx.db.insert("reviewDecisions", {
+        projectId: project._id,
+        reportId: reviewedReport._id,
+        reviewerId: user._id,
+        revisionNumber: reviewedReport.revisionNumber ?? 0,
+        // Falsy, not nullish: a stored empty hash is as unusable as an absent
+        // one and must be recomputed rather than pinned as "".
+        contentHash: reviewedReport.contentHash || (await sha256(reviewedReport.content)),
+        decision: args.reviewDecision.decision,
+        toStage: reviewedStage,
+        ...(note ? { note } : {}),
+        createdAt: now,
+      });
+    }
     return { status: "updated" as const, version: nextVersion };
   },
 });

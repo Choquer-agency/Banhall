@@ -6,7 +6,26 @@ export type TransitionAuthority =
   | "manager"
   | "admin";
 
-export type TransitionRequirement = "delivery_outcome" | "promoted_branch";
+export type TransitionRequirement =
+  | "delivery_outcome"
+  | "promoted_branch"
+  | "review_decision";
+
+/** The reviewer judgement an internal-review completion edge records. */
+export type ReviewDecision = "approve" | "return";
+
+/**
+ * The decision value that agrees with an internal-review completion edge:
+ * returning the report for edits is a `return`, promoting it to
+ * `ready_for_delivery` is an `approve`. Shared by the mutation (which enforces
+ * agreement) and the UI (which derives the value from the destination), so the
+ * mapping lives in exactly one place.
+ */
+export function reviewDecisionForStage(to: WorkflowStage): ReviewDecision | undefined {
+  if (to === "edits") return "return";
+  if (to === "ready_for_delivery") return "approve";
+  return undefined;
+}
 
 export type WorkflowTransitionRule = {
   from: WorkflowStage;
@@ -26,20 +45,29 @@ const reviewAuthorities = [
 const managerAdmin = ["manager", "admin"] as const;
 
 function transitionRule(from: WorkflowStage, to: WorkflowStage): WorkflowTransitionRule {
+  // The two internal-review completion edges: the handoff assignee is
+  // additionally authorized on them AND they are the edges that must record a
+  // reviewer decision. One predicate, both policies.
+  const isReviewCompletion =
+    from === "internal_review" && (to === "edits" || to === "ready_for_delivery");
   const authorities =
     from === "abandoned" || (from === "delivered" && to === "on_hold")
       ? managerAdmin
-      : from === "internal_review" && (to === "edits" || to === "ready_for_delivery")
+      : isReviewCompletion
         ? reviewAuthorities
         : ownerManagerAdmin;
   const requiresNote =
     to === "on_hold" || to === "abandoned" || from === "delivered" || from === "abandoned";
-  const requirements: readonly TransitionRequirement[] | undefined =
+  const baseRequirements: readonly TransitionRequirement[] =
     to === "delivered"
       ? ["delivery_outcome"]
       : to === "ready_for_delivery"
         ? ["promoted_branch"]
-        : undefined;
+        : [];
+  const allRequirements: readonly TransitionRequirement[] = isReviewCompletion
+    ? [...baseRequirements, "review_decision"]
+    : baseRequirements;
+  const requirements = allRequirements.length ? allRequirements : undefined;
   return {
     from,
     to,
@@ -57,8 +85,12 @@ function transitionRule(from: WorkflowStage, to: WorkflowStage): WorkflowTransit
  * and the exceptional `delivered` → `on_hold` correction stay
  * Manager/Admin-only; the handoff assignee keeps authority over the two
  * internal-review completion edges. Requirements are data hooks: PSOS-09
- * enforces delivery outcomes by failing closed, and `promoted_branch`
- * fails closed until branch storage lands.
+ * enforces delivery outcomes by failing closed, `promoted_branch` fails
+ * closed until branch storage lands, and `review_decision` (2026-09-04
+ * amendment) requires the two internal-review completion edges to record a
+ * `reviewDecisions` row pinned to the report revision that was reviewed
+ * (`internal_review` → `ready_for_delivery` therefore carries both
+ * `promoted_branch` and `review_decision`).
  */
 export const WORKFLOW_TRANSITIONS: readonly WorkflowTransitionRule[] =
   WORKFLOW_STAGES.flatMap((from) =>

@@ -106,6 +106,7 @@ erDiagram
   reports ||--o{ comments : ""
   reports ||--o{ chatProposals : ""
   reports ||--o{ writerReviews : ""
+  reports ||--o{ reviewDecisions : "internal-review completion, pinned to revision"
   reports ||--o{ agentChatThreads : ""
   generations ||--o{ reportCandidates : ""
   generations ||--o{ generationSources : "frozen input bytes"
@@ -126,8 +127,8 @@ stateDiagram-v2
   intake --> interview_complete
   interview_complete --> drafting
   drafting --> internal_review : also via workItems.create(confirmedStageChange)
-  internal_review --> edits : + handoff_assignee authority
-  internal_review --> ready_for_delivery : + handoff_assignee, requires promoted_branch (fails closed)
+  internal_review --> edits : + handoff_assignee authority, requires review_decision (return)
+  internal_review --> ready_for_delivery : + handoff_assignee, requires review_decision (approve) then promoted_branch (fails closed)
   edits --> client_review
   client_review --> revisions
   revisions --> ready_for_delivery : requires promoted_branch (fails closed)
@@ -139,7 +140,7 @@ stateDiagram-v2
   delivered --> revisions : note required
 ```
 
-Every stage write goes through `patchProjectWorkflowStage`, which moves the dashboard `stageCounts` bucket in the same transaction and appends a `projectEvents` row. `ready_for_delivery` and `delivered` fail closed because `reportBranches` and `productionOutcomes` do not exist: **no project can reach a terminal stage today (Q1)**.
+Every stage write goes through `patchProjectWorkflowStage`, which moves the dashboard `stageCounts` bucket in the same transaction and appends a `projectEvents` row. `ready_for_delivery` and `delivered` fail closed because `reportBranches` and `productionOutcomes` do not exist: **no project can reach a terminal stage today (Q1)**. The two internal-review completion edges also fail closed without a recorded reviewer decision (2026-09-04 amendment): `setWorkflowStage` requires a `reviewDecision` agreeing with the destination and writes one `reviewDecisions` row — reviewer, report, `revisionNumber`, `contentHash` — in the same transaction, typed `REVIEW_DECISION_REQUIRED` when absent and `INVALID_STATE` when the project has no report to pin. Checked before `promoted_branch` so it is observable on the approve edge.
 
 ## 7. Routes
 

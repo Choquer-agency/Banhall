@@ -24,6 +24,7 @@ export const domainErrorCodes = [
   "INVALID_STATE",
   "INVALID_INPUT",
   "BLOCKING_EXISTS",
+  "REVIEW_DECISION_REQUIRED",
 ] as const;
 
 export type DomainErrorCode = (typeof domainErrorCodes)[number];

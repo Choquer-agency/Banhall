@@ -86,7 +86,7 @@ Per-edge policy is derived from the origin and destination stages:
 | Rule | Edges | Policy |
 |---|---|---|
 | Default authority | All edges unless overridden below | O, M, A |
-| Review completion | `internal_review` → `edits`, `internal_review` → `ready_for_delivery` | H additionally authorized (H, O, M, A) |
+| Review completion | `internal_review` → `edits`, `internal_review` → `ready_for_delivery` | H additionally authorized (H, O, M, A); a reviewer decision (`return` for `edits`, `approve` for `ready_for_delivery`) must be recorded atomically against the project's latest report revision, else typed `REVIEW_DECISION_REQUIRED` |
 | Reopen abandoned | `abandoned` → any stage | M, A only; audit note required |
 | Delivered administrative correction | `delivered` → `on_hold` | M, A only; audit note required |
 | Leaving delivered | `delivered` → any stage | Audit note required; existing outcome records remain immutable |
@@ -1555,6 +1555,51 @@ it follow in `transcripts-2` through `transcripts-7`.
 - **Approval:** product owner requested several transcripts per project and a
   working two-hour transcript at the 2026-08-26 client meeting; recorded here
   before any code relies on the contract.
+
+### 2026-09-04 — Recorded reviewer decision on internal-review completion
+
+Transition-policy amendment. Origin: AI engine sprint 2 boundary spec
+(`_bmad-output/specs/spec-ai-engine-sprint-2-boundary`, story 7). Leaving
+`internal_review` was an unaudited stage flip: nothing recorded who judged the
+report, what they decided, or which revision they had actually read.
+
+- **What changes:** the two internal-review completion edges
+  (`internal_review` → `edits` and `internal_review` → `ready_for_delivery`)
+  carry a new `review_decision` requirement in the transition matrix. A
+  `setWorkflowStage` call across either edge must supply
+  `reviewDecision: { decision }`, and the decision must agree with the
+  destination — `edits` ⇒ `return`, `ready_for_delivery` ⇒ `approve`. Supplying
+  a decision on any other edge is a typed `INVALID_INPUT` rather than a silent
+  drop. No authority rule, note rule, OCC semantics, open-work check before
+  `abandoned`, or same-stage no-op changes; every other edge behaves exactly as
+  before.
+- **Implementation:** additive `reviewDecisions` table (`projectId`,
+  `reportId`, `reviewerId`, `revisionNumber`, `contentHash`, `decision`,
+  `toStage`, optional `note`, `createdAt`; `by_projectId` and `by_reportId`
+  indexes). `setWorkflowStage` resolves the project's latest report and writes
+  one decision row in the same transaction as the stage patch and the
+  `stage_changed` event — no second mutation, no scheduler hop. The row pins
+  `report.revisionNumber ?? 0` and `report.contentHash ?? sha256(content)`, so
+  a legacy report is pinned to revision 0 with a freshly computed hash. The
+  requirement is checked before the fail-closed `promoted_branch` check so it
+  is observable on the `ready_for_delivery` edge too. This story writes the
+  record only; no reader, query, or UI panel yet.
+- **New typed error:** `REVIEW_DECISION_REQUIRED` when the decision is absent
+  on a completion edge.
+- **No-report consequence:** a project in `internal_review` with no `reports`
+  row cannot leave through either completion edge — typed `INVALID_STATE`,
+  because a judgement cannot be pinned to a revision that does not exist. Such
+  a project can still move to any other stage (for example back to `drafting`)
+  under the unchanged default policy.
+- **Migration:** additive; no backfill and no field added to an existing table.
+  Historical completions have no decision row.
+- **Tests:** `convex/projectWorkflow.test.ts` (N×N matrix, missing decision on
+  both edges, contradictory decision, decision on an unrelated edge, missing
+  report, legacy report, happy path asserting the stored row and the single
+  `stage_changed` event); `convex/dashboardStageCounts.test.ts` and
+  `convex/workItems.test.ts` pass unmodified.
+- **Approval:** proposed 2026-09-04 from the approved sprint spec; recorded
+  here before the behavior change ships.
 
 ## Amendment process
 
