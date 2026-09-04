@@ -76,3 +76,7 @@ The review added actual entry cache/usage assertions, section request inspection
 Known limitation: the existing end-to-end action-chain budget does not guarantee completion within the Convex deadline for worst-case condensation, retrieval and provider latency. The story frontmatter records the deferred finding. Tests prove cache marking and usage counters, not live provider cache hits.
 
 - Final `PUBLIC_CONVEX_URL=http://localhost npm run check`: 0 errors and 0 warnings. [Output](review-check.log).
+
+## Verified implementation revision
+
+`47f5f0a95b03f1965c0431650d9386c5a2c78e56` contains the reviewed implementation, story result and verification artifacts. The following audit-only commit records this identifier; it does not change runtime code or tests. Captured logs retain command output with trailing blank lines normalized.
