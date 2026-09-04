@@ -70,3 +70,7 @@ Independent BMAD blind, edge-case, and verification-gap reviews completed. Evide
 
 - Bound concurrent workers for every existing unit-test project.
   [vitest.config.ts:14](../../vitest.config.ts#L14)
+
+## Pipeline recovery application
+
+Applied the independently reviewed two-worker cap and the schema lane's focused source-audit timeout repair (f009b43) to this pinned recovery base. The prior unmodified pipeline gate still lacked the committed worker cap. The source audit remains selected exactly once, with its assertions unchanged; only its parse-heavy suite has a 30-second timeout. This recovery is pending the native dev, independent review, and final deterministic gate. Historical passing evidence above belongs to the original repair worktree and does not certify this pipeline revision.
