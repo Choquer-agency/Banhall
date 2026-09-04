@@ -108,3 +108,5 @@ Parent verification: `bash scripts/loop-verify.sh` exited 0. Actual output: `tim
 Verified configuration SHA-256: `013eec3395ad1ede28d65ff04483220ce06b34721aa1b3287d3ed8808e6d76fe`. The review repair only changes this configuration and audit/story records relative to repair baseline `3db1dd0c8d750034b73e42eb0bf4e75c797afd45`; the original feature baseline and implementation identifiers remain recorded above.
 
 Final post-review verification: `bash scripts/loop-verify.sh` exited 0 (`timeout-final-gate.log`), with 0 Svelte errors/warnings, 127 files and 1366 tests passing, and uploader harnesses 50 and 18 passing. `git diff --check` passed. New logs retain output with trailing blank lines normalized. Three documentation review patches were applied; executable configuration was unchanged after the first passing parent gate.
+
+Verified repair commit: `f009b43b10d6faf6408841b89a6ae993d3f947c8`. This identifier binds the configuration and retained passing logs to the repaired source; the following evidence-only commit records it.
