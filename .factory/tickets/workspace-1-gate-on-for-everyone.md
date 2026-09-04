@@ -1,6 +1,6 @@
 ---
 key: workspace-1-gate-on-for-everyone
-status: escalated
+status: done
 kind: feature
 deps: []
 touches: [convex, src]
@@ -9,11 +9,15 @@ verify: [npx vitest run convex/workspaceRollout.test.ts src/routes/admin/adminWo
 done_when: ["! rg -q 'masterEnabled|setMasterSwitch|setUserAccess|listEnabledAccess|listRolloutEvents|getAdminState' convex/workspaceRollout.ts", test ! -f src/lib/components/admin/WorkspaceRolloutCard.svelte, test ! -f src/lib/components/admin/WorkspaceRolloutCard.component.test.ts, "! rg -q 'WorkspaceRolloutCard' src/", npx vitest run convex/workspaceRollout.test.ts]
 title: "Preview workspace available to every internal role; rollout master switch, allowlist functions, admin card and its component test deleted"
 plan: 20260903-client-sync
-updated: "2026-09-04T03:29:06.003Z"
-run: 20260904-020442-8-tickets
+updated: "2026-09-04T08:36:38.786Z"
+run: 20260904-082407-workspace-1-gate-on-for-
 branch: factory/workspace-1-gate-on-for-everyone
 escalation: provider quota exhausted on every fallback (codex gpt-5.6-sol); retry later with  factory run --ticket workspace-1-gate-on-for-everyone
 ui: false
+merged: 68412a2
+verdict: test-verified
+evidence: .audit/workspace-1-gate-on-for-everyone/evidence.md
+deferred: ["8 pre-existing component-test failures in Button/WorkspaceChrome/WorkspaceHeader/WorkspaceRail/workspaceRoutes; identical failure set at baseline de540f8, outside this ticket's scope"]
 ---
 ## Intent
 Writers are still on the old UI while Michael reproduces their bugs in the new one (meeting 2026-08-26, 13:00 and 17:21). After this ticket every authenticated user holding `project.readInternal` gets `available: true` from `workspaceRollout.getAccess`, with no master switch and no per-user allowlist. Role-based permissions inside the workspace do not change. The maintainer inherits a four-line gate and no admin rollout card. Tables stay. The domain amendment that supersedes the 2026-08-06 fail-closed rollout clause rides with `workspace-2` so this ticket stays inside the two-package sizing limit.
