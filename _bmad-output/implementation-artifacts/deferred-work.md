@@ -357,3 +357,11 @@ source_spec: `7-review-decisions-required-to-leave-internal-review.md`
 severity: low
 reason: The new INVALID_STATE ("no report revision to record a review decision against") is raised only after submission. workflowStageOptions has no report knowledge, so StageChangeDialog still renders both completion edges as selectable. Recorded in the 2026-09-04 product-domain amendment; the escape hatch is moving to any other stage under unchanged default policy.
 status: open
+
+### DW-46: A review records server state at submission, without proving that it is the content the reviewer previously viewed.
+origin: spec-deferred 49135c102a03
+location: convex/reviews.ts:40;convex/reviews.ts:200
+source_spec: `9-review-artifacts-pinned-to-revision-and-content-hash.md`
+severity: medium
+reason: submitWriterReview and saveQaItemFeedback accept target IDs without an expected revision or content hash. Existing callers may submit after another actor edits the report. CAP-9 preserves these public call shapes and records the current mutation-time target; caller observation fencing remains a separate existing workflow limitation.
+status: open

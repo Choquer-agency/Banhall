@@ -3,9 +3,9 @@ title: 'Review artifacts pinned to revision and content hash'
 type: 'feature'
 created: '2026-09-04'
 status: 'done'
-baseline_revision: 'f122b086d745acc40b4decca26b9aaafc7257f6a'
+baseline_revision: '3db1dd0c8d750034b73e42eb0bf4e75c797afd45'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context:
   - '{project-root}/convex/_generated/ai/guidelines.md'
 warnings: ['oversized']
@@ -81,6 +81,8 @@ deferred:
 
 - 2026-09-04: Verification-only deviation: `vitest.config.ts` uses inline OXC compiler options after the unchanged `shared/workflowStages.test.ts` reproduced automatic tsconfig discovery failure in this nested worktree. Convex tsc and Svelte check remain unchanged. See `.audit/CAP-9/unchanged-runner-repro.log`.
 
+- 2026-09-04: Verification reliability repair: isolate the repository-wide form-control source audit in its own Vitest project with a 30s timeout. Keep all assertions, ordinary unit-test timeouts, and backend behavior unchanged. Baseline full-suite timeout reproduced in `.audit/CAP-9/timeout-baseline.log`.
+
 ## Review Triage Log
 
 ### 2026-09-04: Review pass
@@ -99,6 +101,17 @@ deferred:
   - `[low]` `[patch]` Preserve referenced verification logs and diagnostic configuration with the audit artifact.
   - `[low]` `[patch]` Append an explicit correction marking both initial decision timestamps unknown; preserve append-only history.
 
+### 2026-09-04: Verification repair review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3 (high 0, medium 0, low 3)
+- defer: 0
+- reject: 10 (high 0, medium 0, low 10)
+- addressed_findings:
+  - `[low]` `[patch]` Document explicit source-audit project selection for filtered runs.
+  - `[low]` `[patch]` Clarify historical handoff wording alongside completed parent verification.
+  - `[low]` `[patch]` Describe observed timeout headroom, including the focused runtime, without promising a fixed runtime.
+
 ## Design Notes
 
 CAP-7 already uses baseline revision 0 for legacy reports. Candidates and uploaded documents have no independent revision counter, so revision 0 plus their content hash identifies their baseline without adding a new lifecycle. Historical duplication carries evidence forward, like CAP-3 uploader provenance; missing historical evidence stays missing. New start/retry events always receive both fields. Current-time server pinning follows CAP-7; caller expected-revision fencing remains outside this additive schema story.
@@ -110,24 +123,25 @@ CAP-7 already uses baseline revision 0 for legacy reports. Candidates and upload
 - `git diff --check`: no whitespace errors.
 - `git diff --name-only`: no frontend, generated files, or excluded epic files changed.
 
+
+## Verification Repair Context
+
+Resume request: repair deterministic verification without changing the frozen intent contract. Feedback in `../../../../../../../../feedback/9-1.md` reports `bash scripts/loop-verify.sh` failed because the repository-wide form-control source audit exceeded its 5000ms timeout (9636ms under full-suite load). Type checks passed; 126 test files passed, one timed out. Investigate and repair verification reliability, preserve all assertions and backend behavior, and record reproduction and successful gate evidence.
+
 ## Auto Run Result
 
 Status: done
 
-Implemented optional revisionNumber/contentHash fields on writerReviews, qaItemFeedback, and pdReviews, and typed writerReviews.userId as a users ID. Writer and QA inserts/resubmissions pin the actual mutation-time target. PD start, retry, and report-conversion paths hash document text with baseline revision 0. Historical copies preserve both recorded provenance and absence.
+Repaired the deterministic gate failure by assigning the existing repository-wide form-control source audit a dedicated Vitest project with a 30-second budget. The same shared file list excludes it from the normal source project, so the audit runs exactly once. Ordinary unit-test budgets and every assertion remain unchanged. The frozen intent contract is byte-for-byte unchanged; the prior review-provenance backend implementation remains intact.
 
-Files changed:
-- `convex/schema.ts`: optional provenance fields and typed writer user ID.
-- `convex/reviews.ts`: writer/QA provenance on insert and update.
-- `convex/pdReviews.ts`: document provenance at start/retry.
-- `convex/reviewFromProject.ts`: provenance of the generated plain-text PD.
-- `convex/projects.ts`: preserve historical review provenance through copies.
-- `convex/reviews.test.ts`, `convex/pdReviewProjection.test.ts`, `convex/reviewFromProject.test.ts`, `convex/projects.test.ts`: matrix coverage and review hardening.
-- `vitest.config.ts`: inline unit-test compiler options repair a reproduced automatic configuration-discovery failure.
-- `.audit/CAP-9/`: evidence, decision trail, and referenced verification artifacts.
+Files changed in this repair:
+- `vitest.config.ts`: dedicated source-audit project and shared exclusion.
+- `.audit/CAP-9/evidence.md`, `decisions.tsv`, and timeout logs: live reproduction, passing verification, and decision evidence.
+- This story: repair baseline, deviation, review triage, and completion result.
+- `_bmad-output/implementation-artifacts/deferred-work.md`: preserve the pre-existing caller-provided DW-46 ledger entry.
 
-Independent review: eight low-severity patches applied, one medium-severity pre-existing limitation deferred, six findings rejected. No intent gaps or spec repair loopbacks. Follow-up review recommended: true; patched severity counts are high 0, medium 0, low 8, so the configured score is 8.
+Independent review: three low-severity documentation patches, zero new deferrals, ten findings rejected. Patch counts: high 0, medium 0, low 3; score 3; follow-up review recommended: false.
 
-Verification: `bash scripts/loop-verify.sh` passed after the final patches: Convex typecheck, Svelte check with 0 errors and 0 warnings, 127 test files and 1,366 tests, PowerShell uploader 50 passed, Bash uploader 18 passed. One existing platform-specific PowerShell dotfile sub-case was skipped. `git diff --check` passed. No frontend, generated Convex, or excluded parallel-epic files changed.
+Verification: baseline `npm test` reproduced the 5000ms audit timeout at 6541ms. Repaired `npm test` passed 127 files and 1366 tests. Focused verbose audit ran once, with all three tests passing. Both parent and final `bash scripts/loop-verify.sh` runs exited 0: Convex typecheck, Svelte check with 0 errors and 0 warnings, 127 files and 1366 tests, PowerShell uploader 50 passed, Bash uploader 18 passed. `git diff --check` passed. No frontend, generated, or excluded epic files changed.
 
-Residual limitation: provenance identifies server content at submission time; it does not establish that a reviewer viewed that revision before submitting. This existing limitation is recorded in frontmatter for later work. Historical PD copies legitimately retain missing provenance.
+Residual risks: audit runtime remains machine-load dependent; 30 seconds provides observed headroom, not a completion guarantee. The existing reviewer-observation limitation remains recorded in frontmatter; this repair adds no new backend policy.

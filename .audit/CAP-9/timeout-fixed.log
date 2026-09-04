@@ -1,0 +1,12 @@
+
+> banhall-app@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-schema/.bmad-loop/runs/20260904-121620-6b94/worktrees/9
+
+
+ Test Files  127 passed (127)
+      Tests  1366 passed (1366)
+   Start at  12:48:09
+   Duration  51.81s (transform 141.67s, setup 0ms, import 156.47s, tests 148.17s, environment 24.77s)

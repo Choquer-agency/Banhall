@@ -84,3 +84,27 @@ svelte-check found 0 errors and 0 warnings
 The Convex typecheck passed before application check; the existing PowerShell platform-specific dotfile sub-case skip remains. `git diff --check` exited 0 with no output after the patches.
 
 Audit artifact notes: command logs retain their output content with trailing blank lines removed. `parent-verify.log` is an intentionally interrupted redundant rerun (exit 143), not full-gate evidence; the two complete gate logs are `loop-verify.log` and `review-patches-loop-verify.log`. Initial decision timestamps in rows 2 and 3 are unknown, as explicitly corrected in the append-only decision trail.
+
+## Deterministic verification timeout repair
+
+Repair baseline: `3db1dd0c8d750034b73e42eb0bf4e75c797afd45`.
+
+Before editing configuration, `npm test` exited 1 and reproduced the reported failure: the repository-wide form-control source audit took 6541ms against the default 5000ms timeout. The remaining 126 files and 1365 tests passed. Full output: `timeout-baseline.log`.
+
+`vitest.config.ts` now assigns that audit file to the `source-audit` project with a 30000ms timeout and excludes the same shared file pattern from the ordinary `src` project. `npm test` runs all projects, including this audit. A filtered `--project src` run no longer includes it; use `--project source-audit` to run the audit explicitly. Ordinary unit-test timeouts remain unchanged; no assertion, source traversal, Svelte component, backend function, schema, or public API changed. This configuration-only repair preserves the frozen intent contract. The story records the deviation and fixes the relative feedback link.
+
+After repair, `npm test` exited 0 (`timeout-fixed.log`):
+
+```
+ Test Files  127 passed (127)
+      Tests  1366 passed (1366)
+   Duration  51.81s
+```
+
+`npx vitest run src/lib/components/ui/formControlContract.test.ts --reporter=verbose` exited 0 (`timeout-audit-focused.log`): exactly one file and three tests ran, all under `source-audit`. The focused full-source traversal took 5060ms, also exceeding the previous 5000ms budget. The 30000ms budget provides headroom over these observed runtimes without removing assertions; runtime still depends on machine load, so these passing runs do not guarantee future completion within the timeout. `git diff --check` passed. At the implementation handoff, parent full-gate verification was still pending; its subsequent successful result is recorded below.
+
+Parent verification: `bash scripts/loop-verify.sh` exited 0. Actual output: `timeout-parent-gate.log`. Convex typecheck passed; Svelte reported 0 errors and 0 warnings; 127 test files and 1366 tests passed; PowerShell uploader 50 passed and Bash uploader 18 passed. The existing platform-specific dotfile sub-case skip remains. All matrix tests remain registered and passed in this unfiltered run. The frozen intent block matches the repair baseline byte-for-byte. `git diff --check` passed; no frontend, generated, or excluded epic files changed.
+
+Verified configuration SHA-256: `013eec3395ad1ede28d65ff04483220ce06b34721aa1b3287d3ed8808e6d76fe`. The review repair only changes this configuration and audit/story records relative to repair baseline `3db1dd0c8d750034b73e42eb0bf4e75c797afd45`; the original feature baseline and implementation identifiers remain recorded above.
+
+Final post-review verification: `bash scripts/loop-verify.sh` exited 0 (`timeout-final-gate.log`), with 0 Svelte errors/warnings, 127 files and 1366 tests passing, and uploader harnesses 50 and 18 passing. `git diff --check` passed. New logs retain output with trailing blank lines normalized. Three documentation review patches were applied; executable configuration was unchanged after the first passing parent gate.
