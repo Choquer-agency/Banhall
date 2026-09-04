@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
+import { sha256 } from "./lib/contracts";
 
 const modules = import.meta.glob("./**/*.ts");
 const authId = "pd-review-projection-user";
@@ -198,6 +199,85 @@ describe("failStalePdReviews", () => {
       const review = await t.run(async (ctx) => await ctx.db.get(reviewId));
       expect(review?.status).toBe("running");
     } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("CAP-9 PD provenance", () => {
+  it("pins fresh starts and retries to document bytes and keeps provenance through completion", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+    try {
+      const { t, projectId } = await setup();
+      const actor = t.withIdentity({ subject: authId });
+      const legacy = await t.run((ctx) => ctx.db.query("pdReviews").first());
+      if (!legacy) throw new Error("Missing fixture");
+      expect(legacy).not.toHaveProperty("revisionNumber");
+      expect(legacy).not.toHaveProperty("contentHash");
+      const documentId = legacy.documentId;
+      const content = "  Source PD with UTF-8 café\n";
+      await t.run((ctx) => ctx.db.patch(documentId, { content }));
+      const startedId = await actor.mutation(api.pdReviews.startPdReview, {
+        projectId,
+        documentId,
+      });
+      const provenance = {
+        revisionNumber: 0,
+        contentHash: await sha256(content),
+      };
+      expect(await t.run((ctx) => ctx.db.get(startedId))).toMatchObject(
+        provenance
+      );
+      await t.mutation(internal.pdReviews.completePdReview, {
+        reviewId: startedId,
+        result: "{}",
+        model: "test",
+      });
+      expect(await t.run((ctx) => ctx.db.get(startedId))).toMatchObject({
+        ...provenance,
+        status: "completed",
+      });
+      const retryContent = "New source bytes before retry";
+      await t.run((ctx) => ctx.db.patch(documentId, { content: retryContent }));
+      const retryProvenance = {
+        revisionNumber: 0,
+        contentHash: await sha256(retryContent),
+      };
+      expect(retryProvenance.contentHash).not.toBe(provenance.contentHash);
+      // Legacy retries derive from the source, never from absent historical evidence.
+      const retriedId = await actor.mutation(api.pdReviews.retryPdReview, {
+        reviewId: legacy._id,
+      });
+      expect(retriedId).not.toBe(legacy._id);
+      expect(await t.run((ctx) => ctx.db.get(retriedId))).toMatchObject(
+        retryProvenance
+      );
+      await t.mutation(internal.pdReviews.failPdReview, {
+        reviewId: retriedId,
+        error: "test",
+      });
+      expect(await t.run((ctx) => ctx.db.get(retriedId))).toMatchObject({
+        ...retryProvenance,
+        status: "failed",
+      });
+      const retryCompletedId = await actor.mutation(
+        api.pdReviews.retryPdReview,
+        { reviewId: startedId }
+      );
+      expect(await t.run((ctx) => ctx.db.get(retryCompletedId))).toMatchObject(
+        retryProvenance
+      );
+      expect(retryCompletedId).not.toBe(startedId);
+      expect(await t.run((ctx) => ctx.db.get(startedId))).toMatchObject({
+        ...provenance,
+        status: "completed",
+      });
+      expect(await t.run((ctx) => ctx.db.get(legacy._id))).not.toHaveProperty(
+        "contentHash"
+      );
+    } finally {
+      vi.useRealTimers();
       vi.unstubAllEnvs();
     }
   });

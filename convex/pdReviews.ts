@@ -10,7 +10,7 @@ import {
   getInternalProjectAccessOrNull,
   requireInternalProjectAccess,
 } from "./lib/auth";
-import { domainError } from "./lib/contracts";
+import { domainError, sha256 } from "./lib/contracts";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { projectTranscriptPromptText } from "./lib/transcripts";
 /**
@@ -57,6 +57,8 @@ export const startPdReview = mutation({
       documentId: args.documentId,
       sourceFileName: doc.fileName,
       status: "running",
+      revisionNumber: 0,
+      contentHash: await sha256(doc.content),
       createdBy: user._id,
       createdAt: now,
     });
@@ -111,6 +113,8 @@ export const retryPdReview = mutation({
       documentId: failed.documentId,
       sourceFileName: doc.fileName,
       status: "running",
+      revisionNumber: 0,
+      contentHash: await sha256(doc.content),
       createdBy: user._id,
       createdAt: now,
     });

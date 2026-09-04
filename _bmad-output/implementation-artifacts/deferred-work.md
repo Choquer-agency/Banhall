@@ -540,4 +540,10 @@ location: convex/reportEditDistance.ts:30
 source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: convex/reportEditDistance.ts uses take(SERIES_FOR_REPORT_LIMIT) and take(SERIES_FOR_WRITER_LIMIT) and returns arrays. The existing pagination deferral remains reserved for CAP-3.
+### DW-46: A review records server state at submission, without proving that it is the content the reviewer previously viewed.
+origin: spec-deferred 49135c102a03
+location: convex/reviews.ts:40;convex/reviews.ts:200
+source_spec: `9-review-artifacts-pinned-to-revision-and-content-hash.md`
+severity: medium
+reason: submitWriterReview and saveQaItemFeedback accept target IDs without an expected revision or content hash. Existing callers may submit after another actor edits the report. CAP-9 preserves these public call shapes and records the current mutation-time target; caller observation fencing remains a separate existing workflow limitation.
 status: open
