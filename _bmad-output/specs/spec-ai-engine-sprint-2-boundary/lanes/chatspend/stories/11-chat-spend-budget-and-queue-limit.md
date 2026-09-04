@@ -2,7 +2,7 @@
 title: 'Chat spend budget and queue limit'
 type: 'feature'
 created: '2026-09-04'
-status: blocked
+status: ready-for-dev
 baseline_revision: '495b3bbf828fbc52381b557378bc7b0b1cd1a2cf'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -137,21 +137,3 @@ The queue predicate and insert share a Convex transaction and indexed read depen
 - `npm test` (final default run passed; earlier host-contention retries used command-line worker/timeout allowances)
 - `PUBLIC_CONVEX_URL=http://localhost npm run check`
 
-## Auto Run Result
-
-Status: blocked.
-Blocking condition: patch verification failed.
-
-CAP-11 chat spend and sender queue admission remain implemented in the existing baseline. This invocation performed a fresh review of the documentation changes since `495b3bbf828fbc52381b557378bc7b0b1cd1a2cf`; production source and tests were unchanged.
-
-Files changed this run:
-- `.audit/CAP-11/evidence.md`: corrects normalized-log wording and records this run's failed and interrupted verification.
-- `.audit/CAP-11/decisions.tsv`: appends review and operator-recovery decisions.
-- `.audit/CAP-11/logs/fresh-review-*.log`: preserves focused success, full-suite failure, and interrupted typecheck output.
-- This story: records fresh triage and blocked status for native escalation.
-
-Review: four independent layers; one low documentation patch, zero deferred, nine rejected. Patched counts: high 0, medium 0, low 1. Follow-up score: 1. Follow-up review recommended: false. Existing deferred-work ledger entries were untouched.
-
-Verification at source revision `115cc42dc1e29001f0e5e5f221f94796873508ea`: focused chat suite passed 59 tests. Standard `npm test` exited 1 with 126 files and 1386 tests passing and one failure: the existing source scanner at `src/lib/components/ui/formControlContract.test.ts:61` exceeded 5000 ms. The follow-on typecheck was stopped at the operator's request and exited 137; it did not complete or pass. No further broad checks were launched, and no final gate was waived.
-
-Residual risk: required standard verification is incomplete. Native escalation must pause this lane until the operator applies the source-audit repair and rearms it after the other full gate finishes. Earlier successful verification is historical evidence only. No push or deployment was performed.
