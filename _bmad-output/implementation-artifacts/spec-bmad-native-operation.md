@@ -93,3 +93,5 @@ Observed: each role printed `codex gpt-6-astra medium`; all assertions passed. N
 - Keep every native coding stage on Astra medium.
   [bmad-loop-policy.example.toml:7](../../docs/bmad-loop-policy.example.toml#L7)
 
+
+Native provisioning follow-up: configured `scm.worktree_seed = ["node_modules"]` so fresh workers receive an independent complete installation. The paused schema project now replaces its ancestor dependency symlink with a physical copy; the learn-chat queue will finish its current item, then resume under the updated native policy. No alternate supervisor or launcher was introduced. The guide requires a lockfile-consistent source installation.

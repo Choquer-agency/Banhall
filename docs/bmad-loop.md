@@ -42,9 +42,13 @@ If trust blocks a session, use Codex's normal workspace/hook trust UI for that
 exact path, then confirm a subsequent genuine event reaches the native run.
 Registration alone is not proof of hook delivery.
 
-Each worker needs its own dependencies and generated build files. The existing
-verify script installs missing dependencies with `npm ci`; do not share
-`node_modules` or `.svelte-kit` between active workers.
+Install the native project's dependencies with `npm ci` before starting its
+queue. The policy's `worktree_seed = ["node_modules"]` copies that physical
+installation into each worker through native provisioning. Keep the source
+installation consistent with the lockfile on the intended recovery base; refresh
+it after dependency changes. Each worker owns its dependencies and generated
+build files. The existing verify script installs missing dependencies with
+`npm ci`; do not share `node_modules` or `.svelte-kit` between active workers.
 
 ## Run and inspect an epic
 

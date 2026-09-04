@@ -24,6 +24,7 @@ merge_strategy = "merge"
 delete_branch = false
 keep_failed = true
 seed_adapter_defaults = true
+worktree_seed = ["node_modules"]
 
 [verify]
 commands = ["bash scripts/loop-verify.sh"]
