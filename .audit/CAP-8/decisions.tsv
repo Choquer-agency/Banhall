@@ -1,0 +1,7 @@
+ts	phase	decision	why	evidence	result
+2026-09-04T19:23:30.610990+00:00	plan	Use exact report id, revision and actual content hash	Prevent stale and foreign findings from gating the current report	_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/qa/stories/8-blocking-qa-policy.md	specified
+2026-09-04T19:23:30.611981+00:00	policy	Restore non-waivable because and substantive methodology QA	User explicitly resolved CAP-8 as absolute; house-style waivers remain	docs/product-domain.md	approved by invocation
+2026-09-04T19:23:30.611993+00:00	test	Exercise registered queries and mutations with convex-test	Observe persistence and publish rollback at the requested boundary	convex/qaBlocking.test.ts	test suite written
+2026-09-04T19:32:13.182018+00:00	verify	Make root TypeScript include paths explicit	Vite could not resolve inherited includes in this nested worktree	tsconfig.json	frontend plus QA probe: 40 tests passed
+2026-09-04T19:38:13.999264+00:00	verify	Use two test workers and 30-second source-scan timeout	Existing wall-clock and all-Svelte parse tests failed under concurrent worktree load	vitest.config.ts	assertions unchanged; full gate rerunning
+2026-09-04T19:53:50.348042+00:00	prove	Accept reviewed implementation	Full factory gate and all matrix cases passed	.audit/CAP-8/gate-reviewed.log	1393 tests; both type checks; 68 uploader cases passed

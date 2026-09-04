@@ -1,3 +1,4 @@
+import { persistDeterministicFindings, hasBlockingQa } from "./lib/qaFindings";
 import {
   query,
   mutation,
@@ -929,6 +930,7 @@ async function copyProjectInputRows(
       revisionNumber: sourceReport.revisionNumber ?? 0,
       contentHash,
     });
+    await persistDeterministicFindings(ctx, reportId);
     await ctx.db.patch(args.toProjectId, {
       status: "review",
       updatedAt: now,
@@ -1034,6 +1036,9 @@ export const publishForReview = mutation({
     const report = await ctx.db.get(args.reportId);
     if (!report || report.projectId !== args.projectId) {
       domainError("NOT_AUTHORIZED", "Report does not belong to this project");
+    }
+    if (await hasBlockingQa(ctx, report)) {
+      domainError("QA_BLOCKING", "Current report has unresolved substantive QA findings");
     }
     await ctx.db.patch(args.projectId, {
       sharedReportId: report._id,

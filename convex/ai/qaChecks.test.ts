@@ -103,9 +103,8 @@ describe("checkBecauseClauses", () => {
     expect(result.details[1].hasBecause).toBe(true);
   });
 
-  // Positional pin: P5 is paragraph index 4 — uncertainties elsewhere are
-  // invisible to this check.
-  it("only scans paragraph index 4", () => {
+  // CAP-8: recognized uncertainty statements must be checked at every position.
+  it("scans every paragraph regardless of skeleton", () => {
     const decoy = [
       "It was uncertain whether P1 counts.",
       "It was uncertain whether P2 counts.",
@@ -113,10 +112,16 @@ describe("checkBecauseClauses", () => {
       "It was uncertain whether P4 counts.",
       "The final paragraph makes no uncertainty statement.",
     ].join("\n\n");
-    expect(checkBecauseClauses(decoy).uncertaintyCount).toBe(0);
+    expect(checkBecauseClauses(decoy).uncertaintyCount).toBe(4);
   });
 
-  it("returns zero counts when the section has fewer than five paragraphs", () => {
+  it("checks missing and present because clauses in a single short paragraph", () => {
+    expect(checkBecauseClauses("It was uncertain whether this scales.").withBecause).toBe(0);
+    expect(checkBecauseClauses("It was uncertain whether this scales.").uncertaintyCount).toBe(1);
+    expect(checkBecauseClauses("It was uncertain whether this scales because the response was unknown.").withBecause).toBe(1);
+  });
+
+  it("returns zero counts when no recognized uncertainty marker exists", () => {
     const result = checkBecauseClauses("One.\n\nTwo.");
     expect(result.uncertaintyCount).toBe(0);
     expect(result.withBecause).toBe(0);
@@ -229,6 +234,13 @@ describe("style-override waivers", () => {
   const waive = (partial: Record<string, boolean>) =>
     normalizeStyleOverrides(partial);
 
+  it("keeps uncertainty findings outside P5 under all writer waivers", () => {
+    const findings = sectionDeterministicFindings("s242",
+      "Context.\n\nIt remained uncertain whether the method scales.\n\nOther material.",
+      waive({ reportSkeleton: true, openingClauses: true, bannedWords: true, repetitionCaps: true }));
+    expect(findings.map(f => f.check)).toEqual(["because_clause"]);
+  });
+
   it("sectionDeterministicFindings skips banned words when waived", () => {
     const findings = sectionDeterministicFindings(
       "s244",
@@ -285,18 +297,18 @@ describe("style-override waivers", () => {
     // No opener FAIL lines despite section246Fail having no qualifying openers.
     expect(summary).not.toContain("FAIL —");
     // BECAUSE detection still runs (both fixtures' uncertainty sentences pass).
-    expect(summary).toContain("### BECAUSE Clause Detection (242 P5)");
+    expect(summary).toContain("### BECAUSE Clause Detection (242, all paragraphs)");
     expect(summary).toContain("Uncertainties with BECAUSE clauses: 2/2");
   });
 
-  // 2026-09-01: reportSkeleton waives the positional/structural scans too.
-  it("reportSkeleton waiver skips the BECAUSE and opener scans", () => {
+  // User resolution 2026-09-04: CAP-8 methodology is absolute.
+  it("reportSkeleton waives openers but never BECAUSE", () => {
     const skeletonWaived = waive({ reportSkeleton: true });
     expect(
       sectionDeterministicFindings("s242", section242Fail, skeletonWaived).some(
         (f) => f.check === "because_clause"
       )
-    ).toBe(false);
+    ).toBe(true);
     expect(
       sectionDeterministicFindings("s246", section246Fail, skeletonWaived).some(
         (f) => f.check === "cra_opener"
@@ -316,8 +328,8 @@ describe("style-override waivers", () => {
       skeletonWaived
     );
     expect(summary).toContain("### CRA Opener Detection (246 P2-P4)\nWAIVED by writer profile");
-    expect(summary).toContain("### BECAUSE Clause Detection (242 P5)\nWAIVED by writer profile");
-    expect(summary).not.toContain("FAIL —");
+    expect(summary).toContain("Uncertainties with BECAUSE clauses: 1/2");
+    expect(summary).toContain("FAIL —");
     expect(summary).toContain("No banned words found.");
   });
 

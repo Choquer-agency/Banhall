@@ -522,6 +522,21 @@ export default defineSchema({
     ])
     .index("by_projectId", ["projectId"]),
 
+  qaFindings: defineTable({
+    section: v.optional(v.string()),
+    findingKey: v.optional(v.string()),
+    reportId: v.id("reports"),
+    revisionNumber: v.number(),
+    contentHash: v.string(),
+    check: v.string(),
+    message: v.string(),
+    blocking: v.boolean(),
+  })
+    .index("by_reportId_and_revisionNumber_and_contentHash_and_findingKey", ["reportId", "revisionNumber", "contentHash", "findingKey"])
+    .index("by_reportId_and_contentHash_and_check_and_message_and_blocking", ["reportId", "contentHash", "check", "message", "blocking"])
+    .index("by_reportId_and_revisionNumber_and_contentHash_and_check_and_message", ["reportId", "revisionNumber", "contentHash", "check", "message"])
+    .index("by_reportId_and_revisionNumber_and_contentHash_and_blocking", ["reportId", "revisionNumber", "contentHash", "blocking"]),
+
   reports: defineTable({
     projectId: v.id("projects"),
     content: v.string(),

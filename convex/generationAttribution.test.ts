@@ -18,6 +18,7 @@ import {
   hashPromptProgram,
 } from "./ai/promptProgram";
 import schema from "./schema";
+import { sha256 } from "./lib/contracts";
 import { NO_STYLE_OVERRIDES } from "../shared/styleOverrides";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -131,7 +132,7 @@ type OpenRouterRequest = {
   tool_choice?: { function?: { name?: string } };
 };
 
-function successfulOpenRouterFetch(requests: OpenRouterRequest[]) {
+function successfulOpenRouterFetch(requests: OpenRouterRequest[], compliance: Record<string, boolean> = {}) {
   return vi.fn(async (_input: unknown, init?: { body?: unknown }) => {
     if (typeof init?.body !== "string") {
       throw new Error("OpenRouter test request had no JSON body");
@@ -153,7 +154,7 @@ function successfulOpenRouterFetch(requests: OpenRouterRequest[]) {
                       id: tool.id,
                       function: {
                         name: tool.name,
-                        arguments: JSON.stringify(tool.input),
+                        arguments: JSON.stringify(toolName === "submit_qa_scorecard" ? { ...TEST_QA_SCORECARD, cra_compliance: compliance } : tool.input),
                       },
                     },
                   ],
@@ -818,6 +819,22 @@ describe("generation payload provenance", () => {
     expect(JSON.stringify(qaRequest?.params)).toContain(
       "Do not flag supported technical detail as excessive.",
     );
+  });
+
+  it("post-QA provider methodology failures persist and block current readiness and publishing", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
+    await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
+    vi.stubGlobal("fetch", successfulOpenRouterFetch([], { why_how_why_intact: false }));
+    await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId });
+    const report = await t.run(ctx => ctx.db.query("reports").unique());
+    if (!report) throw new Error("Missing report");
+    const findings = await t.run(ctx => ctx.db.query("qaFindings").collect());
+    expect(findings).toEqual(expect.arrayContaining([expect.objectContaining({ reportId: report._id, revisionNumber: 0, contentHash: await sha256(report.content), check: "cra_methodology", blocking: true })]));
+    const actor = t.withIdentity({ subject: AUTH_ID });
+    const readiness = await actor.query(api.projects.getProjectReadiness, { projectId: fixture.projectId, reportId: report._id });
+    expect(readiness?.blockers.map(row => row.code)).toContain("QA_BLOCKING");
+    await expect(actor.mutation(api.projects.publishForReview, { projectId: fixture.projectId, reportId: report._id })).rejects.toMatchObject({ data: { code: "QA_BLOCKING" } });
   });
 
   it("fetches but omits a selected blank post-QA digest through the real provider path", async () => {
@@ -1923,7 +1940,7 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
           status: section === "s246" ? "awaiting_review" : "approved",
           ...(section === "s246"
             ? { draftText: "Drafted 246" }
-            : { approvedText: `Approved ${section}` }),
+            : { approvedText: section === "s242" ? "It was uncertain whether this scales." : `Approved ${section}` }),
           model: "claude-sonnet-5",
           label: "Sonnet 5",
           attempt: 1,
@@ -1968,6 +1985,8 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
       sourceTranscriptId: transcriptIds[0],
       sourceTranscriptIds: transcriptIds,
     });
+    if (!written.report) throw new Error("Missing iterative report");
+    expect(await t.run(ctx => ctx.db.query("qaFindings").collect())).toEqual(expect.arrayContaining([expect.objectContaining({ reportId: written.report._id, revisionNumber: 0, contentHash: await sha256(written.report.content), section: "s242", check: "because_clause", blocking: true })]));
     expect(written.snapshots).toHaveLength(2);
     for (const snapshot of written.snapshots) {
       expect(snapshot).toMatchObject({

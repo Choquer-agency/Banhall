@@ -147,6 +147,7 @@ export const runReportQa = internalAction({
       if (!qa) {
         await ctx.runMutation(internal.generations.saveReportQa, {
           generationId: args.generationId,
+          capturedRef: input.capturedRef,
           failed: true,
           ...(chronology ? { chronology: JSON.stringify(chronology) } : {}),
         });
@@ -154,6 +155,7 @@ export const runReportQa = internalAction({
       }
       await ctx.runMutation(internal.generations.saveReportQa, {
         generationId: args.generationId,
+        capturedRef: input.capturedRef,
         qa: JSON.stringify(qa),
         ...(chronology ? { chronology: JSON.stringify(chronology) } : {}),
         ...(typeof qa.overall_score === "number"
@@ -165,6 +167,7 @@ export const runReportQa = internalAction({
       console.error("post-assembly QA failed for generation", args.generationId, err);
       await ctx.runMutation(internal.generations.saveReportQa, {
         generationId: args.generationId,
+        capturedRef: input.capturedRef,
         failed: true,
       });
     }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildTiptapDocument, textToParagraphs } from "./tiptapReport";
+import { buildTiptapDocument, textToParagraphs, extractReportSections } from "./tiptapReport";
 
 describe("textToParagraphs", () => {
   test("splits on blank lines and drops empty paragraphs", () => {
@@ -55,4 +55,53 @@ describe("buildTiptapDocument", () => {
       "paragraph",
     ]);
   });
+});
+
+
+describe("extractReportSections", () => {
+  test("joins marked inline text and preserves separate paragraphs", () => {
+    const content = JSON.stringify({ type: "doc", content: [
+      { type: "heading", content: [{ type: "text", text: "Line 242 — Uncertainty" }] },
+      { type: "paragraph", content: [
+        { type: "text", text: "It was " },
+        { type: "text", text: "uncertain", marks: [{ type: "bold" }] },
+        { type: "text", text: " whether the method scales." },
+      ] },
+      { type: "paragraph", content: [{ type: "text", text: "Separate paragraph because this is unrelated." }] },
+      { type: "heading", content: [{ type: "text", text: "Line 244 — Work" }] },
+      { type: "paragraph", content: [{ type: "text", text: "Work performed." }] },
+    ] });
+    const sections = extractReportSections(content);
+    expect(sections.s242.trim()).toBe("It was uncertain whether the method scales.\n\nSeparate paragraph because this is unrelated.");
+    expect(sections.s244.trim()).toBe("Work performed.");
+  });
+
+  test("preserves CRLF legacy paragraphs and section boundaries", () => {
+    const sections = extractReportSections("Line 242 — Uncertainty\r\n\r\nIt remained uncertain whether this scales.\r\n\r\nAnother paragraph because of context.\r\n\r\nLine 244 — Work\r\n\r\nExperimented.");
+    expect(sections.s242.trim()).toBe("It remained uncertain whether this scales.\n\nAnother paragraph because of context.");
+    expect(sections.s244.trim()).toBe("Experimented.");
+  });
+});
+
+describe("section extraction boundary regressions", () => {
+  test("retains heading-like body prose and excludes generated title preamble", () => {
+    const sections = extractReportSections(JSON.stringify(buildTiptapDocument("It was uncertain whether title text applies.", "Line 244 — It was uncertain whether this scales.", "Work.", "Knowledge.")));
+    expect(sections.s242.trim()).toBe("Line 244 — It was uncertain whether this scales.");
+    expect(sections.s244.trim()).toBe("Work.");
+  });
+  test("parses standalone legacy headings separated by single newlines", () => {
+    const sections = extractReportSections("Title\nLine 242 — Uncertainty\nIt was uncertain whether this scales.\nLine 244 — Work\nWork performed.\nLine 246 — Advancement\nKnowledge.");
+    expect(sections.s242.trim()).toBe("It was uncertain whether this scales.");
+    expect(sections.s244.trim()).toBe("Work performed.");
+    expect(sections.s246.trim()).toBe("Knowledge.");
+  });
+  test("empty valid Tiptap documents produce empty sections", () => {
+    expect(extractReportSections('{"type":"doc","content":[]}')).toEqual({ s242: "", s244: "", s246: "" });
+  });
+});
+
+
+test("preserves soft line wraps in legacy uncertainty explanations", () => {
+  const sections = extractReportSections("Line 242 — Uncertainty\nIt was uncertain whether\nthe alloy holds because its response was unknown.\n\nNext paragraph.");
+  expect(sections.s242.trim()).toBe("It was uncertain whether\nthe alloy holds because its response was unknown.\n\nNext paragraph.");
 });

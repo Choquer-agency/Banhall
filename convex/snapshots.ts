@@ -1,3 +1,4 @@
+import { persistDeterministicFindings } from "./lib/qaFindings";
 import { query, mutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
@@ -306,6 +307,7 @@ export const restoreSnapshot = mutation({
       revisionNumber: revisionNumber + 1,
       updatedAt: now,
     });
+    await persistDeterministicFindings(ctx, report._id);
     await pruneSnapshots(ctx, report._id);
     return revisionNumber + 1;
   },

@@ -1,3 +1,5 @@
+import { extractReportSections } from "./lib/tiptapReport";
+import { persistDeterministicFindings, persistMethodologyFindings, reportQaRef } from "./lib/qaFindings";
 import {
   query,
   mutation,
@@ -1034,6 +1036,16 @@ async function createGeneratedReportArtifacts(
     generatedAt: now,
     updatedAt: now,
   });
+  await persistDeterministicFindings(ctx, reportId, candidate.agentOutputs);
+  const createdReport = await ctx.db.get(reportId);
+  if (createdReport) {
+    let outputs: unknown;
+    try { outputs = JSON.parse(candidate.agentOutputs ?? "{}"); }
+    catch { /* Malformed initial QA is not compliance evidence. */ }
+    if (outputs && typeof outputs === "object" && "qa" in outputs) {
+      await persistMethodologyFindings(ctx, createdReport, outputs.qa);
+    }
+  }
   await ctx.db.insert("reportSnapshots", {
     projectId: candidate.projectId,
     reportId,
@@ -1605,6 +1617,12 @@ export const getPostQaInput = internalQuery({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return null;
+    const report = await ctx.db.query("reports")
+      .withIndex("by_generationId", q => q.eq("generationId", generation._id)).first();
+    if (!report) return null;
+    const capturedRef = await reportQaRef(report);
+    const currentSections = extractReportSections(report.content);
+    if (!Object.values(currentSections).some(text => text.trim())) return null;
     if ((generation.candidateMode ?? "compare") === "iterative") {
       const [analysisRow, brainRow] = await Promise.all([
         ctx.db
@@ -1653,16 +1671,17 @@ export const getPostQaInput = internalQuery({
           model: run?.model ?? "",
         };
       }
-      if (!sections.s242.text && !sections.s244.text && !sections.s246.text) {
+      if (!currentSections.s242.trim() && !currentSections.s244.trim() && !currentSections.s246.trim()) {
         return null;
       }
       return {
         projectId: generation.projectId,
         requestedBy: generation.requestedBy,
         analysis: analysisRow.content,
-        section242: sections.s242.text,
-        section244: sections.s244.text,
-        section246: sections.s246.text,
+        section242: currentSections.s242,
+        capturedRef,
+        section244: currentSections.s244,
+        section246: currentSections.s246,
         model: sections.s242.model || undefined,
         styleOverrides,
       };
@@ -1680,8 +1699,7 @@ export const getPostQaInput = internalQuery({
         styleOverrides?: Record<string, boolean>;
       };
       if (
-        !outputs.analyzer ||
-        (!outputs.section242 && !outputs.section244 && !outputs.section246)
+        !outputs.analyzer
       ) {
         return null;
       }
@@ -1695,9 +1713,10 @@ export const getPostQaInput = internalQuery({
         projectId: generation.projectId,
         requestedBy: generation.requestedBy,
         analysis: JSON.stringify(outputs.analyzer),
-        section242: outputs.section242 ?? "",
-        section244: outputs.section244 ?? "",
-        section246: outputs.section246 ?? "",
+        section242: currentSections.s242,
+        capturedRef,
+        section244: currentSections.s244,
+        section246: currentSections.s246,
         model: selection?.model ?? undefined,
         // PSOS-50: waivers frozen into agentOutputs at generation time.
         // Absent only on legacy generations, where postQa falls back to the
@@ -1717,6 +1736,7 @@ export const getPostQaInput = internalQuery({
 export const saveReportQa = internalMutation({
   args: {
     generationId: v.id("generations"),
+    capturedRef: v.optional(v.object({ reportId: v.id("reports"), revisionNumber: v.number(), contentHash: v.string() })),
     qa: v.optional(v.string()),
     chronology: v.optional(v.string()),
     qaScore: v.optional(v.number()),
@@ -1725,6 +1745,23 @@ export const saveReportQa = internalMutation({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return;
+    const report = await ctx.db.query("reports")
+      .withIndex("by_generationId", q => q.eq("generationId", generation._id)).first();
+    if (args.capturedRef) {
+      if (!report) return;
+      const current = await reportQaRef(report);
+      if (current.reportId !== args.capturedRef.reportId || current.revisionNumber !== args.capturedRef.revisionNumber || current.contentHash !== args.capturedRef.contentHash) return;
+    }
+    if (report) {
+      await persistDeterministicFindings(ctx, report._id);
+      // Legacy calls have no proof of what content the model evaluated.
+      if (args.capturedRef && args.qa) {
+        let qa: unknown;
+        try { qa = JSON.parse(args.qa); }
+        catch { /* Malformed QA cannot establish a methodology failure. */ }
+        await persistMethodologyFindings(ctx, report, qa);
+      }
+    }
     let outputs: Record<string, unknown> = {};
     try {
       const parsed: unknown = JSON.parse(generation.agentOutputs ?? "{}");

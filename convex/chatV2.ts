@@ -1,3 +1,4 @@
+import { persistDeterministicFindings } from "./lib/qaFindings";
 import {
   query,
   mutation,
@@ -480,6 +481,7 @@ export const applyProposal = mutation({
       provenanceId: undefined,
       updatedAt: now,
     });
+    await persistDeterministicFindings(ctx, report._id);
     await ctx.db.patch(args.proposalId, { state: "applied" });
     await pruneSnapshots(ctx, report._id);
 
@@ -576,6 +578,7 @@ export const markProposalApplied = mutation({
       provenanceId: undefined,
       updatedAt: now,
     });
+    await persistDeterministicFindings(ctx, report._id);
     await ctx.db.patch(args.proposalId, { state: "applied" });
     await pruneSnapshots(ctx, report._id);
 

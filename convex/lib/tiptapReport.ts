@@ -99,3 +99,54 @@ export function buildTiptapDocument(
 
   return { type: "doc", content };
 }
+
+/** Recover current section prose while preserving the distinction between headings and body text. */
+export function extractReportSections(content: string): { s242: string; s244: string; s246: string } {
+  const sections = { s242: "", s244: "", s246: "" };
+  type Section = keyof typeof sections;
+  type Block = { text: string; heading: boolean };
+  function nodeText(node: unknown): string {
+    if (!node || typeof node !== "object") return "";
+    if ("text" in node && typeof node.text === "string") return node.text;
+    if ("type" in node && node.type === "hardBreak") return "\n";
+    if (!("content" in node) || !Array.isArray(node.content)) return "";
+    const inline = "type" in node && ["paragraph", "heading"].includes(String(node.type));
+    return node.content.map(nodeText).join(inline ? "" : "\n\n");
+  }
+  function sectionHeading(text: string): Section | undefined {
+    const match = text.trim().match(/^(?:#{1,6}\s*)?(?:Line|Section)\s+(242|244|246)(?:\s*[-—–:]\s*[^.!?]*)?$/i);
+    return match ? match[1] === "244" ? "s244" : match[1] === "246" ? "s246" : "s242" : undefined;
+  }
+  let blocks: Block[] | undefined;
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (parsed && typeof parsed === "object" && "type" in parsed && parsed.type === "doc") {
+      blocks = [];
+      if ("content" in parsed && Array.isArray(parsed.content)) {
+        for (const node of parsed.content) {
+          blocks.push({ text: nodeText(node), heading: Boolean(node && typeof node === "object" && "type" in node && node.type === "heading") });
+        }
+      }
+    }
+  } catch { /* Plaintext is a supported legacy format. */ }
+  if (!blocks) {
+    blocks = [];
+    let body: string[] = [];
+    for (const line of content.replace(/\r\n?/g, "\n").split("\n")) {
+      if (sectionHeading(line)) {
+        if (body.length) blocks.push({ text: body.join("\n"), heading: false });
+        body = [];
+        blocks.push({ text: line, heading: true });
+      } else body.push(line);
+    }
+    if (body.length) blocks.push({ text: body.join("\n"), heading: false });
+  }
+  const hasHeadings = blocks.some(block => block.heading && sectionHeading(block.text));
+  let section: Section | undefined = hasHeadings ? undefined : "s242";
+  for (const block of blocks) {
+    const next = block.heading ? sectionHeading(block.text) : undefined;
+    if (next) section = next;
+    else if (section && block.text.trim()) sections[section] += block.text.trim() + "\n\n";
+  }
+  return sections;
+}
