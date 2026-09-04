@@ -81,7 +81,12 @@ def build_lane_spec(spec: Path, lane: str, stories: list) -> Path:
 
 # Gitignored paths a fresh worktree still needs: bmad-loop refuses to start
 # without _bmad/bmm/config.yaml, and the verify gate runs npm.
-SEED = ("_bmad", "node_modules", ".env.local")
+# _bmad must be a real copy: the loop rejects a symlinked _bmad because its
+# renderer cannot follow one outside the repo. node_modules is 743 MB, so that
+# one stays a symlink.
+SEED_COPY = ("_bmad",)
+SEED_LINK = ("node_modules", ".env.local")
+SEED = SEED_COPY + SEED_LINK
 
 
 def seed_worktree(worktree: Path):
@@ -91,7 +96,12 @@ def seed_worktree(worktree: Path):
     only, so a *symlink* named `_bmad` reads as untracked and bmad-loop refuses
     to start on a dirty worktree. Exclude the seeds through this worktree's own
     info/exclude, which never touches the main checkout."""
-    for name in SEED:
+    for name in SEED_COPY:
+        src, dst = REPO / name, worktree / name
+        if src.exists() and not dst.exists():
+            shutil.copytree(src, dst, symlinks=True,
+                            ignore=shutil.ignore_patterns("render"))
+    for name in SEED_LINK:
         src, dst = REPO / name, worktree / name
         if src.exists() and not dst.exists():
             dst.symlink_to(src)
