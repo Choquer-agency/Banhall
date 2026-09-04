@@ -160,3 +160,7 @@ svelte-check found 0 errors and 0 warnings
 ```
 
 Final result: 53 focused tests, all 127 files / 1,381 full-suite tests, and zero type-check errors or warnings. `git diff --check` passed. All six review patch requests are addressed, with the intent contract and story file unchanged.
+
+## Final parent verification
+
+The normal `npm test` command passed after host contention eased: 127 files and 1381 tests, 35.02 seconds, exit 0. Full output: `.audit/CAP-11/logs/final-default.log`. This supersedes the earlier default-command timeout limitation. The verified source revision remains `145a1feabdcda68a6d78e7204ce5b0f3906161bb`; subsequent changes only record evidence and story completion. Parent independently inspected the complete implementation, expanded tests, acceptance mapping, and successful check output.
