@@ -9,3 +9,5 @@ QA run20260904-121607-3217 remains truthfully deferred. Worker 0dd0d6b plus pend
 Learn story3 oldrun20260904-065146-9a65 remains truthfully deferred on mismatched baseline. Codegen omission and native finalization are separate obligations. Review adoption must retain original baseline740008e1369faaf6eab001f95efeb10a9e52d1e5 and assess actual historical implementation even though sourcecode already landed.
 
 After final ledger reconciliation, append the two origin-qualified operator obligations below with fresh noncolliding IDs. Native sweep must inspect every open entry; --max-bundles limits count but selects no particular DW. A dry run only lists entries and spawns nothing. Use --no-prompt to preserve human decisions, not to choose them automatically.
+
+Superseded result-location guidance, 2026-09-04: actual native execution proved that first-sweep discovery cannot find adopted nested specs. Use a new flat follow-up result spec in implementation-artifacts, retaining original story contracts and historical baselines as context. See .audit/sweep-spec-recovery/report.md and DW-92/DW-93 recovery-note fields. Do not resume the poisoned old sweep.
