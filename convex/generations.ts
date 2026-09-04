@@ -38,6 +38,7 @@ import { sectionMetrics } from "./lib/lineLimits";
 import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
 import {
   buildTranscriptPromptText,
+  generationTranscriptIds,
   listProjectTranscripts,
   MAX_TRANSCRIPTS_PER_PROJECT,
   transcriptLabel,
@@ -818,6 +819,7 @@ export const getGenerationInput = internalQuery({
       // from the project creator, e.g. an admin retry).
       requestedBy: generation.requestedBy,
       transcriptId: generation.transcriptId,
+      transcriptIds: generationTranscriptIds(generation),
       transcript: buildTranscriptPromptText(transcriptParts),
       transcriptParts,
       title: project.title,
@@ -944,6 +946,7 @@ async function createGeneratedReportArtifacts(
     projectId: candidate.projectId,
     generationId: generation._id,
     sourceTranscriptId: generation.transcriptId,
+    sourceTranscriptIds: generationTranscriptIds(generation),
     provenanceId: candidate.provenanceId,
     content: candidate.content,
     contentHash,
@@ -957,6 +960,7 @@ async function createGeneratedReportArtifacts(
     reportId,
     generationId: generation._id,
     sourceTranscriptId: generation.transcriptId,
+    sourceTranscriptIds: generationTranscriptIds(generation),
     provenanceId: candidate.provenanceId,
     sourceRevisionNumber: 0,
     contentHash,
@@ -1010,6 +1014,7 @@ export const completeCandidateRun = internalMutation({
             reportId: report._id,
             generationId: generation._id,
             sourceTranscriptId: generation.transcriptId,
+            sourceTranscriptIds: generationTranscriptIds(generation),
             provenanceId: args.provenanceId,
             sourceRevisionNumber: 0,
             contentHash: await sha256(args.content),
@@ -2034,6 +2039,7 @@ export const approveSectionDraft = mutation({
           reportId,
           generationId: generation._id,
           sourceTranscriptId: generation.transcriptId,
+          sourceTranscriptIds: generationTranscriptIds(generation),
           provenanceId: ghostCandidate.provenanceId,
           sourceRevisionNumber: 0,
           contentHash: await sha256(ghostCandidate.content),

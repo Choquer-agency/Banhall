@@ -8,6 +8,7 @@ import {
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import {
   pruneSnapshots,
+  sameTranscriptIds,
   snapshotAuditFields,
 } from "./lib/snapshots";
 import { domainError } from "./lib/contracts";
@@ -177,7 +178,8 @@ export const createManualSnapshot = mutation({
       latest.contentHash === audit.contentHash &&
       latest.provenanceId === audit.provenanceId &&
       latest.generationId === audit.generationId &&
-      latest.sourceTranscriptId === audit.sourceTranscriptId
+      latest.sourceTranscriptId === audit.sourceTranscriptId &&
+      sameTranscriptIds(latest.sourceTranscriptIds, audit.sourceTranscriptIds)
     ) {
       return latest._id;
     }
@@ -299,6 +301,7 @@ export const restoreSnapshot = mutation({
       provenanceId: restoredAudit.provenanceId,
       generationId: restoredAudit.generationId,
       sourceTranscriptId: restoredAudit.sourceTranscriptId,
+      sourceTranscriptIds: restoredAudit.sourceTranscriptIds,
       contentHash: restoredAudit.contentHash,
       revisionNumber: revisionNumber + 1,
       updatedAt: now,

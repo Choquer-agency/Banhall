@@ -667,6 +667,7 @@ export const generateCandidate = internalAction({
           projectId: run.projectId,
           generationId: run.generationId,
           sourceTranscriptId: input.transcriptId,
+          sourceTranscriptIds: input.transcriptIds,
           content,
           claims,
         }

@@ -839,7 +839,10 @@ async function copyProjectInputRows(
       generatedAt: now,
       updatedAt: now,
       ...(args.targetTranscriptId
-        ? { sourceTranscriptId: args.targetTranscriptId }
+        ? {
+            sourceTranscriptId: args.targetTranscriptId,
+            sourceTranscriptIds: [args.targetTranscriptId],
+          }
         : {}),
       revisionNumber: sourceReport.revisionNumber ?? 0,
       contentHash,

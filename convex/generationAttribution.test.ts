@@ -1676,3 +1676,236 @@ describe("getGeneration attributable cost", () => {
     ).toBeNull();
   });
 });
+
+/**
+ * A project with two transcripts and a generation that froze both, seeded at
+ * the point where the write site under test is about to run.
+ */
+async function insertTwoTranscriptFixture(
+  t: ReturnType<typeof convexTest>,
+  input: {
+    candidateMode: "single" | "iterative";
+    status: "running" | "awaiting_input" | "completed";
+  },
+) {
+  return await t.run(async (ctx) => {
+    const now = Date.now();
+    const userId = await ctx.db.insert("users", {
+      authId: AUTH_ID,
+      role: "writer",
+      name: "Attribution Writer",
+    });
+    const projectId = await ctx.db.insert("projects", {
+      title: "Two transcript project",
+      clientName: "Test client",
+      status: "generating",
+      createdBy: userId,
+      shareToken: "two-transcript-token",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const transcriptIds: Id<"transcripts">[] = [];
+    for (const [index, body] of ["Alpha body", "Bravo body"].entries()) {
+      transcriptIds.push(
+        await ctx.db.insert("transcripts", {
+          projectId,
+          label: index === 0 ? "First" : "Second",
+          position: index,
+          content: body,
+          createdAt: now + index,
+        }),
+      );
+    }
+    const generationId = await ctx.db.insert("generations", {
+      projectId,
+      transcriptId: transcriptIds[0],
+      transcriptIds,
+      status: input.status,
+      requestedBy: userId,
+      candidateMode: input.candidateMode,
+      totalCandidates: 1,
+      startedAt: now,
+      ...(input.status === "completed" ? { completedAt: now } : {}),
+    });
+    await ctx.db.patch(projectId, {
+      activeGenerationId: generationId,
+      ownerId: userId,
+    });
+    return { now, userId, projectId, generationId, transcriptIds };
+  });
+}
+
+describe("provenance sets on generated report artifacts (AC1)", () => {
+  it("stamps the frozen set on the report and its generated snapshot", async () => {
+    const t = convexTest(schema, modules);
+    const { now, projectId, generationId, transcriptIds } =
+      await insertTwoTranscriptFixture(t, {
+        candidateMode: "single",
+        status: "running",
+      });
+    const runId = await t.run(async (ctx) => {
+      const candidateId = await ctx.db.insert("reportCandidates", {
+        projectId,
+        generationId,
+        model: "claude-sonnet-5",
+        label: "Sonnet 5",
+        content: "Chosen draft",
+        agentOutputs: "{}",
+        createdAt: now,
+      });
+      return await ctx.db.insert("generationCandidateRuns", {
+        generationId,
+        projectId,
+        model: "claude-sonnet-5",
+        label: "Sonnet 5",
+        status: "running",
+        candidateId,
+        queuedAt: now,
+        startedAt: now,
+      });
+    });
+
+    await t.mutation(internal.generations.completeCandidateRun, {
+      candidateRunId: runId,
+      content: "Chosen draft",
+      agentOutputs: "{}",
+    });
+
+    const written = await t.run(async (ctx) => ({
+      report: await ctx.db.query("reports").unique(),
+      snapshots: await ctx.db.query("reportSnapshots").collect(),
+    }));
+    expect(written.report).toMatchObject({
+      sourceTranscriptId: transcriptIds[0],
+      sourceTranscriptIds: transcriptIds,
+    });
+    expect(written.snapshots).toHaveLength(1);
+    expect(written.snapshots[0]).toMatchObject({
+      reason: "generated",
+      sourceTranscriptId: transcriptIds[0],
+      sourceTranscriptIds: transcriptIds,
+    });
+  });
+
+  it("stamps the frozen set on a ghost draft that lands after its generation completed", async () => {
+    const t = convexTest(schema, modules);
+    const { now, projectId, generationId, transcriptIds } =
+      await insertTwoTranscriptFixture(t, {
+        candidateMode: "iterative",
+        status: "completed",
+      });
+    const ghostRunId = await t.run(async (ctx) => {
+      await ctx.db.insert("reports", {
+        projectId,
+        generationId,
+        sourceTranscriptId: transcriptIds[0],
+        sourceTranscriptIds: transcriptIds,
+        content: "Approved report",
+        version: 1,
+        generatedAt: now,
+        updatedAt: now,
+      });
+      return await ctx.db.insert("generationCandidateRuns", {
+        generationId,
+        projectId,
+        model: "claude-sonnet-5",
+        label: "Sonnet 5",
+        status: "running",
+        ghost: true,
+        queuedAt: now,
+        startedAt: now,
+      });
+    });
+
+    await t.mutation(internal.generations.completeCandidateRun, {
+      candidateRunId: ghostRunId,
+      content: "Late ghost draft",
+      agentOutputs: "{}",
+    });
+
+    const snapshots = await t.run((ctx) =>
+      ctx.db.query("reportSnapshots").collect(),
+    );
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toMatchObject({
+      reason: "generated",
+      sourceTranscriptId: transcriptIds[0],
+      sourceTranscriptIds: transcriptIds,
+    });
+  });
+
+  it("stamps the frozen set on the iterative report and its ghost comparison snapshot", async () => {
+    const t = convexTest(schema, modules);
+    const { now, projectId, generationId, transcriptIds } =
+      await insertTwoTranscriptFixture(t, {
+        candidateMode: "iterative",
+        status: "awaiting_input",
+      });
+    await t.run(async (ctx) => {
+      for (const [index, section] of (["s242", "s244", "s246"] as const).entries()) {
+        await ctx.db.insert("generationSectionRuns", {
+          generationId,
+          projectId,
+          section,
+          status: section === "s246" ? "awaiting_review" : "approved",
+          ...(section === "s246"
+            ? { draftText: "Drafted 246" }
+            : { approvedText: `Approved ${section}` }),
+          model: "claude-sonnet-5",
+          label: "Sonnet 5",
+          attempt: 1,
+          queuedAt: now + index,
+        });
+      }
+      const ghostCandidateId = await ctx.db.insert("reportCandidates", {
+        projectId,
+        generationId,
+        model: "google/gemini-3.1-pro-preview",
+        label: "Gemini 3.1 Pro",
+        content: "Ghost one-shot draft",
+        agentOutputs: "{}",
+        createdAt: now,
+      });
+      await ctx.db.insert("generationCandidateRuns", {
+        generationId,
+        projectId,
+        model: "google/gemini-3.1-pro-preview",
+        label: "Gemini 3.1 Pro",
+        status: "succeeded",
+        ghost: true,
+        candidateId: ghostCandidateId,
+        queuedAt: now,
+        completedAt: now,
+      });
+    });
+
+    await t
+      .withIdentity({ subject: AUTH_ID })
+      .mutation(api.generations.approveSectionDraft, {
+        generationId,
+        section: "s246",
+        text: "Approved 246",
+      });
+
+    const written = await t.run(async (ctx) => ({
+      report: await ctx.db.query("reports").unique(),
+      snapshots: await ctx.db.query("reportSnapshots").collect(),
+    }));
+    expect(written.report).toMatchObject({
+      sourceTranscriptId: transcriptIds[0],
+      sourceTranscriptIds: transcriptIds,
+    });
+    expect(written.snapshots).toHaveLength(2);
+    for (const snapshot of written.snapshots) {
+      expect(snapshot).toMatchObject({
+        reason: "generated",
+        sourceTranscriptId: transcriptIds[0],
+        sourceTranscriptIds: transcriptIds,
+      });
+    }
+    expect(written.snapshots.map((row) => row.label)).toEqual([
+      "AI draft (Iterative — Sonnet 5)",
+      "One-shot ghost draft (comparison — Gemini 3.1 Pro)",
+    ]);
+  });
+});
