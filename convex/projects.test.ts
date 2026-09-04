@@ -1384,3 +1384,25 @@ describe("backend readers of a project's transcripts", () => {
     expect(postmortem?.transcriptChars).toBe(0);
   });
 });
+
+describe("seedDemoProject writes a listable transcript row", () => {
+  test("labels the row, places it at position 0 and hashes its content", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", { email: "demo@banhall.ca" });
+    });
+
+    const { projectId } = await t.mutation(internal.seed.seedDemoProject, {});
+
+    const rows = await t.run(async (ctx) =>
+      ctx.db
+        .query("transcripts")
+        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+        .collect()
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].label).toBe("Cascade Hydroponics interview");
+    expect(rows[0].position).toBe(0);
+    expect(rows[0].contentHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
