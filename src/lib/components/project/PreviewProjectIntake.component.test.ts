@@ -6,6 +6,7 @@ import { __resetPage, __setPageParams, __setPageUrl } from "$lib/test/app-state-
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import {
   __activeQueryCount,
+  __clientQueryCalls,
   __resetConvexStub,
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
@@ -264,5 +265,39 @@ describe("PreviewProjectPage intake workbench", () => {
     await expect
       .poll(() => __activeQueryCount("transcripts:getTranscriptContent"))
       .toBe(bodiesBefore);
+  });
+
+  it("downloads a transcript as <label>.txt, fetching its body once through the client", async () => {
+    await mountIntake(1440);
+
+    const filesTrigger = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+      (b) => b.hasAttribute("aria-expanded") && b.textContent?.includes("Files")
+    )!;
+    filesTrigger.click();
+    const region = () => document.getElementById(filesTrigger.getAttribute("aria-controls")!);
+    await expect.poll(region).not.toBeNull();
+
+    // The anchor is built, clicked and removed inside the handler, so its file
+    // name exists for one instant: capture it rather than let the browser
+    // start a real download.
+    const downloaded: string[] = [];
+    const realClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      downloaded.push(this.download);
+    };
+    try {
+      const bodiesBefore = __activeQueryCount("transcripts:getTranscriptContent");
+      region()!
+        .querySelector<HTMLButtonElement>('button[title="Download transcript"]')!
+        .click();
+      await expect.poll(() => downloaded).toEqual(["Kickoff interview.docx.txt"]);
+      // One fetch on click, for that row's id, and no new subscription.
+      expect(__clientQueryCalls("transcripts:getTranscriptContent")).toEqual([
+        { transcriptId: "t-1" },
+      ]);
+      expect(__activeQueryCount("transcripts:getTranscriptContent")).toBe(bodiesBefore);
+    } finally {
+      HTMLAnchorElement.prototype.click = realClick;
+    }
   });
 });
