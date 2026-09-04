@@ -127,6 +127,63 @@ function anthropicUsage(response: unknown): {
   };
 }
 
+function hasCacheControl(value: unknown): boolean {
+  return value !== null && typeof value === "object" && "cache_control" in value;
+}
+
+/**
+ * Cache the stable generation prefix without changing the agents' portable
+ * string request shape. Explicit cache policies belong to their caller: leave
+ * those requests intact rather than risk exceeding the four-breakpoint limit
+ * or mixing TTLs. Only the first user message can extend the shared prefix.
+ */
+function cacheGenerationPrefix(params: unknown): unknown {
+  if (!params || typeof params !== "object" || hasCacheControl(params)) {
+    return params;
+  }
+  const system = "system" in params ? params.system : undefined;
+  const messages = "messages" in params ? params.messages : undefined;
+  const tools = "tools" in params ? params.tools : undefined;
+  if (
+    (Array.isArray(system) && system.some(hasCacheControl)) ||
+    (Array.isArray(tools) && tools.some(hasCacheControl)) ||
+    (Array.isArray(messages) && messages.some((message: unknown) => {
+      if (!message || typeof message !== "object") return false;
+      return hasCacheControl(message) || (
+        "content" in message && Array.isArray(message.content) &&
+        message.content.some(hasCacheControl)
+      );
+    }))
+  ) {
+    return params;
+  }
+
+  const cachedText = (text: string) => [{
+    type: "text",
+    text,
+    cache_control: { type: "ephemeral" },
+  }];
+  let sawUser = false;
+  return {
+    ...params,
+    ...(typeof system === "string" && system.length > 0
+      ? { system: cachedText(system) }
+      : {}),
+    ...(Array.isArray(messages) ? {
+      messages: messages.map((message: unknown) => {
+        if (!message || typeof message !== "object" ||
+          !("role" in message) || message.role !== "user" || sawUser) {
+          return message;
+        }
+        sawUser = true;
+        return "content" in message && typeof message.content === "string" && message.content.length > 0
+          ? { ...message, content: cachedText(message.content) }
+          : message;
+      }),
+    } : {}),
+  };
+}
+
 /** Anthropic client that durably records billed usage after every response. */
 export function instrumentedAnthropic(
   ctx: ActionCtx,
@@ -147,7 +204,9 @@ export function instrumentedAnthropic(
         const response: unknown = await Reflect.apply(
           originalCreate,
           target,
-          args
+          meta.attribution
+            ? [cacheGenerationPrefix(args[0]), ...args.slice(1)]
+            : args
         );
         const durationMs = Math.max(0, Date.now() - startedAt);
         const usage = anthropicUsage(response);
