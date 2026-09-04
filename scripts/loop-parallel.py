@@ -185,9 +185,10 @@ def main():
         time.sleep(5)  # stagger the initial worktree adds
 
     # 3. wait
+    rcs = {}
     for lane, (p, branch, wt, log) in procs.items():
-        rc = p.wait()
-        print(f"  lane {lane} exited rc={rc}  ({log})")
+        rcs[lane] = p.wait()
+        print(f"  lane {lane} exited rc={rcs[lane]}  ({log})")
 
     # 4. collect. When collect == base that branch is already checked out here,
     # so `branch -f` would fail; merge the lanes into it in place instead.
@@ -195,8 +196,14 @@ def main():
         git("checkout", "-q", base)
         git("branch", "-f", collect, base)
     git("checkout", "-q", collect)
-    conflicts = []
+    conflicts, skipped, merged = [], [], []
     for lane, (_p, branch, _wt, _log) in procs.items():
+        # Never merge a lane whose engine failed: its branch may hold a partial
+        # story. A clean no-op branch is skipped for the same reason it is safe.
+        if rcs[lane] != 0:
+            skipped.append(lane)
+            print(f"  SKIPPED lane {lane}: engine exited rc={rcs[lane]}")
+            continue
         r = subprocess.run(["git", "merge", "--no-edit", branch],
                            cwd=REPO, capture_output=True, text=True)
         if r.returncode != 0:
@@ -204,9 +211,28 @@ def main():
             subprocess.run(["git", "merge", "--abort"], cwd=REPO)
             print(f"  MERGE CONFLICT from lane {lane}; left for a human")
         else:
+            merged.append(lane)
             print(f"  merged lane {lane}")
-    print(f"\ncollected on {collect}" + (f"; unmerged lanes: {', '.join(conflicts)}" if conflicts else ""))
+
+    # Four independently-green lanes can still integrate into a broken tree, so
+    # the combined result gets the same gate a single run would face.
+    verified = None
+    if merged:
+        gate = REPO / "scripts" / "loop-verify.sh"
+        if gate.exists():
+            print("\nverifying the combined result...")
+            v = subprocess.run(["bash", str(gate)], cwd=REPO)
+            verified = v.returncode == 0
+            print("  combined verify: " + ("PASS" if verified else "FAIL"))
+
+    print(f"\ncollected on {collect}")
+    print(f"  merged:    {', '.join(merged) or '-'}")
+    print(f"  skipped:   {', '.join(skipped) or '-'}")
+    print(f"  conflicts: {', '.join(conflicts) or '-'}")
+    if verified is False:
+        print("  combined verification FAILED — do not push; inspect before promoting")
     print("worktrees kept under .bmad-loop/lanes for inspection")
+    return 0 if (verified is not False and not conflicts and not skipped) else 1
 
 
 if __name__ == "__main__":
