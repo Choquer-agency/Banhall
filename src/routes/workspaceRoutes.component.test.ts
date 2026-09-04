@@ -36,8 +36,12 @@ describe("canonical workspace routes", () => {
     __resetConvexStub();
   });
 
-  it("/projects renders the workspace shell for a flagged user", async () => {
-    __setPageUrl("/projects?layout=board");
+  it.each([
+    ["layout=board&utm=x", "layout=board&utm=x&group=client"],
+    ["layout=board&group=status&utm=x", "layout=board&group=status&utm=x"],
+    ["utm=x", "utm=x&layout=list&group=client"],
+  ])("/projects preserves query %s and supplies missing Projects defaults", async (query, projectsQuery) => {
+    __setPageUrl(`/projects?${query}`);
     __setQueryData("workspaceRollout:getAccess", { available: true });
     seedWorkspaceQueries();
     await browserPage.viewport(1440, 900);
@@ -48,10 +52,10 @@ describe("canonical workspace routes", () => {
       .poll(() => document.querySelector("div[data-workspace-shell]"))
       .not.toBeNull();
     expect(document.querySelector('[data-dashboard-experience="preview"]')).not.toBeNull();
-    // The rail links carry ?layout through between the canonical routes.
+    // 0b094ed4: Home preserves params; Projects adds only absent defaults.
     const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>("nav a"));
-    expect(anchors.some((a) => a.getAttribute("href") === "/my-work?layout=board")).toBe(true);
-    expect(anchors.some((a) => a.getAttribute("href") === "/projects?layout=board")).toBe(true);
+    expect(anchors.some((a) => a.getAttribute("href") === `/my-work?${query}`)).toBe(true);
+    expect(anchors.some((a) => a.getAttribute("href") === `/projects?${projectsQuery}`)).toBe(true);
     expect(gotoUrls()).toHaveLength(0);
   });
 

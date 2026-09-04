@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cdp, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import WorkspaceRail from "./WorkspaceRail.svelte";
 import { __resetPage } from "$lib/test/app-state-stub.svelte";
@@ -98,7 +99,7 @@ describe("WorkspaceRail", () => {
   });
 
   it("keeps the drawer chrome fixed, scrolls only its links, and starts Admin compact", async () => {
-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
+    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
     await render(WorkspaceRail, baseProps({ variant: "drawer" }));
 
     expect(document.querySelector("[data-rail-drawer-header]")?.className).toContain("shrink-0");
@@ -108,7 +109,7 @@ describe("WorkspaceRail", () => {
   });
 
   it("presents Admin as an Attio-style left-chevron group with distinct icon colours", async () => {
-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
+    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
     await render(WorkspaceRail, baseProps());
 
     const group = document.querySelector<HTMLButtonElement>("[data-admin-group-toggle]");
@@ -117,15 +118,41 @@ describe("WorkspaceRail", () => {
     expect(group?.firstElementChild?.tagName).toBe("svg");
 
     const iconTiles = Array.from(document.querySelectorAll<HTMLElement>("[data-admin-icon-tone]"));
-    expect(iconTiles).toHaveLength(7);
-    expect(new Set(iconTiles.map((tile) => tile.className.match(/bg-[a-z]+-500/)?.[0])).size).toBe(7);
+    expect(iconTiles).toHaveLength(8);
+    expect(new Set(iconTiles.map((tile) => tile.className.match(/bg-[a-z]+-500/)?.[0])).size).toBe(8);
     expect(document.querySelector('[data-admin-icon-tone="ingestion"] svg')).not.toBeNull();
     expect(document.querySelector("#workspace-admin-links")?.className).toContain("gap-1");
 
-    group?.click();
+    group?.focus();
+    await userEvent.keyboard("{Enter}");
     await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
     expect(group?.getAttribute("aria-expanded")).toBe("false");
     expect(document.querySelector("#workspace-admin-links")).toBeNull();
+  });
+
+  it.each([
+    { role: "admin", isDeveloper: true, isOwner: false, visible: true },
+    { role: "admin", isDeveloper: false, isOwner: true, visible: true },
+    { role: "admin", isDeveloper: false, isOwner: false, visible: false },
+    { role: "writer", isDeveloper: true, isOwner: false, visible: false },
+    { role: "writer", isDeveloper: false, isOwner: true, visible: false },
+  ])("gates Admin destinations for $role developer=$isDeveloper owner=$isOwner", async ({ visible, ...user }) => {
+    // Product-domain exposure amendment: role AND either presentation flag.
+    __setQueryData("users:getCurrentUser", user);
+    await render(WorkspaceRail, baseProps());
+    const destinations = Array.from(document.querySelectorAll<HTMLAnchorElement>('#workspace-admin-links a'))
+      .map((link) => [link.textContent?.trim(), link.getAttribute("href")]);
+    expect(destinations).toEqual(visible ? [
+      ["The Brain", "/admin/brain"],
+      ["OneDrive ingestion", "/admin/ingestion"],
+      ["Project tags", "/admin/tags"],
+      ["QA reviews", "/admin/reviews"],
+      ["Users & roles", "/admin/users"],
+      ["House rules", "/admin/house-rules"],
+      ["Model preferences", "/admin/models"],
+      ["AI usage & cost", "/admin/usage"],
+    ] : []);
+    expect(document.querySelector("[data-admin-group-toggle]") !== null).toBe(visible);
   });
 
   it("shows only What's new from the utility links for non-developers", async () => {
@@ -167,25 +194,37 @@ describe("WorkspaceRail", () => {
   });
 
   it("moves the Admin records group below the primary workspace links", async () => {
-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
+    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
     await render(WorkspaceRail, baseProps());
 
     expect(document.querySelector("[data-rail-admin]")?.className).toContain("mt-5");
   });
 
-  it("shares the compact rail rhythm with fine-pointer drawers without shrinking touch targets", async () => {
-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
-    await render(WorkspaceRail, baseProps({ variant: "drawer" }));
+  it.each(["rail", "drawer"])("keeps 150ms color motion and the standalone %s target size", async (variant) => {
+    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
+    await render(WorkspaceRail, baseProps({ variant }));
 
     const home = navLink("Home");
     expect(home?.className).toContain("workspace-rail-row");
-    expect(home?.className).toContain("min-h-11");
-    expect(home?.className).toContain("duration-300");
+    expect(home?.className).toContain(variant === "drawer" ? "min-h-11" : "h-7");
+    expect(home).toBeDefined();
+    const style = getComputedStyle(home!);
+    expect(style.transitionDuration).toBe("0.15s");
+    expect(style.transitionProperty).toContain("color");
+    expect(style.transitionProperty).not.toMatch(/all|transform|height|width|opacity/);
+    expect(home!.getBoundingClientRect().height).toBe(variant === "drawer" ? 44 : 28);
+    try {
+      await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+      expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
+      expect(getComputedStyle(home!).transitionProperty).toBe("none");
+    } finally {
+      await cdp().send("Emulation.setEmulatedMedia", { features: [] });
+    }
     expect(document.querySelector("[data-rail-admin]")?.className).toContain("mt-5");
   });
 
   it("keeps the component expanded because full collapse is owned by WorkspaceShell", async () => {
-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
+    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
     await render(WorkspaceRail, baseProps({ collapsed: true, onToggleRail: () => {} }));
 
     expect(document.querySelector('a[aria-label="Admin Writer dashboard"]')?.textContent).toContain("Admin Writer");
@@ -197,7 +236,7 @@ describe("WorkspaceRail", () => {
   });
 
   it("ignores collapsed inside the mobile drawer — the drawer instance always renders expanded", async () => {
-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
+    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
     await render(WorkspaceRail, baseProps({ variant: "drawer", collapsed: true }));
 
     expect(document.querySelector('a[aria-label="Admin Writer dashboard"]')?.textContent).toContain("Admin Writer");

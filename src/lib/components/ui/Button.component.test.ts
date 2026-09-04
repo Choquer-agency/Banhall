@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { cdp } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { createRawSnippet } from "svelte";
 import Button from "./Button.svelte";
@@ -26,7 +27,6 @@ const CORE_TOKENS = [
   "px-4",
   "text-sm",
   "font-medium",
-  "transition-colors",
   "focus-visible:outline-none",
   "focus-visible:ring-2",
   "focus-visible:ring-offset-2",
@@ -47,6 +47,20 @@ describe("Button", () => {
     // Primary variant (default) consumes the theme-aware action role.
     for (const token of ["bg-action-primary", "text-action-primary-foreground", "hover:bg-action-primary-hover", "focus-visible:ring-action-primary"])
       expect(classes).toContain(token);
+  });
+
+  it.each([undefined, "/project/new"])("transitions colors and opacity with a reduced-motion escape (href=%s)", async (href) => {
+    await render(Button, { href, children: label });
+    const control = document.querySelector<HTMLElement>(href ? "a" : "button")!;
+    expect(getComputedStyle(control).transitionProperty).toBe("color, background-color, border-color, opacity");
+    expect(getComputedStyle(control).transitionDuration).toBe("0.2s");
+    try {
+      await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+      expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
+      expect(getComputedStyle(control).transitionProperty).toBe("none");
+    } finally {
+      await cdp().send("Emulation.setEmulatedMedia", { features: [] });
+    }
   });
 
   it("renders the secondary variant anchor with the secondary tokens", async () => {
@@ -101,7 +115,10 @@ describe("Button", () => {
   });
 
   it("keeps disabled on the button branch only", async () => {
-    const view = await render(Button, { disabled: true, children: label });
+    const onclick = vi.fn();
+    const view = await render(Button, { disabled: true, onclick, children: label });
+    document.body.querySelector("button")?.click();
+    expect(onclick).not.toHaveBeenCalled();
     expect(document.body.querySelector("button")?.disabled).toBe(true);
     view.unmount();
 
