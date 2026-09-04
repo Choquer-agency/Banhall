@@ -1,5 +1,7 @@
 # CAP-8 verification evidence
 
+Verified implementation commit: `b13d5ce9f93fe00ad0d02e15294954a20961b69d`. The verified working-tree source was committed unchanged; the subsequent audit-only commit records this identifier.
+
 Baseline commit: `f122b086d745acc40b4decca26b9aaafc7257f6a`.
 
 ## Acceptance mapping

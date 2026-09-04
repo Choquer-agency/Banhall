@@ -5,3 +5,4 @@ ts	phase	decision	why	evidence	result
 2026-09-04T19:32:13.182018+00:00	verify	Make root TypeScript include paths explicit	Vite could not resolve inherited includes in this nested worktree	tsconfig.json	frontend plus QA probe: 40 tests passed
 2026-09-04T19:38:13.999264+00:00	verify	Use two test workers and 30-second source-scan timeout	Existing wall-clock and all-Svelte parse tests failed under concurrent worktree load	vitest.config.ts	assertions unchanged; full gate rerunning
 2026-09-04T19:53:50.348042+00:00	prove	Accept reviewed implementation	Full factory gate and all matrix cases passed	.audit/CAP-8/gate-reviewed.log	1393 tests; both type checks; 68 uploader cases passed
+2026-09-04T19:54:29.621777+00:00	ship	Commit reviewed implementation locally	Authorized story complete; no push	b13d5ce9f93fe00ad0d02e15294954a20961b69d	committed
