@@ -1,6 +1,6 @@
 ---
 key: transcripts-6-provenance-sets
-status: todo
+status: escalated
 kind: feature
 deps: [transcripts-2-generation-reads-all]
 touches: [convex]
@@ -9,8 +9,10 @@ verify: [npx vitest run convex/lib/snapshots.test.ts convex/reports.test.ts conv
 done_when: ["rg -q 'sourceTranscriptIds' convex/generations.ts convex/reports.ts convex/lib/snapshots.ts convex/projects.ts", test -f convex/lib/snapshots.test.ts, test -f convex/reports.test.ts, "rg -q 'sourceTranscriptIds' convex/lib/snapshots.test.ts", npx vitest run convex/lib/snapshots.test.ts convex/reports.test.ts]
 title: "Reports, snapshots and provenance rows record the set of transcripts beside sourceTranscriptId"
 plan: 20260903-client-sync
-deferred: ["tests/snapshots.test.ts still asserts the pre-widen snapshotAuditFields shape with toEqual and would fail if bun tests were ever wired into a gate; the ticket says leave it as is and it is unreachable from every npm script (vitest.config.ts:19)"]
-updated: "2026-09-03T21:17:39.898Z"
+updated: "2026-09-03T22:46:46.308Z"
+run: 20260903-211917-12-tickets
+branch: factory/transcripts-6-provenance-sets
+escalation: implementer session failed (attempt 2); log .factory/runs/20260903-211917-12-tickets/logs/transcripts-6-provenance-sets.implement-2.jsonl
 ---
 ## Intent
 Old readers keep `sourceTranscriptId` (first transcript). New readers get `sourceTranscriptIds` on reports, snapshots and provenance rows, written at every site that writes the single id today, and carried through snapshot audit fields and citation review. Nothing existing is invalidated; lineage rules for the single id stay as they are. The proof lives in files the gate runs: `vitest.config.ts:19` includes only `convex/**/*.test.ts` and `tests/aiUsage.test.ts`; every other file under `tests/` imports `bun:test` and is outside the gate.
