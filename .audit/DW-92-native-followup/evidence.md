@@ -67,3 +67,7 @@ Review recommendation: true because one high patch was applied. Patched severity
 No report semantic-classification expansion or frontend changes. The existing sentence-level detector and exact-content methodology policy remain the explicit residual limits. Source/evidence commit and final artifact checks are pending at this pre-finalization evidence commit.
 
 Audit serialization: raw log diagnostic lines are retained; only extra terminal blank lines were removed for Git whitespace checks. The exact initial review diff is retained losslessly as `review-input.diff.gz`; its decompressed SHA-256 is in `review-inputs.json`. The original-history scratch diff is reproducible from the full canonical revisions and explicit argv in that manifest.
+
+## Finalization
+
+Reviewed product source and explicitly staged fresh evidence committed as `df97838bd97ee68ea6a923c310b3d4ae139556e1` while the flat spec remained in-review. The finalization write adds the terminal marker only to the flat spec, marks its tasks complete, and records followup_review_recommended true. The source file hashes below remain identical to verified-source.json; final preservation/marker inspection is recorded in preservation.json after this write. Native acceptance and ledger resolution remain unclaimed orchestrator operations.

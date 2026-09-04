@@ -2,10 +2,10 @@
 title: 'DW-92 blocking QA native follow-up'
 type: 'chore'
 created: '2026-09-04'
-status: 'in-review'
+status: 'done'
 baseline_revision: '9da55bece5948da12129720dd2330a3032c985bf'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context: ['{project-root}/convex/_generated/ai/guidelines.md', '{project-root}/.factory/AGENTS.factory.md']
 warnings: ['oversized']
 deferred: []
@@ -55,7 +55,7 @@ deferred: []
 - [x] `.audit/DW-92-native-followup/`: record exact follow-up and historical revisions, independently inspect full QA implementation and repairs, record review evidence and triage.
 - [x] QA files in Code Map: reproduce and repair any verified in-scope defects with registered-boundary regression tests; otherwise preserve product source.
 - [x] `.audit/DW-92-native-followup/evidence.md`: map the frozen QA matrix to fresh runtime proofs; run ordinary required gates and preserve actual output, plus original spec/ledger/frontend/generated preservation checks.
-- [ ] This flat spec: complete standard review, commit fresh evidence with explicit ignored-file staging, and emit genuine native Auto Run Result through normal workflow finalization.
+- [x] This flat spec: complete standard review, commit fresh evidence with explicit ignored-file staging, and emit genuine native Auto Run Result through normal workflow finalization.
 
 **Acceptance Criteria:**
 - Given the original QA implementation and later repairs, when independent reviewers inspect their full behavior and history, then every verified in-scope defect is repaired or a concrete blocker is recorded, with all original product boundaries preserved.
@@ -89,3 +89,27 @@ All four independent review layers completed. Full historical QA implementation 
 - `npx vitest run convex/ai/qaChecks.test.ts convex/projects.test.ts convex/qaBlocking.test.ts`: original exact focused gate passes.
 - `git diff --check`: no whitespace errors.
 - Compare original nested spec, ledger, `src/` and `convex/_generated/` against captured follow-up baseline: unchanged.
+
+## Auto Run Result
+
+Status: done
+
+Fresh DW-92 worker review, repairs and ordinary verification are complete. The reviewed repair and audit evidence were committed as `df97838bd97ee68ea6a923c310b3d4ae139556e1` before this terminal write-back. This standard flat spec is the sole new RESULT artifact. Original nested QA contract, original implementation baseline, prior reviews and deferral remain unchanged; native orchestrator acceptance and ledger resolution remain subsequent orchestrator responsibilities.
+
+Files changed:
+- `convex/lib/tiptapReport.ts`: replace recursive block/text extraction with iterative traversal and catch only JSON parse errors, preventing deep valid content from silently losing uncertainty.
+- `convex/qaBlocking.test.ts`: two deep-nesting registered-boundary regressions and assertions that rejected publishing leaves scheduled functions unchanged.
+- `convex/generationAttribution.test.ts`: iterative canonical assembly proves artifact-sourced advisory waivers retain exact-reference substantive findings.
+- `.audit/DW-92-native-followup/`: genuine new four-layer review, red/green logs, mutation proof, exact acceptance mapping, command/source provenance, preservation proof and cross-model trail audit, explicitly staged despite ignore rules.
+- This flat spec: fresh baseline, review triage and native Auto Run Result.
+
+Review: 5 patches (high 1, medium 2, low 2), 0 new deferrals, 6 rejected findings. Follow-up review recommended: true because a high finding was patched; medium/low score is 8. Independent repair inspection found no additional issues. Cross-model trail audit found two premature wording statements; both were corrected before evidence commit.
+
+Verification on final repaired source:
+- `bash scripts/loop-verify.sh`: exit 0; 148 files / 1732 tests; Svelte 0 errors and warnings; Convex TypeScript; PowerShell 50/50 and Bash 18/18.
+- Exact original focused gate: exit 0; 147 tests in three files.
+- Explicit `npx tsc -p convex/tsconfig.json --noEmit`: exit 0, recorded in final command manifest.
+- Two deep-nesting cases failed on baseline, then passed with 91 targeted tests after repair. Disabling iterative artifact lookup made its new assertion fail; restoring original source made it pass. Final full gate ran all these tests without name filtering or timeout overrides.
+- Protected-path preservation and staged whitespace checks passed; verified source hashes match final gate input.
+
+Residual limits: original sentence-level uncertainty detection and exact-content methodology policy remain as specified. The PowerShell harness reports one platform-specific dotfile subcase skip. Local gates and this genuine worker result do not claim external native acceptance; no control state, old runs, integration checkout or deferred ledger was edited.
