@@ -2,7 +2,6 @@ import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Highlight from "@tiptap/extension-highlight";
 import CharacterCount from "@tiptap/extension-character-count";
-import Underline from "@tiptap/extension-underline";
 import { Extension } from "@tiptap/core";
 
 /**
@@ -43,7 +42,6 @@ export function getEditorExtensions({
       },
     }),
     CharacterCount,
-    Underline,
     CustomKeyboardShortcuts,
   ];
 }

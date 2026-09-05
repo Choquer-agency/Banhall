@@ -45,13 +45,3 @@ export function takeProjectStart(now: number = Date.now()): ProjectStartHandoff 
     transcriptFileName: current.value.transcriptFileName,
   };
 }
-
-// Compatibility wrappers for existing tests/callers while the Home handoff
-// expands from title-only to title + transcript.
-export function stashProjectIntent(value: string, now: number = Date.now()) {
-  stashProjectStart({ title: value }, now);
-}
-
-export function takeProjectIntent(now: number = Date.now()) {
-  return takeProjectStart(now).title;
-}

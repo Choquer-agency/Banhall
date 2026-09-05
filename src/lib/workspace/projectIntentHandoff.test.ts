@@ -3,9 +3,7 @@ import {
   MAX_PROJECT_INTENT_LENGTH,
   PROJECT_INTENT_HANDOFF_TTL_MS,
   normalizeProjectIntent,
-  stashProjectIntent,
   stashProjectStart,
-  takeProjectIntent,
   takeProjectStart,
 } from "./projectIntentHandoff";
 
@@ -31,12 +29,12 @@ describe("project start handoff", () => {
     });
   });
 
-  it("bounds titles and preserves the title-only compatibility wrappers", () => {
+  it("bounds titles and round-trips a title-only handoff", () => {
     expect(normalizeProjectIntent("x".repeat(MAX_PROJECT_INTENT_LENGTH + 10))).toHaveLength(
       MAX_PROJECT_INTENT_LENGTH
     );
-    stashProjectIntent("Solar tracker prototype", 2_000);
-    expect(takeProjectIntent(2_100)).toBe("Solar tracker prototype");
+    stashProjectStart({ title: "Solar tracker prototype" }, 2_000);
+    expect(takeProjectStart(2_100).title).toBe("Solar tracker prototype");
   });
 
   it("discards stale and empty values", () => {

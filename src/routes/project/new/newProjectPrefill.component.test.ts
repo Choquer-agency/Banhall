@@ -4,7 +4,7 @@ import NewProjectPage from "./+page.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
-import { stashProjectIntent, stashProjectStart, takeProjectIntent, takeProjectStart } from "$lib/workspace/projectIntentHandoff";
+import { stashProjectStart, takeProjectStart } from "$lib/workspace/projectIntentHandoff";
 
 /**
  * Client-scoped creation prefill (2026-08-06 second amendment):
@@ -60,12 +60,12 @@ describe("/project/new Home intent prefill", () => {
   });
 
   it("consumes the one-use Home handoff into the editable internal title", async () => {
-    stashProjectIntent("Solar tracker prototype");
+    stashProjectStart({ title: "Solar tracker prototype" });
     __setPageUrl("/project/new");
     await render(NewProjectPage, {});
 
     await expect.poll(() => titleInput()?.value).toBe("Solar tracker prototype");
-    expect(takeProjectIntent()).toBe("");
+    expect(takeProjectStart()).toEqual({ title: "", transcriptText: "", transcriptFileName: null });
 
     const input = titleInput()!;
     input.value = "Edited project title";
@@ -88,7 +88,7 @@ describe("/project/new Home intent prefill", () => {
   });
 
   it("keeps duplicate-project prefill authoritative over Home intent", async () => {
-    stashProjectIntent("Solar tracker prototype");
+    stashProjectStart({ title: "Solar tracker prototype" });
     __setPageUrl("/project/new?from=project-1");
     __setQueryData("projects:getProject", {
       _id: "project-1",
@@ -99,6 +99,6 @@ describe("/project/new Home intent prefill", () => {
     await render(NewProjectPage, {});
 
     await expect.poll(() => titleInput()?.value).toBe("Existing project (copy)");
-    expect(takeProjectIntent()).toBe("");
+    expect(takeProjectStart()).toEqual({ title: "", transcriptText: "", transcriptFileName: null });
   });
 });
