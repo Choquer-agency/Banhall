@@ -1,0 +1,15 @@
+diff --git a/_bmad-output/implementation-artifacts/deferred-work.md b/_bmad-output/implementation-artifacts/deferred-work.md
+index 1bc26b1..c3e7723 100644
+--- a/_bmad-output/implementation-artifacts/deferred-work.md
++++ b/_bmad-output/implementation-artifacts/deferred-work.md
+@@ -746,7 +746,9 @@ location: _bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/qa/stories/8
+ source_spec: `_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/qa/stories/8-blocking-qa-policy.md`
+ severity: medium
+ reason: Story8 remains in-review after its prior native run exhausted harvest attempts while full verification was held. Resume a real BMAD follow-up review using this existing spec as the result spec, preserving its frozen contract, baseline and prior review history. Independently inspect the historical QA implementation from original implementation baseline f122b086d745acc40b4decca26b9aaafc7257f6a as well as subsequent repairs; run the required standard gates on current code and commit genuine fresh verification evidence before native acceptance. Existing ignored .audit evidence must be explicitly staged if used as the review artifact. Do not erase the prior deferred run or infer completion from an old green gate.
+-status: open
++status: done 2026-09-04
++resolution: resolved by sweep bundle dw-blocking-qa-native-followup
++resolution-undo: 4d2a72059b22ee17c0a988895c27e355e77525af580bd156dcf8356a0864edb0 2026-09-04 7374617475733a206f70656e
+ recovery-note: 2026-09-04 native recovery supersedes the result-location instruction above: native 0.11.1 cannot discover a newly adopted nested story spec in a first sweep dev session. Run20260904-145336-4d56 preserved real QA repairs and passing1730-test gates at a62e1760a9931c9451c34baa2df8af29fa1e9538, but crashed before follow-up review after binding an unrelated outside-worktree spec. Use a fresh standard bmad-build-auto follow-up spec under _bmad-output/implementation-artifacts as the RESULT artifact, retaining the original nested QA spec as authoritative contract and historical review context. Independently review the full original QA implementation and the three extraction repairs, produce fresh native marker, reviews and ordinary gates, and commit genuine new evidence. Preserve the old crashed/deferred runs; do not infer acceptance from source preservation or hand-edit native state. See .audit/sweep-spec-recovery/report.md.
+ 
+ ### DW-93: Complete persisted post-edit-distance native follow-up

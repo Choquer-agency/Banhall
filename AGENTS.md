@@ -54,3 +54,7 @@ Convex agent skills for common tasks can be installed by running
 <!-- convex-ai-end -->
 
 Read `.factory/AGENTS.factory.md` for the isolate → build → prove → ship rules.
+
+## Native BMAD ledger finalization
+
+The native BMAD orchestrator owns deferred-work ledger content and status. Do not author, revert, regenerate, or manually change ledger entries. During native finalization, you may stage and commit the exact unchanged ledger bytes written by the orchestrator, alongside reviewed artifacts, when native journal/state or the invocation snapshot establishes their provenance. Confirm the working-tree bytes and staged blob match that snapshot and retain the evidence. Do not stage unexplained ledger changes. Committing an existing native close does not itself establish final run acceptance.

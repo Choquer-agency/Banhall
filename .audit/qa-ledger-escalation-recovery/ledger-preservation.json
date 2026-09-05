@@ -1,0 +1,9 @@
+{
+  "reviewed_head": "828cc5adf0a814be4930fae8953a9cb745ed5766",
+  "ledger_preservation_commit": "5c2765316db129c93127551b78068d1a1a37e55b",
+  "ledger_sha256": "cb250d5f4192346e6eace540ed96d915c8964f0237faee0c07ffa8c105bc05e6",
+  "native_journal_event": "sweep-bundle-closed",
+  "run": "20260904-162523-6e72",
+  "task": "dw-blocking-qa-native-followup",
+  "target_integration": "excluded; target DW-92 remains open"
+}
