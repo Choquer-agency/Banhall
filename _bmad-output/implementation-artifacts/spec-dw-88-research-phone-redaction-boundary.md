@@ -5,7 +5,7 @@ created: '2026-09-04'
 status: 'done'
 baseline_revision: b984822a8aeb70b7eb48a5d617ed18846392b1d2
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 context: []
 warnings: []
 deferred: []
@@ -78,6 +78,19 @@ deferred: []
 
 Blind and edge reviewers independently identified the same boundary regression; these were deduplicated. Verification-gap review found no gaps. Intent review found direct function and outbound-brief surface alignment. Seven remaining suggestions concern optional coverage, existing embedded-prefix semantics, or finalization fields that were correctly pending at review time. They do not identify additional change-caused defects.
 
+
+### 2026-09-04 Follow-up review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 2: (high 0, medium 0, low 2)
+- defer: 0
+- reject: 8: (high 0, medium 0, low 8)
+- addressed_findings:
+  - [low] [patch] Clarified that prior ledger-unchanged verification preceded native closure.
+  - [low] [patch] Retained native journal and invocation snapshot for exact unchanged ledger finalization.
+
+Individual triage is retained in `.audit/DW-88/followup/review.md`. No production edits were required by this follow-up.
+
 ## Verification
 
 **Commands:**
@@ -86,23 +99,21 @@ Blind and edge reviewers independently identified the same boundary regression; 
 - `npm test`: suite passes.
 - `git diff --check`: no whitespace errors.
 
-
 ## Auto Run Result
 
-Status: done.
+Status: done
 
-Implemented complete research phone redaction using the union of the original word boundary and a negative word-character lookbehind. This consumes opening parentheses and plus prefixes while retaining the original matching positions.
+Research phone redaction consumes the full opening parenthesis and country prefix while preserving existing phone grammar and matching positions. Production implementation remains `22fda2fa15ea4c294ecd8dea9362bbc69319e5d4`.
 
-Files changed:
-- `convex/ai/research/core.ts`: phone leading assertion only.
-- `convex/ai/research/core.test.ts`: focused format, adjacency, preservation, and outbound-brief regressions.
-- This spec: intent, acceptance, review disposition, and result.
-- `.audit/DW-88/`: decision trail and baseline, review-reproduction, focused, and full-gate evidence.
+Files changed since baseline:
+- `convex/ai/research/core.ts`: corrected only the starting phone boundary.
+- `convex/ai/research/core.test.ts`: phone matrix, preservation, and outbound brief regressions.
+- `.audit/DW-88/`: baseline failures, passing gates, decisions, follow-up triage, and native provenance.
+- This spec: acceptance and completed fresh review result.
+- `deferred-work.md`: exact unchanged orchestrator-authored closure, staged only after snapshot comparison.
 
-Review: four patches (high 0, medium 1, low 3), zero deferred, seven rejected. Follow-up review recommended: true; score 6. The edge reviewer also checked the final repair and found no concrete boundary regression.
+Fresh review: 2 low evidence patches, 0 deferred, 8 rejected; no production findings. Follow-up recommendation false (high 0, medium 0, low 2; score 2).
 
-Verification: baseline 7 failures / 28 passes; intermediate adjacency reproduction 2 failures / 35 passes; final focused 37 passes. `bash scripts/loop-verify.sh` passed with Convex TypeScript success, zero Svelte errors or warnings, 148 files / 1799 tests passing, and uploader suites at 50 and 18 passes. `git diff --check` passed. Every matrix row is covered by executed tests.
+Verification: focused suite 37 passed; full `bash scripts/loop-verify.sh` exit 0 (Convex TypeScript pass, Svelte 0 errors / 0 warnings, 148 test files / 1799 tests, uploader harnesses 50 and 18 passed). `git diff --check` passed after removing the invocation's trailing blank line. Evidence: `.audit/DW-88/evidence.md` and `.audit/DW-88/followup/`.
 
-Implementation commit: `22fda2fa15ea4c294ecd8dea9362bbc69319e5d4`.
-
-Residual limits: existing best-effort research phone grammar remains. The deferred-work ledger and generated Convex files were untouched. No push or deployment performed.
+Residual risk: existing research regex remains a best-effort recognizer with its unchanged phone body and trailing boundary. No product policy decision is needed. Native closure provenance is separate from final orchestrator acceptance. No push, deployment, PR, ledger-content edit, or sprint-status write was performed.

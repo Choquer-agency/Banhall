@@ -76,7 +76,7 @@ Test Files  1 passed (1)
 
 Post-review command: `git diff --check` (exit 0, no diagnostics), recorded in [review-diff-check.log](review-diff-check.log).
 
-## Final parent verification
+## Original implementation verification (before native closure)
 
 Implementation commit: `22fda2fa15ea4c294ecd8dea9362bbc69319e5d4`.
 
@@ -90,3 +90,12 @@ All five matrix rows run in the focused suite. Four independent review layers co
 The regex remains a best-effort recognizer using the existing research phone grammar. No external provider request was needed for this pure transformation fix.
 
 Recorded command logs have terminal blank lines trimmed for repository whitespace checks; diagnostic content is unchanged.
+
+## Fresh follow-up review
+
+Reviewed implementation at `71cd71cd1d24daf0f9444a686cc824ad1e5f1118`, against baseline `b984822a8aeb70b7eb48a5d617ed18846392b1d2`.
+The ledger-unchanged command above describes the original implementation verification. The native orchestrator subsequently closed DW-88 before this review invocation. `followup/native-journal.json` retains the close and subsequent review-start events; `followup/invocation-snapshot.json` identifies the exact ledger hash and starting revision. `followup/ledger-invocation.snapshot` retains the unchanged bytes for staged comparison. This provenance establishes authorship only, not acceptance.
+
+Fresh focused command `npm test -- convex/ai/research/core.test.ts` passed all 37 tests. Four independent review layers found no new production defect or verification gap. Triage details are in `followup/review.md`. The earlier seven edge probes remain a historical reviewer report; this fresh review does not use that report as execution evidence.
+
+Fresh full gate `bash scripts/loop-verify.sh` exited 0: Convex TypeScript passed; Svelte 0 errors / 0 warnings; 148 test files and 1799 tests passed; uploader harnesses 50 and 18 passed. Output: `followup/verification.log`.

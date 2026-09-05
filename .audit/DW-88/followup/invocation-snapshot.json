@@ -1,0 +1,7 @@
+{
+  "head": "71cd71cd1d24daf0f9444a686cc824ad1e5f1118",
+  "ledger_sha256": "e5c97b9772675d3ca1ad3fdd2249e98eb0baecd0af9c36bfba3c28c695c13f93",
+  "ledger_git_blob": "a7fd4e71b44092d51fbc5da2df98457e5fe3b4ee",
+  "provenance": "native-journal.json sweep-bundle-closed followed by review session-start",
+  "sprint_status": "No file at _bmad-output/implementation-artifacts/sprint-status.yaml; no writes performed."
+}
