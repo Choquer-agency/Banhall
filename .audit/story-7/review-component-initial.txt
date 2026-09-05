@@ -1,0 +1,14 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/chat/OptimisticSend.component.test.ts src/lib/components/chat/RegenerateTurn.component.test.ts
+
+1:14:03 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/7 - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/7
+
+1:14:03 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/7 - using default configuration.
+
+ Test Files  2 passed (2)
+      Tests  59 passed (59)
+   Start at  01:14:03
+   Duration  30.76s (transform 0ms, setup 550ms, import 1.06s, tests 27.75s, environment 0ms)

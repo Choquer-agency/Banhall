@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { appendOutbox } from "$lib/uploads/attemptOutbox";
@@ -187,6 +187,8 @@
   /** True between "New chat" and the first send — keeps the auto-select
    * effect from snapping back to the newest existing thread. */
   let startingNewChat = $state(false);
+  let draftConversationId = $state(createRequestId());
+  const conversationScope = $derived(selectedThreadId ? `thread:${selectedThreadId}` : `draft:${draftConversationId}`);
 
   // Default to the newest thread (unless the writer just started a new chat).
   $effect(() => {
@@ -203,6 +205,7 @@
 
   function startNewThread() {
     startingNewChat = true;
+    draftConversationId = createRequestId();
     selectedThreadId = null;
     input = "";
     refiningProposal = null;
@@ -252,10 +255,70 @@
   let sending = $state(false);
   let researchStarting = $state(false);
   let researchError = $state<string | null>(null);
-  let sendError = $state<string | null>(null);
   type SendIntent = { kind: "composer" } | { kind: "regenerate"; threadId: string };
-  let retryText = $state<string | null>(null);
-  let retryIntent = $state<SendIntent>({ kind: "composer" });
+  type LocalSend = {
+    key: string;
+    scope: string;
+    intent: SendIntent;
+    args: Parameters<typeof sendMessage>[0];
+    display: { content: string; highlight?: string };
+    startOrder: number;
+    afterOrder: number;
+    conversationNumber: number;
+    retried: boolean;
+    state: { kind: "sending" } | { kind: "failed"; error: string } |
+      { kind: "published"; threadId: string; messageId: string };
+  };
+  let localSends = $state<LocalSend[]>([]);
+  let nextConversationNumber = 1;
+  const unresolvedDraftSend = $derived(!selectedThreadId && localSends.some(request => request.scope === conversationScope));
+  const composerChatBlocked = $derived(!pendingResearch && unresolvedDraftSend);
+  const visibleLocalSends = $derived(localSends.filter(request => request.scope === conversationScope &&
+    !(request.state.kind === "published" && ui.hasPersistedMessage(request.state))));
+  // Presentation-only placement. Orders are captured anchors, never synthetic
+  // UIMessage orders; every timing/action/query consumer still uses messages.
+  type TranscriptRow = { kind: "message"; key: string; message: UIMessage; previous?: UIMessage } |
+    { kind: "local"; key: string; request: LocalSend };
+  const transcriptRows = $derived.by(() => {
+    const rows: TranscriptRow[] = [];
+    let remaining = visibleLocalSends;
+    for (const [index, message] of messages.entries()) {
+      const before = remaining.filter(request => request.afterOrder < message.order);
+      rows.push(...before.map(request => ({ kind: "local" as const, key: `local:${request.key}`, request })));
+      remaining = remaining.filter(request => !before.includes(request));
+      rows.push({ kind: "message", key: `message:${message.key}`, message, previous: messages[index - 1] });
+    }
+    rows.push(...remaining.map(request => ({ kind: "local" as const, key: `local:${request.key}`, request })));
+    return rows;
+  });
+
+  function unsentConversationLabel(request: LocalSend) {
+    const preview = (request.display.content || request.display.highlight || "Selected excerpt").replace(/\s+/g, " ").trim();
+    return `Unsent conversation ${request.conversationNumber}: ${preview.length > 72 ? `${preview.slice(0, 71)}…` : preview}`;
+  }
+
+  function dismissRequest(key: string, button: HTMLButtonElement) {
+    if (document.activeElement === button) textareaEl?.focus();
+    localSends = localSends.filter(request => request.key !== key || request.state.kind !== "failed");
+  }
+
+  async function revealRequest(request: LocalSend) {
+    await tick();
+    if (conversationScope !== request.scope) return;
+    chatContainer?.scrollToBottom("instant");
+    document.getElementById(`local-send-${request.key}`)?.scrollIntoView({ block: "nearest", behavior: "instant" });
+  }
+
+  // Keep the existing explicit return affordance for a failed historical send.
+  const displacedHistoricalFailure = $derived(localSends.find(request =>
+    request.intent.kind === "regenerate" && request.scope !== conversationScope && request.state.kind === "failed"));
+  const unsavedConversations = $derived(localSends.filter((request, index) =>
+    request.scope.startsWith("draft:") && localSends.findIndex(other => other.scope === request.scope) === index));
+
+  $effect(() => {
+    const reconciled = localSends.filter(request => request.state.kind === "published" && ui.hasPersistedMessage(request.state));
+    if (reconciled.length) localSends = localSends.filter(request => !reconciled.includes(request));
+  });
   // A successful mutation may precede its live query update. Hold the shared
   // send guard until that exact durable turn reaches a terminal state.
   // Retaining its original window also covers navigation past its message page.
@@ -273,7 +336,6 @@
   function refineProposal(proposal: Proposal) {
     refiningProposal = proposal;
     input = "";
-    if (retryIntent.kind === "composer") retryText = null;
     textareaEl?.focus();
     chatContainer?.scrollToBottom("smooth");
   }
@@ -423,11 +485,15 @@
   const publicationPending = $derived(!!pendingResearchId ||
     !!(selectedThreadId && pendingSendByThread.has(selectedThreadId)));
 
-  function returnToRetryThread() {
-    if (retryIntent.kind !== "regenerate") return;
-    // This explicit navigation retains the draft/context; it does not send.
-    selectedThreadId = retryIntent.threadId;
-    startingNewChat = false;
+  function returnToRequest(request: LocalSend) {
+    if (request.scope.startsWith("thread:")) {
+      selectedThreadId = request.scope.slice("thread:".length);
+      startingNewChat = false;
+    } else {
+      draftConversationId = request.scope.slice("draft:".length);
+      selectedThreadId = null;
+      startingNewChat = true;
+    }
   }
 
   function regeneration(order: number, text: string | undefined, status: UIMessage["status"] | undefined, timing: TurnTiming | undefined) {
@@ -556,6 +622,7 @@
       sending ||
       researchStarting ||
       publicationPending ||
+      (!historical && composerChatBlocked) ||
       isStreaming
     ) return;
 
@@ -585,40 +652,71 @@
       return;
     }
 
-    const sentAfterOrder = Math.max(0, endOrder);
+    const args: Parameters<typeof sendMessage>[0] = {
+      reportId,
+      content: trimmed,
+      ...(intent.kind === "regenerate" ? { threadId: intent.threadId } : {
+        ...(selectedThreadId ? { threadId: selectedThreadId } : {}),
+        ...(pendingHighlight ? { highlight: { ...pendingHighlight } } : {}),
+        ...(refiningProposal ? { refineProposalId: refiningProposal._id } : {}),
+        ...(startingNewChat ? { newThread: true } : {}),
+      }),
+    };
+    const request: LocalSend = {
+      key: createRequestId(), scope: conversationScope, intent, args,
+      display: historical ? splitWriterMessage(visibleWriterMessage(trimmed)) : {
+        content: trimmed, ...(args.highlight ? { highlight: args.highlight.text } : {}),
+      },
+      startOrder: Math.max(0, endOrder), afterOrder: endOrder,
+      conversationNumber: nextConversationNumber++, retried: false, state: { kind: "sending" },
+    };
+    localSends = [...localSends, request];
+    // Consume only the captured composer, synchronously. Later edits/context
+    // are never cleared by mutation completion or retry.
+    if (!historical) {
+      if (!selectedThreadId) startingNewChat = true;
+      input = "";
+      refiningProposal = null;
+      onClearHighlight?.();
+    }
+    dismissHint();
+    const transmission = transmitRequest(request);
+    void revealRequest(request);
+    await transmission;
+  }
+
+  function retryRequest(key: string, button: HTMLButtonElement) {
+    const request = localSends.find(candidate => candidate.key === key);
+    if (!request || request.state.kind !== "failed" || request.scope !== conversationScope ||
+      sending || researchStarting || publicationPending || isStreaming ||
+      (request.intent.kind === "regenerate" && regenerationBusy)) return;
+    void transmitRequest(request, button);
+  }
+
+  async function transmitRequest(request: LocalSend, retryButton?: HTMLButtonElement) {
     sending = true;
-    sendError = null;
+    localSends = localSends.map(candidate => candidate.key === request.key
+      ? { ...candidate, retried: candidate.retried || !!retryButton, state: { kind: "sending" } } : candidate);
     try {
-      const res = await sendMessage({
-        reportId,
-        content: trimmed,
-        ...(intent.kind === "regenerate" ? { threadId: intent.threadId } : {
-          ...(selectedThreadId ? { threadId: selectedThreadId } : {}),
-          ...(pendingHighlight ? { highlight: pendingHighlight } : {}),
-          ...(refiningProposal ? { refineProposalId: refiningProposal._id } : {}),
-          ...(startingNewChat ? { newThread: true } : {}),
-        }),
-      });
-      if (res.messageId) pendingSendByThread.set(res.threadId, { messageId: res.messageId, startOrder: sentAfterOrder });
-      if (intent.kind === "composer") {
+      const res = await sendMessage(request.args);
+      if (res.messageId) pendingSendByThread.set(res.threadId, { messageId: res.messageId, startOrder: request.startOrder });
+      const isOriginVisible = conversationScope === request.scope;
+      // Keep Retry mounted during transmission. On success hand keyboard focus
+      // to the composer only if the writer is still on this originating button.
+      if (isOriginVisible && retryButton && document.activeElement === retryButton) textareaEl?.focus();
+      localSends = localSends.map(candidate => candidate.key === request.key ? {
+        ...candidate, scope: `thread:${res.threadId}`,
+        state: { kind: "published", threadId: res.threadId, messageId: res.messageId },
+      } : candidate);
+      if (isOriginVisible && request.intent.kind === "composer") {
         selectedThreadId = res.threadId;
         startingNewChat = false;
-        input = "";
-        refiningProposal = null;
-        onClearHighlight?.();
       }
-      retryText = null;
-      dismissHint();
-      // Only scroll the transcript that received this turn. The writer may
-      // have switched conversations while the mutation was pending.
-      if (intent.kind === "composer" || selectedThreadId === intent.threadId) {
-        chatContainer?.scrollToBottom("instant");
-      }
+      if (isOriginVisible) chatContainer?.scrollToBottom("instant");
     } catch (e) {
-      console.error("Failed to send message", e);
-      retryText = trimmed;
-      retryIntent = intent;
-      sendError = e instanceof Error ? e.message : "Your message could not be sent.";
+      localSends = localSends.map(candidate => candidate.key === request.key ? {
+        ...candidate, state: { kind: "failed", error: e instanceof Error && e.message.trim() ? e.message : "Your message could not be sent." },
+      } : candidate);
     } finally {
       sending = false;
     }
@@ -907,7 +1005,7 @@
   );
 
   const isEmpty = $derived(!messages || messages.length === 0);
-  const isConversationEmpty = $derived(isEmpty && !hasResearch && !pendingResearch);
+  const isConversationEmpty = $derived(isEmpty && visibleLocalSends.length === 0 && !hasResearch && !pendingResearch);
 
   // Typing dots while the reply hasn't started streaming text yet.
   const lastMessage = $derived(
@@ -1001,40 +1099,54 @@
   }
 </script>
 
+{#snippet writerContent(split: { content: string; highlight?: string })}
+  {#if split.highlight}
+    <p class="mb-2 italic text-navy/80">&ldquo;{split.highlight}&rdquo;</p>
+  {/if}
+  {#if split.content.trim()}
+    <p class="whitespace-pre-wrap">{split.content.trim()}</p>
+  {/if}
+{/snippet}
+
+{#snippet localMessage(request: LocalSend)}
+  <div id={`local-send-${request.key}`} data-local-request={request.key} data-send-state={request.state.kind}>
+    <Message role="user">
+      <MessageContent class="min-w-0 [overflow-wrap:anywhere]">
+        <div id={`local-send-content-${request.key}`}>{@render writerContent(request.display)}</div>
+        <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
+          {#if request.state.kind === "failed"}
+            <span class="text-red-700" role="alert">{request.state.error}</span>
+          {:else}
+            <span class="text-ink-muted" role="status">Sending…</span>
+          {/if}
+          {#if request.state.kind === "failed" || request.retried}
+            <ActionButton variant="danger" class="min-h-7 px-2 font-medium aria-disabled:opacity-50"
+              aria-label="Retry"
+              aria-describedby={`local-send-content-${request.key}`}
+              aria-disabled={request.state.kind !== "failed"}
+              disabled={request.state.kind === "failed" && (request.intent.kind === "regenerate" ? regenerationBusy : sending || researchStarting || publicationPending || isStreaming)}
+              onclick={(event) => retryRequest(request.key, event.currentTarget)}>Retry</ActionButton>
+          {/if}
+          {#if request.state.kind === "failed"}
+            <ActionButton variant="danger" class="min-h-7 px-2 font-medium" aria-label="Dismiss send error"
+              aria-describedby={`local-send-content-${request.key}`}
+              onclick={(event) => dismissRequest(request.key, event.currentTarget)}>Dismiss</ActionButton>
+          {/if}
+        </div>
+      </MessageContent>
+    </Message>
+  </div>
+{/snippet}
+
 {#snippet composer()}
-  {#if sendError}
-    <div class="mb-2 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" role="alert">
-      <span class="min-w-0 flex-1">{sendError}</span>
-      <div class="flex shrink-0 items-center gap-1">
-        {#if retryText && retryIntent.kind === "regenerate" && retryIntent.threadId !== selectedThreadId}
-          <ActionButton variant="danger" class="min-h-7 px-2" onclick={returnToRetryThread}>
-            Return to original conversation
-          </ActionButton>
-        {:else if retryText}
-          <ActionButton
-            variant="danger"
-            class="min-h-7 px-2"
-            onclick={() => sendText(retryText ?? "", retryIntent)}
-            disabled={retryIntent.kind === "regenerate" ? regenerationBusy : sending || researchStarting || publicationPending || isStreaming}
-          >
-            Retry
-          </ActionButton>
-        {/if}
-        <ActionButton
-          variant="icon"
-          class="h-7 w-7 text-red-500 hover:bg-red-100 hover:text-red-700"
-          tooltip="Dismiss error"
-          aria-label="Dismiss send error"
-          onclick={() => {
-            sendError = null;
-            retryText = null;
-          }}
-        >
-          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <path stroke-linecap="round" d="M6 18 18 6M6 6l12 12" />
-          </svg>
-        </ActionButton>
-      </div>
+  {#if displacedHistoricalFailure && displacedHistoricalFailure.state.kind === "failed"}
+    <div class="mb-2 flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" role="alert">
+      <span class="min-w-0 [overflow-wrap:anywhere]">{displacedHistoricalFailure.state.error}</span>
+      <ActionButton variant="danger" onclick={() => displacedHistoricalFailure && returnToRequest(displacedHistoricalFailure)}>
+        Return to original conversation
+      </ActionButton>
+      <ActionButton variant="danger" aria-label="Dismiss send error"
+        onclick={(event) => displacedHistoricalFailure && dismissRequest(displacedHistoricalFailure.key, event.currentTarget)}>Dismiss</ActionButton>
     </div>
   {/if}
 
@@ -1270,7 +1382,7 @@
       {:else}
         <button
           onclick={() => sendText(input)}
-          disabled={sending || researchStarting || publicationPending || (!input.trim() && !pendingHighlight && !pendingResearch)}
+          disabled={sending || researchStarting || publicationPending || composerChatBlocked || (!input.trim() && !pendingHighlight && !pendingResearch)}
           class="group flex h-8 shrink-0 items-center justify-center rounded-full bg-navy px-4 text-white transition-[box-shadow,transform] hover:bg-navy-light active:translate-y-px disabled:opacity-10"
           title={pendingResearch ? "Start research" : "Send"}
           aria-label="Send message"
@@ -1327,6 +1439,12 @@
             </svg>
             New conversation
           </DropdownMenu.Item>
+          {#each unsavedConversations as request (request.scope)}
+            <DropdownMenu.Item onSelect={() => returnToRequest(request)}
+              class="flex min-h-8 w-full items-center rounded-md px-2 text-sm font-medium text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash">
+              <span class="min-w-0 truncate">{unsentConversationLabel(request)}</span>
+            </DropdownMenu.Item>
+          {/each}
           {#if (threadsQ.data?.length ?? 0) > 0}
             <div class="my-1 border-t border-line-soft"></div>
             {#each threadsQ.data ?? [] as thread (thread._id)}
@@ -1378,7 +1496,7 @@
         {#each STARTERS as starter (starter)}
           <Suggestion
             class="w-full justify-start rounded-lg px-3 py-1.5 text-left text-[13px]"
-            disabled={sending}
+            disabled={sending || researchStarting || publicationPending || composerChatBlocked || isStreaming}
             onclick={() => sendText(starter)}
           >
             {starter}
@@ -1386,7 +1504,6 @@
         {/each}
       </div>
     </div>
-    <div class="shrink-0 px-2 pb-2.5 pt-2">{@render composer()}</div>
   {:else}
     <ChatContainer
       bind:this={chatContainer}
@@ -1407,9 +1524,13 @@
         </div>
       {/if}
 
-      {#each messages as m, i (m.key)}
+      {#each transcriptRows as entry (entry.key)}
+        {#if entry.kind === "local"}
+          {@render localMessage(entry.request)}
+        {:else}
+        {@const m = entry.message}
         {@const text = messageText(m)}
-        {@const prev = i > 0 ? messages[i - 1] : undefined}
+        {@const prev = entry.previous}
         {#if prev && !sameDay(prev._creationTime, m._creationTime)}
           <div class="flex items-center gap-3 py-1" role="separator" aria-label={dayLabel(m._creationTime)}>
             <span class="h-px flex-1 bg-line-soft"></span>
@@ -1420,17 +1541,8 @@
         {#if m.role === "user"}
           {@const split = splitWriterMessage(visibleWriterMessage(text))}
           <Message role="user">
-            <MessageContent>
-              {#if split.highlight}
-                <p class="mb-2 italic text-navy/80">&ldquo;{split.highlight}&rdquo;</p>
-              {/if}
-              {#if split.content.trim()}
-                <!-- Display-side sanitization: stored messages may carry
-                     leading/trailing whitespace (pasted text, highlight
-                     composites) which whitespace-pre-wrap would render as
-                     empty space inside the bubble. -->
-                <p class="whitespace-pre-wrap">{split.content.trim()}</p>
-              {/if}
+            <MessageContent class="min-w-0 [overflow-wrap:anywhere]">
+              {@render writerContent(split)}
             </MessageContent>
           </Message>
           {#if !turnPrompts.assistantOrders.has(m.order) && timingByOrder.has(m.order)}
@@ -1455,6 +1567,7 @@
             {onPreviewProposal}
             {reviewingId}
           />
+        {/if}
         {/if}
       {/each}
 
@@ -1486,7 +1599,7 @@
       <ScrollButton />
     </ChatContainer>
 
-    <!-- No divider: the Obvious composer floats below the fading scroll mask. -->
-    <div class="shrink-0 px-2 pb-2.5 pt-2">{@render composer()}</div>
   {/if}
+  <!-- Preserve the composer and keyboard focus across the first local row. -->
+  <div class="shrink-0 px-2 pb-2.5 pt-2">{@render composer()}</div>
 </div>

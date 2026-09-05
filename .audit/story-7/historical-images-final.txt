@@ -1,0 +1,2 @@
+.audit/story-6/regenerate-keyboard-after.png: matches HEAD; SHA-256 d8515ce64db08511883c210476184baf32fdf44363e62fc09b1276fe6daa2678
+.audit/story-6/regenerate-after.png: matches HEAD; SHA-256 459e690ee91a1afc889911e98f4a51b6fa93eda10d77b151d3caa4b722b7ce22

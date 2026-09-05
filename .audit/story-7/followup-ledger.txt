@@ -1,0 +1,11 @@
+$ shasum -a 256 -c .audit/story-7/ledger-baseline.sha256
+_bmad-output/implementation-artifacts/deferred-work.md: OK
+exit 0
+
+$ git diff --name-only HEAD -- _bmad-output/implementation-artifacts/deferred-work.md
+(empty output)
+exit 0
+
+$ git diff --cached --name-only -- _bmad-output/implementation-artifacts/deferred-work.md
+(empty output)
+exit 0

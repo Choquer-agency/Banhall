@@ -1,0 +1,6 @@
+Command: npm run test:component
+Exit code: 0
+ Test Files  58 passed (58)
+      Tests  396 passed (396)
+   Start at  00:52:23
+   Duration  80.26s (transform 0ms, setup 1.54s, import 23.51s, tests 26.20s, environment 0ms)

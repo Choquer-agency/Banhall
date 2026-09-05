@@ -40,14 +40,14 @@ it.each(["{Enter}", " "])("resends completed prompt through keyboard %s and reta
   expect(button.matches(":focus-visible")).toBe(true);
   await expect.poll(() => getComputedStyle(button.parentElement ?? button).opacity).toBe("1");
   expect(getComputedStyle(button).boxShadow).not.toBe("none");
-  if (key === "{Enter}") await page.screenshot({ path: "../../../../.audit/story-6/regenerate-keyboard-after.png" });
+  if (key === "{Enter}") await page.screenshot({ path: "__screenshots__/regenerate-keyboard-transient.png" });
   await userEvent.keyboard(key);
   await expect.poll(() => __mutationCalls("chatV2:sendMessage")).toEqual([expectedSend]);
   await expect.element(page.getByText("Original answer remains.")).toBeVisible();
-  await expect.element(page.getByText("Original prompt", { exact: true })).toBeVisible();
+  await expect.poll(() => page.getByText("Original prompt", { exact: true }).elements().length).toBe(2);
   expect(Number(getComputedStyle(button).fontWeight)).toBeLessThanOrEqual(500);
   expect(button.className).toContain("focus-visible:ring-2");
-  if (key === "{Enter}") await page.screenshot({ path: "../../../../.audit/story-6/regenerate-after.png" });
+  if (key === "{Enter}") await page.screenshot({ path: "__screenshots__/regenerate-transient.png" });
 });
 
 it.each(["failed-message", "failed-empty", "trailing-failure", "tool-only"])("supports %s without requiring a copyable answer", async scenario => {

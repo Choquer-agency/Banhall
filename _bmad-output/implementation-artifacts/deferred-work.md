@@ -807,3 +807,11 @@ source_spec: `6-regenerate-and-retry-assistant-turns.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-133944-0158; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
+
+### DW-98: Follow-up review still recommended for 7 after the damping cap was spent
+origin: review-budget-followup
+location: n/a
+source_spec: `7-optimistic-user-bubble-on-send.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-133944-0158; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
