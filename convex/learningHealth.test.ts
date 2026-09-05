@@ -329,6 +329,33 @@ describe("learning health persisted metrics", () => {
     expect((await admin.query(api.learningHealth.getHealth, window)).rerank).toMatchObject({ rate: 0, attempts: 1 });
   });
 
+  test("capped rerank rate uses the oldest observed cohort and discloses its bounds", async () => {
+    const { t, admin } = await setup();
+    const cap = HEALTH_LIMITS.outcomes;
+    await t.run(async ctx => {
+      // Insert newest first so storage creation order cannot substitute for observedAt.
+      for (let i = cap; i >= 0; i--) {
+        await ctx.db.insert("rerankOutcomes", {
+          operationId: `cohort-${i}`,
+          observedAt: window.start + i,
+          outcome: i === 1 || i === cap ? "fallback" : "success",
+          callSite: "brain:rerank",
+        });
+      }
+    });
+    const result = await admin.query(api.learningHealth.getHealth, window);
+    expect(result.rerank).toMatchObject({
+      successes: cap - 1, fallbacks: 1, attempts: cap, rate: 1 / cap,
+      observations: cap, skips: 0, searchErrors: 0, partial: true,
+      firstInWindowAt: window.start, lastInWindowAt: window.start + cap - 1,
+      selection: {
+        order: "oldest-first", firstLoadedAt: window.start,
+        lastLoadedAt: window.start + cap - 1, complete: false,
+      },
+    });
+    expect(result.coverage).toMatchObject({ partial: true, truncated: ["rerank outcomes"] });
+  });
+
   test("caps all top-level populations with honest partial flags", async () => {
     const { t, admin, project, report } = await setup();
     await t.run(async ctx => {
