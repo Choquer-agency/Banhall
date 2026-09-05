@@ -1,6 +1,6 @@
 ---
 key: dx-1-one-verify-entry
-status: todo
+status: done
 kind: chore
 deps: [tests-3-runner-cleanup-and-guard, ui-1-component-suite-green]
 touches: [scripts, docs, .github, AGENTS.md, README.md, env.example, .nvmrc, .factory/factory.toml]
@@ -10,7 +10,13 @@ done_when: ["rg -q 'check-test-discovery' scripts/loop-verify.sh", "rg -q 'prefl
 title: "One verification entry point: loop-verify.sh preflights and names its steps and runs the discovery guard; CI runs the gate script and the browser suite; README and env.example describe this app"
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T09:25:40.879Z"
+updated: "2026-09-05T11:27:46.792Z"
+run: 20260905-085105-4-tickets
+branch: factory/dx-1-one-verify-entry
+merged: 5583a25
+verdict: test-verified
+evidence: .audit/dx-1-one-verify-entry/evidence.md
+deferred: ["`docs/bmad-loop.md:25` still describes the verify gate as \"convex tsc + `npm run check` + `npm test`\". AC5 enumerates the doc lines this ticket may touch (52-72 and :81) and that table row is not one of them, so it was left stale rather than widening scope.", "`scripts/loop.sh:26` and `scripts/loop-parallel.py:179` still set their own `PUBLIC_CONVEX_URL` default and neither supplies `PUBLIC_CONVEX_SITE_URL`; both are legacy bmad-loop entry points outside this ticket's `touches`. They now shell out to a gate that defaults both itself, so their defaults are redundant, not wrong.", "`BRAIN_CONTEXTUAL` is read at `convex/ai/brain/ingest.ts:13` through raw `process.env`, outside the `convex/convex.config.ts:20-38` env schema that declares every other Convex-side name. It works (`docs/the-brain.md:134`); it is just unvalidated and invisible to anyone reading the schema. Whether the schema should own it is a Convex runtime decision, out of scope for a docs/scripts chore."]
 ---
 ## Intent
 For the next agent opening this repo cold: the README says what the app is and gives one command that proves a change; that command fails fast with the name of a missing tool, prints each step with its time, and runs the discovery guard from tests-3; CI runs exactly that command plus the browser suite, so CI and the factory gate cannot drift again. Today `README.md:1-19` is the `create-next-app` template (port 3000, `app/page.tsx`), `env.example` uses `NEXT_PUBLIC_*` names, CI (`ci.yml:28-38`) runs two of the gate's six steps on Node 22 while the changelog workflow and this Mac run Node 24, `loop-verify.sh` discovers a missing `pwsh` after three minutes of typechecking, and 51 browser test files run in no gate (`dx-audit.md:7-19,31-35`). The maintainer inherits one script, one CI job that calls it, and docs that stop contradicting `.factory/AGENTS.factory.md`. Principle: [5 minimize reader load] and [13 idempotent] for CI calling the gate script instead of restating it; [24 exit condition as predicate]: the browser job is added only now that ui-1 made it green and tests-3 made the guard pass.
