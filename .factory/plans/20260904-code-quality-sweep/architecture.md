@@ -197,3 +197,7 @@ The passing real Editor baseline exposed duplicate Underline registration. The s
 ## Sequential deadline proof follow-up
 
 Add `proof-1-parser-budget-sequence` after perf-1. Root and independent performance review found its two 20-second fake delays start eagerly together; the production optimization was approved and QA passed, so this is a correction to the existing test fixture and its intermediate phase assertions. `parser-budget-addendum.md` traces the exact callback mechanics; `parser-budget-review.md` independently approves factory parsing, syntax, baseline source-guard failure and the eager negative control. Only two existing test files change, with no new test count or production edits. This eleventh ticket will run after the current ten-ticket engine selection finishes; it is required before sweep closeout.
+
+## Shared gate includes production build
+
+The real slop-1 build revealed a bundle-only missing export that type checks and unit tests missed. Following independent `build-gate-review.md`, dx-1 now includes `npm run build` in the default browser-free gate and supplies both public Convex URL placeholders. This changes the existing script/docs/CI scope only, with six criteria retained. No deploy hook or current prerender route runs; the recorded additional 44-second build remains within the configured 20-minute verification timeout. Normal ignored build artifacts remain; tracked source must stay unchanged.
