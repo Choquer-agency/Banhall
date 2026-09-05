@@ -10,13 +10,13 @@ done_when: [npx vitest run --config vitest.component.config.ts src/lib/component
 title: "The browser component suite passes: seven stale fixtures and class contracts are re-pinned to the shipped behaviour, and the header action is measured against the 44px mobile contract and fixed if short"
 plan: 20260904-code-quality-sweep
 ui: true
-updated: "2026-09-05T09:52:24.000Z"
+updated: "2026-09-05T09:54:11.054Z"
 run: 20260905-085105-4-tickets
 branch: factory/ui-1-component-suite-green
 merged: acf55d9
 verdict: test-verified
 evidence: .audit/ui-1-component-suite-green/evidence.md
-deferred: ["Button's reduced-motion behaviour is left unasserted: @vitest/browser 4.1.10 exposes no per-test prefers-reduced-motion emulation, only a run-wide Playwright context option", "The header's 44px floor is measured at 390px and 1280px only; 320px and 428px are not covered"]
+deferred: ["Button's reduced-motion behaviour is left unasserted: @vitest/browser 4.1.10 exposes no per-test prefers-reduced-motion emulation, only a run-wide Playwright context option", "The header's 44px floor is measured at 390px and 1280px only; 320px and 428px are not covered", "Nonblocking review0 hardening: WorkspaceChrome component test locates Settings and reads its href but does not activate it or prove that path closes the drawer; Home activation is covered separately.", "Nonblocking review0 hardening: sign-out controls are measured for height only; a future assertion can include width >=44. The current full-width mobile layout satisfies width by inspection.", "Nonblocking review0 hardening: WorkspaceHeader geometry test leaves viewport at1280x800 rather than restoring the incoming size; the existing suite has no general viewport reset."]
 ---
 ## Intent
 For every agent that must "run browser component tests for touched components" (`AGENTS.md`): the suite can be trusted again. At `11bfe3e`, `npm run test:component` reports 8 failed of 289 tests in 5 files (`component-baseline.log:384-535`). The DX audit traced each to its mechanism and commit (`dx-audit.md:51-66`): seven are stale fixtures or class-token contracts (the Projects link now carries `group=client`, `WorkspaceDashboard.svelte:153`; `Button.svelte:54` broadened its transition in `113ef7c`; the drawer's settings menu became a Settings link plus a Sign out confirmation dialog in `66f131b`, `WorkspaceRail.svelte:351`, `UserMenu.svelte:81`; the Admin group renders only for `role === "admin" && (isOwner || isDeveloper)`, `WorkspaceRail.svelte:228`, and gained a House rules link, `:124`; rail transitions went 300 → 150 ms in `c7167fb`). The eighth, `WorkspaceHeader.component.test.ts:164`, expects `py-2.5` where the header now uses `size="xs"` (`h-8`) at every width (`WorkspaceHeader.svelte:179`, `Button.svelte:35`), and the failure screenshot at mobile width shows a target that looks under the 44px contract (`docs/product-domain.md:233`). Nobody noticed because the suite is in no gate (dx-1 depends on this ticket). Principle: [16 prove it works]: a red suite proves nothing and a re-pin to `h-8` would hide a candidate regression; [3 redesign from first principles]: pin the contract the shipped design has, by role, attribute and geometry, not by class inventory.
@@ -56,3 +56,7 @@ The configured QA tool allowlist permits the verification commands but denies Ed
 Run each verification command exactly as listed before trying shell additions. Pipes, redirects, an appended echo, or a redundant rm command can make an otherwise allowed command fail the QA tool check. Use the tool result or engine gates file for the exit status. Bare npm ci already replaces an existing node_modules directory. Run dependency installation before, and never concurrently with, tests or builds in that worktree.
 
 Discovery count clarification: perf-1 added one component file and slop-3 later deleted one retired component file. The expected pre-ui inventory is back to 51 files (290 cases), but the actual final listing and suite output are authoritative. Do not restore the deleted MyWorkRow suite to hit a historical count.
+
+## Root closeout
+
+Source85efbce integrated at acf55d9, done1336bef. Review0 approved; QA0 done/test-verified; full51files/292browser cases,140files/1516unit cases and uploader50+18 pass. Root visual review confirms41x32 to44x44 mobile target and identical desktop screenshots. AC5 evidence is component-harness ladder4, superseding the original ladder5 label. Historical post-edit workspaceRoutes ranges are66-72 and108-118; content is untouched. Three low review test-hardening considerations are retained above. The temporary UI review hook was removed after SHA verification.

@@ -1,8 +1,8 @@
 # Code quality sweep results
 
-**IN PROGRESS.** Snapshot: 2026-09-05. Nine of the eleven sweep tickets are marked done; two remain pending. This draft records completed changes and their evidence, not final approval of the combined branch. No final CI or live end-to-end outcome is claimed.
+**IN PROGRESS.** Snapshot: 2026-09-05. Ten of the eleven sweep tickets are marked done; DX remains pending. This draft records completed changes and their evidence, not final approval of the combined branch. No final CI or live end-to-end outcome is claimed.
 
-The sweep found useful tests outside the normal runner, unused code, repeatable parser/editor/database waste, and verification instructions that no longer matched the app. The completed work removes 17 unused source/test files, unused helpers and four dependencies, and reduces work in three measured paths. The remaining tickets address the test inventory, further deletions, the failing browser baseline, and the shared verification command.
+The sweep found useful tests outside the normal runner, unused code, repeatable parser/editor/database waste, and verification instructions that no longer matched the app. The completed work removes 17 unused source/test files, unused helpers and four dependencies, and reduces work in three measured paths. The remaining ticket updates the shared verification command and setup/CI guidance.
 
 ## Completed changes
 
@@ -14,9 +14,11 @@ The sweep found useful tests outside the normal runner, unused code, repeatable 
 | `proof-1-parser-budget-sequence` | Corrects the existing parser fixture to prove sequential 20/40-second phases and the cumulative 60-second deadline; clarifies one Editor test title. | Eager negative control fails at the intended assertion; parser 19/19, Editor 4/4 and the full gate pass. No new tests or production changes. Evidence: `.audit/proof-1-parser-budget-sequence/evidence.md`. |
 | `slop-2-dead-helpers-and-deps` | Removes unused helpers, four unused dependencies and duplicate Underline registration: 220 production lines and 135 net test lines removed; 144 lockfile package entries removed, none added or upgraded. | 8 retained unit cases and 33 browser cases pass; clean install, build and actual editable/read-only underline proof pass independently through the engine. QA test-verified; its operator note is closed by engine and root evidence. Evidence: `.audit/slop-2-dead-helpers-and-deps/evidence.md`. |
 | `slop-3-mywork-island` | Deletes eight retired My Work source/test files: 506 lines, zero additions. Current Home, ledger and retained tests are unchanged. | QA independently reran baseline/head component and unit pins; exact reductions of 3 browser and 13 unit cases, full gate/build/predicates pass. Evidence: `.audit/slop-3-mywork-island/evidence.md`. |
-| `tests-1-one-runner` | Moves 12 previously orphaned suites into Vitest: all 83 retained cases preserve their assertions; one obsolete snapshot-shape case retires with a coverage mapping. | Independent diff review and QA pass. Full gate: 139 files/1,492 tests. Four roster cases remain for tests-2, and only the two named fake-DB suites are temporarily excluded. Evidence: `.audit/tests-1-one-runner/evidence.md`. |
+| `tests-1-one-runner` | Moves 12 previously orphaned suites into Vitest: all 83 retained cases preserve their assertions; one obsolete snapshot-shape case retires with a coverage mapping. | Independent diff review and QA pass. Full gate: 139 files/1,492 tests. The subsequent tests-2 migration replaces the fake-DB cases; both temporary exclusions are now removed. Evidence: `.audit/tests-1-one-runner/evidence.md`. |
 | `tests-2-real-proposal-access-roster-tests` | Replaces both handmade database suites and two roster fake-DB cases with real Convex endpoints/rows; restores three positive reader actors and isolates scheduled streaming work. | 38 targeted cases and full gate: 140 files / 1,516 tests pass. Mapping-loss negative control fails all three reader cases. Review approved; QA done/test-verified. Evidence: `.audit/tests-2-real-proposal-access-roster-tests/evidence.md`. |
 | `tests-3-runner-cleanup-and-guard` | Removes Bun runner remnants and adds a 39-line discovery guard. | 191 tracked files discovered normally and without Chromium; a staged orphan fails by name. Clean install and full gate pass in implementer evidence; review and QA approve, with three restricted QA paths reserved for final isolated proof. Evidence: `.audit/tests-3-runner-cleanup-and-guard/evidence.md`. |
+
+| `ui-1-component-suite-green` | Fixes the mobile header target and re-pins seven stale browser fixtures/assertions to shipped contracts. | QA reproduces eight baseline failures; all 51 files / 292 browser cases pass. Target grows 41x32 to 44x44 at 390px; desktop screenshots are byte-identical. Component evidence, not authenticated E2E. Evidence: `.audit/ui-1-component-suite-green/evidence.md`. |
 
 ## Measured performance
 
@@ -36,7 +38,6 @@ The parser proof correction is complete: the original fixture eagerly started tw
 
 | Ticket | Remaining outcome |
 | --- | --- |
-| `ui-1-component-suite-green` | Resolve seven stale browser assertions/fixtures; measure the mobile header target and fix it if below the 44px contract. |
 | `dx-1-one-verify-entry` | Add preflight and timed named steps, discovery guard and production build to the shared gate; wire CI and browser smoke; correct setup/environment/worktree docs. |
 
 ## Verification baseline and final closeout
@@ -65,7 +66,7 @@ Other scoped deferrals are recorded in `research.md` and ticket evidence, includ
 
 ## Inventory reconciliation (interim)
 
-All 35 original inventory rows have a disposition. Completed: 1, 2, 4, 10, 11, 15, 16, 17. Also completed: 3, 5, 30. Pending: 25–28, 34–35. Deliberately retained: 6–8, 12, 31–33. Deferred: 9, 13–14, 18–24, 29. This is not a claim that all dead APIs are removed.
+All 35 original inventory rows have a disposition. Completed: 1, 2, 4, 10, 11, 15, 16, 17. Also completed: 3, 5, 30. Completed after UI: 34–35. Pending DX: 25–28. Deliberately retained: 6–8, 12, 31–33. Deferred: 9, 13–14, 18–24, 29. This is not a claim that all dead APIs are removed.
 
 Follow-up proof clarifications: inventory13 needs an exact-symbol caller check excluding its own declaration (a plain search also matches requireProjectCreatorOrAdmin). Inventory14 needs its five observation reads migrated before deleting listProjects. Inventory20 needs synthetic rows in each table the admin statistics query reads, transaction metrics at increasing corpus sizes, and identical count/aggregate results. Inventory22 needs a large aiUsage corpus, preserved totals under retry/concurrent logging, and measured getGeneration read dependencies. Inventory23 needs mixed generated/manual snapshots for the same report, identical returned rows/order, and scan metrics before and after the proposed compound index. Inventory24 needs each real endpoint exercised against its return validator, including null and error paths; no performance gain is assumed.
 
