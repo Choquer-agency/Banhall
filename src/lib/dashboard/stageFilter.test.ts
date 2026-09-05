@@ -14,7 +14,7 @@ describe("stageFilterItemsFromCounts", () => {
     expect(stageFilterItemsFromCounts({}, 0).map((item) => item.value)).toEqual(["all"]);
   });
 
-  it("isolates stage-less compatibility rows in a labelled legacy bucket", () => {
+  it("labels the legacy bucket only when its count is populated", () => {
     const legacy = stageFilterItemsFromCounts(counts, total).find(
       (item) => item.value === LEGACY_STAGE_FILTER
     );
