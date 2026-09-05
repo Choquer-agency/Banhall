@@ -35,3 +35,7 @@ After all engine work has finished, run the final combined gate with root local 
 ## Closed: slop-2 operator note and runtime metadata preservation
 
 Slop-2 merged as 7b9b01e, done commit ac69311, source 1ac92ae. QA test-verified with a remaining operator note; the engine already independently ran npm ci, the build and the direct underline proof successfully. Root reran the exact bare underline command after merge and confirmed the relevant source/package files match 1ac92ae. Linked all proof in root evidence and corrected the two-line stale diff statistic. No user action remains. The restarted engine preserved all four implementer deferred entries automatically, confirming the current on-disk deferred-copy fix works. The explicit Underline registration issue is resolved; its dependency declaration stays as planned. Build-gate and Bun-lock deferrals remain assigned to dx-1 and tests-3.
+
+## Pending DX closure of retired Disclosure example
+
+Independent review approved slop-3’s exact eight-file/506-line deletion and found one stale adopter citation in docs/design-system.md:403. Added removal of only MyWorkGroup from that adoption list to pending dx-1 AC5 and its predicate. Root confirmed ProjectsClientGroup.svelte:40,243 and WorkspaceHeader.svelte:13,194 still import and render Disclosure, so the design rule and those two examples remain accurate. This is one documentation file (eleven implementation files total for dx-1), no new criterion or product behavior change.
