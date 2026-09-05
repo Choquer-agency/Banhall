@@ -1,0 +1,45 @@
+PASS normal rejects sha256 for expected reason: exit 1
+PASS normal rejects git_blob for expected reason: exit 1
+PASS normal rejects matches_baseline for expected reason: exit 1
+PASS normal rejects missing file for expected reason: exit 1
+PASS normal rejects empty inventory for expected reason: exit 1
+PASS normal rejects duplicate file for expected reason: exit 1
+PASS normal rejects baseline for expected reason: exit 1
+PASS normal rejects protected bytes for expected reason: exit 1
+PASS normal rejects current ledger bytes for expected reason: exit 1
+PASS normal rejects staged ledger bytes for expected reason: exit 1
+PASS normal rejects staged convex/_generated/api.d.ts for expected reason: exit 1
+PASS normal rejects staged .audit/CAP-2-story-3/codegen.log for expected reason: exit 1
+PASS normal rejects staged .audit/CAP-2-story-3/evidence.md for expected reason: exit 1
+PASS normal rejects empty closure: exit 1
+PASS normal rejects wrong closure bundle: exit 1
+PASS normal rejects invocation inventory: exit 1
+PASS normal rejects invocation hash: exit 1
+PASS normal rejects invocation blob: exit 1
+PASS normal arguments ['--staged']: exit 0
+PASS normal arguments ['--stage']: exit 2
+PASS normal arguments ['--unknown']: exit 2
+PASS normal accepts unchanged snapshot: exit 0
+PASS optimized rejects sha256 for expected reason: exit 1
+PASS optimized rejects git_blob for expected reason: exit 1
+PASS optimized rejects matches_baseline for expected reason: exit 1
+PASS optimized rejects missing file for expected reason: exit 1
+PASS optimized rejects empty inventory for expected reason: exit 1
+PASS optimized rejects duplicate file for expected reason: exit 1
+PASS optimized rejects baseline for expected reason: exit 1
+PASS optimized rejects protected bytes for expected reason: exit 1
+PASS optimized rejects current ledger bytes for expected reason: exit 1
+PASS optimized rejects staged ledger bytes for expected reason: exit 1
+PASS optimized rejects staged convex/_generated/api.d.ts for expected reason: exit 1
+PASS optimized rejects staged .audit/CAP-2-story-3/codegen.log for expected reason: exit 1
+PASS optimized rejects staged .audit/CAP-2-story-3/evidence.md for expected reason: exit 1
+PASS optimized rejects empty closure: exit 1
+PASS optimized rejects wrong closure bundle: exit 1
+PASS optimized rejects invocation inventory: exit 1
+PASS optimized rejects invocation hash: exit 1
+PASS optimized rejects invocation blob: exit 1
+PASS optimized arguments ['--staged']: exit 0
+PASS optimized arguments ['--stage']: exit 2
+PASS optimized arguments ['--unknown']: exit 2
+PASS optimized accepts unchanged snapshot: exit 0
+44 passed, 0 failed; no protected file was mutated

@@ -1,0 +1,27 @@
+git diff --cached --check: exit 0
+Protected working-tree and index bytes: match invocation snapshot
+Staged path scope: only flat follow-up and .audit/DW-93
+Follow-up frozen intent: matches review snapshot
+Unique completed Auto Run Result and all execution tasks checked: PASS
+Staged paths:
+.audit/DW-93/assessment.md
+.audit/DW-93/decisions.tsv
+.audit/DW-93/diff-check.log
+.audit/DW-93/evidence.md
+.audit/DW-93/final-full-gate.log
+.audit/DW-93/final-ped-tests.log
+.audit/DW-93/final-preservation.log
+.audit/DW-93/full-gate.log
+.audit/DW-93/native-dispatch-provenance.json
+.audit/DW-93/parent-full-gate.log
+.audit/DW-93/parent-ped-tests.log
+.audit/DW-93/parent-verifier-tests.log
+.audit/DW-93/ped-tests.log
+.audit/DW-93/preservation-check.log
+.audit/DW-93/preservation-snapshot.json
+.audit/DW-93/reviews.md
+.audit/DW-93/test-preservation.py
+.audit/DW-93/verifier-after.log
+.audit/DW-93/verifier-before.log
+.audit/DW-93/verify-preservation.py
+_bmad-output/implementation-artifacts/spec-dw-93-persisted-ped-native-followup.md

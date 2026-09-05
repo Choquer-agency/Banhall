@@ -1,0 +1,36 @@
+{
+  "captured_at": "2026-09-05T01:03:06.085861+00:00",
+  "baseline_revision": "bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d",
+  "files": [
+    {
+      "path": "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md",
+      "sha256": "a9c07bbffcb85ff36ccb7089a9927942700814d3940f21383648d20339d4b310",
+      "git_blob": "20c02ef0e69e5ac127c48d50d415d8de24902c28",
+      "matches_baseline": true
+    },
+    {
+      "path": "_bmad-output/implementation-artifacts/deferred-work.md",
+      "sha256": "a8deb3473406d7cf90f89922f31c0e38b475f5b39f1b226a72189d1f8b7a0161",
+      "git_blob": "3c2e9e70d2042071c1c40837f6930ea7a5b9521d",
+      "matches_baseline": true
+    },
+    {
+      "path": "convex/_generated/api.d.ts",
+      "sha256": "87e2ae6d05dac3a7e518581cb2cd412b5f525f0854466bda838fa42fa5b6e520",
+      "git_blob": "29fa5d7a095df201cf5c3886808e86356d7d1f56",
+      "matches_baseline": true
+    },
+    {
+      "path": ".audit/CAP-2-story-3/codegen.log",
+      "sha256": "f37431ceed31b0754fb2dbbf915b9117427478bd9f02d9f58d2610bd27e67d88",
+      "git_blob": "100690b72611e31f896d3cd86aac8c2efa5444d7",
+      "matches_baseline": true
+    },
+    {
+      "path": ".audit/CAP-2-story-3/evidence.md",
+      "sha256": "e10884f2dc21fc77daefe3c60ddf543de9ed6a04105800f0b1fb660a49c6a14c",
+      "git_blob": "f468b47a14bfb21e4344043939e68d1d8f13bcaa",
+      "matches_baseline": true
+    }
+  ]
+}
