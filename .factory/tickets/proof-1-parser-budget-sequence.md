@@ -1,6 +1,6 @@
 ---
 key: proof-1-parser-budget-sequence
-status: todo
+status: done
 kind: bug
 deps: [perf-1-parser-timers-editor-index]
 touches: [src/lib/parseDocument.test.ts, src/lib/components/editor/Editor.component.test.ts]
@@ -10,7 +10,12 @@ done_when: ["node --input-type=module -e 'import { readFileSync } from \"node:fs
 title: Prove PDF load and page text consume sequential parts of the shared deadline
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T06:29:26.994Z"
+updated: "2026-09-05T07:36:58.492Z"
+run: 20260905-072238-8-tickets
+branch: factory/proof-1-parser-budget-sequence
+merged: 7a32eee
+verdict: test-verified
+evidence: .audit/proof-1-parser-budget-sequence/evidence.md
 ---
 ## Intent
 
