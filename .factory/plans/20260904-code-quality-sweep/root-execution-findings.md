@@ -47,3 +47,7 @@ The slop-3 reviewer’s low/consider claim about docs/product-domain.md:797 is d
 ## Corrected: parameterized project-access baseline count
 
 Tests-1 retains 83 pure cases, prompting reconciliation with the 116-case original Bun run. The pending tests-2 pin had incorrectly called projectReviewAccess six passes: those are its standalone cases, plus four test.each actor rows. Root ran the unchanged file directly (project-access-pin-count.log), exit 0, 10 pass/0 fail/44 assertions. Corrected the pending ticket to ten. The total reconciles: 84 original pure cases, 22 proposal cases, 10 access cases =116. No test behavior or product code changed.
+
+## Corrected pending DX: supported Node versions
+
+Root inspected installed package engines: Vite 8.1.5 requires ^20.19.0 || >=22.12.0, Vitest 4.1.10 requires ^20.0.0 || ^22.0.0 || >=24.0.0, and vite-plugin-svelte 7.2.0 requires ^20.19 || ^22.12 || >=24. The original planned major >=22 preflight would accept unsupported early 22.x and 23.x. Corrected pending dx-1 AC1 to 22.x >=22.12 or >=24, retaining Node 24 as the documentation and CI default. No package versions, project engine declaration, dependency or new abstraction changed. Final runtime proof uses Node 24; source review must confirm the numeric branch matches these installed constraints.
