@@ -1,0 +1,248 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/chat/RegenerateLimits.component.test.ts
+
+1:22:39 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix
+
+1:22:39 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix - using default configuration.
+1:22:42 AM [vite] (client) [optimizer] bundling dependencies...
+ ❯ |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts (17 tests | 10 failed) 106175ms
+   × keeps previously visible research busy after displacement until completed 15041ms
+   × keeps previously visible research busy after displacement until failed 14975ms
+   × keeps previously visible research busy after displacement until canceled 15027ms
+   × keeps previously visible research busy after displacement until missing 15031ms
+   × releases listed research on completed without direct metadata 208ms
+   × releases listed research on failed without direct metadata 169ms
+   × releases listed research on canceled without direct metadata 107ms
+   × retains displaced research guard through loading direct metadata until fresh recovery 15032ms
+   × retains displaced research guard through stale direct metadata until fresh recovery 14997ms
+   × retains displaced research guard through error direct metadata until fresh recovery 14985ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > keeps previously visible research busy after displacement until completed
+Error: [2mexpect([22m[31melement[39m[2m).toBeDisabled()[22m
+
+Received element is not disabled:
+  [31m<button
+  aria-busy="false"
+  aria-describedby="c109-regeneration-description"
+  class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none text-ink-secondary hover:bg-primary-wash hover:text-navy focus-visible:ring-primary min-h-9 px-2 pointer-coarse:min-h-11"
+  type="button"
+/>[39m
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/keeps-previously-visible-research-busy-after-displacement-until-completed-1.png
+
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:100:37
+     98|   __setQueryDataForArgs("research:getSessionDetails", { sessionId: "pe…
+     99|   displaceResearch();
+    100|   await expect.element(regenerate()).toBeDisabled();
+       |                                     ^
+    101|   await expect.poll(() => __activeQueryArgs("research:getSessionDetail…
+    102|   expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:100:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > keeps previously visible research busy after displacement until failed
+Error: [2mexpect([22m[31melement[39m[2m).toBeDisabled()[22m
+
+Received element is not disabled:
+  [31m<button
+  aria-busy="false"
+  aria-describedby="c123-regeneration-description"
+  class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none text-ink-secondary hover:bg-primary-wash hover:text-navy focus-visible:ring-primary min-h-9 px-2 pointer-coarse:min-h-11"
+  type="button"
+/>[39m
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/keeps-previously-visible-research-busy-after-displacement-until-failed-1.png
+
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:100:37
+     98|   __setQueryDataForArgs("research:getSessionDetails", { sessionId: "pe…
+     99|   displaceResearch();
+    100|   await expect.element(regenerate()).toBeDisabled();
+       |                                     ^
+    101|   await expect.poll(() => __activeQueryArgs("research:getSessionDetail…
+    102|   expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:100:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > keeps previously visible research busy after displacement until canceled
+Error: [2mexpect([22m[31melement[39m[2m).toBeDisabled()[22m
+
+Received element is not disabled:
+  [31m<button
+  aria-busy="false"
+  aria-describedby="c137-regeneration-description"
+  class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none text-ink-secondary hover:bg-primary-wash hover:text-navy focus-visible:ring-primary min-h-9 px-2 pointer-coarse:min-h-11"
+  type="button"
+/>[39m
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/keeps-previously-visible-research-busy-after-displacement-until-canceled-1.png
+
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:100:37
+     98|   __setQueryDataForArgs("research:getSessionDetails", { sessionId: "pe…
+     99|   displaceResearch();
+    100|   await expect.element(regenerate()).toBeDisabled();
+       |                                     ^
+    101|   await expect.poll(() => __activeQueryArgs("research:getSessionDetail…
+    102|   expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:100:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > keeps previously visible research busy after displacement until missing
+Error: [2mexpect([22m[31melement[39m[2m).toBeDisabled()[22m
+
+Received element is not disabled:
+  [31m<button
+  aria-busy="false"
+  aria-describedby="c151-regeneration-description"
+  class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none text-ink-secondary hover:bg-primary-wash hover:text-navy focus-visible:ring-primary min-h-9 px-2 pointer-coarse:min-h-11"
+  type="button"
+/>[39m
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/keeps-previously-visible-research-busy-after-displacement-until-missing-1.png
+
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:100:37
+     98|   __setQueryDataForArgs("research:getSessionDetails", { sessionId: "pe…
+     99|   displaceResearch();
+    100|   await expect.element(regenerate()).toBeDisabled();
+       |                                     ^
+    101|   await expect.poll(() => __activeQueryArgs("research:getSessionDetail…
+    102|   expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:100:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > releases listed research on completed without direct metadata
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > releases listed research on failed without direct metadata
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > releases listed research on canceled without direct metadata
+AssertionError: expected [ { sessionId: 'pending-research' } ] to deeply equal []
+
+Failure screenshots:
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/releases-listed-research-on-completed-without-direct-metadata-1.png
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/releases-listed-research-on-failed-without-direct-metadata-1.png
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/releases-listed-research-on-canceled-without-direct-metadata-1.png
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   {[39m
+[31m+     "sessionId": "pending-research",[39m
+[31m+   },[39m
+[31m+ ][39m
+
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:115:58
+    113|   __setQueryData("research:listSessions", [{ _id: "pending-research", …
+    114|   await expect.element(regenerate()).toBeEnabled();
+    115|   expect(__activeQueryArgs("research:getSessionDetails")).toEqual([]);
+       |                                                          ^
+    116|   await expect.element(page.getByRole("textbox")).toHaveValue("Preserv…
+    117|   expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > retains displaced research guard through loading direct metadata until fresh recovery
+Error: [2mexpect([22m[31melement[39m[2m).toBeDisabled()[22m
+
+Received element is not disabled:
+  [31m<button
+  aria-busy="false"
+  aria-describedby="c207-regeneration-description"
+  class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none text-ink-secondary hover:bg-primary-wash hover:text-navy focus-visible:ring-primary min-h-9 px-2 pointer-coarse:min-h-11"
+  type="button"
+/>[39m
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/retains-displaced-research-guard-through-loading-direct-metadata-until-fresh-recovery-1.png
+
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:127:37
+    125|   if (state === "error") __setQueryError("research:getSessionDetails",…
+    126|   displaceResearch();
+    127|   await expect.element(regenerate()).toBeDisabled();
+       |                                     ^
+    128|   await expect.poll(() => __activeQueryArgs("research:getSessionDetail…
+    129|   await expect.element(page.getByRole("button", { name: "Send message"…
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:127:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > retains displaced research guard through stale direct metadata until fresh recovery
+Error: [2mexpect([22m[31melement[39m[2m).toBeDisabled()[22m
+
+Received element is not disabled:
+  [31m<button
+  aria-busy="false"
+  aria-describedby="c221-regeneration-description"
+  class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none text-ink-secondary hover:bg-primary-wash hover:text-navy focus-visible:ring-primary min-h-9 px-2 pointer-coarse:min-h-11"
+  type="button"
+/>[39m
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/retains-displaced-research-guard-through-stale-direct-metadata-until-fresh-recovery-1.png
+
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:127:37
+    125|   if (state === "error") __setQueryError("research:getSessionDetails",…
+    126|   displaceResearch();
+    127|   await expect.element(regenerate()).toBeDisabled();
+       |                                     ^
+    128|   await expect.poll(() => __activeQueryArgs("research:getSessionDetail…
+    129|   await expect.element(page.getByRole("button", { name: "Send message"…
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:127:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/10]⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > retains displaced research guard through error direct metadata until fresh recovery
+Error: [2mexpect([22m[31melement[39m[2m).toBeDisabled()[22m
+
+Received element is not disabled:
+  [31m<button
+  aria-busy="false"
+  aria-describedby="c235-regeneration-description"
+  class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none text-ink-secondary hover:bg-primary-wash hover:text-navy focus-visible:ring-primary min-h-9 px-2 pointer-coarse:min-h-11"
+  type="button"
+/>[39m
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/retains-displaced-research-guard-through-error-direct-metadata-until-fresh-recovery-1.png
+
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:127:37
+    125|   if (state === "error") __setQueryError("research:getSessionDetails",…
+    126|   displaceResearch();
+    127|   await expect.element(regenerate()).toBeDisabled();
+       |                                     ^
+    128|   await expect.poll(() => __activeQueryArgs("research:getSessionDetail…
+    129|   await expect.element(page.getByRole("button", { name: "Send message"…
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:127:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/10]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  10 failed | 7 passed (17)
+   Start at  01:22:39
+   Duration  122.88s (transform 0ms, setup 751ms, import 995ms, tests 106.17s, environment 0ms)

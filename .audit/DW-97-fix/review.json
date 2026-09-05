@@ -1,0 +1,35 @@
+{
+  "baseline": "74f8789d582c7b3ea4b66f2d70624811d269186f",
+  "layers": [
+    {
+      "layer": "blind-hunter",
+      "agent": "dw97_fix_blind",
+      "result": "No actionable findings after rechecking source, query, busy state, send and test stub behavior."
+    },
+    {
+      "layer": "edge-case-hunter",
+      "agent": "dw97_fix_edge",
+      "result": []
+    },
+    {
+      "layer": "verification-gap",
+      "agent": "dw97_fix_verify",
+      "result": "No verification gaps found."
+    },
+    {
+      "layer": "acceptance-auditor",
+      "agent": "dw97_fix_acceptance",
+      "result": "No acceptance findings; matrix, frozen scope, retained execution receipts verified."
+    }
+  ],
+  "fresh_contexts": 4,
+  "failed_layers": [],
+  "triage": {
+    "intent_gap": 0,
+    "bad_spec": 0,
+    "patch": 0,
+    "defer": 0,
+    "reject": 0
+  },
+  "execution": "Two concurrent waves due to agent capacity. Reviewers read only; implementer did not review its own patch."
+}
