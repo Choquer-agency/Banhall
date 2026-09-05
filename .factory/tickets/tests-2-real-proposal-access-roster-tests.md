@@ -1,6 +1,6 @@
 ---
 key: tests-2-real-proposal-access-roster-tests
-status: todo
+status: done
 kind: refactor
 deps: [tests-1-one-runner]
 touches: [convex, tests, vitest.config.ts]
@@ -10,7 +10,13 @@ done_when: [test -f convex/chatProposalsApply.test.ts, "rg -q 'updateProposalWor
 title: "The proposal, project-access and roster scenarios from the two fake-db suites are proven against the real Convex endpoints with convex-test; the fake-db files and cases are deleted"
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T08:37:16.194Z"
+updated: "2026-09-05T09:12:28.026Z"
+run: 20260905-085105-4-tickets
+branch: factory/tests-2-real-proposal-access-roster-tests
+merged: 14e80a0
+verdict: test-verified
+evidence: .audit/tests-2-real-proposal-access-roster-tests/evidence.md
+deferred: ["Concurrent apply of two proposals targeting the same paragraph: out of scope per the ticket's edge-case list, and not cheap with the current seeding (it needs two pending proposals whose replacements overlap plus a second in-flight mutation, which convex-test serialises).", "convex/lib/auth.ts:66 requireProjectCreator is now callerless and untested; the ticket forbids testing or repurposing it, so retiring the helper itself is a separate decision (inventory #13)."]
 ---
 ## Intent
 For the maintainer of `convex/chatV2.ts` and `convex/lib/teamRoster.ts`: the behaviours the old bun suites protected are pinned by tests that run in the gate and drive the real functions, and the handmade database that mirrored the implementation is gone. `tests/chatProposals.test.ts` (821 lines) invokes `applyProposal`, `updateProposalWording`, `rejectProposal` and `saveProposal`; the current `convex/chatProposals.test.ts:176-336` invokes `markProposalApplied`, a different endpoint, so nothing in the gate proves pinned-report isolation, unique-target gates, stale-then-retry, replay, deletion-only and ordered replacement, wording audit events, or the reject permission table (`orphan-test-map.md:26-47`). Nine of the ten failing old cases fail because the fixture lacks current tables or turn state, not because the behaviour changed; only "unrelated writer may apply" (`:777`) is a dead contract (`roleCapabilities.ts:75-104`; `docs/product-domain.md:188,1458`). `tests/projectReviewAccess.test.ts` is mostly covered by `convex/reportAuthz.test.ts:248-316` and `convex/projectAccess.test.ts:96-181`. `tests/teamRoster.test.ts:56,71` prove roster eligibility through a fake ctx; `api.users.listTeam` does not call `getTeamRosterMemberOrNull`, whose real callers are project creation (`convex/projects.ts:687`), reassignment (`projectWorkflow.ts:279`, `ownerBackfill.ts:384`) and `eligibleOwner.ts:9`. Principle: [16 prove it works] against the real artifact; [3 redesign from first principles]: a real fixture, not a second fake.
