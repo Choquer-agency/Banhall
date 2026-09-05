@@ -166,6 +166,11 @@ export function nodeText(node: PMNode): string {
 
 /** Flatten a Tiptap JSON doc into readable plain text for model context. */
 export function extractPlainText(contentJson: string): string {
+  return tryExtractPlainText(contentJson) ?? "";
+}
+
+/** Preserve parse/traversal failure separately from successfully extracted empty text. */
+export function tryExtractPlainText(contentJson: string): string | null {
   try {
     const doc = JSON.parse(contentJson);
     const lines: string[] = [];
@@ -191,7 +196,7 @@ export function extractPlainText(contentJson: string): string {
     top?.forEach(walk);
     return lines.filter((l) => l.length > 0).join("\n\n");
   } catch {
-    return "";
+    return null;
   }
 }
 
