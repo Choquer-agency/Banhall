@@ -18,4 +18,14 @@ The same gpt-5.5 reviewer found the UI trail adequate with no new flag. It check
 
 ## Final combined follow-up
 
-Pending after DX integration and final isolated proof.
+Completed below after DX integration and isolated proof.
+
+## DX final artifact review
+
+GPT-5.5 reviewed final DX source/evidence binding, review3/QA3 and timestamp corrections. One audit-only flag remained: row28 clock typo. Root appended the engine-backed correction at2026-09-05T11:35:33.048135+00:00. The reviewer acknowledged its earlier bounded preliminary pass missed the false BRAIN_CONTEXTUAL finding; normal review1 and root reproduced/corrected the rg replacement mistake. Final combined proof/report review remains next.
+
+## Final combined verdict: pass
+
+Recorded 2026-09-05T11:43:55.193942+00:00. Reviewer: GPT-5.5, independent read-only subagent `final_trail_review`. No remaining actionable evidence flag or hidden blocker. It checked results and root findings against final manifest/context, cold and component reports/raw outputs, cold bootstrap controls, installed preflight controls, discovery controls, source/dependency/performance reconciliation and toolchain record. Verified revision: `7af741428d4d67a94cec7556b8a5b74eb2152efa`. It confirmed the appended DX row28 correction closes its prior audit-clock flag, and the original inventory reconciles as17completed/7retained/11deferred. The only expected edit was replacing the report's pending-review sentence with this actual pass verdict.
+
+The reviewer ran no tests/builds/installs or engine mutations and read no unrelated transcripts/chats. This is an independent artifact review in addition to each ticket's factory review and QA, and root's actual final gate execution. Production latency, real-PDF browser parsing, remote CI and authenticated end-to-end journeys remain outside the evidence.

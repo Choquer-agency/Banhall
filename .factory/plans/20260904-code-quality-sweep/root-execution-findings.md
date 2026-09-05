@@ -101,3 +101,23 @@ Review1 rejected one remaining issue: the implementer claimed ingest.ts reads pr
 ## DX fix3 wait-path correction
 
 The optional gate completed at11:08UTC with51files/292cases and EXIT=0 in the worktree's .audit/dx-1-one-verify-entry/gate-component-fix3.log. The following bare-filename wait ran from the worktree root, looking for gate-component-fix3.log there forever. Root verified the completed real log and process ancestry, then terminated only that owned waiting process group95100 (parent80912); the actual gate was finished. No source, dependencies, worktree ownership, engine or user process was changed. Use absolute artifact paths and bounded waits; an unbounded grep loop can hide a completed check.
+
+## DX accepted and temporary hook removed
+
+Recorded 2026-09-05T11:34:13.091006+00:00. DX review-3 and QA-3 passed at source125c6cd; engine merged5583a25 and finished at11:27:55Z. QA independently reran the default gate, optional component gate and preflight probes. All11 sweep tickets are done. Root verified the temporary DX-only review hook SHA256 before removing it; no active worktree was edited. Final combined proof follows in an external disposable clone.
+
+## Root audit-clock closure
+
+Recorded 2026-09-05T11:35:33.048135+00:00. Independent GPT-5.5 final DX review found that decisions.tsv row28 retained the manual10:49:00Z timestamp. The engine append event is events.jsonl:751 at2026-09-05T10:41:25.842Z. The appended correction records the historical row as10:41:25Z. Fix3 had already corrected rows29-38 and retracted row16's317-package claim in favor of the actual455-package install. Source and runtime evidence are unchanged.
+
+## Final combined isolated proof
+
+Recorded 2026-09-05T11:40:07.784967+00:00. Verified immutable revision `7af741428d4d67a94cec7556b8a5b74eb2152efa` in an external OS-temp clone with no ancestor/local dependencies and no copied `.env.local`. The cold default gate exited 0 in 91.861 seconds, installed 455 packages, and passed all 8 steps: 140 files / 1,516 tests, 191 discovered files, production build, and 50 PowerShell plus 18 Bash cases, with an absent browser cache. The optional full gate exited 0 in 112.763 seconds, passing all 9 steps including 51 files / 292 components. Both left source and HEAD unchanged. Toolchain: macOS arm64, Node 24.19.0, npm 11.17.0, PowerShell 7.6.5.
+
+Cold missing Node/npm/PowerShell each exits 1 before install; injected npm ci preserves 38 and names preflight. With dependencies installed, missing PowerShell/Chromium each exits 1; injected Convex typecheck preserves 37 at step 2. Browserless discovery finds 191 files; an owned staged orphan fails with exit 1 by name. After fixture/index cleanup the guard returns 0 / 191 and source is clean. Root therefore closes tests-3's restricted QA paths without weakening the guard. Exact commands, raw logs, source hashes and exits are under `.audit/final-sweep/banhall-sweep-final-znn0f7pu/`, indexed by `manifest.json`.
+
+Root source reconciliation confirms all three measured production files equal their respective benchmarked versions. Final dependency delta: five direct dependencies and 146 lockfile entries removed, zero added lockfile entries, and zero surviving version/resolution/integrity changes. The baseline-to-verified diff excluding factory/audit/retired Bun lockfile is 73 files, +2,323 / -5,153; also excluding the npm lockfile gives 72 files, +2,318 / -3,104. These totals include test coverage and setup/docs additions; 17 unused files account for 1,316 deletion-only lines. Subsequent root edits are audit/planning/ticket metadata only. No remote CI, deployment, shared backend or authenticated E2E execution is claimed.
+
+## Final review and cleanup
+
+Recorded 2026-09-05T11:44:01.345112+00:00. GPT-5.5 final combined artifact review passed with no remaining actionable flag or hidden blocker; scope and limits are in final-trail-review.md. Root verified all21 manifested file hashes, the disposable clone's clean source and exact HEAD, then removed only the owned external temporary container. Raw evidence remains under `.audit/final-sweep/banhall-sweep-final-znn0f7pu/`; cleanup.json records the removed path. The temporary DX review hook is absent. Final closeout changes are planning/audit/ticket metadata only.

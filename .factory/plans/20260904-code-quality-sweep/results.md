@@ -1,8 +1,8 @@
 # Code quality sweep results
 
-**IN PROGRESS.** Snapshot: 2026-09-05. Ten of the eleven sweep tickets are marked done; DX remains pending. This draft records completed changes and their evidence, not final approval of the combined branch. No final CI or live end-to-end outcome is claimed.
+All **11 sweep tickets** are reviewed, QA-verified and merged locally as of 2026-09-05. Both final combined gates and all negative controls passed in a fresh external checkout. No remote CI or authenticated end-to-end outcome is claimed.
 
-The sweep found useful tests outside the normal runner, unused code, repeatable parser/editor/database waste, and verification instructions that no longer matched the app. The completed work removes 17 unused source/test files, unused helpers and four dependencies, and reduces work in three measured paths. The remaining ticket updates the shared verification command and setup/CI guidance.
+The sweep found useful tests outside the normal runner, unused code, repeatable parser/editor/database waste, and verification instructions that no longer matched the app. The work removes 17 unused source/test files, unused helpers and five direct dependencies, reduces work in three measured paths, brings useful orphan tests into the normal runner, and gives agents one verification command with current setup and CI guidance.
 
 ## Completed changes
 
@@ -16,9 +16,10 @@ The sweep found useful tests outside the normal runner, unused code, repeatable 
 | `slop-3-mywork-island` | Deletes eight retired My Work source/test files: 506 lines, zero additions. Current Home, ledger and retained tests are unchanged. | QA independently reran baseline/head component and unit pins; exact reductions of 3 browser and 13 unit cases, full gate/build/predicates pass. Evidence: `.audit/slop-3-mywork-island/evidence.md`. |
 | `tests-1-one-runner` | Moves 12 previously orphaned suites into Vitest: all 83 retained cases preserve their assertions; one obsolete snapshot-shape case retires with a coverage mapping. | Independent diff review and QA pass. Full gate: 139 files/1,492 tests. The subsequent tests-2 migration replaces the fake-DB cases; both temporary exclusions are now removed. Evidence: `.audit/tests-1-one-runner/evidence.md`. |
 | `tests-2-real-proposal-access-roster-tests` | Replaces both handmade database suites and two roster fake-DB cases with real Convex endpoints/rows; restores three positive reader actors and isolates scheduled streaming work. | 38 targeted cases and full gate: 140 files / 1,516 tests pass. Mapping-loss negative control fails all three reader cases. Review approved; QA done/test-verified. Evidence: `.audit/tests-2-real-proposal-access-roster-tests/evidence.md`. |
-| `tests-3-runner-cleanup-and-guard` | Removes Bun runner remnants and adds a 39-line discovery guard. | 191 tracked files discovered normally and without Chromium; a staged orphan fails by name. Clean install and full gate pass in implementer evidence; review and QA approve, with three restricted QA paths reserved for final isolated proof. Evidence: `.audit/tests-3-runner-cleanup-and-guard/evidence.md`. |
-
+| `tests-3-runner-cleanup-and-guard` | Removes Bun runner remnants and adds a 39-line discovery guard. | 191 tracked files discovered normally and without Chromium; a staged orphan fails by name. Clean install and full gate pass in implementer evidence; review and QA approve, and final root proof independently repeats the three paths restricted during ticket QA. Evidence: `.audit/tests-3-runner-cleanup-and-guard/evidence.md`. |
 | `ui-1-component-suite-green` | Fixes the mobile header target and re-pins seven stale browser fixtures/assertions to shipped contracts. | QA reproduces eight baseline failures; all 51 files / 292 browser cases pass. Target grows 41x32 to 44x44 at 390px; desktop screenshots are byte-identical. Component evidence, not authenticated E2E. Evidence: `.audit/ui-1-component-suite-green/evidence.md`. |
+
+| `dx-1-one-verify-entry` | Adds early tool/environment checks, timed named steps, discovery and production build to the shared gate; wires CI/browser smoke and corrects setup/worktree documentation. | Independent QA reran both gate modes and all three preflight probes at source `125c6cd`; review-3 approved and merge `5583a25` completed. Evidence: `.audit/dx-1-one-verify-entry/evidence.md` and `qa-3.md`. |
 
 ## Measured performance
 
@@ -30,31 +31,34 @@ The sweep found useful tests outside the normal runner, unused code, repeatable 
 | Empty upload with three existing 100,000-character documents | Queries **3 → 2**; documents read **5 → 2**; bytes read **301,074 → 375**. | Local `convex-test` mutation metrics, two identical runs each; no network latency measurement. Result remains `reference_only`. |
 | Empty upload with no existing documents | Queries **3 → 2**; documents read **2 → 2**; bytes read **375 → 375**. | Same local fixture. Fixed read cost is equal across the zero- and three-document corpora; nonempty uploads still scan. |
 
-Editor measurements compare `184d376` with `f82f2b0`; the baseline source matches the sweep starting revision `11bfe3e`. Upload measurements compare `9d7f102` with production change `18f383c`; the baseline `convex/documents.ts` hash also matches `11bfe3e`. These are the measured revisions, not a claim about the final integration revision.
+Editor measurements compare `184d376` with `f82f2b0`; the baseline source matches the sweep starting revision `11bfe3e`. Upload measurements compare `9d7f102` with production change `18f383c`; the baseline `convex/documents.ts` hash also matches `11bfe3e`. Final source reconciliation at `7af741428d4d67a94cec7556b8a5b74eb2152efa` confirms byte-identical production files for all three measured paths; the benchmarks were not rerun on that revision.
 
 The parser proof correction is complete: the original fixture eagerly started two 20-second promises together; `proof-1` now starts page text lazily and proves sequential 20/40-second phases before the absolute 60-second deadline. Its eager negative control fails at the intended phase assertion. QA independently reran the passing suites and inspected the recorded negative control, but could not make its own temporary eager edit under the allowlist. The production optimization is unchanged. Editor browser tests mount real components and call their exported functions; they are component integration evidence, not an authenticated user journey.
-
-## Pending tickets
-
-| Ticket | Remaining outcome |
-| --- | --- |
-| `dx-1-one-verify-entry` | Add preflight and timed named steps, discovery guard and production build to the shared gate; wire CI and browser smoke; correct setup/environment/worktree docs. |
 
 ## Verification baseline and final closeout
 
 At `11bfe3e`, the existing gate passed in **55.841 seconds**: 128 unit-test files / 1,413 tests, clean typechecks, and uploader harnesses with 50 PowerShell plus 18 Bash passes. The standalone browser baseline failed: **281 passed / 8 failed across 51 files**, 50.988 seconds wall time. The 14 orphan Bun suites were separate: 105 passed / 11 failed, so blanket deletion would discard useful coverage. Logs and triage are in this plan's `gate-baseline.log`, `component-baseline.log`, `uploader-baseline.log`, `slop-audit.md`, and `dx-audit.md`.
 
-The completed perf-2 and slop-1 ticket gates each report 129 unit-test files / 1,430 passing tests. The perf-1 full browser run still reproduced all eight original failures. Slop-1's production build passed with both public Convex URL placeholders. These ticket results do not replace the final combined checks below.
+Historical ticket results: perf-2 and slop-1 gates each report 129 unit-test files / 1,430 passing tests. The perf-1 full browser run still reproduced all eight original failures. Slop-1's production build passed with both public Convex URL placeholders. These ticket results do not replace the final combined checks below.
 
-| Final field | Status to fill at closeout |
+| Final check | Observed result |
 | --- | --- |
-| Integration revision and completed ticket count | Pending |
-| Combined diff summary and retained/deferred inventory reconciliation | Pending |
-| Fresh-dependency bootstrap and default shared gate: exit, duration, test counts, build | Pending; run the actual script with dependencies absent in an owned disposable local clone at the final integration revision after all tickets finish |
-| Full component gate: exit, duration, counts, mobile geometry evidence | Pending |
-| Discovery coverage and missing-tool/browser preflight proofs | Pending |
-| Independent review, QA verdicts and unresolved findings | Pending |
-| CI run and delivery status | Pending; distinguish local validation from observed CI |
+| Verified source | `7af741428d4d67a94cec7556b8a5b74eb2152efa`, all 11 tickets done. Later closeout commits change only plan/audit/ticket metadata. |
+| Cold default gate | **Exit 0, 91.861 seconds.** Starts without local or ancestor dependencies, installs **455 packages**, uses public placeholders, passes all 8 steps: 140 files / **1,516 tests**, 191 discovered test files, production build, **50 PowerShell + 18 Bash** uploader cases. Chromium cache remains absent. |
+| Browser-enabled full gate | **Exit 0, 112.763 seconds.** All 9 steps pass, including **51 files / 292 Chromium component cases**, plus the same unit/build/uploader checks. |
+| Early failure behavior | Missing Node/npm/PowerShell stops before install. Injected install failure preserves exit **38** and names preflight. Missing Chromium stops at preflight; injected compiler failure preserves exit **37** at step 2. These are expected failing controls, not successful app gates. |
+| Discovery guard | Discovers **191** tracked files without Chromium. A temporarily staged orphan exits **1** and names the file; fixture/index cleanup restores exit **0** and 191 files. |
+| Source integrity | Gate script hash `d2b9372a57f879779177c6ca20033c4e42aae8dc85a2a28b280bc7e6fdc42cc8`; clean source and unchanged HEAD after both gates and controls. All three measured production files match their benchmarked revisions. |
+| Toolchain | macOS arm64, Node **24.19.0**, npm **11.17.0**, PowerShell **7.6.5**, Playwright **1.62.0**. Other accepted Node versions were checked against installed package requirements but not executed. |
+| Delivery | Local commits and merges only. CI now calls the shared gate and a separate Chromium job, but no remote CI run or branch-protection setting was observed. No push, PR or deployment. |
+
+Evidence is indexed in [the final manifest](/Users/johnnynguyen/Documents/Repos/Banhall/.audit/final-sweep/banhall-sweep-final-znn0f7pu/manifest.json). It links hashes for raw outputs, exact commands, revision, timing, expected failures, environment origins and cleanup checks. Both verification runs used an owned external clone with no copied private environment file or backend connection.
+
+The combined diff, excluding factory/audit metadata and the retired Bun lockfile, is **73 files, +2,323 / -5,153 lines**. Excluding the npm lockfile too gives **72 files, +2,318 / -3,104**. This includes added meaningful test coverage and setup documentation. The 17 unused files account for **1,316 deletion-only lines**; helper cleanup removes another 355 net lines. Overall dependency reconciliation removes **five direct dependencies and 146 lockfile entries**, with zero added entries or surviving version/resolution/integrity changes.
+
+Use `bash scripts/loop-verify.sh` for the default gate, or `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` for the complete local gate. Install Chromium once with `npx playwright install chromium`. The updated [README](/Users/johnnynguyen/Documents/Repos/Banhall/README.md) describes prerequisites and real app setup.
+
+All tickets passed independent factory review and QA. A separate GPT-5.5 artifact review checked the decision trail and evidence. It caught a final timestamp typo, now corrected by an appended engine-backed entry. Its earlier preliminary DX pass missed a false environment-variable finding; normal review and root reproduced the ripgrep replacement mistake and corrected it. Final combined report review **passed with no remaining actionable evidence flag or blocker**; [review record](/Users/johnnynguyen/Documents/Repos/Banhall/.factory/plans/20260904-code-quality-sweep/final-trail-review.md) records the scope and limits.
 
 ## Deferred work worth pursuing
 
@@ -66,7 +70,7 @@ Other scoped deferrals are recorded in `research.md` and ticket evidence, includ
 
 ## Inventory reconciliation (interim)
 
-All 35 original inventory rows have a disposition. Completed: 1, 2, 4, 10, 11, 15, 16, 17. Also completed: 3, 5, 30. Completed after UI: 34–35. Pending DX: 25–28. Deliberately retained: 6–8, 12, 31–33. Deferred: 9, 13–14, 18–24, 29. This is not a claim that all dead APIs are removed.
+All 35 original inventory rows have a disposition: **17 completed** (1–5, 10–11, 15–17, 25–28, 30, 34–35), **7 deliberately retained** (6–8, 12, 31–33), and **11 deferred** (9, 13–14, 18–24, 29). Per-ticket review/hardening follow-ups are separate from these original inventory rows. The three slop tickets now have empty deferred lists: DX closed their stale component documentation and build-gate gaps. This is not a claim that all dead APIs are removed.
 
 Follow-up proof clarifications: inventory13 needs an exact-symbol caller check excluding its own declaration (a plain search also matches requireProjectCreatorOrAdmin). Inventory14 needs its five observation reads migrated before deleting listProjects. Inventory20 needs synthetic rows in each table the admin statistics query reads, transaction metrics at increasing corpus sizes, and identical count/aggregate results. Inventory22 needs a large aiUsage corpus, preserved totals under retry/concurrent logging, and measured getGeneration read dependencies. Inventory23 needs mixed generated/manual snapshots for the same report, identical returned rows/order, and scan metrics before and after the proposed compound index. Inventory24 needs each real endpoint exercised against its return validator, including null and error paths; no performance gain is assumed.
 
@@ -80,6 +84,6 @@ A resumed run should carry a checkpoint with phase, input fingerprint and owned 
 
 Use the trail-writing helper or engine to stamp UTC timestamps. DX needed repeated audit-only corrections because hand-written timestamps were future-dated; the underlying gate output was real. Distinguish an event's time from the time its summary was written, and tie both to immutable outputs.
 
-Use absolute artifact paths and bounded waits. DX fix3's browser gate had passed, but an unbounded grep loop looked for its log in the worktree root instead of .audit. Root verified the real EXIT=0 output and stopped only the waiting process group. The final capture controller instead handles interruption, records it as failure, and kills its owned group; its synthetic SIGTERM proof completed in1.596seconds with no surviving group. These are controller checks, not application E2E coverage.
+Use absolute artifact paths and bounded waits. DX fix3's browser gate had passed, but an unbounded grep loop looked for its log in the worktree root instead of .audit. Root verified the real EXIT=0 output and stopped only the waiting process group. The final capture controller instead handles interruption, records it as failure, and kills its owned group; its synthetic SIGTERM proof completed in 1.596 seconds with no surviving group. These are controller checks, not application E2E coverage.
 
 Confirm apparent source defects against an unmodified file before creating deferred work. The implementer's `rg -rn` command enabled ripgrep replacement with n, producing displayed process.env.n from actual process.env.BRAIN_CONTEXTUAL. Review caught the false finding, and fix2 restored the environment comment. Reproduction: .audit/code-quality-sweep/ripgrep-replacement-reproduction.json.

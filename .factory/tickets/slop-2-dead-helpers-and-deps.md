@@ -10,13 +10,13 @@ done_when: ["! rg -q 'stashProjectIntent|takeProjectIntent|groupRowsByStageRank|
 title: "Delete test-only helper exports (intent wrappers, stage grouping, stage filtering, extractSections) and four unused dependencies"
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T10:08:45.172Z"
+updated: "2026-09-05T11:36:04.961Z"
 run: 20260905-072238-8-tickets
 branch: factory/slop-2-dead-helpers-and-deps
 merged: 7b9b01e
 verdict: test-verified
 evidence: .audit/slop-2-dead-helpers-and-deps/evidence.md
-deferred: ["`scripts/loop-verify.sh` does not export `PUBLIC_CONVEX_SITE_URL` and does not run `npm run build`, so the engine gate cannot catch a build-only break; `build-gate-review.md:11` already scopes that change to another ticket. Build verified by hand here (exit 0)."]
+deferred: []
 ---
 ## Intent
 For the reader of four live modules: the functions that exist only so their own tests have something to call are gone, and the tests exercise the API production uses. `stashProjectIntent`/`takeProjectIntent` (`src/lib/workspace/projectIntentHandoff.ts:51-57`) wrap `stashProjectStart`/`takeProjectStart`, which every live caller already uses; `groupRowsByStageRank`/`visibleStageGroups` (`stageRankGroups.ts:83,156`) and `matchesStageFilter`/`stageFilterItems` (`stageFilter.ts:14,48`) describe retired UI; `extractSections` (`reportSections.ts:267`) has no caller at all. Four dependencies (`docx`, `svelte-exmarkdown`, `tippy.js`, `eslint`) have no import anywhere and no config (`slop-audit.md:55-59`; re-checked in `research.md`). The maintainer inherits smaller modules, tests that pin the real contract, and a lockfile without dead packages. Principle: [5 minimize reader load]: one-caller and zero-caller wrappers collapse; [4 subtract before you add].
@@ -68,10 +68,16 @@ The first QA passed the gate, 8 unit cases and 33 browser cases but returned typ
 
 ## Sweep disposition reconciliation, 2026-09-05
 
-The Underline declaration stays deliberately per AC4 and the dependency inventory, with no package duplication; the net-zero prefill test migration is an accepted line-for-line consumer update, not unfinished work. Bun lock drift is resolved by tests-3 (292e145), which deletes the retired lockfile. The separate build-gate issue remains assigned to dx-1.
+The Underline declaration stays deliberately per AC4 and the dependency inventory, with no package duplication; the net-zero prefill test migration is an accepted line-for-line consumer update, not unfinished work. Bun lock drift is resolved by tests-3 (292e145), which deletes the retired lockfile. The separate build-gate issue is resolved by DX merge5583a25.
 
 Historical entries removed from the open deferred list, preserved here:
 
 - `@tiptap/extension-underline` is now a direct dependency with no direct import; kept per AC4 because StarterKit resolves the same 3.28.0 package, but the Tiptap dependency inventory should decide whether the explicit declaration stays.
 - AC6 literal wording not met in one file: `src/routes/project/new/newProjectPrefill.component.test.ts` is net 0 (+5/-5) because migrating one import and four call sites off the deleted wrappers is line-for-line.
 - `bun.lock` still lists `docx`, `svelte-exmarkdown`, `tippy.js` and `eslint` after `package.json` dropped them. Already stale at the baseline (it is missing `phosphor-svelte`) and owned by `tests-3`, which deletes the file; this ticket forbids touching it. Named here so the ship step does not read the drift as this ticket's error.
+
+## Final merged follow-up closure
+
+Resolved by DX merge5583a25 on2026-09-05: `scripts/loop-verify.sh` does not export `PUBLIC_CONVEX_SITE_URL` and does not run `npm run build`, so the engine gate cannot catch a build-only break; `build-gate-review.md:11` already scopes that change to another ticket. Build verified by hand here (exit 0).
+
+The merged gate now supplies both public URL defaults and runs the production build; the migration and Disclosure adopter documentation no longer names the deleted components. Root and an independent read-only reviewer checked the actual merged files. This entry preserves the historical finding; no unfinished item remains for this ticket.
