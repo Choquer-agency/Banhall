@@ -2,8 +2,8 @@
 title: 'DW-92 blocking QA native follow-up'
 type: 'chore'
 created: '2026-09-04'
-status: 'blocked'
-baseline_revision: '9da55bece5948da12129720dd2330a3032c985bf'
+status: ready-for-dev
+baseline_revision: 89b4eeb50e40b38cc7acd42215ab4b9876e35cab
 review_loop_iteration: 0
 followup_review_recommended: true
 context: ['{project-root}/convex/_generated/ai/guidelines.md', '{project-root}/.factory/AGENTS.factory.md']
@@ -25,7 +25,9 @@ deferred: []
 
 **Block If:** A verified defect requires a new product-policy decision outside the original contract, or mandatory native review/verification cannot be completed.
 
-**Never:** Edit the deferred-work ledger, native control state, integration checkout, old crashed/deferred runs, the original nested spec, frontend/QA rail, generated Convex files, protected learn/chat epic files, or outstanding product choices. Do not synthesize receipts, bind another spec, infer acceptance from old evidence, add a linguistic classifier or mandatory fresh AI pass, or use test-timeout CLI overrides. Do not push, open a PR, or deploy.
+**Native ledger ownership:** Do not author, revert, regenerate, or manually change deferred-work ledger entries. The orchestrator can update the ledger between dev and review. During native finalization, stage and commit its exact unchanged bytes when the native journal/state or invocation snapshot establishes their provenance; verify the working-tree bytes and staged blob match that snapshot and retain the evidence. Do not stage unexplained ledger changes. Preserving native bookkeeping does not itself establish final acceptance.
+
+**Never:** Author deferred-work ledger changes or edit native control state, integration checkout, old crashed/deferred runs, the original nested spec, frontend/QA rail, generated Convex files, protected learn/chat epic files, or outstanding product choices. Do not synthesize receipts, bind another spec, infer acceptance from old evidence, add a linguistic classifier or mandatory fresh AI pass, or use test-timeout CLI overrides. Do not push, open a PR, or deploy.
 
 ## I/O & Edge-Case Matrix
 
@@ -61,9 +63,11 @@ deferred: []
 - Given the original QA implementation and later repairs, when independent reviewers inspect their full behavior and history, then every verified in-scope defect is repaired or a concrete blocker is recorded, with all original product boundaries preserved.
 - Given current canonical content and the original QA matrix, when registered readiness, publish, content-write and QA boundaries run, then exact-reference persistence and non-waivable atomic enforcement satisfy the frozen contract.
 - Given current code, when ordinary required gates run without timeout overrides, then full tests, both type checks and uploader harnesses pass with fresh retained output.
-- Given completed review and verification, when this worker finalizes, then committed new evidence and the native Auto Run Result reside in this flat spec while original history, ledger, frontend, generated files and native control state are unchanged.
+- Given completed review and verification, when this worker finalizes, then committed new evidence and the native Auto Run Result reside in this flat spec while original history, frontend, generated files and native control state are unchanged. There are no worker-authored ledger changes; any native-owned ledger bytes are preserved unchanged and may be committed after the provenance and equality checks above.
 
 ## Spec Change Log
+
+- 2026-09-04: Resolve the native review finalization conflict by distinguishing ledger authorship from staging exact orchestrator-produced bytes. This operational correction follows the user's authorization to repair native loops and commit verified work. Product policy and prior blocked evidence are unchanged; native rearm owns active status, baseline and terminal-marker changes.
 
 ## Review Triage Log
 
@@ -103,24 +107,5 @@ All four independent review layers completed. Full historical QA implementation 
 - `bash scripts/loop-verify.sh`: Convex TypeScript, Svelte check, npm test and both uploader harnesses pass.
 - `npx vitest run convex/ai/qaChecks.test.ts convex/projects.test.ts convex/qaBlocking.test.ts`: original exact focused gate passes.
 - `git diff --check`: no whitespace errors.
-- Compare original nested spec, ledger, `src/` and `convex/_generated/` against captured follow-up baseline: unchanged.
+- Compare original nested spec, `src/` and `convex/_generated/` against captured follow-up baseline: unchanged. Compare ledger working-tree bytes and staged blob against the invocation snapshot, accounting only for independently proven native writes; no worker-authored ledger changes.
 
-## Auto Run Result
-
-Status: blocked
-Blocking condition: finalization left repository dirty. The only remaining change is the pre-existing orchestrator-owned deferred-work ledger, which this worker is prohibited from editing, reverting or staging. QA verification and review are complete; the orchestrator must reconcile its own change before the workflow can satisfy its clean-working-copy requirement.
-
-Fresh four-layer review and ordinary verification completed against product-source commit `c94860f7e2bf37d863acc1446692fc622f236bc4`. No new product defect or product-policy decision was identified. Prior QA repairs remain unchanged. Historical audit claims are distinguished from this invocation's fresh command evidence and actual terminal marker.
-
-Files changed:
-- This flat spec: append current triage and the genuine worker result.
-- `.audit/DW-92-native-followup/recheck/`: retain fresh review input, review triage, command logs/provenance, source and protected-file checks, and evidence.
-- `.audit/DW-92-native-followup/decisions.tsv`: append this invocation's decisions.
-
-Review: seven audit patches (high 0, medium 2, low 5), zero deferrals, five rejected findings. Follow-up review recommended: true; weighted score 11.
-
-Verification: ordinary gate exited zero with 1,732 tests, both type checks, PowerShell 50/50 and Bash 18/18. Focused gate passed 147 tests. Explicit Convex TypeScript exited zero. Final source and preservation checks compare actual artifacts. Missing terminal marker was reproduced as a failing final check before this write. Detailed results are in `.audit/DW-92-native-followup/recheck/evidence.md` and the actual raw logs.
-
-Residual risks: the accepted sentence-level detector and exact-content methodology limits remain. Native final acceptance is still the orchestrator's operation. The orchestrator-owned ledger was dirty at invocation and has been preserved without staging or modification; its status is neither a defect nor evidence of verification.
-
-Finalization: reviewed evidence committed as `8330ad23139dc4766af7387756a1bdd4392563c0`. The post-commit status check showed only `_bmad-output/implementation-artifacts/deferred-work.md` modified. Its bytes still match the invocation snapshot. This blocked result is the hand-back channel; no board or ledger status was changed.
