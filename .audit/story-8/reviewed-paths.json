@@ -1,0 +1,21 @@
+[
+  "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/8-admin-learning-health-page.md",
+  "convex/_generated/api.d.ts",
+  "convex/ai/brain/retrieve.ts",
+  "convex/ai/brain/retrieveOutcomes.test.ts",
+  "convex/learningHealth.test.ts",
+  "convex/learningHealth.ts",
+  "convex/learningHealthBytes.test.ts",
+  "convex/lib/learningHealthReads.ts",
+  "convex/lib/rerankTelemetry.ts",
+  "convex/schema.ts",
+  "docs/system-map.md",
+  "src/lib/components/workspace/WorkspaceRail.component.test.ts",
+  "src/lib/components/workspace/WorkspaceRail.svelte",
+  "src/lib/dashboard/adminRoutes.ts",
+  "src/lib/test/convex-auth-state-stub.svelte.ts",
+  "src/lib/test/convex-auth-stub.ts",
+  "src/routes/admin/adminWorkspaceRoutes.test.ts",
+  "src/routes/admin/learning/+page.svelte",
+  "src/routes/admin/learning/LearningHealth.component.test.ts"
+]

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const routes = ["usage", "reviews", "brain", "models", "tags", "users", "backfill"] as const;
+const routes = ["learning", "usage", "reviews", "brain", "models", "tags", "users", "backfill"] as const;
 const readRoute = (route: (typeof routes)[number]) =>
   readFileSync(new URL(`./${route}/+page.svelte`, import.meta.url), "utf8");
 

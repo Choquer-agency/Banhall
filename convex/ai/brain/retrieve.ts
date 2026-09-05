@@ -19,6 +19,7 @@ import {
   type CraScienceCode,
 } from "../../../shared/craScienceCodes";
 import { pickScienceRouted } from "./scienceRouting";
+import { recordRerankOutcome, type RerankOutcome } from "../../lib/rerankTelemetry";
 
 export type BrainExemplar = {
   text: string;
@@ -204,6 +205,7 @@ export async function searchBrainExemplars(
 ): Promise<BrainSearchOutcome> {
   const k = args.k ?? BRAIN_SEARCH_DEFAULT_K;
   const usageSuffix = args.usageLabel ? `:${args.usageLabel}` : "";
+  let terminalOutcome: RerankOutcome = "search_error";
   const filters: {
     name: (typeof BRAIN_SEARCH_PROGRAM.filterNames)[number];
     value: unknown;
@@ -277,6 +279,7 @@ export async function searchBrainExemplars(
     // relevance floor, blend the writer tier back in (rerank is tier-blind),
     // cap chunks per source PD for diversity, and take the top k.
     // Falls back to first-stage order — reranking must never break retrieval.
+    let rerankFailed = false;
     if (shouldRerankBrainCandidates(candidates.length, k)) {
       try {
         const rerankResult = await rerank({
@@ -320,23 +323,30 @@ export async function searchBrainExemplars(
           }))
           .sort((a, b) => b.score - a.score);
         // May return < k, or none — floor over filler.
-        return {
+        const result = {
           exemplars: pickScienceRouted(blended, k, scienceCode),
           degraded: false,
         };
+        terminalOutcome = "success";
+        return result;
       } catch (err) {
+        rerankFailed = true;
         console.error("brain rerank failed; falling back to vector order", err);
       }
     }
     // Non-reranked exit (≤k candidates, or the rerank catch above): apply the
     // raw-slate floor since RELEVANCE_FLOOR never ran here.
-    return {
+    const result = {
       exemplars: pickScienceRouted(applyRawSearchFloor(candidates), k, scienceCode),
       degraded: false,
     };
+    terminalOutcome = rerankFailed ? "fallback" : "skip";
+    return result;
   } catch (err) {
     console.error("brain search failed; returning no exemplars", err);
     return { exemplars: [], degraded: true };
+  } finally {
+    await recordRerankOutcome(ctx, terminalOutcome, `brain:rerank${usageSuffix}`);
   }
 }
 

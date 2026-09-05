@@ -33,6 +33,7 @@ const ADMIN_DESTINATIONS = [
   ["The Brain", "/admin/brain"],
   ["OneDrive ingestion", "/admin/ingestion"],
   ["Project tags", "/admin/tags"],
+  ["Learning health", "/admin/learning"],
   ["QA reviews", "/admin/reviews"],
   ["Users & roles", "/admin/users"],
   ["House rules", "/admin/house-rules"],
@@ -140,8 +141,8 @@ describe("WorkspaceRail", () => {
     expect(group?.firstElementChild?.tagName).toBe("svg");
 
     const iconTiles = Array.from(document.querySelectorAll<HTMLElement>("[data-admin-icon-tone]"));
-    expect(iconTiles).toHaveLength(8);
-    expect(new Set(iconTiles.map((tile) => tile.className.match(/bg-[a-z]+-500/)?.[0])).size).toBe(8);
+    expect(iconTiles).toHaveLength(ADMIN_DESTINATIONS.length);
+    expect(new Set(iconTiles.map((tile) => getComputedStyle(tile).backgroundColor)).size).toBe(ADMIN_DESTINATIONS.length);
     expect(document.querySelector('[data-admin-icon-tone="ingestion"] svg')).not.toBeNull();
     expect(document.querySelector("#workspace-admin-links")?.className).toContain("gap-1");
 
