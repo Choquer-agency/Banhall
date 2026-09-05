@@ -1,6 +1,6 @@
 ---
 key: slop-2-dead-helpers-and-deps
-status: todo
+status: done
 kind: refactor
 deps: [perf-1-parser-timers-editor-index]
 touches: [src, package.json, package-lock.json]
@@ -10,7 +10,13 @@ done_when: ["! rg -q 'stashProjectIntent|takeProjectIntent|groupRowsByStageRank|
 title: "Delete test-only helper exports (intent wrappers, stage grouping, stage filtering, extractSections) and four unused dependencies"
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T07:21:38.066Z"
+updated: "2026-09-05T07:53:48.195Z"
+run: 20260905-072238-8-tickets
+branch: factory/slop-2-dead-helpers-and-deps
+merged: 7b9b01e
+verdict: test-verified
+evidence: .audit/slop-2-dead-helpers-and-deps/evidence.md
+deferred: ["`@tiptap/extension-underline` is now a direct dependency with no direct import; kept per AC4 because StarterKit resolves the same 3.28.0 package, but the Tiptap dependency inventory should decide whether the explicit declaration stays.", "`scripts/loop-verify.sh` does not export `PUBLIC_CONVEX_SITE_URL` and does not run `npm run build`, so the engine gate cannot catch a build-only break; `build-gate-review.md:11` already scopes that change to another ticket. Build verified by hand here (exit 0).", "AC6 literal wording not met in one file: `src/routes/project/new/newProjectPrefill.component.test.ts` is net 0 (+5/-5) because migrating one import and four call sites off the deleted wrappers is line-for-line.", "`bun.lock` still lists `docx`, `svelte-exmarkdown`, `tippy.js` and `eslint` after `package.json` dropped them. Already stale at the baseline (it is missing `phosphor-svelte`) and owned by `tests-3`, which deletes the file; this ticket forbids touching it. Named here so the ship step does not read the drift as this ticket's error."]
 ---
 ## Intent
 For the reader of four live modules: the functions that exist only so their own tests have something to call are gone, and the tests exercise the API production uses. `stashProjectIntent`/`takeProjectIntent` (`src/lib/workspace/projectIntentHandoff.ts:51-57`) wrap `stashProjectStart`/`takeProjectStart`, which every live caller already uses; `groupRowsByStageRank`/`visibleStageGroups` (`stageRankGroups.ts:83,156`) and `matchesStageFilter`/`stageFilterItems` (`stageFilter.ts:14,48`) describe retired UI; `extractSections` (`reportSections.ts:267`) has no caller at all. Four dependencies (`docx`, `svelte-exmarkdown`, `tippy.js`, `eslint`) have no import anywhere and no config (`slop-audit.md:55-59`; re-checked in `research.md`). The maintainer inherits smaller modules, tests that pin the real contract, and a lockfile without dead packages. Principle: [5 minimize reader load]: one-caller and zero-caller wrappers collapse; [4 subtract before you add].
