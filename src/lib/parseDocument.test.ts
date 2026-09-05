@@ -173,7 +173,12 @@ describe("PDF parse deadline", () => {
     new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
   const never = () => new Promise<never>(() => {});
 
-  type PageSpec = { text?: string; getPage?: Promise<never>; textContent?: Promise<never> };
+  type PageSpec = {
+    text?: string;
+    getPage?: Promise<never>;
+    /** Called when the parser asks the page for its text, so a test can observe when. */
+    textContent?: () => Promise<{ items: { str: string }[] }>;
+  };
 
   let destroyCalls = 0;
 
@@ -186,7 +191,7 @@ describe("PDF parse deadline", () => {
         const spec = pages[i - 1];
         return spec.getPage ?? Promise.resolve({
           getTextContent: () =>
-            spec.textContent ??
+            spec.textContent?.() ??
             Promise.resolve({ items: (spec.text ?? "").split(" ").map((str) => ({ str })) }),
         });
       },
@@ -223,9 +228,11 @@ describe("PDF parse deadline", () => {
   });
 
   it("keeps one cumulative 60s budget across the load and every page", async () => {
+    const page1TextContent = vi.fn(() => after(20_000, { items: [{ str: "Page" }, { str: "one" }] }));
+    const page2TextContent = vi.fn(never);
     installPdf(after(20_000, null), [
-      { textContent: after(20_000, { items: [{ str: "Page" }, { str: "one" }] }) as Promise<never> },
-      { textContent: never() },
+      { textContent: page1TextContent },
+      { textContent: page2TextContent },
     ]);
 
     let settled = false;
@@ -234,9 +241,19 @@ describe("PDF parse deadline", () => {
       return r;
     });
 
-    await vi.advanceTimersByTimeAsync(59_999);
+    // t=20s: the load resolves and the parser asks page 1 for its text. Page 2
+    // has not been reached, so its work has not started consuming the budget.
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(page1TextContent).toHaveBeenCalledTimes(1);
+    expect(page2TextContent).not.toHaveBeenCalled();
+
+    // t=40s: page 1's text resolves and only then is page 2 asked for its text.
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(page2TextContent).toHaveBeenCalledTimes(1);
+
     // A per-call 60s timeout would restart the clock on page 2 at t=40s and
     // still be waiting here — and at t=60s.
+    await vi.advanceTimersByTimeAsync(19_999);
     expect(settled).toBe(false);
 
     await vi.advanceTimersByTimeAsync(1);
@@ -270,7 +287,7 @@ describe("PDF parse deadline", () => {
       (boom: Error) =>
         installPdf("immediate", [
           { text: "Page one" },
-          { textContent: Promise.reject(boom) as Promise<never> },
+          { textContent: () => Promise.reject(boom) },
         ]),
     ],
   ])("propagates the original error and cleans up when %s", async (_name, install) => {
