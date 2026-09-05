@@ -1,0 +1,2 @@
+ts	phase	decision	why	evidence	result
+2026-09-05T00:54:46.765769+00:00	repair	Emit separators on block entry and exit	Wrapper ancestry hides sibling-local block identity	ancestry-red.json;ancestry-green.json	81 tests pass

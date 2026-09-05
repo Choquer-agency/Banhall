@@ -1,0 +1,97 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup
+
+ ❯ |convex| convex/qaBlocking.test.ts (63 tests | 6 failed | 50 skipped) 214ms
+   × blank prefix before generated title does not block readiness 7ms
+   × blank prefix before generated title does not block save 6ms
+   × blank prefix before generated title does not block publish 5ms
+   × nested bulletList container cannot supply an unrelated because 2ms
+   × nested orderedList container cannot supply an unrelated because 1ms
+   × nested table container cannot supply an unrelated because 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > blank prefix before generated title does not block readiness
+AssertionError: expected [ 'QA_BLOCKING', …(3) ] to not include 'QA_BLOCKING'
+ ❯ convex/qaBlocking.test.ts:493:64
+    491|   const f = await setup(content);
+    492|   if (boundary === "readiness") {
+    493|     expect((await readiness(f)).blockers.map(b => b.code)).not.toConta…
+       |                                                                ^
+    494|   } else if (boundary === "save") {
+    495|     await f.actor.mutation(api.reports.updateReportContent, { reportId…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > blank prefix before generated title does not block save
+AssertionError: expected [ { …(10) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "_creationTime": 1788569150789,
++     "_id": "0000000000000000010008qaFindings",
++     "blocking": true,
++     "check": "because_clause",
++     "contentHash": "b7d0fff2e94f473bfb7807d829068f302a4e22969a4d649af6af5aa219b2ebcd",
++     "findingKey": "[\"s242\",\"because_clause\",\"Uncertainty statement missing a BECAUSE clause: \\\"It was uncertain whether the alloy would resist fatigue.\\\"\"]",
++     "message": "Uncertainty statement missing a BECAUSE clause: \"It was uncertain whether the alloy would resist fatigue.\"",
++     "reportId": "0000000000000000000010007reports",
++     "revisionNumber": 1,
++     "section": "s242",
++   },
++ ]
+
+ ❯ convex/qaBlocking.test.ts:497:57
+    495|     await f.actor.mutation(api.reports.updateReportContent, { reportId…
+    496|     expect((await ref(f)).revisionNumber).toBe(1);
+    497|     expect((await rows(f)).filter(row => row.blocking)).toEqual([]);
+       |                                                         ^
+    498|     expect((await readiness(f)).blockers.map(b => b.code)).not.toConta…
+    499|   } else {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > blank prefix before generated title does not block publish
+ConvexError: {"code":"QA_BLOCKING","message":"Current report has unresolved substantive QA findings"}
+ ❯ domainError convex/lib/contracts.ts:40:9
+     38|   details?: Record<string, string>
+     39| ): never {
+     40|   throw new ConvexError({ ...details, code, message });
+       |         ^
+     41| }
+     42|
+ ❯ handler convex/projects.ts:1048:7
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeMutation node_modules/convex/src/server/impl/registration_impl.ts:70:17
+ ❯ runMutationWithHandler node_modules/convex-test/dist/index.js:1562:31
+ ❯ Object.mutationFromPath node_modules/convex-test/dist/index.js:1693:32
+ ❯ mutation node_modules/convex-test/dist/index.js:1739:20
+ ❯ convex/qaBlocking.test.ts:500:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > nested bulletList container cannot supply an unrelated because
+ FAIL  |convex| convex/qaBlocking.test.ts > nested orderedList container cannot supply an unrelated because
+ FAIL  |convex| convex/qaBlocking.test.ts > nested table container cannot supply an unrelated because
+AssertionError: expected [ 'IDENTITY_EVIDENCE_REQUIRED', …(2) ] to include 'QA_BLOCKING'
+ ❯ expectBlocked convex/qaBlocking.test.ts:61:60
+     59| }
+     60| async function expectBlocked(f: Fixture, subject = "qa-owner") {
+     61|   expect((await readiness(f)).blockers.map((b) => b.code)).toContain("…
+       |                                                            ^
+     62|   const before = await f.t.run((ctx) => ctx.db.get(f.projectId));
+     63|   const scheduledBefore = await f.t.run((ctx) => ctx.db.system.query("…
+ ❯ convex/qaBlocking.test.ts:530:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  6 failed | 7 passed | 50 skipped (63)
+   Start at  17:45:50
+   Duration  611ms (transform 252ms, setup 0ms, import 222ms, tests 214ms, environment 45ms)
+

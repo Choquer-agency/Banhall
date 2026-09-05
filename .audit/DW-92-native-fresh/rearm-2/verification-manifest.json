@@ -1,0 +1,27 @@
+{
+  "observed_at": "2026-09-05T00:24:49.390175+00:00",
+  "revision": "86a43d9d500ceab34245744d223d4453eba7b667",
+  "source_sha256": {
+    "convex/lib/qaFindings.ts": "e816d85d0db9a250e3f5c05a667793cc7ce2176c2f4b7085c2ee5ca776714f6b",
+    "convex/lib/tiptapReport.ts": "814ae4a22e85d8a706a42922e2d0a5e2bf960920bf18918207732732a4dad1a1",
+    "convex/ai/qaChecks.ts": "de5dce8681e7afedc7766942d3c51f865b6ad7f3c294ee18c33c68b18c723768",
+    "convex/generations.ts": "d054a4858b34cbe42e688985c6f73895e51c59bdcddca2fe4a4ba628393fa344",
+    "convex/ai/postQa.ts": "783201bc937a76c90021b62afcb87314baa62f639e5995c668f4d2f6921fe63a",
+    "convex/projects.ts": "e285a55175925199411ef8ac61f690d96e7fc015a5a53276c8e57e1f59e37fcc",
+    "convex/lib/auth.ts": "02893a5da10e7ee79c15299f5f4e0d773b7705d758ba8f019abf2c62e7fd9197",
+    "convex/qaBlocking.test.ts": "a47b7188f66d711cf49b746ed241ab07cb8420ce48091c201eadf9b15eebb41e",
+    "convex/qaFindingsCleanup.test.ts": "31c804452397968fbf87825beb9acb71178e0c47fbb36a715c2ae3596ba27503",
+    "scripts/loop-verify.sh": "5e34ec41305140f9b0d3c9bd1cfb9cbdf903e3bd3dd4d56cb9f7276ecb47eb75"
+  },
+  "focused_command": "npx vitest run convex/ai/qaChecks.test.ts convex/projects.test.ts convex/qaBlocking.test.ts",
+  "focused_exit_code": 0,
+  "focused_log_sha256": "c1306c56aa85034fad5eeb15d43e8a4a643c8794c848f55ab15ae00b2d03c465",
+  "ordinary_command": "bash scripts/loop-verify.sh",
+  "ordinary_status": "completed",
+  "note": "Manifest recorded after focused completion and during ordinary gate; launch timestamps were not separately captured. Focused native output contains its start time.",
+  "ordinary_exit_code": 0,
+  "ordinary_completion_observed_at": "2026-09-05T00:25:04.556964+00:00",
+  "ordinary_log_sha256": "a925e30b9df1ac538548ed6662be235702e29ea6f43399cbd2711e65739d7bea",
+  "diff_check_exit_code": 0,
+  "source_unchanged_after_gate": true
+}

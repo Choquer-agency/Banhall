@@ -1,0 +1,24 @@
+{
+  "command": [
+    "npx",
+    "vitest",
+    "run",
+    "convex/qaBlocking.test.ts",
+    "convex/lib/tiptapReport.test.ts"
+  ],
+  "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup",
+  "revision": "54a898d44878bf911eec5fb70777982eae43efde",
+  "started": "2026-09-05T00:54:18.962413+00:00",
+  "before": {
+    "convex/lib/tiptapReport.ts": "798806db4384e9bb5957ff45bd280f02c9b946ad51e9e1f7d5bbd23efd6287a3",
+    "convex/qaBlocking.test.ts": "b7928f1e2f7f698e25b4404a1f9bd020dde06f549d1689ced7374e64696fea6b"
+  },
+  "log": "ancestry-green.log",
+  "exit_code": 0,
+  "ended": "2026-09-05T00:54:21.174960+00:00",
+  "after": {
+    "convex/lib/tiptapReport.ts": "798806db4384e9bb5957ff45bd280f02c9b946ad51e9e1f7d5bbd23efd6287a3",
+    "convex/qaBlocking.test.ts": "b7928f1e2f7f698e25b4404a1f9bd020dde06f549d1689ced7374e64696fea6b"
+  },
+  "sha256": "e75598a40f31edd78ce778b2eb77b902a765aa59d4f450b0682ddbd37ed1b23d"
+}

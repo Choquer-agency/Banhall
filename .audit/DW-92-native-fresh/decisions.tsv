@@ -1,0 +1,5 @@
+ts	phase	decision	why	evidence	result
+2026-09-05T00:22:23.026418+00:00	routing	Create flat follow-up suffix 2	Existing unsuffixed spec is not draft; preserve prior history	_bmad-output/implementation-artifacts/spec-dw-92-blocking-qa-native-followup.md	planned
+2026-09-05T00:23:42.256325+00:00	routing	Retain native-bound flat spec	User forbids binding another spec; read-only native state already binds rearmed flat artifact	.audit/DW-92-native-fresh/routing.json	corrected before implementation edits
+2026-09-05T00:31:46.890697+00:00	review	Repair two extraction defects and verification gaps	Independent reproductions fit frozen extraction contract; edge reviewer confirmed no product ambiguity	.audit/DW-92-native-fresh/review.md	patches assigned
+2026-09-05T00:38:15.387323+00:00	verification	Finalize verified worker result	Final ordinary and focused gates pass on stable repaired source; review regression confirmed resolved	.audit/DW-92-native-fresh/verification-20260905T003623Z-c59f46b4/commands.json	ready to stage
