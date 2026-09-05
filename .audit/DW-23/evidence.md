@@ -1,5 +1,7 @@
 # DW-23 implementation evidence
 
+Historical scope: all results below through the exact implementation revision were recorded by the implementation invocation before the native orchestrator closed DW-23. Its ledger comparisons describe that invocation only. The fresh review and native finalization evidence are in `followup-evidence.md` and `followup-provenance.json`.
+
 Baseline commit: `b3d36d2992aaf2d8c3b975a47f749d184b6eb543` (confirmed by `git rev-parse HEAD`). The implementation commit is recorded below after local finalization.
 
 Authorized scope: `_bmad-output/implementation-artifacts/spec-dw-23-snapshot-research-ownership.md`. All frontmatter context files were read before implementation. No domain amendment is required.
@@ -63,7 +65,7 @@ Test Files  148 passed (148)
 Tests  1846 passed (1846)
 ```
 
-All 14 matrix cases ran in both focused and full verification. Both uploader harnesses passed. No component files changed.
+All 14 matrix cases ran in both focused and full verification. Both uploader harnesses passed their executed cases. The PowerShell AC4 dotfile sub-case was skipped because this platform hides dotfiles from Get-ChildItem without -Force. No component files changed.
 
 Four independent review layers completed. Edge and verification reviews found no issues. Blind review supplied eleven optional test/style or finalization observations; these required no code fix. The intent auditor confirmed persistence-surface alignment and noted label interpretation: the same ownership boundary controls all research provenance, including its label. Final bookkeeping is completed here and in the spec; no review patches or deferred findings remain.
 
@@ -73,4 +75,4 @@ The ledger's initial and final Git blob is `4a044b3a4c95a8993b403729ab9188cc2f59
 
 ## Exact implementation revision
 
-Verified implementation commit: `b7b1ea8aa7b8b82c8a1a00e10f9e69670d80fe94`. This commit contains the production fix and its tests; the following documentation commit records the completed native workflow evidence. No push was performed.
+Verified implementation commit: `b7b1ea8aa7b8b82c8a1a00e10f9e69670d80fe94`. This commit contains the production fix and its tests; documentation commit `8b5fd8ccb0ae1a790b454cd7a9a266eeba5d22d2` records the implementation invocation evidence. No push was performed.

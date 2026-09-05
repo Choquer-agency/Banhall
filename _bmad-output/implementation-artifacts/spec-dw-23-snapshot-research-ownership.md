@@ -77,33 +77,47 @@ deferred: []
 
 Four review layers completed. Edge and verification reviewers returned no findings. Eleven blind-review suggestions were rejected as optional coverage/style changes or finalization bookkeeping already required by this workflow. The intent auditor's label observation was also rejected: the bundle explicitly calls for filtering foreign session references and research provenance, and the label denotes that provenance. A default label consistently reflects the absence of a valid session. The requested surface is the shared writer, so persisted-row tests exercise the correct boundary.
 
+### 2026-09-04 Follow-up review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 0, medium 0, low 4)
+- defer: 0
+- reject: 8: (high 0, medium 0, low 8)
+- addressed_findings:
+  - `[low]` `[patch]` Qualify the evidence document's ledger comparisons as implementation-stage observations.
+  - `[low]` `[patch]` Qualify the spec's ledger comparison with the same stage boundary.
+  - `[low]` `[patch]` Name the exact existing documentation commit in the evidence.
+  - `[low]` `[patch]` Disclose the platform-specific PowerShell dotfile sub-case skip.
+
+Four fresh reviewers completed. No production defect or human decision was identified. Individual current-pass findings and dispositions are retained in `.audit/DW-23/followup-review.md`. Native ledger authorship is established separately from acceptance by the recorded journal closure before review invocation.
+
 ## Verification
 
 **Commands:**
 - `npm test -- convex/snapshots.test.ts convex/preEditSnapshot.test.ts convex/lib/snapshots.test.ts`: all ownership matrix and integration tests pass.
 - `PUBLIC_CONVEX_URL=https://placeholder.convex.cloud npm run check`: no errors.
 - `npm test`: all non-browser tests pass.
-- `git diff --exit-code -- _bmad-output/implementation-artifacts/deferred-work.md`: ledger unchanged.
+- Implementation invocation only: `git diff --exit-code -- _bmad-output/implementation-artifacts/deferred-work.md` exited 0 before native closure. This review preserves the later native closure bytes; see `.audit/DW-23/followup-provenance.json`.
 
 ## Auto Run Result
 
 Status: done
 
-Implemented DW-23 by validating both project and report ownership before copying a research session into a pre-edit snapshot. Missing and foreign sessions are omitted and receive the reason's default label; valid sessions retain their count and researched label.
+DW-23 validates both report and project ownership before copying research metadata into pre-edit history. Missing or foreign sessions retain the recovery checkpoint and receive the default label; valid sessions preserve their count and researched label. Fresh review required no production changes or human decision.
 
-Files changed:
-- `convex/lib/snapshots.ts`: validates research ownership and derives fields and label from the validated row.
-- `convex/snapshots.test.ts`: 14 persisted matrix cases across both reasons, preserving the full checkpoint and source report.
-- `.audit/DW-23/`: baseline failure, focused success, full gate outputs and decision/evidence records.
-- This specification: implementation contract, completed tasks and review result.
+Files changed since baseline:
+- `convex/lib/snapshots.ts`: one ownership validation controls research fields and label.
+- `convex/snapshots.test.ts`: fourteen persisted matrix cases across both reasons.
+- `.audit/DW-23/`: historical red/green evidence, fresh verification, review dispositions and native closure provenance.
+- This spec: current review triage and terminal result.
+- `deferred-work.md`: exact pre-existing native closure staged for finalization; no worker content edits.
 
-Review: 0 patches, 0 deferred items, 12 rejected observations. Patched severity counts: high 0, medium 0, low 0; follow-up score 0. Follow-up review recommended: false.
+Current review: four low documentation patches, eight low rejected findings, zero deferrals. Patched severity counts: high 0, medium 0, low 4. Follow-up score 4; recommendation false.
 
-Verification:
-- Baseline regression: 8 failed, 29 passed with unchanged baseline writer.
-- Independent focused verification: 37 passed.
-- `bash scripts/loop-verify.sh`: exit 0, including Convex typecheck, Svelte check (0 errors, 0 warnings), 148 files / 1,846 tests, and both uploader harnesses.
+Fresh verification after review corrections:
+- Focused suites: exit 0, 37 tests passed.
+- `bash scripts/loop-verify.sh`: exit 0; Convex typecheck passed; Svelte check reported 0 errors and 0 warnings; 148 files and 1,846 tests passed; uploader harnesses reported 50 and 18 passing cases. PowerShell skipped its platform-specific AC4 dotfile sub-case.
 - `git diff --check`: exit 0.
-- Deferred-work ledger unchanged; blob `4a044b3a4c95a8993b403729ab9188cc2f5940de`.
+- Native ledger bytes match the invocation snapshot; working-tree and staged comparison evidence is retained in `.audit/DW-23/followup-evidence.md`.
 
-Residual risks: this is defensive validation for relationships not currently produced by normal research creation. No live deployment was exercised. The native orchestrator retains responsibility for ledger resolution and final run acceptance.
+Residual risks: no deployment was exercised and existing snapshots are not migrated. Native ledger status and this local commit do not establish final native run acceptance; the orchestrator owns that decision. Sprint status was not written or reverted. No push was performed.
