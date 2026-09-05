@@ -10,7 +10,7 @@ done_when: ["! rg -q 'bun:test' tests", "! rg -q 'chatProposals|projectReviewAcc
 title: "No bun:test, no @types/bun, no bun.lock, no test/** include; a script proves every tracked test file is discovered by one of the two vitest configs"
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T07:56:28.732Z"
+updated: "2026-09-05T08:37:16.196Z"
 ---
 ## Intent
 For the next person who adds a test file: the two vitest configs are the only runners, and a script says so when a file lands outside them. After tests-1 and tests-2 nothing imports `bun:test`, so `@types/bun`, `bun.lock` and the by-name excludes in `vitest.config.ts` are dead weight, and `tsconfig.json:16-18` includes a `test/**` directory that does not exist. The retrospective asked for exactly this guard (`RETROSPECTIVE.md:122`: "add a CI guard that fails when a `*.test.ts` file is outside the vitest projects"). Principle: [23 encode lessons in structure]: the orphan-tests lesson becomes a check, not a paragraph; [14 migrate callers, then delete legacy]: the bun runner's last traces go in the same wave as the migration; [9 build the lever].
@@ -46,3 +46,5 @@ For the next person who adds a test file: the two vitest configs are the only ru
 The configured QA tool allowlist permits the verification commands but denies Edit/Write to audit files. The factory engine itself persists the QA structured summary and checks as `.audit/<ticket>/qa-<loop>.md` (engine.mjs, QA stage). Return the complete truthful QA report through those structured fields; the engine-written file is the canonical QA output for this run. The orchestrator links it from root evidence after merge. Do not spend retries attempting manual evidence writes or require a human merely to append this report. This changes no runtime verification requirement or tool permission. Actual failures, missing evidence and unverified behavior must still be reported accurately.
 
 Run each verification command exactly as listed before trying shell additions. Pipes, redirects, an appended echo, or a redundant rm command can make an otherwise allowed command fail the QA tool check. Use the tool result or engine gates file for the exit status. Bare npm ci already replaces an existing node_modules directory. Run dependency installation before, and never concurrently with, tests or builds in that worktree.
+
+Scope sequencing: tests-2 is approved to remove the two temporary named Vitest exclusions together with their files. AC1 here verifies their absence and the retained tests; no edit is needed when already satisfied.

@@ -51,3 +51,7 @@ Tests-1 retains 83 pure cases, prompting reconciliation with the 116-case origin
 ## Corrected pending DX: supported Node versions
 
 Root inspected installed package engines: Vite 8.1.5 requires ^20.19.0 || >=22.12.0, Vitest 4.1.10 requires ^20.0.0 || ^22.0.0 || >=24.0.0, and vite-plugin-svelte 7.2.0 requires ^20.19 || ^22.12 || >=24. The original planned major >=22 preflight would accept unsupported early 22.x and 23.x. Corrected pending dx-1 AC1 to 22.x >=22.12 or >=24, retaining Node 24 as the documentation and CI default. No package versions, project engine declaration, dependency or new abstraction changed. Final runtime proof uses Node 24; source review must confirm the numeric branch matches these installed constraints.
+
+## TESTS2-REVIEW: migration preservation and scheduled-job isolation
+
+Independent review found three lost positive reader-role query cases, a live-turn fixture using real timers around a scheduled streaming action, and a fragment-only ordered prose assertion. Run 20260905-072238-8-tickets was stopped before acceptance. The existing engine-created ticket worktree receives a bounded factory-implement fix, then the remaining four tickets will resume through normal engine review and QA. Canonical tests-2 scope now explicitly includes the harmless temporary-exclusion cleanup already paired with file deletion; fresh open-PR query returned []. Details: root-tests2-review.md. Status: OPEN.
