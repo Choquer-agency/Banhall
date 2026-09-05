@@ -1,0 +1,94 @@
+
+> banhall-app@0.1.0 check
+> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
+
+Loading svelte-check in workspace: /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-ped-malformed-content-rejection
+Getting Svelte diagnostics...
+
+svelte-check found 0 errors and 0 warnings
+
+> banhall-app@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-ped-malformed-content-rejection
+
+
+ Test Files  148 passed (148)
+      Tests  1835 passed (1835)
+   Start at  18:55:54
+   Duration  19.03s (transform 4.52s, setup 0ms, import 9.02s, tests 10.69s, environment 3.27s)
+
+ok    AC1 cloud placeholder (ReparsePoint attribute, empty LinkType) is a candidate
+ok    AC2 symlink is skipped as link
+ok    AC2 junction is skipped as link
+ok    AC2 Test-RealLink is false for a placeholder and true for a symlink
+ok    AC3 Word temp file is skipped as temp
+ok    AC3 dotfile is skipped as dotfile
+ok    AC3 disallowed extension is skipped as extension
+ok    AC3 allowed plain file is a candidate
+ok    AC3 extension match is case-insensitive
+ok    edge link is checked before temp
+ok    edge object without a LinkType property is not a link
+ok    edge empty allowed list skips everything as extension
+ok    edge missing or unset Attributes does not throw
+ok    zero-diag AC3 Offline attribute is cloud-only
+ok    zero-diag AC3 RecallOnDataAccess bit is cloud-only
+ok    zero-diag AC3 a hydrated local file is not cloud-only
+ok    zero-diag edge Test-CloudOnly tolerates a missing or unset Attributes
+ok    zero-diag AC1 histogram counts by extension, most frequent first
+ok    zero-diag edge histogram caps at top N and labels extensionless files
+ok    zero-diag edge histogram of nothing is empty
+ok    zero-diag AC1/AC5 formatter renders every required line for a zero-candidate scan
+ok    zero-diag edge formatter prints an all-zero block for an empty folder
+ok    zero-diag AC1 formatter never prints a file name
+ok    zero-diag AC1 root under a sync root reports yes, case- and separator-insensitively
+ok    zero-diag AC1 root outside every sync root reports no
+ok    zero-diag AC1 no OneDrive env var at all reports unknown
+SKIP  AC4 dotfile sub-case - this platform hides dotfiles from Get-ChildItem without -Force
+ok    AC4 exactly one candidate, the real .docx
+ok    AC4 temp and extension skips are tallied
+ok    AC4 the symlink is skipped as link
+ok    AC4 walk reports counts and no errors
+ok    AC4 a missing root yields zero candidates and a recorded error
+ok    zero-diag AC1 the scan records an extension histogram of every file it walked
+ok    zero-diag AC4 Test-RootUsable separates a folder, a file and a missing path
+ok    review-fix a bracket-named root is usable and yields its candidate
+ok    review-fix a wildcard read of that root is what loses it
+ok    AC6 banhall-uploader.ps1 parses and stays Windows PowerShell 5.1 compatible
+ok    AC6 uploader-lib.ps1 parses and stays Windows PowerShell 5.1 compatible
+ok    AC6 run-tests.ps1 parses and stays Windows PowerShell 5.1 compatible
+ok    AC6 one Get-UploadCandidates call site, inside the foreach over roots
+ok    AC6 all three input modes converge on roots
+ok    review-fix every path the uploader reads is a literal path
+ok    review-fix the upload body path is wildcard-escaped
+ok    regression banhall-uploader.ps1 never mentions ReparsePoint again
+ok    zero-diag AC4 every root-is-a-file message stops the run from a Test-RootUsable state
+ok    review-fix the uploader only claims a log was saved when a write succeeded
+ok    zero-diag AC2 the log is truncated before the scan and the SCAN lines beat the zero exit
+ok    zero-diag AC3 the cloud-only line is printed only when the count is above zero
+ok    zero-diag AC1 the zero-found branch prints the formatter's lines and never a file name
+ok    AC5 loop-verify.sh runs the harness under set -e
+ok    AC5 an injected failing case exits 1 and stops a set -e gate
+
+50 passed, 0 failed
+ok    AC1 walk classifies link/temp/dotfile/extension and keeps 3 candidates
+ok    AC4 symlink to an allowed file is skipped and counted under link
+ok    AC1 argument prefix is prepended to the relative path
+ok    AC1 zero-result block reports walked, per-reason skips, extensions, OneDrive
+ok    edge empty folder reports zeros and 'Extensions seen: none'
+ok    AC1 extension histogram is capped at 8, ties broken alphabetically
+ok    edge ext_of matches .NET GetExtension for dotfiles and bare names
+ok    AC3 root_state answers ok / is_file / missing
+ok    AC3 a file path prints 'That path is a file, not a folder' and exits 1
+ok    AC3 a folder passes and a missing path reports 'does not exist'
+ok    AC2 an unreadable file logs READ_ERROR and never calls the endpoint
+ok    AC2 control: a readable file does reach the stubbed endpoint
+ok    AC2 sha256_of returns nothing for an unreadable or missing file
+ok    AC1 under_onedrive answers yes / no / unknown
+ok    AC5 scripts/loop-verify.sh runs this harness exactly once
+ok    AC5 an injected failing case exits non-zero
+ok    shape banhall-uploader.sh uses no bash 4 constructs
+ok    shape every function is defined above the lib-only guard
+
+18 passed, 0 failed

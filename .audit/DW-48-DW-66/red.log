@@ -1,0 +1,85 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-ped-malformed-content-rejection
+
+ ❯ |convex| convex/reportEditDistance.test.ts (50 tests | 16 failed | 24 skipped) 190ms
+     × milestone: skips 'broken current JSON' while preserving the operation 45ms
+     × milestone: skips 'broken baseline JSON' while preserving the operation 4ms
+     × milestone: skips 'both JSON strings broken' while preserving the operation 3ms
+     × milestone: skips 'null current' while preserving the operation 3ms
+     × milestone: skips 'null baseline' while preserving the operation 3ms
+     × milestone: skips 'non-array current content' while preserving the operation 3ms
+     × milestone: skips 'non-array baseline content' while preserving the operation 4ms
+     × milestone: skips 'nested traversal failure' while preserving the operation 2ms
+     × client_publish: skips 'broken current JSON' while preserving the operation 58ms
+     × client_publish: skips 'broken baseline JSON' while preserving the operation 3ms
+     × client_publish: skips 'both JSON strings broken' while preserving the operation 3ms
+     × client_publish: skips 'null current' while preserving the operation 3ms
+     × client_publish: skips 'null baseline' while preserving the operation 3ms
+     × client_publish: skips 'non-array current content' while preserving the operation 2ms
+     × client_publish: skips 'non-array baseline content' while preserving the operation 3ms
+     × client_publish: skips 'nested traversal failure' while preserving the operation 3ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 16 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > milestone: skips 'broken current JSON' while preserving the operation
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > milestone: skips 'broken baseline JSON' while preserving the operation
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > milestone: skips 'null current' while preserving the operation
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > milestone: skips 'null baseline' while preserving the operation
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > milestone: skips 'non-array current content' while preserving the operation
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > milestone: skips 'non-array baseline content' while preserving the operation
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > milestone: skips 'nested traversal failure' while preserving the operation
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > client_publish: skips 'broken current JSON' while preserving the operation
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > client_publish: skips 'broken baseline JSON' while preserving the operation
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > client_publish: skips 'null current' while preserving the operation
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > client_publish: skips 'null baseline' while preserving the operation
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > client_publish: skips 'non-array current content' while preserving the operation
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > client_publish: skips 'non-array baseline content' while preserving the operation
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > client_publish: skips 'nested traversal failure' while preserving the operation
+AssertionError: expected [ 1 ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   1,
++ ]
+
+ ❯ convex/reportEditDistance.test.ts:422:63
+    420|
+    421|       // Include the actual persisted scalar in a baseline failure, no…
+    422|       expect((await rows(t, reportId)).map((row) => row.ped)).toEqual(…
+       |                                                               ^
+    423|     });
+    424|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/16]⎯
+
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > milestone: skips 'both JSON strings broken' while preserving the operation
+ FAIL  |convex| convex/reportEditDistance.test.ts > malformed content persistence boundary > client_publish: skips 'both JSON strings broken' while preserving the operation
+AssertionError: expected [ +0 ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   0,
++ ]
+
+ ❯ convex/reportEditDistance.test.ts:422:63
+    420|
+    421|       // Include the actual persisted scalar in a baseline failure, no…
+    422|       expect((await rows(t, reportId)).map((row) => row.ped)).toEqual(…
+       |                                                               ^
+    423|     });
+    424|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/16]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  16 failed | 10 passed | 24 skipped (50)
+   Start at  18:50:54
+   Duration  728ms (transform 306ms, setup 0ms, import 356ms, tests 190ms, environment 45ms)
+
