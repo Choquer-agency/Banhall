@@ -10,7 +10,7 @@ done_when: [! test -e src/lib/components/comments/CommentHighlight.ts, ! test -e
 title: Delete the nine abandoned React-port components under src/lib/components; nothing imports them
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T06:56:38.820Z"
+updated: "2026-09-05T06:58:46.050Z"
 run: 20260905-055642-10-tickets
 branch: factory/slop-1-dead-components
 merged: 9e3940d
