@@ -1,0 +1,15 @@
+PASS normal rejects tampered sha256: exit 1
+FAIL SHA-256 mismatch: _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md
+PASS normal rejects tampered git_blob: exit 1
+FAIL Git blob mismatch: _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md
+PASS normal rejects tampered matches_baseline: exit 1
+FAIL Snapshot does not attest baseline equality: _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md
+PASS normal accepts unchanged snapshot: exit 0
+PASS optimized rejects tampered sha256: exit 1
+FAIL SHA-256 mismatch: _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md
+PASS optimized rejects tampered git_blob: exit 1
+FAIL Git blob mismatch: _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md
+PASS optimized rejects tampered matches_baseline: exit 1
+FAIL Snapshot does not attest baseline equality: _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md
+PASS optimized accepts unchanged snapshot: exit 0
+8 passed, 0 failed; no protected file was mutated
