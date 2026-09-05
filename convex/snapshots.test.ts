@@ -5,7 +5,7 @@ import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { DomainErrorCode } from "./lib/contracts";
 import { sha256 } from "./lib/contracts";
-import { snapshotAuditFields, writePreEditSnapshot } from "./lib/snapshots";
+import { writePreEditSnapshot, type PreEditSnapshotReason } from "./lib/snapshots";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -150,135 +150,123 @@ describe("snapshots carry the transcript set (AC5)", () => {
   });
 });
 
-describe("the shared pre-edit writer owns the checkpoint shape", () => {
-  it("labels a researched checkpoint, copies its source count, and carries the audit fields", async () => {
-    const { raw, projectId, reportId, generationId, transcriptIds } =
+describe.each<{ reason: PreEditSnapshotReason; defaultLabel: string }>([
+  { reason: "pre_chat_edit", defaultLabel: "Before AI edit" },
+  { reason: "pre_client_edit", defaultLabel: "Before client edit" },
+])("the shared pre-edit writer: $reason", ({ reason, defaultLabel }) => {
+  it.each([
+    { scenario: "valid session", valid: true, count: 3 },
+    { scenario: "valid zero count", valid: true, count: 0 },
+    { scenario: "no session", valid: false, count: 3 },
+    { scenario: "missing session", valid: false, count: 3 },
+    { scenario: "foreign report", valid: false, count: 3 },
+    { scenario: "foreign project", valid: false, count: 3 },
+    { scenario: "fully foreign", valid: false, count: 3 },
+  ])("preserves the checkpoint with $scenario", async ({ scenario, valid, count }) => {
+    const { raw, projectId, reportId, generationId, transcriptIds, userId } =
       await setup();
+    const createdAt = 1_700_000_000_002;
+    const contentHash = await sha256(CONTENT);
 
     const snapshot = await raw.run(async (ctx) => {
-      const user = await ctx.db
-        .query("users")
-        .withIndex("by_authId", (q) => q.eq("authId", AUTH_ID))
-        .unique();
-      const researchSessionId = await ctx.db.insert("researchSessions", {
+      const provenanceId = await ctx.db.insert("reportProvenance", {
         projectId,
-        reportId,
-        requestedBy: user!._id,
-        selectedText: "Report content",
-        selectionFrom: 0,
-        selectionTo: 14,
-        surroundingContext: CONTENT,
-        instruction: "Back this with sources",
-        externalBrief: "Redacted brief",
-        reportRevisionNumber: 0,
-        status: "completed",
-        evidenceSourceCount: 3,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        generationId,
+        sourceTranscriptId: transcriptIds[0],
+        sourceTranscriptIds: transcriptIds,
+        contentHash,
+        status: "approved",
+        claims: [],
+        createdAt,
       });
-      const report = (await ctx.db.get(reportId))!;
-      // The label is derived, never supplied: the session id alone must be
-      // enough for the writer to mark this checkpoint as research-backed.
-      const snapshotId = await writePreEditSnapshot(
-        ctx,
-        report,
-        "pre_chat_edit",
-        { createdAt: 1_700_000_000_000, researchSessionId }
-      );
-      return {
-        row: await ctx.db.get(snapshotId),
-        expectedAudit: await snapshotAuditFields(ctx, report),
+      await ctx.db.patch(reportId, { provenanceId, revisionNumber: 7 });
+      const report = await ctx.db.get(reportId);
+      if (!report) throw new Error("Missing fixture report");
+
+      let sessionProjectId = projectId;
+      let sessionReportId = reportId;
+      if (scenario === "foreign project" || scenario === "fully foreign") {
+        sessionProjectId = await ctx.db.insert("projects", {
+          title: "Other project",
+          clientName: "Other client",
+          status: "review",
+          createdBy: userId,
+          shareToken: "other-snapshot-token",
+          createdAt,
+          updatedAt: createdAt,
+        });
+      }
+      if (scenario === "foreign report" || scenario === "fully foreign") {
+        sessionReportId = await ctx.db.insert("reports", {
+          projectId: sessionProjectId,
+          content: "Other report",
+          version: 1,
+          generatedAt: createdAt,
+          updatedAt: createdAt,
+        });
+      }
+      let researchSessionId: Id<"researchSessions"> | undefined;
+      if (scenario !== "no session") {
+        researchSessionId = await ctx.db.insert("researchSessions", {
+          projectId: sessionProjectId,
+          reportId: sessionReportId,
+          requestedBy: userId,
+          selectedText: "Report content",
+          selectionFrom: 0,
+          selectionTo: 14,
+          surroundingContext: CONTENT,
+          instruction: "Back this with sources",
+          externalBrief: "Redacted brief",
+          reportRevisionNumber: 7,
+          status: "completed",
+          evidenceSourceCount: count,
+          createdAt,
+          updatedAt: createdAt,
+        });
+        if (scenario === "missing session") await ctx.db.delete(researchSessionId);
+      }
+      const snapshotId = await writePreEditSnapshot(ctx, report, reason, {
+        createdAt,
         researchSessionId,
+      });
+      return {
+        snapshotId,
+        researchSessionId,
+        provenanceId,
+        originalReport: report,
       };
     });
 
-    expect(snapshot.row).toMatchObject({
-      reason: "pre_chat_edit",
-      label: "Before researched edit",
+    // Read after the writer's transaction commits to verify persisted history.
+    const { row, report } = await raw.run(async (ctx) => ({
+      row: await ctx.db.get(snapshot.snapshotId),
+      report: await ctx.db.get(reportId),
+    }));
+    expect(row).toMatchObject({
+      projectId,
+      reportId,
+      reason,
       createdByRole: "system",
       content: CONTENT,
-      sourceRevisionNumber: 0,
-      createdAt: 1_700_000_000_000,
-      researchSessionId: snapshot.researchSessionId,
-      researchSourceCount: 3,
-    });
-    // Dropping the audit-field spread is the refactor's main regression risk,
-    // so pin the lineage against both the helper and the fixture's own ids.
-    expect(snapshot.row).toMatchObject({
-      contentHash: await sha256(CONTENT),
+      contentHash,
+      sourceRevisionNumber: 7,
+      createdAt,
+      provenanceId: snapshot.provenanceId,
       generationId,
       sourceTranscriptId: transcriptIds[0],
       sourceTranscriptIds: transcriptIds,
     });
-    expect(snapshot.expectedAudit).toMatchObject({
-      contentHash: await sha256(CONTENT),
-      generationId,
-      sourceTranscriptId: transcriptIds[0],
-      sourceTranscriptIds: transcriptIds,
-    });
-  });
-
-  it("keeps the research label and falls back to zero sources when the session is gone", async () => {
-    const { raw, reportId, userId } = await setup();
-
-    const row = await raw.run(async (ctx) => {
-      const report = (await ctx.db.get(reportId))!;
-      const researchSessionId = await ctx.db.insert("researchSessions", {
-        projectId: report.projectId,
-        reportId,
-        requestedBy: userId,
-        selectedText: "Report content",
-        selectionFrom: 0,
-        selectionTo: 14,
-        surroundingContext: CONTENT,
-        instruction: "Back this with sources",
-        externalBrief: "Redacted brief",
-        reportRevisionNumber: 0,
-        status: "completed",
-        evidenceSourceCount: 3,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+    expect(report).toEqual(snapshot.originalReport);
+    expect.soft(row?.label).toBe(valid ? "Before researched edit" : defaultLabel);
+    if (valid) {
+      expect(row).toMatchObject({
+        researchSessionId: snapshot.researchSessionId,
+        researchSourceCount: count,
       });
-      // The proposal still points at the session; the row itself is gone.
-      await ctx.db.delete(researchSessionId);
-      const id = await writePreEditSnapshot(ctx, report, "pre_chat_edit", {
-        createdAt: 1_700_000_000_002,
-        researchSessionId,
-      });
-      return { row: await ctx.db.get(id), researchSessionId };
-    });
-
-    // Matches the pre-refactor `applyProposal` behaviour: the trail is kept,
-    // the count degrades to 0 rather than throwing.
-    expect(row.row).toMatchObject({
-      label: "Before researched edit",
-      researchSessionId: row.researchSessionId,
-      researchSourceCount: 0,
-    });
-  });
-
-  it("defaults the label per reason, omits research fields, and still audits", async () => {
-    const { raw, reportId, generationId, transcriptIds } = await setup();
-
-    const row = await raw.run(async (ctx) => {
-      const report = (await ctx.db.get(reportId))!;
-      const id = await writePreEditSnapshot(ctx, report, "pre_client_edit", {
-        createdAt: 1_700_000_000_001,
-      });
-      return await ctx.db.get(id);
-    });
-
-    expect(row).toMatchObject({
-      reason: "pre_client_edit",
-      label: "Before client edit",
-      createdAt: 1_700_000_000_001,
-      contentHash: await sha256(CONTENT),
-      generationId,
-      sourceTranscriptId: transcriptIds[0],
-      sourceTranscriptIds: transcriptIds,
-    });
-    expect(row?.researchSessionId).toBeUndefined();
-    expect(row?.researchSourceCount).toBeUndefined();
+    } else {
+      expect.soft(row).not.toHaveProperty("researchSessionId");
+      expect.soft(row).not.toHaveProperty("researchSourceCount");
+    }
   });
 });
 
