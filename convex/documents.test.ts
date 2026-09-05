@@ -469,6 +469,78 @@ describe("uploadDocument processing status", () => {
     expect(stored?.processingStatus).toBe("could_not_read");
     expect(stored?.processingDetail).toBe("no_text_extracted");
   });
+
+  test("empty and whitespace uploads keep document reads constant", async () => {
+    const measure = async (content: string, existingCount: number) => {
+      const { t, projectId, writer } = await setup();
+      await t.run(async (ctx) => {
+        const project = await ctx.db.get(projectId);
+        if (!project) throw new Error("fixture project is missing");
+        for (let i = 0; i < existingCount; i++) {
+          await ctx.db.insert("projectDocuments", {
+            projectId,
+            fileName: `supporting-${i}.txt`,
+            fileType: "txt",
+            content: "a".repeat(100_000),
+            source: "test",
+            uploadedBy: project.createdBy,
+            createdAt: i + 1,
+          });
+        }
+      });
+      // The measured upload runs in its own transaction, so the seeding above
+      // and the verification read below are not counted against it.
+      const measured = await writer.mutation(async (ctx) => {
+        const documentId = await ctx.runMutation(api.documents.uploadDocument, {
+          projectId,
+          fileName: "image.png",
+          fileType: "image",
+          content,
+        });
+        return { documentId, metrics: await ctx.meta.getTransactionMetrics() };
+      });
+      const stored = await t.run(async (ctx) => await ctx.db.get(measured.documentId));
+      return { metrics: measured.metrics, stored };
+    };
+
+    const bytesByContent = new Map<string, number[]>();
+    for (const content of ["", " \n\t "]) {
+      for (const existingCount of [0, 3]) {
+        const { metrics, stored } = await measure(content, existingCount);
+        expect(metrics.databaseQueries.used).toBe(2);
+        expect(metrics.documentsRead.used).toBe(2);
+        expect(stored?.content).toBe(content);
+        bytesByContent.set(content, [
+          ...(bytesByContent.get(content) ?? []),
+          metrics.bytesRead.used,
+        ]);
+      }
+    }
+    for (const [content, [withoutSupporting, withSupporting]] of bytesByContent) {
+      expect([content, withSupporting]).toEqual([content, withoutSupporting]);
+    }
+  });
+
+  test("an unauthenticated blank upload is still rejected and stores nothing", async () => {
+    const { t, projectId } = await setup();
+    for (const content of ["", " \n\t "]) {
+      await expect(
+        t.mutation(api.documents.uploadDocument, {
+          projectId,
+          fileName: "blank.txt",
+          fileType: "txt",
+          content,
+        })
+      ).rejects.toThrow();
+    }
+    const rows = await t.run(async (ctx) =>
+      await ctx.db
+        .query("projectDocuments")
+        .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+        .collect()
+    );
+    expect(rows).toHaveLength(0);
+  });
 });
 
 describe("listDocuments", () => {
