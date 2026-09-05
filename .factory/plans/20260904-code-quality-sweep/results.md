@@ -1,6 +1,6 @@
 # Code quality sweep results
 
-**IN PROGRESS.** Snapshot: 2026-09-05. Three of the eleven sweep tickets are marked done; eight remain pending. This draft records completed changes and their evidence, not final approval of the combined branch. No final CI or live end-to-end outcome is claimed.
+**IN PROGRESS.** Snapshot: 2026-09-05. Four of the eleven sweep tickets are marked done; seven remain pending. This draft records completed changes and their evidence, not final approval of the combined branch. No final CI or live end-to-end outcome is claimed.
 
 The sweep found useful tests outside the normal runner, unused code, repeatable parser/editor/database waste, and verification instructions that no longer matched the app. The completed work removes nine abandoned components and reduces work in three measured paths. The remaining tickets address the test inventory, further deletions, the failing browser baseline, and the shared verification command.
 
@@ -11,6 +11,7 @@ The sweep found useful tests outside the normal runner, unused code, repeatable 
 | `perf-1-parser-timers-editor-index` | Clears deadline timers after settlement; builds one editor search index per proposal batch and none for empty batches. | Baseline-failing timer/count assertions, preserved match ranges, repeated CPU benchmark, and four passing Chromium/Tiptap component cases. Evidence: `.audit/perf-1-parser-timers-editor-index/evidence.md`. |
 | `perf-2-empty-upload-reads` | Empty and whitespace-only uploads skip the existing-document scan. Nonempty dedupe and authorization stay unchanged. | Actual registered Convex mutation, public transaction metrics, two runs before and after, baseline-failing named regression test; 35 targeted tests pass. Evidence: `.audit/perf-2-empty-upload-reads/evidence.md`. |
 | `slop-1-dead-components` | Deletes nine unreachable component files: **810 lines removed, zero inserted**. Live comment and editor components remain. | Reference sweep, build and gate pass; the same nine component suites and 24 cases pass before and after. Evidence: `.audit/slop-1-dead-components/evidence.md`. |
+| `proof-1-parser-budget-sequence` | Corrects the existing parser fixture to prove sequential 20/40-second phases and the cumulative 60-second deadline; clarifies one Editor test title. | Eager negative control fails at the intended assertion; parser 19/19, Editor 4/4 and the full gate pass. No new tests or production changes. Evidence: `.audit/proof-1-parser-budget-sequence/evidence.md`. |
 
 ## Measured performance
 
@@ -24,13 +25,12 @@ The sweep found useful tests outside the normal runner, unused code, repeatable 
 
 Editor measurements compare `184d376` with `f82f2b0`; the baseline source matches the sweep starting revision `11bfe3e`. Upload measurements compare `9d7f102` with production change `18f383c`; the baseline `convex/documents.ts` hash also matches `11bfe3e`. These are the measured revisions, not a claim about the final integration revision.
 
-One proof correction remains explicit: the original parser budget fixture eagerly started two 20-second promises together. It checks the absolute 60-second deadline but does not prove sequential 20/40-second phases. `proof-1` corrects that test fixture and asserts both phases; it does not change the approved production optimization. Editor browser tests mount real components and call their exported functions; they are component integration evidence, not an authenticated user journey.
+The parser proof correction is complete: the original fixture eagerly started two 20-second promises together; `proof-1` now starts page text lazily and proves sequential 20/40-second phases before the absolute 60-second deadline. Its eager negative control fails at the intended phase assertion. QA independently reran the passing suites and inspected the recorded negative control, but could not make its own temporary eager edit under the allowlist. The production optimization is unchanged. Editor browser tests mount real components and call their exported functions; they are component integration evidence, not an authenticated user journey.
 
 ## Pending tickets
 
 | Ticket | Remaining outcome |
 | --- | --- |
-| `proof-1-parser-budget-sequence` | Prove sequential parser phases and clarify the Editor test title. |
 | `slop-2-dead-helpers-and-deps` | Remove test-only helpers, four unused dependencies and the duplicate underline extension registration. |
 | `slop-3-mywork-island` | Remove eight files belonging to retired My Work presentation and its tests. |
 | `tests-1-one-runner` | Bring useful orphan pure tests into Vitest with an explicit mapping for retired coverage. |
