@@ -252,6 +252,40 @@ async function duplicateTargetParagraph(f: Fixture) {
   });
 }
 
+describe("listProposals reader roles", () => {
+  test.each([
+    ["Manager", "manager"],
+    ["Admin", "admin"],
+    ["unrelated eligible writer", "writer"],
+  ] as const)("returns the persisted proposal to %s", async (_label, role) => {
+    const f = await setup();
+    const readerAuthId = `cpa-reader-${role}`;
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("users", { authId: readerAuthId, role });
+      await ctx.db.insert("agentChatThreads", {
+        projectId: f.projectId,
+        reportId: f.pinnedReportId,
+        agentThreadId: "cpa-thread",
+        title: "Proposal readers",
+        createdAt: Date.now(),
+      });
+      await ctx.db.insert("chatTurns", {
+        agentThreadId: "cpa-thread",
+        promptMessageId: "cpa-prompt",
+        order: 0,
+        status: "completed",
+        stepCount: 0,
+      });
+    });
+
+    const proposals = await f.t
+      .withIdentity({ subject: readerAuthId })
+      .query(api.chatV2.listProposals, { threadId: "cpa-thread" });
+
+    expect(proposals.map((proposal) => proposal._id)).toEqual([f.proposalId]);
+  });
+});
+
 describe("applyProposal writes the pinned report and its audit tuple", () => {
   test("edits the pinned report, leaves the project's newest report untouched", async () => {
     const f = await setup();
@@ -402,7 +436,13 @@ describe("applyProposal writes the pinned report and its audit tuple", () => {
     });
     expect(result).toEqual({ applied: true, count: 2 });
     const pinned = await reportRow(f, f.pinnedReportId);
-    expect(pinned?.content).toContain("Update this approved replacement.");
+    expect(pinned?.content).toBe(JSON.stringify({
+      type: "doc",
+      content: [{
+        type: "paragraph",
+        content: [{ type: "text", text: "Update this approved replacement." }],
+      }],
+    }));
     expect(pinned?.revisionNumber).toBe(8);
   });
 });
@@ -628,6 +668,17 @@ async function liveTurn() {
 }
 
 describe("saveProposal on a live turn", () => {
+  beforeEach(() => {
+    // sendMessage queues streamChatReply; proposal tests must leave it queued.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-25T12:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
   test("rejects a target copied from an unapplied candidate", async () => {
     const { t, sent, proposals } = await liveTurn();
 

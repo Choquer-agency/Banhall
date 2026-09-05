@@ -3,7 +3,7 @@ key: tests-2-real-proposal-access-roster-tests
 status: todo
 kind: refactor
 deps: [tests-1-one-runner]
-touches: [convex, tests]
+touches: [convex, tests, vitest.config.ts]
 risky: []
 verify: [npx vitest run convex/chatProposalsApply.test.ts convex/projectAccess.test.ts convex/users.test.ts tests/teamRoster.test.ts]
 done_when: [test -f convex/chatProposalsApply.test.ts, "rg -q 'updateProposalWording' convex/chatProposalsApply.test.ts", "rg -q 'rejectProposal' convex/chatProposalsApply.test.ts", "rg -q 'getTeamRosterMemberOrNull' convex/users.test.ts", ! test -e tests/chatProposals.test.ts, ! test -e tests/projectReviewAccess.test.ts, "! rg -q 'MutationCtx|QueryCtx' tests/teamRoster.test.ts", npx vitest run convex/chatProposalsApply.test.ts convex/projectAccess.test.ts convex/users.test.ts tests/teamRoster.test.ts]
@@ -11,10 +11,9 @@ title: "The proposal, project-access and roster scenarios from the two fake-db s
 plan: 20260904-code-quality-sweep
 deferred:
   - "Concurrent apply of two proposals targeting the same paragraph: out of scope per the ticket's edge-case list, and not cheap with the current seeding (it needs two pending proposals whose replacements overlap plus a second in-flight mutation, which convex-test serialises)."
-  - "listProposals per-role read parity (old tests/chatProposals.test.ts:541-569) is left as covered rather than ported: the endpoint gates only on requireInternalProjectAccess (convex/chatV2.ts:174), already proven at convex/reportAuthz.test.ts:265, convex/projectAccess.test.ts:125 and convex/chatTurns.test.ts:1509,1532."
   - "convex/lib/auth.ts:66 requireProjectCreator is now callerless and untested; the ticket forbids testing or repurposing it, so retiring the helper itself is a separate decision (inventory #13)."
 ui: false
-updated: "2026-09-05T08:15:53.310Z"
+updated: "2026-09-05T08:37:16.194Z"
 ---
 ## Intent
 For the maintainer of `convex/chatV2.ts` and `convex/lib/teamRoster.ts`: the behaviours the old bun suites protected are pinned by tests that run in the gate and drive the real functions, and the handmade database that mirrored the implementation is gone. `tests/chatProposals.test.ts` (821 lines) invokes `applyProposal`, `updateProposalWording`, `rejectProposal` and `saveProposal`; the current `convex/chatProposals.test.ts:176-336` invokes `markProposalApplied`, a different endpoint, so nothing in the gate proves pinned-report isolation, unique-target gates, stale-then-retry, replay, deletion-only and ordered replacement, wording audit events, or the reject permission table (`orphan-test-map.md:26-47`). Nine of the ten failing old cases fail because the fixture lacks current tables or turn state, not because the behaviour changed; only "unrelated writer may apply" (`:777`) is a dead contract (`roleCapabilities.ts:75-104`; `docs/product-domain.md:188,1458`). `tests/projectReviewAccess.test.ts` is mostly covered by `convex/reportAuthz.test.ts:248-316` and `convex/projectAccess.test.ts:96-181`. `tests/teamRoster.test.ts:56,71` prove roster eligibility through a fake ctx; `api.users.listTeam` does not call `getTeamRosterMemberOrNull`, whose real callers are project creation (`convex/projects.ts:687`), reassignment (`projectWorkflow.ts:279`, `ownerBackfill.ts:384`) and `eligibleOwner.ts:9`. Principle: [16 prove it works] against the real artifact; [3 redesign from first principles]: a real fixture, not a second fake.
@@ -55,3 +54,26 @@ The configured QA tool allowlist permits the verification commands but denies Ed
 Run each verification command exactly as listed before trying shell additions. Pipes, redirects, an appended echo, or a redundant rm command can make an otherwise allowed command fail the QA tool check. Use the tool result or engine gates file for the exit status. Bare npm ci already replaces an existing node_modules directory. Run dependency installation before, and never concurrently with, tests or builds in that worktree.
 
 Baseline count correction: the four rows of the internal-access test.each plus six standalone cases total ten passing projectReviewAccess cases, not six. Root reran the unchanged file on 2026-09-05; project-access-pin-count.log in the plan directory records 10 pass/0 fail. Together, 84 original pure-suite cases (83 retained plus the one retired snapshot case), 22 proposal cases and 10 access cases reconcile the original 116-case Bun baseline. Keep scenario mapping based on behavior and include every parameterized actor.
+
+## Independent review correction (2026-09-05)
+
+Before acceptance, preserve all three positive listProposals reader-role cases from the deleted suite: Manager, Admin and unrelated eligible writer. Call the actual query with a real agentChatThreads mapping and persisted proposal, and assert that proposal ID is returned. Existing creator, roleless and anonymous cases do not cover these positive actors. Supersede the incorrect covered mapping in decisions.tsv with ported rows. Freeze scheduled jobs around the sendMessage live-turn fixture with the existing fake-timer convention and clear pending timers before restoring real timers; never drain the streaming job or add provider mocks to hide accidental execution. The ordered replacement assertion must compare exact final editor JSON or full prose, not only a fragment. These corrections fulfill AC1, AC4 and AC6 without product changes.
+
+Scope clarification: removing only the two temporary by-name Vitest exclusions alongside their deleted files is approved in this ticket. Open-PR overlap was rechecked on 2026-09-05 at 08:36 UTC: no open PRs. tests-3 AC1 verifies their absence and need not recreate or re-delete them. No other Vitest project behavior is changed.
+
+## Correction result (2026-09-05)
+
+The three positive reader actors now query the actual endpoint through persisted
+thread, turn and proposal rows and assert the proposal ID. The live-turn proposal
+cases freeze scheduling and clear pending timers before restoring real timers.
+The ordered replacement case compares the complete expected editor JSON. The
+38-test targeted suite, all ticket predicates and the full 1516-test gate pass.
+
+The resolved reader-parity item was removed from the current deferred list after
+root clarification. Its original wording is preserved here as historical evidence:
+
+> listProposals per-role read parity (old tests/chatProposals.test.ts:541-569) is left as covered rather than ported: the endpoint gates only on requireInternalProjectAccess (convex/chatV2.ts:174), already proven at convex/reportAuthz.test.ts:265, convex/projectAccess.test.ts:125 and convex/chatTurns.test.ts:1509,1532.
+
+That earlier coverage claim is superseded by the three ported reader rows in
+`.audit/tests-2-real-proposal-access-roster-tests/decisions.tsv`. Only the two
+unchanged concurrent-apply and callerless-helper items remain deferred.
