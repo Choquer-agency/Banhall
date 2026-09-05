@@ -1,0 +1,7 @@
+{
+  "convex/chatFeedback.ts": "3add4b42c7cf8ca141fcd78ccaccc6fe117d2599ed3d66e565fe556520914add",
+  "convex/chatFeedbackReadLimits.test.ts": "0fc3835aff7b4b3a65421366e487b3a7d4b179b2943bcd21de0cf3ea906c1b77",
+  "vitest.config.ts": "46f1a8f3856809d72340bcba349bb2712dc6591c1c73494ffe7db18b845ec951",
+  "vitest.component.config.ts": "5a1000bff4f304306bc754684dc8f9e392e3f4f1beb8f729071e4146524f4aa0",
+  "package-lock.json": "d4213ef7b50aa850ea095dbe6c65b35306ae7589a90073c0e377147421a33dac"
+}

@@ -1,0 +1,26 @@
+{
+  "convex/ai/chatAgentV2.ts": {
+    "baseline": "78ac113a0ec1c16295364e0f1d0478114fbff0601e36f48cb25fe74551072e30",
+    "current": "78ac113a0ec1c16295364e0f1d0478114fbff0601e36f48cb25fe74551072e30"
+  },
+  "convex/chatV2.ts": {
+    "baseline": "59b9db036d6e181414ff9a0553e710bf4419fe7287709fdc3d717b427b6e0fe5",
+    "current": "59b9db036d6e181414ff9a0553e710bf4419fe7287709fdc3d717b427b6e0fe5"
+  },
+  "convex/lib/auth.ts": {
+    "baseline": "02893a5da10e7ee79c15299f5f4e0d773b7705d758ba8f019abf2c62e7fd9197",
+    "current": "02893a5da10e7ee79c15299f5f4e0d773b7705d758ba8f019abf2c62e7fd9197"
+  },
+  "convex/schema.ts": {
+    "baseline": "412e55a8dbdc56304ae4b6780a1edc6d4902e19f38df3cd2e3070cfc9f1529ea",
+    "current": "412e55a8dbdc56304ae4b6780a1edc6d4902e19f38df3cd2e3070cfc9f1529ea"
+  },
+  "convex/_generated/api.d.ts": {
+    "baseline": "c211c99fc5f5a4ccbdc0c6d51ef87133872a82ebd55b67cf5064ade8b3f7edb4",
+    "current": "c211c99fc5f5a4ccbdc0c6d51ef87133872a82ebd55b67cf5064ade8b3f7edb4"
+  },
+  "_bmad-output/implementation-artifacts/deferred-work.md": {
+    "baseline": "a6e56c0d5b0e44705d619f71ffee95cb373bdc97015ab2c67c3c09b62e12c6e6",
+    "current": "a6e56c0d5b0e44705d619f71ffee95cb373bdc97015ab2c67c3c09b62e12c6e6"
+  }
+}

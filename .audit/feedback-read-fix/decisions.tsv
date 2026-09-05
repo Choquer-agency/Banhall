@@ -1,0 +1,5 @@
+ts	phase	decision	why	evidence	result
+2026-09-05T11:54:16.310832+00:00	plan	Use1-row then bounded99-row continuation	Preserve latest text selection without eager history	spec.md	Two calls and100 rows maximum
+2026-09-05T11:54:16.310997+00:00	verification	Actual panel80 query and enforced component limits	Prove small visible answer can be rated with valid long history	before.log	Baseline failure preserved
+2026-09-05T11:54:16.311004+00:00	runtime	Render from seeded private BMAD runtime	Prevent further original-checkout runtime writes	_bmad/render/bmad-build/banhall-bmad-feedback-read-fix-cd9a1729ca14/4868f7c491d236e1042b/workflow.md	Successful exact renderer entry
+2026-09-05T12:03:19.322752+00:00	review	Resolve two independent regression gaps	Protect cross-turn continuation and merged-stream exhaustion	review-triage.md	Focused25/2 pass
