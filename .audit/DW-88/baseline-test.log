@@ -1,0 +1,129 @@
+
+> banhall-app@0.1.0 test
+> vitest run convex/ai/research/core.test.ts
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-research-phone-redaction-boundary
+
+ ❯ |convex| convex/ai/research/core.test.ts (35 tests | 7 failed) 15ms
+       × consumes the complete phone in (613) 555-0134 6ms
+       × consumes the complete phone in Call (613) 555-0134 today. 1ms
+       × consumes the complete phone in Contact:(613) 555-0134! 0ms
+       × consumes the complete phone in +1 (613) 555-0134 0ms
+       × consumes the complete phone in +16135550134 0ms
+       × consumes the complete phone in (613)5550134; +1-604-555-0199 1ms
+     × redacts the complete parenthesized phone in the outbound selected passage 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/ai/research/core.test.ts > Contextual Research core > research redaction > consumes the complete phone in (613) 555-0134
+AssertionError: expected '([redacted phone]' to be '[redacted phone]' // Object.is equality
+
+Expected: "[redacted phone]"
+Received: "([redacted phone]"
+
+ ❯ convex/ai/research/core.test.ts:29:45
+     27|       ["(613)5550134; +1-604-555-0199", "[redacted phone]; [redacted p…
+     28|     ])("consumes the complete phone in %s", (input, expected) => {
+     29|       expect(redactExternalText(input, [])).toBe(expected);
+       |                                             ^
+     30|     });
+     31|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  |convex| convex/ai/research/core.test.ts > Contextual Research core > research redaction > consumes the complete phone in Call (613) 555-0134 today.
+AssertionError: expected 'Call ([redacted phone] today.' to be 'Call [redacted phone] today.' // Object.is equality
+
+Expected: "Call [redacted phone] today."
+Received: "Call ([redacted phone] today."
+
+ ❯ convex/ai/research/core.test.ts:29:45
+     27|       ["(613)5550134; +1-604-555-0199", "[redacted phone]; [redacted p…
+     28|     ])("consumes the complete phone in %s", (input, expected) => {
+     29|       expect(redactExternalText(input, [])).toBe(expected);
+       |                                             ^
+     30|     });
+     31|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  |convex| convex/ai/research/core.test.ts > Contextual Research core > research redaction > consumes the complete phone in Contact:(613) 555-0134!
+AssertionError: expected 'Contact:([redacted phone]!' to be 'Contact:[redacted phone]!' // Object.is equality
+
+Expected: "Contact:[redacted phone]!"
+Received: "Contact:([redacted phone]!"
+
+ ❯ convex/ai/research/core.test.ts:29:45
+     27|       ["(613)5550134; +1-604-555-0199", "[redacted phone]; [redacted p…
+     28|     ])("consumes the complete phone in %s", (input, expected) => {
+     29|       expect(redactExternalText(input, [])).toBe(expected);
+       |                                             ^
+     30|     });
+     31|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  |convex| convex/ai/research/core.test.ts > Contextual Research core > research redaction > consumes the complete phone in +1 (613) 555-0134
+ FAIL  |convex| convex/ai/research/core.test.ts > Contextual Research core > research redaction > consumes the complete phone in +16135550134
+AssertionError: expected '+[redacted phone]' to be '[redacted phone]' // Object.is equality
+
+Expected: "[redacted phone]"
+Received: "+[redacted phone]"
+
+ ❯ convex/ai/research/core.test.ts:29:45
+     27|       ["(613)5550134; +1-604-555-0199", "[redacted phone]; [redacted p…
+     28|     ])("consumes the complete phone in %s", (input, expected) => {
+     29|       expect(redactExternalText(input, [])).toBe(expected);
+       |                                             ^
+     30|     });
+     31|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  |convex| convex/ai/research/core.test.ts > Contextual Research core > research redaction > consumes the complete phone in (613)5550134; +1-604-555-0199
+AssertionError: expected '([redacted phone]; +[redacted phone]' to be '[redacted phone]; [redacted phone]' // Object.is equality
+
+Expected: "[redacted phone]; [redacted phone]"
+Received: "([redacted phone]; +[redacted phone]"
+
+ ❯ convex/ai/research/core.test.ts:29:45
+     27|       ["(613)5550134; +1-604-555-0199", "[redacted phone]; [redacted p…
+     28|     ])("consumes the complete phone in %s", (input, expected) => {
+     29|       expect(redactExternalText(input, [])).toBe(expected);
+       |                                             ^
+     30|     });
+     31|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  |convex| convex/ai/research/core.test.ts > Contextual Research core > redacts the complete parenthesized phone in the outbound selected passage
+AssertionError: expected 'Research objective:\nFind the scienti…' to contain 'Selected report passage:\nCall [redac…'
+
+- Expected
++ Received
+
++ Research objective:
++ Find the scientific baseline.
++
+  Selected report passage:
+- Call [redacted phone] about the cultivar trial.
++ Call ([redacted phone] about the cultivar trial.
++
++ Boundary: Research only general external knowledge. Do not infer or assert what the client built, tested, observed, achieved, or concluded.
+
+ ❯ convex/ai/research/core.test.ts:74:19
+     72|     });
+     73|
+     74|     expect(brief).toContain("Selected report passage:\nCall [redacted …
+       |                   ^
+     75|     expect(brief).not.toContain("([redacted phone]");
+     76|     expect(brief).not.toMatch(/[()\d]/);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  7 failed | 28 passed (35)
+   Start at  18:33:34
+   Duration  265ms (transform 46ms, setup 0ms, import 61ms, tests 15ms, environment 43ms)

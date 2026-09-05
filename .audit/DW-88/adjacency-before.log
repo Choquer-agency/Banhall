@@ -1,0 +1,50 @@
+
+> banhall-app@0.1.0 test
+> vitest run convex/ai/research/core.test.ts
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-research-phone-redaction-boundary
+
+ ❯ |convex| convex/ai/research/core.test.ts (37 tests | 2 failed) 12ms
+       × consumes the complete phone in Call(613) 555-0134 today. 5ms
+       × consumes the complete phone in Call+16135550134 today. 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/ai/research/core.test.ts > Contextual Research core > research redaction > consumes the complete phone in Call(613) 555-0134 today.
+AssertionError: expected 'Call([redacted phone] today.' to be 'Call[redacted phone] today.' // Object.is equality
+
+Expected: "Call[redacted phone] today."
+Received: "Call([redacted phone] today."
+
+ ❯ convex/ai/research/core.test.ts:31:45
+     29|       ["(613)5550134; +1-604-555-0199", "[redacted phone]; [redacted p…
+     30|     ])("consumes the complete phone in %s", (input, expected) => {
+     31|       expect(redactExternalText(input, [])).toBe(expected);
+       |                                             ^
+     32|     });
+     33|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |convex| convex/ai/research/core.test.ts > Contextual Research core > research redaction > consumes the complete phone in Call+16135550134 today.
+AssertionError: expected 'Call+[redacted phone] today.' to be 'Call[redacted phone] today.' // Object.is equality
+
+Expected: "Call[redacted phone] today."
+Received: "Call+[redacted phone] today."
+
+ ❯ convex/ai/research/core.test.ts:31:45
+     29|       ["(613)5550134; +1-604-555-0199", "[redacted phone]; [redacted p…
+     30|     ])("consumes the complete phone in %s", (input, expected) => {
+     31|       expect(redactExternalText(input, [])).toBe(expected);
+       |                                             ^
+     32|     });
+     33|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 35 passed (37)
+   Start at  18:38:17
+   Duration  251ms (transform 52ms, setup 0ms, import 66ms, tests 12ms, environment 44ms)

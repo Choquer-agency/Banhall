@@ -1,0 +1,12 @@
+
+> banhall-app@0.1.0 test
+> vitest run convex/ai/research/core.test.ts
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-research-phone-redaction-boundary
+
+
+ Test Files  1 passed (1)
+      Tests  37 passed (37)
+   Start at  18:39:16
+   Duration  258ms (transform 45ms, setup 0ms, import 59ms, tests 8ms, environment 49ms)
