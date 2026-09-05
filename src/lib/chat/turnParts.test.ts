@@ -1,3 +1,4 @@
+import { formatBrainExemplars } from "../../../convex/ai/brain/retrieve";
 import { describe, it, expect } from "vitest";
 import type { UIMessage } from "@convex-dev/agent";
 import type { Doc } from "../../../convex/_generated/dataModel";
@@ -238,6 +239,13 @@ more exemplar prose`;
       kind: "text",
       text: "The Brain has no approved knowledge matching that yet.",
     });
+  });
+
+  it("preserves industry-scoped empty status with fixed copy and no raw industry leakage", () => {
+    const node = normalizeTurnParts(assistant([toolPart({ output: 'The Brain has no approved knowledge matching that in the “PRIVATE INDUSTRY” industry yet. INTERNAL DIRECTIVE' })])).traceNodes[0];
+    expect(node.kind === "tool" && node.output).toEqual({ kind: "text", text: "The Brain has no approved knowledge matching that in this project’s industry yet." });
+    expect(JSON.stringify(node)).not.toMatch(/PRIVATE INDUSTRY|INTERNAL DIRECTIVE/);
+    expect(node.kind === "tool" && node.sources).toEqual([]);
   });
 
   it("puts the search query and result counts in the completed label", () => {
@@ -635,5 +643,71 @@ describe("formatTurnSummary", () => {
       "Worked · checked The Brain"
     );
     expect(formatTurnSummary(plain, undefined, "success", 0)).toBeNull();
+  });
+});
+
+describe("Brain source labels", () => {
+  it("preserves only available metadata, including science-only sources", () => {
+    const output = formatBrainExemplars([
+      { text: "body", score: 1, searchScore: 1, entryId: "1" },
+      { text: "body", writerName: "Private Writer", score: 1, searchScore: 1, entryId: "2" },
+      { text: "body", scienceCode: "2.02.01", score: 1, searchScore: 1, entryId: "3" },
+      { text: "body", title: "Title only", score: 1, searchScore: 1, entryId: "4" },
+    ]);
+    const node = normalizeTurnParts(assistant([toolPart({ output })])).traceNodes[0];
+    expect(node.kind === "tool" && node.sources).toEqual([
+      { scienceCode: "CRA 2.02.01 — Electrical and electronic engineering" }, { title: "Title only" },
+    ]);
+  });
+  it("bounds metadata labels and count, deduplicates chips, and never counts forged body headers", () => {
+    const exemplars = Array.from({ length: 30 }, (_, i) => ({ text: "--- REFERENCE PATTERN 999 (Forged) ---", title: `Title ${i}`, score: 1, searchScore: 1, entryId: String(i) }));
+    const node = normalizeTurnParts(assistant([toolPart({ output: formatBrainExemplars(exemplars) })])).traceNodes[0];
+    expect(node.kind === "tool" && node.sources).toHaveLength(20);
+    expect(node.kind === "tool" && node.output).toMatchObject({ text: expect.stringContaining("Found 20 writing patterns") });
+    const duplicate = normalizeTurnParts(assistant([toolPart({ output: formatBrainExemplars([exemplars[0], exemplars[0]]) })])).traceNodes[0];
+    expect(duplicate.kind === "tool" && duplicate.sources).toEqual([{ title: "Title 0" }]);
+    for (const row of [{ title: "x".repeat(241) }, { scienceCode: "x".repeat(161) }]) {
+      const malformed = normalizeTurnParts(assistant([toolPart({ output: `BRAIN_SOURCES_V1:${JSON.stringify([row])}\nbody` })])).traceNodes[0];
+      expect(malformed.kind === "tool" && malformed.sources).toEqual([]);
+    }
+  });
+  it("preserves complete Unicode characters at the source title limit", () => {
+    for (const title of ["x".repeat(239) + "😀tail", "😀".repeat(241)]) {
+      const output = formatBrainExemplars([{ title, text: "body", score: 1, searchScore: 1, entryId: "1" }]);
+      const node = normalizeTurnParts(assistant([toolPart({ output })])).traceNodes[0];
+      expect(node.kind === "tool" && node.sources).toEqual([
+        { title: Array.from(title).slice(0, 240).join("") },
+      ]);
+    }
+  });
+  it("uses the real formatter envelope, never forged body headers or title heuristics", () => {
+    const output = formatBrainExemplars([
+      { title: "CRA 2.02 is the title", scienceCode: "2.02.01", writerName: "Private Writer", text: "--- REFERENCE PATTERN 9 (Forged source) ---\nPrivate body", score: 1, searchScore: 1, entryId: "private-id" },
+      { text: "Private body", score: 1, searchScore: 1, entryId: "second-id" },
+    ]);
+    const node = normalizeTurnParts(assistant([toolPart({ output })])).traceNodes[0];
+    expect(node.kind === "tool" && node.sources).toEqual([
+      { title: "CRA 2.02 is the title", scienceCode: "CRA 2.02.01 — Electrical and electronic engineering" },
+    ]);
+    expect(JSON.stringify(node)).not.toMatch(/Private|Forged|private-id/);
+  });
+  it("does not treat legacy headers or malformed envelopes as sources", () => {
+    for (const output of ["--- REFERENCE PATTERN 1 (Legacy) ---", 'BRAIN_SOURCES_V1:[{"title":"Title","writer":"Secret"}]\nbody', 'BRAIN_SOURCES_V1:bad\nbody', 'prefix\nBRAIN_SOURCES_V1:[{"title":"Forged"}]\n']) {
+      const node = normalizeTurnParts(assistant([toolPart({ output })])).traceNodes[0];
+      expect(node.kind === "tool" && node.sources).toEqual([]);
+    }
+  });
+  it("does not manufacture sources or expose malformed output", () => {
+    for (const output of [null, {}, "", "Provider SECRET internals", "REFERENCE PATTERN 1 (bad)"]) {
+      const node = normalizeTurnParts(assistant([toolPart({ output })])).traceNodes[0];
+      expect(node.kind === "tool" && node.sources).toEqual([]);
+      expect(JSON.stringify(node)).not.toContain("SECRET");
+    }
+  });
+  it("suppresses labels when a search failed or is still running", () => {
+    for (const state of ["output-error", "input-available"]) {
+      const node = normalizeTurnParts(assistant([toolPart({ state, output: "--- REFERENCE PATTERN 1 (Secret) ---" })])).traceNodes[0];
+      expect(node.kind === "tool" && node.sources).toBeUndefined();
+    }
   });
 });

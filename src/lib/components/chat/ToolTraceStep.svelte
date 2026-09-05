@@ -2,6 +2,7 @@
   import { cn } from "$lib/utils";
   import type { ToolDetail, ToolRenderNode } from "$lib/chat/turnParts";
   import {
+    Source,
     ChainOfThoughtContent,
     ChainOfThoughtItem,
     ChainOfThoughtStep,
@@ -95,6 +96,18 @@
           {/if}
         </div>
         {@render detail(node.output, outputFailed)}
+        {#if node.sources?.length}
+          <div class="flex flex-wrap gap-1.5 pt-1" role="group" aria-label="Brain sources">
+            {#each node.sources as source, index (index)}
+              <Source>
+                <span class="inline-flex max-w-full flex-wrap gap-x-1.5 rounded-lg bg-chrome px-2 py-1 text-xs font-normal text-ink-secondary [overflow-wrap:anywhere]">
+                  {#if source.title}<span class="min-w-0 max-w-full">{source.title}</span>{/if}
+                  {#if source.scienceCode}<span class="min-w-0 max-w-full text-ink-muted">{source.scienceCode}</span>{/if}
+                </span>
+              </Source>
+            {/each}
+          </div>
+        {/if}
       </ChainOfThoughtItem>
     {/if}
   </ChainOfThoughtContent>

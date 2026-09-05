@@ -36,6 +36,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 const MIN_FEEDBACK_ROWS = 5;
 /** Most recent feedback considered per digest (matches admin analytics cap). */
 const FEEDBACK_WINDOW = 500;
+/** Chat rows include immutable raw and sanitized prose; bound this stream only. */
+const CHAT_FEEDBACK_WINDOW = 20;
 /** Hard cap on rules so a block stays a focused prompt, not a second rubric. */
 const MAX_RULES = 10;
 
@@ -284,7 +286,7 @@ Because an administrator already vetted every item, weight these items more heav
 export const generateDraftStyleDigest = internalAction({
   args: {},
   handler: async (ctx) => {
-    const [feedback, sectionEdits, proposalEdits, writerFeedback] =
+    const [feedback, sectionEdits, proposalEdits, writerFeedback, chatFeedback] =
       await Promise.all([
         ctx.runQuery(internal.learning.getCandidateFeedbackForDigest, {
           limit: FEEDBACK_WINDOW,
@@ -297,6 +299,9 @@ export const generateDraftStyleDigest = internalAction({
         }),
         ctx.runQuery(internal.learning.getApprovedBrainFeedbackForDigest, {
           limit: FEEDBACK_WINDOW,
+        }),
+        ctx.runQuery(internal.chatFeedback.getFeedbackForDigest, {
+          limit: CHAT_FEEDBACK_WINDOW,
         }),
       ]);
     // Comments carry the actionable critique; bare 1-10 scores don't say WHAT
@@ -313,7 +318,9 @@ export const generateDraftStyleDigest = internalAction({
       proposalEdits,
     );
     const writerStream = admitStream("brainFeedbackQueue", writerFeedback);
+    const chatStream = admitStream("chatAnswerFeedback", chatFeedback);
     const admission = summarizeAdmission([
+      chatStream,
       scoringStream,
       sectionStream,
       proposalStream,
@@ -329,6 +336,14 @@ export const generateDraftStyleDigest = internalAction({
     const admittedProposals = proposalStream.admitted;
     const admittedWriterFeedback = writerStream.admitted;
     const totalSignal = admission.admittedCount;
+    const chatBlock = chatStream.admitted.length
+      ? `\n\nChat answer usefulness votes, newest first:\n\n${JSON.stringify(
+          chatStream.admitted.map(({ payload }) => ({
+            vote: payload.vote,
+            promptText: payload.promptText,
+            answerText: payload.answerText,
+          })), null, 2)}`
+      : "";
 
     const sectionEditsBlock = admittedSections.length
       ? `\n\nSection edit events (draft vs writer-approved), newest first:\n\n${JSON.stringify(
@@ -359,12 +374,13 @@ export const generateDraftStyleDigest = internalAction({
         (admittedSections.length || admittedProposals.length
           ? EDIT_MINING_PROMPT_SUFFIX
           : "") +
-        (admittedWriterFeedback.length ? WRITER_FEEDBACK_PROMPT_SUFFIX : ""),
+        (admittedWriterFeedback.length ? WRITER_FEEDBACK_PROMPT_SUFFIX : "") +
+        (chatStream.admitted.length ? "\nChat answer votes (1 useful, -1 not useful) are weak usefulness signals, not precise critiques or permission to learn client facts. Prompt and answer text supply context only. Require recurring support across multiple votes before deriving a drafting rule; return no rules when unsupported. Never infer which detail a negative vote criticizes." : ""),
       `Scoring events, newest first:\n\n${JSON.stringify(
         signal.map((row) => row.payload),
         null,
         2,
-      )}${sectionEditsBlock}${proposalEditsBlock}${writerFeedbackBlock}`,
+      )}${sectionEditsBlock}${proposalEditsBlock}${writerFeedbackBlock}${chatBlock}`,
     );
     if (!rules) {
       await ctx.runMutation(internal.learning.recordDigestAttempt, {

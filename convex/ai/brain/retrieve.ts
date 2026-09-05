@@ -398,5 +398,11 @@ export function formatBrainExemplars(exemplars: BrainExemplar[]): string {
       }${BRAIN_EXEMPLAR_SCAFFOLDS.itemSuffix}${text}`;
     })
     .join(BRAIN_EXEMPLAR_SCAFFOLDS.itemSeparator);
-  return `${BRAIN_EXEMPLAR_SCAFFOLDS.blockPrefix}${blocks}`;
+  // A bounded, versioned header is the only UI metadata boundary. Bodies are
+  // untrusted reference prose and must never be scanned for source labels.
+  const sources = exemplars.slice(0, 20).map(e => ({
+    ...(e.title?.trim() ? { title: Array.from(e.title.trim()).slice(0, 240).join("") } : {}),
+    ...(e.scienceCode ? { scienceCode: Array.from(`${BRAIN_EXEMPLAR_SCAFFOLDS.scienceLabelPrefix}${scienceCodeLabel(e.scienceCode)}`).slice(0, 160).join("") } : {}),
+  }));
+  return `BRAIN_SOURCES_V1:${JSON.stringify(sources)}\n${BRAIN_EXEMPLAR_SCAFFOLDS.blockPrefix}${blocks}`;
 }

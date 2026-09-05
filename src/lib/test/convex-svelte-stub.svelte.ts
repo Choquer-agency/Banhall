@@ -10,12 +10,20 @@
  * subscribed query; collapsed client lanes holding zero subscriptions).
  */
 import { getFunctionName, type FunctionReference } from "convex/server";
+// Bypass the component config's package alias for opt-in lifecycle tests.
+import { useQuery as realUseQuery } from "../../../node_modules/convex-svelte/dist/client.svelte.js";
+
+const realQueryNames = new Set<string>();
+export function __useRealQuery(name: string) {
+  realQueryNames.add(name);
+}
 
 const registry = $state<{
   queries: Record<string, unknown>;
+  errors: Record<string, unknown>;
   pages: Record<string, unknown[]>;
   queryVariants: Record<string, Record<string, unknown>>;
-}>({ queries: {}, pages: {}, queryVariants: {} });
+}>({ queries: {}, errors: {}, pages: {}, queryVariants: {} });
 
 // Mutation/action calls a suite can assert on, plus the value each one
 // resolves with — a wizard that destructures its mutation result needs one.
@@ -39,6 +47,11 @@ function registerGetter(name: string, getArgs: (() => unknown) | undefined) {
 
 export function __setQueryData(name: string, data: unknown) {
   registry.queries[name] = data;
+  delete registry.errors[name];
+}
+
+export function __setQueryError(name: string, error: unknown) {
+  registry.errors[name] = error;
 }
 
 /** Seed an exact argument variant; unseeded variants retain the name-only fallback. */
@@ -78,7 +91,9 @@ export function __clientQueryCalls(name: string) {
 }
 
 export function __resetConvexStub() {
+  realQueryNames.clear();
   registry.queries = {};
+  registry.errors = {};
   registry.queryVariants = {};
   registry.pages = {};
   argsGetters.clear();
@@ -133,13 +148,20 @@ export function useQuery(query: FunctionReference<"query">, ...rest: unknown[]) 
   const name = getFunctionName(query);
   const getArgs = typeof rest[0] === "function" ? (rest[0] as () => unknown) : undefined;
   registerGetter(name, getArgs);
+  if (realQueryNames.has(name)) {
+    return realUseQuery(query, () => {
+      const args = getArgs?.();
+      if (args === "skip") return "skip";
+      return typeof args === "object" && args !== null && !Array.isArray(args) ? args : {};
+    });
+  }
   return {
     get data() {
       if (skipped(getArgs)) return undefined;
       return queryData(name, getArgs?.());
     },
     get error() {
-      return undefined;
+      return skipped(getArgs) ? undefined : registry.errors[name];
     },
     get isLoading() {
       if (skipped(getArgs)) return true;
