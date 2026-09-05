@@ -207,6 +207,59 @@ it("retains failed unsaved conversations across another New conversation and ret
   await expect.poll(() => __activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "new-thread" }]);
 });
 
+it("retries initial implicit A with creation intent after separate B succeeds", async () => {
+  const highlight = { from: 2, to: 8, text: "Initial A excerpt" };
+  const clear = vi.fn();
+  __setMutationError(sendName, new Error("Initial A failed before commit"));
+  await page.viewport(720, 850);
+  const view = await render(AgentChatPanel, { reportId, projectId, pendingHighlight: highlight, onClearHighlight: clear });
+  // No New conversation selection: this is the initial implicit draft.
+  await writeAndSend("Initial A");
+  await expect.element(retry()).toBeEnabled();
+  const key = localRows()[0].dataset.localRequest;
+  const originalArgs = __mutationCalls(sendName)[0];
+  await view.rerender({ pendingHighlight: null });
+  await navigate("New conversation");
+  expect(localRows()).toHaveLength(0);
+  const b = deferred();
+  await writeAndSend("Separate B");
+  b.resolve({ threadId: "thread-B", messageId: "message-B" });
+  await expect.poll(() => __activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "thread-B" }]);
+  __setQueryData("chatV2:listThreads", [{ _id: "mapping-B", agentThreadId: "thread-B", title: "Separate B" }]);
+  __setPaginatedRows("chatV2:listMessages", [row("message-B", "Separate B")]);
+  __setQueryData("chatV2:listTurns", [{ _id: "turn-B", promptMessageId: "message-B", order: 1, status: "completed", stepCount: 0 }]);
+  await expect.poll(() => localRows().length).toBe(0);
+  await composer().fill("Newer draft survives A retry");
+  await navigate("Unsent conversation 1: Initial A");
+  await expect.element(retry()).toBeEnabled();
+  expect(localRows()[0].dataset.localRequest).toBe(key);
+  await view.rerender({ pendingHighlight: { from: 20, to: 30, text: "Replacement excerpt" } });
+  await page.screenshot({ path: "../../../../.audit/DW-98-fix/implicit-A-retained.png" });
+  const clearsBeforeRetry = clear.mock.calls.length;
+  const a = deferred();
+  await retry().click();
+  expect(__mutationCalls(sendName)[2]).toEqual(originalArgs);
+  // Assert the API contract directly. The stub does not run backend fallback:
+  // chatV2.ts only bypasses latest B when captured newThread is explicit.
+  expect.soft(__mutationCalls(sendName)).toEqual([
+    { reportId, content: "Initial A", highlight, newThread: true },
+    { reportId, content: "Separate B", newThread: true },
+    { reportId, content: "Initial A", highlight, newThread: true },
+  ]);
+  a.resolve({ threadId: "thread-A", messageId: "message-A" });
+  await expect.poll(() => __activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "thread-A" }]);
+  await expect.poll(() => localRows()[0]?.dataset.sendState).toBe("published");
+  expect(localRows()[0].dataset.localRequest).toBe(key);
+  await expect.element(composer()).toHaveValue("Newer draft survives A retry");
+  expect(clear).toHaveBeenCalledTimes(clearsBeforeRetry);
+  __setPaginatedRows("chatV2:listMessages", [row("wrong-A-id", "Initial A")]);
+  await expect.element(page.getByText("Initial A", { exact: true }).first()).toBeVisible();
+  expect(localRows()).toHaveLength(1);
+  __setPaginatedRows("chatV2:listMessages", [row("message-A", "Initial A")]);
+  await expect.poll(() => localRows().length).toBe(0);
+  await expect.element(composer()).toHaveValue("Newer draft survives A retry");
+});
+
 it("does not steal a newer unsaved conversation when the first send creates its thread", async () => {
   const pending = deferred();
   await render(AgentChatPanel, { reportId, projectId });
@@ -309,11 +362,11 @@ it("blocks sibling sends in an unsaved conversation until retry succeeds or its 
   await expect.element(send()).toBeDisabled();
   await composer().click();
   await userEvent.keyboard("{Enter}");
-  expect(__mutationCalls(sendName)).toEqual([{ reportId, content: "First unsaved request" }]);
+  expect(__mutationCalls(sendName)).toEqual([{ reportId, content: "First unsaved request", newThread: true }]);
   expect(localRows()).toHaveLength(1);
   __setMutationResult(sendName, { threadId: "created", messageId: "first" });
   await retry().click();
-  expect(__mutationCalls(sendName)).toEqual([{ reportId, content: "First unsaved request" }, { reportId, content: "First unsaved request" }]);
+  expect(__mutationCalls(sendName)).toEqual([{ reportId, content: "First unsaved request", newThread: true }, { reportId, content: "First unsaved request", newThread: true }]);
   await expect.element(composer()).toHaveValue("Replacement draft");
   await navigate("New conversation");
   __setMutationError(sendName, new Error("Still offline"));

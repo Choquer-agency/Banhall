@@ -662,7 +662,7 @@
         ...(selectedThreadId ? { threadId: selectedThreadId } : {}),
         ...(pendingHighlight ? { highlight: { ...pendingHighlight } } : {}),
         ...(refiningProposal ? { refineProposalId: refiningProposal._id } : {}),
-        ...(startingNewChat ? { newThread: true } : {}),
+        ...(!selectedThreadId ? { newThread: true } : {}),
       }),
     };
     const request: LocalSend = {

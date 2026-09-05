@@ -1,0 +1,34 @@
+{
+  "baseline": "e8abbc14523eff3e1aa490712e7efafe9cd86b24",
+  "fresh_contexts": 4,
+  "layers": [
+    {
+      "layer": "blind-hunter",
+      "agent": "dw98_fix_blind",
+      "result": "No actionable findings; reviewed diff, send/retry, selection, recording stub and backend thread resolution."
+    },
+    {
+      "layer": "edge-case-hunter",
+      "agent": "dw98_fix_edge",
+      "result": []
+    },
+    {
+      "layer": "verification-gap",
+      "agent": "dw98_fix_verify",
+      "result": "No verification gaps; missing newThread baseline failure and repaired API-argument proof supported. Live backend behavior explicitly disclaimed."
+    },
+    {
+      "layer": "acceptance-auditor",
+      "agent": "dw98_fix_acceptance",
+      "result": "No concrete findings; frozen intent, matrix, source hashes and gate receipts verified."
+    }
+  ],
+  "failed_layers": [],
+  "triage": {
+    "intent_gap": 0,
+    "bad_spec": 0,
+    "patch": 0,
+    "defer": 0,
+    "reject": 0
+  }
+}
