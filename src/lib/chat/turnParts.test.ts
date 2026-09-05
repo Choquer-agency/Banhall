@@ -4,6 +4,8 @@ import type { UIMessage } from "@convex-dev/agent";
 import type { Doc } from "../../../convex/_generated/dataModel";
 import {
   correlateProposals,
+  associateTurnPrompts,
+  canRegenerateTurn,
   formatDuration,
   formatTurnSummary,
   normalizeTurnParts,
@@ -709,5 +711,36 @@ describe("Brain source labels", () => {
       const node = normalizeTurnParts(assistant([toolPart({ state, output: "--- REFERENCE PATTERN 1 (Secret) ---" })])).traceNodes[0];
       expect(node.kind === "tool" && node.sources).toBeUndefined();
     }
+  });
+});
+
+
+describe("regeneration association", () => {
+  it("uses exact loaded prompt order and the final row, preserving stored text", () => {
+    const text = '  prompt\n[stored context]  ';
+    const user = assistant([{ type: "text", text }, { type: "reasoning", text: "private" }], { id: "user", role: "user" });
+    const first = assistant([], { id: "first" });
+    const final = assistant([], { id: "final", stepOrder: 2 });
+    const missing = assistant([], { id: "missing", order: 2 });
+    const rows = [user, first, final, missing];
+    const before = JSON.stringify(rows);
+    const association = associateTurnPrompts(rows);
+    expect([...association.promptByAssistantId]).toEqual([["final", text]]);
+    expect([...association.assistantOrders]).toEqual([1, 2]);
+    expect(association.promptByOrder.get(2)).toBeUndefined();
+    expect(JSON.stringify(rows)).toBe(before);
+  });
+  it("does not offer a blank or unloaded prompt", () => {
+    expect(associateTurnPrompts([assistant([])]).promptByAssistantId.size).toBe(0);
+    expect(associateTurnPrompts([assistant([{ type: "text", text: " " }], { role: "user" }), assistant([])]).promptByAssistantId.size).toBe(0);
+  });
+  it.each(["queued", "running", "aborted"] as const)("suppresses durable %s even with a successful row", status => {
+    expect(canRegenerateTurn("success", { status, stepCount: 0 })).toBe(false);
+  });
+  it.each(["streaming", "pending"] as const)("suppresses %s even with completed timing", status => {
+    expect(canRegenerateTurn(status, { status: "completed", stepCount: 0 })).toBe(false);
+  });
+  it.each(["success", "failed"] as const)("supports terminal %s without timing", status => {
+    expect(canRegenerateTurn(status, undefined)).toBe(true);
   });
 });

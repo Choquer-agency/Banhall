@@ -1,0 +1,12 @@
+
+> banhall-app@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6
+
+
+ Test Files  149 passed (149)
+      Tests  1911 passed (1911)
+   Start at  00:09:00
+   Duration  77.63s (transform 38.63s, setup 0ms, import 55.31s, tests 47.28s, environment 9.63s)

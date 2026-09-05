@@ -1,0 +1,14 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/chat/RegenerateLimits.component.test.ts
+
+12:45:18 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6 - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6
+
+12:45:18 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6 - using default configuration.
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  00:45:18
+   Duration  3.72s (transform 0ms, setup 681ms, import 1.03s, tests 567ms, environment 0ms)
