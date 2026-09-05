@@ -6,7 +6,7 @@ on disk as the porting reference until parity; SvelteKit app lives in
 
 ## Stack
 
-Historical snapshot from the migration; the runner is npm, not bun. Current tooling: `README.md` and `package.json`.
+A historical snapshot from the migration; the runner is npm, not bun. Current tooling: `README.md` and `package.json`.
 
 - SvelteKit 2.63 / Svelte 5 (runes, forced on) / Vite 8 / bun / TS
 - Kit config lives in `vite.config.ts` plugin options (no svelte.config.js)
@@ -85,7 +85,7 @@ Historical snapshot from the migration; the runner is npm, not bun. Current tool
 
 ## Verify
 
-Historical migration recipe, every bullet below included. Current rules: `bash scripts/loop-verify.sh` per `README.md`, and `.factory/AGENTS.factory.md` for the isolate → build → prove → ship rules.
+A historical migration recipe, every bullet below included. Current rules: `bash scripts/loop-verify.sh` per `README.md`, and `.factory/AGENTS.factory.md` for the isolate → build → prove → ship rules.
 
 - `bun run check` → must end `0 ERRORS` (a11y warnings: fix them, usually aria-label)
 - Dev server usually already running on :3001 (`curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/<route>`) — don't start/kill it; if down: `bun run dev`

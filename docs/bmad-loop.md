@@ -51,7 +51,7 @@ bmad-loop validate --spec _bmad-output/specs/spec-ai-engine-sprint-1b
 
 ## Run an epic
 
-Historical: this in-place recipe (clean tree, no worktree isolation, symlinked `node_modules`, copied `.env.local`) predates the current gate, which installs its own dependencies in a fresh worktree. Current rules: `README.md` and `.factory/AGENTS.factory.md`.
+This is historical: the in-place recipe (clean tree, no worktree isolation, symlinked `node_modules`, copied `.env.local`) predates the current gate, which installs its own dependencies in a fresh worktree. Current rules: `README.md` and `.factory/AGENTS.factory.md`.
 
 The tree must be clean (commit or stash first). Runs edit the checkout in
 place (`[scm] isolation = "none"`); worktree isolation is off because a fresh
@@ -80,7 +80,7 @@ per-machine steps there (`.codex/hooks.json` embeds an absolute path).
   session's `BMAD_LOOP_RUN_DIR`, `BMAD_LOOP_TASK_ID`, and `BMAD_LOOP_EVENTS_DIR` set (see `ps eww` on the
   CLI process); the engine picks it up within seconds.
 - `npm run check` needs `PUBLIC_CONVEX_URL`; the verify script defaults it to a placeholder.
-- Historical: component tests (`npm run test:component`) used to sit in no gate. They now run in their own CI job, and `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` adds them locally. See `README.md`.
+- Now historical: component tests (`npm run test:component`) used to sit in no gate. They now run in their own CI job, and `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` adds them locally. See `README.md`.
 - The old Claude-Workflow orchestrator (`.claude/workflows/bmad-story-loop.js`) is superseded by this tool.
 - Story hints (`invoke_dev_with`) must name symbols that exist; touchpoints must point at vitest-run files (see sprint 1 retrospective).
 - The engine squashes every commit made after a dev session launched into that story's single
