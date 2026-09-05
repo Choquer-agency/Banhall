@@ -54,7 +54,7 @@ export function redactExternalText(value: string, knownNames: string[]): string 
   }
   redacted = redacted
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted email]")
-    .replace(/\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b/g, "[redacted phone]")
+    .replace(/(?:\b|(?<!\w))(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b/g, "[redacted phone]")
     .replace(/https?:\/\/[^\s)\]}>,]+/gi, "[redacted URL]");
   return redacted.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
