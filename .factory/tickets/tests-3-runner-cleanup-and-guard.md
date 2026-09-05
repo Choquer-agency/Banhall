@@ -10,6 +10,7 @@ done_when: ["! rg -q 'bun:test' tests", "! rg -q 'chatProposals|projectReviewAcc
 title: "No bun:test, no @types/bun, no bun.lock, no test/** include; a script proves every tracked test file is discovered by one of the two vitest configs"
 plan: 20260904-code-quality-sweep
 ui: false
+deferred: []
 updated: "2026-09-05T08:42:42.317Z"
 ---
 ## Intent
