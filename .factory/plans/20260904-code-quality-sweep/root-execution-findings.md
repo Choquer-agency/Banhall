@@ -73,3 +73,5 @@ TESTS2-REVIEW closed at merge14e80a0: source c755e00, review1 approve, QA1 done/
 ## Hosted-runner prerequisite verification
 
 On2026-09-05, the official [runner image table](https://github.com/actions/runner-images#available-images) maps ubuntu-latest to Ubuntu24.04, whose [software manifest](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md#powershell-tools) lists PowerShell7.6.5 in image20260823.283.1. The proposed CI job can invoke pwsh without adding an install step. This is published-environment evidence; no remote CI job was run.
+
+Tests-3 integrated at292e145 (sourcead9952f), review approve and QA done/test-verified. Root evidence corrects two minor imprecisions and records QA’s three skipped commands. Final owned external clone must prove actual cold bootstrap, default/no-browser discovery, and a tracked scripts/zz.orphan.test.ts failure with cleanup. Two nonblocking portability limits remain in ticket deferred metadata. Nine of eleven tickets are done; ui-1 active.
