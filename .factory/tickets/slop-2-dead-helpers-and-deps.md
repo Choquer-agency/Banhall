@@ -11,6 +11,7 @@ deferred:
   - "`@tiptap/extension-underline` is now a direct dependency with no direct import; kept per AC4 because StarterKit resolves the same 3.28.0 package, but the Tiptap dependency inventory should decide whether the explicit declaration stays."
   - "`scripts/loop-verify.sh` does not export `PUBLIC_CONVEX_SITE_URL` and does not run `npm run build`, so the engine gate cannot catch a build-only break; `build-gate-review.md:11` already scopes that change to another ticket. Build verified by hand here (exit 0)."
   - "AC6 literal wording not met in one file: `src/routes/project/new/newProjectPrefill.component.test.ts` is net 0 (+5/-5) because migrating one import and four call sites off the deleted wrappers is line-for-line."
+  - "`bun.lock` still lists `docx`, `svelte-exmarkdown`, `tippy.js` and `eslint` after `package.json` dropped them. Already stale at the baseline (it is missing `phosphor-svelte`) and owned by `tests-3`, which deletes the file; this ticket forbids touching it. Named here so the ship step does not read the drift as this ticket's error."
 title: "Delete test-only helper exports (intent wrappers, stage grouping, stage filtering, extractSections) and four unused dependencies"
 plan: 20260904-code-quality-sweep
 ui: false
