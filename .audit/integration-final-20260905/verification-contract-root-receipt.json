@@ -1,0 +1,58 @@
+{
+  "at": "2026-09-05T17:01:08.865472+00:00",
+  "private_commit": "186029d408b418c4337ee0e772520629cdae937c",
+  "baseline": "dd787d4287bcdf970aa3bcb25f0781dc765e030c",
+  "final_artifact_hashes_verified": 140,
+  "compressed_raw_hashes_verified": 7,
+  "source_hashes": [
+    {
+      "path": "scripts/loop-verify.sh",
+      "sha256": "abf20d3bdafca2c6cbb59f9026ae0749727f0b4e6b610cc09ccebbba43da8bac"
+    },
+    {
+      "path": "scripts/check-test-discovery.mjs",
+      "sha256": "dbd1ddfe3bf89d7ff84d45e8b0c80225423a5a35a2a667fa31820ab7248e3441"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "c57242059b66b492bb844b3ee7263bba14829c8299de85d6a4f327295d0c4693"
+    },
+    {
+      "path": ".nvmrc",
+      "sha256": "68ca3fba3b7e864770cb61aeb306d4bd4354b68ab4dd38450860c5d823e42a53"
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "cee8d25679a1d0c2fe982c223d41a19ab92d57a3c6d6a0cd0935bb19505b9e35"
+    },
+    {
+      "path": "README.md",
+      "sha256": "d58409ed712837d76b0e499b1351db55f8223289c00c72c0cb4ec8bcd2dd91dc"
+    },
+    {
+      "path": "docs/bmad-loop.md",
+      "sha256": "b849c024072227ed26737b073dbe370b2104ce0cae5fada1297cbb134344c2aa"
+    },
+    {
+      "path": "vitest.config.ts",
+      "sha256": "46f1a8f3856809d72340bcba349bb2712dc6591c1c73494ffe7db18b845ec951"
+    },
+    {
+      "path": "vitest.component.config.ts",
+      "sha256": "5a1000bff4f304306bc754684dc8f9e392e3f4f1beb8f729071e4146524f4aa0"
+    },
+    {
+      "path": "package.json",
+      "sha256": "f30aa3e89510822bf7b4c9a3564b7584a205168846824d809e32f0da34c7c625"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "d4213ef7b50aa850ea095dbe6c65b35306ae7589a90073c0e377147421a33dac"
+    }
+  ],
+  "changed_files_within_scope": true,
+  "native_ledger_unchanged": true,
+  "committed_whitespace": "pass",
+  "private_tree": "clean",
+  "root_post_patch_review": "verification-contract-root-review.json"
+}

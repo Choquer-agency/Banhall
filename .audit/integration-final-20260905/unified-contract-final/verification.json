@@ -1,0 +1,185 @@
+{
+  "head": "186029d408b418c4337ee0e772520629cdae937c",
+  "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion",
+  "command": "VERIFY_COMPONENT=1 bash scripts/loop-verify.sh",
+  "started_at": "2026-09-05T17:06:29.052002+00:00",
+  "node": "v24.19.0",
+  "npm": "11.17.0",
+  "tracked_paths": 4704,
+  "exit_code": 0,
+  "finished_at": "2026-09-05T17:09:16.005661+00:00",
+  "elapsed_seconds": 166.74,
+  "changed_paths": [
+    ".audit/DW-98-fix/implicit-A-retained.png",
+    ".audit/published-status-fix/published-after.png",
+    ".audit/story-7/optimistic-after.png",
+    ".audit/story-7/optimistic-scrolled-after.png",
+    ".audit/story-7/retry-highlight-only.png",
+    ".audit/story-7/retry-text-and-highlight.png",
+    ".audit/story-7/second-overflow-after.png",
+    ".audit/story-8/learning-desktop-after.png"
+  ],
+  "unexpected_changes": [],
+  "historical_capture_restorations": [
+    {
+      "path": ".audit/DW-98-fix/implicit-A-retained.png",
+      "before": {
+        "kind": "file",
+        "sha256": "a6a58a360643f7c1add66c5b43e83d6ba92fb068ae62ef3228c6169a22f5e172",
+        "mode": 420
+      },
+      "generated": {
+        "kind": "file",
+        "sha256": "c391fe9061ab5156b56d8b4cdc9a897ea9495f78ef58fa7be7eb0cb52c04653d",
+        "mode": 420
+      },
+      "restored": {
+        "kind": "file",
+        "sha256": "a6a58a360643f7c1add66c5b43e83d6ba92fb068ae62ef3228c6169a22f5e172",
+        "mode": 420
+      },
+      "capture": ".audit/integration-final-20260905/unified-contract-final/generated-captures/.audit/DW-98-fix/implicit-A-retained.png"
+    },
+    {
+      "path": ".audit/published-status-fix/published-after.png",
+      "before": {
+        "kind": "file",
+        "sha256": "ed66274242ebd9d1e66259c96241ea3f34e4cb498320e754959e4ac71d84ec01",
+        "mode": 420
+      },
+      "generated": {
+        "kind": "file",
+        "sha256": "57ebd5e2dd5221c7bf06cecbd1b17091c2a06efda19d936892274aed59f460cd",
+        "mode": 420
+      },
+      "restored": {
+        "kind": "file",
+        "sha256": "ed66274242ebd9d1e66259c96241ea3f34e4cb498320e754959e4ac71d84ec01",
+        "mode": 420
+      },
+      "capture": ".audit/integration-final-20260905/unified-contract-final/generated-captures/.audit/published-status-fix/published-after.png"
+    },
+    {
+      "path": ".audit/story-7/optimistic-after.png",
+      "before": {
+        "kind": "file",
+        "sha256": "e092b1bbd2de36ee6b51caf1d9f86fa8070c4150b75b2a5c86d0db60f1b84b05",
+        "mode": 420
+      },
+      "generated": {
+        "kind": "file",
+        "sha256": "eb6e8516d2b694ad8a6809df4ce9737bc2945a7dc76d44c42f439d0fbeb1ab03",
+        "mode": 420
+      },
+      "restored": {
+        "kind": "file",
+        "sha256": "e092b1bbd2de36ee6b51caf1d9f86fa8070c4150b75b2a5c86d0db60f1b84b05",
+        "mode": 420
+      },
+      "capture": ".audit/integration-final-20260905/unified-contract-final/generated-captures/.audit/story-7/optimistic-after.png"
+    },
+    {
+      "path": ".audit/story-7/optimistic-scrolled-after.png",
+      "before": {
+        "kind": "file",
+        "sha256": "25b92f3507a89356fbc330cccb712aaa041d6bbe8bd5592a3046da6892f0fbd5",
+        "mode": 420
+      },
+      "generated": {
+        "kind": "file",
+        "sha256": "0d8b01118915d47986378db67bb6e23f23fd36f933b1be4257038d40b300d8c3",
+        "mode": 420
+      },
+      "restored": {
+        "kind": "file",
+        "sha256": "25b92f3507a89356fbc330cccb712aaa041d6bbe8bd5592a3046da6892f0fbd5",
+        "mode": 420
+      },
+      "capture": ".audit/integration-final-20260905/unified-contract-final/generated-captures/.audit/story-7/optimistic-scrolled-after.png"
+    },
+    {
+      "path": ".audit/story-7/retry-highlight-only.png",
+      "before": {
+        "kind": "file",
+        "sha256": "7780e90f51f992a660c7c51375727cd3f04307272e70c4f1eac51d94eeaea165",
+        "mode": 420
+      },
+      "generated": {
+        "kind": "file",
+        "sha256": "d5214919e4f43a7f4bcb008325cc696099ee93cf855809e45fd39e520855bd72",
+        "mode": 420
+      },
+      "restored": {
+        "kind": "file",
+        "sha256": "7780e90f51f992a660c7c51375727cd3f04307272e70c4f1eac51d94eeaea165",
+        "mode": 420
+      },
+      "capture": ".audit/integration-final-20260905/unified-contract-final/generated-captures/.audit/story-7/retry-highlight-only.png"
+    },
+    {
+      "path": ".audit/story-7/retry-text-and-highlight.png",
+      "before": {
+        "kind": "file",
+        "sha256": "43800bfd2c3c97af43b4722599c04c9d67d0a1b20b8660100e1e2092f54742ad",
+        "mode": 420
+      },
+      "generated": {
+        "kind": "file",
+        "sha256": "f6911a20e2982351b5526cd988fbca598bafdbb61dacb6cdf58f00ce70cd9130",
+        "mode": 420
+      },
+      "restored": {
+        "kind": "file",
+        "sha256": "43800bfd2c3c97af43b4722599c04c9d67d0a1b20b8660100e1e2092f54742ad",
+        "mode": 420
+      },
+      "capture": ".audit/integration-final-20260905/unified-contract-final/generated-captures/.audit/story-7/retry-text-and-highlight.png"
+    },
+    {
+      "path": ".audit/story-7/second-overflow-after.png",
+      "before": {
+        "kind": "file",
+        "sha256": "72be6d34dc4a3d755268ff1f02d605d9bd1373592731b542fd99ae414448db7f",
+        "mode": 420
+      },
+      "generated": {
+        "kind": "file",
+        "sha256": "b5144194b74dfa84c223889423c8b17561db564c2c631057b3a85b43b1592cc5",
+        "mode": 420
+      },
+      "restored": {
+        "kind": "file",
+        "sha256": "72be6d34dc4a3d755268ff1f02d605d9bd1373592731b542fd99ae414448db7f",
+        "mode": 420
+      },
+      "capture": ".audit/integration-final-20260905/unified-contract-final/generated-captures/.audit/story-7/second-overflow-after.png"
+    },
+    {
+      "path": ".audit/story-8/learning-desktop-after.png",
+      "before": {
+        "kind": "file",
+        "sha256": "4b72a1e9feb21a9e082139c39f7140de203842e20f361d3e6963e6757e57140a",
+        "mode": 420
+      },
+      "generated": {
+        "kind": "file",
+        "sha256": "1a4323940d9a8d4c866fa3be7af29bee39b00c25891f90937fdc8400ae5bcd92",
+        "mode": 420
+      },
+      "restored": {
+        "kind": "file",
+        "sha256": "4b72a1e9feb21a9e082139c39f7140de203842e20f361d3e6963e6757e57140a",
+        "mode": 420
+      },
+      "capture": ".audit/integration-final-20260905/unified-contract-final/generated-captures/.audit/story-8/learning-desktop-after.png"
+    }
+  ],
+  "all_tracked_paths_restored_or_unchanged": true,
+  "working_tree_status": "",
+  "log": {
+    "path": ".audit/integration-final-20260905/unified-contract-final/unified-gate.log.gz",
+    "raw_sha256": "04963d176dab10036a06cfb748f86d7cacdeea23cf90ce8b226ebe095dd78d95",
+    "gzip_sha256": "fa347382e0e72764692fc21536275de8a12b36ffaa0be91e341aeea855d2a2a2",
+    "raw_bytes": 88588
+  }
+}
