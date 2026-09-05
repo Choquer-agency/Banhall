@@ -376,6 +376,164 @@ describe("client publish trigger", () => {
   });
 });
 
+describe("malformed content persistence boundary", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const cases = [
+    { name: "broken current JSON", baseline: DRAFT, current: "{broken" },
+    { name: "broken baseline JSON", baseline: "{broken", current: DRAFT },
+    {
+      name: "both JSON strings broken",
+      baseline: "{broken",
+      current: "{broken",
+    },
+    { name: "null current", baseline: DRAFT, current: "null" },
+    { name: "null baseline", baseline: "null", current: DRAFT },
+    {
+      name: "non-array current content",
+      baseline: DRAFT,
+      current: '{"type":"doc","content":{}}',
+    },
+    {
+      name: "non-array baseline content",
+      baseline: '{"type":"doc","content":{}}',
+      current: DRAFT,
+    },
+    {
+      name: "nested traversal failure",
+      baseline: DRAFT,
+      current:
+        '{"type":"doc","content":[{"type":"paragraph","content":[null]}]}',
+    },
+  ];
+
+  for (const trigger of ["milestone", "client_publish"] as const) {
+    it.each(cases)(
+      `${trigger}: skips $name while preserving the operation`,
+      async ({ baseline, current }) => {
+        const { t, writer, projectId, reportId } = await setup();
+        await t.run(async (ctx) => {
+          const snapshot = await ctx.db
+            .query("reportSnapshots")
+            .withIndex("by_reportId", (q) => q.eq("reportId", reportId))
+            .first();
+          if (!snapshot) throw new Error("missing baseline fixture");
+          await ctx.db.patch(snapshot._id, { content: baseline });
+          await ctx.db.patch(reportId, { content: current });
+        });
+
+        if (trigger === "milestone") {
+          const snapshotId = await writer.mutation(
+            api.snapshots.createMilestoneSnapshot,
+            {
+              reportId,
+              label: "R1 internal review",
+              expectedRevisionNumber: 0,
+            },
+          );
+          await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+          expect(
+            await t.run(async (ctx) => ctx.db.get(snapshotId)),
+          ).toMatchObject({
+            reportId,
+            projectId,
+            content: current,
+            reason: "milestone",
+            sourceRevisionNumber: 0,
+          });
+        } else {
+          await writer.mutation(api.projects.publishForReview, {
+            projectId,
+            reportId,
+          });
+          await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+          expect(
+            await t.run(async (ctx) => ctx.db.get(projectId)),
+          ).toMatchObject({
+            status: "client_review",
+            sharedReportId: reportId,
+          });
+        }
+
+        // Include the actual persisted scalar in a baseline failure, not only a row count.
+        expect((await rows(t, reportId)).map((row) => row.ped)).toEqual([]);
+      },
+    );
+
+    it.each([
+      { name: "empty current", baseline: DRAFT, current: doc(), ped: 1 },
+      { name: "empty baseline", baseline: doc(), current: DRAFT, ped: 1 },
+      { name: "both empty", baseline: doc(), current: doc(), ped: 0 },
+      {
+        name: "empty paragraph",
+        baseline: doc(),
+        current: JSON.stringify({
+          type: "doc",
+          content: [{ type: "paragraph" }],
+        }),
+        ped: 0,
+      },
+      {
+        name: "edited content",
+        baseline: DRAFT,
+        current: EDITED,
+        ped: 1 - 12 / 25,
+      },
+    ])(
+      `${trigger}: records $name with read-time parity`,
+      async ({ baseline, current, ped }) => {
+        const { t, writer, projectId, reportId } = await setup();
+        await t.run(async (ctx) => {
+          const snapshot = await ctx.db
+            .query("reportSnapshots")
+            .withIndex("by_reportId", (q) => q.eq("reportId", reportId))
+            .first();
+          if (!snapshot) throw new Error("missing baseline fixture");
+          await ctx.db.patch(snapshot._id, { content: baseline });
+          await ctx.db.patch(reportId, { content: current });
+        });
+        if (trigger === "milestone") {
+          await writer.mutation(api.snapshots.createMilestoneSnapshot, {
+            reportId,
+            label: "R1 internal review",
+            expectedRevisionNumber: 0,
+          });
+        } else {
+          await writer.mutation(api.projects.publishForReview, {
+            projectId,
+            reportId,
+          });
+        }
+        await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+        const recorded = await rows(t, reportId);
+        expect(recorded).toHaveLength(1);
+        expect(recorded[0]).toMatchObject({ trigger, ped });
+        const read = await writer.query(api.reports.postEditDistance, {
+          reportId,
+        });
+        expect(read).toMatchObject({
+          ped,
+          wordSimilarity: 1 - ped,
+          draftLabel: "AI draft (single)",
+        });
+        expect(Object.keys(read ?? {}).sort()).toEqual(
+          [
+            "baselineAt",
+            "currentWords",
+            "draftLabel",
+            "draftWords",
+            "paragraphsTotal",
+            "paragraphsUnchanged",
+            "ped",
+            "wordSimilarity",
+          ].sort(),
+        );
+      },
+    );
+  }
+});
+
 describe("no baseline", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
