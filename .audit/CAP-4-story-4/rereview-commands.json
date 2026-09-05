@@ -1,0 +1,38 @@
+{
+  "reviewed_revision": "6f7731c88e733e2690fc52eda20e81b983281ffa",
+  "commands": [
+    {
+      "command": "npx vitest run convex/learning.test.ts",
+      "exit_code": 0,
+      "log": ".audit/CAP-4-story-4/rereview-targeted.log"
+    },
+    {
+      "command": "npm test",
+      "exit_code": 0,
+      "log": ".audit/CAP-4-story-4/rereview-full.log"
+    },
+    {
+      "command": "npx tsc -p convex/tsconfig.json --noEmit",
+      "exit_code": 0,
+      "log": ".audit/CAP-4-story-4/rereview-types.log"
+    },
+    {
+      "command": "npm run check",
+      "exit_code": 0,
+      "log": ".audit/CAP-4-story-4/rereview-check.log",
+      "environment": {
+        "PUBLIC_CONVEX_URL": "https://example.convex.cloud"
+      }
+    },
+    {
+      "command": "npx vitest run --config vitest.component.config.ts --no-file-parallelism src/routes/admin/reviews/reviewsPublishGate.component.test.ts",
+      "exit_code": 1,
+      "log": ".audit/CAP-4-story-4/rereview-canonical-browser.log"
+    },
+    {
+      "command": "npx vitest run --config .audit/CAP-4-story-4/component-diagnostic.config.ts --no-file-parallelism src/routes/admin/reviews/reviewsPublishGate.component.test.ts",
+      "exit_code": 0,
+      "log": ".audit/CAP-4-story-4/rereview-browser.log"
+    }
+  ]
+}

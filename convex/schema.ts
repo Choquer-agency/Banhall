@@ -6,6 +6,7 @@ import {
   workItemKindValidator,
   workItemStatusValidator,
 } from "./lib/contracts";
+import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
 import { styleOverridesValidator } from "./lib/styleOverrides";
 
 export default defineSchema({
@@ -1785,6 +1786,7 @@ export default defineSchema({
 
   learningDigests: defineTable({
     kind: v.union(v.literal("qa_calibration"), v.literal("draft_style")),
+    admission: v.optional(admissionValidator), // absent on historical candidates
     content: v.string(), // immutable candidate prompt block
     sourceCount: v.number(), // feedback rows that informed this digest
     feedbackCutoff: v.number(), // newest feedback updatedAt included
@@ -1796,6 +1798,14 @@ export default defineSchema({
   })
     .index("by_kind", ["kind"])
     .index("by_kind_and_userId", ["kind", "userId"]),
+
+  // Latest operational outcome per global kind, separate from immutable candidates.
+  learningDigestAttempts: defineTable({
+    kind: v.union(v.literal("qa_calibration"), v.literal("draft_style")),
+    attemptedAt: v.number(),
+    outcome: attemptOutcomeValidator,
+    admission: admissionValidator,
+  }).index("by_kind", ["kind"]),
 
   // Append-only publication ledger. Automatic distillation only creates
   // immutable candidates; an authorized administrator explicitly selects the

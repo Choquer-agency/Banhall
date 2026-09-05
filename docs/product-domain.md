@@ -1674,6 +1674,50 @@ run-local label is not a canonical ticket identifier.
   repair ([authorization record](../.audit/DW42/evidence.md#authorization-and-source-provenance)). No additional product
   policy or capability is introduced by this documentation amendment.
 
+### 2026-09-04: Digest diversity and signal provenance (CAP-4)
+
+Records the [human-approved CAP-4 decision](../_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/decisions/digest-diversity-policy-2026-09-04.md)
+and [story 4 contract](../_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/4-digest-diversity-gate-and-signal-provenance.md).
+
+- Each stream reads a bounded recent window of up to 500 records before
+  applying meaningful-signal filters. Admission and exclusion counts cover only
+  records remaining after those filters, not the full feedback history.
+- Apply existing meaningful-signal filters first, then exclude records missing
+  writer or project attribution. The producer is the signal's author, never
+  the project creator, owner, approving administrator, or a placeholder.
+- Each stream independently needs at least two distinct producers and two
+  distinct projects among its attributed records. Omit streams that fail;
+  they cannot veto qualifying streams or pool their diversity with another
+  stream. Additional streams must use this same rule.
+- At least five admitted records are required overall. This minimum is shared
+  across qualifying streams. Below it, generation skips the model call and
+  creates no candidate.
+- The same admitted records determine prompt input, source count, exact signal
+  IDs, per-producer contributions, and freshness cutoff. Excluded records
+  remain intact and cannot advance the cutoff or cause redistillation when
+  admitted inputs have not changed. Existing cutoff deduplication remains.
+- Immutable candidates retain their admitted provenance and exclusion snapshot.
+  Excluded totals count unique records; missing-writer and missing-project
+  reason counts can overlap. Insufficient-diversity counts describe attributed
+  records omitted because their stream failed diversity.
+- A separate latest-attempt record per digest kind exposes admission details
+  and outcomes for insufficient inputs, no admitted feedback newer than the
+  last candidate cutoff, unsupported model rules, saved candidates, cutoff
+  deduplication, and failed generation. Generation failures record a safe
+  generic attempt outcome and rethrow the original failure for operational
+  handling; provider errors and secrets are not exposed in admission details. Administrators can inspect
+  it even when no candidate exists. Historical metadata stays unavailable;
+  it is never fabricated or backfilled.
+- Attribution IDs stay internal and are excluded from provider payloads.
+  Learning reads apply existing best-effort project-aware de-identification to
+  QA feedback, candidate comments, section edits, proposal wording edits, and
+  approved feedback prose. This extends CAP-1's read protection while retaining
+  source records and the helper's documented limitations.
+- Supported rules create unpublished candidates only. Compatibility freeze,
+  personal isolation, `settings.configure` access, separate administrator
+  selection, and per-publication privacy confirmation remain in force.
+  This amendment introduces no new permission or report-editing authority.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

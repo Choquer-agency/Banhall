@@ -1,0 +1,10 @@
+[
+  {
+    "mutation": "sections prompt block replaced with []",
+    "exitCode": 1
+  },
+  {
+    "mutation": "proposals prompt block replaced with []",
+    "exitCode": 1
+  }
+]

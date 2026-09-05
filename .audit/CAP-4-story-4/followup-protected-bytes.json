@@ -1,0 +1,50 @@
+{
+  "reviewed_revision": "1cec4e4723daa99afcab36ecb8856149d655126b",
+  "files": [
+    {
+      "path": "convex/ai/chatAgentV2.ts",
+      "sha256": "78ac113a0ec1c16295364e0f1d0478114fbff0601e36f48cb25fe74551072e30",
+      "matches_recorded_baseline": true
+    },
+    {
+      "path": "convex/chatV2.ts",
+      "sha256": "59b9db036d6e181414ff9a0553e710bf4419fe7287709fdc3d717b427b6e0fe5",
+      "matches_recorded_baseline": true
+    },
+    {
+      "path": "convex/ai/analyzerAgent.ts",
+      "sha256": "90196de036e99e6d09262045e6985fec1d4673a143ff5c9acc11c334f0aef5c6",
+      "matches_recorded_baseline": true
+    },
+    {
+      "path": "convex/ai/pipeline.ts",
+      "sha256": "f7afd875025ade7d94a19a73339ba8b1eb1aa49e6f674cd6eb527393c0d24c99",
+      "matches_recorded_baseline": true
+    },
+    {
+      "path": "convex/lib/auth.ts",
+      "sha256": "02893a5da10e7ee79c15299f5f4e0d773b7705d758ba8f019abf2c62e7fd9197",
+      "matches_recorded_baseline": true
+    },
+    {
+      "path": "convex/projectWorkflow.ts",
+      "sha256": "6c15437435a21045021855fe9ef2a4680295c1a903f54ccefd3e5800cf360e73",
+      "matches_recorded_baseline": true
+    },
+    {
+      "path": "convex/ai/qaChecks.ts",
+      "sha256": "de5dce8681e7afedc7766942d3c51f865b6ad7f3c294ee18c33c68b18c723768",
+      "matches_recorded_baseline": true
+    },
+    {
+      "path": "convex/reports.ts",
+      "sha256": "e06a9b4b6d17264da64f193e191ada897ed53f4be68ee520fd1acbd7a7fc2174",
+      "matches_recorded_baseline": true
+    },
+    {
+      "path": "_bmad-output/implementation-artifacts/deferred-work.md",
+      "sha256": "40a9df09a2c3821ba109aabc5c0d10c548d8f2810939abf619df1d171ed45c6c",
+      "matches_recorded_baseline": true
+    }
+  ]
+}
