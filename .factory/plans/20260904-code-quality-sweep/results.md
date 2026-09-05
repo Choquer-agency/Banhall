@@ -1,6 +1,6 @@
 # Code quality sweep results
 
-**IN PROGRESS.** Snapshot: 2026-09-05. Six of the eleven sweep tickets are marked done; five remain pending. This draft records completed changes and their evidence, not final approval of the combined branch. No final CI or live end-to-end outcome is claimed.
+**IN PROGRESS.** Snapshot: 2026-09-05. Seven of the eleven sweep tickets are marked done; four remain pending. This draft records completed changes and their evidence, not final approval of the combined branch. No final CI or live end-to-end outcome is claimed.
 
 The sweep found useful tests outside the normal runner, unused code, repeatable parser/editor/database waste, and verification instructions that no longer matched the app. The completed work removes 17 unused source/test files, unused helpers and four dependencies, and reduces work in three measured paths. The remaining tickets address the test inventory, further deletions, the failing browser baseline, and the shared verification command.
 
@@ -14,6 +14,7 @@ The sweep found useful tests outside the normal runner, unused code, repeatable 
 | `proof-1-parser-budget-sequence` | Corrects the existing parser fixture to prove sequential 20/40-second phases and the cumulative 60-second deadline; clarifies one Editor test title. | Eager negative control fails at the intended assertion; parser 19/19, Editor 4/4 and the full gate pass. No new tests or production changes. Evidence: `.audit/proof-1-parser-budget-sequence/evidence.md`. |
 | `slop-2-dead-helpers-and-deps` | Removes unused helpers, four unused dependencies and duplicate Underline registration: 220 production lines and 135 net test lines removed; 144 lockfile package entries removed, none added or upgraded. | 8 retained unit cases and 33 browser cases pass; clean install, build and actual editable/read-only underline proof pass independently through the engine. QA test-verified; its operator note is closed by engine and root evidence. Evidence: `.audit/slop-2-dead-helpers-and-deps/evidence.md`. |
 | `slop-3-mywork-island` | Deletes eight retired My Work source/test files: 506 lines, zero additions. Current Home, ledger and retained tests are unchanged. | QA independently reran baseline/head component and unit pins; exact reductions of 3 browser and 13 unit cases, full gate/build/predicates pass. Evidence: `.audit/slop-3-mywork-island/evidence.md`. |
+| `tests-1-one-runner` | Moves 12 previously orphaned suites into Vitest: all 83 retained cases preserve their assertions; one obsolete snapshot-shape case retires with a coverage mapping. | Independent diff review and QA pass. Full gate: 139 files/1,492 tests. Four roster cases remain for tests-2, and only the two named fake-DB suites are temporarily excluded. Evidence: `.audit/tests-1-one-runner/evidence.md`. |
 
 ## Measured performance
 
@@ -33,7 +34,6 @@ The parser proof correction is complete: the original fixture eagerly started tw
 
 | Ticket | Remaining outcome |
 | --- | --- |
-| `tests-1-one-runner` | Bring useful orphan pure tests into Vitest with an explicit mapping for retired coverage. |
 | `tests-2-real-proposal-access-roster-tests` | Replace handmade database scenarios with real Convex endpoint/row fixtures. |
 | `tests-3-runner-cleanup-and-guard` | Remove Bun-only runner remnants and prove every tracked test is discovered. |
 | `ui-1-component-suite-green` | Resolve seven stale browser assertions/fixtures; measure the mobile header target and fix it if below the 44px contract. |
