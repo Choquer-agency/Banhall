@@ -4,6 +4,7 @@ import hashlib
 import json
 import subprocess
 import textwrap
+import sys
 
 root = Path(__file__).resolve().parents[2]
 snapshot = json.loads((root / '.audit/DW-93/preservation-snapshot.json').read_text())
@@ -15,13 +16,37 @@ def require(condition, message):
 def git(*args):
     return subprocess.check_output(['git', *args], cwd=root)
 
+LEDGER = '_bmad-output/implementation-artifacts/deferred-work.md'
+STORY = '_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md'
+REQUIRED_PATHS = {LEDGER, STORY, 'convex/_generated/api.d.ts',
+                  '.audit/CAP-2-story-3/codegen.log', '.audit/CAP-2-story-3/evidence.md'}
+paths = [item['path'] for item in snapshot['files']]
+require(len(paths) == len(REQUIRED_PATHS) and set(paths) == REQUIRED_PATHS, 'Protected inventory mismatch')
+provenance = json.loads((root / '.audit/DW-93/native-dispatch-provenance.json').read_text())
+require(snapshot['baseline_revision'] == provenance['native_task_snapshot']['baseline_commit'] == provenance['worktree_head'], 'Native baseline mismatch')
+
+# Historical ledger bytes remain anchored to the original development baseline.
+# Current ledger bytes belong to the native closure captured at review invocation.
+review = root / '.audit/DW-93/review-followup'
+invocation = json.loads((review / 'invocation-snapshot.json').read_text())
+require(len(invocation['files']) == 2 and {item['path'] for item in invocation['files']} == {LEDGER, STORY}, 'Invocation inventory mismatch')
+journal = json.loads((review / 'native-journal.json').read_text())
+require(any(e['entry']['kind'] == 'sweep-bundle-closed' and e['entry'].get('story_key') == 'dw-persisted-ped-native-followup' and e['entry'].get('dw_ids') == ['DW-93'] for e in journal['entries']), 'Native closure evidence missing')
 for item in snapshot['files']:
-    data = (root / item['path']).read_bytes()
+    baseline = git('show', f"{snapshot['baseline_revision']}:{item['path']}")
+    data = baseline if item['path'] == LEDGER else (root / item['path']).read_bytes()
     require(hashlib.sha256(data).hexdigest() == item['sha256'], f"SHA-256 mismatch: {item['path']}")
-    require(git('hash-object', item['path']).decode().strip() == item['git_blob'], f"Git blob mismatch: {item['path']}")
+    require(git('rev-parse', f"{snapshot['baseline_revision']}:{item['path']}").decode().strip() == item['git_blob'], f"Git blob mismatch: {item['path']}")
     require(item['matches_baseline'] is True, f"Snapshot does not attest baseline equality: {item['path']}")
-    require(data == git('show', f"{snapshot['baseline_revision']}:{item['path']}"), f"Baseline bytes differ: {item['path']}")
-    print(f"PRESERVED {item['sha256']} {item['path']}")
+    require(data == baseline, f"Baseline bytes differ: {item['path']}")
+    print(f"PRESERVED {'historical ledger' if item['path'] == LEDGER else 'current'} {item['sha256']} {item['path']}")
+for item in invocation['files']:
+    data = (root / item['path']).read_bytes()
+    require(hashlib.sha256(data).hexdigest() == item['sha256'], f"Invocation SHA-256 mismatch: {item['path']}")
+    require(git('hash-object', item['path']).decode().strip() == item['git_blob'], f"Invocation Git blob mismatch: {item['path']}")
+    if '--staged' in sys.argv:
+        require(git('show', f":{item['path']}") == data, f"Staged bytes differ: {item['path']}")
+    print(f"INVOCATION PRESERVED {item['sha256']} {item['path']}")
 
 codegen_revision = '3e575b7c68a80ef560b746be78e1b016e1dda750'
 receipt_revision = '5de0e9a389022afc4ee21f740fe6fdd0755fa9b8'
@@ -46,5 +71,5 @@ new_math = textwrap.dedent(helper[helper.index('  const draftBag'):helper.index(
 require(old_math == new_math, 'Original formula calculation changed')
 start = 'export const postEditDistance = query({'
 require(old[old.index(start):old.index('    const draftText')] == current[current.index(start):current.index('    const result = computeEditDistance')], 'Original query argument/auth/baseline prefix changed')
-print('FORMULA EXACT original helper and calculation statements; original query arguments/auth/baseline unchanged')
+print('FORMULA original helper text present; calculation statements and query arguments/auth/baseline unchanged; runtime parity is covered by PED tests')
 print('PASS all preservation and provenance comparisons')

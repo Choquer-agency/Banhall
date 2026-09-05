@@ -1,0 +1,16 @@
+{
+  "captured_at": "2026-09-05T01:17:01.381849+00:00",
+  "head": "98b4b084562ef93c0036297ce8958381e7a5f9f9",
+  "files": [
+    {
+      "path": "_bmad-output/implementation-artifacts/deferred-work.md",
+      "sha256": "2ec09928e0a2c2fcf3c8cf26cd9ed4230560bed7f3265432211fa8dfca2de387",
+      "git_blob": "6bb6bd04bd7ffeb89e64264bcddea1bd1bdd1ab3"
+    },
+    {
+      "path": "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md",
+      "sha256": "a9c07bbffcb85ff36ccb7089a9927942700814d3940f21383648d20339d4b310",
+      "git_blob": "20c02ef0e69e5ac127c48d50d415d8de24902c28"
+    }
+  ]
+}

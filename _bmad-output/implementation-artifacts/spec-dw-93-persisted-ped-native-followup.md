@@ -80,6 +80,22 @@ deferred: []
 All four independent layers completed. The edge-case reviewer independently verified the repaired checker with eight passing cases. Detailed review and disposition: `.audit/DW-93/reviews.md`. No production repair or new product deferral was identified.
 
 
+### 2026-09-04: Native follow-up review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (high 0, medium 2, low 4)
+- defer: 0
+- reject: 0
+- addressed_findings:
+  - `[medium]` `[patch]` Separated historical ledger preservation from current native invocation bytes; retained closure provenance without editing ledger content.
+  - `[medium]` `[patch]` Required the complete unique protected inventory.
+  - `[low]` `[patch]` Cross-checked snapshot baseline against retained native dispatch evidence.
+  - `[low]` `[patch]` Matched tamper diagnostics and expanded isolated normal/optimized integrity cases.
+  - `[low]` `[patch]` Narrowed formula helper output to the textual check it actually performs.
+  - `[low]` `[patch]` Scoped historical completion receipts to their revision and supplied current terminal/staging evidence.
+
+All four independent layers completed; the edge reviewer independently confirmed the repairs and 22 passing integrity cases. See `.audit/DW-93/review-followup/reviews.md`. No production repair, product decision or new deferral was identified.
+
 ## Verification
 
 - `npx vitest run convex/lib/editDistance.test.ts convex/reportEditDistance.test.ts`: all formula and persisted public-surface tests pass.
@@ -91,16 +107,17 @@ All four independent layers completed. The edge-case reviewer independently veri
 
 Status: done
 
-Completed fresh DW-93 development finalization: independently assessed the full existing PED implementation, verified supported codegen lineage, repaired the new audit verifier, and retained fresh ordinary gates and reviews. This flat spec is the follow-up RESULT artifact. Actual new baseline: `bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d`, captured by normal step-03 and independently matched to native state.
+Completed the fresh native follow-up review of the existing persisted PED implementation and DW-93 evidence. Six audit patches distinguish historical preservation from native closure bytes, validate integrity metadata and improve verification claims. No production repair was required. Baseline remains `bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d`; this review began at `98b4b084562ef93c0036297ce8958381e7a5f9f9` using the done-spec review route.
 
 Files changed:
-- This flat spec: fresh frozen follow-up intent, baseline, review triage and native Auto Run Result.
-- `.audit/DW-93/assessment.md` and `evidence.md`: full implementation review and original AC/matrix mapping with explicit coverage limits.
-- `.audit/DW-93/verify-preservation.py`, `test-preservation.py` and snapshot: repeatable byte/formula/provenance checks and optimized-Python tamper rejection.
-- `.audit/DW-93/` review, provenance, decisions and command logs: genuine fresh review and verification evidence, including baseline verifier failures and repaired successes.
+- `.audit/DW-93/verify-preservation.py`: historical/current ledger separation, complete inventories, baseline cross-check and optional staged equality.
+- `.audit/DW-93/test-preservation.py`: 22 normal/optimized integrity checks with expected failure diagnostics and isolated byte/staging faults.
+- `.audit/DW-93/evidence.md`, `decisions.tsv`, and `review-followup/`: current review, native provenance, snapshots, before/after commands and final staged manifest/checks.
+- This flat spec: appended review triage and terminal result.
+- Deferred-work ledger: only the exact unchanged orchestrator-authored invocation bytes are carried into the commit, with retained provenance and index comparison. No ledger entries were authored, reopened, rewritten or reverted by this session.
 
-Review: seven patches (high 0, medium 1, low 6), zero deferrals, five rejected findings. Follow-up review recommended: true; score = 3 × 1 + 6 = 9.
+Review breakdown: six patches (high 0, medium 2, low 4), zero deferrals, zero rejected findings after deduplication. Follow-up review recommended: true; score = 3 * 2 + 4 = 10. All four independent layers completed; the edge reviewer independently ran all 22 repaired integrity cases successfully.
 
-Verification: final ordinary `bash -x scripts/loop-verify.sh` passed both type checks, 1,772 tests across 148 files, and uploader suites (50 and 18 passes; the PowerShell AC4 dotfile sub-case is explicitly skipped on this platform). The `-x` option only traces shell commands. No test-timeout overrides were used. Final focused PED suite passed all 35 tests. Preservation checks and eight normal/optimized verifier tests passed. Complete staged-diff whitespace and protected-path checks are retained in finalization-check.log. Fresh evidence and this result are committed locally; no push.
+Verification: `bash scripts/loop-verify.sh` passed before and after repairs, using ordinary settings with no timeout overrides. Final output reports zero Svelte errors/warnings, 1,772 tests across 148 files, and uploader suites of 50 and 18 passes; the existing PowerShell dotfile sub-case is skipped on this platform. Focused PED tests passed all 35 cases before and after repairs. Preservation/provenance checks and 22 integrity cases passed. Whitespace, terminal spec, complete staged inventory and protected worktree/index equality are checked at finalization. Logs are under `.audit/DW-93/review-followup/`.
 
-Residual risks: historical product decisions and structural-only coverage of single/iterative candidate paths remain unchanged. The original nested story, historical baseline `740008e1369faaf6eab001f95efeb10a9e52d1e5`, codegen artifacts, old learn3 history and deferred-work ledger are preserved. Native review acceptance and ledger resolution are subsequent orchestrator work; this development result does not claim either.
+Residual risks: frozen structural-only candidate-path coverage and historical product choices remain unchanged. The original nested story and codegen artifacts remain byte-identical. No sprint-status file was written or reverted. The original development receipts remain scoped to their earlier revision. This result is committed locally without push; resolve its exact containing commit with `git log -1 --format=%H -- .audit/DW-93/review-followup/reviews.md`. Native acceptance remains the orchestrator's responsibility; its existing ledger close is not verification evidence.

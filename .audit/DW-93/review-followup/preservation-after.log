@@ -1,0 +1,15 @@
+PRESERVED current a9c07bbffcb85ff36ccb7089a9927942700814d3940f21383648d20339d4b310 _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md
+PRESERVED historical ledger a8deb3473406d7cf90f89922f31c0e38b475f5b39f1b226a72189d1f8b7a0161 _bmad-output/implementation-artifacts/deferred-work.md
+PRESERVED current 87e2ae6d05dac3a7e518581cb2cd412b5f525f0854466bda838fa42fa5b6e520 convex/_generated/api.d.ts
+PRESERVED current f37431ceed31b0754fb2dbbf915b9117427478bd9f02d9f58d2610bd27e67d88 .audit/CAP-2-story-3/codegen.log
+PRESERVED current e10884f2dc21fc77daefe3c60ddf543de9ed6a04105800f0b1fb660a49c6a14c .audit/CAP-2-story-3/evidence.md
+INVOCATION PRESERVED 2ec09928e0a2c2fcf3c8cf26cd9ed4230560bed7f3265432211fa8dfca2de387 _bmad-output/implementation-artifacts/deferred-work.md
+INVOCATION PRESERVED a9c07bbffcb85ff36ccb7089a9927942700814d3940f21383648d20339d4b310 _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md
+ANCESTOR 3e575b7c68a80ef560b746be78e1b016e1dda750 -> bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d
+ANCESTOR 5de0e9a389022afc4ee21f740fe6fdd0755fa9b8 -> bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d
+ANCESTOR 740008e1369faaf6eab001f95efeb10a9e52d1e5 -> bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d
+API EXACT supported-codegen artifact 3e575b7c68a80ef560b746be78e1b016e1dda750; receipt 5de0e9a389022afc4ee21f740fe6fdd0755fa9b8
+FORMULA original helper text present; calculation statements and query arguments/auth/baseline unchanged; runtime parity is covered by PED tests
+PASS all preservation and provenance comparisons
+
+Exit status: 0
