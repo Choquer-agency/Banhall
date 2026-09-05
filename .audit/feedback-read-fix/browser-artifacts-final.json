@@ -1,0 +1,30 @@
+[
+  {
+    "retained": ".audit/feedback-read-fix/browser-artifacts-final/DW-98-fix/implicit-A-retained.png",
+    "restored_historical_path": ".audit/DW-98-fix/implicit-A-retained.png"
+  },
+  {
+    "retained": ".audit/feedback-read-fix/browser-artifacts-final/story-7/optimistic-after.png",
+    "restored_historical_path": ".audit/story-7/optimistic-after.png"
+  },
+  {
+    "retained": ".audit/feedback-read-fix/browser-artifacts-final/story-7/optimistic-scrolled-after.png",
+    "restored_historical_path": ".audit/story-7/optimistic-scrolled-after.png"
+  },
+  {
+    "retained": ".audit/feedback-read-fix/browser-artifacts-final/story-7/retry-highlight-only.png",
+    "restored_historical_path": ".audit/story-7/retry-highlight-only.png"
+  },
+  {
+    "retained": ".audit/feedback-read-fix/browser-artifacts-final/story-7/retry-text-and-highlight.png",
+    "restored_historical_path": ".audit/story-7/retry-text-and-highlight.png"
+  },
+  {
+    "retained": ".audit/feedback-read-fix/browser-artifacts-final/story-7/second-overflow-after.png",
+    "restored_historical_path": ".audit/story-7/second-overflow-after.png"
+  },
+  {
+    "retained": ".audit/feedback-read-fix/browser-artifacts-final/story-8/learning-sources-mobile-after.png",
+    "restored_historical_path": ".audit/story-8/learning-sources-mobile-after.png"
+  }
+]

@@ -8,6 +8,10 @@ import { deidentify } from "./lib/deidentify";
 const voteValidator = v.union(v.literal(1), v.literal(-1));
 const MAX_TURNS = 200;
 const MAX_TEXT = 4000;
+// Each component page tracks merged-stream bytes, including prefetched docs.
+// Reserve document overshoot and anchor reads: at most two pages, not 100 full
+// historical bodies. Ordinary answers finish after the first returned record.
+const FEEDBACK_PAGE_BYTES = 1 << 20;
 // Keep the new stream below Convex read limits even with four Unicode-rich
 // 4,000-character stored fields per row. Other streams retain their windows.
 const MAX_DIGEST_ROWS = 20;
@@ -27,7 +31,7 @@ export const submitFeedback = mutation({
     const thread = await ctx.db.query("agentChatThreads")
       .withIndex("by_agentThreadId", q => q.eq("agentThreadId", turn.agentThreadId)).unique();
     if (!thread) domainError("NOT_FOUND", "Chat answer not found");
-    const { user } = await requireInternalProjectAccess(ctx, thread.projectId);
+    const { user, project } = await requireInternalProjectAccess(ctx, thread.projectId);
     const report = await ctx.db.get(thread.reportId);
     if (!report || report.projectId !== thread.projectId)
       domainError("NOT_FOUND", "Chat answer not found");
@@ -47,15 +51,28 @@ export const submitFeedback = mutation({
       order: "desc",
       statuses: ["success"],
       excludeToolMessages: false,
-      paginationOpts: { cursor: null, numItems: 100 },
+      paginationOpts: { cursor: null, numItems: 1, maximumRowsRead: 1, maximumBytesRead: FEEDBACK_PAGE_BYTES },
     });
     // Descending component order selects the last visible assistant answer.
     // Never read tool output, reasoning, or a neighbouring turn as answer prose.
-    const answer = messages.page.find(message => message.order === turn.order &&
+    let answer = messages.page.find(message => message.order === turn.order &&
       message.message?.role === "assistant" && textOnly(message.message.content).trim());
+    if (!answer && !messages.isDone && messages.page.length > 0 &&
+      messages.page.every(message => message.order === turn.order)) {
+      const remaining = await ctx.runQuery(components.agent.messages.listMessagesByThreadId, {
+        threadId: turn.agentThreadId,
+        upToAndIncludingMessageId: turn.promptMessageId,
+        order: "desc",
+        statuses: ["success"],
+        excludeToolMessages: false,
+        paginationOpts: { cursor: messages.continueCursor, numItems: 99,
+          maximumRowsRead: 99, maximumBytesRead: FEEDBACK_PAGE_BYTES },
+      });
+      answer = remaining.page.find(message => message.order === turn.order &&
+        message.message?.role === "assistant" && textOnly(message.message.content).trim());
+    }
     if (!answer || answer.message?.role !== "assistant")
-      domainError("INVALID_INPUT", "Chat answer is unavailable for feedback");
-    const project = await ctx.db.get(thread.projectId);
+      domainError("INVALID_INPUT", "Chat answer is unavailable within feedback read limits");
     const promptText = textOnly(prompt.message.content);
     const answerText = textOnly(answer.message.content);
     await ctx.db.insert("chatAnswerFeedback", {
