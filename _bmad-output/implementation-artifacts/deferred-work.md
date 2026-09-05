@@ -757,13 +757,23 @@ location: _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persis
 source_spec: `_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md`
 severity: medium
 reason: The implementation and real Convex codegen are preserved, but the prior run deferred story3 because its claimed historical baseline740008e1369faaf6eab001f95efeb10a9e52d1e5 differed from that run's recorded baseline. Adopt the existing story spec for a fresh BMAD follow-up review, retain the historical frozen contract and baseline, independently assess the full implementation and run the ordinary required gates without test-timeout CLI overrides. Commit genuine fresh review/verification evidence before native acceptance. Keep old run history deferred. This finalization obligation is separate from the generated-API omission entry and cannot be closed merely because codegen later succeeded.
-status: open
+status: done 2026-09-04
+resolution: resolved by sweep bundle dw-persisted-ped-native-followup
+resolution-undo: ecc535fd3475ebb17e8252d9f724766f8191d469b4156617cfc793c4bca51d44 2026-09-04 7374617475733a206f70656e
 recovery-note: 2026-09-04 native recovery supersedes only the original nested RESULT LOCATION instruction above. Native 0.11.1 first-sweep discovery scans the flat implementation-artifacts directory, so use a fresh standard bmad-build-auto follow-up spec there as the RESULT artifact. Preserve the original nested PED spec and historical baseline740008e1369faaf6eab001f95efeb10a9e52d1e5 as authoritative review context, independently assess its full implementation, and produce fresh native marker, reviews, ordinary gates and committed verification evidence. The new follow-up spec should use the actual new run baseline through the normal build-auto workflow; do not hand-edit baseline or control state. Old learn3 history remains deferred; codegen closure alone does not complete this obligation. See .audit/sweep-spec-recovery/report.md.
 
 ### DW-94: Follow-up review still recommended for dw-blocking-qa-native-followup after the damping cap was spent
 origin: review-budget-followup
 location: n/a
 source_spec: `spec-dw-92-blocking-qa-native-followup.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-162523-6e72; this entry preserves the lingering recommendation for a deliberate later review.
+status: open
+
+### DW-95: Follow-up review still recommended for dw-persisted-ped-native-followup after the damping cap was spent
+origin: review-budget-followup
+location: n/a
+source_spec: `spec-dw-93-persisted-ped-native-followup.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-162523-6e72; this entry preserves the lingering recommendation for a deliberate later review.
 status: open

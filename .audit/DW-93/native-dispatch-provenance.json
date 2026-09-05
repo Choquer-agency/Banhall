@@ -1,0 +1,97 @@
+{
+  "source": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/journal.jsonl",
+  "captured_at": "2026-09-05T01:10:22.162551+00:00",
+  "entries": [
+    {
+      "source_line": 79,
+      "entry": {
+        "ts": 1788569923.504517,
+        "kind": "story-done",
+        "story_key": "dw-blocking-qa-native-followup",
+        "commit": "bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d",
+        "log_task": "dw-blocking-qa-native-followup-review-2-g1",
+        "log_pos": 1840479
+      }
+    },
+    {
+      "source_line": 80,
+      "entry": {
+        "ts": 1788569923.632343,
+        "kind": "unit-merge-started",
+        "story_key": "dw-blocking-qa-native-followup",
+        "branch": "bmad-loop/20260904-162523-6e72",
+        "target": "codex/bmad-completion",
+        "strategy": "merge",
+        "source": "bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d",
+        "log_task": "dw-blocking-qa-native-followup-review-2-g1",
+        "log_pos": 1840479
+      }
+    },
+    {
+      "source_line": 81,
+      "entry": {
+        "ts": 1788569923.855663,
+        "kind": "unit-merged",
+        "story_key": "dw-blocking-qa-native-followup",
+        "branch": "bmad-loop/20260904-162523-6e72",
+        "target": "codex/bmad-completion",
+        "strategy": "merge",
+        "source": "bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d",
+        "log_task": "dw-blocking-qa-native-followup-review-2-g1",
+        "log_pos": 1840479
+      }
+    },
+    {
+      "source_line": 123,
+      "entry": {
+        "ts": 1788569932.197435,
+        "kind": "bundle-start",
+        "story_key": "dw-persisted-ped-native-followup",
+        "dw_ids": [
+          "DW-93"
+        ],
+        "log_task": "dw-blocking-qa-native-followup-review-2-g1",
+        "log_pos": 1840479
+      }
+    },
+    {
+      "source_line": 124,
+      "entry": {
+        "ts": 1788569933.297346,
+        "kind": "worktree-opened",
+        "story_key": "dw-persisted-ped-native-followup",
+        "branch": "bmad-loop/20260904-162523-6e72",
+        "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-persisted-ped-native-followup",
+        "log_task": "dw-blocking-qa-native-followup-review-2-g1",
+        "log_pos": 1840479
+      }
+    },
+    {
+      "source_line": 126,
+      "entry": {
+        "ts": 1788569947.7750158,
+        "kind": "session-start",
+        "task_id": "dw-persisted-ped-native-followup-dev-1",
+        "role": "dev",
+        "adapter": "codex",
+        "model": "gpt-6-astra",
+        "story_key": "dw-persisted-ped-native-followup",
+        "prompt": "/bmad-build-auto Implement the deferred-work bundle described in `/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/bundles/persisted-ped-native-followup/intent.md` \u2014 it carries the intent and the verbatim ledger entries to resolve. Do NOT edit the deferred-work ledger; the orchestrator records resolution.",
+        "log_task": "dw-persisted-ped-native-followup-dev-1",
+        "log_pos": 0
+      }
+    }
+  ],
+  "worktree_head": "bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d",
+  "meaning": "Native journal records DW-92 completion and merge before DW-93 dispatch. HEAD captured through build-auto step-03. This is read-only provenance, not acceptance.",
+  "native_state_source": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/state.json",
+  "native_task_key": "dw-persisted-ped-native-followup",
+  "native_task_snapshot": {
+    "phase": "dev-running",
+    "baseline_commit": "bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d",
+    "baseline_untracked": [],
+    "baseline_ledger_digest": "a8deb3473406d7cf90f89922f31c0e38b475f5b39f1b226a72189d1f8b7a0161",
+    "spec_file": null,
+    "dispatched_spec_file": null
+  }
+}
