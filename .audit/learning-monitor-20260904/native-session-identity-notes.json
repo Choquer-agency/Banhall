@@ -1,0 +1,16 @@
+{
+  "observed_at": "2026-09-05T07:56:58.993419+00:00",
+  "rule": "Identify a rollout by the session_meta whose id matches the UUID in its filename. Full-history subagent rollouts contain copied parent metadata too; taking the last metadata record or any source=cli record can misclassify a child as another primary session.",
+  "native_story7_primary": {
+    "id": "01a0708c-35e9-7cf1-a14e-74958f21a673",
+    "source": "cli",
+    "native_task": "7-dev-1"
+  },
+  "observed_child": {
+    "id": "01a0708d-75ff-7eb3-8294-a7e7f5e50262",
+    "source": "subagent.thread_spawn",
+    "parent": "01a0708c-35e9-7cf1-a14e-74958f21a673",
+    "role": "/root/investigate"
+  },
+  "conclusion": "Observed second rollout is an investigation child of the one native primary, not another native loop."
+}

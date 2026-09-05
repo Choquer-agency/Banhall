@@ -1,0 +1,42 @@
+Auto-merging src/lib/components/chat/AgentChatPanel.svelte
+[codex/bmad-completion 8c80805] fix(chat): preserve initial conversation creation on retry
+ Date: Sat Sep 5 02:57:33 2026 -0700
+ 40 files changed, 1109 insertions(+), 3 deletions(-)
+ create mode 100644 .audit/DW-98-fix/after-source.sha256
+ create mode 100644 .audit/DW-98-fix/before-source.sha256
+ create mode 100644 .audit/DW-98-fix/canonical-recaptures/optimistic-after.png
+ create mode 100644 .audit/DW-98-fix/canonical-recaptures/optimistic-scrolled-after.png
+ create mode 100644 .audit/DW-98-fix/canonical-recaptures/retry-highlight-only.png
+ create mode 100644 .audit/DW-98-fix/canonical-recaptures/retry-text-and-highlight.png
+ create mode 100644 .audit/DW-98-fix/canonical-recaptures/second-overflow-after.png
+ create mode 100644 .audit/DW-98-fix/check.exit
+ create mode 100644 .audit/DW-98-fix/check.log
+ create mode 100644 .audit/DW-98-fix/commands.json
+ create mode 100644 .audit/DW-98-fix/component-full.exit
+ create mode 100644 .audit/DW-98-fix/component-full.log
+ create mode 100644 .audit/DW-98-fix/convex-tsc.exit
+ create mode 100644 .audit/DW-98-fix/convex-tsc.log
+ create mode 100644 .audit/DW-98-fix/decisions.tsv
+ create mode 100644 .audit/DW-98-fix/diff-check.exit
+ create mode 100644 .audit/DW-98-fix/diff-check.log
+ create mode 100644 .audit/DW-98-fix/evidence.md
+ create mode 100644 .audit/DW-98-fix/focused.exit
+ create mode 100644 .audit/DW-98-fix/focused.log
+ create mode 100644 .audit/DW-98-fix/historical-restored.sha256
+ create mode 100644 .audit/DW-98-fix/implicit-A-after.png
+ create mode 100644 .audit/DW-98-fix/implicit-A-before.png
+ create mode 100644 .audit/DW-98-fix/implicit-A-retained.png
+ create mode 100644 .audit/DW-98-fix/manifest.json
+ create mode 100644 .audit/DW-98-fix/npm-ci.exit
+ create mode 100644 .audit/DW-98-fix/npm-ci.log
+ create mode 100644 .audit/DW-98-fix/regression-after.exit
+ create mode 100644 .audit/DW-98-fix/regression-after.log
+ create mode 100644 .audit/DW-98-fix/regression-before.exit
+ create mode 100644 .audit/DW-98-fix/regression-before.log
+ create mode 100644 .audit/DW-98-fix/review-diff.json
+ create mode 100644 .audit/DW-98-fix/review.json
+ create mode 100644 .audit/DW-98-fix/spec.md
+ create mode 100644 .audit/DW-98-fix/sync.exit
+ create mode 100644 .audit/DW-98-fix/sync.log
+ create mode 100644 .audit/DW-98-fix/unit.exit
+ create mode 100644 .audit/DW-98-fix/unit.log

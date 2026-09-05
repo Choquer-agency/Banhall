@@ -1,0 +1,44 @@
+# Final acceptance preflight
+
+Read-only snapshot at `569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c` on completion. No source, infrastructure, policy, ledger, loop or shipping action performed; only this audit and JSON companion written. Root's final combined gates were still its responsibility.
+
+## Capability acceptance
+
+**19/19 original capabilities are accounted for: 18 native-accepted capabilities plus boundary CAP6 previously shipped.** Calling all 19 newly native accepted is inaccurate. Boundary covers 11 capabilities (10 native plus prior authorization commit `4ea1bb9`); learning covers 8 native accepted. Every exact accepted/prior-shipped commit is an ancestor of the inspected integration head, verified individually. Full revisions, native evidence sources and capability mappings are in `final-acceptance-preflight-evidence.json`.
+
+Early boundary 1–5/7 and learning 1–2 use retained native done records in original `.bmad-loop/backups/astra-medium-20260904-120028/`. Boundary 9–11 use actual story-done events in `.audit/native-completions/{schema,pipeline,chatspend}/native-proof.json`. Boundary 8 and learning story 3 (CAP-2) are genuinely accepted through sweep 20260904-162523-6e72, respectively `bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d` and `b984822a8aeb70b7eb48a5d617ed18846392b1d2`, not inferred from old nested specs. Historical failed/stale runs remain history.
+
+Live learning run `/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/state.json` has finished=true, all five queued stories 4–8 phase done with accepted commits. Journal ends in story 8 merge, stories-validated and run-complete. Recorded engine PID 51590 is no longer alive. No active native writer is indicated by that terminal run; this does not claim root's ordinary verification/app agents are absent.
+
+## Approved decisions
+
+Digest companion commits the approved per-stream two-producer/two-project rule, omission of failing streams and five admitted records overall; `docs/product-domain.md:1688` mirrors it. Rerank companion records the user's yes/resume decision: terminal fallback/(success+fallback), exclude skips/search failures, prospective recording, unavailable history and unchanged retrieval/privacy. `.audit/learning8-resolution-20260905/human-decision.json` and resume-verification.json retain exact approval and native reentry evidence. Accepted story 8 and the independently reviewed current reader implement that contract. Neither decision remains unanswered.
+
+## Scoped review dispositions
+
+**DW96–99 are not the only open relevant advisory rows: DW94/95 also remain open at ledger 773–787.** Their review obligations are already evidenced, so they can join root's explicit atomic disposition after final combined proof. This is administrative completion, not another product defect or a reason to rerun native stories.
+
+- **DW94 proposed note:** Independent structural QA audit found no additional in-contract finding; five reviewed source/test SHA-256 values in `.audit/integration-code-review-9da55be/qa-structural-boundary-input/manifest.json` exactly match integration `569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c`. Native accepted QA follow-up is `bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d`. Subsequent combined review/gates are recorded in `.audit/integration-code-review-9da55be/review.md` closeout at `e13e6253d0440ec4b28ea9ca5605fe7dbdc77d05`. Final combined gate receipt should be appended by root. Review-budget follow-up satisfied; no outstanding in-contract finding.
+- **DW95 proposed note:** `.audit/integration-code-review-9da55be/ped-native-acceptance-audit.md` independently verified native PED acceptance `b984822a8aeb70b7eb48a5d617ed18846392b1d2`, found no actionable acceptance/product defect and explained the historical ledger-bound verifier rather than claiming it passes on a later ledger. Later malformed-content repair was accepted by the native sweep and included in reviewed/gated e13e625 closeout. All eight PED core, trigger and test paths listed in this preflight JSON are byte-identical from e13e625 to `569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c`. Final combined gate receipt should be appended by root. Review-budget follow-up satisfied; no missing new review identified.
+
+DW96–99 independent review/repair reports and root receipts are under `.audit/learning-monitor-20260904/`; all four fixes are integrated. Combined feedback-read and published-status fixes have private reviews and are now also integrated. No ledger was changed here. Earlier open advisory rows include DW28/36/41/84 (and older unrelated DW2/11); this bounded extension assessed only 94/95 as requested, not a broad sweep or silent closure of older backlog.
+
+## Verification-infrastructure distinction
+
+At this integration head, `scripts/loop-verify.sh:20` runs Convex types, Svelte, units and uploader harnesses; it has no numbered preflight, discovery guard or VERIFY_COMPONENT behavior. `.bmad-loop/policy.toml:28` requires that exact command; `.github/workflows/ci.yml` has one typecheck/unit job. This is the native accepted branch's actual contract, not a newly introduced regression.
+
+The guard was added separately in original-branch commit `ad9952ff1ba107bfbf97955863d4dfcdf774a530` (tests-3-runner-cleanup-and-guard); stepped wrapper/CI changes are separate dx-1-one-verify-entry work. That guard commit is not an ancestor of integration. Therefore do not silently merge unrelated infrastructure or claim the older wrapper ran the new guard/two CI jobs. The discovery requirement appeared in a replacement user AGENTS instruction delivered to this child task after its DW99 repair, explicitly headed “AGENTS.md instructions for /Users/johnnynguyen/Documents/Repos/Banhall.” That child message said the one-command gate includes “the test-discovery guard” and described two required CI jobs. It was not read from completion AGENTS.md, and root reports its own user-supplied instructions do not contain that rule. Therefore this preflight must not present it as an independently verified applicable requirement on root or the completion branch. The repository evidence establishes only the separate original-branch tooling history.
+
+Read-only inspection establishes a possible external invocation: from completion CWD, `node /Users/johnnynguyen/Documents/Repos/Banhall/scripts/check-test-discovery.mjs` derives target root through git CWD and lists both local Vitest configs. This child audit did not execute it. Root subsequently performed its own canonical discovery check; see the update below. It scans every tracked test, including three intentionally archived QA test copies under `.audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/`; those are outside canonical runners and would be reported as orphans. Distinguish archive artifacts from a missing executable suite rather than adding them to product test discovery. An audit-only equivalent that reports those three explicit archival exclusions can supply meaningful coverage evidence without changing infrastructure, if root chooses that route.
+
+## Remaining shipping conditions
+
+No new product/native-acceptance blocker found. Do not claim final main readiness until root verifies final combined source/gates, explicitly records relevant review dispositions (including 94/95), handles discovery evidence accurately, and completes actual push/CI/main acceptance. Prior private or intermediate passes and terminal native status alone do not establish those remaining outcomes.
+
+## Correction and later root receipts
+
+Corrected the ambiguous PED phrase: the native follow-up is **learning story 3, capability CAP-2**. The JSON capability mapping intentionally remains learning CAP-2; it is a capability ID, not a story ID.
+
+The claimed newly supplied discovery rule was present in this child task's replacement user AGENTS message referring to original `/Users/johnnynguyen/Documents/Repos/Banhall`. It was not in the completion checkout file inspected here. Root reports no such instruction in its own active user context. The applicability claim above is withdrawn; no root instruction or branch requirement is inferred from child-only context.
+
+Root now reports actual unchanged canonical-config discovery: 214 runnable test files (154 unit/backend plus 60 component), three explicitly archived `.audit` copies excluded, zero orphans. Receipt: `final-gates/test-discovery-receipt.json`. Root also reports final gates at `569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c`: 1,970 unit tests, 463 browser tests and successful build, with scoped native DW94–99 dispositions completed and independent receipt review underway. These are later root-reported updates, not fresh executions by this child audit; they supersede the corresponding pending items in this snapshot. No source, ledger or index changes made by this correction.

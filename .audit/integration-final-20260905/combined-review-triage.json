@@ -1,0 +1,74 @@
+{
+  "at": "2026-09-05T11:42:48.298444+00:00",
+  "review_revision": "8c8080576d30c919f825e12f4b786f3f28b86b8f",
+  "mode": "full",
+  "layers": {
+    "blind-hunter": "completed fresh",
+    "edge-case-hunter": "completed fresh",
+    "verification-gap": "completed fresh",
+    "acceptance-auditor": "completed fresh"
+  },
+  "failed_layers": [],
+  "findings": [
+    {
+      "id": 1,
+      "source": "blind-hunter",
+      "title": "Final-message snapshot is a bounded excerpt of the completed answer",
+      "location": "convex/chatFeedback.ts:54",
+      "severity": "low",
+      "bucket": "dismiss",
+      "reason": "The approved feature stores bounded server-derived context keyed to an exact completed turn, not a full-answer transcript. Frozen story5 Code Map deliberately selects final visible assistant answer; actual backend fixture explicitly excludes Early answer. The vote remains attached to the correct durable turn and all text is server-derived/deidentified. Independent full acceptance audit found no violated requirement. Concatenating all earlier messages would change deliberate context selection; no such expansion is required by this review."
+    },
+    {
+      "id": 2,
+      "source": "blind-hunter",
+      "title": "Published retained local bubble still says Sending",
+      "location": "src/lib/components/chat/AgentChatPanel.svelte:1123",
+      "severity": "low",
+      "bucket": "patch",
+      "reason": "Retaining local bubble until exact persisted page acknowledgment is intentional and remains unchanged. The separate presentation branch wrongly describes a known successful mutation as still sending, potentially indefinitely after offscreen completion. Distinguish sending versus published acknowledgement in visible status without altering guards, captured context or reconciliation.",
+      "resolution": {
+        "status": "resolved",
+        "integrated_commit": "569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c",
+        "receipt": "published-status-root-receipt.json",
+        "combined_validation": "final-gates/final-verification.json"
+      }
+    },
+    {
+      "id": 3,
+      "source": "edge-case-hunter",
+      "title": "Feedback eager page can exhaust reads on unrelated historical messages",
+      "location": "convex/chatFeedback.ts:44-50",
+      "severity": "medium",
+      "bucket": "patch",
+      "reason": "Installed component source paginates all older orders up to target and retrieves full message docs.100-row cap cannot bound16MiB transactions. A real enforced-limit baseline probe is active to confirm reachable scenario before implementation; if it disproves the claim, dismiss with that evidence.",
+      "resolution": {
+        "status": "resolved",
+        "integrated_commit": "f621540e7872261def967cb0921bf00d5d3cc986",
+        "receipt": "feedback-read-root-receipt.json",
+        "combined_validation": "final-gates/final-verification.json"
+      }
+    },
+    {
+      "id": 4,
+      "source": "verification-gap",
+      "title": "Capped rerank rate lacks order-sensitive cohort regression",
+      "location": "convex/learningHealth.test.ts:332",
+      "severity": "low",
+      "bucket": "patch",
+      "reason": "Matches independently identified DW99. Reviewed private fix9aa4c32 integrated as e3f23432121b6d3145cff7040c485ac28739a25f, with real authenticated query and in-memory wrong-order failing control; final combined validation remains owed.",
+      "resolution": {
+        "status": "resolved",
+        "integrated_commit": "e3f23432121b6d3145cff7040c485ac28739a25f",
+        "receipt": "DW-99-integration.json",
+        "combined_validation": "final-gates/final-verification.json"
+      }
+    }
+  ],
+  "decision_needed": 0,
+  "defer": 0,
+  "authorization": "User already authorized fixing all in-scope failures and review patches, then verification and merge; user requested quiet progress. No new policy or permission decision is needed. Canonical kernel has no story Tasks/Status section; persist this combined review here without rewriting native accepted stories or ledger.",
+  "final_source_revision": "569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c",
+  "remaining_patches": 0,
+  "finalized_at": "2026-09-05T12:34:22.388897+00:00"
+}

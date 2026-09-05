@@ -1,0 +1,242 @@
+[
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/routes/workspaceRoutes.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/workspace/WorkspaceGate.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/admin/AdminWorkspacePage.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/chat/ChatFeedback.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/chat/FeedbackSubscription.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/chat/OptimisticSend.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/chat/RegenerateLimits.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/chat/RegenerateQueryState.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/chat/RegenerateTurn.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/dashboard/CurrentDashboard.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/dashboard/ProjectCardMetadata.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/dashboard/ProjectStateBadge.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/generation/GenerationRecoveryPanel.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/mywork/CurrentWorkLedgerFixture.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/mywork/HomeStartProject.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/mywork/MyWorkHome.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/mywork/MyWorkLaneSort.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/mywork/MyWorkRow.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/project/AssignmentComposerDialog.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/project/EditableText.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/project/OwnerTransferDialog.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/project/PreviewProjectIntake.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/project/ProjectHighlights.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/project/ProjectWorkflowMenu.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/project/StageChangeDialog.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/project/WorkflowDetailsPanel.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/roles/RoleGuideSheet.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/ui/Button.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/ui/Disclosure.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/ui/Input.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/ui/PageBar.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/ui/SelectInput.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/ui/StageBadge.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/ui/UserMenu.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/ui/ViewModeToggle.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/upload/ProcessingStatusBadge.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/upload/UploadReceipt.a11y.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/upload/UploadReceipt.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/upload/UploadReceiptRow.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/workspace/HomeParity.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/workspace/ProjectBoardCard.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/workspace/ProjectsBoard.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/workspace/ProjectsClientGroup.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/workspace/ProjectsClientGroups.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/workspace/ProjectsDisplayMenu.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/workspace/ProjectsTable.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/workspace/ProjectsTableView.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/workspace/ProjectsTableViewGrouping.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/workspace/WorkspaceChrome.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/workspace/WorkspaceDashboard.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/workspace/WorkspaceHeader.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/workspace/WorkspaceRail.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/lib/components/workspace/WorkspaceRailResize.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/routes/admin/learning/LearningHealth.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/routes/admin/reviews/reviewsPublishGate.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/routes/project/[id]/currentProjectTranscripts.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/routes/project/[id]/projectRoute.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/routes/project/new/newProjectPrefill.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/routes/project/new/newProjectTranscripts.component.test.ts",
+    "projectName": "component (chromium)"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/src/routes/project/questionnaire/questionnaireSubmit.component.test.ts",
+    "projectName": "component (chromium)"
+  }
+]

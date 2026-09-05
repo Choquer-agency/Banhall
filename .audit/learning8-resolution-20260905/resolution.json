@@ -1,0 +1,6 @@
+{
+  "story_key": "8",
+  "decision": "The human approved failed rerank attempts divided by all rerank attempts, excluding deliberate skips, with prospective outcome tracking now and older unmeasured history unavailable. The corrected canonical contract preserves current retrieval, retry, billing, privacy and publication behavior; fresh native planning and normal verification/review remain required.",
+  "spec_file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/8/_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/8-admin-learning-health-page.md",
+  "spec_updated": true
+}

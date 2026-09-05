@@ -1,0 +1,2 @@
+ts	phase	decision	why	evidence	result
+2026-09-05T08:47:16.030959+00:00	planning	Halt on undefined fallback measurement	Billing rows cannot distinguish skipped and failed reranks	convex/ai/brain/retrieve.ts:280	blocked

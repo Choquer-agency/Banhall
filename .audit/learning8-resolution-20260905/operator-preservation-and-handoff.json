@@ -1,0 +1,19 @@
+{
+  "preservation_ref": "refs/heads/codex/preserve-learning8-approved-resolution-20260905",
+  "preservation_commit": "53a2dbd3176bb1d976fcc41de9c960ece49021f5",
+  "worker_parent_unchanged": "1b0511611f0766f90b61bb01afea011085fcc4cf",
+  "preserved_files": [
+    "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/SPEC.md",
+    "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/decisions/rerank-fallback-measurement-2026-09-05.md",
+    "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/8-admin-learning-health-page.md"
+  ],
+  "target_before": "e8abbc14523eff3e1aa490712e7efafe9cd86b24",
+  "target_after": "64ee37c8d7498318232f6367b55c7f638e8b830e",
+  "target_changed_files": [
+    "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/SPEC.md",
+    "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/decisions/rerank-fallback-measurement-2026-09-05.md"
+  ],
+  "zero_story8_matches": true,
+  "route": "Normal native folder+id fresh planning against approved SPEC and companion; incomplete prior plan remains preserved outside dispatch.",
+  "source_implementation_changes": false
+}

@@ -1,0 +1,11 @@
+{
+  "at": "2026-09-05T09:08:13.891980+00:00",
+  "pending_human_decision": true,
+  "recommended_option": 1,
+  "spec_unchanged": true,
+  "resolution_marker_exists": false,
+  "run_resumed": false,
+  "native_target": "e8abbc14523eff3e1aa490712e7efafe9cd86b24",
+  "proposal": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.audit/learning8-resolution-20260905/proposed-resolution.md",
+  "independent_work": "DW98 review active in separate checkout; DW96 and DW97 fixes privately reviewed/verified and await integration"
+}

@@ -1,0 +1,29 @@
+{
+  "layer": "blind-hunter",
+  "review_revision": "8c8080576d30c919f825e12f4b786f3f28b86b8f",
+  "agent": "/root/final_combined_blind",
+  "fresh_context": true,
+  "findings": [
+    {
+      "id": "CB-1",
+      "file": "convex/chatFeedback.ts:54",
+      "claim": "Server stores only last assistant message although UI feedback rates combined same-order answer text. Earlier explanation before tool use can be omitted from the learning snapshot.",
+      "suggestion": "Use same ordered text-only assistant content for bounded feedback snapshot.",
+      "root_evidence_pending_triage": [
+        "Story5 code map explicitly selects final visible assistant answer, backend tests explicitly omit Early answer. Need distinguish intended bounded excerpt from full-answer consistency requirement.",
+        "No user policy decision is inferred from a reviewer claim."
+      ]
+    },
+    {
+      "id": "CB-2",
+      "file": "src/lib/components/chat/AgentChatPanel.svelte:319",
+      "claim": "Published optimistic request persists while exact durable user message is outside loaded page, still showing Sending after exact terminal turn is found for guard reconciliation.",
+      "suggestion": "Stop indicating active transmission after publication confirmation without losing captured context or changing exact-message handoff.",
+      "root_evidence_pending_triage": [
+        "Loaded-page acknowledgment is a declared scope limit; merely retaining the bubble is not automatically a defect.",
+        "Published and sending states share one Sending presentation branch; assess honest state presentation separately."
+      ]
+    }
+  ],
+  "triage_status": "Pending all four final combined layers and frozen-contract assessment. No source repair or ledger change from these candidates yet."
+}

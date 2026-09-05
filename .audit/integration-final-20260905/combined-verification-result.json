@@ -1,0 +1,14 @@
+{
+  "layer": "verification-gap",
+  "agent": "/root/final_combined_verification",
+  "fresh_context": true,
+  "revision": "8c8080576d30c919f825e12f4b786f3f28b86b8f",
+  "findings": [
+    {
+      "id": "CV-1",
+      "claim": "Missing distinct timestamp mixed-outcome cutoff test for oldest2000 rerank denominator and bounds.",
+      "same_as": "DW-99 independent review finding",
+      "remediation": "Privately verified9aa4c32d5407dd02e15bf0532587a099343bf70d pending integration"
+    }
+  ]
+}

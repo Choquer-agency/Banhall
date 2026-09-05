@@ -1,0 +1,79 @@
+{
+  "at": "2026-09-05T12:33:43.341758+00:00",
+  "head": "569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c",
+  "nonaudit_files_unchanged": 3274,
+  "historical_screenshots_restored": [
+    {
+      "path": ".audit/DW-98-fix/implicit-A-retained.png",
+      "before": "a6a58a360643f7c1add66c5b43e83d6ba92fb068ae62ef3228c6169a22f5e172",
+      "capture": "d24b867d86388808918944f8a201ac0f956167c140b1f55bb94c7fb5d1b760d1",
+      "retained": ".audit/integration-final-20260905/final-gates/canonical-recaptures/.audit/DW-98-fix/implicit-A-retained.png"
+    },
+    {
+      "path": ".audit/published-status-fix/published-after.png",
+      "before": "ed66274242ebd9d1e66259c96241ea3f34e4cb498320e754959e4ac71d84ec01",
+      "capture": "0bfad8c0b81918bac46047c66d5bd98407f68045fd56e5b57b05116fb43eb754",
+      "retained": ".audit/integration-final-20260905/final-gates/canonical-recaptures/.audit/published-status-fix/published-after.png"
+    },
+    {
+      "path": ".audit/story-7/followup-overflow-after.png",
+      "before": "6850d58ba0e21661f83b81a2c7eaebd4e60c5902a861e8de4fdaccce0e8f99a5",
+      "capture": "80b0eb17c0dad3991dbf12f1d3f0f56e6779f10ab7cd98e0faa28f329bcc7686",
+      "retained": ".audit/integration-final-20260905/final-gates/canonical-recaptures/.audit/story-7/followup-overflow-after.png"
+    },
+    {
+      "path": ".audit/story-7/optimistic-after.png",
+      "before": "e092b1bbd2de36ee6b51caf1d9f86fa8070c4150b75b2a5c86d0db60f1b84b05",
+      "capture": "fee28b9bf87ff2cab77c651070b043c5843dcd854ad039218eec8174bd5a7e2c",
+      "retained": ".audit/integration-final-20260905/final-gates/canonical-recaptures/.audit/story-7/optimistic-after.png"
+    },
+    {
+      "path": ".audit/story-7/optimistic-scrolled-after.png",
+      "before": "25b92f3507a89356fbc330cccb712aaa041d6bbe8bd5592a3046da6892f0fbd5",
+      "capture": "bef49d6e99d84c4068c482c292a844dfd83f3253b9bd69c7081ce0f05494314c",
+      "retained": ".audit/integration-final-20260905/final-gates/canonical-recaptures/.audit/story-7/optimistic-scrolled-after.png"
+    },
+    {
+      "path": ".audit/story-7/retry-highlight-only.png",
+      "before": "7780e90f51f992a660c7c51375727cd3f04307272e70c4f1eac51d94eeaea165",
+      "capture": "d5214919e4f43a7f4bcb008325cc696099ee93cf855809e45fd39e520855bd72",
+      "retained": ".audit/integration-final-20260905/final-gates/canonical-recaptures/.audit/story-7/retry-highlight-only.png"
+    },
+    {
+      "path": ".audit/story-7/retry-text-and-highlight.png",
+      "before": "43800bfd2c3c97af43b4722599c04c9d67d0a1b20b8660100e1e2092f54742ad",
+      "capture": "f6911a20e2982351b5526cd988fbca598bafdbb61dacb6cdf58f00ce70cd9130",
+      "retained": ".audit/integration-final-20260905/final-gates/canonical-recaptures/.audit/story-7/retry-text-and-highlight.png"
+    },
+    {
+      "path": ".audit/story-7/second-overflow-after.png",
+      "before": "72be6d34dc4a3d755268ff1f02d605d9bd1373592731b542fd99ae414448db7f",
+      "capture": "831ff82868bdfa510d5b2bf8a1d85f4e69d278a90d93b5d576c2f157954f68e0",
+      "retained": ".audit/integration-final-20260905/final-gates/canonical-recaptures/.audit/story-7/second-overflow-after.png"
+    },
+    {
+      "path": ".audit/story-8/learning-desktop-after.png",
+      "before": "4b72a1e9feb21a9e082139c39f7140de203842e20f361d3e6963e6757e57140a",
+      "capture": "8ca7588f4a42fe819b650c83fc75c98214c442c827226b5374eb355e7d816c9d",
+      "retained": ".audit/integration-final-20260905/final-gates/canonical-recaptures/.audit/story-8/learning-desktop-after.png"
+    },
+    {
+      "path": ".audit/story-8/learning-sources-mobile-after.png",
+      "before": "7dacaa5fef94fed7563c477f60dab6f9e2313be34d738bff2c6a2754cef4bf55",
+      "capture": "141d7e17be2dba0bf8c92beb088dfe37687cb6ebef2ead13e71dd364997638c2",
+      "retained": ".audit/integration-final-20260905/final-gates/canonical-recaptures/.audit/story-8/learning-sources-mobile-after.png"
+    }
+  ],
+  "gates": "all three exact-head receipts passed",
+  "nonbrowser_tests": 1970,
+  "nonbrowser_files": 154,
+  "component_tests": 463,
+  "component_files": 60,
+  "svelte_errors": 0,
+  "svelte_warnings": 0,
+  "uploaders": {
+    "powershell": 50,
+    "bash": 18
+  },
+  "limitations": "Component transport fixtures and local build do not establish live deployed provider behavior. Existing browser derived_inert notices and build warnings preserved."
+}

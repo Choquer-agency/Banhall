@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "ok": true,
+  "mode": "stories",
+  "spec_folder": "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat",
+  "counts": {
+    "ok": 16,
+    "warning": 0,
+    "problem": 0
+  },
+  "findings": [
+    {
+      "check": "bmad-config",
+      "severity": "ok",
+      "message": "BMAD config OK: artifacts at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/_bmad-output/implementation-artifacts",
+      "detail": {
+        "implementation_artifacts": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/_bmad-output/implementation-artifacts"
+      }
+    },
+    {
+      "check": "policy",
+      "severity": "ok",
+      "message": "policy OK: gates=none, adapter dev=codex, review=codex, triage=codex",
+      "detail": {
+        "gates_mode": "none",
+        "adapters": {
+          "dev": "codex",
+          "review": "codex",
+          "triage": "codex"
+        }
+      }
+    },
+    {
+      "check": "queue.stories-manifest",
+      "severity": "ok",
+      "message": "stories mode OK: 6 stories in /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories.yaml, SPEC.md present",
+      "detail": {
+        "spec_folder": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat",
+        "stories": 6
+      }
+    },
+    {
+      "check": "skills.stories-dispatch",
+      "severity": "ok",
+      "message": "bmad-build-auto supports folder+id dispatch (stories mode)",
+      "detail": {
+        "trees": [
+          ".agents/skills"
+        ],
+        "dev_primitive": [
+          "bmad-build-auto"
+        ]
+      }
+    },
+    {
+      "check": "git.worktree-clean",
+      "severity": "ok",
+      "message": "git worktree clean",
+      "detail": null
+    },
+    {
+      "check": "git.version",
+      "severity": "ok",
+      "message": "git 2.34+ satisfied",
+      "detail": null
+    },
+    {
+      "check": "mux.backend",
+      "severity": "ok",
+      "message": "multiplexer TmuxMultiplexer available (tmux 3.7c)",
+      "detail": {
+        "backend": "TmuxMultiplexer",
+        "available": true,
+        "version": "tmux 3.7c"
+      }
+    },
+    {
+      "check": "mux.backends-detected",
+      "severity": "ok",
+      "message": "mux backends: tmux* (available, tmux 3.7c), psmux (unavailable) \u2014 `bmad-loop mux` for details",
+      "detail": {
+        "backends": [
+          {
+            "name": "tmux",
+            "matches_platform": true,
+            "available": true,
+            "version": "tmux 3.7c",
+            "selected": true,
+            "reason": "platform-default"
+          },
+          {
+            "name": "psmux",
+            "matches_platform": false,
+            "available": false,
+            "version": null,
+            "selected": false,
+            "reason": ""
+          }
+        ]
+      }
+    },
+    {
+      "check": "mux.selection",
+      "severity": "ok",
+      "message": "multiplexer selection platform default for darwin",
+      "detail": {
+        "backend": "tmux",
+        "reason": "platform-default"
+      }
+    },
+    {
+      "check": "host.process",
+      "severity": "ok",
+      "message": "process host: PosixProcessHost",
+      "detail": {
+        "host": "PosixProcessHost"
+      }
+    },
+    {
+      "check": "adapter.binary",
+      "severity": "ok",
+      "message": "codex found",
+      "detail": {
+        "binary": "codex"
+      }
+    },
+    {
+      "check": "hooks.registered",
+      "severity": "ok",
+      "message": "bmad-loop hooks registered for codex",
+      "detail": {
+        "profile": "codex",
+        "config_path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.codex/hooks.json"
+      }
+    },
+    {
+      "check": "hooks.relay-present",
+      "severity": "ok",
+      "message": "hook relay script present: /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/bmad_loop_hook.py",
+      "detail": {
+        "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/bmad_loop_hook.py"
+      }
+    },
+    {
+      "check": "hooks.relay-stale",
+      "severity": "ok",
+      "message": "hook relay script up to date: /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/bmad_loop_hook.py",
+      "detail": {
+        "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/bmad_loop_hook.py"
+      }
+    },
+    {
+      "check": "adapter.kind",
+      "severity": "ok",
+      "message": "codex: adapter kind 'generic' registered",
+      "detail": {
+        "profile": "codex",
+        "adapter": "generic"
+      }
+    },
+    {
+      "check": "skills.base",
+      "severity": "ok",
+      "message": "upstream skills present (bmad-build-auto + review layers)",
+      "detail": {
+        "trees": [
+          ".agents/skills"
+        ],
+        "dev_primitive": [
+          "bmad-build-auto"
+        ]
+      }
+    }
+  ]
+}

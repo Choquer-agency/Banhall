@@ -1,0 +1,10 @@
+{
+  "command": [
+    "bash",
+    "scripts/loop-verify.sh"
+  ],
+  "head": "569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c",
+  "started": "2026-09-05T12:30:42.039469+00:00",
+  "finished": "2026-09-05T12:31:36.765794+00:00",
+  "returncode": 0
+}

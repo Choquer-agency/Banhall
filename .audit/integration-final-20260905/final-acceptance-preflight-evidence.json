@@ -1,0 +1,196 @@
+{
+  "at": "2026-09-05T12:33:49.724568+00:00",
+  "head": "569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c",
+  "capabilities": [
+    {
+      "epic": "boundary",
+      "capability": "1",
+      "commit": "e42312b3364a6291a166853dddc1701aaf793d88",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/backups/astra-medium-20260904-120028/boundary/state.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "boundary",
+      "capability": "2",
+      "commit": "23317ce915c482cd6b8e23853a3dd810cb899c62",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/backups/astra-medium-20260904-120028/boundary/state.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "boundary",
+      "capability": "3",
+      "commit": "a4e326dd168d9f917328916a6b374aa7bfa4c308",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/backups/astra-medium-20260904-120028/boundary/state.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "boundary",
+      "capability": "4",
+      "commit": "997b6324494e1c2f5451d3ce9f3e58cb59ba624c",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/backups/astra-medium-20260904-120028/boundary/state.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "boundary",
+      "capability": "5",
+      "commit": "c40da52ab3c311f027cd2637ccd908f0cd4dd1d3",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/backups/astra-medium-20260904-120028/boundary/state.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "boundary",
+      "capability": "7",
+      "commit": "2e4bff11c7065b8e9c389a1eacc4ca0a4e6d53ae",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/backups/astra-medium-20260904-120028/boundary/state.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "learning",
+      "capability": "8",
+      "commit": "8aa8be3d84bed5a936647c717c8f6a45c4b32d39",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/backups/astra-medium-20260904-120028/learn-chat/state.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "learning",
+      "capability": "1",
+      "commit": "44f3eed02df18eda7d913251dd7e9fd2d91e9294",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/backups/astra-medium-20260904-120028/learn-chat/state.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "boundary",
+      "capability": "9",
+      "commit": "076b3041949b6acffcdb738a233d92583d46c893",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.audit/native-completions/schema/native-proof.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "boundary",
+      "capability": "10",
+      "commit": "f9389a46d26d1a45efe1645e4b965eb3cf40da8a",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.audit/native-completions/pipeline/native-proof.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "boundary",
+      "capability": "11",
+      "commit": "c20934e0bb898a60d0ee298c577c708109a74f63",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.audit/native-completions/chatspend/native-proof.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "boundary",
+      "capability": "8",
+      "commit": "bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d",
+      "source": "native sweep20260904-162523-6e72",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "learning",
+      "capability": "2",
+      "commit": "b984822a8aeb70b7eb48a5d617ed18846392b1d2",
+      "source": "native sweep20260904-162523-6e72",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "learning",
+      "capability": "4",
+      "commit": "36313c0ac79fbd408fe121958f0af759ab7e964c",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/state.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "learning",
+      "capability": "7",
+      "commit": "1fd71dcfc63e9c7a7ba083ae646ff1ad8486c4c5",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/state.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "learning",
+      "capability": "5",
+      "commit": "438edf107a85d443480a3027fe8d19e0f9195106",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/state.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "learning",
+      "capability": "6",
+      "commit": "1b0511611f0766f90b61bb01afea011085fcc4cf",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/state.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "learning",
+      "capability": "3",
+      "commit": "76d101671d109012438ed5fb282168872811103c",
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/state.json",
+      "kind": "native accepted",
+      "ancestor_of_head": true
+    },
+    {
+      "epic": "boundary",
+      "capability": "6",
+      "commit": "4ea1bb959abc44d3536429f40da961363a9165de",
+      "source": ".audit/integration-code-review-9da55be/epic-completion-inventory.md",
+      "kind": "previously shipped",
+      "ancestor_of_head": true
+    }
+  ],
+  "count": 19,
+  "native_count": 18,
+  "guard_introducing_commit": "ad9952ff1ba107bfbf97955863d4dfcdf774a530",
+  "guard_commit_is_ancestor": false,
+  "DW94_source_identity": {
+    "convex/lib/tiptapReport.ts": {
+      "reviewed_sha256": "798806db4384e9bb5957ff45bd280f02c9b946ad51e9e1f7d5bbd23efd6287a3",
+      "current_sha256": "798806db4384e9bb5957ff45bd280f02c9b946ad51e9e1f7d5bbd23efd6287a3"
+    },
+    "convex/lib/tiptapReport.test.ts": {
+      "reviewed_sha256": "c5ad8f5fc8a3890e813bfb2bc4ad388f51879b8282c5d5fef3b8b5df5c960557",
+      "current_sha256": "c5ad8f5fc8a3890e813bfb2bc4ad388f51879b8282c5d5fef3b8b5df5c960557"
+    },
+    "convex/ai/qaChecks.ts": {
+      "reviewed_sha256": "de5dce8681e7afedc7766942d3c51f865b6ad7f3c294ee18c33c68b18c723768",
+      "current_sha256": "de5dce8681e7afedc7766942d3c51f865b6ad7f3c294ee18c33c68b18c723768"
+    },
+    "convex/ai/qaChecks.test.ts": {
+      "reviewed_sha256": "14037caf89e2740510631d7ffd6c90f2609a8dfdbfb700161dd52b3bccdb0c39",
+      "current_sha256": "14037caf89e2740510631d7ffd6c90f2609a8dfdbfb700161dd52b3bccdb0c39"
+    },
+    "convex/qaBlocking.test.ts": {
+      "reviewed_sha256": "b7928f1e2f7f698e25b4404a1f9bd020dde06f549d1689ced7374e64696fea6b",
+      "current_sha256": "b7928f1e2f7f698e25b4404a1f9bd020dde06f549d1689ced7374e64696fea6b"
+    }
+  },
+  "DW95_source_identity": {
+    "convex/lib/editDistance.ts": true,
+    "convex/lib/editDistance.test.ts": true,
+    "convex/reportEditDistance.ts": true,
+    "convex/reportEditDistance.test.ts": true,
+    "convex/generations.ts": true,
+    "convex/snapshots.ts": true,
+    "convex/projects.ts": true,
+    "convex/reports.ts": true
+  },
+  "learning_engine_pid_alive": false,
+  "learning_engine_pid": 51590
+}

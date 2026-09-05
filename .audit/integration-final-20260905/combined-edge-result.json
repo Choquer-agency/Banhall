@@ -1,0 +1,16 @@
+{
+  "layer": "edge-case-hunter",
+  "agent": "/root/final_combined_edges",
+  "fresh_context": true,
+  "revision": "8c8080576d30c919f825e12f4b786f3f28b86b8f",
+  "findings": [
+    {
+      "id": "CE-1",
+      "location": "convex/chatFeedback.ts:44-50",
+      "trigger": "Voting when newest100 successful full agent messages exceed transaction read budget although completed answer is available.",
+      "consequence": "Feedback fails due to unrelated older messages read by eager pagination.",
+      "suggested_guard": "Use small bounded pages with cumulative byte protection and stop once required same-turn answer context is obtained.",
+      "root_inspected_source": "Installed agent component messages.ts:639-683 queries all orders <= target turn and eagerly paginates numItems100; no per-turn lower bound. Reproduction and final triage remain owed."
+    }
+  ]
+}

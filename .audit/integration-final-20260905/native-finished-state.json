@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "run_id": "20260904-133944-0158",
+  "run_type": "story",
+  "source": "stories",
+  "started_at": "2026-09-04T13:39:44",
+  "status": "finished",
+  "finished": true,
+  "stopped": false,
+  "graceful_stop_pending": false,
+  "crashed": false,
+  "crash_error": null,
+  "paused_stage": null,
+  "paused_reason": null,
+  "paused_story_key": null,
+  "cache_read_weight": 0.1,
+  "tokens": {
+    "raw": 95907508,
+    "weighted": 11915304
+  },
+  "adapters": {
+    "dev": {
+      "name": "codex",
+      "model": "gpt-6-astra"
+    },
+    "review": {
+      "name": "codex",
+      "model": "gpt-6-astra"
+    },
+    "triage": {
+      "name": "codex",
+      "model": "gpt-6-astra"
+    }
+  },
+  "sweeps_refused": {},
+  "tasks": [
+    {
+      "story_key": "4",
+      "epic": 0,
+      "phase": "done",
+      "attempt": 1,
+      "review_cycle": 2,
+      "tokens": {
+        "input_tokens": 411532,
+        "output_tokens": 42659,
+        "cache_read_tokens": 19264512,
+        "cache_creation_tokens": 0,
+        "raw": 19718703,
+        "weighted": 2380642
+      },
+      "commit_sha": "36313c0ac79fbd408fe121958f0af759ab7e964c",
+      "defer_reason": null,
+      "preserve_ref": null,
+      "adapters_used": {
+        "dev": {
+          "name": "codex",
+          "model": "gpt-6-astra"
+        },
+        "review": {
+          "name": "codex",
+          "model": "gpt-6-astra"
+        }
+      }
+    },
+    {
+      "story_key": "5",
+      "epic": 0,
+      "phase": "done",
+      "attempt": 1,
+      "review_cycle": 2,
+      "tokens": {
+        "input_tokens": 478184,
+        "output_tokens": 61318,
+        "cache_read_tokens": 20713088,
+        "cache_creation_tokens": 0,
+        "raw": 21252590,
+        "weighted": 2610811
+      },
+      "commit_sha": "1fd71dcfc63e9c7a7ba083ae646ff1ad8486c4c5",
+      "defer_reason": null,
+      "preserve_ref": null,
+      "adapters_used": {
+        "dev": {
+          "name": "codex",
+          "model": "gpt-6-astra"
+        },
+        "review": {
+          "name": "codex",
+          "model": "gpt-6-astra"
+        }
+      }
+    },
+    {
+      "story_key": "6",
+      "epic": 0,
+      "phase": "done",
+      "attempt": 1,
+      "review_cycle": 2,
+      "tokens": {
+        "input_tokens": 428982,
+        "output_tokens": 41253,
+        "cache_read_tokens": 15385216,
+        "cache_creation_tokens": 0,
+        "raw": 15855451,
+        "weighted": 2008757
+      },
+      "commit_sha": "438edf107a85d443480a3027fe8d19e0f9195106",
+      "defer_reason": null,
+      "preserve_ref": null,
+      "adapters_used": {
+        "dev": {
+          "name": "codex",
+          "model": "gpt-6-astra"
+        },
+        "review": {
+          "name": "codex",
+          "model": "gpt-6-astra"
+        }
+      }
+    },
+    {
+      "story_key": "7",
+      "epic": 0,
+      "phase": "done",
+      "attempt": 1,
+      "review_cycle": 2,
+      "tokens": {
+        "input_tokens": 341753,
+        "output_tokens": 41822,
+        "cache_read_tokens": 16215808,
+        "cache_creation_tokens": 0,
+        "raw": 16599383,
+        "weighted": 2005156
+      },
+      "commit_sha": "1b0511611f0766f90b61bb01afea011085fcc4cf",
+      "defer_reason": null,
+      "preserve_ref": null,
+      "adapters_used": {
+        "dev": {
+          "name": "codex",
+          "model": "gpt-6-astra"
+        },
+        "review": {
+          "name": "codex",
+          "model": "gpt-6-astra"
+        }
+      }
+    },
+    {
+      "story_key": "8",
+      "epic": 0,
+      "phase": "done",
+      "attempt": 1,
+      "review_cycle": 2,
+      "tokens": {
+        "input_tokens": 684351,
+        "output_tokens": 50982,
+        "cache_read_tokens": 21746048,
+        "cache_creation_tokens": 0,
+        "raw": 22481381,
+        "weighted": 2909938
+      },
+      "commit_sha": "76d101671d109012438ed5fb282168872811103c",
+      "defer_reason": null,
+      "preserve_ref": null,
+      "adapters_used": {
+        "dev": {
+          "name": "codex",
+          "model": "gpt-6-astra"
+        },
+        "review": {
+          "name": "codex",
+          "model": "gpt-6-astra"
+        }
+      }
+    }
+  ]
+}

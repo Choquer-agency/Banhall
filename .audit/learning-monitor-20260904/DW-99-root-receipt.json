@@ -1,0 +1,19 @@
+{
+  "at": "2026-09-05T11:39:06.813843+00:00",
+  "commit": "9aa4c32d5407dd02e15bf0532587a099343bf70d",
+  "artifact_hashes_verified": 25,
+  "source_hashes_verified": 4,
+  "production_bytes_unchanged": true,
+  "reviewed_test_diff_matches_commit": true,
+  "exits": {
+    "whitespace": 0,
+    "focused": 0,
+    "sync": 0,
+    "wrong-order": 1,
+    "npm-ci": 0,
+    "convex-types": 0,
+    "check": 0,
+    "unit": 0
+  },
+  "integration": "Still private. Hold source fixed until final combined acceptance review ends."
+}

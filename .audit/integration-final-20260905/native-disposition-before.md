@@ -776,8 +776,7 @@ location: n/a
 source_spec: `spec-dw-92-blocking-qa-native-followup.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-162523-6e72; this entry preserves the lingering recommendation for a deliberate later review.
-status: done 2026-09-05
-resolution: Independent structural QA audit found no remaining in-contract finding; five reviewed source/test hashes still match final source. Native acceptancebdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d; .audit/integration-final-20260905/final-acceptance-preflight.md and .audit/integration-code-review-9da55be/qa-structural-boundary-input/manifest.json. Final combined source569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c passed1970 unit and463 browser tests, both type checks, uploader suites and build; .audit/integration-final-20260905/final-gates/final-verification.json. Review-budget follow-up satisfied.
+status: open
 
 ### DW-95: Follow-up review still recommended for dw-persisted-ped-native-followup after the damping cap was spent
 origin: review-budget-followup
@@ -785,8 +784,7 @@ location: n/a
 source_spec: `spec-dw-93-persisted-ped-native-followup.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-162523-6e72; this entry preserves the lingering recommendation for a deliberate later review.
-status: done 2026-09-05
-resolution: Independent PED acceptance audit found no actionable defect; later native malformed-content repair was independently reviewed and all eight PED paths remain unchanged from reviewed e13e625. Native acceptanceb984822a8aeb70b7eb48a5d617ed18846392b1d2; .audit/integration-code-review-9da55be/ped-native-acceptance-audit.md and .audit/integration-final-20260905/final-acceptance-preflight.md. Final combined source569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c passed1970 unit and463 browser tests, both type checks, uploader suites and build; .audit/integration-final-20260905/final-gates/final-verification.json. Review-budget follow-up satisfied.
+status: open
 
 
 ## Deferred from: code review of SPEC-ai-engine-sprint-2-boundary (2026-09-04, integration 9da55be)
@@ -800,8 +798,7 @@ location: n/a
 source_spec: `4-digest-diversity-gate-and-signal-provenance.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-133944-0158; this entry preserves the lingering recommendation for a deliberate later review.
-status: done 2026-09-05
-resolution: Independent digest follow-up identified and repaired causal generation-error masking; integrated e8aa3eb96eba48ed5826609939242ac899242387. Reviewed repair and baseline failure/pass evidence: .audit/learning-monitor-20260904/DW-96-independent-review.md and DW-96-root-receipt.json. Final combined source569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c passed1970 unit and463 browser tests, both type checks, uploader suites and build; .audit/integration-final-20260905/final-gates/final-verification.json. Review-budget follow-up satisfied.
+status: open
 
 ### DW-97: Follow-up review still recommended for 6 after the damping cap was spent
 origin: review-budget-followup
@@ -809,8 +806,7 @@ location: n/a
 source_spec: `6-regenerate-and-retry-assistant-turns.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-133944-0158; this entry preserves the lingering recommendation for a deliberate later review.
-status: done 2026-09-05
-resolution: Independent regenerate follow-up repaired active research identity retention through publication/list displacement; integrated daa4cf82e8c76fcb584f2bbf301d66b4608fad68. Review and real browser proof: .audit/learning-monitor-20260904/DW-97-independent-review.md and DW-97-fix-result.md. Final combined source569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c passed1970 unit and463 browser tests, both type checks, uploader suites and build; .audit/integration-final-20260905/final-gates/final-verification.json. Review-budget follow-up satisfied.
+status: open
 
 ### DW-98: Follow-up review still recommended for 7 after the damping cap was spent
 origin: review-budget-followup
@@ -818,8 +814,7 @@ location: n/a
 source_spec: `7-optimistic-user-bubble-on-send.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-133944-0158; this entry preserves the lingering recommendation for a deliberate later review.
-status: done 2026-09-05
-resolution: Independent optimistic-send follow-up repaired initial implicit conversation creation intent across failed send, navigation and retry; integrated8c8080576d30c919f825e12f4b786f3f28b86b8f. Review and baseline failure/pass proof: .audit/learning-monitor-20260904/DW-98-independent-review.md and DW-98-root-receipt.json. Final separate confirmed-status repair integrated569158a. Final combined source569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c passed1970 unit and463 browser tests, both type checks, uploader suites and build; .audit/integration-final-20260905/final-gates/final-verification.json. Review-budget follow-up satisfied.
+status: open
 
 ### DW-99: Follow-up review still recommended for 8 after the damping cap was spent
 origin: review-budget-followup
@@ -827,5 +822,4 @@ location: n/a
 source_spec: `8-admin-learning-health-page.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-133944-0158; this entry preserves the lingering recommendation for a deliberate later review.
-status: done 2026-09-05
-resolution: Independent learning-health follow-up added order-sensitive capped rerank cohort coverage with an actual wrong-order failing control; integrated e3f23432121b6d3145cff7040c485ac28739a25f. Review and verified source identity: .audit/learning-monitor-20260904/DW-99-independent-review.md and DW-99-root-receipt.json. Final combined source569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c passed1970 unit and463 browser tests, both type checks, uploader suites and build; .audit/integration-final-20260905/final-gates/final-verification.json. Review-budget follow-up satisfied.
+status: open

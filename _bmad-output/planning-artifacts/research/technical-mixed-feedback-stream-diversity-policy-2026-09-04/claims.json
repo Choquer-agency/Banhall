@@ -1,0 +1,22 @@
+[
+  {
+    "claim": "[1] explicit data-quality failure policy",
+    "class": "patterns",
+    "pub_date": "2026-07-14"
+  },
+  {
+    "claim": "[2] Databricks quarantine/dependencies",
+    "class": "patterns",
+    "pub_date": "2026-07-14"
+  },
+  {
+    "claim": "[4] NIST contextual governance",
+    "class": "patterns",
+    "pub_date": "2023-01"
+  },
+  {
+    "claim": "[5] NIST separate privacy assessment",
+    "class": "patterns",
+    "pub_date": "2023-09-14"
+  }
+]

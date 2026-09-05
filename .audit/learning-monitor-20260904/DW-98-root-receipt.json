@@ -1,0 +1,20 @@
+{
+  "at": "2026-09-05T10:00:46.049443+00:00",
+  "commit": "4e0bdf5d45d7f5d555227783c69d01e29bfbec43",
+  "manifest_files_verified": 37,
+  "source_hashes_verified": 4,
+  "review_diff_matches_committed_source": true,
+  "exit_receipts": {
+    "regression-after": 0,
+    "regression-before": 1,
+    "component-full": 0,
+    "focused": 0,
+    "sync": 0,
+    "npm-ci": 0,
+    "check": 0,
+    "unit": 0,
+    "convex-tsc": 0,
+    "diff-check": 0
+  },
+  "scope": "Root receipt verification only. Combined integration and final gates remain owed."
+}

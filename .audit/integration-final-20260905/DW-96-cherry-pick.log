@@ -1,0 +1,31 @@
+Auto-merging convex/ai/learning.ts
+[codex/bmad-completion e8aa3eb] fix(learning): preserve original generation errors for DW-96
+ Date: Fri Sep 4 23:08:09 2026 -0700
+ 28 files changed, 4767 insertions(+), 5 deletions(-)
+ create mode 100644 .audit/DW-96-fix/after-convex-types.exit
+ create mode 100644 .audit/DW-96-fix/after-convex-types.log
+ create mode 100644 .audit/DW-96-fix/after-focused.exit
+ create mode 100644 .audit/DW-96-fix/after-focused.log
+ create mode 100644 .audit/DW-96-fix/after-full.exit
+ create mode 100644 .audit/DW-96-fix/after-full.log
+ create mode 100644 .audit/DW-96-fix/after-svelte-check.exit
+ create mode 100644 .audit/DW-96-fix/after-svelte-check.log
+ create mode 100644 .audit/DW-96-fix/baseline.txt
+ create mode 100644 .audit/DW-96-fix/before-regression.exit
+ create mode 100644 .audit/DW-96-fix/before-regression.log
+ create mode 100644 .audit/DW-96-fix/before-tracked-sha256.txt
+ create mode 100644 .audit/DW-96-fix/decisions.tsv
+ create mode 100644 .audit/DW-96-fix/evidence.md
+ create mode 100644 .audit/DW-96-fix/format.log
+ create mode 100644 .audit/DW-96-fix/integrity.log
+ create mode 100644 .audit/DW-96-fix/npm-ci.json
+ create mode 100644 .audit/DW-96-fix/npm-ci.log
+ create mode 100644 .audit/DW-96-fix/review.diff
+ create mode 100644 .audit/DW-96-fix/review.md
+ create mode 100644 .audit/DW-96-fix/reviewed-source.json
+ create mode 100644 .audit/DW-96-fix/typecheck-initial.log
+ create mode 100644 .audit/DW-96-fix/whitespace.exit
+ create mode 100644 .audit/DW-96-fix/whitespace.log
+ create mode 100644 .audit/DW-96-fix/workflow-activation.json
+ create mode 100644 _bmad-output/implementation-artifacts/spec-dw-96-original-generation-error.md
+ create mode 100644 convex/learningFailure.test.ts

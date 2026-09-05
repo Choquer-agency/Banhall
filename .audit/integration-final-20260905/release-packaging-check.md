@@ -1,0 +1,14 @@
+# Release packaging check
+
+Read-only inspection at HEAD `569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c`, compared with origin/main `14d3d1795d9f861257ac122f7183449b248a369a`. Source, ledger, index and existing artifacts were untouched; only this report was written. Gates were not rerun.
+
+No packaging blocker found in the selected evidence.
+
+- Scanned 120 files (2,168,825 bytes at scan time) under `.audit/integration-final-20260905`, `.audit/learning-monitor-20260904`, `.audit/learning8-resolution-20260905`, and the untracked research folder. No file exceeds 10 MiB. No environment/credential/secret/private-key filenames, common provider tokens, credential assignments, private-key blocks, bearer headers, access/refresh-token fields or raw encrypted session payload markers were detected. This is a targeted static scan, not a guarantee against every possible secret format.
+- All selected JSON and JSONL parsed successfully. Four native journals contained 132, 116, 108 and 110 valid records. Native snapshots/journals contain operational task/session identifiers, local filesystem paths, model names, token usage and command/output evidence. They are structured operational audit snapshots, not raw Codex rollout/session dumps. These identifiers and paths remain visible as intentional provenance; no credential value was found or emitted.
+- Examined all 1,501 new Git blobs reachable in `origin/main..HEAD`, including intermediate-history blobs. None exceeds 10 MiB; largest is `.audit/DW-92-native-final-pass/review.diff` at 3,143,157 bytes. No new blob path exposes an environment/credential/secret/private-key filename.
+- Key user-decision, measurement-contract, native validation/resume, combined-review triage, both repair integration receipts, and final-gate source/component/loop receipts are present. Research includes the synthesis, claim/citation checks and supporting digests. Raw failed-control and fixture logs are intentionally retained; they were not treated as successful gates.
+
+One editorial closeout item: `integration-final-20260905/summary.md` still ends with historical pending-review/do-not-ship wording and revision `8c8080576d30c919f825e12f4b786f3f28b86b8f`. Preserve its chronology but append the actual final reviewed revision, gate outcome and promotion disposition before presenting it as the release summary. `learning8-resolution-20260905/summary.md` similarly describes the historical restart checkpoint; it remains valid when clearly read as that checkpoint. Existing ephemeral local paths/session IDs in historical evidence are provenance, not portable replay guarantees.
+
+Scope is the filesystem snapshot at scan time while root gates run. Files created afterward and the eventual forced-add selection are outside this snapshot; no staging or release action was performed.

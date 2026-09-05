@@ -1,0 +1,87 @@
+{
+  "at": "2026-09-05T09:55:34.311618+00:00",
+  "run": "20260904-133944-0158",
+  "story4": {
+    "native_phase": "done",
+    "accepted_commit": "36313c0ac79fbd408fe121958f0af759ab7e964c",
+    "reachable_on_learning_target": true,
+    "review_followup": "DW-96 four-layer review completed; its one LOW repair privately reviewed/verified/committed at091ec5a; awaiting integration and ledger disposition."
+  },
+  "story5": {
+    "phase": "done",
+    "accepted_commit": "1fd71dcfc63e9c7a7ba083ae646ff1ad8486c4c5",
+    "reachable_on_learning_target": true,
+    "native_review_cycles": 2,
+    "last_review_recommended": false,
+    "declared_final_verification": {
+      "focused_tests": 114,
+      "canonical_browser_tests": 347,
+      "canonical_browser_files": 55,
+      "nonbrowser_tests": 1902,
+      "nonbrowser_files": 149,
+      "backend_types": "passed",
+      "svelte_errors": 0,
+      "svelte_warnings": 0,
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/5-chat-answer-feedback-and-brain-source-chips.md"
+    }
+  },
+  "validation_limit": "18/19 accepted. Story8 is blocked before planning readiness, so no story8 implementation or final integration acceptance exists. DW96/DW97 fixes and DW98 followup plus final combined review/gates/CI/main remain outstanding.",
+  "action": "Native story8 resumed after explicit approved metric decision; preserve active worker/target ownership. DW98 repair runs independently. Await story8 acceptance and reviewed private fix, then integrate DW96/DW97/DW98 with final combined review/gates/CI/main.",
+  "accepted_capabilities": 18,
+  "original_capabilities": 19,
+  "story6": {
+    "phase": "done",
+    "accepted_commit": "438edf107a85d443480a3027fe8d19e0f9195106",
+    "reachable_on_learning_target": true,
+    "native_review_cycles": 2,
+    "last_review_recommended": true,
+    "followup_damped_into": "DW-97",
+    "followup_action": "DW97 medium finding repaired in private reviewed/verified commit5df0d2c4ae9677a891cd8ca19f2669da40fc4311; fresh four-context review clean. Pending final integration with story7 and native ledger disposition.",
+    "declared_final_verification": {
+      "canonical_browser_tests": 396,
+      "canonical_browser_files": 58,
+      "nonbrowser_tests": 1911,
+      "nonbrowser_files": 149,
+      "svelte_errors": 0,
+      "svelte_warnings": 0,
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/6-regenerate-and-retry-assistant-turns.md"
+    }
+  },
+  "story8_readiness": {
+    "report": "story8-metrics-readiness.md",
+    "measurement_gap": "Existing billing telemetry cannot reconstruct rerank fallback numerator or denominator.",
+    "scope": "Prospective outcome instrumentation can fulfill original metric intent without a new human decision; historical unknown stays unavailable.",
+    "not_authorized": "Waiving/redefining the metric or changing privacy/retrieval/forbidden boundaries."
+  },
+  "story7": {
+    "phase": "done",
+    "accepted_commit": "1b0511611f0766f90b61bb01afea011085fcc4cf",
+    "reachable_on_learning_target": true,
+    "native_review_cycles": 2,
+    "followup_damped_into": "DW-98",
+    "independent_followup": "DW98 independent review completed with one medium implicit-draft routing finding. Isolated bmad-build repair on codex/bmad-dw98-fix is underway; no native ledger closure.",
+    "declared_final_verification": {
+      "canonical_browser_tests": 428,
+      "canonical_browser_files": 59,
+      "nonbrowser_tests": 1911,
+      "nonbrowser_files": 149,
+      "svelte_errors": 0,
+      "svelte_warnings": 0,
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/7-optimistic-user-bubble-on-send.md"
+    }
+  },
+  "story8": {
+    "phase": "dev-running",
+    "generation": 1,
+    "engine_alive": true,
+    "paused_stage": null,
+    "human_decision": "approved by user yes on2026-09-05",
+    "definition": "failed logical rerank attempts / all measured terminal logical attempts; skips excluded; prospective coverage; old unknown unavailable",
+    "canonical_target": "64ee37c8d7498318232f6367b55c7f638e8b830e",
+    "native_task": "8-dev-1-g1",
+    "native_session": "01a070fc-d137-7b72-993f-da3751566001",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "evidence": "../learning8-resolution-20260905/summary.md"
+  }
+}
