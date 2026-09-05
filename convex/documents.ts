@@ -80,16 +80,19 @@ export const uploadDocument = mutation({
     // claiming success for a file that was never stored. There is also no text
     // to save by deduping. Two identical unreadable uploads now make two rows,
     // which is the honest answer: the user performed two uploads.
-    const existingDocs = await ctx.db
-      .query("projectDocuments")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
-    const dup =
-      args.content.trim().length > 0
-        ? existingDocs.find(
-            (d) => d.fileName === args.fileName && d.content === args.content
-          )
-        : undefined;
+    //
+    // The exemption is decided before the read, not after it: an image or an
+    // unreadable file would otherwise pull every supporting-file body in the
+    // project into the transaction to reach a conclusion it already had.
+    const canDedupe = args.content.trim().length > 0;
+    const dup = canDedupe
+      ? (
+          await ctx.db
+            .query("projectDocuments")
+            .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+            .collect()
+        ).find((d) => d.fileName === args.fileName && d.content === args.content)
+      : undefined;
     const derived = deriveProcessingStatus({
       fileName: args.fileName,
       content: args.content,
