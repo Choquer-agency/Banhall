@@ -1,0 +1,16 @@
+{
+  "head": "e13e6253d0440ec4b28ea9ca5605fe7dbdc77d05",
+  "command": [
+    "git",
+    "diff",
+    "--check",
+    "14d3d1795d9f861257ac122f7183449b248a369a",
+    "HEAD",
+    "--",
+    ".",
+    ":(exclude).audit/**",
+    ":(exclude)_bmad-output/**"
+  ],
+  "exit_code": 0,
+  "note": "Corrected explicit Git exclude syntax. Prior invalid-pathspec exit128 retained separately. Executable source, configs, vendoredskills and docs pass; raw review/spec artifact whitespace findings retained in non-audit-whitespace.log."
+}

@@ -1,0 +1,2963 @@
+diff --git a/convex/generationLifecycle.test.ts b/convex/generationLifecycle.test.ts
+new file mode 100644
+index 0000000..478eb86
+--- /dev/null
++++ b/convex/generationLifecycle.test.ts
+@@ -0,0 +1,1565 @@
++/// <reference types="vite/client" />
++import { convexTest } from "convex-test";
++import { describe, expect, it } from "vitest";
++import { api, internal } from "./_generated/api";
++import type { Id } from "./_generated/dataModel";
++import type { DomainErrorCode } from "./lib/contracts";
++import schema from "./schema";
++
++const modules = import.meta.glob("./**/*.ts");
++const AUTH_ID = "lifecycle-writer";
++/** A writer who owns nothing on the fixture project and holds no work item. */
++const OUTSIDER_AUTH_ID = "lifecycle-outsider";
++
++/**
++ * Assert a mutation rejected with a specific `domainError` code. Several
++ * guards share a code (INVALID_STATE especially), so `messagePattern` pins the
++ * rejection to the intended guard.
++ */
++async function expectDomainError(
++  run: () => Promise<unknown>,
++  code: DomainErrorCode,
++  messagePattern?: RegExp
++) {
++  let thrown: unknown;
++  let threw = false;
++  try {
++    await run();
++  } catch (error) {
++    thrown = error;
++    threw = true;
++  }
++  expect(threw, `expected a ${code} rejection but the call resolved`).toBe(true);
++  const data = (thrown as { data?: unknown } | null)?.data;
++  expect(
++    data !== null && typeof data === "object",
++    `expected a ConvexError carrying domain-error data, got: ${String(thrown)}`
++  ).toBe(true);
++  const payload = data as { code?: unknown; message?: unknown };
++  expect(payload.code).toBe(code);
++  if (messagePattern) expect(String(payload.message)).toMatch(messagePattern);
++}
++
++/** Scheduled jobs whose function name contains `needle`. */
++async function scheduledJobs(t: ReturnType<typeof convexTest>, needle: string) {
++  return await t.run(async (ctx) =>
++    (await ctx.db.system.query("_scheduled_functions").collect()).filter((job) =>
++      job.name.includes(needle)
++    )
++  );
++}
++
++type RunSpec = {
++  model: string;
++  label: string;
++  status: "queued" | "running" | "succeeded" | "failed";
++  ghost?: boolean;
++  /** When set, a `reportCandidates` row is seeded and linked to the run. */
++  candidateContent?: string;
++  candidateAgentOutputs?: string;
++};
++
++/**
++ * Candidate-mode fixture: writer-owned project with one active generation and
++ * a candidate run per spec. `activePointsElsewhere` seeds a second generation
++ * as the project's active one so the fan-in CAS fence can be exercised.
++ */
++async function setupCompare(options: {
++  candidateMode?: "compare" | "single" | "iterative";
++  generationStatus?:
++    | "running"
++    | "awaiting_selection"
++    | "awaiting_input"
++    | "completed";
++  totalCandidates?: number;
++  /** What the project's status is restored to when the generation fails. */
++  previousProjectStatus?:
++    | "draft"
++    | "generating"
++    | "review"
++    | "client_review"
++    | "final";
++  runs: RunSpec[];
++  activePointsElsewhere?: boolean;
++}) {
++  const t = convexTest(schema, modules);
++  const ids = await t.run(async (ctx) => {
++    const now = Date.now();
++    const userId = await ctx.db.insert("users", {
++      authId: AUTH_ID,
++      role: "writer",
++      name: "Lifecycle Writer",
++    });
++    const outsiderId = await ctx.db.insert("users", {
++      authId: OUTSIDER_AUTH_ID,
++      role: "writer",
++      name: "Outsider Writer",
++    });
++    const projectId = await ctx.db.insert("projects", {
++      title: "Lifecycle project",
++      clientName: "Client",
++      status: "generating",
++      createdBy: userId,
++      ownerId: userId,
++      shareToken: "lifecycle-token",
++      createdAt: now,
++      updatedAt: now,
++    });
++    const transcriptId = await ctx.db.insert("transcripts", {
++      projectId,
++      content: "Interview content",
++      createdAt: now,
++    });
++    const generationId = await ctx.db.insert("generations", {
++      projectId,
++      transcriptId,
++      status: options.generationStatus ?? "running",
++      requestedBy: userId,
++      candidateMode: options.candidateMode ?? "compare",
++      previousProjectStatus: options.previousProjectStatus ?? "draft",
++      totalCandidates: options.totalCandidates,
++      candidatesDone: 0,
++      candidatesFailed: 0,
++      progressLog: ["Generation started."],
++      startedAt: now,
++    });
++    let otherGenerationId: Id<"generations"> | undefined;
++    if (options.activePointsElsewhere) {
++      otherGenerationId = await ctx.db.insert("generations", {
++        projectId,
++        transcriptId,
++        status: "running",
++        requestedBy: userId,
++        candidateMode: "compare",
++        startedAt: now,
++      });
++    }
++    await ctx.db.patch(projectId, {
++      activeGenerationId: otherGenerationId ?? generationId,
++    });
++    const runIds: Id<"generationCandidateRuns">[] = [];
++    const candidateIds: Id<"reportCandidates">[] = [];
++    for (const spec of options.runs) {
++      let candidateId: Id<"reportCandidates"> | undefined;
++      if (spec.candidateContent !== undefined) {
++        candidateId = await ctx.db.insert("reportCandidates", {
++          projectId,
++          generationId,
++          model: spec.model,
++          label: spec.label,
++          content: spec.candidateContent,
++          agentOutputs: spec.candidateAgentOutputs ?? "{}",
++          createdAt: now,
++        });
++        candidateIds.push(candidateId);
++      }
++      runIds.push(
++        await ctx.db.insert("generationCandidateRuns", {
++          generationId,
++          projectId,
++          model: spec.model,
++          label: spec.label,
++          status: spec.status,
++          ...(spec.ghost ? { ghost: true } : {}),
++          ...(candidateId ? { candidateId } : {}),
++          queuedAt: now,
++          startedAt: now,
++          ...(spec.status === "succeeded" || spec.status === "failed"
++            ? { completedAt: now }
++            : {}),
++        })
++      );
++    }
++    return {
++      userId,
++      outsiderId,
++      projectId,
++      transcriptId,
++      generationId,
++      otherGenerationId,
++      runIds,
++      candidateIds,
++    };
++  });
++  return {
++    t,
++    authed: t.withIdentity({ subject: AUTH_ID }),
++    outsider: t.withIdentity({ subject: OUTSIDER_AUTH_ID }),
++    ...ids,
++  };
++}
++
++type SectionStatus =
++  | "pending"
++  | "queued"
++  | "running"
++  | "awaiting_review"
++  | "approved"
++  | "failed";
++
++type SectionSpec = {
++  status: SectionStatus;
++  draftText?: string;
++  approvedText?: string;
++  attempt?: number;
++};
++
++/** Iterative fixture: three section runs plus an optional finished ghost. */
++async function setupIterative(options: {
++  sections: Record<"s242" | "s244" | "s246", SectionSpec>;
++  /**
++   * Seed a ghost run. An object or `"unparseable"` seeds a succeeded run plus
++   * its candidate (carrying those section texts, or non-JSON); `"running"`
++   * seeds a ghost that has not finished yet and therefore has no candidate.
++   * Section keys may be omitted to leave that section ghost-less.
++   */
++  ghost?:
++    | { section242?: string; section244?: string; section246?: string }
++    | "unparseable"
++    | "running";
++  /** Pre-existing edit events (from earlier approvals in the same chain). */
++  editEvents?: ("s242" | "s244")[];
++}) {
++  const t = convexTest(schema, modules);
++  const ids = await t.run(async (ctx) => {
++    const now = Date.now();
++    const userId = await ctx.db.insert("users", {
++      authId: AUTH_ID,
++      role: "writer",
++      name: "Lifecycle Writer",
++    });
++    const outsiderId = await ctx.db.insert("users", {
++      authId: OUTSIDER_AUTH_ID,
++      role: "writer",
++      name: "Outsider Writer",
++    });
++    const projectId = await ctx.db.insert("projects", {
++      title: "Iterative project",
++      clientName: "Client",
++      status: "generating",
++      createdBy: userId,
++      ownerId: userId,
++      shareToken: "iterative-token",
++      createdAt: now,
++      updatedAt: now,
++    });
++    const transcriptId = await ctx.db.insert("transcripts", {
++      projectId,
++      content: "Interview content",
++      createdAt: now,
++    });
++    const generationId = await ctx.db.insert("generations", {
++      projectId,
++      transcriptId,
++      status: "awaiting_input",
++      requestedBy: userId,
++      candidateMode: "iterative",
++      previousProjectStatus: "draft",
++      progressLog: ["Generation started."],
++      startedAt: now,
++    });
++    await ctx.db.patch(projectId, { activeGenerationId: generationId });
++    const sectionRunIds: Record<string, Id<"generationSectionRuns">> = {};
++    for (const section of ["s242", "s244", "s246"] as const) {
++      const spec = options.sections[section];
++      sectionRunIds[section] = await ctx.db.insert("generationSectionRuns", {
++        generationId,
++        projectId,
++        section,
++        status: spec.status,
++        ...(spec.draftText !== undefined ? { draftText: spec.draftText } : {}),
++        ...(spec.approvedText !== undefined
++          ? { approvedText: spec.approvedText }
++          : {}),
++        model: "claude-sonnet-5",
++        label: "Sonnet 5",
++        attempt: spec.attempt ?? 1,
++        queuedAt: now,
++      });
++    }
++    for (const section of options.editEvents ?? []) {
++      const approvedText = options.sections[section].approvedText;
++      if (approvedText === undefined) {
++        throw new Error(`editEvents requires ${section}.approvedText`);
++      }
++      await ctx.db.insert("sectionEditEvents", {
++        projectId,
++        generationId,
++        section,
++        draftText: `${section} draft`,
++        approvedText,
++        editRatio: 0.1,
++        userId,
++        createdAt: now,
++      });
++    }
++    let ghostRunId: Id<"generationCandidateRuns"> | undefined;
++    let ghostCandidateId: Id<"reportCandidates"> | undefined;
++    if (options.ghost === "running") {
++      ghostRunId = await ctx.db.insert("generationCandidateRuns", {
++        generationId,
++        projectId,
++        model: "google/gemini-3.1-pro-preview",
++        label: "Gemini 3.1 Pro",
++        status: "running",
++        ghost: true,
++        queuedAt: now,
++        startedAt: now,
++      });
++    } else if (options.ghost) {
++      ghostCandidateId = await ctx.db.insert("reportCandidates", {
++        projectId,
++        generationId,
++        model: "google/gemini-3.1-pro-preview",
++        label: "Gemini 3.1 Pro",
++        content: "One-shot ghost draft content",
++        agentOutputs:
++          options.ghost === "unparseable"
++            ? "not json"
++            : JSON.stringify(options.ghost),
++        createdAt: now,
++      });
++      ghostRunId = await ctx.db.insert("generationCandidateRuns", {
++        generationId,
++        projectId,
++        model: "google/gemini-3.1-pro-preview",
++        label: "Gemini 3.1 Pro",
++        status: "succeeded",
++        ghost: true,
++        candidateId: ghostCandidateId,
++        queuedAt: now,
++        completedAt: now,
++      });
++    }
++    return {
++      userId,
++      outsiderId,
++      projectId,
++      generationId,
++      sectionRunIds: sectionRunIds as Record<
++        "s242" | "s244" | "s246",
++        Id<"generationSectionRuns">
++      >,
++      ghostRunId,
++      ghostCandidateId,
++    };
++  });
++  return {
++    t,
++    authed: t.withIdentity({ subject: AUTH_ID }),
++    outsider: t.withIdentity({ subject: OUTSIDER_AUTH_ID }),
++    ...ids,
++  };
++}
++
++describe("completeCandidateRun fan-in", () => {
++  it("keeps the generation running while a sibling candidate is still in flight", async () => {
++    const { t, generationId, projectId, runIds } = await setupCompare({
++      totalCandidates: 2,
++      runs: [
++        { model: "claude-sonnet-5", label: "Sonnet 5", status: "running" },
++        {
++          model: "google/gemini-3.1-pro-preview",
++          label: "Gemini 3.1 Pro",
++          status: "running",
++        },
++      ],
++    });
++
++    await t.mutation(internal.generations.completeCandidateRun, {
++      candidateRunId: runIds[0],
++      content: "First draft",
++      agentOutputs: "{}",
++      qaScore: 91,
++    });
++
++    const state = await t.run(async (ctx) => ({
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++      reports: await ctx.db.query("reports").collect(),
++    }));
++    expect(state.generation?.status).toBe("running");
++    expect(state.generation?.candidatesDone).toBe(1);
++    expect(state.generation?.candidatesFailed).toBe(0);
++    expect(state.generation?.progressLog).toEqual([
++      "Generation started.",
++      "✓ Sonnet 5 draft ready (QA 91/100).",
++    ]);
++    expect(state.candidates).toHaveLength(1);
++    expect(state.reports).toHaveLength(0);
++    expect(state.project?.activeGenerationId).toBe(generationId);
++  });
++
++  it("moves to awaiting_selection when the last candidate lands", async () => {
++    const { t, generationId, runIds } = await setupCompare({
++      totalCandidates: 2,
++      runs: [
++        {
++          model: "claude-sonnet-5",
++          label: "Sonnet 5",
++          status: "succeeded",
++          candidateContent: "Sonnet draft",
++        },
++        {
++          model: "google/gemini-3.1-pro-preview",
++          label: "Gemini 3.1 Pro",
++          status: "running",
++        },
++      ],
++    });
++
++    await t.mutation(internal.generations.completeCandidateRun, {
++      candidateRunId: runIds[1],
++      content: "Gemini draft",
++      agentOutputs: "{}",
++    });
++
++    const state = await t.run(async (ctx) => ({
++      generation: await ctx.db.get(generationId),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++      reports: await ctx.db.query("reports").collect(),
++    }));
++    expect(state.generation?.status).toBe("awaiting_selection");
++    expect(state.generation?.currentStep).toBe("Choose your preferred draft");
++    expect(state.generation?.candidatesDone).toBe(2);
++    expect(state.generation?.candidatesFailed).toBe(0);
++    expect(state.candidates).toHaveLength(2);
++    expect(state.reports).toHaveLength(0);
++  });
++
++  it("tallies a mixed fan-in when the last candidate succeeds after a failure", async () => {
++    const { t, generationId, runIds } = await setupCompare({
++      totalCandidates: 2,
++      runs: [
++        { model: "claude-sonnet-5", label: "Sonnet 5", status: "failed" },
++        {
++          model: "google/gemini-3.1-pro-preview",
++          label: "Gemini 3.1 Pro",
++          status: "running",
++        },
++      ],
++    });
++
++    await t.mutation(internal.generations.completeCandidateRun, {
++      candidateRunId: runIds[1],
++      content: "Gemini draft",
++      agentOutputs: "{}",
++    });
++
++    const state = await t.run(async (ctx) => ({
++      generation: await ctx.db.get(generationId),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++      reports: await ctx.db.query("reports").collect(),
++    }));
++    expect(state.generation?.status).toBe("awaiting_selection");
++    expect(state.generation?.candidatesDone).toBe(1);
++    expect(state.generation?.candidatesFailed).toBe(1);
++    expect(state.candidates).toHaveLength(1);
++    expect(state.candidates[0]?.model).toBe("google/gemini-3.1-pro-preview");
++    expect(state.reports).toHaveLength(0);
++  });
++
++  it("keeps the surviving candidate when the last run fails after a sibling succeeded", async () => {
++    const { t, generationId, projectId, runIds } = await setupCompare({
++      totalCandidates: 2,
++      runs: [
++        {
++          model: "claude-sonnet-5",
++          label: "Sonnet 5",
++          status: "succeeded",
++          candidateContent: "Sonnet draft",
++        },
++        {
++          model: "google/gemini-3.1-pro-preview",
++          label: "Gemini 3.1 Pro",
++          status: "running",
++        },
++      ],
++    });
++
++    await t.mutation(internal.generations.completeCandidateRun, {
++      candidateRunId: runIds[1],
++      error: "provider rejected request",
++    });
++
++    const state = await t.run(async (ctx) => ({
++      run: await ctx.db.get(runIds[1]),
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++    }));
++    expect(state.run?.status).toBe("failed");
++    expect(state.run?.error).toBe("provider rejected request");
++    expect(state.generation?.status).toBe("awaiting_selection");
++    expect(state.generation?.candidatesDone).toBe(1);
++    expect(state.generation?.candidatesFailed).toBe(1);
++    expect(state.generation?.progressLog).toEqual([
++      "Generation started.",
++      "✗ Gemini 3.1 Pro failed: provider rejected request.",
++    ]);
++    expect(state.candidates).toHaveLength(1);
++    expect(state.candidates[0]?.model).toBe("claude-sonnet-5");
++    expect(state.project?.activeGenerationId).toBe(generationId);
++  });
++
++  it("fails the generation and releases the project when every candidate failed", async () => {
++    const { t, generationId, projectId, runIds } = await setupCompare({
++      totalCandidates: 2,
++      // Distinct from the `?? "draft"` fallback, so the assertion proves the
++      // stored status is what gets restored.
++      previousProjectStatus: "client_review",
++      runs: [
++        { model: "claude-sonnet-5", label: "Sonnet 5", status: "failed" },
++        {
++          model: "google/gemini-3.1-pro-preview",
++          label: "Gemini 3.1 Pro",
++          status: "running",
++        },
++      ],
++    });
++
++    await t.mutation(internal.generations.completeCandidateRun, {
++      candidateRunId: runIds[1],
++      error: "provider rejected request",
++    });
++
++    const state = await t.run(async (ctx) => ({
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++    }));
++    expect(state.generation?.status).toBe("failed");
++    expect(state.generation?.error).toBe(
++      "All candidate models failed to generate."
++    );
++    expect(state.generation?.candidatesDone).toBe(0);
++    expect(state.generation?.candidatesFailed).toBe(2);
++    expect(state.project?.activeGenerationId).toBeUndefined();
++    expect(state.project?.status).toBe("client_review");
++    expect(state.candidates).toHaveLength(0);
++  });
++
++  it("completes single mode straight through to a report", async () => {
++    const { t, generationId, projectId, runIds } = await setupCompare({
++      candidateMode: "single",
++      totalCandidates: 1,
++      runs: [{ model: "claude-sonnet-5", label: "Sonnet 5", status: "running" }],
++    });
++
++    await t.mutation(internal.generations.completeCandidateRun, {
++      candidateRunId: runIds[0],
++      content: "Only draft",
++      agentOutputs: '{"section242":"a"}',
++    });
++
++    const state = await t.run(async (ctx) => ({
++      run: await ctx.db.get(runIds[0]),
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++      reports: await ctx.db.query("reports").collect(),
++      snapshots: await ctx.db.query("reportSnapshots").collect(),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++    }));
++    expect(state.run?.status).toBe("succeeded");
++    expect(state.run?.error).toBeUndefined();
++    expect(typeof state.run?.completedAt).toBe("number");
++    expect(state.generation?.status).toBe("completed");
++    expect(state.generation?.currentStep).toBe("Complete");
++    expect(state.generation?.candidatesDone).toBe(1);
++    expect(state.generation?.candidatesFailed).toBe(0);
++    expect(typeof state.generation?.completedAt).toBe("number");
++    expect(state.generation?.agentOutputs).toBe('{"section242":"a"}');
++    expect(state.reports).toHaveLength(1);
++    expect(state.reports[0]).toMatchObject({
++      content: "Only draft",
++      generationId,
++      revisionNumber: 0,
++    });
++    expect(state.snapshots).toHaveLength(1);
++    expect(state.snapshots[0]).toMatchObject({ reason: "generated" });
++    expect(state.project?.status).toBe("review");
++    expect(state.project?.activeGenerationId).toBeUndefined();
++    expect(state.candidates).toHaveLength(0);
++  });
++
++  it("is a silent no-op when the run already went terminal", async () => {
++    const { t, generationId, runIds } = await setupCompare({
++      totalCandidates: 2,
++      runs: [
++        {
++          model: "claude-sonnet-5",
++          label: "Sonnet 5",
++          status: "succeeded",
++          candidateContent: "Sonnet draft",
++        },
++        {
++          model: "google/gemini-3.1-pro-preview",
++          label: "Gemini 3.1 Pro",
++          status: "running",
++        },
++      ],
++    });
++    const before = await t.run(async (ctx) => ({
++      run: await ctx.db.get(runIds[0]),
++      generation: await ctx.db.get(generationId),
++    }));
++
++    await t.mutation(internal.generations.completeCandidateRun, {
++      candidateRunId: runIds[0],
++      content: "A second, later draft",
++      agentOutputs: "{}",
++    });
++
++    const after = await t.run(async (ctx) => ({
++      run: await ctx.db.get(runIds[0]),
++      generation: await ctx.db.get(generationId),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++    }));
++    expect(after.run).toEqual(before.run);
++    expect(after.generation).toEqual(before.generation);
++    expect(after.candidates).toHaveLength(1);
++  });
++
++  it("is a silent no-op for a run that never started", async () => {
++    const { t, generationId, runIds } = await setupCompare({
++      totalCandidates: 1,
++      runs: [{ model: "claude-sonnet-5", label: "Sonnet 5", status: "queued" }],
++    });
++    const before = await t.run(async (ctx) => ({
++      run: await ctx.db.get(runIds[0]),
++      generation: await ctx.db.get(generationId),
++    }));
++
++    await t.mutation(internal.generations.completeCandidateRun, {
++      candidateRunId: runIds[0],
++      content: "Draft from a run that was never marked running",
++      agentOutputs: "{}",
++    });
++
++    const after = await t.run(async (ctx) => ({
++      run: await ctx.db.get(runIds[0]),
++      generation: await ctx.db.get(generationId),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++      reports: await ctx.db.query("reports").collect(),
++    }));
++    expect(after.run).toEqual(before.run);
++    expect(after.generation).toEqual(before.generation);
++    expect(after.candidates).toHaveLength(0);
++    expect(after.reports).toHaveLength(0);
++  });
++
++  it("ignores a non-ghost run under an iterative generation awaiting input", async () => {
++    const { t, generationId, projectId, runIds } = await setupCompare({
++      candidateMode: "iterative",
++      generationStatus: "awaiting_input",
++      totalCandidates: 1,
++      runs: [{ model: "claude-sonnet-5", label: "Sonnet 5", status: "running" }],
++    });
++    const before = await t.run(async (ctx) => ({
++      run: await ctx.db.get(runIds[0]),
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++    }));
++
++    await t.mutation(internal.generations.completeCandidateRun, {
++      candidateRunId: runIds[0],
++      content: "Not a ghost",
++      agentOutputs: "{}",
++    });
++
++    // Only ghost runs may land while the generation waits on the writer.
++    const after = await t.run(async (ctx) => ({
++      run: await ctx.db.get(runIds[0]),
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++    }));
++    expect(after.run).toEqual(before.run);
++    expect(after.generation).toEqual(before.generation);
++    expect(after.project).toEqual(before.project);
++    expect(after.candidates).toHaveLength(0);
++  });
++
++  it("is a silent no-op when the project's active generation moved on", async () => {
++    const { t, generationId, projectId, runIds } = await setupCompare({
++      totalCandidates: 1,
++      activePointsElsewhere: true,
++      runs: [{ model: "claude-sonnet-5", label: "Sonnet 5", status: "running" }],
++    });
++    const before = await t.run(async (ctx) => ({
++      run: await ctx.db.get(runIds[0]),
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++    }));
++
++    await t.mutation(internal.generations.completeCandidateRun, {
++      candidateRunId: runIds[0],
++      content: "Orphaned draft",
++      agentOutputs: "{}",
++    });
++
++    const after = await t.run(async (ctx) => ({
++      run: await ctx.db.get(runIds[0]),
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++      reports: await ctx.db.query("reports").collect(),
++    }));
++    expect(after.run).toEqual(before.run);
++    expect(after.generation).toEqual(before.generation);
++    expect(after.project).toEqual(before.project);
++    expect(after.candidates).toHaveLength(0);
++    expect(after.reports).toHaveLength(0);
++  });
++
++  it("records a ghost draft without advancing a live iterative generation", async () => {
++    const { t, generationId, projectId, runIds } = await setupCompare({
++      candidateMode: "iterative",
++      generationStatus: "awaiting_input",
++      totalCandidates: 1,
++      runs: [
++        {
++          model: "google/gemini-3.1-pro-preview",
++          label: "Gemini 3.1 Pro",
++          status: "running",
++          ghost: true,
++        },
++      ],
++    });
++
++    await t.mutation(internal.generations.completeCandidateRun, {
++      candidateRunId: runIds[0],
++      content: "Ghost draft",
++      agentOutputs: "{}",
++    });
++
++    const state = await t.run(async (ctx) => ({
++      run: await ctx.db.get(runIds[0]),
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++      reports: await ctx.db.query("reports").collect(),
++    }));
++    expect(state.run?.status).toBe("succeeded");
++    expect(state.candidates).toHaveLength(1);
++    expect(state.candidates[0]?.content).toBe("Ghost draft");
++    expect(state.run?.candidateId).toBe(state.candidates[0]?._id);
++    expect(state.generation?.status).toBe("awaiting_input");
++    expect(state.generation?.progressLog).toEqual([
++      "Generation started.",
++      "✓ One-shot comparison draft ready (Gemini 3.1 Pro).",
++    ]);
++    expect(state.project?.status).toBe("generating");
++    expect(state.project?.activeGenerationId).toBe(generationId);
++    expect(state.reports).toHaveLength(0);
++  });
++});
++
++describe("approveSectionDraft", () => {
++  it("queues the next section and records the writer's edit", async () => {
++    const { t, authed, generationId, projectId, sectionRunIds } =
++      await setupIterative({
++        sections: {
++          s242: { status: "awaiting_review", draftText: "alpha beta gamma" },
++          s244: { status: "pending" },
++          s246: { status: "pending" },
++        },
++      });
++
++    const result = await authed.mutation(api.generations.approveSectionDraft, {
++      generationId,
++      section: "s242",
++      text: "alpha beta delta",
++      // Matches the seeded run.attempt, so the fence must accept it.
++      attempt: 1,
++    });
++
++    expect(result).toBeNull();
++    const state = await t.run(async (ctx) => ({
++      s242: await ctx.db.get(sectionRunIds.s242),
++      s244: await ctx.db.get(sectionRunIds.s244),
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++      events: await ctx.db.query("sectionEditEvents").collect(),
++      reports: await ctx.db.query("reports").collect(),
++    }));
++    expect(state.s242?.status).toBe("approved");
++    expect(state.s242?.approvedText).toBe("alpha beta delta");
++    expect(typeof state.s242?.completedAt).toBe("number");
++    expect(state.s244?.status).toBe("queued");
++    expect(state.generation?.status).toBe("running");
++    expect(state.generation?.currentStep).toBe(
++      "Drafting Line 244 — Work performed…"
++    );
++    expect(state.generation?.progressLog).toEqual([
++      "Generation started.",
++      "✓ Line 242 — Uncertainty approved by the writer.",
++      "Drafting Line 244 — Work performed…",
++    ]);
++    expect(state.project?.status).toBe("generating");
++    expect(state.reports).toHaveLength(0);
++    expect(state.events).toHaveLength(1);
++    expect(state.events[0]).toMatchObject({
++      section: "s242",
++      draftText: "alpha beta gamma",
++      approvedText: "alpha beta delta",
++    });
++    // "alpha beta gamma" → "alpha beta delta": 2 of the draft's 3 words survive.
++    expect(state.events[0]!.editRatio).toBeCloseTo(1 / 3, 10);
++
++    const jobs = await scheduledJobs(t, "generateSection");
++    expect(jobs).toHaveLength(1);
++    expect(jobs[0]?.args[0]).toMatchObject({ generationId, section: "s244" });
++  });
++
++  it("assembles the report and hands off to post-QA on the final approval", async () => {
++    const { t, authed, generationId, projectId } = await setupIterative({
++      sections: {
++        s242: { status: "approved", approvedText: "Uncertainty text" },
++        s244: { status: "approved", approvedText: "Work performed text" },
++        s246: { status: "awaiting_review", draftText: "Advancement draft" },
++      },
++    });
++
++    const reportId = await authed.mutation(
++      api.generations.approveSectionDraft,
++      { generationId, section: "s246", text: "Advancement approved" }
++    );
++
++    const state = await t.run(async (ctx) => ({
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++      reports: await ctx.db.query("reports").collect(),
++      snapshots: await ctx.db.query("reportSnapshots").collect(),
++    }));
++    expect(state.reports).toHaveLength(1);
++    expect(state.reports[0]?._id).toBe(reportId);
++    expect(state.reports[0]?.generationId).toBe(generationId);
++    const content = state.reports[0]?.content ?? "";
++    const offsets = [
++      content.indexOf("Uncertainty text"),
++      content.indexOf("Work performed text"),
++      content.indexOf("Advancement approved"),
++    ];
++    // Every approved section survives, in SECTION_ORDER.
++    expect(offsets.every((offset) => offset >= 0)).toBe(true);
++    expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
++    expect(JSON.parse(state.generation?.agentOutputs ?? "{}")).toMatchObject({
++      section242: "Uncertainty text",
++      section244: "Work performed text",
++      section246: "Advancement approved",
++      iterative: true,
++    });
++    expect(state.generation?.status).toBe("completed");
++    expect(state.generation?.currentStep).toBe("Complete");
++    expect(state.generation?.postQaStatus).toBe("running");
++    expect(state.project?.status).toBe("review");
++    expect(state.project?.activeGenerationId).toBeUndefined();
++    // Only the report's own generated baseline — no ghost comparison row.
++    expect(state.snapshots).toHaveLength(1);
++    expect(state.snapshots[0]?.reason).toBe("generated");
++
++    const jobs = await scheduledJobs(t, "runReportQa");
++    expect(jobs).toHaveLength(1);
++    expect(jobs[0]?.args[0]).toMatchObject({ generationId });
++  });
++
++  it("preserves a finished ghost draft as a comparison snapshot on final approval", async () => {
++    const { t, authed, generationId, ghostRunId, ghostCandidateId } =
++      await setupIterative({
++        sections: {
++          s242: { status: "approved", approvedText: "Uncertainty text" },
++          s244: { status: "approved", approvedText: "Work performed text" },
++          s246: { status: "awaiting_review", draftText: "Advancement draft" },
++        },
++        editEvents: ["s242", "s244"],
++        ghost: {
++          section242: "Ghost 242",
++          section244: "Ghost 244",
++          section246: "Ghost 246",
++        },
++      });
++
++    await authed.mutation(api.generations.approveSectionDraft, {
++      generationId,
++      section: "s246",
++      text: "Advancement approved",
++    });
++
++    const state = await t.run(async (ctx) => ({
++      snapshots: await ctx.db.query("reportSnapshots").collect(),
++      ghostRun: await ctx.db.get(ghostRunId!),
++      ghostCandidate: await ctx.db.get(ghostCandidateId!),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++      events: await ctx.db.query("sectionEditEvents").collect(),
++    }));
++    expect(state.snapshots).toHaveLength(2);
++    const baseline = state.snapshots.find(
++      (snapshot) => snapshot.label === "AI draft (Iterative — Sonnet 5)"
++    );
++    const ghost = state.snapshots.find(
++      (snapshot) =>
++        snapshot.label === "One-shot ghost draft (comparison — Gemini 3.1 Pro)"
++    );
++    expect(baseline).toBeDefined();
++    expect(ghost).toMatchObject({
++      reason: "generated",
++      content: "One-shot ghost draft content",
++      reportId: baseline!.reportId,
++    });
++    // The report's own baseline must be written before the ghost snapshot so
++    // postEditDistance's `.first()` keeps finding the real baseline.
++    expect(baseline!._creationTime).toBeLessThanOrEqual(ghost!._creationTime);
++    expect(state.snapshots[0]?._id).toBe(baseline!._id);
++    expect(state.ghostRun?.status).toBe("succeeded");
++    expect(state.ghostRun?.candidateId).toBeUndefined();
++    expect(state.ghostCandidate).toBeNull();
++    expect(state.candidates).toHaveLength(0);
++    expect(state.events).toHaveLength(3);
++    expect(
++      Object.fromEntries(
++        state.events.map((event) => [event.section, event.ghostText])
++      )
++    ).toEqual({
++      s242: "Ghost 242",
++      s244: "Ghost 244",
++      s246: "Ghost 246",
++    });
++  });
++
++  it("leaves a section ghost-less when the ghost outputs omit it", async () => {
++    const { t, authed, generationId, ghostRunId } = await setupIterative({
++      sections: {
++        s242: { status: "approved", approvedText: "Uncertainty text" },
++        s244: { status: "approved", approvedText: "Work performed text" },
++        s246: { status: "awaiting_review", draftText: "Advancement draft" },
++      },
++      editEvents: ["s242", "s244"],
++      // section244 is whitespace-only and section246 is missing: neither may
++      // land as ghostText, while section242 still does.
++      ghost: { section242: "Ghost 242", section244: "   " },
++    });
++
++    await authed.mutation(api.generations.approveSectionDraft, {
++      generationId,
++      section: "s246",
++      text: "Advancement approved",
++    });
++
++    const state = await t.run(async (ctx) => ({
++      snapshots: await ctx.db.query("reportSnapshots").collect(),
++      ghostRun: await ctx.db.get(ghostRunId!),
++      events: await ctx.db.query("sectionEditEvents").collect(),
++    }));
++    expect(state.snapshots).toHaveLength(2);
++    expect(state.ghostRun?.candidateId).toBeUndefined();
++    expect(state.events).toHaveLength(3);
++    expect(
++      Object.fromEntries(
++        state.events.map((event) => [event.section, event.ghostText])
++      )
++    ).toEqual({ s242: "Ghost 242", s244: undefined, s246: undefined });
++  });
++
++  it("finishes without a comparison snapshot when the ghost is still running", async () => {
++    const { t, authed, generationId, projectId, ghostRunId } =
++      await setupIterative({
++        sections: {
++          s242: { status: "approved", approvedText: "Uncertainty text" },
++          s244: { status: "approved", approvedText: "Work performed text" },
++          s246: { status: "awaiting_review", draftText: "Advancement draft" },
++        },
++        editEvents: ["s242", "s244"],
++        ghost: "running",
++      });
++
++    await authed.mutation(api.generations.approveSectionDraft, {
++      generationId,
++      section: "s246",
++      text: "Advancement approved",
++    });
++
++    const state = await t.run(async (ctx) => ({
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++      ghostRun: await ctx.db.get(ghostRunId!),
++      reports: await ctx.db.query("reports").collect(),
++      snapshots: await ctx.db.query("reportSnapshots").collect(),
++      events: await ctx.db.query("sectionEditEvents").collect(),
++    }));
++    // The generation still completes normally; only the ghost extras are
++    // skipped. The late ghost is left to completeCandidateRun's terminal path.
++    expect(state.generation?.status).toBe("completed");
++    expect(state.project?.status).toBe("review");
++    expect(state.reports).toHaveLength(1);
++    expect(state.snapshots).toHaveLength(1);
++    expect(state.snapshots[0]?.label).toBe("AI draft (Iterative — Sonnet 5)");
++    expect(state.ghostRun?.status).toBe("running");
++    expect(state.events).toHaveLength(3);
++    expect(state.events.every((event) => event.ghostText === undefined)).toBe(
++      true
++    );
++    expect(await scheduledJobs(t, "runReportQa")).toHaveLength(1);
++  });
++
++  it("still snapshots a ghost whose agent outputs cannot be parsed", async () => {
++    const { t, authed, generationId, ghostRunId } = await setupIterative({
++      sections: {
++        s242: { status: "approved", approvedText: "Uncertainty text" },
++        s244: { status: "approved", approvedText: "Work performed text" },
++        s246: { status: "awaiting_review", draftText: "Advancement draft" },
++      },
++      editEvents: ["s242", "s244"],
++      ghost: "unparseable",
++    });
++
++    await authed.mutation(api.generations.approveSectionDraft, {
++      generationId,
++      section: "s246",
++      text: "Advancement approved",
++    });
++
++    const state = await t.run(async (ctx) => ({
++      snapshots: await ctx.db.query("reportSnapshots").collect(),
++      ghostRun: await ctx.db.get(ghostRunId!),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++      events: await ctx.db.query("sectionEditEvents").collect(),
++    }));
++    // The comparison snapshot and the candidate cleanup are unaffected by the
++    // unparseable outputs; only the ghostText enrichment is skipped.
++    expect(state.snapshots).toHaveLength(2);
++    expect(state.snapshots[1]?.label).toBe(
++      "One-shot ghost draft (comparison — Gemini 3.1 Pro)"
++    );
++    expect(state.ghostRun?.candidateId).toBeUndefined();
++    expect(state.candidates).toHaveLength(0);
++    expect(state.events).toHaveLength(3);
++    expect(state.events.every((event) => event.ghostText === undefined)).toBe(
++      true
++    );
++  });
++
++  it("refuses an approval from a writer with no edit access to the project", async () => {
++    const { t, outsider, generationId, projectId, sectionRunIds } =
++      await setupIterative({
++        sections: {
++          s242: { status: "awaiting_review", draftText: "alpha" },
++          s244: { status: "pending" },
++          s246: { status: "pending" },
++        },
++      });
++
++    await expectDomainError(
++      () =>
++        outsider.mutation(api.generations.approveSectionDraft, {
++          generationId,
++          section: "s242",
++          text: "alpha approved",
++        }),
++      "NOT_AUTHORIZED"
++    );
++
++    const state = await t.run(async (ctx) => ({
++      s242: await ctx.db.get(sectionRunIds.s242),
++      s244: await ctx.db.get(sectionRunIds.s244),
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++      events: await ctx.db.query("sectionEditEvents").collect(),
++      reports: await ctx.db.query("reports").collect(),
++    }));
++    expect(state.s242?.status).toBe("awaiting_review");
++    expect(state.s242?.approvedText).toBeUndefined();
++    expect(state.s244?.status).toBe("pending");
++    expect(state.generation?.status).toBe("awaiting_input");
++    expect(state.project?.status).toBe("generating");
++    expect(state.events).toHaveLength(0);
++    expect(state.reports).toHaveLength(0);
++    expect(await scheduledJobs(t, "generateSection")).toHaveLength(0);
++  });
++
++  it("rejects an approval carrying a stale attempt number", async () => {
++    const { t, authed, generationId, sectionRunIds } = await setupIterative({
++      sections: {
++        s242: { status: "awaiting_review", draftText: "alpha", attempt: 2 },
++        s244: { status: "pending" },
++        s246: { status: "pending" },
++      },
++    });
++
++    await expectDomainError(
++      () =>
++        authed.mutation(api.generations.approveSectionDraft, {
++          generationId,
++          section: "s242",
++          text: "alpha edited",
++          attempt: 1,
++        }),
++      "STALE_REVISION"
++    );
++
++    const state = await t.run(async (ctx) => ({
++      s242: await ctx.db.get(sectionRunIds.s242),
++      events: await ctx.db.query("sectionEditEvents").collect(),
++    }));
++    expect(state.s242?.status).toBe("awaiting_review");
++    expect(state.s242?.approvedText).toBeUndefined();
++    expect(state.events).toHaveLength(0);
++    expect(await scheduledJobs(t, "generateSection")).toHaveLength(0);
++  });
++
++  it("refuses to approve a section before its predecessors", async () => {
++    const { t, authed, generationId, sectionRunIds } = await setupIterative({
++      sections: {
++        s242: { status: "awaiting_review", draftText: "alpha" },
++        s244: { status: "awaiting_review", draftText: "beta" },
++        s246: { status: "pending" },
++      },
++    });
++
++    await expectDomainError(
++      () =>
++        authed.mutation(api.generations.approveSectionDraft, {
++          generationId,
++          section: "s244",
++          text: "beta approved",
++        }),
++      "INVALID_STATE",
++      /Earlier sections must be approved first/
++    );
++
++    const state = await t.run(async (ctx) => ({
++      s244: await ctx.db.get(sectionRunIds.s244),
++      events: await ctx.db.query("sectionEditEvents").collect(),
++    }));
++    expect(state.s244?.status).toBe("awaiting_review");
++    expect(state.s244?.approvedText).toBeUndefined();
++    expect(state.events).toHaveLength(0);
++    expect(await scheduledJobs(t, "generateSection")).toHaveLength(0);
++  });
++
++  it("refuses an empty approved text", async () => {
++    const { t, authed, generationId, sectionRunIds } = await setupIterative({
++      sections: {
++        s242: { status: "awaiting_review", draftText: "alpha" },
++        s244: { status: "pending" },
++        s246: { status: "pending" },
++      },
++    });
++
++    await expectDomainError(
++      () =>
++        authed.mutation(api.generations.approveSectionDraft, {
++          generationId,
++          section: "s242",
++          text: "   ",
++        }),
++      "INVALID_INPUT"
++    );
++
++    const state = await t.run(async (ctx) => ({
++      s242: await ctx.db.get(sectionRunIds.s242),
++      s244: await ctx.db.get(sectionRunIds.s244),
++      events: await ctx.db.query("sectionEditEvents").collect(),
++    }));
++    expect(state.s242?.status).toBe("awaiting_review");
++    expect(state.s244?.status).toBe("pending");
++    expect(state.events).toHaveLength(0);
++    expect(await scheduledJobs(t, "generateSection")).toHaveLength(0);
++  });
++});
++
++describe("selectReportCandidate", () => {
++  it("creates the report, records the selection, and clears the candidates", async () => {
++    const { t, authed, generationId, projectId, userId, candidateIds } =
++      await setupCompare({
++        generationStatus: "awaiting_selection",
++        totalCandidates: 2,
++        runs: [
++          {
++            model: "claude-sonnet-5",
++            label: "Sonnet 5",
++            status: "succeeded",
++            candidateContent: "Sonnet draft",
++            candidateAgentOutputs: '{"section242":"chosen"}',
++          },
++          {
++            model: "google/gemini-3.1-pro-preview",
++            label: "Gemini 3.1 Pro",
++            status: "succeeded",
++            candidateContent: "Gemini draft",
++          },
++        ],
++      });
++
++    const reportId = await authed.mutation(
++      api.generations.selectReportCandidate,
++      { generationId, candidateId: candidateIds[0] }
++    );
++
++    const state = await t.run(async (ctx) => ({
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++      reports: await ctx.db.query("reports").collect(),
++      selections: await ctx.db.query("modelSelections").collect(),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++    }));
++    expect(state.reports).toHaveLength(1);
++    expect(state.reports[0]?._id).toBe(reportId);
++    expect(state.reports[0]?.content).toBe("Sonnet draft");
++    expect(state.generation?.status).toBe("completed");
++    expect(state.generation?.currentStep).toBe("Complete");
++    expect(typeof state.generation?.completedAt).toBe("number");
++    expect(state.generation?.agentOutputs).toBe('{"section242":"chosen"}');
++    expect(state.project?.status).toBe("review");
++    expect(state.project?.activeGenerationId).toBeUndefined();
++    expect(state.selections).toHaveLength(1);
++    expect(state.selections[0]).toMatchObject({
++      projectId,
++      generationId,
++      candidateId: candidateIds[0],
++      userId,
++      model: "claude-sonnet-5",
++      label: "Sonnet 5",
++    });
++    expect(state.candidates).toHaveLength(0);
++  });
++
++  it("refuses a candidate that belongs to another generation", async () => {
++    const { t, authed, generationId, projectId, otherGenerationId } =
++      await setupCompare({
++        generationStatus: "awaiting_selection",
++        totalCandidates: 1,
++        activePointsElsewhere: true,
++        runs: [],
++      });
++    // Re-point the project at the generation under test so only the candidate
++    // ownership check can fail.
++    const foreignCandidateId = await t.run(async (ctx) => {
++      await ctx.db.patch(projectId, { activeGenerationId: generationId });
++      return await ctx.db.insert("reportCandidates", {
++        projectId,
++        generationId: otherGenerationId!,
++        model: "claude-sonnet-5",
++        label: "Sonnet 5",
++        content: "Foreign draft",
++        agentOutputs: "{}",
++        createdAt: Date.now(),
++      });
++    });
++
++    await expectDomainError(
++      () =>
++        authed.mutation(api.generations.selectReportCandidate, {
++          generationId,
++          candidateId: foreignCandidateId,
++        }),
++      "NOT_AUTHORIZED",
++      /does not belong to this generation/
++    );
++
++    const state = await t.run(async (ctx) => ({
++      reports: await ctx.db.query("reports").collect(),
++      selections: await ctx.db.query("modelSelections").collect(),
++      generation: await ctx.db.get(generationId),
++    }));
++    expect(state.reports).toHaveLength(0);
++    expect(state.selections).toHaveLength(0);
++    expect(state.generation?.status).toBe("awaiting_selection");
++  });
++
++  it("refuses selection on a section-by-section generation", async () => {
++    const { t, authed, generationId, candidateIds } = await setupCompare({
++      candidateMode: "iterative",
++      generationStatus: "awaiting_selection",
++      totalCandidates: 1,
++      runs: [
++        {
++          model: "claude-sonnet-5",
++          label: "Sonnet 5",
++          status: "succeeded",
++          candidateContent: "Ghost draft",
++        },
++      ],
++    });
++
++    await expectDomainError(
++      () =>
++        authed.mutation(api.generations.selectReportCandidate, {
++          generationId,
++          candidateId: candidateIds[0],
++        }),
++      "INVALID_STATE",
++      /approved per section, not selected/
++    );
++
++    const state = await t.run(async (ctx) => ({
++      reports: await ctx.db.query("reports").collect(),
++      selections: await ctx.db.query("modelSelections").collect(),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++    }));
++    expect(state.reports).toHaveLength(0);
++    expect(state.selections).toHaveLength(0);
++    expect(state.candidates).toHaveLength(1);
++  });
++
++  it("refuses selection while the generation is not awaiting selection", async () => {
++    const { t, authed, generationId, candidateIds } = await setupCompare({
++      generationStatus: "running",
++      totalCandidates: 2,
++      runs: [
++        {
++          model: "claude-sonnet-5",
++          label: "Sonnet 5",
++          status: "succeeded",
++          candidateContent: "Sonnet draft",
++        },
++      ],
++    });
++
++    await expectDomainError(
++      () =>
++        authed.mutation(api.generations.selectReportCandidate, {
++          generationId,
++          candidateId: candidateIds[0],
++        }),
++      "STALE_REVISION"
++    );
++
++    const state = await t.run(async (ctx) => ({
++      reports: await ctx.db.query("reports").collect(),
++      selections: await ctx.db.query("modelSelections").collect(),
++      generation: await ctx.db.get(generationId),
++    }));
++    expect(state.reports).toHaveLength(0);
++    expect(state.selections).toHaveLength(0);
++    expect(state.generation?.status).toBe("running");
++  });
++
++  it("refuses selection when the project moved on to another generation", async () => {
++    const { t, authed, generationId, candidateIds } = await setupCompare({
++      generationStatus: "awaiting_selection",
++      totalCandidates: 1,
++      activePointsElsewhere: true,
++      runs: [
++        {
++          model: "claude-sonnet-5",
++          label: "Sonnet 5",
++          status: "succeeded",
++          candidateContent: "Sonnet draft",
++        },
++      ],
++    });
++
++    await expectDomainError(
++      () =>
++        authed.mutation(api.generations.selectReportCandidate, {
++          generationId,
++          candidateId: candidateIds[0],
++        }),
++      "STALE_REVISION"
++    );
++
++    const state = await t.run(async (ctx) => ({
++      reports: await ctx.db.query("reports").collect(),
++      selections: await ctx.db.query("modelSelections").collect(),
++    }));
++    expect(state.reports).toHaveLength(0);
++    expect(state.selections).toHaveLength(0);
++  });
++
++  // selectReportCandidate's awaiting_selection fence (see its "run-guard
++  // deploy" comment in convex/generations.ts) deliberately accepts an unset
++  // activeGenerationId so generations that predate the run guard stay
++  // selectable. Tightening it to strict equality would leave every other case
++  // green.
++  it("still selects when the project carries no active generation pointer", async () => {
++    const { t, authed, generationId, projectId, candidateIds } =
++      await setupCompare({
++        generationStatus: "awaiting_selection",
++        totalCandidates: 1,
++        runs: [
++          {
++            model: "claude-sonnet-5",
++            label: "Sonnet 5",
++            status: "succeeded",
++            candidateContent: "Sonnet draft",
++          },
++        ],
++      });
++    await t.run((ctx) =>
++      ctx.db.patch(projectId, { activeGenerationId: undefined })
++    );
++
++    const reportId = await authed.mutation(
++      api.generations.selectReportCandidate,
++      { generationId, candidateId: candidateIds[0] }
++    );
++
++    const state = await t.run(async (ctx) => ({
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++      reports: await ctx.db.query("reports").collect(),
++      selections: await ctx.db.query("modelSelections").collect(),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++    }));
++    expect(state.reports).toHaveLength(1);
++    expect(state.reports[0]?._id).toBe(reportId);
++    expect(state.generation?.status).toBe("completed");
++    expect(state.project?.status).toBe("review");
++    expect(state.project?.activeGenerationId).toBeUndefined();
++    expect(state.selections).toHaveLength(1);
++    expect(state.candidates).toHaveLength(0);
++  });
++
++  it("refuses a selection from a writer with no edit access to the project", async () => {
++    const { t, outsider, generationId, projectId, candidateIds } =
++      await setupCompare({
++        generationStatus: "awaiting_selection",
++        totalCandidates: 1,
++        runs: [
++          {
++            model: "claude-sonnet-5",
++            label: "Sonnet 5",
++            status: "succeeded",
++            candidateContent: "Sonnet draft",
++          },
++        ],
++      });
++
++    await expectDomainError(
++      () =>
++        outsider.mutation(api.generations.selectReportCandidate, {
++          generationId,
++          candidateId: candidateIds[0],
++        }),
++      "NOT_AUTHORIZED"
++    );
++
++    const state = await t.run(async (ctx) => ({
++      generation: await ctx.db.get(generationId),
++      project: await ctx.db.get(projectId),
++      reports: await ctx.db.query("reports").collect(),
++      selections: await ctx.db.query("modelSelections").collect(),
++      candidates: await ctx.db.query("reportCandidates").collect(),
++    }));
++    expect(state.reports).toHaveLength(0);
++    expect(state.selections).toHaveLength(0);
++    expect(state.candidates).toHaveLength(1);
++    expect(state.generation?.status).toBe("awaiting_selection");
++    expect(state.project?.activeGenerationId).toBe(generationId);
++  });
++});
++
++// ─── CAP-1: de-identification of section edit events ─────────────────────────
++
++describe("approveSectionDraft de-identification", () => {
++  /** Give the fixture project identifiers worth scrubbing. */
++  async function nameTheClient(
++    t: ReturnType<typeof convexTest>,
++    projectId: Id<"projects">
++  ) {
++    await t.run(async (ctx) =>
++      ctx.db.patch(projectId, {
++        clientName: "Acme Metals",
++        title: "Alloy fatigue PD",
++        writer: "Tracy Fielding",
++      })
++    );
++  }
++
++  it("scrubs the stored draft and approved text without moving editRatio", async () => {
++    const { t, authed, generationId, projectId } = await setupIterative({
++      sections: {
++        s242: {
++          status: "awaiting_review",
++          // Four words, three of which the approval keeps: editRatio is 1/4
++          // whether or not the identifiers are scrubbed.
++          draftText: "Acme Metals drifted alpha",
++        },
++        s244: { status: "pending" },
++        s246: { status: "pending" },
++      },
++    });
++    await nameTheClient(t, projectId);
++
++    await authed.mutation(api.generations.approveSectionDraft, {
++      generationId,
++      section: "s242",
++      text: "Acme Metals kept alpha",
++    });
++
++    const events = await t.run(async (ctx) =>
++      ctx.db.query("sectionEditEvents").collect()
++    );
++    expect(events).toHaveLength(1);
++    const event = events[0]!;
++    expect(event.draftText).toBe("[redacted] drifted alpha");
++    expect(event.approvedText).toBe("[redacted] kept alpha");
++    // Raw-text ratio: 1 of the 4 draft words is absent from the approval.
++    expect(event.editRatio).toBeCloseTo(1 / 4, 10);
++  });
++
++  it("scrubs contact patterns and preserves paragraph structure", async () => {
++    const { t, authed, generationId, projectId } = await setupIterative({
++      sections: {
++        s242: {
++          status: "awaiting_review",
++          draftText: "Line one.\n\nReach tracy@acmemetals.ca or (613) 555-0134.",
++        },
++        s244: { status: "pending" },
++        s246: { status: "pending" },
++      },
++    });
++    await nameTheClient(t, projectId);
++
++    await authed.mutation(api.generations.approveSectionDraft, {
++      generationId,
++      section: "s242",
++      text: "Line one.\n\nApproved without contacts.",
++    });
++
++    const events = await t.run(async (ctx) =>
++      ctx.db.query("sectionEditEvents").collect()
++    );
++    expect(events[0]?.draftText).toBe(
++      "Line one.\n\nReach [redacted email] or [redacted phone]."
++    );
++  });
++
++  it("scrubs the ghost text patched onto edit events at final approval", async () => {
++    const { t, authed, generationId, projectId } = await setupIterative({
++      sections: {
++        s242: { status: "approved", approvedText: "Uncertainty text" },
++        s244: { status: "approved", approvedText: "Work performed text" },
++        s246: { status: "awaiting_review", draftText: "Advancement draft" },
++      },
++      editEvents: ["s242", "s244"],
++      ghost: {
++        section242: "Acme Metals ran the fatigue rig.",
++        section244: "Tracy Fielding logged the runs.",
++        section246: "Alloy fatigue PD advanced the state of the art.",
++      },
++    });
++    await nameTheClient(t, projectId);
++
++    await authed.mutation(api.generations.approveSectionDraft, {
++      generationId,
++      section: "s246",
++      text: "Advancement approved",
++    });
++
++    const events = await t.run(async (ctx) =>
++      ctx.db.query("sectionEditEvents").collect()
++    );
++    expect(
++      Object.fromEntries(
++        events.map((event) => [event.section, event.ghostText])
++      )
++    ).toEqual({
++      s242: "[redacted] ran the fatigue rig.",
++      s244: "[redacted] logged the runs.",
++      s246: "[redacted] advanced the state of the art.",
++    });
++  });
++});
+diff --git a/convex/generations.ts b/convex/generations.ts
+index 375626a..133f060 100644
+--- a/convex/generations.ts
++++ b/convex/generations.ts
+@@ -1,3 +1,5 @@
++import { extractReportSections } from "./lib/tiptapReport";
++import { persistDeterministicFindings, persistMethodologyFindings, reportQaRef } from "./lib/qaFindings";
+ import {
+   query,
+   mutation,
+@@ -32,9 +34,11 @@ import {
+ } from "../shared/generationModels";
+ import { randomComparePair, resolveCompareModels } from "./ai/model";
+ import { findActiveGeneration } from "./lib/activeGeneration";
+-import { defaultModelId } from "./appSettings";
++import { analyzerContextBudget, defaultModelId } from "./appSettings";
+ import { buildTiptapDocument } from "./lib/tiptapReport";
+ import { sectionMetrics } from "./lib/lineLimits";
++import { deidentify } from "./lib/deidentify";
++import { recordReportEditDistance } from "./lib/editDistance";
+ import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
+ import {
+   buildTranscriptPromptText,
+@@ -498,6 +502,9 @@ async function reserveGeneration(
+       contentHash: await sha256(content),
+       truncated: content.length !== document.content.length,
+       originalLength: document.content.length,
++      // CAP-3: trust is pinned to the reservation, never re-read live.
++      // Absent (legacy document rows) means client trust downstream.
++      ...(document.uploaderRole ? { uploaderRole: document.uploaderRole } : {}),
+       capturedAt: now,
+     });
+   }
+@@ -867,15 +874,61 @@ export const getGenerationInput = internalQuery({
+           const separator = source.label.indexOf(":");
+           const category = separator >= 0 ? source.label.slice(0, separator) : "other";
+           return {
++            sourceId: source._id,
+             category,
+             fileName: separator >= 0 ? source.label.slice(separator + 1) : source.label,
+             content: source.content,
++            // CAP-3: frozen at reservation. Absent = client trust.
++            ...(source.uploaderRole ? { uploaderRole: source.uploaderRole } : {}),
+           };
+         }),
++      // Analyzer context budget as configured right now. Each candidate
++      // re-reads this query, so an admin retune mid-generation does reach
++      // later candidates and can disagree with the budget already recorded on
++      // the source rows — the recorded report describes the run that wrote it.
++      contextBudget: await analyzerContextBudget(ctx),
+     };
+   },
+ });
+ 
++/**
++ * Record what the analyzer's context budget did with each frozen source row
++ * (convex/ai/trustedContext.ts). Additive: capture-time facts (`content`,
++ * `contentHash`, `truncated`, `originalLength`) are never rewritten.
++ */
++export const recordContextBudget = internalMutation({
++  args: {
++    generationId: v.id("generations"),
++    budgetTokens: v.number(),
++    applied: v.array(
++      v.object({
++        sourceId: v.id("generationSources"),
++        included: v.boolean(),
++        includedLength: v.number(),
++        truncated: v.boolean(),
++      })
++    ),
++  },
++  handler: async (ctx, args) => {
++    for (const entry of args.applied) {
++      const row = await ctx.db.get(entry.sourceId);
++      // A row deleted mid-generation, or an id from another generation, is
++      // skipped rather than thrown: the budget report is telemetry, and
++      // failing here would kill an otherwise-good generation.
++      if (!row || row.generationId !== args.generationId) continue;
++      await ctx.db.patch(entry.sourceId, {
++        contextBudget: {
++          budgetTokens: args.budgetTokens,
++          included: entry.included,
++          includedLength: entry.includedLength,
++          truncated: entry.truncated,
++        },
++      });
++    }
++    return null;
++  },
++});
++
+ export const createCandidateRun = internalMutation({
+   args: {
+     generationId: v.id("generations"),
+@@ -985,6 +1038,16 @@ async function createGeneratedReportArtifacts(
+     generatedAt: now,
+     updatedAt: now,
+   });
++  await persistDeterministicFindings(ctx, reportId, candidate.agentOutputs);
++  const createdReport = await ctx.db.get(reportId);
++  if (createdReport) {
++    let outputs: unknown;
++    try { outputs = JSON.parse(candidate.agentOutputs ?? "{}"); }
++    catch { /* Malformed initial QA is not compliance evidence. */ }
++    if (outputs && typeof outputs === "object" && "qa" in outputs) {
++      await persistMethodologyFindings(ctx, createdReport, outputs.qa);
++    }
++  }
+   await ctx.db.insert("reportSnapshots", {
+     projectId: candidate.projectId,
+     reportId,
+@@ -1000,6 +1063,11 @@ async function createGeneratedReportArtifacts(
+     createdByRole: "system",
+     createdAt: now,
+   });
++  // BNH-10 / CAP-2: freeze the (zero) post-edit distance at candidate
++  // selection. This is the single choke point for every "generated" baseline
++  // that belongs to a report, so all three candidate paths are covered here.
++  const report = await ctx.db.get(reportId);
++  if (report) await recordReportEditDistance(ctx, report, "candidate_selection");
+   return reportId;
+ }
+ 
+@@ -1550,12 +1618,29 @@ export const getIterativeSectionInput = internalQuery({
+   },
+ });
+ 
+-/** Input bundle for the post-assembly QA pass (iterative reports). */
++/** Capture the active attempt even when there is no report prose to evaluate. */
++export const getPostQaAttempt = internalQuery({
++  args: { generationId: v.id("generations") },
++  handler: async (ctx, args) => {
++    const generation = await ctx.db.get(args.generationId);
++    return generation?.postQaStatus === "running"
++      ? { startedAt: generation.postQaStartedAt ?? null }
++      : null;
++  },
++});
++
++/** Input bundle for the post-assembly QA pass over the current report. */
+ export const getPostQaInput = internalQuery({
+   args: { generationId: v.id("generations") },
+   handler: async (ctx, args) => {
+     const generation = await ctx.db.get(args.generationId);
+     if (!generation) return null;
++    const report = await ctx.db.query("reports")
++      .withIndex("by_generationId", q => q.eq("generationId", generation._id)).first();
++    if (!report) return null;
++    const capturedRef = await reportQaRef(report);
++    const currentSections = extractReportSections(report.content);
++    if (!Object.values(currentSections).some(text => text.trim())) return null;
+     if ((generation.candidateMode ?? "compare") === "iterative") {
+       const [analysisRow, brainRow] = await Promise.all([
+         ctx.db
+@@ -1604,16 +1689,17 @@ export const getPostQaInput = internalQuery({
+           model: run?.model ?? "",
+         };
+       }
+-      if (!sections.s242.text && !sections.s244.text && !sections.s246.text) {
++      if (!currentSections.s242.trim() && !currentSections.s244.trim() && !currentSections.s246.trim()) {
+         return null;
+       }
+       return {
+         projectId: generation.projectId,
+         requestedBy: generation.requestedBy,
+         analysis: analysisRow.content,
+-        section242: sections.s242.text,
+-        section244: sections.s244.text,
+-        section246: sections.s246.text,
++        section242: currentSections.s242,
++        capturedRef,
++        section244: currentSections.s244,
++        section246: currentSections.s246,
+         model: sections.s242.model || undefined,
+         styleOverrides,
+       };
+@@ -1631,8 +1717,7 @@ export const getPostQaInput = internalQuery({
+         styleOverrides?: Record<string, boolean>;
+       };
+       if (
+-        !outputs.analyzer ||
+-        (!outputs.section242 && !outputs.section244 && !outputs.section246)
++        !outputs.analyzer
+       ) {
+         return null;
+       }
+@@ -1646,9 +1731,10 @@ export const getPostQaInput = internalQuery({
+         projectId: generation.projectId,
+         requestedBy: generation.requestedBy,
+         analysis: JSON.stringify(outputs.analyzer),
+-        section242: outputs.section242 ?? "",
+-        section244: outputs.section244 ?? "",
+-        section246: outputs.section246 ?? "",
++        section242: currentSections.s242,
++        capturedRef,
++        section244: currentSections.s244,
++        section246: currentSections.s246,
+         model: selection?.model ?? undefined,
+         // PSOS-50: waivers frozen into agentOutputs at generation time.
+         // Absent only on legacy generations, where postQa falls back to the
+@@ -1668,6 +1754,8 @@ export const getPostQaInput = internalQuery({
+ export const saveReportQa = internalMutation({
+   args: {
+     generationId: v.id("generations"),
++    attemptStartedAt: v.optional(v.union(v.number(), v.null())),
++    capturedRef: v.optional(v.object({ reportId: v.id("reports"), revisionNumber: v.number(), contentHash: v.string() })),
+     qa: v.optional(v.string()),
+     chronology: v.optional(v.string()),
+     qaScore: v.optional(v.number()),
+@@ -1676,6 +1764,34 @@ export const saveReportQa = internalMutation({
+   handler: async (ctx, args) => {
+     const generation = await ctx.db.get(args.generationId);
+     if (!generation) return;
++    // A delayed completion must not settle a replacement attempt or overwrite
++    // results that have already completed, even when the report is unchanged.
++    if (args.attemptStartedAt !== undefined &&
++      (generation.postQaStatus !== "running" ||
++        (generation.postQaStartedAt ?? null) !== args.attemptStartedAt)) return;
++    const report = await ctx.db.query("reports")
++      .withIndex("by_generationId", q => q.eq("generationId", generation._id)).first();
++    if (args.capturedRef) {
++      const current = report ? await reportQaRef(report) : null;
++      if (!current || current.reportId !== args.capturedRef.reportId || current.revisionNumber !== args.capturedRef.revisionNumber || current.contentHash !== args.capturedRef.contentHash) {
++        // Only an identified active attempt may release the retry lock. Its
++        // stale scorecard and chronology never become current evidence.
++        if (args.attemptStartedAt !== undefined) {
++          await ctx.db.patch(generation._id, { postQaStatus: "failed" });
++        }
++        return;
++      }
++    }
++    if (report) {
++      await persistDeterministicFindings(ctx, report._id);
++      // Legacy calls have no proof of what content the model evaluated.
++      if (args.capturedRef && args.qa) {
++        let qa: unknown;
++        try { qa = JSON.parse(args.qa); }
++        catch { /* Malformed QA cannot establish a methodology failure. */ }
++        await persistMethodologyFindings(ctx, report, qa);
++      }
++    }
+     let outputs: Record<string, unknown> = {};
+     try {
+       const parsed: unknown = JSON.parse(generation.agentOutputs ?? "{}");
+@@ -1749,12 +1865,14 @@ export const requestReportQa = mutation({
+     // Idempotent: a pass already in flight keeps running across panel
+     // close/reopen — never double-spend the API call.
+     if (generation.postQaStatus === "running") return null;
++    const attemptStartedAt = Math.max(Date.now(), (generation.postQaStartedAt ?? 0) + 1);
+     await ctx.db.patch(generation._id, {
+       postQaStatus: "running",
+-      postQaStartedAt: Date.now(),
++      postQaStartedAt: attemptStartedAt,
+     });
+     await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
+       generationId: generation._id,
++      attemptStartedAt,
+     });
+     return null;
+   },
+@@ -1974,12 +2092,15 @@ export const approveSectionDraft = mutation({
+           ? 0
+           : Math.min(1, Math.max(0, 1 - kept / draftWords.length));
+       const caller = await getCurrentUserOrNull(ctx);
++      // CAP-1: these rows feed the firm-wide draft-style distiller, so the
++      // stored prose is de-identified. editRatio above is deliberately
++      // computed on the raw text — scrubbing must not move the number.
+       await ctx.db.insert("sectionEditEvents", {
+         projectId: generation.projectId,
+         generationId: generation._id,
+         section: args.section,
+-        draftText: cap(run.draftText),
+-        approvedText: cap(text),
++        draftText: cap(deidentify(run.draftText, project)),
++        approvedText: cap(deidentify(text, project)),
+         editRatio,
+         ...(caller ? { userId: caller._id } : {}),
+         createdAt: now,
+@@ -2102,7 +2223,10 @@ export const approveSectionDraft = mutation({
+             for (const event of events) {
+               const ghostText = ghostSections[event.section];
+               if (typeof ghostText === "string" && ghostText.trim()) {
+-                await ctx.db.patch(event._id, { ghostText: ghostText.slice(0, 6000) });
++                // CAP-1: same firm-wide digest input as draftText/approvedText.
++                await ctx.db.patch(event._id, {
++                  ghostText: deidentify(ghostText, project).slice(0, 6000),
++                });
+               }
+             }
+           }
+@@ -2146,6 +2270,7 @@ export const approveSectionDraft = mutation({
+     });
+     await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
+       generationId: generation._id,
++      attemptStartedAt: doneAt,
+     });
+     return reportId;
+   },
+diff --git a/convex/ingestionPort.test.ts b/convex/ingestionPort.test.ts
+index 95ed02c..abc77e0 100644
+--- a/convex/ingestionPort.test.ts
++++ b/convex/ingestionPort.test.ts
+@@ -117,6 +117,8 @@ describe("ingestion port to project", () => {
+       content: "Historical PD body text",
+       source: "ingestion_port",
+       category: "previous_pd",
++      // CAP-3: the porting admin is the internal author of this row.
++      uploaderRole: "admin",
+     });
+ 
+     const item = await f.t.run((ctx) => ctx.db.get(itemId));
+diff --git a/convex/ingestionPort.ts b/convex/ingestionPort.ts
+index 6f8ddc4..be310b8 100644
+--- a/convex/ingestionPort.ts
++++ b/convex/ingestionPort.ts
+@@ -231,6 +231,8 @@ export const finalizePort = internalMutation({
+       processingStatus: derived.status,
+       processingDetail: derived.detail,
+       uploadedBy: userDisplayLabel(user),
++      // CAP-3: the porting admin is the internal author of this row.
++      ...(user.role ? { uploaderRole: user.role } : {}),
+       createdAt: now,
+     });
+ 
+diff --git a/convex/learning.test.ts b/convex/learning.test.ts
+index f2dce55..042523d 100644
+--- a/convex/learning.test.ts
++++ b/convex/learning.test.ts
+@@ -158,6 +158,7 @@ describe("governed learning digest publication", () => {
+       digestId: secondId,
+       expectedSelectionId: null,
+       reason: "Reviewed and approved",
++      privacyReviewed: true,
+     });
+     expect(
+       (
+@@ -182,6 +183,7 @@ describe("governed learning digest publication", () => {
+       digestId: firstId,
+       expectedSelectionId: disabledId,
+       reason: "Rollback to known-good guidance",
++      privacyReviewed: true,
+     });
+     expect(
+       (
+@@ -199,6 +201,7 @@ describe("governed learning digest publication", () => {
+       kind: "draft_style",
+       digestId: publishedId,
+       expectedSelectionId: null,
++      privacyReviewed: true,
+     });
+     for (let i = 2; i <= 25; i += 1) {
+       await insertDigest(t, "draft_style", `candidate ${i}`, i);
+@@ -221,6 +224,7 @@ describe("governed learning digest publication", () => {
+       kind: "qa_calibration" as const,
+       digestId,
+       expectedSelectionId: null,
++      privacyReviewed: true,
+     };
+     await expect(
+       writer.mutation(api.learning.selectDigest, args),
+@@ -260,12 +264,162 @@ describe("governed learning digest publication", () => {
+         kind: "draft_style",
+         digestId: ids.digestId,
+         expectedSelectionId: null,
++        privacyReviewed: true,
+       }),
+     ).rejects.toThrow(/personal/i);
+     await expect(
+       t.query(internal.learning.getActiveDigest, { kind: "draft_style" }),
+     ).resolves.toBeNull();
+   });
++
++  // ─── CAP-1 privacy review gate ─────────────────────────────────────────────
++
++  test("publishing without a confirmed privacy review is refused", async () => {
++    const { t, admin } = await setup();
++    const digestId = await insertDigest(t, "draft_style", "candidate", 1);
++
++    for (const extra of [{}, { privacyReviewed: false }]) {
++      await expect(
++        admin.mutation(api.learning.selectDigest, {
++          kind: "draft_style",
++          digestId,
++          expectedSelectionId: null,
++          ...extra,
++        }),
++      ).rejects.toThrow(/privacy review/i);
++    }
++
++    const selections = await t.run(async (ctx) => {
++      const rows = [];
++      for await (const row of ctx.db.query("learningDigestSelections"))
++        rows.push(row);
++      return rows;
++    });
++    // No ledger row: the refusal happened before the publication was recorded.
++    expect(selections).toEqual([]);
++  });
++
++  test("disabling guidance never requires a privacy review", async () => {
++    const { t, admin } = await setup();
++    const digestId = await insertDigest(t, "draft_style", "candidate", 1);
++    const publishedId = await admin.mutation(api.learning.selectDigest, {
++      kind: "draft_style",
++      digestId,
++      expectedSelectionId: null,
++      privacyReviewed: true,
++    });
++
++    const disabledId = await admin.mutation(api.learning.selectDigest, {
++      kind: "draft_style",
++      digestId: null,
++      expectedSelectionId: publishedId,
++    });
++
++    expect(disabledId).not.toBeNull();
++    await expect(
++      t.query(internal.learning.getActiveDigest, { kind: "draft_style" }),
++    ).resolves.toBeNull();
++  });
++});
++
++// ─── CAP-1 de-identified proposal wording edits ───────────────────────────────
++
++describe("proposal wording edits leave their project de-identified", () => {
++  async function seedEdit(
++    t: ReturnType<typeof convexTest>,
++    opts: { withProject: boolean },
++  ) {
++    return await t.run(async (ctx) => {
++      const userId = await ctx.db.insert("users", {
++        authId: "edit-writer",
++        role: "writer",
++      });
++      const projectId = await ctx.db.insert("projects", {
++        title: "Raspberry Cane Trial",
++        sredTitle: "Cold-hardiness of Rubus cultivars",
++        clientName: "Acme Farms",
++        writer: "Johnny Test",
++        status: "draft",
++        createdBy: userId,
++        shareToken: `deid-${opts.withProject}`,
++        createdAt: 1,
++        updatedAt: 1,
++      });
++      const reportId = await ctx.db.insert("reports", {
++        projectId,
++        content: JSON.stringify({ type: "doc", content: [] }),
++        version: 1,
++        generatedAt: 1,
++        updatedAt: 1,
++      });
++      const proposalId = await ctx.db.insert("chatProposals", {
++        agentThreadId: "thread-deid",
++        projectId,
++        reportId,
++        kind: "edit",
++        state: "pending",
++        createdAt: 1,
++      });
++      await ctx.db.insert("proposalWordingEditEvents", {
++        projectId,
++        reportId,
++        proposalId,
++        userId,
++        originalText:
++          "Acme Farms tested the Raspberry Cane Trial; email jo@acme.ca.",
++        editedText:
++          "Johnny Test rewrote it for Acme Farms. Call (613) 555-0134.",
++        createdAt: 1,
++      });
++      // The orphan case: the row survives its project document.
++      if (!opts.withProject) await ctx.db.delete(projectId);
++      return { projectId };
++    });
++  }
++
++  test("scrubs identifiers on the read side without rewriting stored rows", async () => {
++    const t = convexTest(schema, modules);
++    await seedEdit(t, { withProject: true });
++
++    const rows = await t.query(
++      internal.learning.getProposalWordingEditsForDigest,
++      { limit: 10 },
++    );
++
++    expect(rows).toHaveLength(1);
++    const combined = `${rows[0].originalText} ${rows[0].editedText}`;
++    expect(combined).not.toMatch(/Acme Farms/i);
++    expect(combined).not.toMatch(/Johnny Test/i);
++    expect(combined).not.toMatch(/Raspberry Cane Trial/i);
++    expect(combined).not.toContain("jo@acme.ca");
++    expect(combined).not.toContain("555-0134");
++    expect(combined).toContain("[redacted]");
++
++    // The stored row is untouched: chatV2's write site is off limits.
++    const stored = await t.run((ctx) =>
++      ctx.db.query("proposalWordingEditEvents").first(),
++    );
++    expect(stored?.originalText).toContain("Acme Farms");
++  });
++
++  test("a row whose project is gone still gets contact scrubbing", async () => {
++    const t = convexTest(schema, modules);
++    await seedEdit(t, { withProject: false });
++
++    const rows = await t.query(
++      internal.learning.getProposalWordingEditsForDigest,
++      { limit: 10 },
++    );
++
++    expect(rows).toHaveLength(1);
++    const combined = `${rows[0].originalText} ${rows[0].editedText}`;
++    expect(combined).not.toContain("jo@acme.ca");
++    expect(combined).not.toContain("555-0134");
++    expect(combined).toContain("[redacted email]");
++    expect(combined).toContain("[redacted phone]");
++    // No project record means no name pass — that is the accepted trade.
++    expect(combined).toContain("Acme Farms");
++  });
+ });
+ 
+ // ─── Writer feedback distillation stream ─────────────────────────────────────
+diff --git a/convex/learning.ts b/convex/learning.ts
+index 5b7bbb3..329e52b 100644
+--- a/convex/learning.ts
++++ b/convex/learning.ts
+@@ -9,6 +9,8 @@ import {
+ import { v } from "convex/values";
+ import { requireCapability } from "./lib/roleCapabilities";
+ import { MIN_PROMOTABLE_FEEDBACK_CHARS } from "./brain";
++import { deidentify } from "./lib/deidentify";
++import type { Doc, Id } from "./_generated/dataModel";
+ 
+ /**
+  * Learning loop storage + governed publication.
+@@ -62,7 +64,14 @@ export const getCandidateFeedbackForDigest = internalQuery({
+   },
+ });
+ 
+-/** Direct edits to AI proposal wording, including edits made in normal chat. */
++/**
++ * Direct edits to AI proposal wording, including edits made in normal chat.
++ *
++ * CAP-1: the chat write site stores this text raw, so de-identification
++ * happens here, at the boundary where the rows leave their project and become
++ * firm-wide digest input. Stored rows are never rewritten. A row whose project
++ * document is gone still gets the email/phone pass, just no name pass.
++ */
+ export const getProposalWordingEditsForDigest = internalQuery({
+   args: { limit: v.number() },
+   handler: async (ctx, args) => {
+@@ -70,11 +79,20 @@ export const getProposalWordingEditsForDigest = internalQuery({
+       .query("proposalWordingEditEvents")
+       .order("desc")
+       .take(args.limit);
+-    return rows.map((row) => ({
+-      originalText: row.originalText.slice(0, 2000),
+-      editedText: row.editedText.slice(0, 2000),
+-      updatedAt: row.createdAt,
+-    }));
++    const projects = new Map<Id<"projects">, Doc<"projects"> | null>();
++    const results = [];
++    for (const row of rows) {
++      if (!projects.has(row.projectId)) {
++        projects.set(row.projectId, await ctx.db.get(row.projectId));
++      }
++      const project = projects.get(row.projectId) ?? null;
++      results.push({
++        originalText: deidentify(row.originalText, project).slice(0, 2000),
++        editedText: deidentify(row.editedText, project).slice(0, 2000),
++        updatedAt: row.createdAt,
++      });
++    }
++    return results;
+   },
+ });
+ 
+@@ -290,6 +308,10 @@ export const selectDigest = mutation({
+     digestId: v.union(v.id("learningDigests"), v.null()),
+     expectedSelectionId: v.union(v.id("learningDigestSelections"), v.null()),
+     reason: v.optional(v.string()),
++    // CAP-1: de-identification is best effort, so publishing a digest
++    // firm-wide requires an administrator to confirm they read it and found
++    // no client identifier. Only required on the publish path.
++    privacyReviewed: v.optional(v.boolean()),
+   },
+   handler: async (ctx, args) => {
+     const { user } = await requireCapability(ctx, "settings.configure");
+@@ -301,6 +323,11 @@ export const selectDigest = mutation({
+     }
+ 
+     if (args.digestId) {
++      if (args.privacyReviewed !== true) {
++        throw new Error(
++          "Confirm the privacy review before publishing: this version must be free of client names, project titles, emails, and phone numbers.",
++        );
++      }
+       const digest = await ctx.db.get(args.digestId);
+       if (!digest || digest.kind !== args.kind)
+         throw new Error("Digest not found for this guidance type");
+diff --git a/convex/lib/auth.ts b/convex/lib/auth.ts
+index 4eeb3de..62fb31a 100644
+--- a/convex/lib/auth.ts
++++ b/convex/lib/auth.ts
+@@ -1,3 +1,4 @@
++import { hasBlockingQa } from "./qaFindings";
+ import type { QueryCtx, MutationCtx } from "../_generated/server";
+ import type { Doc, Id } from "../_generated/dataModel";
+ import {
+@@ -136,6 +137,10 @@ export async function getFilingReadiness(
+   const add = (code: FilingBlockerCode, message: string, claimId?: string) =>
+     blockers.push({ code, message, ...(claimId ? { claimId } : {}) });
+ 
++  if (report && await hasBlockingQa(ctx, report)) {
++    add("QA_BLOCKING", "Current report has unresolved substantive QA findings");
++  }
++
+   const evidence = await ctx.db
+     .query("projectIdentityEvidence")
+     .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+diff --git a/convex/lib/contracts.ts b/convex/lib/contracts.ts
+index 6cdcb84..00a6e5e 100644
+--- a/convex/lib/contracts.ts
++++ b/convex/lib/contracts.ts
+@@ -7,12 +7,15 @@ import {
+ import { PROJECT_TYPES } from "../../shared/projectTypes";
+ 
+ export const domainErrorCodes = [
++  "QA_BLOCKING",
+   "NOT_AUTHENTICATED",
+   "NOT_AUTHORIZED",
+   "NOT_FOUND",
+   "PROVIDER_NOT_CONFIGURED",
+   "PROVIDER_UNAVAILABLE",
+   "GENERATION_ACTIVE",
++  "CHAT_SPEND_BUDGET_EXCEEDED",
++  "CHAT_QUEUE_LIMIT_EXCEEDED",
+   "TRANSCRIPT_PROJECT_MISMATCH",
+   "STALE_REVISION",
+   "INVALID_TRANSITION",
+@@ -24,6 +27,7 @@ export const domainErrorCodes = [
+   "INVALID_STATE",
+   "INVALID_INPUT",
+   "BLOCKING_EXISTS",
++  "REVIEW_DECISION_REQUIRED",
+ ] as const;
+ 
+ export type DomainErrorCode = (typeof domainErrorCodes)[number];
+@@ -124,6 +128,7 @@ export const claimCitationValidator = v.object({
+ });
+ 
+ export type FilingBlockerCode =
++  | "QA_BLOCKING"
+   | "IDENTITY_EVIDENCE_REQUIRED"
+   | "CONTRACTOR_EVIDENCE_REQUIRED"
+   | "EVIDENCE_STALE"
+diff --git a/convex/lib/deidentify.test.ts b/convex/lib/deidentify.test.ts
+new file mode 100644
+index 0000000..6804c71
+--- /dev/null
++++ b/convex/lib/deidentify.test.ts
+@@ -0,0 +1,159 @@
++import { describe, expect, test } from "vitest";
++import { deidentify } from "./deidentify";
++
++describe("deidentify", () => {
++  test("scrubs client and people names case-insensitively", () => {
++    const out = deidentify(
++      "acme farms hired Johnny Test. ACME FARMS then hired Jane Doe.",
++      {
++        clientName: "Acme Farms",
++        writer: "Johnny Test",
++        interviewer: "Jane Doe",
++      }
++    );
++    expect(out).not.toMatch(/acme/i);
++    expect(out).not.toMatch(/johnny test/i);
++    expect(out).not.toMatch(/jane doe/i);
++    expect(out).toContain("[redacted]");
++  });
++
++  test("scrubs interviewee names", () => {
++    const out = deidentify("Interviewed Priya Raman and Bob Stone.", {
++      interviewees: ["Priya Raman", "Bob Stone"],
++    });
++    expect(out).toBe("Interviewed [redacted] and [redacted].");
++  });
++
++  test("scrubs both the project title and the SR&ED title", () => {
++    const out = deidentify(
++      "The Raspberry Cane Trial produced data; see Cold-hardiness of Rubus cultivars.",
++      {
++        title: "Raspberry Cane Trial",
++        sredTitle: "Cold-hardiness of Rubus cultivars",
++      }
++    );
++    expect(out).not.toContain("Raspberry Cane Trial");
++    expect(out).not.toContain("Cold-hardiness of Rubus cultivars");
++    expect(out).toBe("The [redacted] produced data; see [redacted].");
++  });
++
++  test("scrubs email addresses and phone numbers", () => {
++    const out = deidentify(
++      "Reach jo@acme.ca or call (613) 555-0134 today.",
++      {}
++    );
++    expect(out).toContain("[redacted email]");
++    expect(out).toContain("[redacted phone]");
++    expect(out).not.toContain("jo@acme.ca");
++    expect(out).not.toContain("555-0134");
++    // The whole number goes, opening parenthesis included.
++    expect(out).toBe("Reach [redacted email] or call [redacted phone] today.");
++    // Other written forms of the same number.
++    for (const phone of ["613-555-0134", "+1 613 555 0134", "613.555.0134"]) {
++      expect(deidentify(`Call ${phone}.`, {})).toBe("Call [redacted phone].");
++    }
++    // An extension does not shield the number.
++    expect(deidentify("Call 613-555-0134x22.", {})).toBe(
++      "Call [redacted phone]x22."
++    );
++  });
++
++  test("leaves separator-free digit runs alone", () => {
++    // Accepted false negative: a bare ten-digit run is far more often a serial
++    // or sample id in SR&ED prose than a phone number.
++    const text = "Sample 6135550134 failed at cycle 1234567890123.";
++    expect(deidentify(text, {})).toBe(text);
++  });
++
++  test("leaves mixed-separator numeric ranges and measurements alone", () => {
++    // A phone number is written with one separator throughout; a range or a
++    // version-like run that happens to fall into a 3-3-4 digit shape is not.
++    // Accepted false negative on a mixed-separator phone, in exchange for not
++    // rewriting the numbers these exemplars exist to preserve.
++    const text =
++      "Cycled between 500-600 1000 times; ran 100-200 3000 cycles on v2.100 200 3000.";
++    expect(deidentify(text, {})).toBe(text);
++    // Consistent separators are still a phone number.
++    expect(deidentify("Call 613 555 0134 or 613-555-0134.", {})).toBe(
++      "Call [redacted phone] or [redacted phone]."
++    );
++  });
++
++  test("scrubs a contact address before the name pass can break it", () => {
++    // The name pass would rewrite "acmefarms" inside the address, leaving the
++    // local part exposed and the email pattern unmatchable.
++    expect(
++      deidentify("Mail tracy@acmefarms.ca now.", { clientName: "acmefarms" })
++    ).toBe("Mail [redacted email] now.");
++  });
++
++  test("does not scrub an identifier occurring inside a longer word", () => {
++    const text = "Ionization of the Bolted joint stayed within Casement limits.";
++    expect(
++      deidentify(text, {
++        clientName: "Ion",
++        writer: "Bolt",
++        title: "Case",
++      })
++    ).toBe(text);
++    // The same identifiers still scrub when they stand alone.
++    expect(
++      deidentify("Ion and Bolt reviewed the Case.", {
++        clientName: "Ion",
++        writer: "Bolt",
++        title: "Case",
++      })
++    ).toBe("[redacted] and [redacted] reviewed the [redacted].");
++  });
++
++  test("ignores blank, whitespace-only, and sub-3-character identifiers", () => {
++    const text = "AB and CD ran the trial in a bare room.";
++    const out = deidentify(text, {
++      clientName: "AB",
++      title: "  ",
++      sredTitle: "",
++      writer: "CD",
++      interviewees: ["", "  "],
++    });
++    expect(out).toBe(text);
++  });
++
++  test("longest identifier wins when names overlap", () => {
++    const out = deidentify("Acme Farms is a division of Acme.", {
++      clientName: "Acme Farms",
++      title: "Acme",
++    });
++    expect(out).not.toMatch(/Acme/i);
++    expect(out).toBe("[redacted] is a division of [redacted].");
++  });
++
++  test("treats regex-special identifiers as literal text", () => {
++    const out = deidentify("Work done by C++ (Nordic) Ltd. was novel.", {
++      clientName: "C++ (Nordic) Ltd.",
++    });
++    expect(out).toBe("Work done by [redacted] was novel.");
++    // A literal match, not a regex: an unrelated string must survive.
++    expect(deidentify("CXX Nordic Ltd was novel.", {
++      clientName: "C++ (Nordic) Ltd.",
++    })).toBe("CXX Nordic Ltd was novel.");
++  });
++
++  test("preserves paragraph and line structure when nothing matches", () => {
++    const text =
++      "First   paragraph with  spacing.\n\nSecond paragraph.\n\n\nThird after a wide gap.\n";
++    expect(deidentify(text, { clientName: "Nobody Inc" })).toBe(text);
++  });
++
++  test("preserves structure around a scrubbed identifier", () => {
++    const out = deidentify(
++      "Acme Farms ran trials.\n\nAcme Farms then stopped.",
++      { clientName: "Acme Farms" }
++    );
++    expect(out).toBe("[redacted] ran trials.\n\n[redacted] then stopped.");
++  });
++
++  test("still scrubs contacts when no project record is available", () => {
++    const out = deidentify("Mail jo@acme.ca about it.", null);
++    expect(out).toBe("Mail [redacted email] about it.");
++  });
++});
+diff --git a/convex/lib/deidentify.ts b/convex/lib/deidentify.ts
+new file mode 100644
+index 0000000..bc480f1
+--- /dev/null
++++ b/convex/lib/deidentify.ts
+@@ -0,0 +1,94 @@
++/**
++ * CAP-1: de-identification before firm-wide knowledge.
++ *
++ * Client prose reaches firm-wide surfaces (Brain exemplars, learning digest
++ * input) where it is no longer scoped to the project it came from. This helper
++ * strips the identifiers we actually hold on the project record, plus email and
++ * phone patterns, before that crossing happens.
++ *
++ * Pure by design (no Convex imports) so it is unit-testable without a
++ * deployment. It mirrors `convex/ai/research/core.ts`'s `redactExternalText`
++ * and deliberately diverges twice: it also scrubs the project titles, and it
++ * does NOT strip URLs or collapse whitespace, because the text it scrubs is
++ * structured prose whose paragraphing is part of the signal.
++ *
++ * Best effort by construction: regex + project-record driven, never
++ * model-driven. False negatives are possible, which is why the digest prompts
++ * carry a privacy instruction and publication requires a human confirmation.
++ */
++
++/** The subset of a `projects` document `deidentify` reads. All optional. */
++export type DeidentifiableProject = {
++  title?: string;
++  sredTitle?: string;
++  clientName?: string;
++  writer?: string;
++  interviewer?: string;
++  interviewees?: string[];
++};
++
++function escapeRegExp(value: string): string {
++  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
++}
++
++/**
++ * Replace project-record identifiers with `[redacted]`, and email/phone
++ * patterns with `[redacted email]`/`[redacted phone]`. Line and paragraph
++ * structure is preserved exactly.
++ *
++ * Passing `null`/`undefined` for the project still applies the contact-pattern
++ * pass — used for edit-event rows whose project document no longer exists.
++ */
++export function deidentify(
++  text: string,
++  project: DeidentifiableProject | null | undefined
++): string {
++  const names = Array.from(
++    new Set(
++      [
++        project?.clientName,
++        project?.title,
++        project?.sredTitle,
++        project?.writer,
++        project?.interviewer,
++        ...(project?.interviewees ?? []),
++      ]
++        .map((name) => name?.trim())
++        .filter((name): name is string => !!name && name.length >= 3)
++    )
++    // Longest first so "Acme Farms" is consumed before a bare "Acme" would
++    // leave a " Farms" remnant behind.
++  ).sort((a, b) => b.length - a.length);
++
++  // Contact patterns run FIRST: a client name inside an address
++  // ("jo@acmefarms.ca") would otherwise be rewritten by the name pass, break
++  // the email pattern, and leave the local part behind.
++  let out = text
++    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted email]")
++    // Unlike the research redactor's pattern, the leading boundary is a
++    // lookbehind (`\b` cannot match before "(", so "(613) 555-0134" would keep
++    // its opening parenthesis), separators are required, and the bare form
++    // must use the SAME separator twice ("613-555-0134", never "500-600 1000").
++    // A bare ten-digit run, or a mixed-separator run, is far more often a
++    // serial, sample id, or measurement range in SR&ED prose than a phone
++    // number, and the sprint accepts false negatives over corrupting the
++    // technical vocabulary these exemplars exist for.
++    .replace(
++      /(?<![\d(.])(?:\+?1[-.\s]?)?(?:\(\d{3}\)[-.\s]?\d{3}[-.\s]?\d{4}|\d{3}([-.\s])\d{3}\1\d{4})(?!\d)/g,
++      "[redacted phone]"
++    );
++
++  for (const name of names) {
++    // Anchored to non-alphanumeric boundaries so a short identifier cannot
++    // eat the inside of an unrelated word ("Ion" within "Ionization"). Not
++    // `\b`: identifiers routinely start or end with punctuation ("C++ … Ltd.").
++    out = out.replace(
++      new RegExp(
++        `(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`,
++        "giu"
++      ),
++      "[redacted]"
++    );
++  }
++  return out;
++}
+diff --git a/convex/lib/editDistance.test.ts b/convex/lib/editDistance.test.ts
+new file mode 100644
+index 0000000..e928c2e
+--- /dev/null
++++ b/convex/lib/editDistance.test.ts
+@@ -0,0 +1,130 @@
++import { describe, expect, test, vi } from "vitest";
++import type { MutationCtx } from "../_generated/server";
++import type { Doc } from "../_generated/dataModel";
++import { computeEditDistance, recordReportEditDistance } from "./editDistance";
++
++describe("computeEditDistance", () => {
++  test("counts repeated words and consumes each matching paragraph once", () => {
++    expect(computeEditDistance("alpha\nalpha\nbeta", "alpha\nbeta")).toEqual({
++      ped: 1 - 4 / 5,
++      wordSimilarity: 4 / 5,
++      draftWords: 3,
++      currentWords: 2,
++      paragraphsTotal: 3,
++      paragraphsUnchanged: 2,
++    });
++  });
++
++  test("normalizes Unicode words and edge punctuation without changing paragraph matching", () => {
++    expect(computeEditDistance("ÉTUDE, 東京! 123. !!!", "étude 東京 123")).toEqual({
++      ped: 0,
++      wordSimilarity: 1,
++      draftWords: 3,
++      currentWords: 3,
++      paragraphsTotal: 1,
++      paragraphsUnchanged: 0,
++    });
++  });
++
++  test("identical text scores an untouched draft", () => {
++    const text = "The team ran a trial.\n\nResults were inconclusive.";
++    const r = computeEditDistance(text, text);
++    expect(r.ped).toBe(0);
++    expect(r.wordSimilarity).toBe(1);
++    expect(r.paragraphsTotal).toBe(2);
++    expect(r.paragraphsUnchanged).toBe(2);
++    expect(r.draftWords).toBe(r.currentWords);
++  });
++
++  test("a full rewrite scores near 1 with no unchanged paragraphs", () => {
++    const r = computeEditDistance(
++      "alpha beta gamma delta",
++      "zulu yankee xray whiskey"
++    );
++    expect(r.ped).toBe(1);
++    expect(r.wordSimilarity).toBe(0);
++    expect(r.paragraphsTotal).toBe(1);
++    expect(r.paragraphsUnchanged).toBe(0);
++  });
++
++  test("both empty is treated as unchanged", () => {
++    const r = computeEditDistance("", "");
++    expect(r.wordSimilarity).toBe(1);
++    expect(r.ped).toBe(0);
++    expect(r.draftWords).toBe(0);
++    expect(r.currentWords).toBe(0);
++    expect(r.paragraphsTotal).toBe(0);
++    expect(r.paragraphsUnchanged).toBe(0);
++  });
++
++  test("empty draft against real current text is fully rewritten", () => {
++    const r = computeEditDistance("", "some new prose here");
++    expect(r.wordSimilarity).toBe(0);
++    expect(r.ped).toBe(1);
++    expect(r.draftWords).toBe(0);
++    expect(r.currentWords).toBe(4);
++    expect(r.paragraphsTotal).toBe(0);
++  });
++
++  test("emptied current text against a real draft is fully rewritten", () => {
++    const r = computeEditDistance("some old prose here", "");
++    expect(r.wordSimilarity).toBe(0);
++    expect(r.ped).toBe(1);
++    expect(r.draftWords).toBe(4);
++    expect(r.currentWords).toBe(0);
++    expect(r.paragraphsTotal).toBe(1);
++    expect(r.paragraphsUnchanged).toBe(0);
++  });
++
++  test("paragraphs split on both single and blank-line separators", () => {
++    const draft = "one\ntwo\n\nthree";
++    const r = computeEditDistance(draft, "one\n\ntwo\nthree");
++    expect(r.paragraphsTotal).toBe(3);
++    expect(r.paragraphsUnchanged).toBe(3);
++  });
++
++  test("paragraph matching ignores whitespace and case", () => {
++    const r = computeEditDistance("The   Trial\n\nSecond", "the trial\n\nSecond");
++    expect(r.paragraphsUnchanged).toBe(2);
++  });
++
++  test("a partial edit lands strictly between 0 and 1", () => {
++    const r = computeEditDistance(
++      "the team ran a controlled trial\n\nresults were inconclusive",
++      "the team ran a controlled trial\n\nresults were entirely different here"
++    );
++    expect(r.ped).toBeGreaterThan(0);
++    expect(r.ped).toBeLessThan(1);
++    expect(r.paragraphsTotal).toBe(2);
++    expect(r.paragraphsUnchanged).toBe(1);
++  });
++});
++
++describe("recordReportEditDistance", () => {
++  test("never throws into the caller: a failing read logs once and returns null", async () => {
++    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
++    const ctx = {
++      db: {
++        query: () => {
++          throw new Error("boom");
++        },
++        get: async () => null,
++        insert: async () => {
++          throw new Error("should not insert");
++        },
++      },
++    } as unknown as MutationCtx;
++    const report = {
++      _id: "reports:1",
++      projectId: "projects:1",
++      content: "{}",
++      revisionNumber: 0,
++    } as unknown as Doc<"reports">;
++
++    await expect(
++      recordReportEditDistance(ctx, report, "milestone")
++    ).resolves.toBeNull();
++    expect(logged).toHaveBeenCalledTimes(1);
++    logged.mockRestore();
++  });
++});
+diff --git a/convex/lib/editDistance.ts b/convex/lib/editDistance.ts
+new file mode 100644
+index 0000000..a2627fa
+--- /dev/null
++++ b/convex/lib/editDistance.ts
+@@ -0,0 +1,159 @@
++import type { MutationCtx } from "../_generated/server";
++import type { Doc, Id } from "../_generated/dataModel";
++import { extractPlainText } from "./reportEdits";
++
++// ─── BNH-10 flywheel: post-edit distance (PED) ───────────────────────────────
++
++/** Lowercased word multiset — cheap, order-insensitive edit signal. */
++function wordBag(text: string): Map<string, number> {
++  const bag = new Map<string, number>();
++  for (const raw of text.toLowerCase().split(/\s+/)) {
++    const w = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
++    if (!w) continue;
++    bag.set(w, (bag.get(w) ?? 0) + 1);
++  }
++  return bag;
++}
++
++function bagOverlap(a: Map<string, number>, b: Map<string, number>): number {
++  let n = 0;
++  for (const [w, ca] of a) n += Math.min(ca, b.get(w) ?? 0);
++  return n;
++}
++
++function bagSize(bag: Map<string, number>): number {
++  let n = 0;
++  for (const c of bag.values()) n += c;
++  return n;
++}
++
++const normalizePara = (p: string) => p.replace(/\s+/g, " ").trim().toLowerCase();
++
++export type EditDistanceResult = {
++  /** 0 = untouched draft, 1 = fully rewritten. */
++  ped: number;
++  wordSimilarity: number;
++  draftWords: number;
++  currentWords: number;
++  paragraphsTotal: number;
++  paragraphsUnchanged: number;
++};
++
++/**
++ * Post-edit distance (PED): how much of the AI draft the writer changed before
++ * the report's current state — the north-star "is the system improving" metric
++ * (regulatory-writing shops track exactly this; falling PED over time = better
++ * drafts, >40-50% sustained = fix prompts/retrieval, not writers).
++ *
++ * v1 is deliberately cheap and order-insensitive: `ped` is `1 -` the
++ * word-multiset (Sørensen–Dice) similarity against the "generated" baseline
++ * snapshot frozen at candidate selection. The unchanged-paragraph counts are
++ * reported alongside it for context and are deliberately NOT folded into
++ * `ped` — the persisted number is the word-similarity term only. It trends
++ * correctly; it does not attribute edits to positions.
++ */
++export function computeEditDistance(
++  draftText: string,
++  currentText: string
++): EditDistanceResult {
++  const draftBag = wordBag(draftText);
++  const currentBag = wordBag(currentText);
++  const draftWords = bagSize(draftBag);
++  const currentWords = bagSize(currentBag);
++  const similarity =
++    draftWords + currentWords === 0
++      ? 1
++      : (2 * bagOverlap(draftBag, currentBag)) / (draftWords + currentWords);
++
++  const draftParas = draftText.split(/\n{2,}|\n/).map(normalizePara).filter(Boolean);
++  const currentParas = new Map<string, number>();
++  for (const p of currentText.split(/\n{2,}|\n/).map(normalizePara).filter(Boolean)) {
++    currentParas.set(p, (currentParas.get(p) ?? 0) + 1);
++  }
++  let unchanged = 0;
++  for (const p of draftParas) {
++    const left = currentParas.get(p) ?? 0;
++    if (left > 0) {
++      unchanged += 1;
++      currentParas.set(p, left - 1);
++    }
++  }
++
++  return {
++    ped: 1 - similarity,
++    wordSimilarity: similarity,
++    draftWords,
++    currentWords,
++    paragraphsTotal: draftParas.length,
++    paragraphsUnchanged: unchanged,
++  };
++}
++
++/** The three milestones at which PED is frozen into `reportEditDistance`. */
++export type EditDistanceTrigger =
++  | "candidate_selection"
++  | "milestone"
++  | "client_publish";
++
++/**
++ * Persist one PED reading for a report. Never throws into the caller's path:
++ * a report with no "generated" baseline (or any unexpected failure) records
++ * nothing and the triggering mutation proceeds.
++ */
++export async function recordReportEditDistance(
++  ctx: MutationCtx,
++  report: Doc<"reports">,
++  trigger: EditDistanceTrigger
++): Promise<Id<"reportEditDistance"> | null> {
++  try {
++    const baseline = await ctx.db
++      .query("reportSnapshots")
++      .withIndex("by_reportId", (q) => q.eq("reportId", report._id))
++      .filter((q) => q.eq(q.field("reason"), "generated"))
++      .first();
++    if (!baseline) return null;
++
++    const { ped } = computeEditDistance(
++      extractPlainText(baseline.content),
++      extractPlainText(report.content)
++    );
++    const revisionNumber = report.revisionNumber ?? 0;
++
++    // Repeat-trigger dedupe: a second identical reading (same trigger, same
++    // revision, same ped) adds no signal — e.g. publishForReview called twice
++    // with no edit in between.
++    const newest = await ctx.db
++      .query("reportEditDistance")
++      .withIndex("by_reportId", (q) => q.eq("reportId", report._id))
++      .order("desc")
++      .first();
++    if (
++      newest &&
++      newest.trigger === trigger &&
++      newest.revisionNumber === revisionNumber &&
++      newest.ped === ped
++    ) {
++      return null;
++    }
++
++    const project = await ctx.db.get(report.projectId);
++    return await ctx.db.insert("reportEditDistance", {
++      reportId: report._id,
++      projectId: report.projectId,
++      generationId: report.generationId,
++      writerUserId: project?.ownerId,
++      revisionNumber,
++      ped,
++      computedAt: Date.now(),
++      trigger,
++    });
++  } catch (error) {
++    console.error("recordReportEditDistance failed", {
++      reportId: report._id,
++      projectId: report.projectId,
++      trigger,
++      error,
++    });
++    return null;
++  }
++}
+diff --git a/convex/lib/qaFindings.ts b/convex/lib/qaFindings.ts
+new file mode 100644
+index 0000000..ef69077
+--- /dev/null
++++ b/convex/lib/qaFindings.ts
+@@ -0,0 +1,97 @@
++import type { Doc, Id } from "../_generated/dataModel";
++import type { MutationCtx, QueryCtx } from "../_generated/server";
++import { sha256 } from "./contracts";
++import { checkBecauseClauses, sectionDeterministicFindings } from "../ai/qaChecks";
++import { qaScorecardSchema } from "../../shared/qaScorecard";
++import { normalizeStyleOverrides, STYLE_OVERRIDE_KEYS, type StyleOverrides } from "../../shared/styleOverrides";
++import { extractReportSections } from "./tiptapReport";
++
++function parseOverrides(raw: unknown): StyleOverrides {
++  const known: Partial<StyleOverrides> = {};
++  if (raw && typeof raw === "object") {
++    for (const [key, value] of Object.entries(raw)) {
++      const field = STYLE_OVERRIDE_KEYS.find((candidate) => candidate === key);
++      if (field && value === true) known[field] = true;
++    }
++  }
++  return normalizeStyleOverrides(known);
++}
++
++export async function reportQaRef(report: Doc<"reports">) {
++  return { reportId: report._id, revisionNumber: report.revisionNumber ?? 0,
++    contentHash: await sha256(report.content) };
++}
++
++async function storeFinding(ctx: MutationCtx, ref: Awaited<ReturnType<typeof reportQaRef>>,
++  finding: { section: string; check: string; message: string; blocking: boolean }) {
++  const findingKey = JSON.stringify([finding.section, finding.check, finding.message]);
++  const existing = await ctx.db.query("qaFindings")
++    .withIndex("by_reportId_and_revisionNumber_and_contentHash_and_findingKey", q =>
++      q.eq("reportId", ref.reportId).eq("revisionNumber", ref.revisionNumber)
++        .eq("contentHash", ref.contentHash).eq("findingKey", findingKey))
++    .first();
++  if (!existing) await ctx.db.insert("qaFindings", { ...ref, ...finding, findingKey });
++}
++
++export async function persistDeterministicFindings(ctx: MutationCtx, reportId: Id<"reports">, initialOutputs?: string) {
++  const report = await ctx.db.get(reportId);
++  if (!report) return;
++  const ref = await reportQaRef(report);
++  // Byte-identical content cannot clear an established methodology failure by
++  // advancing the revision (including a no-op save or a later restoration).
++  for (const message of ["why_how_why_intact", "uncertainties_distinguished"]) {
++    const previous = await ctx.db.query("qaFindings")
++      .withIndex("by_reportId_and_contentHash_and_check_and_message_and_blocking", q =>
++        q.eq("reportId", reportId).eq("contentHash", ref.contentHash)
++          .eq("check", "cra_methodology").eq("message", message).eq("blocking", true)).first();
++    if (previous) await storeFinding(ctx, ref, { section: "report", check: "cra_methodology", message, blocking: true });
++  }
++  let overrides = normalizeStyleOverrides(undefined);
++  if (report.generationId) {
++    const generation = await ctx.db.get(report.generationId);
++    try {
++      const outputs: unknown = JSON.parse(initialOutputs ?? generation?.agentOutputs ?? "{}");
++      if (outputs && typeof outputs === "object" && "styleOverrides" in outputs) {
++        overrides = parseOverrides(outputs.styleOverrides);
++      }
++    } catch { /* Legacy reports use default advisory checks. */ }
++  }
++  const generationId = report.generationId;
++  if (generationId) {
++    const brain = await ctx.db.query("generationArtifacts")
++      .withIndex("by_generationId_and_kind", q => q.eq("generationId", generationId).eq("kind", "brain_blocks")).first();
++    if (brain) {
++      try {
++        const parsed: unknown = JSON.parse(brain.content);
++        if (parsed && typeof parsed === "object" && "styleOverrides" in parsed) overrides = parseOverrides(parsed.styleOverrides);
++      } catch { /* Default advisory checks for malformed legacy artifacts. */ }
++    }
++  }
++  const sections = extractReportSections(report.content);
++  for (const section of ["s242", "s244", "s246"] as const) {
++    for (const finding of sectionDeterministicFindings(section, sections[section], overrides)) {
++      await storeFinding(ctx, ref, { ...finding, section, blocking: finding.check === "because_clause" });
++    }
++  }
++}
++
++export async function persistMethodologyFindings(ctx: MutationCtx, report: Doc<"reports">, qa: unknown) {
++  const parsed = qaScorecardSchema.safeParse(qa);
++  if (!parsed.success) return;
++  const ref = await reportQaRef(report);
++  for (const field of ["why_how_why_intact", "uncertainties_distinguished"] as const) {
++    if (parsed.data.cra_compliance[field] === false) {
++      await storeFinding(ctx, ref, { section: "report", check: "cra_methodology", message: field, blocking: true });
++    }
++  }
++}
++
++export async function hasBlockingQa(ctx: QueryCtx | MutationCtx, report: Doc<"reports">) {
++  const sections = extractReportSections(report.content);
++  if (checkBecauseClauses(sections.s242).details.some(f => !f.hasBecause)) return true;
++  const ref = await reportQaRef(report);
++  return (await ctx.db.query("qaFindings")
++    .withIndex("by_reportId_and_revisionNumber_and_contentHash_and_blocking", q =>
++      q.eq("reportId", ref.reportId).eq("revisionNumber", ref.revisionNumber)
++        .eq("contentHash", ref.contentHash).eq("blocking", true)).first()) !== null;
++}
+diff --git a/convex/lib/snapshots.ts b/convex/lib/snapshots.ts
+index 9c65f11..164bdc5 100644
+--- a/convex/lib/snapshots.ts
++++ b/convex/lib/snapshots.ts
+@@ -248,3 +248,60 @@ export async function pruneSnapshots(
+     await ctx.db.delete(snapshotId);
+   }
+ }
++
++/** The two checkpoints taken immediately before a report edit is written. */
++export type PreEditSnapshotReason = "pre_chat_edit" | "pre_client_edit";
++
++const PRE_EDIT_DEFAULT_LABEL: Record<PreEditSnapshotReason, string> = {
++  pre_chat_edit: "Before AI edit",
++  pre_client_edit: "Before client edit",
++};
++
++/** A research-backed edit is labelled for its evidence, whatever the reason. */
++const RESEARCHED_LABEL = "Before researched edit";
++
++/**
++ * Write the recovery checkpoint that precedes an in-place report rewrite.
++ * The single owner of the pre-edit snapshot shape, label included: callers
++ * pass the reason (and, for a research-backed edit, the session whose source
++ * count and label travel with the checkpoint). Call it inside the mutation
++ * transaction, after every validation throw and before the report patch,
++ * threading the same `now` the patch uses for `updatedAt` — `createdAt` is
++ * required so the two can never drift onto separate clocks.
++ */
++export async function writePreEditSnapshot(
++  ctx: MutationCtx,
++  report: Doc<"reports">,
++  reason: PreEditSnapshotReason,
++  options: {
++    createdAt: number;
++    researchSessionId?: Id<"researchSessions">;
++  }
++): Promise<Id<"reportSnapshots">> {
++  const auditFields = await snapshotAuditFields(ctx, report);
++  // Provenance for version history. The research layer owns the evidence
++  // policy (brain patterns never count) and stored the number at review time.
++  const researchFields = options.researchSessionId
++    ? {
++        researchSessionId: options.researchSessionId,
++        researchSourceCount:
++          (await ctx.db.get(options.researchSessionId))?.evidenceSourceCount ??
++          0,
++      }
++    : {};
++
++  return await ctx.db.insert("reportSnapshots", {
++    projectId: report.projectId,
++    reportId: report._id,
++    content: report.content,
++    ...auditFields,
++    sourceRevisionNumber: report.revisionNumber ?? 0,
++    reason,
++    label: options.researchSessionId
++      ? RESEARCHED_LABEL
++      : PRE_EDIT_DEFAULT_LABEL[reason],
++    createdByRole: "system",
++    createdAt: options.createdAt,
++    ...researchFields,
++  });
++}

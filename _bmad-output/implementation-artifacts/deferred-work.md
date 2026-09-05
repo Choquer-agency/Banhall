@@ -785,3 +785,9 @@ source_spec: `spec-dw-93-persisted-ped-native-followup.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-162523-6e72; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
+
+
+## Deferred from: code review of SPEC-ai-engine-sprint-2-boundary (2026-09-04, integration 9da55be)
+
+- Shared live report can change after publication: Live sharing and mutable report identity predate this branch. The approved QA change gates readiness and publish mutations; pinning shared copies or adding an egress/edit gate changes the domain workflow. Preserve as a separate existing sharing concern, not an unapproved expansion of CAP-8. Evidence: convex/reports.ts:30-35,64-72; convex/projects.ts:1047. Source review: .audit/integration-code-review-9da55be/review.md.
+- Because detector accepts a substring: The existing sentence-level /because/i detector predates the change and is deliberately retained by the frozen QA contract. This specific substring limitation is distinct from the multi-uncertainty case in DW-71; changing the detector requires focused work under its own intent. Evidence: convex/ai/qaChecks.ts:101-104. Source review: .audit/integration-code-review-9da55be/review.md.

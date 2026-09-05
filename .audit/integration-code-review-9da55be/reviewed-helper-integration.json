@@ -1,0 +1,17 @@
+{
+  "captured_at": "2026-09-04T19:26:09.471240-07:00",
+  "merges": [
+    {
+      "source": "bbaa9d20a9607d6463ee5298e1a5c9d8aebf19df",
+      "before": "434db602d48876af409778b344c153dd38c150fe",
+      "after": "d6890710a580dcd6006f03fe18abeb0bc7fcde96",
+      "returncode": 0
+    },
+    {
+      "source": "97e32b72891c6d50d45191ac272607936fba1628",
+      "before": "d6890710a580dcd6006f03fe18abeb0bc7fcde96",
+      "after": "e13e6253d0440ec4b28ea9ca5605fe7dbdc77d05",
+      "returncode": 0
+    }
+  ]
+}

@@ -1,0 +1,156 @@
+{
+  "base": "14d3d1795d9f861257ac122f7183449b248a369a",
+  "head": "9da55bece5948da12129720dd2330a3032c985bf",
+  "counts": {
+    "decision_needed": 0,
+    "patch": 6,
+    "defer": 2,
+    "dismiss": 6
+  },
+  "failed_layers": [],
+  "findings": [
+    {
+      "id": 1,
+      "source": "blind-hunter",
+      "title": "Shared live report can change after publication",
+      "location": "convex/reports.ts:30-35,64-72; convex/projects.ts:1047",
+      "severity": "medium",
+      "bucket": "defer",
+      "detail": "Live sharing and mutable report identity predate this branch. The approved QA change gates readiness and publish mutations; pinning shared copies or adding an egress/edit gate changes the domain workflow. Preserve as a separate existing sharing concern, not an unapproved expansion of CAP-8."
+    },
+    {
+      "id": 2,
+      "source": "blind-hunter+edge-case-hunter",
+      "title": "Duplicated report does not inherit source methodology findings",
+      "location": "convex/projects.ts:919-934; convex/lib/qaFindings.ts:43-46",
+      "severity": "low",
+      "bucket": "dismiss",
+      "detail": "Original QA Always explicitly pins findings to report identity and says findings for other reports cannot block the current report; missing compliance is not failure and no AI QA pass is newly required. New report receives its own deterministic findings. Cross-report transfer of methodology authority is outside this accepted contract."
+    },
+    {
+      "id": 3,
+      "source": "blind-hunter",
+      "title": "Because detector accepts a substring",
+      "location": "convex/ai/qaChecks.ts:101-104",
+      "severity": "low",
+      "bucket": "defer",
+      "detail": "The existing sentence-level /because/i detector predates the change and is deliberately retained by the frozen QA contract. This specific substring limitation is distinct from the multi-uncertainty case in DW-71; changing the detector requires focused work under its own intent."
+    },
+    {
+      "id": 4,
+      "source": "blind-hunter+edge-case-hunter+verification-gap",
+      "title": "Scheduled publish PED observes later report/owner",
+      "location": "convex/projects.ts:1055-1058; convex/reportEditDistance.ts:117-122; convex/lib/editDistance.ts:139-147",
+      "severity": "low",
+      "bucket": "dismiss",
+      "detail": "Known DW-49/DW-65 with native product decision pending. Original story explicitly mandates the scheduled reportId-only capture and restricts projects.ts to that scheduled call. Preserve the recorded limitation; do not silently change capture semantics in this integration review."
+    },
+    {
+      "id": 5,
+      "source": "blind-hunter+edge-case-hunter",
+      "title": "Reviewer submission pins commit-time report",
+      "location": "convex/projectWorkflow.ts:406-410,482-489",
+      "severity": "medium",
+      "bucket": "dismiss",
+      "detail": "Known DW-44 and deliberate server-side latest-report resolution in approved story7 and domain amendment. A caller-supplied reviewed baseline changes that contract; native decision remains open. No new regression against the chosen implementation."
+    },
+    {
+      "id": 6,
+      "source": "blind-hunter",
+      "title": "Empty documents consume the document count",
+      "location": "convex/ai/chatEvidence.ts:379-402; convex/chatV2.ts:1049-1061",
+      "severity": "low",
+      "bucket": "dismiss",
+      "detail": "The frozen chat matrix counts non-archived documents in trust/insertion order; it does not select the first nonempty documents. It separately prohibits empty rendered blocks and records omitted usable documents. Changing eligibility is a follow-up selection change rather than an implementation failure against this contract."
+    },
+    {
+      "id": 7,
+      "source": "blind-hunter",
+      "title": "Partially omitted analyzer sources lack an aggregate prompt notice",
+      "location": "convex/ai/trustedContext.ts:475-493",
+      "severity": "low",
+      "bucket": "dismiss",
+      "detail": "The analyzer contract requires truncation reporting and later sources dropped/reported; per-source telemetry and cut logs implement it. Aggregate prompt notices for partial omissions were not required, and chat contract explicitly preserves analyzer bytes. Full-omission notices already exist. No current AC violation."
+    },
+    {
+      "id": 8,
+      "source": "blind-hunter",
+      "title": "Prompt-program analyzer routing disclosure is stale",
+      "location": "convex/ai/promptProgram.ts:300; convex/ai/pipeline.ts:674-687",
+      "severity": "medium",
+      "bucket": "patch",
+      "detail": "CAP-10 now deliberately uses fixed MODEL for compare and retains selected single model. Canonical disclosure must describe both. Assigned to bmad-build in Banhall-bmad-analyzer-provenance-fix; no runtime model-policy change or broad DW-7 expansion.",
+      "resolution": "bbaa9d20a9607d6463ee5298e1a5c9d8aebf19df, integrated d6890710a580dcd6006f03fe18abeb0bc7fcde96",
+      "resolved": true
+    },
+    {
+      "id": 9,
+      "source": "blind-hunter",
+      "title": "Persisted blockers lack a dedicated read surface",
+      "location": "convex/lib/qaFindings.ts:78-96; convex/generations.ts:1804-1836",
+      "severity": "low",
+      "bucket": "dismiss",
+      "detail": "The approved QA contract explicitly forbids modifying QA rail/components and retains non-waivable same-content failures despite later scores. A dedicated read surface is a separate UI capability, not missing implementation in the write/gate story."
+    },
+    {
+      "id": 10,
+      "source": "blind-hunter+edge-case-hunter",
+      "title": "Retired launcher can destroy existing worktrees",
+      "location": "scripts/loop-parallel.py:169-171",
+      "severity": "high",
+      "bucket": "patch",
+      "detail": "Actual integration resurrection at 021f0b4. Removed in reviewed local repair 19b7505738f2477ab646b763f6ae3d659c74d96b, along with unused legacy retry/push wrapper. Integration replay pending active sweep completion.",
+      "resolution": "19b7505738f2477ab646b763f6ae3d659c74d96b, retained and source verifier passes at e13e625",
+      "resolved": true
+    },
+    {
+      "id": 11,
+      "source": "blind-hunter+edge-case-hunter",
+      "title": "Retired launcher ignores requested base",
+      "location": "scripts/loop-parallel.py:142-171",
+      "severity": "medium",
+      "bucket": "patch",
+      "detail": "Distinct cause, same retired executable. Removal in 19b7505738f2477ab646b763f6ae3d659c74d96b eliminates this entry point; no replacement collector added.",
+      "resolution": "19b7505738f2477ab646b763f6ae3d659c74d96b",
+      "resolved": true
+    },
+    {
+      "id": 12,
+      "source": "edge-case-hunter",
+      "title": "Retired launcher collects failed or paused lanes",
+      "location": "scripts/loop-parallel.py:187-200",
+      "severity": "high",
+      "bucket": "patch",
+      "detail": "Removal in 19b7505738f2477ab646b763f6ae3d659c74d96b eliminates this unsafe lifecycle path. Native state/commit/verification evidence remains the completion authority.",
+      "resolution": "19b7505738f2477ab646b763f6ae3d659c74d96b",
+      "resolved": true
+    },
+    {
+      "id": 13,
+      "source": "verification-gap",
+      "title": "Production review-decision submission lacks runtime coverage",
+      "location": "src/lib/components/project/ProjectWorkflowMenu.svelte:290-299",
+      "severity": "medium",
+      "bucket": "patch",
+      "detail": "Confirmed DW-43. Assigned to bmad-build in Banhall-bmad-review-menu-verification to exercise the real menu/dialog and outgoing payload without changing reviewer policy. Native ledger closure waits for independent evidence after integration.",
+      "resolution": "97e32b72891c6d50d45191ac272607936fba1628, integrated e13e6253d0440ec4b28ea9ca5605fe7dbdc77d05; full315browser tests pass",
+      "resolved": true
+    },
+    {
+      "id": 14,
+      "source": "acceptance-auditor",
+      "title": "Phone redaction removes line breaks",
+      "location": "convex/lib/deidentify.ts:77-78",
+      "severity": "medium",
+      "bucket": "patch",
+      "detail": "Direct runtime reproduction violates story2 prose-structure invariant. Reviewed repair ae1c59b39beb0a85867c0df539152c01569be65b plus evidence d868ad1d88436d2cfb803c1083d0f1ff8479d94f passes 1744 tests, checks and uploader harnesses; integration pending sweep completion.",
+      "resolution": "ae1c59b39beb0a85867c0df539152c01569be65b + d868ad1d88436d2cfb803c1083d0f1ff8479d94f, retained in e13e625",
+      "resolved": true
+    }
+  ],
+  "coverage_limit": "All four layers completed with bounded production/contract tracing, but large tests were selectively reviewed rather than every 17,273 diff line. This is not final shipping approval. New repair/sweep/learning source requires later review and gates.",
+  "status": "actions-complete-for-reviewed-work",
+  "tested_head": "e13e6253d0440ec4b28ea9ca5605fe7dbdc77d05",
+  "final_delta_review": "combined-delta-review-e13e625.md",
+  "remaining_scope": "Learning4 product choice and queued5\u20138 remain incomplete; no final19/19 or main promotion."
+}

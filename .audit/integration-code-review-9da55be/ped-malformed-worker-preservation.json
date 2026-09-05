@@ -1,0 +1,7 @@
+{
+  "captured_at": "2026-09-04T19:07:47.125874-07:00",
+  "worker_review_tip": "ff001c3371b9519af01cd25529d991f8762f3e01",
+  "ref": "codex/preserve-ped-malformed-review-20260904",
+  "native_acceptance_pending": true,
+  "note": "Preserves completed intermediate review chain before native squash; does not alter native target or lifecycle."
+}

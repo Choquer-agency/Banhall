@@ -1,0 +1,370 @@
+/**
+ * Deterministic QA checks that run BEFORE the AI QA agent.
+ * These handle structural/pattern checks that the LLM struggles with,
+ * producing pre-computed facts that get injected into the QA prompt.
+ *
+ * PSOS-49: checks that enforce waivable house-style categories (banned words,
+ * repetition caps, CRA opener phrases) accept the writer's StyleOverrides and
+ * report "WAIVED" instead of findings for waived categories. The because-clause
+ * check is CRA methodology and is never waivable.
+ */
+
+import {
+  BANNED_SCAN_TERMS,
+  bannedTermPattern,
+} from "../../shared/bannedWords";
+import {
+  NO_STYLE_OVERRIDES,
+  type StyleOverrides,
+} from "../../shared/styleOverrides";
+import { findDashConnectors } from "../../shared/humanProse";
+
+// ─── Check 1: CRA opener detection for 246 P2-P4 ────────────────────────────
+
+const CRA_OPENER_PATTERNS = [
+  /^through\s+(systematic\s+|this\s+)?(investigation|experimental\s+work)/i,
+  /^it\s+was\s+(determined|established)\s+that/i,
+  /^the\s+(experimental|investigative)\s+work\s+(determined|established|revealed|demonstrated)\s+that/i,
+  /^the\s+investigation\s+(established|determined|revealed|demonstrated)\s+that/i,
+];
+
+function getFirstSentence(paragraph: string): string {
+  const match = paragraph.match(/^[^.]+\./);
+  return match ? match[0].trim() : paragraph.trim();
+}
+
+export interface CRAOpenerResult {
+  count: number;
+  total: number;
+  results: Array<{
+    paragraph: number;
+    passes: boolean;
+    firstSentence: string;
+  }>;
+}
+
+export function checkCRAOpeners(section246Text: string): CRAOpenerResult {
+  const paragraphs = section246Text.split(/\n\n+/).filter((p) => p.trim());
+  // P2, P3, P4 are indexes 1, 2, 3 (P1 is the overall summary at index 0)
+  const advancementParagraphs = paragraphs.slice(1, 4);
+
+  const results = advancementParagraphs.map((p, i) => {
+    const firstSentence = getFirstSentence(p);
+    const passes = CRA_OPENER_PATTERNS.some((pattern) =>
+      pattern.test(firstSentence)
+    );
+    return {
+      paragraph: i + 2, // P2, P3, P4
+      passes,
+      firstSentence: firstSentence.slice(0, 120) + (firstSentence.length > 120 ? "..." : ""),
+    };
+  });
+
+  return {
+    count: results.filter((r) => r.passes).length,
+    total: results.length,
+    results,
+  };
+}
+
+// ─── Check 2: BECAUSE clause detection throughout 242 ──────────────────────────
+
+export interface BecauseClauseResult {
+  uncertaintyCount: number;
+  withBecause: number;
+  details: Array<{
+    excerpt: string;
+    hasBecause: boolean;
+  }>;
+}
+
+export function checkBecauseClauses(section242Text: string): BecauseClauseResult {
+  const paragraphs = section242Text.split(/\n\n+/).filter((p) => p.trim());
+
+
+  // Split on uncertainty markers
+  const uncertaintyMarkers = [
+    /it\s+was\s+uncertain\s+whether/gi,
+    /it\s+remained\s+uncertain/gi,
+    /uncertainty\s+existed\s+(regarding|as\s+to|about)/gi,
+  ];
+
+  // Find all uncertainty statements by splitting on sentences
+  const sentences = paragraphs.flatMap((paragraph) => paragraph.split(/(?<=[.!?])\s+/));
+  const uncertaintySentences: Array<{ excerpt: string; hasBecause: boolean }> = [];
+
+  for (const sentence of sentences) {
+    const isUncertainty = uncertaintyMarkers.some((pattern) => {
+      pattern.lastIndex = 0;
+      return pattern.test(sentence);
+    });
+    if (isUncertainty) {
+      uncertaintySentences.push({
+        excerpt: sentence.slice(0, 100) + (sentence.length > 100 ? "..." : ""),
+        hasBecause: /because/i.test(sentence),
+      });
+    }
+  }
+
+  return {
+    uncertaintyCount: uncertaintySentences.length,
+    withBecause: uncertaintySentences.filter((s) => s.hasBecause).length,
+    details: uncertaintySentences,
+  };
+}
+
+// ─── Check 3: Banned word scan ──────────────────────────────────────────────
+// Term list derived from shared/bannedWords.ts (the scrubber's own tables plus
+// scan-only terms) so the scanner can never diverge from the scrubber.
+
+export interface BannedWordResult {
+  found: Array<{
+    word: string;
+    section: string;
+    context: string;
+  }>;
+}
+
+export function checkBannedWords(
+  section242: string,
+  section244: string,
+  section246: string
+): BannedWordResult {
+  const found: BannedWordResult["found"] = [];
+
+  function scanSection(text: string, sectionName: string) {
+    const lower = text.toLowerCase();
+    for (const word of BANNED_SCAN_TERMS) {
+      const regex = bannedTermPattern(word);
+      let match;
+      while ((match = regex.exec(lower)) !== null) {
+        // Get surrounding context
+        const start = Math.max(0, match.index - 30);
+        const end = Math.min(lower.length, match.index + match[0].length + 30);
+        const context = "..." + text.slice(start, end).replace(/\n/g, " ") + "...";
+        found.push({ word, section: sectionName, context });
+      }
+    }
+  }
+
+  scanSection(section242, "242");
+  scanSection(section244, "244");
+  scanSection(section246, "246");
+
+  return { found };
+}
+
+// ─── Check 4: Repetition count ──────────────────────────────────────────────
+
+export interface RepetitionResult {
+  systematicInvestigation: number;
+  technologicalUncertainty: number;
+}
+
+export function checkRepetition(
+  section242: string,
+  section244: string,
+  section246: string
+): RepetitionResult {
+  const fullReport = `${section242}\n\n${section244}\n\n${section246}`.toLowerCase();
+
+  const siCount = (fullReport.match(/systematic\s+investigation/g) ?? []).length +
+    (fullReport.match(/systematic\s+experimentation/g) ?? []).length;
+  const tuCount = (fullReport.match(/technological\s+uncertaint/g) ?? []).length;
+
+  return {
+    systematicInvestigation: siCount,
+    technologicalUncertainty: tuCount,
+  };
+}
+
+// ─── Per-section deterministic findings (iterative mode) ────────────────────
+// No LLM — the writer is the QA during section-by-section review. Reuses the
+// per-check helpers above, scoped to the one section being reviewed.
+
+// ─── Check 5: Dash connectors (em dash and stand-ins) ───────────────────────
+// Always on: reading as machine-written is not a waivable style preference.
+
+export interface DashConnectorResult {
+  found: Array<{ token: string; section: string; context: string }>;
+}
+
+export function checkDashConnectors(
+  section242: string,
+  section244: string,
+  section246: string
+): DashConnectorResult {
+  const found: DashConnectorResult["found"] = [];
+  for (const [text, section] of [
+    [section242, "242"],
+    [section244, "244"],
+    [section246, "246"],
+  ] as const) {
+    for (const hit of findDashConnectors(text)) {
+      found.push({ token: hit.token, section, context: hit.context });
+    }
+  }
+  return { found };
+}
+
+export interface SectionFinding {
+  check: "banned_word" | "because_clause" | "cra_opener" | "repetition" | "dash_connector";
+  message: string;
+}
+
+export function sectionDeterministicFindings(
+  section: "s242" | "s244" | "s246",
+  text: string,
+  overrides: StyleOverrides = NO_STYLE_OVERRIDES
+): SectionFinding[] {
+  const findings: SectionFinding[] = [];
+  const sectionNumber = section.slice(1);
+
+  if (!overrides.bannedWords) {
+    const banned =
+      section === "s242"
+        ? checkBannedWords(text, "", "")
+        : section === "s244"
+          ? checkBannedWords("", text, "")
+          : checkBannedWords("", "", text);
+    for (const f of banned.found) {
+      findings.push({
+        check: "banned_word",
+        message: `Banned word "${f.word}": ${f.context}`,
+      });
+    }
+  }
+
+  for (const hit of findDashConnectors(text)) {
+    findings.push({
+      check: "dash_connector",
+      message: `Dash used as punctuation ("${hit.token}"), reads as machine-written: ${hit.context}`,
+    });
+  }
+
+  // Substantive uncertainty checks are independent of the writer's skeleton.
+  if (section === "s242") {
+    const because = checkBecauseClauses(text);
+    for (const d of because.details) {
+      if (!d.hasBecause) {
+        findings.push({
+          check: "because_clause",
+          message: `Uncertainty statement missing a BECAUSE clause: "${d.excerpt}"`,
+        });
+      }
+    }
+  }
+
+  if (section === "s246" && !overrides.openingClauses && !overrides.reportSkeleton) {
+    const openers = checkCRAOpeners(text);
+    for (const r of openers.results) {
+      if (!r.passes) {
+        findings.push({
+          check: "cra_opener",
+          message: `P${r.paragraph} does not open with a CRA advancement formulation: "${r.firstSentence}"`,
+        });
+      }
+    }
+  }
+
+  // Repetition limits are report-wide (3× / 4×), but flag heavy use inside a
+  // single section early — cheaper to fix now than post-assembly.
+  if (!overrides.repetitionCaps) {
+    const lower = text.toLowerCase();
+    const si =
+      (lower.match(/systematic\s+investigation/g) ?? []).length +
+      (lower.match(/systematic\s+experimentation/g) ?? []).length;
+    const tu = (lower.match(/technological\s+uncertaint/g) ?? []).length;
+    if (si > 2) {
+      findings.push({
+        check: "repetition",
+        message: `"systematic investigation/experimentation" appears ${si}× in section ${sectionNumber} (report-wide limit is 3).`,
+      });
+    }
+    if (tu > 3) {
+      findings.push({
+        check: "repetition",
+        message: `"technological uncertainty" appears ${tu}× in section ${sectionNumber} (report-wide limit is 4).`,
+      });
+    }
+  }
+  return findings;
+}
+
+// ─── Combine all checks into a single summary for injection ─────────────────
+
+export function runDeterministicChecks(
+  section242: string,
+  section244: string,
+  section246: string,
+  overrides: StyleOverrides = NO_STYLE_OVERRIDES
+): string {
+  const because = checkBecauseClauses(section242);
+
+  let summary = `## Pre-Computed Structural Checks (VERIFIED PROGRAMMATICALLY — use these as given, do not re-evaluate)\n\n`;
+
+  // CRA openers
+  summary += `### CRA Opener Detection (246 P2-P4)\n`;
+  if (overrides.reportSkeleton) {
+    summary += `WAIVED by writer profile — this writer's own document defines the section architecture, so positional opener detection does not apply. Do not deduct for missing signal phrases.\n`;
+  } else if (overrides.openingClauses) {
+    summary += `WAIVED by writer profile — literal opening clauses are not required for this writer. Do not deduct for missing signal phrases.\n`;
+  } else {
+    const openers = checkCRAOpeners(section246);
+    summary += `Qualifying openers found: ${openers.count}/${openers.total}\n`;
+    for (const r of openers.results) {
+      summary += `- P${r.paragraph}: ${r.passes ? "PASS" : "FAIL"} — "${r.firstSentence}"\n`;
+    }
+  }
+  summary += `\n`;
+
+  // BECAUSE clauses
+  summary += `### BECAUSE Clause Detection (242, all paragraphs)\n`;
+  summary += `Uncertainties with BECAUSE clauses: ${because.withBecause}/${because.uncertaintyCount}\n`;
+  for (const d of because.details) {
+    summary += `- ${d.hasBecause ? "PASS" : "FAIL"} — "${d.excerpt}"\n`;
+  }
+  summary += `\n`;
+
+  // Banned words
+  summary += `### Banned Word Scan\n`;
+  if (overrides.bannedWords) {
+    summary += `WAIVED by writer profile — the default banned-word list does not apply to this writer. Do not flag or deduct for those terms.\n`;
+  } else {
+    const banned = checkBannedWords(section242, section244, section246);
+    if (banned.found.length === 0) {
+      summary += `No banned words found.\n`;
+    } else {
+      summary += `Found ${banned.found.length} violation(s):\n`;
+      for (const f of banned.found) {
+        summary += `- "${f.word}" in Section ${f.section}: ${f.context}\n`;
+      }
+    }
+  }
+  summary += `\n`;
+
+  // Dash connectors (always on)
+  summary += `### Dash Connector Scan (em dash and stand-ins used as punctuation)\n`;
+  const dashes = checkDashConnectors(section242, section244, section246);
+  if (dashes.found.length === 0) {
+    summary += `No dash connectors found.\n`;
+  } else {
+    summary += `Found ${dashes.found.length} hit(s):\n`;
+    for (const f of dashes.found) {
+      summary += `- "${f.token}" in Section ${f.section}: ${f.context}\n`;
+    }
+  }
+  summary += `\n`;
+
+  // Repetition
+  summary += `### Repetition Count\n`;
+  if (overrides.repetitionCaps) {
+    summary += `WAIVED by writer profile — repetition caps do not apply to this writer. Do not flag or deduct for phrase repetition.\n`;
+  } else {
+    const repetition = checkRepetition(section242, section244, section246);
+    summary += `- "systematic investigation/experimentation": ${repetition.systematicInvestigation} occurrences ${repetition.systematicInvestigation > 3 ? "(OVER LIMIT of 3)" : "(within limit)"}\n`;
+    summary += `- "technological uncertainty": ${repetition.technologicalUncertainty} occurrences ${repetition.technologicalUncertainty > 4 ? "(OVER LIMIT of 4)" : "(within limit)"}\n`;
+  }
+
+  return summary;
+}

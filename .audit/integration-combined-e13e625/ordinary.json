@@ -1,0 +1,15 @@
+{
+  "head": "e13e6253d0440ec4b28ea9ca5605fe7dbdc77d05",
+  "command": [
+    "bash",
+    "scripts/loop-verify.sh"
+  ],
+  "started_at": "2026-09-04T19:26:50.157436-07:00",
+  "finished_at": "2026-09-04T19:27:51.469725-07:00",
+  "elapsed_seconds": 61.312,
+  "exit_code": 0,
+  "public_env": {
+    "PUBLIC_CONVEX_URL": "https://placeholder.convex.cloud",
+    "PUBLIC_CONVEX_SITE_URL": "https://placeholder.convex.site"
+  }
+}

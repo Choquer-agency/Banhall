@@ -1,0 +1,35 @@
+{
+  "captured_at": "2026-09-04T19:23:37.176465-07:00",
+  "workspaces": [
+    {
+      "project": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "branch": "sprint2-boundary",
+      "head": "11bfe3ebcb79fd8be78e2e057b45ea69db0f88be",
+      "status": ""
+    },
+    {
+      "project": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion",
+      "branch": "codex/bmad-completion",
+      "head": "5fa6a905f4fd348f242a4f413c41bcbb53894cda",
+      "status": ""
+    },
+    {
+      "project": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-analyzer-provenance-fix",
+      "branch": "codex/bmad-analyzer-provenance-fix",
+      "head": "bbaa9d20a9607d6463ee5298e1a5c9d8aebf19df",
+      "status": ""
+    },
+    {
+      "project": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-review-menu-verification",
+      "branch": "codex/bmad-review-menu-verification",
+      "head": "97e32b72891c6d50d45191ac272607936fba1628",
+      "status": ""
+    },
+    {
+      "project": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat",
+      "branch": "sprint2-learn-chat",
+      "head": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+      "status": ""
+    }
+  ]
+}

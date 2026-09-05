@@ -1,0 +1,8 @@
+{
+  "captured_at": "2026-09-04T18:47:14.234564-07:00",
+  "ref": "codex/preserve-research-phone-review-20260904",
+  "worker_review_tip": "625352b58c6d9e9dca61371329e2cdf28b112103",
+  "subject": "docs(DW-88): finalize fresh review and native closure evidence",
+  "native_acceptance_pending": true,
+  "note": "Preserved intermediate review history without altering native target or lifecycle. Acceptance remains engine-owned."
+}

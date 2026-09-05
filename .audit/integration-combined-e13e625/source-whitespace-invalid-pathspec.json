@@ -1,0 +1,33 @@
+{
+  "head": "e13e6253d0440ec4b28ea9ca5605fe7dbdc77d05",
+  "command": [
+    "git",
+    "diff",
+    "--check",
+    "14d3d1795d9f861257ac122f7183449b248a369a",
+    "HEAD",
+    "--",
+    ".",
+    ":!.audit/**",
+    ":!_bmad-output/**"
+  ],
+  "exit_code": 128,
+  "raw_review_artifact_whitespace_paths": [
+    "_bmad-output/implementation-artifacts/analyzer-provenance-review-blind-hunter-prompt.md",
+    "_bmad-output/implementation-artifacts/analyzer-provenance-review-edge-case-hunter-prompt.md",
+    "_bmad-output/implementation-artifacts/analyzer-provenance-review-verification-gap-prompt.md",
+    "_bmad-output/implementation-artifacts/deidentify-linebreak-fix-blind-hunter-prompt.md",
+    "_bmad-output/implementation-artifacts/deidentify-linebreak-fix-edge-case-hunter-prompt.md",
+    "_bmad-output/implementation-artifacts/deidentify-linebreak-fix-verification-gap-prompt.md",
+    "_bmad-output/implementation-artifacts/dw43-review-prompts/blind-hunter.md",
+    "_bmad-output/implementation-artifacts/dw43-review-prompts/edge-case-hunter.md",
+    "_bmad-output/implementation-artifacts/dw43-review-prompts/verification-gap.md",
+    "_bmad-output/implementation-artifacts/spec-deidentify-linebreak-fix.md",
+    "_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/chatspend/stories/2-trusted-context-module-for-generation-input.md",
+    "_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/pipeline/stories/2-trusted-context-module-for-generation-input.md",
+    "_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/qa/stories/2-trusted-context-module-for-generation-input.md",
+    "_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/schema/stories/2-trusted-context-module-for-generation-input.md",
+    "_bmad-output/specs/spec-ai-engine-sprint-2-boundary/stories/2-trusted-context-module-for-generation-input.md"
+  ],
+  "note": "Expanded diff prompts and historical/native specs retained exactly. Initial non-audit check exit2 is preserved separately; source/vendor/docs check excludes all review/spec output and must independently pass."
+}

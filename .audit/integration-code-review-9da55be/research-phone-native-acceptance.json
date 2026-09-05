@@ -1,0 +1,68 @@
+{
+  "captured_at": "2026-09-04T18:48:20.860122-07:00",
+  "task": {
+    "phase": "done",
+    "spec_file": "_bmad-output/implementation-artifacts/spec-dw-88-research-phone-redaction-boundary.md",
+    "baseline_commit": "b984822a8aeb70b7eb48a5d617ed18846392b1d2",
+    "commit_sha": "f34bd79ccff35019c5cf5460d8845a0240c19978",
+    "review_cycle": 1,
+    "followup_review_recommended": false
+  },
+  "integration_head": "0defcac5c3c8defc76c9f07fbc4862e7355e3a77",
+  "accepted_is_ancestor": true,
+  "events": [
+    {
+      "ts": 1788572536.435724,
+      "kind": "verify-command-result",
+      "story_key": "dw-research-phone-redaction-boundary",
+      "attempt": 1,
+      "verification_stage": "dev",
+      "verification_sequence": 1,
+      "command_index": 0,
+      "command": "bash scripts/loop-verify.sh",
+      "returncode": 0,
+      "output_tail": "  review-fix every path the uploader reads is a literal path\nok    review-fix the upload body path is wildcard-escaped\nok    regression banhall-uploader.ps1 never mentions ReparsePoint again\nok    zero-diag AC4 every root-is-a-file message stops the run from a Test-RootUsable state\nok    review-fix the uploader only claims a log was saved when a write succeeded\nok    zero-diag AC2 the log is truncated before the scan and the SCAN lines beat the zero exit\nok    zero-diag AC3 the cloud-only line is printed only when the count is above zero\nok    zero-diag AC1 the zero-found branch prints the formatter's lines and never a file name\nok    AC5 loop-verify.sh runs the harness under set -e\nok    AC5 an injected failing case exits 1 and stops a set -e gate\n\n50 passed, 0 failed\nok    AC1 walk classifies link/temp/dotfile/extension and keeps 3 candidates\nok    AC4 symlink to an allowed file is skipped and counted under link\nok    AC1 argument prefix is prepended to the relative path\nok    AC1 zero-result block reports walked, per-reason skips, extensions, OneDrive\nok    edge empty folder reports zeros and 'Extensions seen: none'\nok    AC1 extension histogram is capped at 8, ties broken alphabetically\nok    edge ext_of matches .NET GetExtension for dotfiles and bare names\nok    AC3 root_state answers ok / is_file / missing\nok    AC3 a file path prints 'That path is a file, not a folder' and exits 1\nok    AC3 a folder passes and a missing path reports 'does not exist'\nok    AC2 an unreadable file logs READ_ERROR and never calls the endpoint\nok    AC2 control: a readable file does reach the stubbed endpoint\nok    AC2 sha256_of returns nothing for an unreadable or missing file\nok    AC1 under_onedrive answers yes / no / unknown\nok    AC5 scripts/loop-verify.sh runs this harness exactly once\nok    AC5 an injected failing case exits non-zero\nok    shape banhall-uploader.sh uses no bash 4 constructs\nok    shape every function is defined above the lib-only guard\n\n18 passed, 0 failed\n",
+      "capture_error": null,
+      "stdout_path": "verify/verify-dw-research-phone-redaction-boundary-dev-1-1-0.stdout.log",
+      "stdout_bytes": 5282,
+      "stdout_captured_bytes": 5282,
+      "stdout_truncated": false,
+      "stderr_path": "verify/verify-dw-research-phone-redaction-boundary-dev-1-1-0.stderr.log",
+      "stderr_bytes": 0,
+      "stderr_captured_bytes": 0,
+      "stderr_truncated": false,
+      "log_task": "dw-research-phone-redaction-boundary-dev-1",
+      "log_pos": 2551733
+    },
+    {
+      "ts": 1788572792.47262,
+      "kind": "review-result",
+      "story_key": "dw-research-phone-redaction-boundary",
+      "cycle": 1,
+      "status": "done",
+      "followup_review_recommended": false,
+      "followup_damped": false,
+      "log_task": "dw-research-phone-redaction-boundary-review-1",
+      "log_pos": 1102396
+    },
+    {
+      "ts": 1788572849.238446,
+      "kind": "story-done",
+      "story_key": "dw-research-phone-redaction-boundary",
+      "commit": "f34bd79ccff35019c5cf5460d8845a0240c19978",
+      "log_task": "dw-research-phone-redaction-boundary-review-1",
+      "log_pos": 1102396
+    },
+    {
+      "ts": 1788572849.519372,
+      "kind": "unit-merged",
+      "story_key": "dw-research-phone-redaction-boundary",
+      "branch": "bmad-loop/20260904-162523-6e72",
+      "target": "codex/bmad-completion",
+      "strategy": "merge",
+      "source": "f34bd79ccff35019c5cf5460d8845a0240c19978",
+      "log_task": "dw-research-phone-redaction-boundary-review-1",
+      "log_pos": 1102396
+    }
+  ]
+}
