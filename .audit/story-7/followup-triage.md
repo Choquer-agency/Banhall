@@ -1,0 +1,22 @@
+# Story 7 follow-up review, 2026-09-05
+
+Reviewed the complete change from `438edf107a85d443480a3027fe8d19e0f9195106` through invocation HEAD `3dccc3c4be72d3ff073a0f85030a8e31a9cfe887`, including the invocation's removal of the previous Auto Run Result. Four context-free reviewers used the parent model without overrides. Three launched together; the fourth launched when a slot became available, before triage. Diff input is archived losslessly as `followup-review.diff.gz`. Edge review returned no findings; verification-gap review returned no gaps. Blind and intent findings are evaluated below. The ledger was excluded from all writes.
+
+| Finding | Disposition | Severity | Evidence and reasoning |
+| --- | --- | --- | --- |
+| First optimistic insertion destroys focused composer | patch | medium | Reproduced by the new Enter test on invocation HEAD. Render one composer outside the empty/transcript branch; verify DOM identity, focus and continued typing through mutation completion. |
+| Dismissal drops keyboard focus | patch | medium | Reproduced by the last-failure dismissal test. Transfer focus only when the originating dismissal control owns it, before removing that control. |
+| Unbroken inline errors and prompts overflow narrow transcript (two claims, same fix) | patch | medium | Reproduced 6245px scroll width in a 320px transcript. Allow arbitrary text wrapping and shrink the local bubble; inspect before/after screenshots. |
+| Identical Retry/Dismiss accessible names lack prompt association | patch | low | Associate both controls with their own prompt via aria-describedby; verify the referenced text in the rendered panel. |
+| Retrying older failure keeps original placement until durable publication | reject | low | Stable placement preserves the same logical failed request; exact durable handoff adopts server chronology. No contrary placement requirement or incorrect durable action identified. |
+| Return to historical failure does not focus/reveal its precise row | reject | low | Return still navigates explicitly to the original transcript as before. No new loss of navigation or retry availability demonstrated; focus/reveal on initial send is separately verified. |
+| Mutation completion can scroll after writer scrolls up | reject | low | Completion scrolling already existed and remains scoped to origin. The added immediate reveal fulfills the contract; no new mutation-completion scrolling behavior is introduced. |
+| Unsaved menu lacks active-selection styling | reject | low | A visual enhancement without a demonstrated failed navigation or identity requirement; stable distinct accessible labels already select exact unsaved scopes. |
+| Offscreen existing-thread failure lacks global notification | reject | low | The intent explicitly scopes failures to origin; navigation test requires no alert leakage. It does not request a global failure indicator. |
+| Space activation test missing | reject | low | Existing shared native button semantics handle Space, while real keyboard Enter and repeated activation exercise captured retry and in-flight guard. No custom key handler changes those semantics. |
+| Historical baseline single-case fixture not retained | reject | low | Historical capture/log remain evidence of the prior run, not a promised replay fixture. This follow-up retains its actual three failing regression tests and exact before revision for reproducibility; it does not claim reconstruction of the older capture. |
+| Publication-first transient duplication | reject | medium | Exact returned identity is required and backend change prohibited; explicit contract supports eventual reconciliation after both observations. Already documented limitation. |
+| Independent per-conversation composer storage | reject | low | Contract protects later edits from completion-time clearing; it does not add persistent per-conversation draft storage. Existing single-composer semantics are preserved. |
+| Controlled transport does not prove deployed subscription/provider behavior | reject | low | Explicit verification boundary, not a demonstrated defect. Tests run actual panel/helper and interaction surfaces; no live backend claim is made. |
+
+Totals after deduplicating the two long-text claims: 4 patches (high 0, medium 3, low 1), 0 intent gaps, 0 bad specs, 0 deferred, 10 rejected (medium 1, low 9). Follow-up score is 3 × 3 + 1 = 10, so another review is recommended. No deferred-work ledger entry was authored, reopened, rewritten, reverted or staged.

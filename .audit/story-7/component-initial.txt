@@ -1,0 +1,44 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/chat/OptimisticSend.component.test.ts src/lib/components/chat/RegenerateTurn.component.test.ts
+
+1:00:36 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/7 - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/7
+
+1:00:36 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/7 - using default configuration.
+ ❯ |component (chromium)| src/lib/components/chat/RegenerateTurn.component.test.ts (34 tests | 2 failed) 35004ms
+   × resends completed prompt through keyboard {Enter} and retains the transcript 15029ms
+   × resends completed prompt through keyboard   and retains the transcript 15033ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateTurn.component.test.ts > resends completed prompt through keyboard {Enter} and retains the transcript
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateTurn.component.test.ts > resends completed prompt through keyboard   and retains the transcript
+Error: strict mode violation: getByText('Original prompt', { exact: true }) resolved to 2 elements:
+    1) <p class="whitespace-pre-wrap">Original prompt</p> aka getByText('Original prompt').first()
+    2) <p class="whitespace-pre-wrap">Original prompt</p> aka getByText('Original prompt').nth(2)
+
+
+Failure screenshots:
+  - src/lib/components/chat/__screenshots__/RegenerateTurn.component.test.ts/resends-completed-prompt-through-keyboard--Enter--and-retains-the-transcript-2.png
+  - src/lib/components/chat/__screenshots__/RegenerateTurn.component.test.ts/resends-completed-prompt-through-keyboard---and-retains-the-transcript-1.png
+
+ ❯ src/lib/components/chat/RegenerateTurn.component.test.ts:47:75
+     45|   await expect.poll(() => __mutationCalls("chatV2:sendMessage")).toEqu…
+     46|   await expect.element(page.getByText("Original answer remains.")).toB…
+     47|   await expect.element(page.getByText("Original prompt", { exact: true…
+       |                                                                           ^
+     48|   expect(Number(getComputedStyle(button).fontWeight)).toBeLessThanOrEq…
+     49|   expect(button.className).toContain("focus-visible:ring-2");
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/RegenerateTurn.component.test.ts:47:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 46 passed (48)
+   Start at  01:00:36
+   Duration  47.13s (transform 0ms, setup 661ms, import 1.43s, tests 43.50s, environment 0ms)

@@ -1,0 +1,4 @@
+91b9d853602efd09bc7a2eea52057b9fa6369fe04c209a37efef946b10ceee7c  src/lib/components/chat/AgentChatPanel.svelte
+84cb03a2084b7c63898a502be066ba49fbaf2f9237957a6f3115674608a85852  src/lib/components/chat/OptimisticSend.component.test.ts
+524575bcdd33c2ef16804ee8909d120e33b575c844a7ae49ad3ae25de15a8054  src/lib/chat/uiMessages.svelte.ts
+f5f2fafda0bf1db34be6b7607cb252c15270498782e87c510b30956eeb4c2236  src/lib/components/chat/RegenerateTurn.component.test.ts
