@@ -69,3 +69,7 @@ Independent review added a third actual-gate audit probe: an owned npx shim reje
 TESTS2-REVIEW correction source is now c755e003c7027135c9adf5ac3e67c617ddc7cce5, root source review approved and full gate/predicates green. Run20260905-085105-4-tickets (PID78635) resumes the four remaining tickets serially. The correction agent handed off clean and no longer writes the worktree. Factory review/QA are pending; root-tests2-review.md records exact proof and review limits.
 
 TESTS2-REVIEW closed at merge14e80a0: source c755e00, review1 approve, QA1 done/test-verified. The resumed factory review caught stale Coverage line pointers; its audit-only fix reran the gate and corrected them. Root integrated evidence distinguishes32physical mapping rows from34expanded old cases, preserves historical pointer provenance, and records the optional deletion-survivor assertion improvement. No production source changed in this ticket. Eight of eleven tickets done; tests3 active.
+
+## Hosted-runner prerequisite verification
+
+On2026-09-05, the official [runner image table](https://github.com/actions/runner-images#available-images) maps ubuntu-latest to Ubuntu24.04, whose [software manifest](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md#powershell-tools) lists PowerShell7.6.5 in image20260823.283.1. The proposed CI job can invoke pwsh without adding an install step. This is published-environment evidence; no remote CI job was run.
