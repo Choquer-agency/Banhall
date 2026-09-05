@@ -66,7 +66,12 @@ describe("WorkspaceChrome", () => {
     ).not.toContain("/projects");
   });
 
-  it("autofocuses the modal drawer and layers its 44px account menu above the drawer", async () => {
+  /**
+   * The drawer footer is a Settings link plus a confirmed sign-out (66f131b
+   * replaced the account dropdown). The nested Sign out dialog has to clear
+   * the z-110 drawer, keep 44px controls, and hand focus back on cancel.
+   */
+  it("autofocuses the modal drawer and layers its confirmed sign-out above it", async () => {
     await browserPage.viewport(390, 844);
     __setQueryData("users:getCurrentUser", {
       _id: "admin-1",
@@ -78,23 +83,49 @@ describe("WorkspaceChrome", () => {
     await render(WorkspaceChrome, { title: "Settings", children: tallContent });
 
     document.querySelector<HTMLButtonElement>('button[aria-label="Open workspace navigation"]')!.click();
-    await expect.poll(() => document.querySelector('[role="dialog"]')).not.toBeNull();
+    await expect.poll(() => document.querySelector("[data-workspace-drawer]")).not.toBeNull();
     await expect
       .poll(() => document.activeElement?.getAttribute("aria-label"))
       .toBe("Close workspace navigation");
 
-    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
-    dialog.querySelector<HTMLButtonElement>('button[aria-label="Settings menu"]')!.click();
-    await expect.poll(() => document.querySelector('[data-menu-layer="drawer"]')).not.toBeNull();
+    const drawer = document.querySelector<HTMLElement>("[data-workspace-drawer]")!;
+    const drawerLayer = Number.parseInt(getComputedStyle(drawer).zIndex, 10);
+    const settings = await browserPage
+      .elementLocator(drawer)
+      .getByRole("link", { name: "Settings" })
+      .element();
+    expect(settings.getAttribute("href")).toBe("/settings");
 
-    const menu = document.querySelector<HTMLElement>('[data-menu-layer="drawer"]')!;
-    expect(Number.parseInt(getComputedStyle(menu).zIndex, 10)).toBeGreaterThan(110);
-    const rows = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'));
-    expect(rows.length).toBeGreaterThan(0);
-    // Measure after the sanctioned 300ms scale/fade settles; transformed
-    // in-flight bounds are intentionally smaller than the layout box.
+    const signOutTrigger = await browserPage
+      .elementLocator(drawer)
+      .getByRole("button", { name: "Sign out" })
+      .element();
+    await browserPage.elementLocator(signOutTrigger).click();
+
+    const confirm = () =>
+      Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).find((node) =>
+        node.textContent?.includes("Sign out?")
+      );
+    await expect.poll(confirm).toBeTruthy();
+
+    const dialog = confirm()!;
+    expect(dialog.getBoundingClientRect().height).toBeGreaterThan(0);
+    // The portalled wrapper carries the layer; the panel itself is unstacked.
+    const layer = Number.parseInt(getComputedStyle(dialog.parentElement!).zIndex, 10);
+    expect(layer).toBeGreaterThan(drawerLayer);
+
+    // Measure after the sanctioned scale/fade settles; transformed in-flight
+    // bounds are intentionally smaller than the layout box.
+    const controls = Array.from(dialog.querySelectorAll<HTMLElement>("button"));
+    expect(controls.length).toBeGreaterThan(1);
     await expect
-      .poll(() => rows.every((row) => row.getBoundingClientRect().height >= 44))
+      .poll(() => controls.every((control) => control.getBoundingClientRect().height >= 44))
       .toBe(true);
+
+    // Cancel only: confirming would sign a real session out.
+    await browserPage.elementLocator(dialog).getByRole("button", { name: "Stay signed in" }).click();
+    await expect.poll(confirm).toBeUndefined();
+    await expect.poll(() => document.activeElement).toBe(signOutTrigger);
+    expect(__navigationCalls.filter((call) => call.kind === "goto")).toHaveLength(0);
   });
 });
