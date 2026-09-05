@@ -10,6 +10,7 @@ done_when: ["test \"$(rg -l 'bun:test' tests | wc -l | tr -d ' ')\" -eq 2", "rg 
 title: The twelve pure suites under tests/ run under vitest unchanged; the one superseded snapshot case retires with its mapping; the two fake-db suites are excluded by name for tests-2
 plan: 20260904-code-quality-sweep
 ui: false
+deferred: []
 updated: "2026-09-05T07:56:28.730Z"
 ---
 ## Intent
