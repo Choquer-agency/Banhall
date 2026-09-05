@@ -1,6 +1,6 @@
 ---
 key: perf-2-empty-upload-reads
-status: todo
+status: done
 kind: perf
 deps: []
 touches: [convex]
@@ -10,7 +10,13 @@ done_when: ["node --input-type=module -e 'import { execFileSync } from \"node:ch
 title: Empty and whitespace-only uploads avoid reading existing document bodies
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T06:00:13.816Z"
+updated: "2026-09-05T06:40:44.978Z"
+run: 20260905-055642-10-tickets
+branch: factory/perf-2-empty-upload-reads
+merged: 82e7e01
+verdict: test-verified
+evidence: .audit/perf-2-empty-upload-reads/evidence.md
+deferred: ["convex/documents.ts: none of its query/mutation registrations declare a `returns:` validator, which the repo convex-lint hook flags on every edit. Repo-wide gap, out of AC2 scope.", "convex/documents.ts:83-93 still collects the whole by_projectId index for every nonempty upload; the plan's PERF-4 hash/index follow-up is the fix and needs a schema change."]
 ---
 ## Intent
 
