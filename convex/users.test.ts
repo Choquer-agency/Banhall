@@ -2,6 +2,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { api, internal } from "./_generated/api";
+import { getTeamRosterMemberOrNull } from "./lib/teamRoster";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -19,6 +20,80 @@ describe("team roster access", () => {
     await expect(t.withIdentity({ subject: "roster-roleless" }).query(api.users.listTeam, {})).resolves.toEqual([]);
     await expect(t.withIdentity({ subject: "roster-writer" }).query(api.users.listTeam, {})).resolves.toEqual([
       expect.objectContaining({ name: "Writer", email: "writer@example.com", role: "writer" }),
+    ]);
+  });
+});
+
+// `getTeamRosterMemberOrNull` decides whether a users row may be selected as a
+// project owner or assignee: convex/projects.ts:687, projectWorkflow.ts:279,
+// ownerBackfill.ts:384 and lib/eligibleOwner.ts:9. `api.users.listTeam` is the
+// read that populates those pickers.
+describe("team roster eligibility", () => {
+  it("selects by users-table id, and refuses anonymous or missing rows", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await t.run(async (ctx) => {
+      // Two distinct accounts sharing one display name: only the id can tell
+      // them apart, so a name-based lookup would resolve the wrong person.
+      const first = await ctx.db.insert("users", {
+        authId: "roster-sam-one",
+        role: "writer",
+        name: "Sam Lee",
+      });
+      const second = await ctx.db.insert("users", {
+        authId: "roster-sam-two",
+        role: "writer",
+        name: "Sam Lee",
+      });
+      const anonymous = await ctx.db.insert("users", {
+        authId: "roster-sam-anon",
+        role: "writer",
+        name: "Sam Lee",
+        isAnonymous: true,
+      });
+      const deleted = await ctx.db.insert("users", {
+        authId: "roster-sam-deleted",
+        role: "writer",
+        name: "Sam Lee",
+      });
+      await ctx.db.delete(deleted);
+      return { first, second, anonymous, deleted };
+    });
+
+    const resolve = (userId: (typeof ids)["first"]) =>
+      t.run((ctx) => getTeamRosterMemberOrNull(ctx, userId));
+
+    expect((await resolve(ids.first))?._id).toBe(ids.first);
+    expect((await resolve(ids.second))?._id).toBe(ids.second);
+    // The anonymous row is present and readable: it is refused on its
+    // `isAnonymous` flag, not because the lookup found nothing.
+    expect(await t.run((ctx) => ctx.db.get(ids.anonymous))).not.toBeNull();
+    expect(await resolve(ids.anonymous)).toBeNull();
+    expect(await resolve(ids.deleted)).toBeNull();
+  });
+
+  it("keeps anonymous records out of the selectable roster", async () => {
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        authId: "roster-member",
+        role: "writer",
+        firstName: "Team",
+        lastName: "Member",
+        email: "member@example.com",
+      });
+      await ctx.db.insert("users", {
+        authId: "roster-guest",
+        role: "writer",
+        name: "Guest",
+        isAnonymous: true,
+      });
+    });
+
+    const roster = await t
+      .withIdentity({ subject: "roster-member" })
+      .query(api.users.listTeam, {});
+    expect(roster).toEqual([
+      expect.objectContaining({ name: "Team Member", role: "writer" }),
     ]);
   });
 });

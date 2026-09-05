@@ -27,15 +27,6 @@ export default defineConfig({
         test: {
           name: "convex",
           include: ["convex/**/*.test.ts", "tests/**/*.test.ts"],
-          // These two build a handmade database instead of using convex-test;
-          // tests-2-real-proposal-access-roster-tests ports them to real
-          // endpoints. The defaults are spread back in because `exclude`
-          // replaces them.
-          exclude: [
-            ...configDefaults.exclude,
-            "tests/chatProposals.test.ts",
-            "tests/projectReviewAccess.test.ts",
-          ],
           environment: "edge-runtime",
           // convex-test glob-imports the whole backend per test file, so the
           // first case in a file pays a module-graph cost that varies with
