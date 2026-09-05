@@ -27,3 +27,5 @@ The initial pre-repair gate passed 1,753 full tests and 154 focused tests, both 
 Final repaired-source verification: ordinary gate exited 0 with 1,765 tests across 148 files, zero Svelte errors/warnings, successful Convex TypeScript, PowerShell 50/50 and Bash 18/18. Focused gate exited 0 with 166 tests. Both commands retained identical before/after revision and runtime hashes. `final-manifest.json` points to the exact retained manifest.
 
 Final precommit artifact check passed (`final-check.json`): current commands/logs and runtime bytes verified, protected paths unchanged, unique done marker present, frozen contract preserved, and working/index ledger SHA-256 exactly equals the native invocation snapshot. Raw logs and snapshots retain their original whitespace through local audit attributes.
+
+Committed reviewed product/evidence revision: 60606e5d50f098b0115e8ead746297653628c302 (read directly from Git). The postcommit checker passed against actual committed artifacts and git status --porcelain was empty. committed-check.json retains that observation; its later evidence-only commit does not change verified runtime source.
