@@ -49,7 +49,7 @@ The completed perf-2 and slop-1 ticket gates each report 129 unit-test files / 1
 | --- | --- |
 | Integration revision and completed ticket count | Pending |
 | Combined diff summary and retained/deferred inventory reconciliation | Pending |
-| Default shared gate: exit, duration, test counts, build | Pending |
+| Fresh-dependency bootstrap and default shared gate: exit, duration, test counts, build | Pending; exercise the actual script with local node_modules absent after all tickets finish |
 | Full component gate: exit, duration, counts, mobile geometry evidence | Pending |
 | Discovery coverage and missing-tool/browser preflight proofs | Pending |
 | Independent review, QA verdicts and unresolved findings | Pending |

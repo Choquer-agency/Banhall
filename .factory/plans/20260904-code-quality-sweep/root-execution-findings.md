@@ -27,3 +27,7 @@ Slop-2 QA returned typecheck-only after passing the shared gate, 8 unit cases an
 ## Applied to pending DX: explicit optional and negative preflight proofs
 
 Independent configuration review found that the running engine caches its initial qa.smoke and pending dx-1 had verify:[], so its new optional browser path lacked a guaranteed independent execution. Added the exact optional gate command and the reviewed plan-directory verify-gate-preflight.mjs artifact to the canonical ticket verify list. The default global gate and optional success path are distinct; the artifact tests missing PowerShell/Chromium early exits with owned temporary fixtures and process-group cleanup. Syntax/structure are checked now; actual probe results remain pending DX implementation. No broad bash -c permission or product wrapper was introduced.
+
+## Final DX verification requirement
+
+After all engine work has finished, run the final combined gate with root local node_modules absent so the actual new script proves its npm ci bootstrap, not only an already-installed checkout. Keep all heavy verification serial and do not run installation or builds in an active implementer worktree. DX source review must check that bootstrap failures and each step’s exit code propagate correctly through the step helper, including Bash errexit behavior when functions run as if conditions. The explicit missing-PowerShell/Chromium probes cover early failure; their lack-of-typecheck claim also needs source-order review, as the probe note states.
