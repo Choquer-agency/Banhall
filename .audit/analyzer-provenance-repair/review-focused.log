@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-analyzer-provenance-fix
+
+
+ Test Files  4 passed (4)
+      Tests  71 passed (71)
+   Start at  17:16:12
+   Duration  2.17s (transform 1.86s, setup 0ms, import 2.48s, tests 886ms, environment 347ms)
+

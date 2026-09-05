@@ -1,0 +1,14 @@
+$ npm test
+
+> banhall-app@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-analyzer-provenance-fix
+
+
+ Test Files  148 passed (148)
+      Tests  1733 passed (1733)
+   Start at  17:16:30
+   Duration  20.12s (transform 4.70s, setup 0ms, import 9.36s, tests 11.50s, environment 3.55s)
+

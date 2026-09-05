@@ -297,7 +297,15 @@ export const generationPromptProgram = {
       contextBudget: DEFAULT_CONTEXT_BUDGET,
       request: ANALYZER_REQUEST,
       schema: ANALYSIS_SCHEMA,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      // Compare entry analysis is independent of candidate pair order.
+      // Older queued candidates without shared analysis still select their model.
+      model: {
+        kind: "mode-dependent",
+        compare: { kind: "fixed", modelId: MODEL },
+        single: { kind: "candidate", fallbackModelId: MODEL },
+        iterative: { kind: "candidate", fallbackModelId: MODEL },
+        legacyCandidate: { kind: "candidate", fallbackModelId: MODEL },
+      },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
     },

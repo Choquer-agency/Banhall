@@ -1,0 +1,4 @@
+ts	phase	decision	why	evidence	result
+2026-09-05T00:03:34.812320+00:00	plan	Narrow analyzer model disclosure repair	Approved compare routing and manifest disagree	convex/ai/pipeline.ts:674;convex/ai/promptProgram.ts:300	No runtime changes
+2026-09-05T00:03:34.812754+00:00	implement	Implement inline after agent capacity failure	Step 03 explicitly permits fallback	_bmad-output/implementation-artifacts/spec-analyzer-provenance-repair.md	Tests reproduce then pass
+2026-09-05T00:16:56.126220+00:00	review	Patch three bounded review findings	Strengthen successful initialization, distinct legacy model and evidence ownership	.audit/analyzer-provenance-repair/review-triage.md	No runtime change; remaining seven coverage expansions rejected

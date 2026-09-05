@@ -6,6 +6,7 @@ import type { FunctionArgs } from "convex/server";
 import { internal } from "../_generated/api";
 import schema from "../schema";
 import { MODEL } from "./model";
+import { generationPromptProgram } from "./promptProgram";
 import { SECTION_242_REQUEST } from "./section242Agent";
 import { SECTION_244_REQUEST } from "./section244Agent";
 import { SECTION_246_REQUEST } from "./section246Agent";
@@ -61,7 +62,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function fixture(t: ReturnType<typeof convexTest>, models = pair, mode: "single" | "compare" = "compare") {
+async function fixture(t: ReturnType<typeof convexTest>, models = pair, mode: "single" | "compare" | "iterative" = "compare") {
   return t.run(async (ctx) => {
     const now = Date.now();
     const userId = await ctx.db.insert("users", { authId: "compare-writer", role: "writer" });
@@ -155,6 +156,7 @@ describe("shared generation analysis", () => {
     expect(await t.run((ctx) => ctx.db.query("generationArtifacts").collect())).toEqual(before);
     expect(analyzerCalls()).toHaveLength(1);
     expect(analyzerCalls()[0][0].model).toBe(MODEL);
+    expect(analyzerCalls()[0][0].model).toBe(generationPromptProgram.calls.analyzer.model.compare.modelId);
     const artifacts = await t.run((ctx) => ctx.db.query("generationArtifacts").collect());
     const analyses = artifacts.filter((row) => row.kind === "analysis");
     expect(analyses).toHaveLength(1);
@@ -196,12 +198,36 @@ describe("shared generation analysis", () => {
 
 
 describe("shared analysis failure and compatibility", () => {
+  it("keeps the selected iterative analyzer model", async () => {
+    const t = convexTest(schema, modules);
+    const generationId = await fixture(t, pair, "iterative");
+    await t.action(internal.ai.iterative.startIterativeGeneration, { generationId });
+    expect(analyzerCalls()).toHaveLength(1);
+    expect(analyzerCalls()[0][0].model).toBe("claude-opus-4-8");
+    expect(generationPromptProgram.calls.analyzer.model.iterative).toEqual({
+      kind: "candidate", fallbackModelId: MODEL,
+    });
+    expect(await t.run((ctx) => ctx.db.get(generationId))).toMatchObject({ status: "running" });
+    const artifacts = await t.run((ctx) => ctx.db.query("generationArtifacts").collect());
+    const analysis = artifacts.find((row) => row.kind === "analysis");
+    expect(analysis).toBeDefined();
+    expect(JSON.parse(analysis?.content ?? "null")).toMatchObject(analysisOutput);
+    const sectionJobs = await t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect())
+        .filter((job) => job.name === "ai/iterative:generateSection"));
+    expect(sectionJobs).toHaveLength(1);
+    expect(sectionJobs[0].args).toEqual([{ generationId, section: "s242" }]);
+  });
+
   it("keeps the selected single-mode analyzer model", async () => {
     const t = convexTest(schema, modules);
     const generationId = await fixture(t, pair, "single");
     await t.action(internal.ai.pipeline.generateReport, { generationId });
     expect(analyzerCalls()).toHaveLength(1);
     expect(analyzerCalls()[0][0].model).toBe("claude-opus-4-8");
+    expect(generationPromptProgram.calls.analyzer.model.single).toEqual({
+      kind: "candidate", fallbackModelId: MODEL,
+    });
     expect(await candidateJobs(t)).toHaveLength(1);
     await runCandidates(t);
     const generation = await t.run((ctx) => ctx.db.get(generationId));
@@ -250,16 +276,19 @@ describe("shared analysis failure and compatibility", () => {
     expect(await t.run((ctx) => ctx.db.get(args.candidateRunId))).toMatchObject({ status: "failed" });
   });
 
-  it("runs the existing analyzer fallback for a queued payload with no analysis", async () => {
+  it.each([0, 1])("runs the existing analyzer fallback for queued candidate %s with no analysis", async (index) => {
     const t = convexTest(schema, modules);
     const generationId = await fixture(t);
     await t.action(internal.ai.pipeline.generateReport, { generationId });
-    const [job] = await candidateJobs(t);
+    const job = (await candidateJobs(t))[index];
     const { analysis: _analysis, ...legacy } = job.args[0] as FunctionArgs<typeof internal.ai.pipeline.generateCandidate>;
     network.create.mockClear();
     await t.action(internal.ai.pipeline.generateCandidate, legacy);
     expect(analyzerCalls()).toHaveLength(1);
-    expect(analyzerCalls()[0][0].model).toBe(pair[0]);
+    expect(analyzerCalls()[0][0].model).toBe(pair[index]);
+    expect(generationPromptProgram.calls.analyzer.model.legacyCandidate).toEqual({
+      kind: "candidate", fallbackModelId: MODEL,
+    });
     expect(await t.run((ctx) => ctx.db.get(legacy.candidateRunId))).toMatchObject({ status: "succeeded" });
   });
 });
@@ -295,6 +324,7 @@ it("shares one analysis across Anthropic and OpenRouter candidates without chang
   await runCandidates(t);
   expect(analyzerCalls()).toHaveLength(1);
   expect(analyzerCalls()[0][0].model).toBe(MODEL);
+  expect(analyzerCalls()[0][0].model).toBe(generationPromptProgram.calls.analyzer.model.compare.modelId);
   expect(requests.some((request) => request.tool_choice?.function?.name === "submit_transcript_analysis")).toBe(false);
   const artifacts = await t.run((ctx) => ctx.db.query("generationArtifacts").collect());
   const analysis = JSON.parse(artifacts.find((row) => row.kind === "analysis")?.content ?? "null");
