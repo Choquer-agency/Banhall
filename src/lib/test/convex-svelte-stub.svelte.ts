@@ -23,6 +23,7 @@ const calls: Array<{ name: string; args: unknown }> = [];
 // on click is not a live subscription and must not count against a budget.
 const clientQueries: Array<{ name: string; args: unknown }> = [];
 const results: Record<string, unknown> = {};
+const mutationErrors = new Map<string, unknown>();
 
 // Args getters per function name (one per mounted hook instance) — lets
 // tests observe which subscriptions are live (args !== "skip") and HOW MANY
@@ -44,7 +45,12 @@ export function __setPaginatedRows(name: string, rows: unknown[]) {
 }
 
 export function __setMutationResult(name: string, value: unknown) {
+  mutationErrors.delete(name);
   results[name] = value;
+}
+
+export function __setMutationError(name: string, error: unknown) {
+  mutationErrors.set(name, error);
 }
 
 /** Args of every call to `name`, in call order. */
@@ -62,6 +68,7 @@ export function __resetConvexStub() {
   registry.pages = {};
   argsGetters.clear();
   calls.length = 0;
+  mutationErrors.clear();
   clientQueries.length = 0;
   for (const key of Object.keys(results)) delete results[key];
 }
@@ -157,6 +164,7 @@ function recordingCall(fn: unknown) {
   const name = getFunctionName(fn as FunctionReference<"mutation">);
   return async (args?: unknown) => {
     calls.push({ name, args });
+    if (mutationErrors.has(name)) throw mutationErrors.get(name);
     return results[name];
   };
 }

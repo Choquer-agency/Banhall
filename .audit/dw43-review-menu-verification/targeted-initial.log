@@ -1,0 +1,86 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/project/ProjectWorkflowMenu.component.test.ts
+
+5:02:23 PM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-review-menu-verification - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-review-menu-verification
+
+5:02:24 PM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-review-menu-verification - using default configuration.
+5:02:27 PM [vite] (client) [optimizer] bundling dependencies...
+ ❯ |component (chromium)| src/lib/components/project/ProjectWorkflowMenu.component.test.ts (4 tests | 4 failed) 60024ms
+     × returns internal review for edits with its decision, audit note and workflow version 15118ms
+     × omits reviewDecision from 'internal_review' to 'drafting' 14992ms
+     × omits reviewDecision from 'drafting' to 'edits' 14959ms
+     × keeps a rejected review return open with its note and server explanation 14954ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/lib/components/project/ProjectWorkflowMenu.component.test.ts > ProjectWorkflowMenu production stage submission > returns internal review for edits with its decision, audit note and workflow version
+TimeoutError: locator.click: Timeout 14626ms exceeded.
+Call log:
+[2m  - waiting for locator('[data-vitest="true"]').contentFrame().getByRole('button', { name: 'Change stage', exact: true })[22m
+
+
+Failure screenshot:
+  - src/lib/components/project/__screenshots__/ProjectWorkflowMenu.component.test.ts/ProjectWorkflowMenu-production-stage-submission-returns-internal-review-for-edits-with-its-decision--audit-note-and-workflow-version-1.png
+
+ ❯ openStageChange src/lib/components/project/ProjectWorkflowMenu.component.test.ts:40:72
+     38|   await render(ProjectWorkflowMenu, { projectId: "project-1" as never …
+     39|   await page.getByRole("button", { name: "Workflow details", exact: tr…
+     40|   await page.getByRole("button", { name: "Change stage", exact: true }…
+       |                                                                        ^
+     41|   await expect.element(page.getByRole("dialog")).toBeVisible();
+     42| }
+ ❯ src/lib/components/project/ProjectWorkflowMenu.component.test.ts:51:4
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |component (chromium)| src/lib/components/project/ProjectWorkflowMenu.component.test.ts > ProjectWorkflowMenu production stage submission > omits reviewDecision from 'internal_review' to 'drafting'
+ FAIL  |component (chromium)| src/lib/components/project/ProjectWorkflowMenu.component.test.ts > ProjectWorkflowMenu production stage submission > omits reviewDecision from 'drafting' to 'edits'
+TimeoutError: locator.click: Timeout 14816ms exceeded.
+Call log:
+[2m  - waiting for locator('[data-vitest="true"]').contentFrame().getByRole('button', { name: 'Change stage', exact: true })[22m
+
+
+Failure screenshots:
+  - src/lib/components/project/__screenshots__/ProjectWorkflowMenu.component.test.ts/ProjectWorkflowMenu-production-stage-submission-omits-reviewDecision-from--internal-review--to--drafting--1.png
+  - src/lib/components/project/__screenshots__/ProjectWorkflowMenu.component.test.ts/ProjectWorkflowMenu-production-stage-submission-omits-reviewDecision-from--drafting--to--edits--1.png
+
+ ❯ openStageChange src/lib/components/project/ProjectWorkflowMenu.component.test.ts:40:72
+     38|   await render(ProjectWorkflowMenu, { projectId: "project-1" as never …
+     39|   await page.getByRole("button", { name: "Workflow details", exact: tr…
+     40|   await page.getByRole("button", { name: "Change stage", exact: true }…
+       |                                                                        ^
+     41|   await expect.element(page.getByRole("dialog")).toBeVisible();
+     42| }
+ ❯ src/lib/components/project/ProjectWorkflowMenu.component.test.ts:71:4
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |component (chromium)| src/lib/components/project/ProjectWorkflowMenu.component.test.ts > ProjectWorkflowMenu production stage submission > keeps a rejected review return open with its note and server explanation
+TimeoutError: locator.click: Timeout 14860ms exceeded.
+Call log:
+[2m  - waiting for locator('[data-vitest="true"]').contentFrame().getByRole('button', { name: 'Change stage', exact: true })[22m
+
+
+Failure screenshot:
+  - src/lib/components/project/__screenshots__/ProjectWorkflowMenu.component.test.ts/ProjectWorkflowMenu-production-stage-submission-keeps-a-rejected-review-return-open-with-its-note-and-server-explanation-1.png
+
+ ❯ openStageChange src/lib/components/project/ProjectWorkflowMenu.component.test.ts:40:72
+     38|   await render(ProjectWorkflowMenu, { projectId: "project-1" as never …
+     39|   await page.getByRole("button", { name: "Workflow details", exact: tr…
+     40|   await page.getByRole("button", { name: "Change stage", exact: true }…
+       |                                                                        ^
+     41|   await expect.element(page.getByRole("dialog")).toBeVisible();
+     42| }
+ ❯ src/lib/components/project/ProjectWorkflowMenu.component.test.ts:85:4
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  17:02:24
+   Duration  85.04s (transform 0ms, setup 890ms, import 9.15s, tests 60.02s, environment 0ms)
+
