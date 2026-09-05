@@ -7,7 +7,10 @@ permissions:
 jobs:
   pointer:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    env:
+      PUBLIC_CONVEX_URL: https://placeholder.convex.cloud
+      PUBLIC_CONVEX_SITE_URL: https://placeholder.convex.site
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,3 +23,5 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Observe actual pointer modes
         run: node .github/scripts/pointer-probe.mjs
+      - name: Full gate on candidate pointer contexts
+        run: VERIFY_COMPONENT=1 bash scripts/loop-verify.sh

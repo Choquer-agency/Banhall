@@ -4,6 +4,8 @@ import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
 import { playwright } from "@vitest/browser-playwright";
 
+const pointerSuite = "src/lib/components/workspace/WorkspaceChromePointer.component.test.ts";
+
 /**
  * PSOS-04 component tests: real Svelte components in headless Chromium.
  *
@@ -90,7 +92,23 @@ export default defineConfig({
       enabled: true,
       headless: true,
       provider: playwright(),
-      instances: [{ browser: "chromium" }],
+      instances: [
+        { browser: "chromium", exclude: [pointerSuite] },
+        {
+          browser: "chromium",
+          name: "component-pointer-fine",
+          include: [pointerSuite],
+          provide: { expectedPointer: "fine" },
+          provider: playwright({ contextOptions: { hasTouch: false } }),
+        },
+        {
+          browser: "chromium",
+          name: "component-pointer-coarse",
+          include: [pointerSuite],
+          provide: { expectedPointer: "coarse" },
+          provider: playwright({ contextOptions: { hasTouch: true } }),
+        },
+      ],
     },
   },
 });
