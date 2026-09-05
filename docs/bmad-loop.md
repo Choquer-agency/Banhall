@@ -9,7 +9,11 @@ Implementation, independent review, and deferred-work triage use Codex
 `gpt-6-astra` with `model_reasoning_effort="medium"`. The policy has
 `[review].trigger = "always"` and `[scm].max_parallel = 1`. Later stories in a
 queue inherit the completed changes from earlier stories. The custom
-`loop-parallel.py` launcher has been retired.
+`scripts/loop-parallel.py` launcher and `scripts/loop.sh` retry/push wrapper have
+been removed. Use the native commands below for run creation and recovery.
+Provider failures require the same status and preservation checks as other
+interruptions; no repository wrapper automatically re-arms a run or pushes its
+branch.
 
 ## Configure a checkout
 
@@ -92,6 +96,17 @@ stories are evidence to retain, not instructions to reimplement.
 
 Start from a clean branch intended to receive this epic. The engine pins that
 target at run creation and makes the implementation worktree itself.
+
+Check for the legacy branch name before starting:
+
+```bash
+git show-ref --verify --quiet refs/heads/bmad-loop
+```
+
+Exit 0 means that exact branch exists and blocks creation of native
+`bmad-loop/<run-id>` branches. Preserve any work that uses it and rename it to
+an unused name before starting the run. Do not force-reset or delete it. Exit 1
+means the conflicting branch is absent.
 
 ```bash
 bmad-loop validate --spec _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat
@@ -237,6 +252,19 @@ record the observed failure and supported recovery constraints.
 After any sweep or review repair changes the tree, repeat the combined gate,
 applicable component tests, and review on that resulting revision. Only the
 final unchanged, verified revision is eligible for promotion.
+
+For this recovery integration, also run the saved source check:
+
+```bash
+python3 .audit/native-entrypoint-retirement/verify.py
+```
+
+It rejects restored legacy launchers, literal basename references outside the
+reviewed retirement guide, and changes to the reviewed gate, bootstrap hook or
+guide. Inspect any failure before proceeding; do not refresh its hashes merely
+to obtain a pass. Its receipt fingerprints the inspected source even when HEAD
+has not changed yet. This static check cannot discover every dynamically
+constructed command.
 
 After local verification and review pass, follow the user's shipping
 authorization: commit the final tree, push the integration branch, wait for PR

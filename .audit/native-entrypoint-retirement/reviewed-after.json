@@ -1,0 +1,27 @@
+{
+  "head": "9da55bece5948da12129720dd2330a3032c985bf",
+  "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-native-entrypoint-fix",
+  "source_fingerprint": "16f24497e4eac21159aa6500b9f3ae2de867bbce6146d3ff3ead69d4b799487f",
+  "verifier_sha256": "ae7d9d1ef9d25c5d45e0774cb1e92dde6f724304c3180c6f0b7a196f06888adf",
+  "inspected_tracked_files": 3120,
+  "retired_basename_references": [
+    "docs/bmad-loop.md"
+  ],
+  "issues": [
+    "uninspected tracked symlink: .claude/skills/brandkit",
+    "uninspected tracked symlink: .claude/skills/design-taste-frontend",
+    "uninspected tracked symlink: .claude/skills/design-taste-frontend-v1",
+    "uninspected tracked symlink: .claude/skills/full-output-enforcement",
+    "uninspected tracked symlink: .claude/skills/gpt-taste",
+    "uninspected tracked symlink: .claude/skills/high-end-visual-design",
+    "uninspected tracked symlink: .claude/skills/image-to-code",
+    "uninspected tracked symlink: .claude/skills/imagegen-frontend-mobile",
+    "uninspected tracked symlink: .claude/skills/imagegen-frontend-web",
+    "uninspected tracked symlink: .claude/skills/industrial-brutalist-ui",
+    "uninspected tracked symlink: .claude/skills/minimalist-ui",
+    "uninspected tracked symlink: .claude/skills/redesign-existing-projects",
+    "uninspected tracked symlink: .claude/skills/stitch-design-taste"
+  ],
+  "passed": false,
+  "limits": "Static basename-reference and exact preserved-file checks; not proof against dynamically constructed command names. New artifacts under .audit and _bmad-output are historical/review inputs, not active callers."
+}

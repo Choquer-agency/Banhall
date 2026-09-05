@@ -1,0 +1,15 @@
+usage: bmad-loop run [-h] [--project PROJECT] [--spec FOLDER] [--epic EPIC]
+                     [--story STORY] [--max-stories MAX_STORIES] [--dry-run]
+
+options:
+  -h, --help            show this help message and exit
+  --project PROJECT     target project root (default: cwd)
+  --spec FOLDER         force stories mode: dispatch the epic spec folder's
+                        stories.yaml by folder+id (overrides [stories].source)
+  --epic EPIC           only stories from this epic (sprint mode)
+  --story STORY         story: E-S / E.S (split suffix ok, e.g. 2-6a), a slug
+                        fragment, or full key (sprint mode); a story id
+                        (stories mode)
+  --max-stories MAX_STORIES
+                        stop after N stories
+  --dry-run             print the plan, spawn nothing

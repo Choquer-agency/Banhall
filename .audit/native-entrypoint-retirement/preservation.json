@@ -1,0 +1,5 @@
+{
+  "scripts/loop-verify.sh": "5e34ec41305140f9b0d3c9bd1cfb9cbdf903e3bd3dd4d56cb9f7276ecb47eb75",
+  ".bmad-loop/plugins/npm-bootstrap/plugin.toml": "20fb58d4717b0377b3cc47ee3fc7f5074b48e3f6943472dd39c7d521972c687a",
+  "docs/bmad-loop.md": "fec5ebc301a79e788fb77fd3c511cd47185f9082ae97a5edadf3a86563e81845"
+}
