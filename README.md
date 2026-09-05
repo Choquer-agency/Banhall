@@ -33,7 +33,8 @@ bash scripts/loop-verify.sh
 It runs, in order and numbered: preflight (tool and Node version check, public URL defaults),
 Convex typecheck, `svelte-check`, unit tests, the test-discovery guard, a production build, and
 the two client-uploader harnesses. A missing tool fails at step 1 with the tool's name and an
-install hint, before any typechecking. Each step prints its name and its duration.
+install hint, before the dependency install and before any typechecking. Each step prints its name
+and its duration.
 
 Add the browser component suite:
 
