@@ -1,0 +1,23 @@
+PASS normal rejects sha256 for expected reason: exit 1
+PASS normal rejects git_blob for expected reason: exit 1
+PASS normal rejects matches_baseline for expected reason: exit 1
+PASS normal rejects missing file for expected reason: exit 1
+PASS normal rejects empty inventory for expected reason: exit 1
+PASS normal rejects duplicate file for expected reason: exit 1
+PASS normal rejects baseline for expected reason: exit 1
+PASS normal rejects protected bytes for expected reason: exit 1
+PASS normal rejects current ledger bytes for expected reason: exit 1
+PASS normal rejects staged ledger bytes for expected reason: exit 1
+PASS normal accepts unchanged snapshot: exit 0
+PASS optimized rejects sha256 for expected reason: exit 1
+PASS optimized rejects git_blob for expected reason: exit 1
+PASS optimized rejects matches_baseline for expected reason: exit 1
+PASS optimized rejects missing file for expected reason: exit 1
+PASS optimized rejects empty inventory for expected reason: exit 1
+PASS optimized rejects duplicate file for expected reason: exit 1
+PASS optimized rejects baseline for expected reason: exit 1
+PASS optimized rejects protected bytes for expected reason: exit 1
+PASS optimized rejects current ledger bytes for expected reason: exit 1
+PASS optimized rejects staged ledger bytes for expected reason: exit 1
+PASS optimized accepts unchanged snapshot: exit 0
+22 passed, 0 failed; no protected file was mutated

@@ -1,0 +1,11 @@
+{
+  "head": "a338f6a08274e7a26b3f0195fb15424f7f30a1ed",
+  "protected": {
+    ".agents/skills/bmad-loop-sweep/deferred-work-format.md": "de1c7cd412211de3ca828066f3b5d6dc457c6524dd054058d095da257bc80c16",
+    ".audit/ledger-reconciliation/deferred-work.application.md": "485f2182da59085ff10dd129a5cec8308571f471dbb1dfb4d9164aec9dbf3415",
+    ".audit/ledger-reconciliation/preview-20260904T214745464731Z-b74bce7a257e/deferred-work.preview.md": "c04e5520e713503584be9bf7f033d73ef2f6b14240e625a357638dac297e2bb5",
+    ".claude/skills/bmad-loop-sweep/deferred-work-format.md": "de1c7cd412211de3ca828066f3b5d6dc457c6524dd054058d095da257bc80c16",
+    "_bmad-output/implementation-artifacts/deferred-work.md": "2ec09928e0a2c2fcf3c8cf26cd9ed4230560bed7f3265432211fa8dfca2de387",
+    "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md": "a9c07bbffcb85ff36ccb7089a9927942700814d3940f21383648d20339d4b310"
+  }
+}

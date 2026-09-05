@@ -8,3 +8,6 @@ ts	phase	decision	why	evidence	result
 2026-09-05T01:13:00.744131+00:00	review	Complete four independent layers and repair seven audit findings	Fresh review required; product implementation remains correct	.audit/DW-93/reviews.md	1 medium and 6 low patches; no new deferrals
 2026-09-05T01:20:46.742207+00:00	review	Preserve native close and verify invocation bytes	Native ledger ownership; historical snapshot predates closure	.audit/DW-93/review-followup/native-journal.json	No ledger edits; provenance retained
 2026-09-05T01:20:46.742369+00:00	repair	Harden phase and integrity checks	Independent review exposed false failure and missing guards	.audit/DW-93/review-followup/reviews.md	Six audit patches; production unchanged
+2026-09-05T01:27:39.427371+00:00	review	Retain recorded workflow baseline and capture current HEAD	Done-spec review route	.audit/DW-93/review-current/invocation.json	baseline retained
+2026-09-05T01:27:39.427622+00:00	repair	Check all protected staged bytes and strict CLI arguments	Reproduced false successes	.audit/DW-93/review-current/integrity-before.log	44 integrity cases pass
+2026-09-05T01:27:39.427629+00:00	triage	Apply seven audit patches; preserve frozen product choices	Independent four-layer review	.audit/DW-93/review-current/reviews.md	no production repair or new deferral

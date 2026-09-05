@@ -5,6 +5,11 @@ import json
 import subprocess
 import textwrap
 import sys
+import argparse
+
+parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+parser.add_argument("--staged", action="store_true")
+args = parser.parse_args()
 
 root = Path(__file__).resolve().parents[2]
 snapshot = json.loads((root / '.audit/DW-93/preservation-snapshot.json').read_text())
@@ -44,9 +49,12 @@ for item in invocation['files']:
     data = (root / item['path']).read_bytes()
     require(hashlib.sha256(data).hexdigest() == item['sha256'], f"Invocation SHA-256 mismatch: {item['path']}")
     require(git('hash-object', item['path']).decode().strip() == item['git_blob'], f"Invocation Git blob mismatch: {item['path']}")
-    if '--staged' in sys.argv:
-        require(git('show', f":{item['path']}") == data, f"Staged bytes differ: {item['path']}")
     print(f"INVOCATION PRESERVED {item['sha256']} {item['path']}")
+
+if args.staged:
+    for path in sorted(REQUIRED_PATHS):
+        require(git('show', f':{path}') == (root / path).read_bytes(), f'Staged bytes differ: {path}')
+    print('PASS staged equality for all five protected artifacts')
 
 codegen_revision = '3e575b7c68a80ef560b746be78e1b016e1dda750'
 receipt_revision = '5de0e9a389022afc4ee21f740fe6fdd0755fa9b8'
