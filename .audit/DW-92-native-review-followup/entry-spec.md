@@ -126,25 +126,6 @@ All four independent review layers completed. Full historical QA implementation 
 
 All four independent layers completed against fresh artifacts and the full historical QA implementation/repairs. The edge reviewer confirmed both extraction cases fit the frozen contract. A subsequent verification review found the leading-H1 regression and confirmed its final repair. Detailed triage and retained failures are in `.audit/DW-92-native-fresh/review.md` and `evidence.md`. No product-policy expansion or new deferral. Follow-up recommendation true: high 3, medium 3, low 5; weighted medium/low score 14. Native acceptance remains subsequent orchestrator work.
 
-### 2026-09-04: Native supplied-spec final review
-- intent_gap: 0
-- bad_spec: 0
-- patch: 9: (high 2, medium 2, low 5)
-- defer: 0
-- reject: 4: (high 0, medium 2, low 2)
-- addressed_findings:
-  - `[high]` `[patch]` Preserve generated-title exclusion after blank paragraphs without discarding actual H1 section boundaries.
-  - `[high]` `[patch]` Preserve nested list/table block separation so unrelated explanations cannot satisfy uncertainty text.
-  - `[medium]` `[patch]` Add mutation-sensitive registered nested-block coverage.
-  - `[medium]` `[patch]` Require exact ordinary and focused command identities during final verification.
-  - `[low]` `[patch]` Capture native close provenance and equality for the current ledger snapshot.
-  - `[low]` `[patch]` Add a current-invocation checker that separates native ledger provenance from protected product paths.
-  - `[low]` `[patch]` Retain tool versions and safe environment-control hashes.
-  - `[low]` `[patch]` Preserve historical completion evidence while emitting the current unique terminal result.
-  - `[low]` `[patch]` Fence verification timestamps and source revisions to this native review invocation.
-
-All four independent layers completed. Six registered boundary failures reproduced on the entry extractor before repair. Two mutation checks proved existing inline-marker and new block-separation coverage. Final ordinary verification passed 1,765 tests and focused verification passed 166 tests; both type checks and uploader harnesses passed. Detailed triage and raw proof reside in `.audit/DW-92-native-review-followup/`. No product-policy decision or new deferral. The existing native ledger close is preserved unchanged and does not establish orchestrator acceptance.
-
 ## Verification
 
 **Commands:**
@@ -153,22 +134,4 @@ All four independent layers completed. Six registered boundary failures reproduc
 - `git diff --check`: no whitespace errors.
 - Compare original nested spec, `src/` and `convex/_generated/` against captured follow-up baseline: unchanged. Compare ledger working-tree bytes and staged blob against the invocation snapshot, accounting only for independently proven native writes; no worker-authored ledger changes.
 
-## Auto Run Result
 
-Status: done
-
-Repaired blank-preamble generated-title handling and nested list/table extraction boundaries. Added registered regression and mutation evidence; completed fresh four-layer review and ordinary verification on this invocation's source.
-
-Files changed:
-- `convex/lib/tiptapReport.ts`: preserve first-nonempty generated-title identity and explicit list/table block separation.
-- `convex/qaBlocking.test.ts`: exercise title, H1 and nested-block behavior through canonical save, exact findings, readiness and publish.
-- `.audit/DW-92-native-review-followup/`: retain review, red/green and mutation logs, provenance, final checker, decisions and evidence.
-- `.audit/DW-92-native-fresh/`: retain unique current verification manifests/logs and update the latest successful pointer.
-- This flat spec: append current triage and the normal worker result.
-- Deferred-work ledger: commit only unchanged orchestrator-produced close bytes after invocation and staged equality checks; no worker-authored content changes.
-
-Review: nine patches (high 2, medium 2, low 5), zero deferrals, four rejected findings. Follow-up review recommended: true; medium/low score 11.
-
-Verification: ordinary gate passed 1,765 tests across 148 files, both type checks and uploader harnesses (50/50 and 18/18); focused gate passed 166 tests. No timeout overrides. Current raw logs, exact command identities, timestamps and before/after source hashes are retained through `.audit/DW-92-native-review-followup/final-manifest.json`. Final checker verifies protected paths, current runtime identity, frozen contract, unique terminal marker, and worktree/index ledger equality against the current native invocation snapshot.
-
-Residual risks: accepted sentence-level detector and exact-content methodology limitations remain. Native final acceptance is a subsequent orchestrator operation; this worker result and ledger bookkeeping do not claim it.

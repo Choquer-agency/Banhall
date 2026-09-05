@@ -132,7 +132,7 @@ export function extractReportSections(content: string): { s242: string; s244: st
           const child: unknown = current.content[index];
           const previous: unknown = current.content[index - 1];
           const isBlock = (value: unknown) => !!value && typeof value === "object" && "type" in value &&
-            ["paragraph", "heading", "codeBlock", "blockquote", "listItem"].includes(String(value.type));
+            ["paragraph", "heading", "codeBlock", "blockquote", "listItem", "bulletList", "orderedList", "table", "tableRow", "tableCell", "tableHeader"].includes(String(value.type));
           pending.push({ kind: "node", node: child, inlineContext: inline });
           if (index > 0 && (!inline || isBlock(child) || isBlock(previous))) pending.push({ kind: "separator" });
         }
@@ -201,11 +201,12 @@ export function extractReportSections(content: string): { s242: string; s244: st
   // Generated titles remain preamble, but a later first 242 heading cannot
   // discard preceding prose containing an already recognized uncertainty.
   const firstSectionIndex = firstSection ? blocks.indexOf(firstSection) : blocks.length;
+  const firstNonemptyIndex = blocks.findIndex(block => block.text.trim());
   const substantivePreamble = blocks.slice(0, firstSectionIndex)
-    .some((block, index) => !(index === 0 && block.title) && checkBecauseClauses(block.text).uncertaintyCount > 0);
+    .some((block, index) => !(index === firstNonemptyIndex && block.title) && checkBecauseClauses(block.text).uncertaintyCount > 0);
   let section: Section | undefined = startsWithUncertainty && !substantivePreamble ? undefined : "s242";
   for (const [index, block] of blocks.entries()) {
-    if (index === 0 && block.title && firstSectionIndex > 0 && startsWithUncertainty) continue;
+    if (index === firstNonemptyIndex && block.title && firstSectionIndex > index && startsWithUncertainty) continue;
     const next = block.heading ? sectionHeading(block.text, block.richText) : undefined;
     if (next) section = next;
     else if (section && block.text.trim()) {

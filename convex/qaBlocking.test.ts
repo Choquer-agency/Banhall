@@ -469,13 +469,63 @@ test("generated title remains excluded when valid substantive preamble precedes 
   await f.actor.mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: f.reportId });
 });
 
-test("leading H1 section boundary retains its uncertainty body", async () => {
+test.each([false, true])("leading H1 section boundary retains its uncertainty body (blank prefix: %s)", async blankPrefix => {
   const content = JSON.stringify({ type: "doc", content: [
+    ...(blankPrefix ? [{ type: "paragraph", content: [] }] : []),
     { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Line 242: Uncertainty" }] },
     { type: "paragraph", content: [{ type: "text", text: FAILURE }] },
     { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Line 244: Work" }] },
     { type: "paragraph", content: [{ type: "text", text: "Tests." }] },
   ] });
+  const f = await setup(content);
+  await expectBlocked(f);
+  await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
+  expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(f)), check: "because_clause", blocking: true })]));
+  await expectBlocked(f);
+});
+
+test.each(["readiness", "save", "publish"])("blank prefix before generated title does not block %s", async boundary => {
+  const doc = buildTiptapDocument(FAILURE, FIXED, "Work.", "Knowledge.");
+  doc.content.unshift({ type: "paragraph", content: [] }, { type: "paragraph", content: [{ type: "text", text: " \t " }] });
+  const content = JSON.stringify(doc);
+  const f = await setup(content);
+  if (boundary === "readiness") {
+    expect((await readiness(f)).blockers.map(b => b.code)).not.toContain("QA_BLOCKING");
+  } else if (boundary === "save") {
+    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
+    expect((await ref(f)).revisionNumber).toBe(1);
+    expect((await rows(f)).filter(row => row.blocking)).toEqual([]);
+    expect((await readiness(f)).blockers.map(b => b.code)).not.toContain("QA_BLOCKING");
+  } else {
+    await f.actor.mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: f.reportId });
+    expect(await f.t.run(ctx => ctx.db.get(f.projectId))).toMatchObject({ status: "client_review", sharedReportId: f.reportId });
+  }
+});
+
+test.each(["paragraph", "heading", "codeBlock", "blockquote", "listItem"])("nested %s blocks inside inline wrapper cannot borrow because", async type => {
+  const content = JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [
+    { type: "inlineContainer", content: [
+      { type, content: [{ type: "text", text: "It was uncertain whether the alloy holds" }] },
+      { type, content: [{ type: "text", text: " because unrelated tests needed evidence." }] },
+    ] },
+  ] }] });
+  const f = await setup(content);
+  await expectBlocked(f);
+  await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
+  expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(f)), check: "because_clause", blocking: true })]));
+  await expectBlocked(f);
+});
+
+test.each(["bulletList", "orderedList", "table"])("nested %s container cannot supply an unrelated because", async type => {
+  const explanation = { type: "paragraph", content: [{ type: "text", text: " because unrelated tests needed evidence." }] };
+  const container = type === "table"
+    ? { type, content: [{ type: "tableRow", content: [{ type: "tableCell", content: [explanation] }] }] }
+    : { type, content: [{ type: "listItem", content: [explanation] }] };
+  const content = JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [
+    { type: "inlineContainer", content: [
+      { type: "text", text: "It was uncertain whether the alloy holds" }, container,
+    ] },
+  ] }] });
   const f = await setup(content);
   await expectBlocked(f);
   await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });

@@ -1,0 +1,63 @@
+[
+  {
+    "command": [
+      "npx",
+      "vitest",
+      "run",
+      "convex/qaBlocking.test.ts",
+      "-t",
+      "blank prefix before generated title|nested .*container cannot supply|nested .*blocks inside inline|leading H1 section boundary"
+    ],
+    "exit_code": 1,
+    "log": "edge-boundaries-red.log",
+    "sha256": "427ce0ec7ec457d4a25eb14f5e7c4f8bb60581e48c5ad9f695ed9ef8e54aa604",
+    "result": "6 failed, 7 passed, 50 skipped; source unchanged before fixes"
+  },
+  {
+    "command": [
+      "npx",
+      "vitest",
+      "run",
+      "convex/qaBlocking.test.ts",
+      "-t",
+      "nested .*blocks inside inline"
+    ],
+    "exit_code": 1,
+    "log": "block-separator-mutation-red.log",
+    "sha256": "9adf3c71f2fa4290ce683e487cd060f237f481cb5ba062b024b7e33aa552b6f0",
+    "mutation": {
+      "old": "(!inline || isBlock(child) || isBlock(previous))",
+      "new": "!inline"
+    }
+  },
+  {
+    "command": [
+      "npx",
+      "vitest",
+      "run",
+      "convex/qaBlocking.test.ts",
+      "-t",
+      "branching inline wrapper preserves marker and because"
+    ],
+    "exit_code": 1,
+    "log": "inline-context-mutation-red.log",
+    "sha256": "3c24f2a118f5fa7eff30b3235ff2494010dcb6a5c551801ca3530c3a9272ed45",
+    "mutation": {
+      "old": "task.inlineContext || (",
+      "new": "("
+    }
+  },
+  {
+    "command": [
+      "npx",
+      "vitest",
+      "run",
+      "convex/qaBlocking.test.ts",
+      "convex/lib/tiptapReport.test.ts"
+    ],
+    "exit_code": 0,
+    "log": "edge-boundaries-green.log",
+    "sha256": "68ff2b4002ffb79e21930679eb328063b544a4463c76d536d49cf78062235584",
+    "restored_source_sha256": "36b0a82ce403300ee1af2ce048de6cb5e1a0080478a7e056e16796a0f0a748c8"
+  }
+]

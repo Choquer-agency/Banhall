@@ -1,0 +1,4 @@
+# Preserve raw command output and invocation/review snapshots byte-for-byte.
+*.log -whitespace
+*.diff -whitespace
+entry-spec.md -whitespace
