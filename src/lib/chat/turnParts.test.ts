@@ -637,3 +637,27 @@ describe("formatTurnSummary", () => {
     expect(formatTurnSummary(plain, undefined, "success", 0)).toBeNull();
   });
 });
+
+describe("Brain source labels", () => {
+  it("extracts title/science from real formatted headers without writer or body text", () => {
+    const result = normalizeTurnParts(assistant([toolPart({ output: `--- REFERENCE PATTERN 1 (Control systems — CRA 2.02.01 Software engineering — writer: Jane — Private Surname) ---\nPrivate body\n\n--- REFERENCE PATTERN 2 (Legacy report) ---\nMore private body` })]));
+    const node = result.traceNodes[0];
+    expect(node.kind === "tool" && node.sources).toEqual([
+      { title: "Control systems", scienceCode: "CRA 2.02.01 Software engineering" },
+      { title: "Legacy report" },
+    ]);
+  });
+  it("does not manufacture sources or expose malformed output", () => {
+    for (const output of [null, {}, "", "Provider SECRET internals", "REFERENCE PATTERN 1 (bad)"]) {
+      const node = normalizeTurnParts(assistant([toolPart({ output })])).traceNodes[0];
+      expect(node.kind === "tool" && node.sources).toEqual([]);
+      expect(JSON.stringify(node)).not.toContain("SECRET");
+    }
+  });
+  it("suppresses labels when a search failed or is still running", () => {
+    for (const state of ["output-error", "input-available"]) {
+      const node = normalizeTurnParts(assistant([toolPart({ state, output: "--- REFERENCE PATTERN 1 (Secret) ---" })])).traceNodes[0];
+      expect(node.kind === "tool" && node.sources).toBeUndefined();
+    }
+  });
+});

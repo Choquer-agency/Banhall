@@ -3,11 +3,11 @@
   import { setSourceContext } from "./sourceContext";
 
   interface Props {
-    href: string;
+    href?: string;
     children?: Snippet;
   }
 
-  let { href, children }: Props = $props();
+  let { href = "", children }: Props = $props();
   let open = $state(false);
   setSourceContext(() => href);
 
@@ -19,7 +19,7 @@
 </script>
 <span
   role="group"
-  class={`source-root relative inline-flex ${open ? "source-open" : ""}`}
+  class={`source-root relative inline-flex min-w-0 max-w-full ${open ? "source-open" : ""}`}
   onmouseenter={() => (open = true)}
   onmouseleave={() => (open = false)}
   onfocusin={() => (open = true)}

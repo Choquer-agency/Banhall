@@ -284,7 +284,7 @@ Because an administrator already vetted every item, weight these items more heav
 export const generateDraftStyleDigest = internalAction({
   args: {},
   handler: async (ctx) => {
-    const [feedback, sectionEdits, proposalEdits, writerFeedback] =
+    const [feedback, sectionEdits, proposalEdits, writerFeedback, chatFeedback] =
       await Promise.all([
         ctx.runQuery(internal.learning.getCandidateFeedbackForDigest, {
           limit: FEEDBACK_WINDOW,
@@ -296,6 +296,9 @@ export const generateDraftStyleDigest = internalAction({
           limit: FEEDBACK_WINDOW,
         }),
         ctx.runQuery(internal.learning.getApprovedBrainFeedbackForDigest, {
+          limit: FEEDBACK_WINDOW,
+        }),
+        ctx.runQuery(internal.chatFeedback.getFeedbackForDigest, {
           limit: FEEDBACK_WINDOW,
         }),
       ]);
@@ -313,7 +316,9 @@ export const generateDraftStyleDigest = internalAction({
       proposalEdits,
     );
     const writerStream = admitStream("brainFeedbackQueue", writerFeedback);
+    const chatStream = admitStream("chatAnswerFeedback", chatFeedback);
     const admission = summarizeAdmission([
+      chatStream,
       scoringStream,
       sectionStream,
       proposalStream,
@@ -329,6 +334,14 @@ export const generateDraftStyleDigest = internalAction({
     const admittedProposals = proposalStream.admitted;
     const admittedWriterFeedback = writerStream.admitted;
     const totalSignal = admission.admittedCount;
+    const chatBlock = chatStream.admitted.length
+      ? `\n\nChat answer usefulness votes, newest first:\n\n${JSON.stringify(
+          chatStream.admitted.map(({ payload }) => ({
+            vote: payload.vote,
+            promptText: payload.promptText,
+            answerText: payload.answerText,
+          })), null, 2)}`
+      : "";
 
     const sectionEditsBlock = admittedSections.length
       ? `\n\nSection edit events (draft vs writer-approved), newest first:\n\n${JSON.stringify(
@@ -359,12 +372,13 @@ export const generateDraftStyleDigest = internalAction({
         (admittedSections.length || admittedProposals.length
           ? EDIT_MINING_PROMPT_SUFFIX
           : "") +
-        (admittedWriterFeedback.length ? WRITER_FEEDBACK_PROMPT_SUFFIX : ""),
+        (admittedWriterFeedback.length ? WRITER_FEEDBACK_PROMPT_SUFFIX : "") +
+        (chatStream.admitted.length ? "\nChat answer votes (1 useful, -1 not useful) are weak usefulness signals, not precise critiques or permission to learn client facts. Prompt and answer text supply context only. Require recurring support across multiple votes before deriving a drafting rule; return no rules when unsupported. Never infer which detail a negative vote criticizes." : ""),
       `Scoring events, newest first:\n\n${JSON.stringify(
         signal.map((row) => row.payload),
         null,
         2,
-      )}${sectionEditsBlock}${proposalEditsBlock}${writerFeedbackBlock}`,
+      )}${sectionEditsBlock}${proposalEditsBlock}${writerFeedbackBlock}${chatBlock}`,
     );
     if (!rules) {
       await ctx.runMutation(internal.learning.recordDigestAttempt, {

@@ -359,6 +359,61 @@
     return map;
   });
 
+  // A tool-using turn can span several message rows. Rate it once, after its
+  // final visible answer, using the durable turn rather than a streaming ID.
+  const feedbackTurnByMessage = $derived.by(() => {
+    const lastAnswerByOrder = new Map<number, UIMessage>();
+    for (const message of messages) {
+      if (message.role === "assistant" && message.status === "success") {
+        lastAnswerByOrder.set(message.order, message);
+      }
+    }
+    const map = new Map<string, Id<"chatTurns">>();
+    for (const turn of (turnsQ.data ?? [])) {
+      const answer = lastAnswerByOrder.get(turn.order);
+      if (turn.status === "completed" && answer) map.set(answer.id, turn._id);
+    }
+    return map;
+  });
+  const feedbackTurnIds = $derived([...feedbackTurnByMessage.values()]);
+  const feedbackQ = useQuery(api.chatFeedback.getViewerVotes, () =>
+    uploadAuth.isAuthenticated && selectedThreadId && feedbackTurnIds.length
+      ? { reportId, threadId: selectedThreadId, turnIds: feedbackTurnIds }
+      : "skip"
+  );
+  const submitAnswerFeedback = useMutation(api.chatFeedback.submitFeedback);
+  const savedVotes = new SvelteMap<string, 1 | -1>();
+  const feedbackBusy = new SvelteSet<string>();
+  const feedbackErrors = new SvelteMap<string, string>();
+  function feedbackKey(turnId: Id<"chatTurns">) {
+    return `${currentUserQ.data?._id ?? ""}:${turnId}`;
+  }
+  async function rateAnswer(turnId: Id<"chatTurns">, vote: 1 | -1) {
+    const key = feedbackKey(turnId);
+    if (feedbackBusy.has(key) || savedVotes.has(key) || feedbackQ.isLoading || !currentUserQ.data) return;
+    feedbackBusy.add(key);
+    feedbackErrors.delete(key);
+    try {
+      const recordedVote = await submitAnswerFeedback({ turnId, vote });
+      savedVotes.set(key, recordedVote);
+    } catch {
+      feedbackErrors.set(key, "Could not save feedback. Please try again.");
+    } finally {
+      feedbackBusy.delete(key);
+    }
+  }
+  function answerFeedback(messageId: string) {
+    const turnId = feedbackTurnByMessage.get(messageId);
+    if (!turnId) return undefined;
+    const key = feedbackKey(turnId);
+    return {
+      value: savedVotes.get(key) ?? feedbackQ.data?.find((row) => row.turnId === turnId)?.vote ?? null,
+      disabled: feedbackQ.isLoading || !!feedbackQ.error || !currentUserQ.data || feedbackBusy.has(key),
+      error: feedbackQ.error ? "Feedback is unavailable. Please reopen this chat to try again." : feedbackErrors.get(key),
+      onVote: (vote: 1 | -1) => rateAnswer(turnId, vote),
+    };
+  }
+
   const composerSelection = $derived(pendingResearch ?? pendingHighlight);
   const composerContextActive = $derived(refiningProposal !== null || composerSelection !== null);
   const canLoadOlder = $derived(ui.status === "CanLoadMore" || ui.status === "LoadingMore");
@@ -1263,6 +1318,7 @@
         {:else if m.role === "assistant"}
           <AssistantTurn
             message={m}
+            feedback={answerFeedback(m.id)}
             proposals={grouped.byMessageId.get(m.id) ?? []}
             timing={timingByOrder.get(m.order)}
             copied={copiedId === m.id}

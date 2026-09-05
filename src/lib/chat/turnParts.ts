@@ -43,6 +43,8 @@ export type ReasoningRenderNode = {
   state: "streaming" | "done";
 };
 
+export type BrainSourceLabel = { title: string; scienceCode?: string };
+
 export type ToolRenderNode = {
   kind: "tool";
   key: string;
@@ -54,6 +56,7 @@ export type ToolRenderNode = {
   /** Absent when the payload is internals or is already shown as an artifact. */
   input?: ToolDetail;
   output?: ToolDetail;
+  sources?: BrainSourceLabel[];
 };
 
 export type ProposalRenderNode = {
@@ -261,6 +264,27 @@ function toolInputDetail(toolName: string, input: unknown): ToolDetail | undefin
 // recovers on a later step — so this states what happened, not an instruction.
 const SAFE_TOOL_ERROR = "This step didn’t finish. The assistant carried on.";
 
+/** Metadata in the existing string protocol has no source IDs or URLs. */
+export function brainSourceLabels(output: unknown): BrainSourceLabel[] {
+  if (typeof output !== "string") return [];
+  const sources: BrainSourceLabel[] = [];
+  const seen = new Set<string>();
+  for (const match of output.matchAll(/^--- REFERENCE PATTERN (\d+)(?: \(([^\r\n]*)\))? ---$/gm)) {
+    const header = (match[2] ?? "").split(" — writer: ")[0];
+    const labels = header.split(" — ");
+    const scienceCode = labels.find((label) => /^CRA \d/.test(label))?.slice(0, 160);
+    const title = labels.filter((label) => !/^CRA \d/.test(label) && !label.startsWith("writer: "))
+      .join(" — ").trim().slice(0, 240) || `Reference pattern ${match[1]}`;
+    const key = JSON.stringify([title, scienceCode]);
+    if (!seen.has(key)) {
+      seen.add(key);
+      sources.push({ title, ...(scienceCode ? { scienceCode } : {}) });
+    }
+    if (sources.length >= 20) break;
+  }
+  return sources;
+}
+
 /**
  * Every tool result in this agent is written FOR THE MODEL, not the writer:
  * they address it in the second person, name UI controls that don't exist,
@@ -297,7 +321,9 @@ function toolOutputDetail(
   }
   // "The Brain has no approved knowledge matching that yet" already reads as a
   // plain sentence to the writer.
-  return { kind: "text", text: output };
+  return { kind: "text", text: output.startsWith("The Brain has no approved knowledge matching that")
+    ? "The Brain has no approved knowledge matching that yet."
+    : "The Brain search finished without source details." };
 }
 
 // ─── Part normalization ──────────────────────────────────────────────────────
@@ -384,6 +410,8 @@ function normalizeParts(message: UIMessage | undefined): {
       accessibleStatus: accessibleStatus(state),
       ...(input !== undefined ? { input } : {}),
       ...(output !== undefined ? { output } : {}),
+      ...(toolName === "searchBrain" && state === "output-available"
+        ? { sources: brainSourceLabels(outputSource) } : {}),
     };
 
     const existingIndex = toolIndexById.get(toolCallId);

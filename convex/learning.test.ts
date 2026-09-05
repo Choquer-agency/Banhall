@@ -1651,3 +1651,94 @@ describe("CAP-4 independent stream admission and provenance", () => {
     }
   });
 });
+
+describe("CAP-7 independently admitted chat answer usefulness", () => {
+  afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+  async function addChatVotes(t: ReturnType<typeof convexTest>, fixture: Awaited<ReturnType<typeof seedAdmissionFixture>>, count: number, options: { oneWriter?: boolean; oneProject?: boolean; cutoff?: number } = {}) {
+    return t.run(async ctx => {
+      const ids = [];
+      for (let i = 0; i < count; i++) {
+        const side = options.oneProject ? 0 : i % 2;
+        const turnId = await ctx.db.insert("chatTurns", { agentThreadId: `chat-${side}`, promptMessageId: `prompt-${i}`, order: i, status: "completed", stepCount: 1 });
+        ids.push(await ctx.db.insert("chatAnswerFeedback", { turnId,
+          userId: fixture.users[options.oneWriter ? 0 : i % 2], projectId: fixture.projects[side], reportId: fixture.artifacts[side].reportId,
+          agentThreadId: `chat-${side}`, promptMessageId: `prompt-${i}`, answerMessageId: `answer-${i}`,
+          promptText: `Acme Farms asks Johnny Test about Raspberry Cane Trial at private@example.com. Prompt ${i}.`,
+          answerText: `State the technological uncertainty and measured test results for Acme Farms. Answer ${i}.`,
+          vote: i % 2 ? -1 : 1, createdAt: (options.cutoff ?? 100) + i,
+        }));
+      }
+      return ids;
+    });
+  }
+  test("actual digest and admin history retain exact admitted provenance, sanitized context and unpublished state", async () => {
+    const { t, admin } = await setup();
+    const fixture = await seedAdmissionFixture(t);
+    const ids = await addChatVotes(t, fixture, 5);
+    const { requests } = mockDigestProvider();
+    await runDigest(t, "draft_style");
+    expect(requests).toHaveLength(1);
+    const request = requests[0];
+    for (const secret of ["Acme Farms", "Johnny Test", "Raspberry Cane Trial", "private@example.com", ...ids, ...fixture.users, ...fixture.projects]) expect(request).not.toContain(secret);
+    expect(request).toContain("weak usefulness signals");
+    expect(request).toContain("measured test results");
+    const providerMessage = z.object({
+      messages: z.array(z.object({ role: z.string(), content: z.string() })),
+    }).parse(JSON.parse(request)).messages[0];
+    const expectedPayload = [4, 3, 2, 1, 0].map(i => ({
+      vote: i % 2 ? -1 : 1,
+      promptText: `[redacted] asks [redacted] about [redacted] at [redacted email]. Prompt ${i}.`,
+      answerText: `State the technological uncertainty and measured test results for [redacted]. Answer ${i}.`,
+    }));
+    expect(providerMessage).toEqual({
+      role: "user",
+      content: `Scoring events, newest first:\n\n[]\n\nChat answer usefulness votes, newest first:\n\n${JSON.stringify(expectedPayload, null, 2)}`,
+    });
+    const history = await admin.query(api.learning.getDigestHistory, { kind: "draft_style" });
+    expect(history.publishedDigestId).toBeNull();
+    const candidate = await t.query(internal.learning.getLatestGeneratedDigest, { kind: "draft_style" });
+    expect(candidate).toMatchObject({ sourceCount: 5, feedbackCutoff: 104 });
+    expect(candidate?.admission?.streams.find(s => s.stream === "chatAnswerFeedback")).toMatchObject({ admittedCount: 5, excludedCount: 0, signalIds: [...ids].reverse(), writerCount: 2, projectCount: 2 });
+    expect(await t.run(ctx => ctx.db.query("chatAnswerFeedback").collect())).toHaveLength(5);
+  });
+  test.each([{ oneWriter: true }, { oneProject: true }])("omits an underdiverse chat stream %j and preserves qualifying old input/freshness", async options => {
+    const { t } = await setup();
+    const fixture = await seedAdmissionFixture(t);
+    await addChatVotes(t, fixture, 5, { ...options, cutoff: 9000 });
+    await addSignals(t, fixture, "candidateScores", { count: 5 });
+    const { requests } = mockDigestProvider();
+    await runDigest(t, "draft_style");
+    const candidate = await t.query(internal.learning.getLatestGeneratedDigest, { kind: "draft_style" });
+    expect(candidate?.sourceCount).toBe(5);
+    expect(candidate?.feedbackCutoff).toBeLessThan(9000);
+    expect(candidate?.admission?.streams.find(s => s.stream === "chatAnswerFeedback")).toMatchObject({ admittedCount: 0, excludedCount: 5, insufficientDiversityCount: 5 });
+    expect(requests[0]).not.toContain("Chat answer usefulness votes");
+    await addChatVotes(t, fixture, 1, { ...options, cutoff: 10000 });
+    await runDigest(t, "draft_style");
+    expect(requests).toHaveLength(1);
+  });
+  test("skips below five admitted rows and never pools diversity", async () => {
+    const { t } = await setup();
+    const fixture = await seedAdmissionFixture(t);
+    await addChatVotes(t, fixture, 4);
+    const { fetchMock } = mockDigestProvider();
+    await runDigest(t, "draft_style");
+    expect(fetchMock).not.toHaveBeenCalled();
+    await t.run(async ctx => { for (const row of await ctx.db.query("chatAnswerFeedback").collect()) await ctx.db.patch(row._id, { userId: fixture.users[0] }); });
+    await addSignals(t, fixture, "candidateScores", { count: 5, oneWriter: true });
+    await t.run(async ctx => {
+      for (const row of await ctx.db.query("candidateScores").collect()) {
+        await ctx.db.patch(row._id, { userId: fixture.users[1] });
+      }
+      const chat = await ctx.db.query("chatAnswerFeedback").collect();
+      const scores = await ctx.db.query("candidateScores").collect();
+      expect(new Set(chat.map(row => row.userId))).toEqual(new Set([fixture.users[0]]));
+      expect(new Set(scores.map(row => row.userId))).toEqual(new Set([fixture.users[1]]));
+      expect(new Set([...chat, ...scores].map(row => row.userId)).size).toBe(2);
+      expect(new Set([...chat, ...scores].map(row => row.projectId)).size).toBe(2);
+    });
+    await runDigest(t, "draft_style");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await t.query(internal.learning.getLatestGeneratedDigest, { kind: "draft_style" })).toBeNull();
+  });
+});
