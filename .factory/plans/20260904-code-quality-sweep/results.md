@@ -1,8 +1,8 @@
 # Code quality sweep results
 
-**IN PROGRESS.** Snapshot: 2026-09-05. Four of the eleven sweep tickets are marked done; seven remain pending. This draft records completed changes and their evidence, not final approval of the combined branch. No final CI or live end-to-end outcome is claimed.
+**IN PROGRESS.** Snapshot: 2026-09-05. Five of the eleven sweep tickets are marked done; six remain pending. This draft records completed changes and their evidence, not final approval of the combined branch. No final CI or live end-to-end outcome is claimed.
 
-The sweep found useful tests outside the normal runner, unused code, repeatable parser/editor/database waste, and verification instructions that no longer matched the app. The completed work removes nine abandoned components and reduces work in three measured paths. The remaining tickets address the test inventory, further deletions, the failing browser baseline, and the shared verification command.
+The sweep found useful tests outside the normal runner, unused code, repeatable parser/editor/database waste, and verification instructions that no longer matched the app. The completed work removes nine abandoned components, unused helpers and four dependencies, and reduces work in three measured paths. The remaining tickets address the test inventory, further deletions, the failing browser baseline, and the shared verification command.
 
 ## Completed changes
 
@@ -12,6 +12,7 @@ The sweep found useful tests outside the normal runner, unused code, repeatable 
 | `perf-2-empty-upload-reads` | Empty and whitespace-only uploads skip the existing-document scan. Nonempty dedupe and authorization stay unchanged. | Actual registered Convex mutation, public transaction metrics, two runs before and after, baseline-failing named regression test; 35 targeted tests pass. Evidence: `.audit/perf-2-empty-upload-reads/evidence.md`. |
 | `slop-1-dead-components` | Deletes nine unreachable component files: **810 lines removed, zero inserted**. Live comment and editor components remain. | Reference sweep, build and gate pass; the same nine component suites and 24 cases pass before and after. Evidence: `.audit/slop-1-dead-components/evidence.md`. |
 | `proof-1-parser-budget-sequence` | Corrects the existing parser fixture to prove sequential 20/40-second phases and the cumulative 60-second deadline; clarifies one Editor test title. | Eager negative control fails at the intended assertion; parser 19/19, Editor 4/4 and the full gate pass. No new tests or production changes. Evidence: `.audit/proof-1-parser-budget-sequence/evidence.md`. |
+| `slop-2-dead-helpers-and-deps` | Removes unused helpers, four unused dependencies and duplicate Underline registration: 220 production lines and 135 net test lines removed; 144 lockfile package entries removed, none added or upgraded. | 8 retained unit cases and 33 browser cases pass; clean install, build and actual editable/read-only underline proof pass independently through the engine. QA test-verified; its operator note is closed by engine and root evidence. Evidence: `.audit/slop-2-dead-helpers-and-deps/evidence.md`. |
 
 ## Measured performance
 
@@ -31,7 +32,6 @@ The parser proof correction is complete: the original fixture eagerly started tw
 
 | Ticket | Remaining outcome |
 | --- | --- |
-| `slop-2-dead-helpers-and-deps` | Remove test-only helpers, four unused dependencies and the duplicate underline extension registration. |
 | `slop-3-mywork-island` | Remove eight files belonging to retired My Work presentation and its tests. |
 | `tests-1-one-runner` | Bring useful orphan pure tests into Vitest with an explicit mapping for retired coverage. |
 | `tests-2-real-proposal-access-roster-tests` | Replace handmade database scenarios with real Convex endpoint/row fixtures. |

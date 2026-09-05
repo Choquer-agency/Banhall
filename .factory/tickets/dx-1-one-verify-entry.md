@@ -10,7 +10,7 @@ done_when: ["rg -q 'check-test-discovery' scripts/loop-verify.sh", "rg -q 'prefl
 title: "One verification entry point: loop-verify.sh preflights and names its steps and runs the discovery guard; CI runs the gate script and the browser suite; README and env.example describe this app"
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T07:38:38.019Z"
+updated: "2026-09-05T07:56:28.732Z"
 ---
 ## Intent
 For the next agent opening this repo cold: the README says what the app is and gives one command that proves a change; that command fails fast with the name of a missing tool, prints each step with its time, and runs the discovery guard from tests-3; CI runs exactly that command plus the browser suite, so CI and the factory gate cannot drift again. Today `README.md:1-19` is the `create-next-app` template (port 3000, `app/page.tsx`), `env.example` uses `NEXT_PUBLIC_*` names, CI (`ci.yml:28-38`) runs two of the gate's six steps on Node 22 while the changelog workflow and this Mac run Node 24, `loop-verify.sh` discovers a missing `pwsh` after three minutes of typechecking, and 51 browser test files run in no gate (`dx-audit.md:7-19,31-35`). The maintainer inherits one script, one CI job that calls it, and docs that stop contradicting `.factory/AGENTS.factory.md`. Principle: [5 minimize reader load] and [13 idempotent] for CI calling the gate script instead of restating it; [24 exit condition as predicate]: the browser job is added only now that ui-1 made it green and tests-3 made the guard pass.
@@ -54,3 +54,5 @@ The recorded slop-1 build failed with a missing static public SITE URL export ev
 ## Early-failure proof artifact
 
 Use `node .factory/plans/20260904-code-quality-sweep/verify-gate-preflight.mjs` after local dependencies are installed. It invokes the actual gate twice with owned temporary executable-path/browser-cache fixtures, requires exit 1 at numbered preflight step 1 with the missing tool and install hint, and rejects later numbered steps or typecheck output. It records source SHA, commit, raw output, exit and timing under `.audit/dx-1-one-verify-entry/preflight-run-*/` and cleans fixtures/process groups. See the adjacent verify-gate-preflight.md for limits. This audit artifact has syntax and structural validation only until this ticket runs it against the actual implementation. Do not add a production wrapper or mirror these cases as source-string unit tests.
+
+Run each verification command exactly as listed before trying shell additions. Pipes, redirects, an appended echo, or a redundant rm command can make an otherwise allowed command fail the QA tool check. Use the tool result or engine gates file for the exit status. Bare npm ci already replaces an existing node_modules directory. Run dependency installation before, and never concurrently with, tests or builds in that worktree.
