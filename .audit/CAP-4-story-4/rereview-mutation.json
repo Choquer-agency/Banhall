@@ -1,0 +1,6 @@
+{
+  "mutation": "truncate admitted scoring provider payload to first row",
+  "exit_code": 1,
+  "production_bytes_restored": true,
+  "production_sha256": "7b5e4a2358340c38811b39642668a255c4867221e26ce542cf0ac83b1189a1ec"
+}

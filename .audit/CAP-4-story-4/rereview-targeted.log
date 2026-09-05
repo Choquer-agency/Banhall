@@ -1,0 +1,8 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/4
+
+
+ Test Files  1 passed (1)
+      Tests  36 passed (36)
+   Start at  22:01:12
+   Duration  1.68s (transform 838ms, setup 0ms, import 662ms, tests 737ms, environment 72ms)

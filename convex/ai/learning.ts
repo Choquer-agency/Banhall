@@ -1,10 +1,15 @@
 "use node";
 
-import { internalAction } from "../_generated/server";
+import { internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { instrumentedAnthropic } from "./instrument";
 import { generateStructured } from "./structured";
 import { MODEL } from "./model";
+import {
+  admitStream,
+  summarizeAdmission,
+  type AdmissionSnapshot,
+} from "../lib/learningAdmission";
 import type Anthropic from "@anthropic-ai/sdk";
 
 /**
@@ -80,11 +85,73 @@ async function distillRules(
   return rules.length > 0 ? rules : null;
 }
 
+/** Failures are operational outcomes, never candidate prose or provider errors. */
+async function distillAdmittedRules(
+  ctx: ActionCtx,
+  kind: "qa_calibration" | "draft_style",
+  admission: AdmissionSnapshot,
+  system: string,
+  user: string,
+): Promise<string[] | null> {
+  try {
+    const client = instrumentedAnthropic(ctx, {
+      callSite:
+        kind === "qa_calibration"
+          ? "learning:qa-calibration"
+          : "learning:draft-style",
+      capability: "generation",
+    });
+    return await distillRules(client, system, user);
+  } catch (error) {
+    await ctx.runMutation(internal.learning.recordDigestAttempt, {
+      kind,
+      outcome: "failed",
+      admission,
+    });
+    // Preserve normal action failure semantics. Error text is never persisted
+    // in admission metadata or shown to administrators as an attempt message.
+    throw error;
+  }
+}
+
 function formatDigestBlock(rules: string[], sourceCount: number): string {
   return [
     `Learned from ${sourceCount} human feedback events:`,
     ...rules.map((rule) => `- ${rule}`),
   ].join("\n");
+}
+
+/** Admission determines both the minimum and freshness before any model call. */
+async function canDistill(
+  ctx: ActionCtx,
+  kind: "qa_calibration" | "draft_style",
+  admission: AdmissionSnapshot,
+): Promise<boolean> {
+  if (
+    admission.admittedCount < MIN_FEEDBACK_ROWS ||
+    admission.feedbackCutoff === null
+  ) {
+    await ctx.runMutation(internal.learning.recordDigestAttempt, {
+      kind,
+      outcome: "insufficient_inputs",
+      admission,
+    });
+    return false;
+  }
+  const latest = await ctx.runQuery(
+    internal.learning.getLatestGeneratedDigest,
+    { kind },
+  );
+  // Pending review and omitted-only updates cannot cause redistillation.
+  if (latest && admission.feedbackCutoff <= latest.feedbackCutoff) {
+    await ctx.runMutation(internal.learning.recordDigestAttempt, {
+      kind,
+      outcome: "unchanged_inputs",
+      admission,
+    });
+    return false;
+  }
+  return true;
 }
 
 // ─── QA calibration ──────────────────────────────────────────────────────────
@@ -122,45 +189,49 @@ export const generateQaCalibrationDigest = internalAction({
     );
     // Only meaningful events calibrate: a row with neither a vote nor a
     // severity override carries no signal (e.g. feedback that was cleared).
-    const signal = feedback.filter(
-      (row) =>
-        row.vote !== null ||
-        (row.overrideSeverity !== null &&
-          row.overrideSeverity !== row.originalSeverity),
+    const qaStream = admitStream(
+      "qaItemFeedback",
+      feedback.filter(
+        (row) =>
+          row.payload.vote !== null ||
+          (row.payload.overrideSeverity !== null &&
+            row.payload.overrideSeverity !== row.payload.originalSeverity),
+      ),
     );
-    if (signal.length < MIN_FEEDBACK_ROWS) return;
+    const signal = qaStream.admitted;
+    const admission = summarizeAdmission([qaStream]);
+    if (
+      !(await canDistill(ctx, "qa_calibration", admission)) ||
+      admission.feedbackCutoff === null
+    )
+      return;
 
-    const latest = await ctx.runQuery(
-      internal.learning.getLatestGeneratedDigest,
-      {
-        kind: "qa_calibration",
-      },
-    );
-    const newestFeedbackAt = Math.max(...signal.map((row) => row.updatedAt));
-    // Compare with the newest generated candidate, not the published digest;
-    // pending admin review must not cause repeated distillation calls.
-    if (latest && newestFeedbackAt <= latest.feedbackCutoff) return;
-
-    const client = instrumentedAnthropic(ctx, {
-      callSite: "learning:qa-calibration",
-      capability: "generation",
-    });
-    const rules = await distillRules(
-      client,
+    const rules = await distillAdmittedRules(
+      ctx,
+      "qa_calibration",
+      admission,
       QA_DIGEST_SYSTEM_PROMPT,
       `Feedback events, newest first:\n\n${JSON.stringify(
-        signal.map(({ updatedAt: _updatedAt, ...row }) => row),
+        signal.map((row) => row.payload),
         null,
         2,
       )}`,
     );
-    if (!rules) return;
+    if (!rules) {
+      await ctx.runMutation(internal.learning.recordDigestAttempt, {
+        kind: "qa_calibration",
+        outcome: "unsupported_rules",
+        admission,
+      });
+      return;
+    }
 
     await ctx.runMutation(internal.learning.saveDigest, {
       kind: "qa_calibration",
       content: formatDigestBlock(rules, signal.length),
       sourceCount: signal.length,
-      feedbackCutoff: newestFeedbackAt,
+      feedbackCutoff: admission.feedbackCutoff,
+      admission,
       model: MODEL,
     });
   },
@@ -232,75 +303,84 @@ export const generateDraftStyleDigest = internalAction({
     // to change, so they only ride along as context on commented rows.
     // Section edit events are critiques in action: draft vs approved.
     // Writer feedback rows arrive pre-filtered: approved + promotable only.
-    const signal = feedback.filter((row) => row.comment);
-    const totalSignal =
-      signal.length +
-      sectionEdits.length +
-      proposalEdits.length +
-      writerFeedback.length;
-    if (totalSignal < MIN_FEEDBACK_ROWS) return;
-
-    const latest = await ctx.runQuery(
-      internal.learning.getLatestGeneratedDigest,
-      {
-        kind: "draft_style",
-      },
+    const scoringStream = admitStream(
+      "candidateScores",
+      feedback.filter((row) => row.payload.comment),
     );
-    // Writer feedback timestamps are approval moments, so an approval alone
-    // (no new scores or edits) advances past the previous cutoff and runs.
-    const newestFeedbackAt = Math.max(
-      ...signal.map((row) => row.updatedAt),
-      ...sectionEdits.map((row) => row.updatedAt),
-      ...proposalEdits.map((row) => row.updatedAt),
-      ...writerFeedback.map((row) => row.updatedAt),
+    const sectionStream = admitStream("sectionEditEvents", sectionEdits);
+    const proposalStream = admitStream(
+      "proposalWordingEditEvents",
+      proposalEdits,
     );
-    if (latest && newestFeedbackAt <= latest.feedbackCutoff) return;
+    const writerStream = admitStream("brainFeedbackQueue", writerFeedback);
+    const admission = summarizeAdmission([
+      scoringStream,
+      sectionStream,
+      proposalStream,
+      writerStream,
+    ]);
+    if (
+      !(await canDistill(ctx, "draft_style", admission)) ||
+      admission.feedbackCutoff === null
+    )
+      return;
+    const signal = scoringStream.admitted;
+    const admittedSections = sectionStream.admitted;
+    const admittedProposals = proposalStream.admitted;
+    const admittedWriterFeedback = writerStream.admitted;
+    const totalSignal = admission.admittedCount;
 
-    const client = instrumentedAnthropic(ctx, {
-      callSite: "learning:draft-style",
-      capability: "generation",
-    });
-    const sectionEditsBlock = sectionEdits.length
+    const sectionEditsBlock = admittedSections.length
       ? `\n\nSection edit events (draft vs writer-approved), newest first:\n\n${JSON.stringify(
-          sectionEdits.map(({ updatedAt: _u, ...row }) => row),
+          admittedSections.map((row) => row.payload),
           null,
           2,
         )}`
       : "";
-    const proposalEditsBlock = proposalEdits.length
+    const proposalEditsBlock = admittedProposals.length
       ? `\n\nProposal wording edit events (assistant vs writer-edited), newest first:\n\n${JSON.stringify(
-          proposalEdits.map(({ updatedAt: _u, ...row }) => row),
+          admittedProposals.map((row) => row.payload),
           null,
           2,
         )}`
       : "";
-    const writerFeedbackBlock = writerFeedback.length
+    const writerFeedbackBlock = admittedWriterFeedback.length
       ? `\n\nWriter feedback items (admin-approved), newest first:\n\n${JSON.stringify(
-          writerFeedback.map(({ updatedAt: _u, ...row }) => row),
+          admittedWriterFeedback.map((row) => row.payload),
           null,
           2,
         )}`
       : "";
-    const rules = await distillRules(
-      client,
+    const rules = await distillAdmittedRules(
+      ctx,
+      "draft_style",
+      admission,
       STYLE_DIGEST_SYSTEM_PROMPT +
-        (sectionEdits.length || proposalEdits.length
+        (admittedSections.length || admittedProposals.length
           ? EDIT_MINING_PROMPT_SUFFIX
           : "") +
-        (writerFeedback.length ? WRITER_FEEDBACK_PROMPT_SUFFIX : ""),
+        (admittedWriterFeedback.length ? WRITER_FEEDBACK_PROMPT_SUFFIX : ""),
       `Scoring events, newest first:\n\n${JSON.stringify(
-        signal.map(({ updatedAt: _updatedAt, ...row }) => row),
+        signal.map((row) => row.payload),
         null,
         2,
       )}${sectionEditsBlock}${proposalEditsBlock}${writerFeedbackBlock}`,
     );
-    if (!rules) return;
+    if (!rules) {
+      await ctx.runMutation(internal.learning.recordDigestAttempt, {
+        kind: "draft_style",
+        outcome: "unsupported_rules",
+        admission,
+      });
+      return;
+    }
 
     await ctx.runMutation(internal.learning.saveDigest, {
       kind: "draft_style",
       content: formatDigestBlock(rules, totalSignal),
       sourceCount: totalSignal,
-      feedbackCutoff: newestFeedbackAt,
+      feedbackCutoff: admission.feedbackCutoff,
+      admission,
       model: MODEL,
     });
   },

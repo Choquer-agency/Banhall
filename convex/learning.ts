@@ -10,6 +10,12 @@ import { v } from "convex/values";
 import { requireCapability } from "./lib/roleCapabilities";
 import { MIN_PROMOTABLE_FEEDBACK_CHARS } from "./brain";
 import { deidentify } from "./lib/deidentify";
+import {
+  admissionValidator,
+  attemptOutcomeValidator,
+  type AdmissionSnapshot,
+  type AttemptOutcome,
+} from "./lib/learningAdmission";
 import type { Doc, Id } from "./_generated/dataModel";
 
 /**
@@ -27,7 +33,20 @@ const digestKind = v.union(
 );
 const MAX_REASON_LENGTH = 500;
 
-/** Most recent QA item feedback rows, compacted for the digest prompt. */
+/** One cache per bounded query; missing projects still get contact scrubbing. */
+function projectScrubber(ctx: QueryCtx) {
+  const projects = new Map<Id<"projects">, Doc<"projects"> | null>();
+  return async (projectId: Id<"projects"> | undefined) => {
+    if (projectId && !projects.has(projectId)) {
+      projects.set(projectId, await ctx.db.get(projectId));
+    }
+    const project = projectId ? (projects.get(projectId) ?? null) : null;
+    return (text: string, limit: number) =>
+      deidentify(text, project).slice(0, limit);
+  };
+}
+
+/** Bounded signal envelopes keep attribution separate from sanitized prose. */
 export const getFeedbackForDigest = internalQuery({
   args: { limit: v.number() },
   handler: async (ctx, args) => {
@@ -35,19 +54,29 @@ export const getFeedbackForDigest = internalQuery({
       .query("qaItemFeedback")
       .order("desc")
       .take(args.limit);
-    return rows.map((row) => ({
-      section: row.section,
-      itemKind: row.itemKind,
-      itemText: row.itemText.slice(0, 240),
-      originalSeverity: row.originalSeverity ?? null,
-      overrideSeverity: row.overrideSeverity ?? null,
-      vote: row.vote ?? null,
-      updatedAt: row.updatedAt,
-    }));
+    const scrubProject = projectScrubber(ctx);
+    const results = [];
+    for (const row of rows) {
+      const scrub = await scrubProject(row.projectId);
+      results.push({
+        signalId: row._id,
+        producerId: row.userId,
+        projectId: row.projectId,
+        updatedAt: row.updatedAt,
+        payload: {
+          section: row.section,
+          itemKind: row.itemKind,
+          itemText: scrub(row.itemText, 240),
+          originalSeverity: row.originalSeverity ?? null,
+          overrideSeverity: row.overrideSeverity ?? null,
+          vote: row.vote ?? null,
+        },
+      });
+    }
+    return results;
   },
 });
 
-/** Most recent writer scores/comments on blind candidate drafts. */
 export const getCandidateFeedbackForDigest = internalQuery({
   args: { limit: v.number() },
   handler: async (ctx, args) => {
@@ -55,23 +84,26 @@ export const getCandidateFeedbackForDigest = internalQuery({
       .query("candidateScores")
       .order("desc")
       .take(args.limit);
-    return rows.map((row) => ({
-      score: row.score,
-      comment: row.comment?.slice(0, 500) ?? null,
-      aiQaScore: row.qaScore ?? null,
-      updatedAt: row.updatedAt,
-    }));
+    const scrubProject = projectScrubber(ctx);
+    const results = [];
+    for (const row of rows) {
+      const scrub = await scrubProject(row.projectId);
+      results.push({
+        signalId: row._id,
+        producerId: row.userId,
+        projectId: row.projectId,
+        updatedAt: row.updatedAt,
+        payload: {
+          score: row.score,
+          comment: row.comment === undefined ? null : scrub(row.comment, 500),
+          aiQaScore: row.qaScore ?? null,
+        },
+      });
+    }
+    return results;
   },
 });
 
-/**
- * Direct edits to AI proposal wording, including edits made in normal chat.
- *
- * CAP-1: the chat write site stores this text raw, so de-identification
- * happens here, at the boundary where the rows leave their project and become
- * firm-wide digest input. Stored rows are never rewritten. A row whose project
- * document is gone still gets the email/phone pass, just no name pass.
- */
 export const getProposalWordingEditsForDigest = internalQuery({
   args: { limit: v.number() },
   handler: async (ctx, args) => {
@@ -79,24 +111,26 @@ export const getProposalWordingEditsForDigest = internalQuery({
       .query("proposalWordingEditEvents")
       .order("desc")
       .take(args.limit);
-    const projects = new Map<Id<"projects">, Doc<"projects"> | null>();
+    const scrubProject = projectScrubber(ctx);
     const results = [];
     for (const row of rows) {
-      if (!projects.has(row.projectId)) {
-        projects.set(row.projectId, await ctx.db.get(row.projectId));
-      }
-      const project = projects.get(row.projectId) ?? null;
+      const scrub = await scrubProject(row.projectId);
       results.push({
-        originalText: deidentify(row.originalText, project).slice(0, 2000),
-        editedText: deidentify(row.editedText, project).slice(0, 2000),
+        signalId: row._id,
+        producerId: row.userId,
+        projectId: row.projectId,
         updatedAt: row.createdAt,
+        payload: {
+          originalText: scrub(row.originalText, 2000),
+          editedText: scrub(row.editedText, 2000),
+        },
       });
     }
     return results;
   },
 });
 
-/** Recent section edits with near-untouched approvals removed. */
+/** Near-untouched approvals remain ineligible before admission. */
 export const getSectionEditsForDigest = internalQuery({
   args: { limit: v.number() },
   handler: async (ctx, args) => {
@@ -104,28 +138,31 @@ export const getSectionEditsForDigest = internalQuery({
       .query("sectionEditEvents")
       .order("desc")
       .take(args.limit);
-    return rows
-      .filter((row) => row.editRatio >= 0.05)
-      .map((row) => ({
-        section: row.section,
-        draftText: row.draftText.slice(0, 2000),
-        approvedText: row.approvedText.slice(0, 2000),
-        ghostText: row.ghostText?.slice(0, 1200) ?? null,
-        editRatio: Math.round(row.editRatio * 100) / 100,
+    const scrubProject = projectScrubber(ctx);
+    const results = [];
+    for (const row of rows) {
+      if (!(row.editRatio >= 0.05)) continue;
+      const scrub = await scrubProject(row.projectId);
+      results.push({
+        signalId: row._id,
+        producerId: row.userId ?? null,
+        projectId: row.projectId,
         updatedAt: row.createdAt,
-      }));
+        payload: {
+          section: row.section,
+          draftText: scrub(row.draftText, 2000),
+          approvedText: scrub(row.approvedText, 2000),
+          ghostText:
+            row.ghostText === undefined ? null : scrub(row.ghostText, 1200),
+          editRatio: Math.round(row.editRatio * 100) / 100,
+        },
+      });
+    }
+    return results;
   },
 });
 
-/**
- * Admin-approved writer feedback (BNH-39 conduit) for the draft-style
- * distillation stream. Promotable rows only — the same bar reviewFeedback
- * uses to nominate a Brain source — so a "thanks!" approval never counts as
- * signal. Rejected and pending rows never reach this query (index equality on
- * status "approved"). updatedAt is the approval moment, recovered from the
- * decision's audit row: freshness must key off approval, not submission, so
- * an item approved after a digest run still registers as new signal.
- */
+/** Approved, promotable writer feedback uses approval-time freshness. */
 export const getApprovedBrainFeedbackForDigest = internalQuery({
   args: { limit: v.number() },
   handler: async (ctx, args) => {
@@ -134,6 +171,7 @@ export const getApprovedBrainFeedbackForDigest = internalQuery({
       .withIndex("by_status", (q) => q.eq("status", "approved"))
       .order("desc")
       .take(args.limit);
+    const scrubProject = projectScrubber(ctx);
     const items = [];
     for (const row of rows) {
       const rule = row.suggestedRule?.trim();
@@ -144,11 +182,17 @@ export const getApprovedBrainFeedbackForDigest = internalQuery({
         .withIndex("by_feedbackId", (q) => q.eq("feedbackId", row._id))
         .order("desc")
         .first();
+      const scrub = await scrubProject(row.projectId);
       items.push({
-        suggestedRule: rule ? rule.slice(0, 300) : null,
-        body: body.slice(0, 1000),
-        // Rows decided before audit linking existed fall back to submission.
+        signalId: row._id,
+        producerId: row.fromUserId,
+        projectId: row.projectId ?? null,
+        // Historical approvals without linked audits retain submission fallback.
         updatedAt: decision?.at ?? row.createdAt,
+        payload: {
+          suggestedRule: rule ? scrub(rule, 300) : null,
+          body: scrub(body, 1000),
+        },
       });
     }
     return items;
@@ -218,10 +262,15 @@ export const saveDigest = internalMutation({
     sourceCount: v.number(),
     feedbackCutoff: v.number(),
     model: v.string(),
+    admission: v.optional(admissionValidator),
   },
   handler: async (ctx, args) => {
     const newest = await latestGlobalDigest(ctx, args.kind);
-    if (newest && args.feedbackCutoff <= newest.feedbackCutoff) return null;
+    if (newest && args.feedbackCutoff <= newest.feedbackCutoff) {
+      if (args.admission)
+        await saveAttempt(ctx, args.kind, "deduplicated", args.admission);
+      return null;
+    }
 
     const selection = await latestSelection(ctx, args.kind);
     if (!selection) {
@@ -237,10 +286,40 @@ export const saveDigest = internalMutation({
       });
     }
 
-    return await ctx.db.insert("learningDigests", {
+    const digestId = await ctx.db.insert("learningDigests", {
       ...args,
       createdAt: Date.now(),
     });
+    if (args.admission)
+      await saveAttempt(ctx, args.kind, "saved", args.admission);
+    return digestId;
+  },
+});
+
+/** Upsert inside the same transaction as a saved/deduplicated candidate. */
+async function saveAttempt(
+  ctx: MutationCtx,
+  kind: "qa_calibration" | "draft_style",
+  outcome: AttemptOutcome,
+  admission: AdmissionSnapshot,
+) {
+  const prior = await ctx.db
+    .query("learningDigestAttempts")
+    .withIndex("by_kind", (q) => q.eq("kind", kind))
+    .unique();
+  const result = { kind, outcome, admission, attemptedAt: Date.now() };
+  if (prior) await ctx.db.replace(prior._id, result);
+  else await ctx.db.insert("learningDigestAttempts", result);
+}
+
+export const recordDigestAttempt = internalMutation({
+  args: {
+    kind: digestKind,
+    outcome: attemptOutcomeValidator,
+    admission: admissionValidator,
+  },
+  handler: async (ctx, args) => {
+    await saveAttempt(ctx, args.kind, args.outcome, args.admission);
   },
 });
 
@@ -276,6 +355,10 @@ export const getDigestHistory = query({
         ? [publishedDigest, ...digests]
         : digests;
     return {
+      latestAttempt: await ctx.db
+        .query("learningDigestAttempts")
+        .withIndex("by_kind", (q) => q.eq("kind", args.kind))
+        .unique(),
       publishedDigestId,
       selectionId: currentSelection?._id ?? null,
       explicitlyDisabled: currentSelection?.selectedDigestId === null,
@@ -283,6 +366,7 @@ export const getDigestHistory = query({
         _id: digest._id,
         content: digest.content,
         sourceCount: digest.sourceCount,
+        admission: digest.admission,
         feedbackCutoff: digest.feedbackCutoff,
         model: digest.model,
         createdAt: digest.createdAt,

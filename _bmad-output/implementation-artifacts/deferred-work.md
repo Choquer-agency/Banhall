@@ -791,3 +791,11 @@ status: open
 
 - Shared live report can change after publication: Live sharing and mutable report identity predate this branch. The approved QA change gates readiness and publish mutations; pinning shared copies or adding an egress/edit gate changes the domain workflow. Preserve as a separate existing sharing concern, not an unapproved expansion of CAP-8. Evidence: convex/reports.ts:30-35,64-72; convex/projects.ts:1047. Source review: .audit/integration-code-review-9da55be/review.md.
 - Because detector accepts a substring: The existing sentence-level /because/i detector predates the change and is deliberately retained by the frozen QA contract. This specific substring limitation is distinct from the multi-uncertainty case in DW-71; changing the detector requires focused work under its own intent. Evidence: convex/ai/qaChecks.ts:101-104. Source review: .audit/integration-code-review-9da55be/review.md.
+
+### DW-96: Follow-up review still recommended for 4 after the damping cap was spent
+origin: review-budget-followup
+location: n/a
+source_spec: `4-digest-diversity-gate-and-signal-provenance.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-133944-0158; this entry preserves the lingering recommendation for a deliberate later review.
+status: open

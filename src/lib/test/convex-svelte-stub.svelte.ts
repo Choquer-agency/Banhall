@@ -14,7 +14,8 @@ import { getFunctionName, type FunctionReference } from "convex/server";
 const registry = $state<{
   queries: Record<string, unknown>;
   pages: Record<string, unknown[]>;
-}>({ queries: {}, pages: {} });
+  queryVariants: Record<string, Record<string, unknown>>;
+}>({ queries: {}, pages: {}, queryVariants: {} });
 
 // Mutation/action calls a suite can assert on, plus the value each one
 // resolves with — a wizard that destructures its mutation result needs one.
@@ -38,6 +39,19 @@ function registerGetter(name: string, getArgs: (() => unknown) | undefined) {
 
 export function __setQueryData(name: string, data: unknown) {
   registry.queries[name] = data;
+}
+
+/** Seed an exact argument variant; unseeded variants retain the name-only fallback. */
+export function __setQueryDataForArgs(name: string, args: unknown, data: unknown) {
+  registry.queryVariants[name] ??= {};
+  registry.queryVariants[name][JSON.stringify(args) ?? ""] = data;
+}
+
+function queryData(name: string, args: unknown) {
+  const variants = registry.queryVariants[name];
+  if (!variants) return registry.queries[name];
+  const key = JSON.stringify(args) ?? "";
+  return Object.hasOwn(variants, key) ? variants[key] : registry.queries[name];
 }
 
 export function __setPaginatedRows(name: string, rows: unknown[]) {
@@ -65,6 +79,7 @@ export function __clientQueryCalls(name: string) {
 
 export function __resetConvexStub() {
   registry.queries = {};
+  registry.queryVariants = {};
   registry.pages = {};
   argsGetters.clear();
   calls.length = 0;
@@ -109,7 +124,7 @@ export function useConvexClient() {
     async query(query: FunctionReference<"query">, args?: unknown) {
       const name = getFunctionName(query);
       clientQueries.push({ name, args });
-      return registry.queries[name];
+      return queryData(name, args);
     },
   };
 }
@@ -121,14 +136,14 @@ export function useQuery(query: FunctionReference<"query">, ...rest: unknown[]) 
   return {
     get data() {
       if (skipped(getArgs)) return undefined;
-      return registry.queries[name];
+      return queryData(name, getArgs?.());
     },
     get error() {
       return undefined;
     },
     get isLoading() {
       if (skipped(getArgs)) return true;
-      return registry.queries[name] === undefined;
+      return queryData(name, getArgs?.()) === undefined;
     },
     get isStale() {
       return false;

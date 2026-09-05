@@ -1,0 +1,21 @@
+10:01:51 PM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/4 - using default configuration.
+
+⎯⎯⎯⎯⎯⎯⎯ Startup Error ⎯⎯⎯⎯⎯⎯⎯⎯
+Error: Error during dependency optimization:
+
+Build failed with 1 error:
+
+[RESOLVE_ERROR] Could not resolve 'node:module' in \0rolldown/runtime.js
+   ╭─[ \0rolldown/runtime.js:1:31 ]
+   │
+ 1 │ import { createRequire } from 'node:module';
+   │                               ──────┬──────
+   │                                     ╰──────── Tsconfig not found
+───╯
+
+    at aggregateBindingErrorsIntoJsError (file:///Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/4/node_modules/rolldown/dist/shared/error-BHRSI0R7.mjs:48:18)
+    at unwrapBindingResult (file:///Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/4/node_modules/rolldown/dist/shared/error-BHRSI0R7.mjs:18:128)
+    at RolldownBuild.#build (file:///Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/4/node_modules/rolldown/dist/shared/rolldown-build-CtPvmZgJ.mjs:3276:34)
+    at Object.build (file:///Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/4/node_modules/vite/dist/node/chunks/node.js:31672:11) {
+  errors: [Getter/Setter]
+}

@@ -1,0 +1,49 @@
+$ npx vitest run convex/learning.test.ts -t two independently diverse streams share
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/4
+
+ ❯ |convex| convex/learning.test.ts (35 tests | 1 failed | 34 skipped) 474ms
+     × two independently diverse streams share the five-record minimum 473ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/learning.test.ts > CAP-4 independent stream admission and provenance > two independently diverse streams share the five-record minimum
+AssertionError: expected [] to deeply equal [ { section: 's242', …(4) }, …(1) ]
+
+- Expected
++ Received
+
+- [
+-   {
+-     "approvedText": "Writer section opening.",
+-     "draftText": "Generated section opening.",
+-     "editRatio": 0.5,
+-     "ghostText": "Original full report opening.",
+-     "section": "s242",
+-   },
+-   {
+-     "approvedText": "Writer section opening.",
+-     "draftText": "Generated section opening.",
+-     "editRatio": 0.5,
+-     "ghostText": "Original full report opening.",
+-     "section": "s242",
+-   },
+- ]
++ []
+
+ ❯ convex/learning.test.ts:1142:38
+    1140|       JSON.parse(scoringBlock.replace("Scoring events, newest first:\n…
+    1141|     ).toEqual([]);
+    1142|     expect(JSON.parse(sectionBlock)).toEqual(
+       |                                      ^
+    1143|       Array.from({ length: 2 }, () => ({
+    1144|         section: "s242",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 34 skipped (35)
+   Start at  21:41:15
+   Duration  1.06s (transform 539ms, setup 0ms, import 365ms, tests 474ms, environment 78ms)
+
