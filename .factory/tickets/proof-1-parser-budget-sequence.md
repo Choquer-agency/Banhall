@@ -10,6 +10,7 @@ done_when: ["node --input-type=module -e 'import { readFileSync } from \"node:fs
 title: Prove PDF load and page text consume sequential parts of the shared deadline
 plan: 20260904-code-quality-sweep
 ui: false
+deferred: []
 updated: "2026-09-05T06:29:26.994Z"
 ---
 ## Intent
