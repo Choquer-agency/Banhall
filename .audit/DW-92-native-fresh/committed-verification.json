@@ -1,0 +1,15 @@
+{
+  "reviewed_commit": "98c7bc7ac56c5475df9f5620e640626fc84fa9c6",
+  "working_tree_clean": true,
+  "all_reviewed_files_committed": true,
+  "postcommit_validation": {
+    "baseline": "86a43d9d500ceab34245744d223d4453eba7b667",
+    "head": "98c7bc7ac56c5475df9f5620e640626fc84fa9c6",
+    "source_unchanged": true,
+    "protected_paths_unchanged": true,
+    "ledger_matches_invocation": true,
+    "frozen_contract_preserved": true,
+    "raw_logs_match": true,
+    "terminal_result_valid": true
+  }
+}
