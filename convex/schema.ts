@@ -868,6 +868,26 @@ export default defineSchema({
     // Stale-turn reaper: sweep queued/running rows regardless of thread.
     .index("by_status", ["status"]),
 
+  // Immutable first vote per viewer and durable completed answer.
+  chatAnswerFeedback: defineTable({
+    turnId: v.id("chatTurns"),
+    userId: v.id("users"),
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    answerMessageId: v.string(),
+    promptText: v.string(),
+    answerText: v.string(),
+    learningSnapshot: v.optional(v.object({
+      version: v.literal(1),
+      promptText: v.string(),
+      answerText: v.string(),
+    })),
+    vote: v.union(v.literal(1), v.literal(-1)),
+    createdAt: v.number(),
+  }).index("by_turnId_and_userId", ["turnId", "userId"]),
+
   // One row per tool call the assistant makes (proposeEdit / proposeReplacements
   // / highlightPassages). Same lifecycle semantics as chatMessages.proposedEdit.
   chatProposals: defineTable({

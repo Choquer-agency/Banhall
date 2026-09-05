@@ -3,7 +3,7 @@
   import type { Doc } from "../../../../convex/_generated/dataModel";
   import { normalizeTurnParts, type TurnTiming } from "$lib/chat/turnParts";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
-  import { Message, MessageContent, MessageActions } from "./primitives";
+  import { Message, MessageContent, MessageActions, FeedbackBar } from "./primitives";
   import TurnTrace from "./TurnTrace.svelte";
   import ChatProposalArtifact from "./ChatProposalArtifact.svelte";
 
@@ -23,6 +23,12 @@
     proposals?: Proposal[];
     timing?: TurnTiming;
     copied?: boolean;
+    feedback?: {
+      value: 1 | -1 | null;
+      disabled: boolean;
+      error?: string;
+      onVote: (vote: 1 | -1) => Promise<void>;
+    };
     onCopy?: (messageId: string, text: string) => void;
     onRefine: (proposal: Proposal) => void;
     onBeforeApply?: () => Promise<unknown>;
@@ -43,6 +49,7 @@
     proposals = [],
     timing,
     copied = false,
+    feedback,
     onCopy,
     onRefine,
     onBeforeApply,
@@ -52,6 +59,8 @@
     reviewingId,
   }: Props = $props();
 
+  const componentId = $props.id();
+  const answerElementId = `${componentId}-answer`;
   const turn = $derived(normalizeTurnParts(message, proposals));
 
   const failed = $derived(message?.status === "failed" || timing?.status === "failed");
@@ -88,7 +97,7 @@
   {#if turn.text}
     <!-- Announced once on failure; a live region here would re-announce the
          answer on every streaming token. -->
-    <div role={failed ? "alert" : undefined}>
+    <div id={answerElementId} role={failed ? "alert" : undefined}>
       <MessageContent markdown text={turn.text} class={failed ? "text-red-500" : undefined} />
     </div>
   {/if}
@@ -119,5 +128,13 @@
         {/snippet}
       </Tooltip>
     </MessageActions>
+  {/if}
+  {#if feedback && turn.text && message?.status === "success" && timing?.status === "completed"}
+    <div role="group" aria-labelledby={answerElementId}>
+    <FeedbackBar title="Was this answer helpful?" value={feedback.value}
+      disabled={feedback.disabled} onHelpful={() => feedback?.onVote(1)}
+      onNotHelpful={() => feedback?.onVote(-1)} />
+    {#if feedback.error}<p role="alert" class="text-xs text-red-600">{feedback.error}</p>{/if}
+    </div>
   {/if}
 </Message>

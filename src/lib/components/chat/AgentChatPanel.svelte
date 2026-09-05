@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { appendOutbox } from "$lib/uploads/attemptOutbox";
@@ -358,6 +359,69 @@
     }
     return map;
   });
+
+  // A tool-using turn can span several message rows. Rate it once, after its
+  // final visible answer, using the durable turn rather than a streaming ID.
+  const feedbackTurnByMessage = $derived.by(() => {
+    const lastAnswerByOrder = new Map<number, UIMessage>();
+    for (const message of messages) {
+      if (message.role === "assistant" && message.status === "success" &&
+          message.parts.some(part => part.type === "text" && part.text.trim())) {
+        lastAnswerByOrder.set(message.order, message);
+      }
+    }
+    const map = new Map<string, Id<"chatTurns">>();
+    for (const turn of (turnsQ.data ?? [])) {
+      const answer = lastAnswerByOrder.get(turn.order);
+      if (turn.status === "completed" && answer) map.set(answer.id, turn._id);
+    }
+    return map;
+  });
+  // Keep the subscription stable as streamed parts update unchanged turn IDs.
+  const feedbackTurnIdKey = $derived([...feedbackTurnByMessage.values()].join(","));
+  const feedbackTurnIds = $derived.by(() => {
+    void feedbackTurnIdKey;
+    return untrack(() => [...feedbackTurnByMessage.values()]);
+  });
+  const eligibleFeedbackViewer = $derived(uploadAuth.isAuthenticated &&
+    !!currentUserQ.data?.role && currentUserQ.data.isAnonymous !== true);
+  const feedbackQ = useQuery(api.chatFeedback.getViewerVotes, () =>
+    eligibleFeedbackViewer && selectedThreadId && feedbackTurnIds.length
+      ? { reportId, threadId: selectedThreadId, turnIds: feedbackTurnIds }
+      : "skip"
+  );
+  const submitAnswerFeedback = useMutation(api.chatFeedback.submitFeedback);
+  const savedVotes = new SvelteMap<string, 1 | -1>();
+  const feedbackBusy = new SvelteSet<string>();
+  const feedbackErrors = new SvelteMap<string, string>();
+  function feedbackKey(turnId: Id<"chatTurns">) {
+    return `${currentUserQ.data?._id ?? ""}:${turnId}`;
+  }
+  async function rateAnswer(turnId: Id<"chatTurns">, vote: 1 | -1) {
+    const key = feedbackKey(turnId);
+    if (feedbackBusy.has(key) || savedVotes.has(key) || feedbackQ.data?.some(row => row.turnId === turnId) || feedbackQ.isLoading || feedbackQ.error || !eligibleFeedbackViewer) return;
+    feedbackBusy.add(key);
+    feedbackErrors.delete(key);
+    try {
+      const recordedVote = await submitAnswerFeedback({ turnId, vote });
+      savedVotes.set(key, recordedVote);
+    } catch {
+      feedbackErrors.set(key, "Could not save feedback. Please try again.");
+    } finally {
+      feedbackBusy.delete(key);
+    }
+  }
+  function answerFeedback(messageId: string) {
+    const turnId = feedbackTurnByMessage.get(messageId);
+    if (!turnId || !eligibleFeedbackViewer) return undefined;
+    const key = feedbackKey(turnId);
+    return {
+      value: savedVotes.get(key) ?? feedbackQ.data?.find((row) => row.turnId === turnId)?.vote ?? null,
+      disabled: feedbackQ.isLoading || !!feedbackQ.error || !currentUserQ.data || feedbackBusy.has(key),
+      error: feedbackQ.error ? "Feedback is unavailable. Please refresh this page to try again." : feedbackErrors.get(key),
+      onVote: (vote: 1 | -1) => rateAnswer(turnId, vote),
+    };
+  }
 
   const composerSelection = $derived(pendingResearch ?? pendingHighlight);
   const composerContextActive = $derived(refiningProposal !== null || composerSelection !== null);
@@ -1263,6 +1327,7 @@
         {:else if m.role === "assistant"}
           <AssistantTurn
             message={m}
+            feedback={answerFeedback(m.id)}
             proposals={grouped.byMessageId.get(m.id) ?? []}
             timing={timingByOrder.get(m.order)}
             copied={copiedId === m.id}
