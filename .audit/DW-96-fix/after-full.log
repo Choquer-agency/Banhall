@@ -1,0 +1,13 @@
+
+> banhall-app@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw96-fix
+
+
+ Test Files  149 passed (149)
+      Tests  1878 passed (1878)
+   Start at  23:03:52
+   Duration  29.97s (transform 9.38s, setup 0ms, import 15.92s, tests 17.24s, environment 5.12s)
+

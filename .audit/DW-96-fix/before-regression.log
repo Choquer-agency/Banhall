@@ -1,0 +1,62 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw96-fix
+
+ ❯ |convex| convex/learningFailure.test.ts (8 tests | 4 failed) 257ms
+     × preserves provider error identity when persistence rejects=true and awaits the write 8ms
+     × preserves parse error identity when persistence rejects=true and awaits the write 3ms
+     × preserves provider error identity when persistence rejects=true and awaits the write 3ms
+     × preserves parse error identity when persistence rejects=true and awaits the write 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/learningFailure.test.ts > qa_calibration original generation failure > preserves provider error identity when persistence rejects=true and awaits the write
+ FAIL  |convex| convex/learningFailure.test.ts > draft_style original generation failure > preserves provider error identity when persistence rejects=true and awaits the write
+AssertionError: expected Error: attempt persistence unavailable to be Error: provider unavailable // Object.is equality
+
+- Expected
++ Received
+
+  Error {
+-   "message": "provider unavailable",
++   "message": "attempt persistence unavailable",
+  }
+
+ ❯ convex/learningFailure.test.ts:128:23
+    126|       if (!persistenceRejects) expect(attempts[0]).toMatchObject(mutat…
+    127|       expect(await publicationState(t)).toEqual(before);
+    128|       expect(escaped).toBe(original);
+       |                       ^
+    129|     },
+    130|   );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |convex| convex/learningFailure.test.ts > qa_calibration original generation failure > preserves parse error identity when persistence rejects=true and awaits the write
+ FAIL  |convex| convex/learningFailure.test.ts > draft_style original generation failure > preserves parse error identity when persistence rejects=true and awaits the write
+AssertionError: expected Error: attempt persistence unavailable to be SyntaxError: malformed provider JSON // Object.is equality
+
+- Expected
++ Received
+
+- SyntaxError {
+-   "message": "malformed provider JSON",
++ Error {
++   "message": "attempt persistence unavailable",
+  }
+
+ ❯ convex/learningFailure.test.ts:128:23
+    126|       if (!persistenceRejects) expect(attempts[0]).toMatchObject(mutat…
+    127|       expect(await publicationState(t)).toEqual(before);
+    128|       expect(escaped).toBe(original);
+       |                       ^
+    129|     },
+    130|   );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 4 passed (8)
+   Start at  23:02:49
+   Duration  665ms (transform 253ms, setup 0ms, import 232ms, tests 257ms, environment 48ms)
+

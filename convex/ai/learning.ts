@@ -105,11 +105,15 @@ async function distillAdmittedRules(
     });
     return await distillRules(client, system, user);
   } catch (error) {
-    await ctx.runMutation(internal.learning.recordDigestAttempt, {
-      kind,
-      outcome: "failed",
-      admission,
-    });
+    try {
+      await ctx.runMutation(internal.learning.recordDigestAttempt, {
+        kind,
+        outcome: "failed",
+        admission,
+      });
+    } catch {
+      // Attempt persistence must not replace the causal generation failure.
+    }
     // Preserve normal action failure semantics. Error text is never persisted
     // in admission metadata or shown to administrators as an attempt message.
     throw error;
