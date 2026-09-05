@@ -411,7 +411,7 @@ Full register (51 rows, 8 fixed) is in the spine.
 | Q5 | Closed 2026-09-04: no prod yet, one deployment serves everyone; split at launch. Open: is the changelog `repository_dispatch` wired? | Operations |
 | Q6 | Ingestion `approveItem` skips the pending queue. Intentional? | Knowledge governance |
 | Q7 | Closed by AD-11a | AI engine |
-| Q8 | Port or delete the 14 dead bun tests; add component tests to CI? | Tests |
+| Q8 | Closed 2026-09-05: the bun tests were migrated to vitest and `scripts/check-test-discovery.mjs` now proves every tracked test file is discovered; component tests run in their own CI job (`npm run test:component`) and locally via `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` | Tests |
 | Q9 | Retention windows (proposed 90 / 90 / 180 / 180 days) | Data lifecycle |
 | Q10 | Closed 2026-09-04: Owner or Admin for delete / egress / spend / identity writes | Authorization |
 | Q11 | Share-token rotation and expiry (proposed 30 / 90 days) | Authorization |

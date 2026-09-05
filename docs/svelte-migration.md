@@ -6,6 +6,8 @@ on disk as the porting reference until parity; SvelteKit app lives in
 
 ## Stack
 
+A historical snapshot from the migration; the runner is npm, not bun. Current tooling: `README.md` and `package.json`.
+
 - SvelteKit 2.63 / Svelte 5 (runes, forced on) / Vite 8 / bun / TS
 - Kit config lives in `vite.config.ts` plugin options (no svelte.config.js)
 - `@sveltejs/adapter-vercel`, Tailwind v4 via `@tailwindcss/vite`
@@ -74,7 +76,7 @@ on disk as the porting reference until parity; SvelteKit app lives in
 - Components: `src/lib/components/**/*.svelte` — PascalCase filenames, default import
   (`import Button from "$lib/components/ui/Button.svelte"`)
 - Already ported (use, don't recreate): ui/Button, ui/Badge, ui/Input, ui/ChatIcon,
-  ui/IconAction, ui/MenuToggleIcon, ui/Header, BuildStamp, dashboard/ProjectCard;
+  ui/IconAction, BuildStamp, dashboard/ProjectCard;
   routes: `/` `/login` `/dashboard`; layout with setupConvex + setupConvexAuth.
 - Pure TS libs stayed at `$lib`: parseDocument, contextCategories, exportTemplateDocx,
   tiptapConfig, utils(cn).
@@ -82,6 +84,8 @@ on disk as the porting reference until parity; SvelteKit app lives in
   tiptap + chat styles already ported).
 
 ## Verify
+
+A historical migration recipe, every bullet below included. Current rules: `bash scripts/loop-verify.sh` per `README.md`, and `.factory/AGENTS.factory.md` for the isolate → build → prove → ship rules.
 
 - `bun run check` → must end `0 ERRORS` (a11y warnings: fix them, usually aria-label)
 - Dev server usually already running on :3001 (`curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/<route>`) — don't start/kill it; if down: `bun run dev`
