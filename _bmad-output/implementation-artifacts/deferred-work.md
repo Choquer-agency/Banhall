@@ -836,4 +836,5 @@ location: src/lib/parseDocument.ts:66
 source_spec: `_bmad-output/implementation-artifacts/spec-branch-b1-parser-lifetime.md`
 severity: medium
 reason: Independent public parseFileToText probes reproduce an unhandled rejection when a page or text operation starts as the shared deadline expires; this early-return hole predates B1. See .audit/branch-consolidation/parser-expired-audit/findings.md and current-page.log/current-text.log. Schedule bounded B12 within the authorized all-branches audit.
-status: open
+status: done 2026-09-05
+resolution: B12 observes already-started PDF operations when the shared deadline expires. Actual unchanged-source regression produced two unhandled rejections; final23 parser tests and full nine-step gate passed, including1980 unit and463 browser tests. Three fresh Astra6 medium reviews and per-item triage: .audit/branch-consolidation/B12/review-triage.md; source hashes and runtime receipts: after.json and gate/result.json in that directory. Existing deadline, partial output, original errors and timer cleanup preserved.

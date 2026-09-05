@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import * as XLSX from "xlsx";
 import {
   capContent,
@@ -175,7 +176,7 @@ describe("PDF parse deadline", () => {
 
   type PageSpec = {
     text?: string;
-    getPage?: Promise<never>;
+    getPage?: Promise<never> | (() => Promise<never>);
     /** Called when the parser asks the page for its text, so a test can observe when. */
     textContent?: () => Promise<{ items: { str: string }[] }>;
   };
@@ -185,16 +186,20 @@ describe("PDF parse deadline", () => {
   /** Install a fake pdfjs document. `load` is the loadingTask promise. */
   function installPdf(load: Promise<unknown> | "immediate", pages: PageSpec[] = []) {
     destroyCalls = 0;
+    // Promise-returning spies observe rejection themselves, masking the
+    // expired-entry regression. Track calls without wrapping the promise.
+    const getPageCalls: number[][] = [];
     const pdf = {
       numPages: pages.length,
-      getPage: vi.fn((i: number) => {
+      getPage: (i: number) => {
+        getPageCalls.push([i]);
         const spec = pages[i - 1];
-        return spec.getPage ?? Promise.resolve({
+        return (typeof spec.getPage === "function" ? spec.getPage() : spec.getPage) ?? Promise.resolve({
           getTextContent: () =>
             spec.textContent?.() ??
             Promise.resolve({ items: (spec.text ?? "").split(" ").map((str) => ({ str })) }),
         });
-      }),
+      },
     };
     pdfjs.getDocument.mockReturnValue({
       promise: load === "immediate" ? Promise.resolve(pdf) : load.then(() => pdf),
@@ -203,7 +208,7 @@ describe("PDF parse deadline", () => {
         return Promise.resolve();
       },
     });
-    return pdf;
+    return { ...pdf, getPageCalls };
   }
 
   beforeEach(() => {
@@ -245,13 +250,13 @@ describe("PDF parse deadline", () => {
     // t=20s: the load resolves and the parser asks page 1 for its text. Page 2
     // has not been reached, so its work has not started consuming the budget.
     await vi.advanceTimersByTimeAsync(20_000);
-    expect(pdf.getPage.mock.calls).toEqual([[1]]);
+    expect(pdf.getPageCalls).toEqual([[1]]);
     expect(page1TextContent).toHaveBeenCalledTimes(1);
     expect(page2TextContent).not.toHaveBeenCalled();
 
     // t=40s: page 1's text resolves and only then is page 2 asked for its text.
     await vi.advanceTimersByTimeAsync(20_000);
-    expect(pdf.getPage.mock.calls).toEqual([[1], [2]]);
+    expect(pdf.getPageCalls).toEqual([[1], [2]]);
     expect(page2TextContent).toHaveBeenCalledTimes(1);
 
     // A per-call 60s timeout would restart the clock on page 2 at t=40s and
@@ -278,6 +283,69 @@ describe("PDF parse deadline", () => {
     expect(destroyCalls).toBe(1);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it.each(["page", "text"] as const)(
+    "observes late rejection after expired %s work returns a partial result",
+    async (stage) => {
+      let rejectWork: (reason: Error) => void = () => {};
+      const work = new Promise<never>((_resolve, reject) => {
+        rejectWork = reject;
+      });
+      let expireCalls = 0;
+      const expire = () => {
+        expireCalls++;
+        // The operation starts before withDeadline reads the clock.
+        vi.setSystemTime(Date.now() + 60_000);
+        return work;
+      };
+      const pdf = installPdf("immediate", [
+        { text: "Page one" },
+        stage === "page" ? { getPage: expire } : { textContent: expire },
+      ]);
+
+      const parsed = await parseFileToText(pdfFile());
+      expect(parsed).toEqual({
+        fileName: "report.pdf",
+        fileType: "pdf",
+        content: `Page one\n${pdfPageStopMarker(2)}`,
+      });
+      expect(pdf.getPageCalls).toEqual([[1], [2]]);
+      expect(expireCalls).toBe(1);
+      expect(destroyCalls).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+
+      rejectWork(new Error(`late expired ${stage} rejection`));
+      // Let Node deliver actual unhandledRejection events to Vitest. The
+      // runner fails the suite if the real parser left this work unobserved.
+      await nextTurn();
+      await nextTurn();
+      expect(destroyCalls).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+    }
+  );
+
+  it.each(["page", "text"] as const)(
+    "returns without waiting for expired %s work that never settles",
+    async (stage) => {
+      let expireCalls = 0;
+      const expire = () => {
+        expireCalls++;
+        vi.setSystemTime(Date.now() + 60_001);
+        return never();
+      };
+      installPdf("immediate", [
+        { text: "Page one" },
+        stage === "page" ? { getPage: expire } : { textContent: expire },
+      ]);
+
+      // No timers are advanced: waiting on work or another timeout must fail.
+      const parsed = await parseFileToText(pdfFile());
+      expect(parsed.content).toBe(`Page one\n${pdfPageStopMarker(2)}`);
+      expect(expireCalls).toBe(1);
+      expect(destroyCalls).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+    }
+  );
 
   it.each([
     ["the document load rejects", (boom: Error) => installPdf(Promise.reject(boom))],

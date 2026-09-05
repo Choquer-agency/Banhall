@@ -63,7 +63,12 @@ class ParseTimeout extends Error {
 
 function withDeadline<T>(promise: Promise<T>, deadline: number): Promise<T> {
   const ms = deadline - Date.now();
-  if (ms <= 0) return Promise.reject(new ParseTimeout());
+  if (ms <= 0) {
+    // Work already started before this call; observe late rejection without
+    // waiting for it after the shared deadline has expired.
+    void promise.catch(() => {});
+    return Promise.reject(new ParseTimeout());
+  }
   // Release the timer as soon as the race settles: the deadline is shared by
   // the document load and every page, so without this a successful N-page
   // parse leaves 2N+1 callbacks alive for the rest of the minute.
