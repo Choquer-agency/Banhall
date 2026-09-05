@@ -474,8 +474,11 @@
 
   $effect(() => {
     if (researchSessionsQ.isLoading || researchSessionsQ.isStale || researchSessionsQ.error) return;
-    if (pendingResearchId && researchSessionsQ.data?.some(session => session._id === pendingResearchId)) {
-      pendingResearchId = null;
+    const listedResearch = researchSessionsQ.data?.find(session => session._id === pendingResearchId);
+    if (listedResearch) {
+      // Keep observing our active session if newer report research later
+      // displaces it from the capped list.
+      if (listedResearch.status === "completed" || listedResearch.status === "failed" || listedResearch.status === "canceled") pendingResearchId = null;
     } else if (pendingResearchId && !pendingResearchQ.isLoading && !pendingResearchQ.isStale && !pendingResearchQ.error) {
       const status = pendingResearchQ.data?.session.status;
       if (pendingResearchQ.data === null || status === "completed" || status === "failed" || status === "canceled") pendingResearchId = null;
