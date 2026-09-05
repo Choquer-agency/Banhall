@@ -10,7 +10,7 @@ done_when: ["rg -q 'getTimerCount' src/lib/parseDocument.test.ts", test -f src/l
 title: PDF parsing leaves zero pending timers; proposal previews and find/replace build the editor search index once per batch and never for an empty batch
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T06:27:42.434Z"
+updated: "2026-09-05T08:42:42.320Z"
 run: 20260905-055642-10-tickets
 branch: factory/perf-1-parser-timers-editor-index
 merged: ed1d24f
@@ -53,3 +53,5 @@ Perf measurement: metric = `descendantTraversals` per 30 builds (600 → 30) and
 - PDF with zero pages: no page timers; the load timer is cleared.
 - Two PDFs parsed concurrently: each has its own deadline and handles; timers from one never cancel the other.
 - Harness at a commit where `docSearch.ts` is absent: same behaviour as the plan-dir original.
+
+Sweep closeout disposition: proof-1-parser-budget-sequence resolves the cumulative parser fixture gap; slop-2-dead-helpers-and-deps resolves the duplicate Underline warning. Historical deferred entries are preserved for traceability and are not open obligations. The real-PDF app proof and independent ReadOnlyEditor search follow-up remain open.
