@@ -10,7 +10,6 @@ done_when: [npx vitest run --config vitest.component.config.ts src/lib/component
 title: "The browser component suite passes: seven stale fixtures and class contracts are re-pinned to the shipped behaviour, and the header action is measured against the 44px mobile contract and fixed if short"
 plan: 20260904-code-quality-sweep
 ui: true
-deferred: ["Button's reduced-motion behaviour is left unasserted: @vitest/browser 4.1.10 exposes no per-test prefers-reduced-motion emulation, only a run-wide Playwright context option", "The header's 44px floor is measured at 390px and 1280px only; 320px and 428px are not covered"]
 updated: "2026-09-05T08:47:20.862Z"
 ---
 ## Intent
