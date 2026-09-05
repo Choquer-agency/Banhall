@@ -1,0 +1,241 @@
+
+> banhall-app@0.1.0 test
+> vitest run convex/snapshots.test.ts convex/preEditSnapshot.test.ts convex/lib/snapshots.test.ts
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-snapshot-research-ownership
+
+ ❯ |convex| convex/snapshots.test.ts (20 tests | 8 failed) 173ms
+     × preserves the checkpoint with 'missing session' 7ms
+     × preserves the checkpoint with 'foreign report' 3ms
+     × preserves the checkpoint with 'foreign project' 2ms
+     × preserves the checkpoint with 'fully foreign' 2ms
+     × preserves the checkpoint with 'missing session' 2ms
+     × preserves the checkpoint with 'foreign report' 2ms
+     × preserves the checkpoint with 'foreign project' 2ms
+     × preserves the checkpoint with 'fully foreign' 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_chat_edit' > preserves the checkpoint with 'missing session'
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_chat_edit' > preserves the checkpoint with 'foreign report'
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_chat_edit' > preserves the checkpoint with 'foreign project'
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_chat_edit' > preserves the checkpoint with 'fully foreign'
+AssertionError: expected 'Before researched edit' to be 'Before AI edit' // Object.is equality
+
+Expected: "Before AI edit"
+Received: "Before researched edit"
+
+ ❯ convex/snapshots.test.ts:260:29
+    258|     });
+    259|     expect(report).toEqual(snapshot.originalReport);
+    260|     expect.soft(row?.label).toBe(valid ? "Before researched edit" : de…
+       |                             ^
+    261|     if (valid) {
+    262|       expect(row).toMatchObject({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/24]⎯
+
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_chat_edit' > preserves the checkpoint with 'missing session'
+AssertionError: expected { …(17) } to not have property "researchSessionId"
+
+- Expected:
+undefined
+
++ Received:
+"0000000000010007researchSessions"
+
+ ❯ convex/snapshots.test.ts:267:28
+    265|       });
+    266|     } else {
+    267|       expect.soft(row).not.toHaveProperty("researchSessionId");
+       |                            ^
+    268|       expect.soft(row).not.toHaveProperty("researchSourceCount");
+    269|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/24]⎯
+
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_chat_edit' > preserves the checkpoint with 'missing session'
+AssertionError: expected { …(17) } to not have property "researchSourceCount"
+
+- Expected:
+undefined
+
++ Received:
+0
+
+ ❯ convex/snapshots.test.ts:268:28
+    266|     } else {
+    267|       expect.soft(row).not.toHaveProperty("researchSessionId");
+    268|       expect.soft(row).not.toHaveProperty("researchSourceCount");
+       |                            ^
+    269|     }
+    270|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/24]⎯
+
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_chat_edit' > preserves the checkpoint with 'foreign report'
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_chat_edit' > preserves the checkpoint with 'foreign project'
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_client_edit' > preserves the checkpoint with 'foreign report'
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_client_edit' > preserves the checkpoint with 'foreign project'
+AssertionError: expected { …(17) } to not have property "researchSessionId"
+
+- Expected:
+undefined
+
++ Received:
+"0000000000010008researchSessions"
+
+ ❯ convex/snapshots.test.ts:267:28
+    265|       });
+    266|     } else {
+    267|       expect.soft(row).not.toHaveProperty("researchSessionId");
+       |                            ^
+    268|       expect.soft(row).not.toHaveProperty("researchSourceCount");
+    269|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/24]⎯
+
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_chat_edit' > preserves the checkpoint with 'foreign report'
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_chat_edit' > preserves the checkpoint with 'foreign project'
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_client_edit' > preserves the checkpoint with 'foreign report'
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_client_edit' > preserves the checkpoint with 'foreign project'
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_client_edit' > preserves the checkpoint with 'fully foreign'
+AssertionError: expected { …(17) } to not have property "researchSourceCount"
+
+- Expected:
+undefined
+
++ Received:
+3
+
+ ❯ convex/snapshots.test.ts:268:28
+    266|     } else {
+    267|       expect.soft(row).not.toHaveProperty("researchSessionId");
+    268|       expect.soft(row).not.toHaveProperty("researchSourceCount");
+       |                            ^
+    269|     }
+    270|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/24]⎯
+
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_chat_edit' > preserves the checkpoint with 'fully foreign'
+AssertionError: expected { _creationTime: 1788574316270, …(16) } to not have property "researchSessionId"
+
+- Expected:
+undefined
+
++ Received:
+"0000000000010009researchSessions"
+
+ ❯ convex/snapshots.test.ts:267:28
+    265|       });
+    266|     } else {
+    267|       expect.soft(row).not.toHaveProperty("researchSessionId");
+       |                            ^
+    268|       expect.soft(row).not.toHaveProperty("researchSourceCount");
+    269|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/24]⎯
+
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_chat_edit' > preserves the checkpoint with 'fully foreign'
+AssertionError: expected { _creationTime: 1788574316270, …(16) } to not have property "researchSourceCount"
+
+- Expected:
+undefined
+
++ Received:
+3
+
+ ❯ convex/snapshots.test.ts:268:28
+    266|     } else {
+    267|       expect.soft(row).not.toHaveProperty("researchSessionId");
+    268|       expect.soft(row).not.toHaveProperty("researchSourceCount");
+       |                            ^
+    269|     }
+    270|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/24]⎯
+
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_client_edit' > preserves the checkpoint with 'missing session'
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_client_edit' > preserves the checkpoint with 'foreign report'
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_client_edit' > preserves the checkpoint with 'foreign project'
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_client_edit' > preserves the checkpoint with 'fully foreign'
+AssertionError: expected 'Before researched edit' to be 'Before client edit' // Object.is equality
+
+Expected: "Before client edit"
+Received: "Before researched edit"
+
+ ❯ convex/snapshots.test.ts:260:29
+    258|     });
+    259|     expect(report).toEqual(snapshot.originalReport);
+    260|     expect.soft(row?.label).toBe(valid ? "Before researched edit" : de…
+       |                             ^
+    261|     if (valid) {
+    262|       expect(row).toMatchObject({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/24]⎯
+
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_client_edit' > preserves the checkpoint with 'missing session'
+AssertionError: expected { _creationTime: 1788574316277, …(16) } to not have property "researchSessionId"
+
+- Expected:
+undefined
+
++ Received:
+"0000000000010007researchSessions"
+
+ ❯ convex/snapshots.test.ts:267:28
+    265|       });
+    266|     } else {
+    267|       expect.soft(row).not.toHaveProperty("researchSessionId");
+       |                            ^
+    268|       expect.soft(row).not.toHaveProperty("researchSourceCount");
+    269|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/24]⎯
+
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_client_edit' > preserves the checkpoint with 'missing session'
+AssertionError: expected { _creationTime: 1788574316277, …(16) } to not have property "researchSourceCount"
+
+- Expected:
+undefined
+
++ Received:
+0
+
+ ❯ convex/snapshots.test.ts:268:28
+    266|     } else {
+    267|       expect.soft(row).not.toHaveProperty("researchSessionId");
+    268|       expect.soft(row).not.toHaveProperty("researchSourceCount");
+       |                            ^
+    269|     }
+    270|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/24]⎯
+
+ FAIL  |convex| convex/snapshots.test.ts > the shared pre-edit writer: 'pre_client_edit' > preserves the checkpoint with 'fully foreign'
+AssertionError: expected { …(17) } to not have property "researchSessionId"
+
+- Expected:
+undefined
+
++ Received:
+"0000000000010009researchSessions"
+
+ ❯ convex/snapshots.test.ts:267:28
+    265|       });
+    266|     } else {
+    267|       expect.soft(row).not.toHaveProperty("researchSessionId");
+       |                            ^
+    268|       expect.soft(row).not.toHaveProperty("researchSourceCount");
+    269|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/24]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  8 failed | 29 passed (37)
+   Start at  19:11:55
+   Duration  719ms (transform 500ms, setup 0ms, import 413ms, tests 465ms, environment 128ms)
+
