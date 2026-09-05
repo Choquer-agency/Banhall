@@ -761,6 +761,7 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_projectId_and_status", ["projectId", "status"])
     .index("by_status_and_startedAt", ["status", "startedAt"])
+    .index("by_startedAt", ["startedAt"])
     .index("by_postQaStatus", ["postQaStatus"]),
 
   // ─── BNH-15: model A/B testing ─────────────────────────────────────────────
@@ -1313,6 +1314,16 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_projectId_and_milestoneKey", ["projectId", "milestoneKey"]),
 
+  // Terminal operational observations, independent of billing. No retrieval text.
+  rerankOutcomes: defineTable({
+    operationId: v.string(),
+    observedAt: v.number(),
+    callSite: v.string(),
+    outcome: v.union(v.literal("success"), v.literal("fallback"), v.literal("skip"), v.literal("search_error")),
+  })
+    .index("by_operationId", ["operationId"])
+    .index("by_observedAt", ["observedAt"]),
+
   // BNH-10 flywheel (CAP-2): post-edit distance frozen at the three milestones
   // where the writer's divergence from the AI draft is meaningful. Rows are
   // append-only readings; the read surface is index-only per report and per
@@ -1336,7 +1347,8 @@ export default defineSchema({
   })
     .index("by_reportId", ["reportId"])
     .index("by_projectId", ["projectId"])
-    .index("by_writerUserId_and_computedAt", ["writerUserId", "computedAt"]),
+    .index("by_writerUserId_and_computedAt", ["writerUserId", "computedAt"])
+    .index("by_computedAt", ["computedAt"]),
 
   // Human-verified claimant/participant identity and relationship evidence.
   // Rows are retained and rejected/superseded rather than deleted.

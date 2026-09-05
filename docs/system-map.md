@@ -356,13 +356,16 @@ flowchart LR
   WR -->|LIVE: pending queue, admin approves| BRAIN[(Brain RAG)]
   BRAIN -->|LIVE: retrieveBrainBlocks| PIPE
   PIPE -->|LIVE write| BP[(generations.brainProvenance)]
-  BP -.->|DEAD-END: zero readers| NW1((no reader))
-  PED[reports.postEditDistance query] -.->|DEAD-END: computed on read, never stored, no UI caller| NW2((no reader))
+  BP -->|LIVE: source use and associated judgments| LH
+  PED[reportEditDistance persisted milestone samples] --> LH[learningHealth.getHealth admin query]
+  RETRIEVE[searchBrainExemplars terminal result] -->|LIVE: best-effort recordRerankOutcome| RO[(rerankOutcomes)]
+  RO -->|LIVE: bounded observedAt window| LH
+  LH --> AL["/admin/learning: 30/90-day measured PED, source judgments, rerank outcomes"]
   PROV -.->|DEAD-END: no consumer joins provenance to outcomes| NW3((no reader))
   CRA[cra_letter / craOutcome] -.->|STUB: schema only, no retrieval or weighting| NW4((no reader))
 ```
 
-Read the solid arrows: the loop from writer signal to digest to prompt is live and governed. Read the dotted ones: nothing today can tell you whether the learning helps. Post-edit distance is computed but never stored, `brainProvenance` is written but never read, and CRA outcome signals are schema only. That is AD-12's job.
+Read the solid arrows: the loop from writer signal to digest to prompt is live and governed. Read the dotted ones: nothing today can tell you whether the learning helps. Persisted post-edit distance, source provenance with associated judgments, and prospective rerank outcomes now feed `/admin/learning`. These bounded observational signals do not establish whether learning causes better reports; prompt/digest outcome attribution remains unmeasured, and CRA outcome signals remain schema only.
 
 ## 12. Verdict: is it a step up over pasting into ChatGPT?
 
@@ -374,7 +377,7 @@ Read the solid arrows: the loop from writer signal to digest to prompt is live a
 | Knowledge is admin-governed; revocation is confirmed erasure | Yes | AD-6 |
 | Every model call is metered and attributed | Yes | AD-9 |
 | Style rules are tiered so CRA limits cannot be waived | Yes | AD-16 |
-| Learning is measurable (does the Brain or a digest reduce editing?) | No: write-only signals | AD-12 |
+| Learning is measurable (does the Brain or a digest reduce editing?) | Partial: observed editing, source judgments and rerank reliability; no causal attribution | AD-12 |
 | Client text cannot steer the model (trust boundary) | Partial: transcript fenced (CAP-2), trust from uploader role (CAP-3), chat evidence in a delimited user message (CAP-4); remaining CAP items open | AD-11, AD-11a |
 | Client identities are stripped before firm-wide knowledge | No | AD-13 |
 | Deleting a project erases its data | No: 8 of 49 tables, no blobs | AD-19 |

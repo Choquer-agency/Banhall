@@ -1,0 +1,15 @@
+{
+  "restored": [
+    ".audit/story-7/retry-highlight-only.png",
+    ".audit/story-7/second-overflow-after.png",
+    ".audit/story-7/optimistic-after.png",
+    ".audit/story-7/retry-text-and-highlight.png",
+    ".audit/story-7/optimistic-scrolled-after.png"
+  ],
+  "historical_audit_pngs_checked": 16,
+  "all_historical_audit_png_hashes_match": true,
+  "ignored_test_transients_regenerated": [
+    ".vitest-attachments/chat-feedback-sources.png",
+    "src/lib/components/chat/__screenshots__/regenerate-transient.png"
+  ]
+}
