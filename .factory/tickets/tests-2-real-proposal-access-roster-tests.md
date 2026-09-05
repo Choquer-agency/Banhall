@@ -9,9 +9,6 @@ verify: [npx vitest run convex/chatProposalsApply.test.ts convex/projectAccess.t
 done_when: [test -f convex/chatProposalsApply.test.ts, "rg -q 'updateProposalWording' convex/chatProposalsApply.test.ts", "rg -q 'rejectProposal' convex/chatProposalsApply.test.ts", "rg -q 'getTeamRosterMemberOrNull' convex/users.test.ts", ! test -e tests/chatProposals.test.ts, ! test -e tests/projectReviewAccess.test.ts, "! rg -q 'MutationCtx|QueryCtx' tests/teamRoster.test.ts", npx vitest run convex/chatProposalsApply.test.ts convex/projectAccess.test.ts convex/users.test.ts tests/teamRoster.test.ts]
 title: "The proposal, project-access and roster scenarios from the two fake-db suites are proven against the real Convex endpoints with convex-test; the fake-db files and cases are deleted"
 plan: 20260904-code-quality-sweep
-deferred:
-  - "Concurrent apply of two proposals targeting the same paragraph: out of scope per the ticket's edge-case list, and not cheap with the current seeding (it needs two pending proposals whose replacements overlap plus a second in-flight mutation, which convex-test serialises)."
-  - "convex/lib/auth.ts:66 requireProjectCreator is now callerless and untested; the ticket forbids testing or repurposing it, so retiring the helper itself is a separate decision (inventory #13)."
 ui: false
 updated: "2026-09-05T08:37:16.194Z"
 ---
@@ -60,20 +57,3 @@ Baseline count correction: the four rows of the internal-access test.each plus s
 Before acceptance, preserve all three positive listProposals reader-role cases from the deleted suite: Manager, Admin and unrelated eligible writer. Call the actual query with a real agentChatThreads mapping and persisted proposal, and assert that proposal ID is returned. Existing creator, roleless and anonymous cases do not cover these positive actors. Supersede the incorrect covered mapping in decisions.tsv with ported rows. Freeze scheduled jobs around the sendMessage live-turn fixture with the existing fake-timer convention and clear pending timers before restoring real timers; never drain the streaming job or add provider mocks to hide accidental execution. The ordered replacement assertion must compare exact final editor JSON or full prose, not only a fragment. These corrections fulfill AC1, AC4 and AC6 without product changes.
 
 Scope clarification: removing only the two temporary by-name Vitest exclusions alongside their deleted files is approved in this ticket. Open-PR overlap was rechecked on 2026-09-05 at 08:36 UTC: no open PRs. tests-3 AC1 verifies their absence and need not recreate or re-delete them. No other Vitest project behavior is changed.
-
-## Correction result (2026-09-05)
-
-The three positive reader actors now query the actual endpoint through persisted
-thread, turn and proposal rows and assert the proposal ID. The live-turn proposal
-cases freeze scheduling and clear pending timers before restoring real timers.
-The ordered replacement case compares the complete expected editor JSON. The
-38-test targeted suite, all ticket predicates and the full 1516-test gate pass.
-
-The resolved reader-parity item was removed from the current deferred list after
-root clarification. Its original wording is preserved here as historical evidence:
-
-> listProposals per-role read parity (old tests/chatProposals.test.ts:541-569) is left as covered rather than ported: the endpoint gates only on requireInternalProjectAccess (convex/chatV2.ts:174), already proven at convex/reportAuthz.test.ts:265, convex/projectAccess.test.ts:125 and convex/chatTurns.test.ts:1509,1532.
-
-That earlier coverage claim is superseded by the three ported reader rows in
-`.audit/tests-2-real-proposal-access-roster-tests/decisions.tsv`. Only the two
-unchanged concurrent-apply and callerless-helper items remain deferred.
