@@ -1,0 +1,18 @@
+bun test v1.3.14 (0d9b296a)
+
+tests/projectReviewAccess.test.ts:
+(pass) internal project access > allows an authenticated internal owner writer [2.97ms]
+(pass) internal project access > allows an authenticated internal non-owner writer [0.06ms]
+(pass) internal project access > allows an authenticated internal manager [0.01ms]
+(pass) internal project access > allows an authenticated internal admin
+(pass) internal project access > keeps creator-only actions restricted to the owner [1.96ms]
+(pass) internal project access > denies anonymous internal access [0.55ms]
+(pass) internal project access > denies access when the project is missing [1.04ms]
+(pass) project access resolution > denies anonymous callers without a valid pinned client token [0.32ms]
+(pass) project access resolution > allows an anonymous client only through the matching pinned token [0.08ms]
+(pass) project access resolution > prefers authenticated internal access over a supplied client token [0.07ms]
+
+ 10 pass
+ 0 fail
+ 44 expect() calls
+Ran 10 tests across 1 file. [313.00ms]

@@ -43,3 +43,7 @@ Independent review approved slop-3’s exact eight-file/506-line deletion and fo
 ## Dismissed: slop-3 historical sorting clause
 
 The slop-3 reviewer’s low/consider claim about docs/product-domain.md:797 is dismissed after context review. The clause says the preview may reorder only loaded rows, a permission/constraint rather than an obligation to keep a sort control. Lines 736–741 supersede the five-lane layout; lines 727 and 634–638 record approved removal of those Home regions/subscriptions; the approved August 14 amendment at 330–340 makes With you the only operational Home subscription. Retained MyWorkLaneSort.component.test.ts:25–45 explicitly requires the assigned-only subscription and no sort control; CurrentMyWorkView retains its frozen accountability tabs. Independent audit_slop review reached the same conclusion. No new product-domain amendment, implementation, or deferred obligation is warranted by this deletion.
+
+## Corrected: parameterized project-access baseline count
+
+Tests-1 retains 83 pure cases, prompting reconciliation with the 116-case original Bun run. The pending tests-2 pin had incorrectly called projectReviewAccess six passes: those are its standalone cases, plus four test.each actor rows. Root ran the unchanged file directly (project-access-pin-count.log), exit 0, 10 pass/0 fail/44 assertions. Corrected the pending ticket to ten. The total reconciles: 84 original pure cases, 22 proposal cases, 10 access cases =116. No test behavior or product code changed.
