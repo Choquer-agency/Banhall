@@ -1,0 +1,9 @@
+{
+  "ids": [
+    "DW-100"
+  ],
+  "before_sha256": "9b6bc26f390c8a296b8f9815d488165689fe22f050f695b2e930fba1225d0294",
+  "after_sha256": "4aa829bae80e39edd643e77e6bbcd42e055781824f45e341cb279b400b9d28e9",
+  "existing_ledger_preserved_as_exact_byte_prefix": true,
+  "note": "Native append succeeded on the first call. Read-only receipt validation corrected the id field, preserved existing open entries, and disregarded appended heading-separator whitespace in parse_ledger final-body span. No duplicate append."
+}

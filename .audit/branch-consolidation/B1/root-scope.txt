@@ -1,0 +1,3 @@
+ M src/lib/parseDocument.test.ts
+ M src/lib/parseDocument.ts
+?? _bmad-output/implementation-artifacts/spec-branch-b1-parser-lifetime.md

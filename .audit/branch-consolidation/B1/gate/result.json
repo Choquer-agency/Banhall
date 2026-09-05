@@ -1,0 +1,21 @@
+{
+  "command": "VERIFY_COMPONENT=1 bash scripts/loop-verify.sh",
+  "exit_code": 0,
+  "elapsed_seconds": 163.36353468894958,
+  "tracked_files_verified": 4834,
+  "unexpected_changed_paths": [
+    ".audit/story-8/learning-desktop-after.png"
+  ],
+  "generated_captures_restored": [
+    ".audit/DW-98-fix/implicit-A-retained.png",
+    ".audit/published-status-fix/published-after.png",
+    ".audit/story-7/optimistic-after.png",
+    ".audit/story-7/optimistic-scrolled-after.png",
+    ".audit/story-7/retry-highlight-only.png",
+    ".audit/story-7/retry-text-and-highlight.png",
+    ".audit/story-7/second-overflow-after.png",
+    ".audit/story-8/learning-sources-mobile-after.png"
+  ],
+  "log_sha256": "4bde29a7cee5bbafb666d0be6694a2465eaf00904b281a4dbbffab651b713930",
+  "at": "2026-09-05T23:19:10.158096+00:00"
+}

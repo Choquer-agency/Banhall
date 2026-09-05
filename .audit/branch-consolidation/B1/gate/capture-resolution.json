@@ -1,0 +1,28 @@
+{
+  "command": "VERIFY_COMPONENT=1 bash scripts/loop-verify.sh",
+  "exit_code": 0,
+  "elapsed_seconds": 163.36353468894958,
+  "tracked_files_verified": 4834,
+  "unexpected_changed_paths": [
+    ".audit/story-8/learning-desktop-after.png"
+  ],
+  "generated_captures_restored": [
+    ".audit/DW-98-fix/implicit-A-retained.png",
+    ".audit/published-status-fix/published-after.png",
+    ".audit/story-7/optimistic-after.png",
+    ".audit/story-7/optimistic-scrolled-after.png",
+    ".audit/story-7/retry-highlight-only.png",
+    ".audit/story-7/retry-text-and-highlight.png",
+    ".audit/story-7/second-overflow-after.png",
+    ".audit/story-8/learning-sources-mobile-after.png"
+  ],
+  "log_sha256": "4bde29a7cee5bbafb666d0be6694a2465eaf00904b281a4dbbffab651b713930",
+  "at": "2026-09-05T23:19:10.158096+00:00",
+  "unexpected_capture_resolution": {
+    "path": ".audit/story-8/learning-desktop-after.png",
+    "cause": "Existing learning-source browser test rewrites its historical tracked desktop capture; the exact final-run capture is retained and original HEAD bytes restored. No source changed.",
+    "capture_sha256": "769bc13da24f6281295332fff145a8e25a16faedd5103592b5f6241e41955991",
+    "restored_sha256": "4b72a1e9feb21a9e082139c39f7140de203842e20f361d3e6963e6757e57140a"
+  },
+  "unresolved_changed_paths": []
+}

@@ -829,3 +829,11 @@ severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-133944-0158; this entry preserves the lingering recommendation for a deliberate later review.
 status: done 2026-09-05
 resolution: Independent learning-health follow-up added order-sensitive capped rerank cohort coverage with an actual wrong-order failing control; integrated e3f23432121b6d3145cff7040c485ac28739a25f. Review and verified source identity: .audit/learning-monitor-20260904/DW-99-independent-review.md and DW-99-root-receipt.json. Final combined source569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c passed1970 unit and463 browser tests, both type checks, uploader suites and build; .audit/integration-final-20260905/final-gates/final-verification.json. Review-budget follow-up satisfied.
+
+### DW-100: Observe expired parser operations before returning the timeout
+origin: branch-consolidation-B1-blind-1
+location: src/lib/parseDocument.ts:66
+source_spec: `_bmad-output/implementation-artifacts/spec-branch-b1-parser-lifetime.md`
+severity: medium
+reason: Independent public parseFileToText probes reproduce an unhandled rejection when a page or text operation starts as the shared deadline expires; this early-return hole predates B1. See .audit/branch-consolidation/parser-expired-audit/findings.md and current-page.log/current-text.log. Schedule bounded B12 within the authorized all-branches audit.
+status: open
