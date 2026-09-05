@@ -9,6 +9,10 @@ verify: [npx vitest run convex/chatProposalsApply.test.ts convex/projectAccess.t
 done_when: [test -f convex/chatProposalsApply.test.ts, "rg -q 'updateProposalWording' convex/chatProposalsApply.test.ts", "rg -q 'rejectProposal' convex/chatProposalsApply.test.ts", "rg -q 'getTeamRosterMemberOrNull' convex/users.test.ts", ! test -e tests/chatProposals.test.ts, ! test -e tests/projectReviewAccess.test.ts, "! rg -q 'MutationCtx|QueryCtx' tests/teamRoster.test.ts", npx vitest run convex/chatProposalsApply.test.ts convex/projectAccess.test.ts convex/users.test.ts tests/teamRoster.test.ts]
 title: "The proposal, project-access and roster scenarios from the two fake-db suites are proven against the real Convex endpoints with convex-test; the fake-db files and cases are deleted"
 plan: 20260904-code-quality-sweep
+deferred:
+  - "Concurrent apply of two proposals targeting the same paragraph: out of scope per the ticket's edge-case list, and not cheap with the current seeding (it needs two pending proposals whose replacements overlap plus a second in-flight mutation, which convex-test serialises)."
+  - "listProposals per-role read parity (old tests/chatProposals.test.ts:541-569) is left as covered rather than ported: the endpoint gates only on requireInternalProjectAccess (convex/chatV2.ts:174), already proven at convex/reportAuthz.test.ts:265, convex/projectAccess.test.ts:125 and convex/chatTurns.test.ts:1509,1532."
+  - "convex/lib/auth.ts:66 requireProjectCreator is now callerless and untested; the ticket forbids testing or repurposing it, so retiring the helper itself is a separate decision (inventory #13)."
 ui: false
 updated: "2026-09-05T08:15:53.310Z"
 ---
