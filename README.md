@@ -1,36 +1,86 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Banhall
 
-## Getting Started
+Banhall generates SR&ED (Scientific Research and Experimental Development) reports for a
+consulting firm. Consultants collect client transcripts and supporting documents, an AI engine
+drafts the CRA project-description sections from them, and humans review, edit and export the
+result. The app is SvelteKit 2 with Svelte 5 runes and Tailwind; the backend is Convex
+(`convex/`); Claude and OpenRouter calls live in `convex/ai/`. The domain contract every change
+must respect is `docs/product-domain.md`.
 
-First, run the development server:
+## Prerequisites
+
+- **Node 24** — the version in `.nvmrc` (`nvm use`). Node 22.12+ also works; Node 23 does not.
+- **npm** — ships with Node. `npm ci` installs the lockfile.
+- **PowerShell 7 (`pwsh`)** — the client-uploader harness (`scripts/client-uploader/tests/run-tests.ps1`)
+  is PowerShell. [Install PowerShell](https://learn.microsoft.com/powershell/scripting/install/installing-powershell).
+- **Chromium, once** — `npx playwright install chromium`, only for the component suite.
+
+## Develop
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm ci
+npm run dev        # http://localhost:3001
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Verify a change
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+One command proves a change. It is browser-free, needs no deployment and no credentials:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+bash scripts/loop-verify.sh
+```
 
-## Learn More
+It runs, in order and numbered: preflight (tool and Node version check, public URL defaults),
+Convex typecheck, `svelte-check`, unit tests, the test-discovery guard, a production build, and
+the two client-uploader harnesses. A missing tool fails at step 1 with the tool's name and an
+install hint, before any typechecking. Each step prints its name and its duration.
 
-To learn more about Next.js, take a look at the following resources:
+Add the browser component suite:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+VERIFY_COMPONENT=1 bash scripts/loop-verify.sh
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+CI runs exactly this script in one job and `npx playwright install --with-deps chromium` plus
+`npm run test:component` in a second job (`.github/workflows/ci.yml`), so CI and the local gate
+cannot drift.
 
-## Deploy on Vercel
+Individual pieces, if you want them on their own:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+PUBLIC_CONVEX_URL=https://placeholder.convex.cloud npm run check
+npm test
+npm run test:component
+PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site npm run build
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`npm run check` needs `PUBLIC_CONVEX_URL` because `svelte-kit sync` materializes
+`$env/static/public` from the environment. The production build needs `PUBLIC_CONVEX_SITE_URL`
+too: the installed `@mmailaender/convex-better-auth-svelte` SvelteKit adapter imports both from
+`$env/static/public`. Placeholders satisfy both; verification never uses a shared deployment.
+
+## Running the real app
+
+Beyond the prerequisites you need a Convex deployment. `npx convex dev` provisions one and writes
+`CONVEX_DEPLOYMENT` and the deployment URLs; copy `env.example` to `.env.local` and fill in the
+public names there, then set the Convex-side names (listed as comments in `env.example`) on the
+deployment itself with `npx convex env set`. Real deployment URLs are only needed to run the app,
+never to verify a change.
+
+## Hermetic instance — not yet built
+
+The recipe below is the intended next step for a `factory verify-skill` that drives the real app
+without touching a shared deployment. Nothing here exists yet; do not follow it as instructions.
+
+- Run a local `convex-local-backend` instead of a cloud deployment.
+- Point a private env file (never `.env.local`) at that backend.
+- Import a seed inviter and one invitation into it.
+- Complete a real signup against it, then drive the surface under test.
+
+Source: `.factory/plans/20260904-code-quality-sweep/dx-audit.md:76-86`.
+
+## Where to look next
+
+- `AGENTS.md` — conventions, policy and pitfalls for anyone (human or agent) editing this repo.
+- `.factory/AGENTS.factory.md` — the isolate → build → prove → ship rules for factory sessions.
+- `docs/product-domain.md` — the domain contract: roles, stages, permissions, transitions.
