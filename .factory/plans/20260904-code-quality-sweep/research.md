@@ -1,5 +1,7 @@
 # Research: code quality, performance and agent verification sweep
 
+This is the preserved planning snapshot. Current ticket closure, reconciled finding dispositions, and verification limits are in `results.md`; later corrections and pivots are in `root-execution-findings.md`.
+
 Plan dir: `.factory/plans/20260904-code-quality-sweep`. Baseline: `sprint2-boundary` at `11bfe3e`, clean. Inputs: `idea.md`, the three auditor reports in this dir (`slop-audit.md`, `performance-audit.md`, `dx-audit.md`), `performance-benchmark.mjs`, `component-baseline.log`, `uploader-baseline.log`. Every auditor claim used below was re-checked with `rg` or by reading the cited lines; where a claim was not re-checked it is marked so.
 
 ## Intent

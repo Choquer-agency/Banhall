@@ -15,3 +15,7 @@ The draft Running the real app paragraph says npx convex dev writes deployment c
 ## Initial decision-row timestamps
 
 The six initial decisions.tsv rows use 2026-09-05T00:00:00Z through00:00:05Z, while the factory record shows their creation at09:55:01UTC. The decisions themselves describe observed planning, but those timestamps are placeholders rather than event times. Preserve append-only history and append a correction that identifies the affected rows and actual recording interval. Later evidence should use actual timestamps and resolvable output paths, not a claimed exit code as its evidence pointer.
+
+## Final draft evidence attribution
+
+At implementation head0adb9fa, evidence.md and the appended decisions say the cold run bootstrapped317 packages. Raw gate-cold-clone.log:7 says455 packages;317 came from counting node_modules directory entries and is not npm's package count. The excerpt labelled first20 lines is a filtered selection, not the raw first20 lines. Also the global statement that every gate ran atab56b84 excludes the cold run: its factory tool records show cloning b9e09bc at10:03:26, running at10:03:32 and deleting that owned clone after capture, before890ca1a andab56b84 existed. Preserve the actual cold run's revision and distinguish later runs. Root found the version-boundary shell snippet in the actual tool record, so that claim is supported as arithmetic testing, not alternate Node runtime testing. Later TSV03:10:*Z rows were appended at10:14:20UTC; clarify their clock labels along with the initial rows.
