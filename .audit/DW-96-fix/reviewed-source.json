@@ -1,0 +1,11 @@
+{
+  "baseline": "3b8a451e3738a8da1bd95ba5e7029dba6f970a4d",
+  "reviewed_files": {
+    "convex/ai/learning.ts": "bc0b06e4eb525170d3d6a4c52a19d3edff96416599bd0f3c3224ce50a409158a",
+    "convex/learningFailure.test.ts": "97f7b6c77830876fb0f426fc911b74a83be0ff77d570dd67034a75ab09345f60"
+  },
+  "review_diff_sha256": "2e70392193e5d2e656dfea65769fba6151c3ac1bf9c29ade50cc72b0071eddb2",
+  "review_layers": 4,
+  "actionable_findings": 0,
+  "followup_review_recommended": false
+}

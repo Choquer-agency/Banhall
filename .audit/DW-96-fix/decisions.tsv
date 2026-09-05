@@ -1,0 +1,6 @@
+ts	phase	decision	why	evidence	result
+2026-09-05T06:05:18.639918+00:00	test-seam	Run actual registered handlers inside convex-test with real queries and storage	Inject only provider rejection and secondary mutation persistence so known errors retain identity	convex/learningFailure.test.ts	8 matrix cases
+2026-09-05T06:05:18.639918+00:00	baseline	Capture red before editing production	Prove the exception masking exists on supplied baseline	.audit/DW-96-fix/before-regression.log	4 fail; 4 pass
+2026-09-05T06:05:18.639918+00:00	implementation	Catch subordinate attempt persistence rejection then rethrow original	Keep awaited write and causal failure without retry or recovery policy	convex/ai/learning.ts:106	Nested catch only
+2026-09-05T06:05:18.639918+00:00	verification	Run focused existing and regression tests plus full and type gates	Verify action behavior and integration without browser rerun	.audit/DW-96-fix/after-full.log	1878 tests pass
+2026-09-05T06:05:18.639918+00:00	integrity	Compare 3971 tracked regular files with baseline hashes	Protect admission storage schema generated APIs policies and ledgers	.audit/DW-96-fix/integrity.log	Only convex/ai/learning.ts changed
