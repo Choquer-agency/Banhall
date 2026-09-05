@@ -1,6 +1,6 @@
 ---
 key: tests-3-runner-cleanup-and-guard
-status: todo
+status: done
 kind: chore
 deps: [tests-1-one-runner, tests-2-real-proposal-access-roster-tests]
 touches: [scripts, tests, vitest.config.ts, package.json, package-lock.json, tsconfig.json, bun.lock]
@@ -10,7 +10,12 @@ done_when: ["! rg -q 'bun:test' tests", "! rg -q 'chatProposals|projectReviewAcc
 title: "No bun:test, no @types/bun, no bun.lock, no test/** include; a script proves every tracked test file is discovered by one of the two vitest configs"
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T08:42:42.317Z"
+updated: "2026-09-05T09:28:22.271Z"
+run: 20260905-085105-4-tickets
+branch: factory/tests-3-runner-cleanup-and-guard
+merged: 292e145
+verdict: test-verified
+evidence: .audit/tests-3-runner-cleanup-and-guard/evidence.md
 ---
 ## Intent
 For the next person who adds a test file: the two vitest configs are the only runners, and a script says so when a file lands outside them. After tests-1 and tests-2 nothing imports `bun:test`, so `@types/bun`, `bun.lock` and the by-name excludes in `vitest.config.ts` are dead weight, and `tsconfig.json:16-18` includes a `test/**` directory that does not exist. The retrospective asked for exactly this guard (`RETROSPECTIVE.md:122`: "add a CI guard that fails when a `*.test.ts` file is outside the vitest projects"). Principle: [23 encode lessons in structure]: the orphan-tests lesson becomes a check, not a paragraph; [14 migrate callers, then delete legacy]: the bun runner's last traces go in the same wave as the migration; [9 build the lever].
