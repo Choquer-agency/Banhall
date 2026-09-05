@@ -12,6 +12,10 @@ Evidence spot checks: perf-1 evidence.md:70,96,115,148,157; proof-1 evidence.md:
 
 Limits confirmed: local synthetic/Convex-test metrics do not establish production latency; the PDF boundary remains mocked; no authenticated end-to-end journey was built. UI, DX and combined cold/default/optional/negative-path verification remain pending and are excluded from this verdict.
 
+## UI follow-up, 2026-09-05 09:55 UTC
+
+The same gpt-5.5 reviewer found the UI trail adequate with no new flag. It checked QA evidence and factory events557-563: same eight baseline failures, restored85efbce, passing140/1516unit gate and51/292browser suite. Probe logs and image hashes establish41x32 to44x44 mobile and unchanged121.67x32 desktop. It confirmed ladder4 and route-line corrections, the three retained low test-hardening considerations, and absence of the temporary UI-only hook. No runtime verification was rerun.
+
 ## Final combined follow-up
 
-Pending after UI/DX integration and final isolated proof.
+Pending after DX integration and final isolated proof.

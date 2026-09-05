@@ -11,3 +11,7 @@ Proposed correction within existing scope: bootstrap inside preflight, after too
 ## README setup order consideration
 
 The draft Running the real app paragraph says npx convex dev writes deployment configuration, then says to copy env.example to .env.local. That order can overwrite freshly written values. Prefer creating the local template first, then configuring the intended deployment and retaining CLI-written values, or say to merge only missing names into an existing file. This is a documentation check; root did not run a deployment command.
+
+## Initial decision-row timestamps
+
+The six initial decisions.tsv rows use 2026-09-05T00:00:00Z through00:00:05Z, while the factory record shows their creation at09:55:01UTC. The decisions themselves describe observed planning, but those timestamps are placeholders rather than event times. Preserve append-only history and append a correction that identifies the affected rows and actual recording interval. Later evidence should use actual timestamps and resolvable output paths, not a claimed exit code as its evidence pointer.
