@@ -10,7 +10,6 @@ done_when: [! test -e src/lib/components/comments/CommentHighlight.ts, ! test -e
 title: Delete the nine abandoned React-port components under src/lib/components; nothing imports them
 plan: 20260904-code-quality-sweep
 ui: false
-deferred: ["docs/svelte-migration.md:77 still lists ui/MenuToggleIcon and ui/Header in its historical port inventory; outside the done_when predicate and outside this ticket's deletion-only scope"]
 updated: "2026-09-05T06:29:26.992Z"
 ---
 ## Intent
