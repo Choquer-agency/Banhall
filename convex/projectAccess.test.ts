@@ -24,6 +24,13 @@ async function setup() {
       role: "writer",
       firstName: "Wren",
     });
+    // Eligible internal Consultant with no relationship to the project: reads
+    // are workspace-wide even though prose edits are not.
+    const otherWriterId = await ctx.db.insert("users", {
+      authId: "pa-other-writer",
+      role: "writer",
+      firstName: "Wynn",
+    });
     // Stored anonymous record that also carries a role: never internal.
     const storedAnonymousId = await ctx.db.insert("users", {
       authId: "pa-anonymous",
@@ -63,7 +70,15 @@ async function setup() {
       updatedAt: now,
     });
     await ctx.db.delete(missingProjectId);
-    return { writerId, storedAnonymousId, rolelessId, projectId, reportId, missingProjectId };
+    return {
+      writerId,
+      otherWriterId,
+      storedAnonymousId,
+      rolelessId,
+      projectId,
+      reportId,
+      missingProjectId,
+    };
   });
   return {
     t,
@@ -71,6 +86,7 @@ async function setup() {
     noIdentity: t,
     unmapped: t.withIdentity({ subject: "pa-unmapped" }),
     writer: t.withIdentity({ subject: "pa-writer" }),
+    otherWriter: t.withIdentity({ subject: "pa-other-writer" }),
     storedAnonymous: t.withIdentity({ subject: "pa-anonymous" }),
     roleless: t.withIdentity({ subject: "pa-roleless" }),
   };
@@ -104,6 +120,22 @@ describe("getProjectAccess internal eligibility", () => {
     expect(await access(f.writer, f)).toMatchObject(expected);
     expect(await access(f.writer, f, SHARE_TOKEN)).toMatchObject(expected);
     expect(await access(f.writer, f, WRONG_TOKEN)).toMatchObject(expected);
+  });
+
+  it("grants internal access to an eligible writer unrelated to the project", async () => {
+    const f = await setup();
+    const expected = {
+      kind: "internal",
+      project: { _id: f.projectId },
+      user: { _id: f.otherWriterId },
+    };
+    expect(await access(f.otherWriter, f)).toMatchObject(expected);
+    expect(await access(f.otherWriter, f, SHARE_TOKEN)).toMatchObject(expected);
+    expect(
+      await f.otherWriter.run((ctx) =>
+        getInternalProjectAccessOrNull(ctx, f.projectId)
+      )
+    ).toMatchObject({ project: { _id: f.projectId }, user: { _id: f.otherWriterId } });
   });
 
   it.each([
