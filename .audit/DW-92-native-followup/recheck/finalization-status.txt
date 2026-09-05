@@ -1,0 +1,2 @@
+ M _bmad-output/implementation-artifacts/deferred-work.md
+ M _bmad-output/implementation-artifacts/spec-dw-92-blocking-qa-native-followup.md

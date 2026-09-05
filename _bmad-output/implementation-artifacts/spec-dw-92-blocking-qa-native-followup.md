@@ -2,7 +2,7 @@
 title: 'DW-92 blocking QA native follow-up'
 type: 'chore'
 created: '2026-09-04'
-status: 'done'
+status: 'blocked'
 baseline_revision: '9da55bece5948da12129720dd2330a3032c985bf'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -107,7 +107,8 @@ All four independent review layers completed. Full historical QA implementation 
 
 ## Auto Run Result
 
-Status: done
+Status: blocked
+Blocking condition: finalization left repository dirty. The only remaining change is the pre-existing orchestrator-owned deferred-work ledger, which this worker is prohibited from editing, reverting or staging. QA verification and review are complete; the orchestrator must reconcile its own change before the workflow can satisfy its clean-working-copy requirement.
 
 Fresh four-layer review and ordinary verification completed against product-source commit `c94860f7e2bf37d863acc1446692fc622f236bc4`. No new product defect or product-policy decision was identified. Prior QA repairs remain unchanged. Historical audit claims are distinguished from this invocation's fresh command evidence and actual terminal marker.
 
@@ -121,3 +122,5 @@ Review: seven audit patches (high 0, medium 2, low 5), zero deferrals, five reje
 Verification: ordinary gate exited zero with 1,732 tests, both type checks, PowerShell 50/50 and Bash 18/18. Focused gate passed 147 tests. Explicit Convex TypeScript exited zero. Final source and preservation checks compare actual artifacts. Missing terminal marker was reproduced as a failing final check before this write. Detailed results are in `.audit/DW-92-native-followup/recheck/evidence.md` and the actual raw logs.
 
 Residual risks: the accepted sentence-level detector and exact-content methodology limits remain. Native final acceptance is still the orchestrator's operation. The orchestrator-owned ledger was dirty at invocation and has been preserved without staging or modification; its status is neither a defect nor evidence of verification.
+
+Finalization: reviewed evidence committed as `8330ad23139dc4766af7387756a1bdd4392563c0`. The post-commit status check showed only `_bmad-output/implementation-artifacts/deferred-work.md` modified. Its bytes still match the invocation snapshot. This blocked result is the hand-back channel; no board or ledger status was changed.

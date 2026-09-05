@@ -43,7 +43,10 @@ else:
 spec = (ROOT / SPEC).read_text()
 require(spec.count('\n## Auto Run Result\n') == 1, 'Missing or duplicate terminal result')
 result = spec.split('\n## Auto Run Result\n')[1]
-require("status: 'done'" in spec.split('---', 2)[1], 'Spec is not done')
-for value in ['Status: done', 'Files changed:', 'Review:', 'Verification:', 'Residual risks:']:
+status = "blocked" if "status: 'blocked'" in spec.split("---", 2)[1] else "done"
+require(f"status: '{status}'" in spec.split("---", 2)[1], "Invalid terminal status")
+if status == "blocked":
+    require("Blocking condition: finalization left repository dirty" in result, "Missing finalization blocker")
+for value in [f'Status: {status}', 'Files changed:', 'Review:', 'Verification:', 'Residual risks:']:
     require(value in result, 'Required terminal field absent: ' + value)
 print(json.dumps({'head': git('rev-parse', 'HEAD').decode().strip(), 'source_revision': start['revision'], 'protected_files_unchanged': True, 'orchestrator_files_match_invocation': True, 'source_matches_verified_commit': True, 'terminal_result_valid': True, 'logs_sha256': log_hashes}, indent=2))
