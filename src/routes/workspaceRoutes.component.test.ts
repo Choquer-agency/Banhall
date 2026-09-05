@@ -51,7 +51,15 @@ describe("canonical workspace routes", () => {
     // The rail links carry ?layout through between the canonical routes.
     const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>("nav a"));
     expect(anchors.some((a) => a.getAttribute("href") === "/my-work?layout=board")).toBe(true);
-    expect(anchors.some((a) => a.getAttribute("href") === "/projects?layout=board")).toBe(true);
+    // Projects always opens client-grouped (2026-08-19), so its href carries
+    // the existing ?layout through and adds the default ?group.
+    const projects = new URL(
+      anchors.find((a) => a.getAttribute("href")?.startsWith("/projects"))!.getAttribute("href")!,
+      "http://localhost"
+    );
+    expect(projects.pathname).toBe("/projects");
+    expect(projects.searchParams.get("layout")).toBe("board");
+    expect(projects.searchParams.get("group")).toBe("client");
     expect(gotoUrls()).toHaveLength(0);
   });
 
