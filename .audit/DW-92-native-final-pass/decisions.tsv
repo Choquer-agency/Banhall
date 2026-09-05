@@ -1,0 +1,5 @@
+ts	phase	decision	why	evidence	result
+2026-09-05T00:56:00.529089+00:00	route	Review supplied done spec	Workflow requires fresh pass; preserve entry state	entry.json	same flat result target
+2026-09-05T00:56:00.529287+00:00	review	Repair ancestry and horizontalRule separation	Two reviewers identified borrowed because bypass	review.md	registered failures reproduced
+2026-09-05T00:56:00.529291+00:00	prove	Require current ordinary gates and result checker	Historical green evidence cannot establish this invocation	verify.py	verification running
+2026-09-05T00:56:00.529293+00:00	ownership	Preserve ledger and sprint bytes and index	Orchestrator owns content and status	entry.json	no ownership edits

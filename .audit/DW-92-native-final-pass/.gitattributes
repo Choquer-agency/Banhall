@@ -1,0 +1,3 @@
+*.log -whitespace
+*.diff -whitespace
+entry-spec.md -whitespace

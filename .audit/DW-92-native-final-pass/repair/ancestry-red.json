@@ -1,0 +1,25 @@
+{
+  "command": [
+    "npx",
+    "vitest",
+    "run",
+    "convex/qaBlocking.test.ts",
+    "-t",
+    "final review wrapper ancestry boundaries"
+  ],
+  "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup",
+  "revision": "54a898d44878bf911eec5fb70777982eae43efde",
+  "started": "2026-09-05T00:53:43.881718+00:00",
+  "before": {
+    "convex/lib/tiptapReport.ts": "36b0a82ce403300ee1af2ce048de6cb5e1a0080478a7e056e16796a0f0a748c8",
+    "convex/qaBlocking.test.ts": "b7928f1e2f7f698e25b4404a1f9bd020dde06f549d1689ced7374e64696fea6b"
+  },
+  "log": "ancestry-red.log",
+  "exit_code": 1,
+  "ended": "2026-09-05T00:53:45.365498+00:00",
+  "after": {
+    "convex/lib/tiptapReport.ts": "36b0a82ce403300ee1af2ce048de6cb5e1a0080478a7e056e16796a0f0a748c8",
+    "convex/qaBlocking.test.ts": "b7928f1e2f7f698e25b4404a1f9bd020dde06f549d1689ced7374e64696fea6b"
+  },
+  "sha256": "e7127e0dd8e185a2d74075e8593af08964c4246f11c188f77b2e790fb2dd2e9d"
+}

@@ -1,0 +1,35 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup
+
+ ❯ |convex| convex/qaBlocking.test.ts (70 tests | 5 failed | 63 skipped) 183ms
+     × block entry cannot borrow because across ancestry 143ms
+     × block exit cannot borrow because across ancestry 2ms
+     × wrapped siblings cannot borrow because across ancestry 2ms
+     × horizontal rule cannot borrow because across ancestry 2ms
+     × wrapped horizontal rule cannot borrow because across ancestry 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > final review wrapper ancestry boundaries > block entry cannot borrow because across ancestry
+ FAIL  |convex| convex/qaBlocking.test.ts > final review wrapper ancestry boundaries > block exit cannot borrow because across ancestry
+ FAIL  |convex| convex/qaBlocking.test.ts > final review wrapper ancestry boundaries > wrapped siblings cannot borrow because across ancestry
+ FAIL  |convex| convex/qaBlocking.test.ts > final review wrapper ancestry boundaries > horizontal rule cannot borrow because across ancestry
+ FAIL  |convex| convex/qaBlocking.test.ts > final review wrapper ancestry boundaries > wrapped horizontal rule cannot borrow because across ancestry
+AssertionError: expected [ 'IDENTITY_EVIDENCE_REQUIRED', …(2) ] to include 'QA_BLOCKING'
+ ❯ expectBlocked convex/qaBlocking.test.ts:61:60
+     59| }
+     60| async function expectBlocked(f: Fixture, subject = "qa-owner") {
+     61|   expect((await readiness(f)).blockers.map((b) => b.code)).toContain("…
+       |                                                            ^
+     62|   const before = await f.t.run((ctx) => ctx.db.get(f.projectId));
+     63|   const scheduledBefore = await f.t.run((ctx) => ctx.db.system.query("…
+ ❯ convex/qaBlocking.test.ts:556:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 2 passed | 63 skipped (70)
+   Start at  17:53:44
+   Duration  587ms (transform 266ms, setup 0ms, import 222ms, tests 183ms, environment 47ms)
+
