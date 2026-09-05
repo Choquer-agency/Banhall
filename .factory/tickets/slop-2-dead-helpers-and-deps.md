@@ -7,6 +7,10 @@ touches: [src, package.json, package-lock.json]
 risky: []
 verify: [npx vitest run src/lib/workspace/projectIntentHandoff.test.ts src/lib/workspace/stageRankGroups.test.ts src/lib/dashboard/stageFilter.test.ts, npx vitest run --config vitest.component.config.ts src/routes/project/new/newProjectPrefill.component.test.ts src/lib/components/workspace/ProjectsClientGroups.component.test.ts src/lib/components/workspace/ProjectsTableView.component.test.ts src/lib/components/workspace/ProjectsDisplayMenu.component.test.ts, npx vitest run --config vitest.component.config.ts src/lib/components/editor/Editor.component.test.ts]
 done_when: ["! rg -q 'stashProjectIntent|takeProjectIntent|groupRowsByStageRank|visibleStageGroups|matchesStageFilter|stageFilterItems\\(|countProjectsByStage|extractSections' src", "! rg -q '\"(docx|svelte-exmarkdown|tippy\\.js|eslint)\"' package.json", npx vitest run src/lib/workspace/projectIntentHandoff.test.ts src/lib/workspace/stageRankGroups.test.ts src/lib/dashboard/stageFilter.test.ts, "! rg -q 'import Underline|^    Underline,' src/lib/tiptapConfig.ts"]
+deferred:
+  - "`@tiptap/extension-underline` is now a direct dependency with no direct import; kept per AC4 because StarterKit resolves the same 3.28.0 package, but the Tiptap dependency inventory should decide whether the explicit declaration stays."
+  - "`scripts/loop-verify.sh` does not export `PUBLIC_CONVEX_SITE_URL` and does not run `npm run build`, so the engine gate cannot catch a build-only break; `build-gate-review.md:11` already scopes that change to another ticket. Build verified by hand here (exit 0)."
+  - "AC6 literal wording not met in one file: `src/routes/project/new/newProjectPrefill.component.test.ts` is net 0 (+5/-5) because migrating one import and four call sites off the deleted wrappers is line-for-line."
 title: "Delete test-only helper exports (intent wrappers, stage grouping, stage filtering, extractSections) and four unused dependencies"
 plan: 20260904-code-quality-sweep
 ui: false
