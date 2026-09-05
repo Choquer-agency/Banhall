@@ -38,6 +38,13 @@
     type ReportSectionKey,
     type ReportSectionMetricMap,
   } from "$lib/reportSections";
+  import {
+    buildSearchIndex,
+    findAllOccurrencesCI,
+    findOccurrencesBatch,
+    normalizeForMatch,
+    type Range,
+  } from "./docSearch";
 
   const REPORT_SECTION_DEFINITIONS = [
     { key: "s242", line: "242" },
@@ -83,66 +90,6 @@
       return `Line ${line} is ${wordOverage} word${wordOverage === 1 ? "" : "s"} over the CRA limit.`;
     }
     return `Line ${line} is within 5% of a CRA limit.`;
-  }
-
-  type Range = { from: number; to: number; text: string };
-
-  /**
-   * Normalize for matching WITHOUT changing length (1:1) so character offsets
-   * still map to ProseMirror positions: unify curly quotes, dashes, and collapse
-   * every whitespace char to a single space. This makes matching tolerant of the
-   * punctuation/whitespace the model tends to substitute in its references.
-   */
-  function normalizeForMatch(s: string): string {
-    return s
-      .replace(/[‘’′´`]/g, "'")
-      .replace(/[“”″]/g, '"')
-      .replace(/[–—−]/g, "-")
-      // Collapse whitespace RUNS (incl. paragraph breaks) to one space so a
-      // needle spanning "\n\n" matches doc text where blocks join on one "\n".
-      .replace(/\s+/g, " ");
-  }
-
-  /**
-   * Doc text + aligned position map for searching. Whitespace runs and block
-   * boundaries collapse to a single " " entry, matching normalizeForMatch on
-   * the needle side, so indexes in `hay` always line up with `posMap` —
-   * consecutive empty paragraphs previously desynced the two and highlights
-   * landed on shifted character spans.
-   */
-  function buildSearchIndex(doc: PMNode): { hay: string; posMap: number[] } {
-    const chars: string[] = [];
-    const posMap: number[] = [];
-    let pendingBreak = false;
-    const pushChar = (ch: string, pos: number) => {
-      if (/\s/.test(ch)) {
-        pendingBreak = chars.length > 0;
-        return;
-      }
-      if (pendingBreak) {
-        // Interior separator: matches never start/end on a space (needles are
-        // trimmed), so mapping it to the next real char's pos is safe.
-        chars.push(" ");
-        posMap.push(pos);
-        pendingBreak = false;
-      }
-      chars.push(
-        ch
-          .replace(/[‘’′´`]/, "'")
-          .replace(/[“”″]/, '"')
-          .replace(/[–—−]/, "-")
-      );
-      posMap.push(pos);
-    };
-    doc.descendants((node, pos) => {
-      if (node.isText && node.text) {
-        for (let i = 0; i < node.text.length; i++) pushChar(node.text[i], pos + i);
-      } else if (node.isTextblock && chars.length > 0) {
-        pendingBreak = true;
-      }
-      return true;
-    });
-    return { hay: chars.join(""), posMap };
   }
 
   const SIG_WORD = /[a-z0-9]{4,}/g;
@@ -246,41 +193,6 @@
     }
 
     return [];
-  }
-
-  /**
-   * BNH-30: every occurrence of `find`, case-insensitive (so "the system" also
-   * matches "The system" at sentence starts). Returns the ACTUAL matched text so
-   * the replacement can preserve casing.
-   */
-  function findAllOccurrencesCI(doc: PMNode, find: string): Range[] {
-    const docSize = doc.content.size;
-    const needle = (find ?? "").trim();
-    if (!needle || docSize < 2) return [];
-
-    const index = buildSearchIndex(doc);
-    const hay = index.hay.toLowerCase();
-    const posMap = index.posMap;
-    const ned = normalizeForMatch(needle).toLowerCase();
-    if (!ned) return [];
-
-    const out: Range[] = [];
-    let idx = hay.indexOf(ned);
-    while (idx !== -1) {
-      const fromPos = posMap[idx];
-      const toPos = posMap[idx + ned.length - 1];
-      if (fromPos !== undefined && toPos !== undefined && fromPos !== -1 && toPos !== -1) {
-        let actual = needle;
-        try {
-          actual = doc.textBetween(fromPos, toPos + 1, " ");
-        } catch {
-          /* keep needle */
-        }
-        out.push({ from: fromPos, to: toPos + 1, text: actual });
-      }
-      idx = hay.indexOf(ned, idx + Math.max(1, ned.length));
-    }
-    return out;
   }
 
   /** Capitalize the replacement's first letter when the matched text was capitalized. */
@@ -505,9 +417,11 @@
 
     // Live proposal preview: strike the text being replaced and show the
     // proposed text inline after it (green), directly in the document.
-    for (const d of diffs) {
-      const matches = findAllOccurrencesCI(doc, d.find);
-      for (const m of matches) {
+    const previewMatches = diffs.length
+      ? findOccurrencesBatch(doc, diffs.map((d) => d.find))
+      : [];
+    diffs.forEach((d, i) => {
+      for (const m of previewMatches[i]) {
         decorations.push(
           Decoration.inline(m.from, m.to, { class: "proposal-removed" })
         );
@@ -543,7 +457,7 @@
           );
         }
       }
-    }
+    });
 
     // BNH-25: AI-referenced passages — re-resolve by text so they survive drift.
     for (const r of aiRanges) {
@@ -1112,9 +1026,9 @@
   ): FindReplaceMatch[] {
     if (!editor) return [];
     const out: FindReplaceMatch[] = [];
-    for (const p of pairs) {
-      if (!p.find) continue;
-      for (const r of findAllOccurrencesCI(editor.state.doc, p.find)) {
+    const found = findOccurrencesBatch(editor.state.doc, pairs.map((p) => p.find));
+    pairs.forEach((p, i) => {
+      for (const r of found[i]) {
         out.push({
           from: r.from,
           to: r.to,
@@ -1122,7 +1036,7 @@
           text: r.text,
         });
       }
-    }
+    });
     return out.sort((a, b) => a.from - b.from);
   }
 
