@@ -3,6 +3,7 @@
 ---
 id: SPEC-ai-engine-sprint-2-learn-chat
 companions:
+  - decisions/rerank-fallback-measurement-2026-09-05.md
   - decisions/digest-diversity-policy-2026-09-04.md
   - touchpoints.md
   - ../../../docs/the-brain.md
@@ -32,7 +33,7 @@ A pain to solve: the learning loop cannot answer "is the system improving?" Post
 
 - **CAP-3**
   - **intent:** Admins can see whether learning is working.
-  - **success:** `/admin/learning` shows PED trend (30/90 days), exemplar usage by Brain source (join `generations.brainProvenance` to `writerReviews` and `candidateScores`), and rerank fallback rate from `aiUsage` Brain call sites; all numbers come from queries with tests.
+  - **success:** `/admin/learning` shows PED trend (30/90 days), exemplar usage by Brain source (join `generations.brainProvenance` to `writerReviews` and `candidateScores`), and measured rerank fallback rate at the existing Brain rerank call sites, with operational outcomes independent of aiUsage billing metadata. The human approved failed attempted reranks divided by all attempted reranks, excluding deliberate skips, prospective tracking now, and unavailable historical coverage (2026-09-05). Count logical terminal attempts after existing retries; preserve billing and retrieval semantics. The measurement companion defines the edge cases; all numbers come from queries with tests.
 
 - **CAP-4**
   - **intent:** A firm-wide digest cannot be distilled from one writer or one project, and every digest names its inputs.
