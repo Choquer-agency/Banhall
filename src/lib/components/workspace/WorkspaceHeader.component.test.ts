@@ -161,9 +161,32 @@ describe("WorkspaceHeader", () => {
     expect(newProject?.className).toContain("bg-action-primary");
     expect(newProject?.className).toContain("text-action-primary-foreground");
     expect(newProject?.className).not.toContain("bg-fir");
-    expect(newProject?.className).toContain("py-2.5");
-    expect(newProject?.className).not.toContain("sm:h-7");
     expect(newProject?.parentElement?.className).toContain("ml-auto");
     expect(newProject?.parentElement?.className).not.toContain("md:ml-0");
+  });
+
+  /**
+   * The creation action is a touch target on phones and a toolbar control on
+   * desktop, so the contract is geometry, not a size token: >=44px in both
+   * dimensions at 390px (docs/product-domain.md:233), and the compact 32px
+   * toolbar height at desktop width. Measured 41x32 at 390px before the
+   * caller gained its mobile floor.
+   */
+  it("meets the 44px mobile target and keeps the compact desktop toolbar height", async () => {
+    await browserPage.viewport(390, 844);
+    const mobileView = await render(WorkspaceHeader, baseProps());
+    const mobile = document
+      .querySelector<HTMLAnchorElement>('a[href="/project/new"]')!
+      .getBoundingClientRect();
+    expect(mobile.width).toBeGreaterThanOrEqual(44);
+    expect(mobile.height).toBeGreaterThanOrEqual(44);
+    mobileView.unmount();
+
+    await browserPage.viewport(1280, 800);
+    await render(WorkspaceHeader, baseProps());
+    const desktop = document
+      .querySelector<HTMLAnchorElement>('a[href="/project/new"]')!
+      .getBoundingClientRect();
+    expect(Math.round(desktop.height)).toBe(32);
   });
 });

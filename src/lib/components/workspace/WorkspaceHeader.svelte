@@ -174,10 +174,14 @@
     </button>
 
     {#if showNewProject}
+      <!-- The xs toolbar scale is 32px, which is a fine desktop pointer
+           target but under the 44px touch minimum (docs/product-domain.md).
+           Measured 41x32 at 390px before this floor was added; the reset at
+           sm keeps the compact toolbar rhythm on desktop. -->
       <Button
         href={resolve("/project/new")}
         size="xs"
-        class="gap-1.5 motion-reduce:transition-none"
+        class="min-h-11 min-w-11 gap-1.5 motion-reduce:transition-none sm:min-h-0 sm:min-w-0"
       >
         <PlusIcon size={15} weight="bold" aria-hidden="true" />
         <span class="hidden sm:inline">New project</span>

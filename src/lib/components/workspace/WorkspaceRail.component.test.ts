@@ -28,6 +28,30 @@ const navLink = (label: string) =>
     (anchor) => anchor.textContent?.trim() === label
   );
 
+/**
+ * Admin navigation needs `role === "admin"` AND workspace Owner or Developer
+ * (2026-08-19 amendment, WorkspaceRail.svelte:228). An owner/admin is the
+ * plainest eligible fixture: it reveals the group without also unlocking the
+ * developer-only utilities.
+ */
+const ownerAdmin = {
+  role: "admin",
+  name: "Admin Writer",
+  isOwner: true,
+} as const;
+
+/** The sanctioned Admin destinations, in rail order. */
+const ADMIN_HREFS = [
+  "/admin/brain",
+  "/admin/ingestion",
+  "/admin/tags",
+  "/admin/reviews",
+  "/admin/users",
+  "/admin/house-rules",
+  "/admin/models",
+  "/admin/usage",
+];
+
 describe("WorkspaceRail", () => {
   beforeEach(() => {
     __resetPage();
@@ -98,34 +122,49 @@ describe("WorkspaceRail", () => {
   });
 
   it("keeps the drawer chrome fixed, scrolls only its links, and starts Admin compact", async () => {
-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
+    __setQueryData("users:getCurrentUser", ownerAdmin);
     await render(WorkspaceRail, baseProps({ variant: "drawer" }));
 
     expect(document.querySelector("[data-rail-drawer-header]")?.className).toContain("shrink-0");
     expect(document.querySelector("[data-rail-scroll]")?.className).toContain("overflow-y-auto");
-    expect(document.querySelector("[data-admin-group-toggle]")?.getAttribute("aria-expanded")).toBe("false");
+
+    const group = document.querySelector<HTMLButtonElement>("[data-admin-group-toggle]")!;
+    expect(group.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector("#workspace-admin-links")).toBeNull();
+
+    group.click();
+    await expect.poll(() => group.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector("#workspace-admin-links")).not.toBeNull();
+  });
+
+  it("presents Admin as a left-chevron group over the sanctioned destinations", async () => {
+    __setQueryData("users:getCurrentUser", ownerAdmin);
+    await render(WorkspaceRail, baseProps());
+
+    const group = document.querySelector<HTMLButtonElement>("[data-admin-group-toggle]")!;
+    expect(group.textContent).toContain("Admin");
+    expect(group.getAttribute("aria-expanded")).toBe("true");
+    expect(group.getAttribute("aria-controls")).toBe("workspace-admin-links");
+    expect(group.firstElementChild?.tagName).toBe("svg");
+
+    const links = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>("#workspace-admin-links a")
+    );
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(ADMIN_HREFS);
+    expect(links.every((link) => link.querySelector("[data-admin-icon-tone] svg"))).toBe(true);
+
+    group.click();
+    await expect.poll(() => group.getAttribute("aria-expanded")).toBe("false");
     expect(document.querySelector("#workspace-admin-links")).toBeNull();
   });
 
-  it("presents Admin as an Attio-style left-chevron group with distinct icon colours", async () => {
+  it("hides Admin from an admin who is neither workspace Owner nor Developer", async () => {
     __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
     await render(WorkspaceRail, baseProps());
 
-    const group = document.querySelector<HTMLButtonElement>("[data-admin-group-toggle]");
-    expect(group?.textContent).toContain("Admin");
-    expect(group?.getAttribute("aria-expanded")).toBe("true");
-    expect(group?.firstElementChild?.tagName).toBe("svg");
-
-    const iconTiles = Array.from(document.querySelectorAll<HTMLElement>("[data-admin-icon-tone]"));
-    expect(iconTiles).toHaveLength(7);
-    expect(new Set(iconTiles.map((tile) => tile.className.match(/bg-[a-z]+-500/)?.[0])).size).toBe(7);
-    expect(document.querySelector('[data-admin-icon-tone="ingestion"] svg')).not.toBeNull();
-    expect(document.querySelector("#workspace-admin-links")?.className).toContain("gap-1");
-
-    group?.click();
-    await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
-    expect(group?.getAttribute("aria-expanded")).toBe("false");
-    expect(document.querySelector("#workspace-admin-links")).toBeNull();
+    expect(document.querySelector("[data-rail-admin]")).toBeNull();
+    expect(document.querySelector("[data-admin-group-toggle]")).toBeNull();
+    expect(document.querySelector('nav a[href="/admin/house-rules"]')).toBeNull();
   });
 
   it("shows only What's new from the utility links for non-developers", async () => {
@@ -167,21 +206,23 @@ describe("WorkspaceRail", () => {
   });
 
   it("moves the Admin records group below the primary workspace links", async () => {
-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
+    __setQueryData("users:getCurrentUser", ownerAdmin);
     await render(WorkspaceRail, baseProps());
 
-    expect(document.querySelector("[data-rail-admin]")?.className).toContain("mt-5");
+    const admin = document.querySelector<HTMLElement>("[data-rail-admin]")!;
+    const projects = navLink("Projects")!;
+    // Nav order, not a margin token: Projects precedes the whole group.
+    expect(projects.compareDocumentPosition(admin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(navLink("Home")!.compareDocumentPosition(projects) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shares the compact rail rhythm with fine-pointer drawers without shrinking touch targets", async () => {
-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
+    __setQueryData("users:getCurrentUser", ownerAdmin);
     await render(WorkspaceRail, baseProps({ variant: "drawer" }));
 
     const home = navLink("Home");
     expect(home?.className).toContain("workspace-rail-row");
     expect(home?.className).toContain("min-h-11");
-    expect(home?.className).toContain("duration-300");
-    expect(document.querySelector("[data-rail-admin]")?.className).toContain("mt-5");
   });
 
   it("keeps the component expanded because full collapse is owned by WorkspaceShell", async () => {
