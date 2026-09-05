@@ -10,7 +10,6 @@ done_when: [! test -e src/lib/components/mywork/MyWorkGroup.svelte, ! test -e sr
 title: "Delete the retired My Work lane presentation: eight files kept alive only by their own tests"
 plan: 20260904-code-quality-sweep
 ui: false
-deferred: ["docs/design-system.md:403 still names MyWorkGroup as an adopter of the shared Disclosure motion; the prose is now stale but AC1 forbids editing files npm run check does not name", "MyWorkLaneSort.component.test.ts keeps a stale filename while testing the current Home bounded subscription; the ticket explicitly retains it"]
 updated: "2026-09-05T07:22:38.557Z"
 ---
 ## Intent
