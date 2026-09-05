@@ -1,0 +1,44 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/chat/OptimisticSend.component.test.ts -t acknowledges an offscreen
+
+4:52:42 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix
+
+4:52:42 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix - using default configuration.
+ ❯ |component (chromium)| src/lib/components/chat/OptimisticSend.component.test.ts (34 tests | 1 failed | 33 skipped) 14964ms
+   × acknowledges an offscreen published send through bounded completion until exact page handoff 14963ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/OptimisticSend.component.test.ts > acknowledges an offscreen published send through bounded completion until exact page handoff
+Error: [2mexpect([22m[31melement[39m[2m).toHaveTextContent()[22m
+
+Expected element to have text content:
+[32m  /^Sent$/[39m
+Received:
+[31m  Sending…[39m
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/OptimisticSend.component.test.ts/acknowledges-an-offscreen-published-send-through-bounded-completion-until-exact-page-handoff-2.png
+
+ ❯ src/lib/components/chat/OptimisticSend.component.test.ts:683:49
+    681|   await expect.element(composer()).toHaveValue("Preserved newer draft"…
+    682|   await page.screenshot({ path: "../../../../.audit/published-status-f…
+    683|   await expect.element(page.getByRole("status")).toHaveTextContent(/^S…
+       |                                                 ^
+    684|   // Identical content with a different ID still cannot acknowledge pu…
+    685|   __setPaginatedRows("chatV2:listMessages", [row("different-prompt", p…
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/OptimisticSend.component.test.ts:683:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 33 skipped (34)
+   Start at  04:52:42
+   Duration  17.11s (transform 0ms, setup 482ms, import 872ms, tests 14.96s, environment 0ms)
+

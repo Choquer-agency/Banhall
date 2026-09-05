@@ -1,0 +1,47 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/chat/OptimisticSend.component.test.ts -t acknowledges an offscreen
+
+4:51:20 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix
+
+4:51:20 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix - using default configuration.
+ ❯ |component (chromium)| src/lib/components/chat/OptimisticSend.component.test.ts (34 tests | 1 failed | 33 skipped) 15052ms
+   × acknowledges an offscreen published send through bounded completion until exact page handoff 15051ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/OptimisticSend.component.test.ts > acknowledges an offscreen published send through bounded completion until exact page handoff
+Error: [2mexpect([22m[31melement[39m[2m).toBeEnabled()[22m
+
+Received element is not enabled:
+  [31m<button
+  aria-label="Send message"
+  class="group flex h-8 shrink-0 items-center justify-center rounded-full bg-navy px-4 text-white transition-[box-shadow,transform] hover:bg-navy-light active:translate-y-px disabled:opacity-10"
+  disabled=""
+  title="Send"
+/>[39m
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/OptimisticSend.component.test.ts/acknowledges-an-offscreen-published-send-through-bounded-completion-until-exact-page-handoff-1.png
+
+ ❯ src/lib/components/chat/OptimisticSend.component.test.ts:672:31
+    670|     { _id: "own-turn", order: 2, promptMessageId: "confirmed-prompt", …
+    671|   ]);
+    672|   await expect.element(send()).toBeEnabled();
+       |                               ^
+    673|   await expect.poll(() => __activeQueryArgs("chatV2:listTurns")).toEqu…
+    674|   expect(localRows()).toHaveLength(1);
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/OptimisticSend.component.test.ts:672:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 33 skipped (34)
+   Start at  04:51:20
+   Duration  17.17s (transform 0ms, setup 485ms, import 837ms, tests 15.05s, environment 0ms)
+

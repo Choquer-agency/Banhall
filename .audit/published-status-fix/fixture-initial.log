@@ -1,0 +1,41 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/chat/OptimisticSend.component.test.ts -t acknowledges an offscreen
+
+4:50:40 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix
+
+4:50:40 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix - using default configuration.
+Port 63315 is in use, trying another one...
+ ❯ |component (chromium)| src/lib/components/chat/OptimisticSend.component.test.ts (34 tests | 1 failed | 33 skipped) 14983ms
+   × acknowledges an offscreen published send through bounded completion until exact page handoff 14982ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/OptimisticSend.component.test.ts > acknowledges an offscreen published send through bounded completion until exact page handoff
+TimeoutError: locator.click: Timeout 14800ms exceeded.
+Call log:
+[2m  - waiting for locator('[data-vitest="true"]').contentFrame().getByRole('button', { name: 'Send message', exact: true })[22m
+
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/OptimisticSend.component.test.ts/acknowledges-an-offscreen-published-send-through-bounded-completion-until-exact-page-handoff-1.png
+
+ ❯ writeAndSend src/lib/components/chat/OptimisticSend.component.test.ts:37:87
+     35|   await page.getByRole("menuitem", { name, exact: false }).click();
+     36| }
+     37| async function writeAndSend(text = prompt) { await composer().fill(tex…
+       |                                                                                       ^
+     38| beforeEach(() => {
+     39|   __resetConvexStub(); __resetAuthState(); localStorage.clear();
+ ❯ src/lib/components/chat/OptimisticSend.component.test.ts:643:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 33 skipped (34)
+   Start at  04:50:40
+   Duration  17.77s (transform 0ms, setup 680ms, import 1.15s, tests 14.98s, environment 0ms)
+
