@@ -97,3 +97,7 @@ Root prepared capture-final-proof.py to run the actual gate twice in the final o
 ## DX review1 caught a false environment-reader finding
 
 Review1 rejected one remaining issue: the implementer claimed ingest.ts reads process.env.n and therefore omitted BRAIN_CONTEXTUAL from env.example. Root verified actual source atconvex/ai/brain/ingest.ts:13 reads process.env.BRAIN_CONTEXTUAL, and docs/the-brain.md:134 documents the flag. The implementation event at09:56:53 used `rg -rn`: ripgrep treats this as replacement argument n, so its displayed result rewrote the matched variable name. Root reproduced both commands against the actual file in .audit/code-quality-sweep/ripgrep-replacement-reproduction.json. This is an audit command error, not a Convex runtime bug. Fix2 restores the comment and removes the false deferred entry; the normal review caught what the bounded cross-model trail review did not. No runtime change is required.
+
+## DX fix3 wait-path correction
+
+The optional gate completed at11:08UTC with51files/292cases and EXIT=0 in the worktree's .audit/dx-1-one-verify-entry/gate-component-fix3.log. The following bare-filename wait ran from the worktree root, looking for gate-component-fix3.log there forever. Root verified the completed real log and process ancestry, then terminated only that owned waiting process group95100 (parent80912); the actual gate was finished. No source, dependencies, worktree ownership, engine or user process was changed. Use absolute artifact paths and bounded waits; an unbounded grep loop can hide a completed check.
