@@ -64,12 +64,6 @@ export interface CanonicalReportBody {
   diagnostics: ReportParseDiagnostic[];
 }
 
-export interface ReportSections {
-  s242: string;
-  s244: string;
-  s246: string;
-}
-
 const SECTION_ORDER: ReportSectionKey[] = ["s242", "s244", "s246"];
 
 function emptySection(key: ReportSectionKey): CanonicalReportSection {
@@ -260,15 +254,5 @@ export function reportSectionMetrics(content: string): ReportSectionMetricMap {
     s242: sectionMetrics(report.sections.s242.plainText, "s242"),
     s244: sectionMetrics(report.sections.s244.plainText, "s244"),
     s246: sectionMetrics(report.sections.s246.plainText, "s246"),
-  };
-}
-
-/** Compatibility projection for non-export readers. */
-export function extractSections(content: string): ReportSections {
-  const parsed = parseCanonicalReport(content);
-  return {
-    s242: parsed.sections.s242.plainText,
-    s244: parsed.sections.s244.plainText,
-    s246: parsed.sections.s246.plainText,
   };
 }

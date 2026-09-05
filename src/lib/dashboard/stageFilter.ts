@@ -5,24 +5,6 @@ export const LEGACY_STAGE_FILTER = "legacy";
 
 export type StageFilter = "all" | WorkflowStage | typeof LEGACY_STAGE_FILTER;
 
-type StageProject = { workflowStage?: WorkflowStage };
-
-export function stageFilterKey(project: StageProject) {
-  return project.workflowStage ?? LEGACY_STAGE_FILTER;
-}
-
-export function matchesStageFilter(project: StageProject, filter: string) {
-  return filter === "all" || stageFilterKey(project) === filter;
-}
-
-export function countProjectsByStage(projects: readonly StageProject[]) {
-  return projects.reduce<Record<string, number>>((counts, project) => {
-    const key = stageFilterKey(project);
-    counts[key] = (counts[key] ?? 0) + 1;
-    return counts;
-  }, {});
-}
-
 export function stageFilterItemsFromCounts(
   counts: Record<string, number>,
   total: number,
@@ -43,10 +25,6 @@ export function stageFilterItemsFromCounts(
     });
   }
   return items;
-}
-
-export function stageFilterItems(projects: readonly StageProject[]) {
-  return stageFilterItemsFromCounts(countProjectsByStage(projects), projects.length);
 }
 
 export function stageFilterLabel(filter: string) {
