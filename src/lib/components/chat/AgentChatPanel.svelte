@@ -23,6 +23,8 @@
   import AssistantTurn from "$lib/components/chat/AssistantTurn.svelte";
   import {
     correlateProposals,
+    associateTurnPrompts,
+    canRegenerateTurn,
     normalizeTurnParts,
     type TurnTiming,
   } from "$lib/chat/turnParts";
@@ -251,7 +253,14 @@
   let researchStarting = $state(false);
   let researchError = $state<string | null>(null);
   let sendError = $state<string | null>(null);
+  type SendIntent = { kind: "composer" } | { kind: "regenerate"; threadId: string };
   let retryText = $state<string | null>(null);
+  let retryIntent = $state<SendIntent>({ kind: "composer" });
+  // A successful mutation may precede its live query update. Hold the shared
+  // send guard until that exact durable turn reaches a terminal state.
+  // Retaining its original window also covers navigation past its message page.
+  const pendingSendByThread = new SvelteMap<string, { messageId: string; startOrder: number; searchEndOrder?: number }>();
+  let pendingResearchId = $state<Id<"researchSessions"> | null>(null);
   let refiningProposal = $state<Proposal | null>(null);
   let stopping = $state(false);
   let uploading = $state(false);
@@ -264,7 +273,7 @@
   function refineProposal(proposal: Proposal) {
     refiningProposal = proposal;
     input = "";
-    retryText = null;
+    if (retryIntent.kind === "composer") retryText = null;
     textareaEl?.focus();
     chatContainer?.scrollToBottom("smooth");
   }
@@ -343,8 +352,24 @@
 
   const turnsQ = useQuery(api.chatV2.listTurns, () => {
     if (!selectedThreadId || startOrder < 0) return "skip";
-    return { threadId: selectedThreadId, startOrder, endOrder };
+    const pending = pendingSendByThread.get(selectedThreadId);
+    return { threadId: selectedThreadId, startOrder: pending ? Math.min(startOrder, pending.startOrder) : startOrder, endOrder };
   });
+
+  // listTurns returns at most the newest 200 records. If an unobserved send
+  // is older, walk bounded windows backwards without widening the live feed.
+  const pendingTurnsQ = useQuery(api.chatV2.listTurns, () => {
+    if (!selectedThreadId) return "skip";
+    const pending = pendingSendByThread.get(selectedThreadId);
+    return pending?.searchEndOrder === undefined ? "skip" : {
+      threadId: selectedThreadId, startOrder: pending.startOrder, endOrder: pending.searchEndOrder,
+    };
+  });
+  const pendingResearchQ = useQuery(api.research.getSessionDetails, () =>
+    pendingResearchId && researchSessionsQ.data?.length === 20 &&
+      !researchSessionsQ.data.some(session => session._id === pendingResearchId)
+      ? { sessionId: pendingResearchId } : "skip"
+  );
 
   // The reply shares its prompt's order, so order is the join key.
   const timingByOrder = $derived.by(() => {
@@ -359,6 +384,65 @@
     }
     return map;
   });
+
+  const turnPrompts = $derived(associateTurnPrompts(messages));
+  const regenerationLoading = $derived(ui.isLoading || turnsQ.isLoading || turnsQ.isStale || !!turnsQ.error);
+
+  $effect(() => {
+    const threadId = selectedThreadId;
+    if (!threadId || regenerationLoading) return;
+    const pending = pendingSendByThread.get(threadId);
+    if (!pending) return;
+    const scanning = pending.searchEndOrder !== undefined;
+    const query = scanning ? pendingTurnsQ : turnsQ;
+    if (query.isLoading || query.isStale || query.error) return;
+    const turns = query.data ?? [];
+    const ownTurn = turns.find(turn => turn.promptMessageId === pending.messageId);
+    if (ownTurn) {
+      if (ownTurn.status === "completed" || ownTurn.status === "failed" || ownTurn.status === "aborted") {
+        pendingSendByThread.delete(threadId);
+      }
+    } else if (turns.length === 200) {
+      const nextEnd = Math.min(...turns.map(turn => turn.order)) - 1;
+      if (nextEnd >= pending.startOrder && nextEnd < (pending.searchEndOrder ?? Infinity)) {
+        pendingSendByThread.set(threadId, { ...pending, searchEndOrder: nextEnd });
+      }
+    }
+  });
+
+  $effect(() => {
+    if (researchSessionsQ.isLoading || researchSessionsQ.isStale || researchSessionsQ.error) return;
+    if (pendingResearchId && researchSessionsQ.data?.some(session => session._id === pendingResearchId)) {
+      pendingResearchId = null;
+    } else if (pendingResearchId && !pendingResearchQ.isLoading && !pendingResearchQ.isStale && !pendingResearchQ.error) {
+      const status = pendingResearchQ.data?.session.status;
+      if (pendingResearchQ.data === null || status === "completed" || status === "failed" || status === "canceled") pendingResearchId = null;
+    }
+  });
+
+  const publicationPending = $derived(!!pendingResearchId ||
+    !!(selectedThreadId && pendingSendByThread.has(selectedThreadId)));
+
+  function returnToRetryThread() {
+    if (retryIntent.kind !== "regenerate") return;
+    // This explicit navigation retains the draft/context; it does not send.
+    selectedThreadId = retryIntent.threadId;
+    startingNewChat = false;
+  }
+
+  function regeneration(order: number, text: string | undefined, status: UIMessage["status"] | undefined, timing: TurnTiming | undefined) {
+    const threadId = selectedThreadId;
+    if (!threadId || regenerationLoading || text === undefined || !canRegenerateTurn(status, timing)) return undefined;
+    // An absent timing record outside the capped window is not proof of a
+    // legacy turn; it could be a stopped or still-running durable turn.
+    if (!timing && turnsQ.data?.length === 200 && order < Math.min(...turnsQ.data.map(turn => turn.order))) return undefined;
+    const excerpt = text.replace(/\s+/g, " ").trim();
+    return {
+      disabled: regenerationBusy,
+      description: `Regenerate response to: ${excerpt.length > 160 ? `${excerpt.slice(0, 159)}…` : excerpt}`,
+      onRegenerate: () => sendText(text, { kind: "regenerate", threadId }),
+    };
+  }
 
   // A tool-using turn can span several message rows. Rate it once, after its
   // final visible answer, using the durable turn rather than a streaming ID.
@@ -463,20 +547,23 @@
     if (composerSelection) textareaEl?.focus();
   });
 
-  async function sendText(text: string) {
-    const trimmed = text.trim();
+  async function sendText(text: string, intent: SendIntent = { kind: "composer" }) {
+    const historical = intent.kind === "regenerate";
+    const trimmed = historical ? text : text.trim();
     if (
-      (!trimmed && !pendingHighlight && !pendingResearch) ||
+      (historical ? !trimmed.trim() : (!trimmed && !pendingHighlight && !pendingResearch)) ||
+      (intent.kind === "regenerate" && (intent.threadId !== selectedThreadId || regenerationBusy)) ||
       sending ||
       researchStarting ||
+      publicationPending ||
       isStreaming
     ) return;
 
-    if (pendingResearch) {
+    if (!historical && pendingResearch) {
       researchStarting = true;
       researchError = null;
       try {
-        await startResearch({
+        const sessionId = await startResearch({
           reportId,
           selectedText: pendingResearch.text,
           selectionFrom: pendingResearch.from,
@@ -484,6 +571,7 @@
           surroundingContext: pendingResearch.context,
           instruction: trimmed,
         });
+        pendingResearchId = sessionId;
         input = "";
         onClearResearch?.();
         dismissHint();
@@ -497,29 +585,39 @@
       return;
     }
 
+    const sentAfterOrder = Math.max(0, endOrder);
     sending = true;
     sendError = null;
     try {
       const res = await sendMessage({
         reportId,
         content: trimmed,
-        ...(selectedThreadId ? { threadId: selectedThreadId } : {}),
-        ...(pendingHighlight ? { highlight: pendingHighlight } : {}),
-        ...(refiningProposal ? { refineProposalId: refiningProposal._id } : {}),
-        ...(startingNewChat ? { newThread: true } : {}),
+        ...(intent.kind === "regenerate" ? { threadId: intent.threadId } : {
+          ...(selectedThreadId ? { threadId: selectedThreadId } : {}),
+          ...(pendingHighlight ? { highlight: pendingHighlight } : {}),
+          ...(refiningProposal ? { refineProposalId: refiningProposal._id } : {}),
+          ...(startingNewChat ? { newThread: true } : {}),
+        }),
       });
-      selectedThreadId = res.threadId;
-      startingNewChat = false;
-      input = "";
-      refiningProposal = null;
-      onClearHighlight?.();
+      if (res.messageId) pendingSendByThread.set(res.threadId, { messageId: res.messageId, startOrder: sentAfterOrder });
+      if (intent.kind === "composer") {
+        selectedThreadId = res.threadId;
+        startingNewChat = false;
+        input = "";
+        refiningProposal = null;
+        onClearHighlight?.();
+      }
+      retryText = null;
       dismissHint();
-      // Re-pin to the bottom even if the writer had scrolled up — a fresh
-      // send should always bring their message (and the reply) into view.
-      chatContainer?.scrollToBottom("instant");
+      // Only scroll the transcript that received this turn. The writer may
+      // have switched conversations while the mutation was pending.
+      if (intent.kind === "composer" || selectedThreadId === intent.threadId) {
+        chatContainer?.scrollToBottom("instant");
+      }
     } catch (e) {
       console.error("Failed to send message", e);
       retryText = trimmed;
+      retryIntent = intent;
       sendError = e instanceof Error ? e.message : "Your message could not be sent.";
     } finally {
       sending = false;
@@ -851,6 +949,13 @@
             lastMessage.status === "pending")))
   );
 
+  const regenerationBusy = $derived(regenerationLoading || sending || researchStarting || isStreaming ||
+    researchSessionsQ.isLoading || researchSessionsQ.isStale || !!researchSessionsQ.error ||
+    publicationPending ||
+    (turnsQ.data ?? []).some(turn => turn.status === "queued" || turn.status === "running") ||
+    (researchSessionsQ.data ?? []).some(session =>
+      session.status === "queued" || session.status === "researching" || session.status === "reviewing"));
+
   /** Abort the in-flight reply. The reply shares its prompt's order, so the
    * last message's order addresses the stream whether or not tokens have
    * started rendering. */
@@ -901,12 +1006,16 @@
     <div class="mb-2 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" role="alert">
       <span class="min-w-0 flex-1">{sendError}</span>
       <div class="flex shrink-0 items-center gap-1">
-        {#if retryText}
+        {#if retryText && retryIntent.kind === "regenerate" && retryIntent.threadId !== selectedThreadId}
+          <ActionButton variant="danger" class="min-h-7 px-2" onclick={returnToRetryThread}>
+            Return to original conversation
+          </ActionButton>
+        {:else if retryText}
           <ActionButton
             variant="danger"
             class="min-h-7 px-2"
-            onclick={() => sendText(retryText ?? "")}
-            disabled={sending || isStreaming}
+            onclick={() => sendText(retryText ?? "", retryIntent)}
+            disabled={retryIntent.kind === "regenerate" ? regenerationBusy : sending || researchStarting || publicationPending || isStreaming}
           >
             Retry
           </ActionButton>
@@ -1161,7 +1270,7 @@
       {:else}
         <button
           onclick={() => sendText(input)}
-          disabled={sending || researchStarting || (!input.trim() && !pendingHighlight && !pendingResearch)}
+          disabled={sending || researchStarting || publicationPending || (!input.trim() && !pendingHighlight && !pendingResearch)}
           class="group flex h-8 shrink-0 items-center justify-center rounded-full bg-navy px-4 text-white transition-[box-shadow,transform] hover:bg-navy-light active:translate-y-px disabled:opacity-10"
           title={pendingResearch ? "Start research" : "Send"}
           aria-label="Send message"
@@ -1324,9 +1433,16 @@
               {/if}
             </MessageContent>
           </Message>
+          {#if !turnPrompts.assistantOrders.has(m.order) && timingByOrder.has(m.order)}
+            <!-- Keep a durable turn without an assistant row at its prompt's
+                 position, even after later prompts and replies arrive. -->
+            <AssistantTurn timing={timingByOrder.get(m.order)} onRefine={refineProposal}
+              regeneration={regeneration(m.order, turnPrompts.promptByOrder.get(m.order), undefined, timingByOrder.get(m.order))} />
+          {/if}
         {:else if m.role === "assistant"}
           <AssistantTurn
             message={m}
+            regeneration={regeneration(m.order, turnPrompts.promptByAssistantId.get(m.id), m.status, timingByOrder.get(m.order))}
             feedback={answerFeedback(m.id)}
             proposals={grouped.byMessageId.get(m.id) ?? []}
             timing={timingByOrder.get(m.order)}
@@ -1363,11 +1479,7 @@
         onRefineProposal={refineProposal}
       />
 
-      {#if pendingTiming}
-        <!-- Covers the scheduler gap and, when a turn is stopped or fails
-             before replying, the only record that it ended. -->
-        <AssistantTurn timing={pendingTiming} onRefine={refineProposal} />
-      {:else if awaitingReply}
+      {#if awaitingReply && !pendingTiming}
         <Loader class="py-1" />
       {/if}
 

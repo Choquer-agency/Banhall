@@ -1,0 +1,15 @@
+
+> banhall-app@0.1.0 check
+> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
+
+Loading svelte-check in workspace: /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6
+Getting Svelte diagnostics...
+
+/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6/src/lib/components/chat/AssistantTurn.svelte:136:11
+Error: Object literal may only specify known properties, and '"aria-description"' does not exist in type 'Props'. (ts)
+        <ActionButton disabled={regeneration.disabled} onclick={regeneration.onRegenerate}
+          aria-description={regeneration.description}
+          class="min-h-9 px-2 pointer-coarse:min-h-11">Regenerate</ActionButton>
+
+====================================
+svelte-check found 1 error and 0 warnings in 1 file

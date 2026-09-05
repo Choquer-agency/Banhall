@@ -1,0 +1,26 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/chat/RegenerateTurn.component.test.ts src/lib/components/chat/RegenerateQueryState.component.test.ts
+
+12:32:07 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6 - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6
+
+12:32:07 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6 - using default configuration.
+12:32:10 AM [vite] (client) [console.error] Failed to send message Error: Resend unavailable
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6/src/lib/components/chat/RegenerateTurn.component.test.ts?import&browserv=1788593528637:194:43
+    at async http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=529185d0:1903:20
+12:32:11 AM [vite] (client) [console.error] Failed to send message Error: Please retry resend
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6/src/lib/components/chat/RegenerateTurn.component.test.ts?import&browserv=1788593528637:364:43
+    at async http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=529185d0:1903:20
+12:32:15 AM [vite] (client) [console.error] Failed to send message Error: Try again
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6/src/lib/components/chat/RegenerateQueryState.component.test.ts?import&browserv=1788593534970:65:43
+    at async http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=529185d0:1903:20
+12:32:15 AM [vite] (client) [console.error] Failed to send message Error: Try again
+    at http://localhost:63315/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6/src/lib/components/chat/RegenerateQueryState.component.test.ts?import&browserv=1788593534970:65:43
+    at async http://localhost:63315/node_modules/@vitest/runner/dist/chunk-artifact.js?v=529185d0:1903:20
+
+ Test Files  2 passed (2)
+      Tests  39 passed (39)
+   Start at  00:32:07
+   Duration  8.07s (transform 0ms, setup 507ms, import 983ms, tests 5.64s, environment 0ms)

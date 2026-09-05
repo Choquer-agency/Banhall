@@ -21,9 +21,10 @@ export function __useRealQuery(name: string) {
 const registry = $state<{
   queries: Record<string, unknown>;
   errors: Record<string, unknown>;
+  stale: Record<string, boolean>;
   pages: Record<string, unknown[]>;
   queryVariants: Record<string, Record<string, unknown>>;
-}>({ queries: {}, errors: {}, pages: {}, queryVariants: {} });
+}>({ queries: {}, errors: {}, stale: {}, pages: {}, queryVariants: {} });
 
 // Mutation/action calls a suite can assert on, plus the value each one
 // resolves with — a wizard that destructures its mutation result needs one.
@@ -52,6 +53,10 @@ export function __setQueryData(name: string, data: unknown) {
 
 export function __setQueryError(name: string, error: unknown) {
   registry.errors[name] = error;
+}
+
+export function __setQueryStale(name: string, stale: boolean) {
+  registry.stale[name] = stale;
 }
 
 /** Seed an exact argument variant; unseeded variants retain the name-only fallback. */
@@ -94,6 +99,7 @@ export function __resetConvexStub() {
   realQueryNames.clear();
   registry.queries = {};
   registry.errors = {};
+  registry.stale = {};
   registry.queryVariants = {};
   registry.pages = {};
   argsGetters.clear();
@@ -168,7 +174,7 @@ export function useQuery(query: FunctionReference<"query">, ...rest: unknown[]) 
       return queryData(name, getArgs?.()) === undefined;
     },
     get isStale() {
-      return false;
+      return !skipped(getArgs) && (registry.stale[name] ?? false);
     },
   };
 }

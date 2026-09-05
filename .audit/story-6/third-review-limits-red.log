@@ -1,0 +1,147 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/chat/RegenerateLimits.component.test.ts
+
+12:44:35 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6 - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6
+
+12:44:35 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/6 - using default configuration.
+Port 63315 is in use, trying another one...
+ ❯ |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts (7 tests | 7 failed) 22255ms
+   × walks capped turn windows to observe the exact pending turn and releases only on completion 1509ms
+   × does not treat timing omitted by the newest-200 cap as legacy 1119ms
+   × observes displaced research directly through completed and keeps it busy until terminal 1167ms
+   × observes displaced research directly through failed and keeps it busy until terminal 1140ms
+   × observes displaced research directly through canceled and keeps it busy until terminal 1198ms
+   × observes displaced research directly through missing and keeps it busy until terminal 1118ms
+   × bounds the accessible prompt excerpt while replaying the complete stored text 15003ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > walks capped turn windows to observe the exact pending turn and releases only on completion
+AssertionError: expected [ { threadId: 'thread-1', …(2) } ] to deep equally contain { threadId: 'thread-1', …(2) }
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/walks-capped-turn-windows-to-observe-the-exact-pending-turn-and-releases-only-on-completion-1.png
+
+[32m- Expected:[39m
+{
+  "endOrder": 50,
+  "startOrder": 1,
+  "threadId": "thread-1",
+}
+
+[31m+ Received:[39m
+[
+  {
+    "endOrder": 450,
+    "startOrder": 1,
+    "threadId": "thread-1",
+  },
+]
+
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:40:65
+     38|   __setQueryDataForArgs("chatV2:listTurns", { threadId: "thread-1", st…
+     39|   __setQueryDataForArgs("chatV2:listTurns", { threadId: "thread-1", st…
+     40|   await expect.poll(() => __activeQueryArgs("chatV2:listTurns")).toCon…
+       |                                                                 ^
+     41|   await expect.element(regenerate()).toBeDisabled();
+     42|   __setQueryDataForArgs("chatV2:listTurns", { threadId: "thread-1", st…
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:40:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > does not treat timing omitted by the newest-200 cap as legacy
+AssertionError: expected 2 to be 1 // Object.is equality
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/does-not-treat-timing-omitted-by-the-newest-200-cap-as-legacy-1.png
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:55:58
+     53|   __setQueryData("chatV2:listTurns", turns(2));
+     54|   await render(AgentChatPanel, { reportId, projectId });
+     55|   await expect.poll(() => regenerate().elements().length).toBe(1);
+       |                                                          ^
+     56|   __setQueryData("chatV2:listTurns", [{ _id: "old", order: 1, status: …
+     57|   await expect.poll(() => regenerate().elements().length).toBe(1);
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:55:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > observes displaced research directly through completed and keeps it busy until terminal
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > observes displaced research directly through failed and keeps it busy until terminal
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > observes displaced research directly through canceled and keeps it busy until terminal
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > observes displaced research directly through missing and keeps it busy until terminal
+AssertionError: expected [ { sessionId: 'session-0' } ] to deep equally contain { sessionId: 'pending-research' }
+
+Failure screenshots:
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/observes-displaced-research-directly-through-completed-and-keeps-it-busy-until-terminal-1.png
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/observes-displaced-research-directly-through-failed-and-keeps-it-busy-until-terminal-1.png
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/observes-displaced-research-directly-through-canceled-and-keeps-it-busy-until-terminal-1.png
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/observes-displaced-research-directly-through-missing-and-keeps-it-busy-until-terminal-1.png
+
+[32m- Expected:[39m
+{
+  "sessionId": "pending-research",
+}
+
+[31m+ Received:[39m
+[
+  {
+    "sessionId": "session-0",
+  },
+]
+
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:69:75
+     67|   __setQueryData("research:listSessions", Array.from({ length: 20 }, (…
+     68|   __setQueryDataForArgs("research:getSessionDetails", { sessionId: "pe…
+     69|   await expect.poll(() => __activeQueryArgs("research:getSessionDetail…
+       |                                                                           ^
+     70|   await expect.element(regenerate()).toBeDisabled();
+     71|   __setQueryDataForArgs("research:getSessionDetails", { sessionId: "pe…
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:69:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > bounds the accessible prompt excerpt while replaying the complete stored text
+Error: [2mexpect([22m[31melement[39m[2m).toHaveAccessibleDescription()[22m
+
+Expected element to have accessible description:
+[32m  Regenerate response to: Original context Original context Original context Original context Original context Original context Original context Original context Original context Origin…[39m
+Received:
+[31m  Regenerate response to: Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context Original context[39m
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/bounds-the-accessible-prompt-excerpt-while-replaying-the-complete-stored-text-1.png
+
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:84:37
+     82|   __setPaginatedRows("chatV2:listMessages", longRows);
+     83|   await render(AgentChatPanel, { reportId, projectId });
+     84|   await expect.element(regenerate()).toHaveAccessibleDescription(`Rege…
+       |                                     ^
+     85|   await regenerate().click();
+     86|   expect(__mutationCalls("chatV2:sendMessage")).toEqual([{ reportId, t…
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:84:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  7 failed (7)
+   Start at  00:44:35
+   Duration  25.59s (transform 0ms, setup 923ms, import 1.09s, tests 22.25s, environment 0ms)

@@ -3,7 +3,7 @@
   import type { Doc } from "../../../../convex/_generated/dataModel";
   import { normalizeTurnParts, type TurnTiming } from "$lib/chat/turnParts";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
-  import { Message, MessageContent, MessageActions, FeedbackBar } from "./primitives";
+  import { Message, MessageContent, MessageActions, FeedbackBar, ActionButton } from "./primitives";
   import TurnTrace from "./TurnTrace.svelte";
   import ChatProposalArtifact from "./ChatProposalArtifact.svelte";
 
@@ -23,6 +23,7 @@
     proposals?: Proposal[];
     timing?: TurnTiming;
     copied?: boolean;
+    regeneration?: { disabled: boolean; description?: string; onRegenerate: () => Promise<void> };
     feedback?: {
       value: 1 | -1 | null;
       disabled: boolean;
@@ -49,6 +50,7 @@
     proposals = [],
     timing,
     copied = false,
+    regeneration,
     feedback,
     onCopy,
     onRefine,
@@ -61,6 +63,7 @@
 
   const componentId = $props.id();
   const answerElementId = `${componentId}-answer`;
+  const regenerationDescriptionId = `${componentId}-regeneration-description`;
   const turn = $derived(normalizeTurnParts(message, proposals));
 
   const failed = $derived(message?.status === "failed" || timing?.status === "failed");
@@ -102,9 +105,10 @@
     </div>
   {/if}
 
-  {#if canCopy && message}
-    {@const id = message.id}
+  {#if canCopy || regeneration}
     <MessageActions>
+      {#if canCopy && message}
+      {@const id = message.id}
       <Tooltip text={copied ? "Copied!" : "Copy message"} side="bottom" delayDuration={300}>
         {#snippet children({ props })}
           <button
@@ -127,6 +131,15 @@
           </button>
         {/snippet}
       </Tooltip>
+      {/if}
+      {#if regeneration}
+        {#if regeneration.description}
+          <span id={regenerationDescriptionId} class="sr-only">{regeneration.description}</span>
+        {/if}
+        <ActionButton disabled={regeneration.disabled} onclick={regeneration.onRegenerate}
+          aria-describedby={regeneration.description ? regenerationDescriptionId : undefined}
+          class="min-h-9 px-2 pointer-coarse:min-h-11">Regenerate</ActionButton>
+      {/if}
     </MessageActions>
   {/if}
   {#if feedback && turn.text && message?.status === "success" && timing?.status === "completed"}

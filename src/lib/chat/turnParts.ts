@@ -681,3 +681,37 @@ export function formatTurnSummary(
   if (duration) return `Worked for ${duration}${outcome}`;
   return steps > 0 ? `Worked${outcome}` : null;
 }
+
+/** Associate loaded rows from one selected thread by exact prompt order only.
+ * The final assistant row owns the action, including empty and tool-only rows.
+ */
+export function associateTurnPrompts(messages: readonly UIMessage[]) {
+  const promptByOrder = new Map<number, string>();
+  const finalAssistantByOrder = new Map<number, UIMessage>();
+  for (const message of messages) {
+    if (message.role === "user") {
+      const text = normalizeTurnParts(message).text;
+      if (text.trim()) promptByOrder.set(message.order, text);
+    } else if (message.role === "assistant") {
+      finalAssistantByOrder.set(message.order, message);
+    }
+  }
+  const promptByAssistantId = new Map<string, string>();
+  for (const [order, message] of finalAssistantByOrder) {
+    const prompt = promptByOrder.get(order);
+    if (prompt !== undefined) promptByAssistantId.set(message.id, prompt);
+  }
+  return { promptByOrder, promptByAssistantId, assistantOrders: new Set(finalAssistantByOrder.keys()) };
+}
+
+/** Explicit live or stopped state always wins over a terminal snapshot. */
+export function canRegenerateTurn(
+  status: UIMessage["status"] | undefined,
+  timing: TurnTiming | undefined,
+): boolean {
+  if (status === "streaming" || status === "pending" ||
+      timing?.status === "queued" || timing?.status === "running" ||
+      timing?.status === "aborted") return false;
+  return status === "success" || status === "failed" ||
+    timing?.status === "completed" || timing?.status === "failed";
+}
