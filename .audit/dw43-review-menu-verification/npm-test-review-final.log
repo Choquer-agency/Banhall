@@ -1,0 +1,13 @@
+
+> banhall-app@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-review-menu-verification
+
+
+ Test Files  148 passed (148)
+      Tests  1730 passed (1730)
+   Start at  17:18:24
+   Duration  47.30s (transform 18.04s, setup 0ms, import 31.45s, tests 24.46s, environment 8.85s)
+

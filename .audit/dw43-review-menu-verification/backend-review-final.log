@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-review-menu-verification
+
+
+ Test Files  3 passed (3)
+      Tests  59 passed (59)
+   Start at  17:18:25
+   Duration  1.70s (transform 1.08s, setup 0ms, import 943ms, tests 1.14s, environment 189ms)
+
