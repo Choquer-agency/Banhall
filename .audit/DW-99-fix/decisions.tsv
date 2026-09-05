@@ -1,0 +1,4 @@
+ts	phase	decision	why	evidence	result
+2026-09-05T11:35:33.161248+00:00	implementation	Test-only isolated repair	Correct production query had an order-insensitive cap fixture	spec.md	Canonical runtime source preserved
+2026-09-05T11:35:33.161436+00:00	verification	In-memory wrong-order control	Prove regression sensitivity without production disk changes	wrong-order.log.gz	Expected count/rate/bounds failure
+2026-09-05T11:35:33.161439+00:00	review	Resolve four LOW findings	Improve coverage disclosure assertion and audit precision	review-triage.md	No scope change
