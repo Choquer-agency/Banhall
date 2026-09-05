@@ -1,0 +1,1 @@
+src/lib/components/workspace/WorkspaceChrome.component.test.ts

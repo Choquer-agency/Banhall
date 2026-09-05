@@ -1,0 +1,9 @@
+{
+  "conclusion": "failure",
+  "event": "pull_request",
+  "headSha": "3d4fe2e8794fb562f4f1fa84415359b1e5f96a8f",
+  "name": "CI",
+  "url": "https://github.com/Choquer-agency/Banhall/actions/runs/33980243865",
+  "raw_log_sha256": "f3674c277739254c5c7766ec55bed6d5dc9343cc57697931ce6c2b18234c8a63",
+  "test_source_sha256": "6af5c777e42d6d16225a529fae25cbb672e1d02f7864c84208eaea6eba42c15e"
+}

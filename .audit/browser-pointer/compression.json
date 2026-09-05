@@ -1,0 +1,68 @@
+[
+  {
+    "original_path": ".audit/browser-pointer/baseline-focused.log",
+    "original_sha256": "751f7a4d831656024e972e13666ded7481ec291f6669b12a550675e76b0a5284",
+    "archive_path": ".audit/browser-pointer/baseline-focused.log.gz",
+    "archive_sha256": "ae0a8874b7fdc42602aad800fa361e1d383bcb9b9448d18e83c707ef7b4ecaaa"
+  },
+  {
+    "original_path": ".audit/browser-pointer/diagnostic-first.log",
+    "original_sha256": "25b50fab955d5b9c2f8ecfdee72a6ab7463cd1d6886f3ffb2a23505ba6d7a25e",
+    "archive_path": ".audit/browser-pointer/diagnostic-first.log.gz",
+    "archive_sha256": "f805aa87ef6dad735b07b7a118b170e45c88ce3f9e0f5f16b37cdb428c708144"
+  },
+  {
+    "original_path": ".audit/browser-pointer/diagnostic-successor.log",
+    "original_sha256": "27186add9727559945cd3d600872e211cf95ab440b62fea53c5487c87d23809f",
+    "archive_path": ".audit/browser-pointer/diagnostic-successor.log.gz",
+    "archive_sha256": "e10e975cde4e6361ae0c416f0d1ddff6bec90275828208a987646e261fa2d942"
+  },
+  {
+    "original_path": ".audit/browser-pointer/diagnostic.log",
+    "original_sha256": "c2b97c608758bf472d8c7b9d36c0b9d9bb9b098cb8dc912710f0326dbc4b5fed",
+    "archive_path": ".audit/browser-pointer/diagnostic.log.gz",
+    "archive_sha256": "0efe33f7441ccc5f16f034c4b317b5fd821844da0d82cd28eee1c2e0c3ba8375"
+  },
+  {
+    "original_path": ".audit/browser-pointer/final-diff.patch",
+    "original_sha256": "775502acf2fb2d119bc202b32ab33ed1dcbb8dfc0949e23dd77f4c8adb0a9f80",
+    "archive_path": ".audit/browser-pointer/final-diff.patch.gz",
+    "archive_sha256": "11c4b1f10a1cd132b26496402713e975840ad3162b5a8f78f8d94af3a92bdeee"
+  },
+  {
+    "original_path": ".audit/browser-pointer/full-gate.log",
+    "original_sha256": "ab303ca08a922d694ac27b69f64769607bc9a2a3d62ead1c8b049955736f06ef",
+    "archive_path": ".audit/browser-pointer/full-gate.log.gz",
+    "archive_sha256": "d3569e498ee9aa4445e041a59a1dfe722fbd9f081cca7f01dcf79d6c8e402aee"
+  },
+  {
+    "original_path": ".audit/browser-pointer/github-baseline.log",
+    "original_sha256": "f3674c277739254c5c7766ec55bed6d5dc9343cc57697931ce6c2b18234c8a63",
+    "archive_path": ".audit/browser-pointer/github-baseline.log.gz",
+    "archive_sha256": "da6e132a9df379b61320d839fa8daa65c1c71267090da7def291db394e0bfa2a"
+  },
+  {
+    "original_path": ".audit/browser-pointer/npm-ci.log",
+    "original_sha256": "3f6d39733981fea7058d30d2ade4cc8f393f600f663adce8d59cd690de577182",
+    "archive_path": ".audit/browser-pointer/npm-ci.log.gz",
+    "archive_sha256": "6192a864a1443eb54637e72849b2356c0321016b235dcb551f1820d948b4418b"
+  },
+  {
+    "original_path": ".audit/browser-pointer/repaired-focused.log",
+    "original_sha256": "b850c3b7714080c7c3e63a0ea6ecc9f0249d15b18385c2cb945080b0dff72165",
+    "archive_path": ".audit/browser-pointer/repaired-focused.log.gz",
+    "archive_sha256": "d72ac21bcf34926e8b9eba340b494a5298680bedddb7b371d151a1a3a0046f3d"
+  },
+  {
+    "original_path": ".audit/browser-pointer/review.diff",
+    "original_sha256": "67eeefb709994698945ae13e9604e59d6185c18889d216d3d456b65951cb714f",
+    "archive_path": ".audit/browser-pointer/review.diff.gz",
+    "archive_sha256": "741c49b93913d28fd23ad8f3dbf393860ad472598b9e63a32453b3abfaaec6bd"
+  },
+  {
+    "original_path": ".audit/browser-pointer/svelte-sync.log",
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "archive_path": ".audit/browser-pointer/svelte-sync.log.gz",
+    "archive_sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64"
+  }
+]

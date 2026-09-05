@@ -1,0 +1,12 @@
+[
+  {
+    "original_path": "src/lib/components/workspace/__screenshots__/WorkspaceChrome.component.test.ts/pointer-readiness-diagnostic-rejects-the-opposite-of-actual-coarse-true-1.png",
+    "retained_path": ".audit/browser-pointer/diagnostic-captures/pointer-readiness-diagnostic-rejects-the-opposite-of-actual-coarse-true-1.png",
+    "sha256": "7da2f358c5ea2e4f5ccaf69d011a37d89c03cf9251bc1a68ce5b803dc8196a8c"
+  },
+  {
+    "original_path": "src/lib/components/workspace/__screenshots__/WorkspaceChrome.component.test.ts/pointer-readiness-diagnostic-rejects-the-opposite-of-actual-coarse-false-1.png",
+    "retained_path": ".audit/browser-pointer/diagnostic-captures/pointer-readiness-diagnostic-rejects-the-opposite-of-actual-coarse-false-1.png",
+    "sha256": "7da2f358c5ea2e4f5ccaf69d011a37d89c03cf9251bc1a68ce5b803dc8196a8c"
+  }
+]
