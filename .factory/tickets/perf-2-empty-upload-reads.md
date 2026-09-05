@@ -9,6 +9,7 @@ verify: [npx vitest run convex/documents.test.ts convex/uploadAttempts.test.ts -
 done_when: ["node --input-type=module -e 'import { execFileSync } from \"node:child_process\"; const name = \"empty and whitespace uploads keep document reads constant\"; const report = JSON.parse(execFileSync(process.execPath, [\"node_modules/vitest/vitest.mjs\", \"run\", \"convex/documents.test.ts\", \"--testNamePattern\", \"^uploadDocument processing status \" + name + \"$\", \"--reporter=json\", \"--expect.requireAssertions\"], { encoding: \"utf8\" })); const matches = report.testResults.flatMap(file => file.assertionResults).filter(result => result.title === name); if (!report.success || report.numPassedTests !== 1 || matches.length !== 1 || matches[0].status !== \"passed\") throw new Error(\"Expected exactly one passing upload read-invariance test; missing, skipped, or failed is not done\");'"]
 title: Empty and whitespace-only uploads avoid reading existing document bodies
 plan: 20260904-code-quality-sweep
+deferred: ["convex/documents.ts: none of its query/mutation registrations declare a `returns:` validator, which the repo convex-lint hook flags on every edit. Repo-wide gap, out of AC2 scope.", "convex/documents.ts:83-93 still collects the whole by_projectId index for every nonempty upload; the plan's PERF-4 hash/index follow-up is the fix and needs a schema change."]
 ui: false
 updated: "2026-09-05T06:00:13.816Z"
 ---
