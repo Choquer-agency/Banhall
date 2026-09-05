@@ -1120,7 +1120,7 @@
           {#if request.state.kind === "failed"}
             <span class="text-red-700" role="alert">{request.state.error}</span>
           {:else}
-            <span class="text-ink-muted" role="status">Sending…</span>
+            <span class="text-ink-muted" role="status">{request.state.kind === "published" ? "Sent" : "Sending…"}</span>
           {/if}
           {#if request.state.kind === "failed" || request.retried}
             <ActionButton variant="danger" class="min-h-7 px-2 font-medium aria-disabled:opacity-50"

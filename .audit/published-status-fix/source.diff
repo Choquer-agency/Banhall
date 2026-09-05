@@ -1,0 +1,96 @@
+diff --git a/src/lib/components/chat/AgentChatPanel.svelte b/src/lib/components/chat/AgentChatPanel.svelte
+index 8c90b04..92ffd0e 100644
+--- a/src/lib/components/chat/AgentChatPanel.svelte
++++ b/src/lib/components/chat/AgentChatPanel.svelte
+@@ -1120,7 +1120,7 @@
+           {#if request.state.kind === "failed"}
+             <span class="text-red-700" role="alert">{request.state.error}</span>
+           {:else}
+-            <span class="text-ink-muted" role="status">Sending…</span>
++            <span class="text-ink-muted" role="status">{request.state.kind === "published" ? "Sent" : "Sending…"}</span>
+           {/if}
+           {#if request.state.kind === "failed" || request.retried}
+             <ActionButton variant="danger" class="min-h-7 px-2 font-medium aria-disabled:opacity-50"
+diff --git a/src/lib/components/chat/OptimisticSend.component.test.ts b/src/lib/components/chat/OptimisticSend.component.test.ts
+index dce19a8..17dce2c 100644
+--- a/src/lib/components/chat/OptimisticSend.component.test.ts
++++ b/src/lib/components/chat/OptimisticSend.component.test.ts
+@@ -5,7 +5,7 @@ import type { UIMessage } from "@convex-dev/agent";
+ import type { Id } from "../../../../convex/_generated/dataModel";
+ import AgentChatPanel from "./AgentChatPanel.svelte";
+ import { __resetAuthState } from "$lib/test/convex-auth-stub";
+-import { __resetConvexStub, __setPaginatedRows, __setQueryData, __setMutationResult, __setMutationError, __mutationCalls, __activeQueryArgs } from "$lib/test/convex-svelte-stub.svelte";
++import { __resetConvexStub, __setPaginatedRows, __setQueryData, __setQueryDataForArgs, __setMutationResult, __setMutationError, __mutationCalls, __activeQueryArgs } from "$lib/test/convex-svelte-stub.svelte";
+ const reportId = "report-1" as Id<"reports">;
+ const projectId = "project-1" as Id<"projects">;
+ const sendName = "chatV2:sendMessage";
+@@ -62,6 +62,7 @@ it.each(["new", "existing"])("immediately renders a %s conversation send without
+   await composer().fill("A newer draft survives");
+   pending.resolve({ threadId: "thread-1", messageId: "new-prompt" });
+   await expect.poll(() => localRows()[0]?.dataset.sendState).toBe("published");
++  await expect.element(page.getByRole("status")).toHaveTextContent(/^Sent$/);
+   await expect.element(composer()).toHaveValue("A newer draft survives");
+   expect(localRows()).toHaveLength(1);
+   __setPaginatedRows("chatV2:listMessages", [row("new-prompt", prompt)]);
+@@ -632,3 +633,61 @@ it.each(["", " \n\t "])("shows a visible fallback for blank transport errors %j"
+   await expect.element(retry()).toBeEnabled();
+   await expect.element(page.getByRole("alert")).toHaveTextContent("Your message could not be sent.");
+ });
++
++it("acknowledges an offscreen published send through bounded completion until exact page handoff", async () => {
++  seedThreads();
++  __setPaginatedRows("chatV2:listMessages", [row("old", "Earlier prompt", 1), row("old-answer", "Earlier answer", 1, "assistant")]);
++  __setQueryData("chatV2:listTurns", [{ _id: "old-turn", order: 1, status: "completed", stepCount: 0 }]);
++  const pending = deferred();
++  await page.viewport(720, 850);
++  await render(AgentChatPanel, { reportId, projectId });
++  await writeAndSend();
++  await expect.element(page.getByRole("status")).toHaveTextContent("Sending…");
++  const key = localRows()[0].dataset.localRequest;
++  await navigate("Second conversation");
++  await composer().fill("Preserved newer draft");
++  pending.resolve({ threadId: "thread-1", messageId: "confirmed-prompt" });
++  await expect.element(send()).toBeEnabled();
++  expect(localRows()).toHaveLength(0);
++  await expect.element(composer()).toHaveValue("Preserved newer draft");
++  // An exact ID loaded on another selected thread cannot hand off this request.
++  __setPaginatedRows("chatV2:listMessages", [row("confirmed-prompt", prompt, 2)]);
++  await expect.element(page.getByText(prompt, { exact: true })).toBeVisible();
++  __setPaginatedRows("chatV2:listMessages", [row("recent", "Recent prompt", 450), row("recent-answer", "Recent answer", 450, "assistant")]);
++  const recentTurns = Array.from({ length: 200 }, (_, index) => ({
++    _id: `turn-${251 + index}`, order: 251 + index, status: "completed", stepCount: 0,
++  }));
++  __setQueryDataForArgs("chatV2:listTurns", { threadId: "thread-1", startOrder: 1, endOrder: 450 }, recentTurns);
++  __setQueryDataForArgs("chatV2:listTurns", { threadId: "thread-1", startOrder: 1, endOrder: 250 }, [
++    { _id: "own-turn", order: 2, promptMessageId: "confirmed-prompt", status: "running", stepCount: 0 },
++  ]);
++  await navigate("Original conversation");
++  await composer().fill("Preserved newer draft");
++  await expect.poll(() => __activeQueryArgs("chatV2:listTurns")).toContainEqual({ threadId: "thread-1", startOrder: 1, endOrder: 250 });
++  await expect.element(send()).toBeDisabled();
++  expect(localRows()).toHaveLength(1);
++  expect(localRows()[0].dataset.localRequest).toBe(key);
++  expect(localRows()[0].dataset.sendState).toBe("published");
++  __setQueryDataForArgs("chatV2:listTurns", { threadId: "thread-1", startOrder: 450, endOrder: 450 }, [
++    { _id: "latest-turn", order: 450, status: "completed", stepCount: 0 },
++  ]);
++  __setQueryDataForArgs("chatV2:listTurns", { threadId: "thread-1", startOrder: 1, endOrder: 250 }, [
++    { _id: "own-turn", order: 2, promptMessageId: "confirmed-prompt", status: "completed", stepCount: 0 },
++  ]);
++  await expect.element(send()).toBeEnabled();
++  await expect.poll(() => __activeQueryArgs("chatV2:listTurns")).toEqual([{ threadId: "thread-1", startOrder: 450, endOrder: 450 }]);
++  expect(localRows()).toHaveLength(1);
++  expect(page.getByText(prompt, { exact: true }).elements()).toHaveLength(1);
++  await expect.element(composer()).toHaveValue("Preserved newer draft");
++  await page.screenshot({ path: "../../../../.audit/published-status-fix/published-after.png" });
++  await expect.element(page.getByRole("status")).toHaveTextContent(/^Sent$/);
++  // Identical content with a different ID still cannot acknowledge publication.
++  __setPaginatedRows("chatV2:listMessages", [row("different-prompt", prompt, 2)]);
++  await expect.poll(() => page.getByText(prompt, { exact: true }).elements().length).toBe(2);
++  expect(localRows()).toHaveLength(1);
++  __setPaginatedRows("chatV2:listMessages", [row("confirmed-prompt", prompt, 2)]);
++  await expect.poll(() => localRows().length).toBe(0);
++  expect(page.getByText(prompt, { exact: true }).elements()).toHaveLength(1);
++  await expect.element(composer()).toHaveValue("Preserved newer draft");
++  expect(__mutationCalls(sendName)).toHaveLength(1);
++});

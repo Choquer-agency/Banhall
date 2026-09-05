@@ -1,0 +1,4 @@
+ts	phase	decision	why	evidence	result
+2026-09-05T11:54:08.982069+00:00	plan	Scope status copy only	Confirmed IDs acknowledge transport while exact page controls handoff	spec.md	No lifecycle edits
+2026-09-05T11:54:08.982272+00:00	prove	Separate fixture setup failures from regression	Navigation intentionally clears composer; completed page needs durable metadata	fixture-navigation.log;red.log	Expected Sent received Sending
+2026-09-05T12:26:16.395335+00:00	review	Accept unchanged verified patch	Four fresh independent layers found no gaps	review-triage.md	Ready for private commit
