@@ -1,0 +1,46 @@
+[
+  {
+    "path": "scripts/loop-verify.sh",
+    "sha256": "d2b9372a57f879779177c6ca20033c4e42aae8dc85a2a28b280bc7e6fdc42cc8"
+  },
+  {
+    "path": "scripts/check-test-discovery.mjs",
+    "sha256": "2a492a3f595ca51a728d4c5b9a9356d035dee6e05d4466b3f8f06dc9862e8d83"
+  },
+  {
+    "path": ".github/workflows/ci.yml",
+    "sha256": "c57242059b66b492bb844b3ee7263bba14829c8299de85d6a4f327295d0c4693"
+  },
+  {
+    "path": ".nvmrc",
+    "sha256": "68ca3fba3b7e864770cb61aeb306d4bd4354b68ab4dd38450860c5d823e42a53"
+  },
+  {
+    "path": "AGENTS.md",
+    "sha256": "1ded51347753b249da2d7d29f3105515753c0a3708c39960e6677f889366ace7"
+  },
+  {
+    "path": "README.md",
+    "sha256": "eff1d589e79023558221b974d330aee8da1bde377a68253d74096b506769d530"
+  },
+  {
+    "path": "docs/bmad-loop.md",
+    "sha256": "bdabe4b6562a483001827e93b8e47e140e6fbe918b7ec81357a0e1a6ded79743"
+  },
+  {
+    "path": "vitest.config.ts",
+    "sha256": "46f1a8f3856809d72340bcba349bb2712dc6591c1c73494ffe7db18b845ec951"
+  },
+  {
+    "path": "vitest.component.config.ts",
+    "sha256": "5a1000bff4f304306bc754684dc8f9e392e3f4f1beb8f729071e4146524f4aa0"
+  },
+  {
+    "path": "package.json",
+    "sha256": "f30aa3e89510822bf7b4c9a3564b7584a205168846824d809e32f0da34c7c625"
+  },
+  {
+    "path": "package-lock.json",
+    "sha256": "d4213ef7b50aa850ea095dbe6c65b35306ae7589a90073c0e377147421a33dac"
+  }
+]

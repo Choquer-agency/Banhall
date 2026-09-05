@@ -1,0 +1,9 @@
+browserType.launch: Executable doesn't exist at /var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/review-contract-bx8vdkk9/regular-only/chromium_headless_shell-1234/chrome-headless-shell-mac-arm64/chrome-headless-shell
+╔════════════════════════════════════════════════════════════╗
+║ Looks like Playwright was just installed or updated.       ║
+║ Please run the following command to download new browsers: ║
+║                                                            ║
+║     npx playwright install                                 ║
+║                                                            ║
+║ <3 Playwright Team                                         ║
+╚════════════════════════════════════════════════════════════╝

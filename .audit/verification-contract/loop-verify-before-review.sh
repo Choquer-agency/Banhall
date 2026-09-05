@@ -39,8 +39,6 @@ preflight() {
   command -v npm >/dev/null 2>&1 || missing npm "npm ships with Node; install Node 24: https://nodejs.org/en/download"
   command -v pwsh >/dev/null 2>&1 || missing pwsh "Install PowerShell 7: https://learn.microsoft.com/powershell/scripting/install/installing-powershell"
 
-  command -v git >/dev/null 2>&1 || missing git "Install Git: https://git-scm.com/downloads"
-
   local version major minor
   version="$(node -v)"
   version="${version#v}"
@@ -81,29 +79,17 @@ preflight() {
   fi
 
   if [ "$VERIFY_COMPONENT" = "1" ]; then
-    # Exercise the same supported headless launch used by the component runner.
-    # A regular Chromium executable alone does not prove headless-shell readiness.
-    if ! node --input-type=module <<'NODE'
-const watchdog = setTimeout(() => {
-  console.error("Chromium readiness check timed out after 20 seconds");
-  process.exit(1);
-}, 20_000);
-try {
-  const { chromium } = await import("playwright");
-  const browser = await chromium.launch({ headless: true, timeout: 15_000 });
-  await browser.close();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-} finally {
-  clearTimeout(watchdog);
-}
-NODE
-    then
-      echo "loop-verify: Chromium headless launch failed. Run: npx playwright install chromium (on Linux: npx playwright install --with-deps chromium)"
+    local browser
+    browser="$(node -e 'import("playwright").then((m)=>{try{process.stdout.write(m.chromium.executablePath())}catch{process.exit(3)}},()=>process.exit(3))')" || {
+      echo "loop-verify: Chromium is unavailable, the playwright package did not resolve. Run: npx playwright install chromium"
+      exit 1
+    }
+    if [ -x "$browser" ]; then
+      echo "  Chromium ok"
+    else
+      echo "loop-verify: Chromium not found at $browser. Run: npx playwright install chromium"
       exit 1
     fi
-    echo "  Chromium headless launch ok"
   fi
   return 0
 }

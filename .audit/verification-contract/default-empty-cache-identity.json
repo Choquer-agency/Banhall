@@ -1,0 +1,8 @@
+{
+  "PLAYWRIGHT_BROWSERS_PATH": "/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/verification-default-empty-browser-tcuzf02b",
+  "VERIFY_COMPONENT": "unset",
+  "before_entries": [],
+  "after_entries": [],
+  "gate_exit": 0,
+  "temporary_cache_removed_on_exit": true
+}

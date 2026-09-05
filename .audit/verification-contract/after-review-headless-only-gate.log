@@ -1,0 +1,8 @@
+[1/9] preflight
+  node v24.19.0 ok
+  PUBLIC_CONVEX_URL from placeholder
+  PUBLIC_CONVEX_SITE_URL from placeholder
+  Chromium headless launch ok
+ok 0s
+[2/9] convex typecheck
+loop-verify: convex typecheck failed, exit 37

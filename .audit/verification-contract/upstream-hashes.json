@@ -1,0 +1,22 @@
+[
+  {
+    "path": "scripts/loop-verify.sh",
+    "sha256": "d2b9372a57f879779177c6ca20033c4e42aae8dc85a2a28b280bc7e6fdc42cc8",
+    "blob": "609b065564d182a16663e1e49c0329ffdef77b12"
+  },
+  {
+    "path": "scripts/check-test-discovery.mjs",
+    "sha256": "20ffde37d17d354e08f1d4596282060c304fa4c863e4b133770ebd4362e47512",
+    "blob": "7dbf0c7f9ba87ae917ff4c7b4c2cc53390246baa"
+  },
+  {
+    "path": ".github/workflows/ci.yml",
+    "sha256": "c57242059b66b492bb844b3ee7263bba14829c8299de85d6a4f327295d0c4693",
+    "blob": "f48fd0426616bac07711133a15dc95c3b516a472"
+  },
+  {
+    "path": ".nvmrc",
+    "sha256": "68ca3fba3b7e864770cb61aeb306d4bd4354b68ab4dd38450860c5d823e42a53",
+    "blob": "a45fd52cc5891570d6299fab38643103c3955474"
+  }
+]

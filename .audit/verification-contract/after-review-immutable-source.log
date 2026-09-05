@@ -1,0 +1,719 @@
+{
+  "authorized_new_files": [
+    ".nvmrc",
+    "_bmad-output/implementation-artifacts/spec-verification-contract-reconciliation.md",
+    "scripts/check-test-discovery.mjs"
+  ],
+  "own_audit_files": [
+    {
+      "path": ".audit/verification-contract/after-review-browser-install-locations.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-browser-install-locations.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-component-screenshot-restoration.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-controls-summary.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-convex-exit-37.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-convex-exit-37.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-default-empty-cache-gate.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-default-empty-cache-gate.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-diff-check.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-diff-check.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-discovery-adapted.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-discovery-adapted.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-discovery-orphan.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-discovery-orphan.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-discovery-restored.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-discovery-restored.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-evidence.md",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-headless-only-gate.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-headless-only-gate.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-headless-only-launch.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-headless-only-launch.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-immutable-addition-control.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-immutable-addition-control.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-immutable-mode-control.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-immutable-mode-control.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-immutable-restored.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-immutable-restored.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-immutable-source.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-immutable-source.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-immutable-source.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-immutable-type-control.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-immutable-type-control.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-inventory.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-missing-chromium.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-missing-chromium.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-missing-git.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-missing-git.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-missing-pwsh.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-missing-pwsh.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-original-controls-summary.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-path-fixture.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-path-guard.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-path-guard.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-path-listing.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-path-listing.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-regular-only-gate.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-regular-only-gate.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-regular-only-launch.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-regular-only-launch.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-unified-gate.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-unified-gate.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/after-review-verified-source-hashes.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-browser-install-locations.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-browser-install-locations.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-controls-summary.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-headless-only-gate.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-headless-only-gate.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-headless-only-launch.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-headless-only-launch.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-path-fixture.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-path-guard.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-path-guard.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-path-listing.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-path-listing.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-regular-only-gate.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-regular-only-gate.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-regular-only-launch.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/before-review-regular-only-launch.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-after.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-before.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-controls.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-result.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-browser-install-locations.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-browser-install-locations.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-headless-only-gate.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-headless-only-gate.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-headless-only-launch.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-headless-only-launch.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-index-identity.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-path-fixture.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-path-guard.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-path-guard.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-path-listing.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-path-listing.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-regular-only-gate.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-regular-only-gate.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-regular-only-launch.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-review-regular-only-launch.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/cache-identity-summary.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/check-test-discovery-before-review.mjs",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/component-screenshot-restoration.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/controls-summary.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/convex-exit-37.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/convex-exit-37.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/decisions.tsv",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/default-empty-cache-identity.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/dependency-ownership.txt",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/diff-check.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/diff-check.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/discovery-adapted.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/discovery-adapted.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/discovery-baseline.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/discovery-baseline.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/discovery-orphan.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/discovery-orphan.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/discovery-restored.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/discovery-restored.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/evidence.md",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/immutable-source.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/immutable-source.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/immutable-source.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/loop-verify-before-review.sh",
+      "mode": "100755",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/missing-chromium.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/missing-chromium.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/missing-pwsh.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/missing-pwsh.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/npm-ci.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/review-acceptance.md",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/review-blind.md",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/review-controls.py",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/review-edge.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/review-gap.md",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/review-inventory.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/review-triage.md",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/review.diff",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/unified-gate.exit",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/unified-gate.log",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/upstream-hashes.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/upstream-source-identity.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/verified-source-hashes.json",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/verify-cache-identity.py",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/verify-controls-before-review.py",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/verify-controls.py",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/verify-immutable-before-review.py",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/verify-immutable.py",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/verification-contract/workflow-provenance.md",
+      "mode": "100644",
+      "type": "blob"
+    }
+  ],
+  "mode_and_type_checked": 4560,
+  "baseline": "dd787d4287bcdf970aa3bcb25f0781dc765e030c",
+  "unchanged_tracked_files": 4555,
+  "archives": [
+    {
+      "path": ".audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/ai/qaChecks.test.ts",
+      "blob": "15b9378843535000f55c7a922c9f809ee9d36d41",
+      "sha256": "14037caf89e2740510631d7ffd6c90f2609a8dfdbfb700161dd52b3bccdb0c39",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/lib/tiptapReport.test.ts",
+      "blob": "19870c6dfc3f811f7add3008d17eaf575dae9bc9",
+      "sha256": "c5ad8f5fc8a3890e813bfb2bc4ad388f51879b8282c5d5fef3b8b5df5c960557",
+      "mode": "100644",
+      "type": "blob"
+    },
+    {
+      "path": ".audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/qaBlocking.test.ts",
+      "blob": "3ec1424be20c20a9d46e508037d53a13699e5c49",
+      "sha256": "b7928f1e2f7f698e25b4404a1f9bd020dde06f549d1689ced7374e64696fea6b",
+      "mode": "100644",
+      "type": "blob"
+    }
+  ],
+  "preserved_guidance": [
+    "AGENTS policy and native ledger guidance",
+    "docs/bmad-loop adjacent native integration guidance"
+  ]
+}

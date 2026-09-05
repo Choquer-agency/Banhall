@@ -1,0 +1,47 @@
+{
+  "reason": "Seven raw command logs/diff contain authentic trailing whitespace; preserve exact bytes losslessly while keeping committed whitespace checks clean. Original raw files remain local ignored working copies; consume compressed counterparts after checkout.",
+  "files": [
+    {
+      "original_path": ".audit/verification-contract/after-review-browser-install-locations.log",
+      "original_sha256": "b3480040eb25a65bf7d60ce5b81ecb8231324cdf9200b125942c6f5697daff4b",
+      "archive_path": ".audit/verification-contract/after-review-browser-install-locations.log.gz",
+      "archive_sha256": "90793f63b09af627cc2ea3e6c1293cbbdfc136a5714dfa2fad931a49abd604f4"
+    },
+    {
+      "original_path": ".audit/verification-contract/after-review-default-empty-cache-gate.log",
+      "original_sha256": "a49aca4a2cc500ad9c22e4e8c841b1f3642f65808825cf25ecb6247ae086f9a9",
+      "archive_path": ".audit/verification-contract/after-review-default-empty-cache-gate.log.gz",
+      "archive_sha256": "446179740430f425bd14ef8e3c2483ef1ab94fcc66113b3636f5de4e85216673"
+    },
+    {
+      "original_path": ".audit/verification-contract/after-review-unified-gate.log",
+      "original_sha256": "141fcb14f472b0d9d68c069cd2f64d1af94b7dd1278d85d2a46d1d343afb3109",
+      "archive_path": ".audit/verification-contract/after-review-unified-gate.log.gz",
+      "archive_sha256": "a465297f1fa810849bb415a49784d2c8800eb7448ad4009e55abbfefe3e1c5af"
+    },
+    {
+      "original_path": ".audit/verification-contract/before-review-browser-install-locations.log",
+      "original_sha256": "b3480040eb25a65bf7d60ce5b81ecb8231324cdf9200b125942c6f5697daff4b",
+      "archive_path": ".audit/verification-contract/before-review-browser-install-locations.log.gz",
+      "archive_sha256": "90793f63b09af627cc2ea3e6c1293cbbdfc136a5714dfa2fad931a49abd604f4"
+    },
+    {
+      "original_path": ".audit/verification-contract/cache-identity-review-browser-install-locations.log",
+      "original_sha256": "b3480040eb25a65bf7d60ce5b81ecb8231324cdf9200b125942c6f5697daff4b",
+      "archive_path": ".audit/verification-contract/cache-identity-review-browser-install-locations.log.gz",
+      "archive_sha256": "90793f63b09af627cc2ea3e6c1293cbbdfc136a5714dfa2fad931a49abd604f4"
+    },
+    {
+      "original_path": ".audit/verification-contract/review.diff",
+      "original_sha256": "c0370bbbb507bd01dbcaa8cd89dc82b0940e7bac5b9da5db3bbede574161a6e5",
+      "archive_path": ".audit/verification-contract/review.diff.gz",
+      "archive_sha256": "f8a544c08c6925b71a1c424077ec272679f2949c94f8d96c1508b3a1269d0fbf"
+    },
+    {
+      "original_path": ".audit/verification-contract/unified-gate.log",
+      "original_sha256": "3a19aa5cfabc67b4bdff0e037b8dd2effda6c77649852eef7ecb9cc7b33732a0",
+      "archive_path": ".audit/verification-contract/unified-gate.log.gz",
+      "archive_sha256": "717d077af00b3135029696948b6c6005f00686d5cf81b55f6bfafcb4cfa46753"
+    }
+  ]
+}

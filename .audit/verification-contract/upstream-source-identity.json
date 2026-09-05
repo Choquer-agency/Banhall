@@ -1,0 +1,30 @@
+{
+  "revisions": {
+    "completion_baseline": "dd787d4287bcdf970aa3bcb25f0781dc765e030c",
+    "upstream_source": "5ec93e594eda60c28da2cfdbf27fb668fd55eb3d",
+    "verified_upstream_worker": "125c6cd47e8b1068f39889855d2029a502e5a856"
+  },
+  "files": {
+    "scripts/loop-verify.sh": {
+      "completion_baseline": "5e34ec41305140f9b0d3c9bd1cfb9cbdf903e3bd3dd4d56cb9f7276ecb47eb75",
+      "upstream_source": "d2b9372a57f879779177c6ca20033c4e42aae8dc85a2a28b280bc7e6fdc42cc8",
+      "verified_upstream_worker": "d2b9372a57f879779177c6ca20033c4e42aae8dc85a2a28b280bc7e6fdc42cc8"
+    },
+    "scripts/check-test-discovery.mjs": {
+      "completion_baseline": null,
+      "upstream_source": "20ffde37d17d354e08f1d4596282060c304fa4c863e4b133770ebd4362e47512",
+      "verified_upstream_worker": "20ffde37d17d354e08f1d4596282060c304fa4c863e4b133770ebd4362e47512"
+    },
+    ".github/workflows/ci.yml": {
+      "completion_baseline": "57f5b444b2cebc67727a355b53a99ebb9e03622130c9c8d2e15ed817a9a606a8",
+      "upstream_source": "c57242059b66b492bb844b3ee7263bba14829c8299de85d6a4f327295d0c4693",
+      "verified_upstream_worker": "c57242059b66b492bb844b3ee7263bba14829c8299de85d6a4f327295d0c4693"
+    },
+    ".nvmrc": {
+      "completion_baseline": null,
+      "upstream_source": "68ca3fba3b7e864770cb61aeb306d4bd4354b68ab4dd38450860c5d823e42a53",
+      "verified_upstream_worker": "68ca3fba3b7e864770cb61aeb306d4bd4354b68ab4dd38450860c5d823e42a53"
+    }
+  },
+  "scope": "Immutable git-object comparison; no upstream execution or writes"
+}

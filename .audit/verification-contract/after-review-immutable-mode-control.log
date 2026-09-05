@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-verification-contract/.audit/verification-contract/verify-immutable.py", line 19, in <module>
+    assert actual_mode(root/path)==(mode,kind), f'mode/type changed: {path}'
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: mode/type changed: README.md

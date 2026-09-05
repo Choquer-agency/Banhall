@@ -1,0 +1,7 @@
+# Coordinator finalization
+
+The coordinator independently matched all11 final source hashes and both final gate exits/counts. A final actual immutable-helper run exited0, with its expanded current-audit inventory saved as coordinator-final-immutable-source.json. The helper writes after-review-immutable-source.json; its prior handoff snapshot was restored byte-for-byte from the identical retained after-review-immutable-source.log so the reviewed135-entry inventory remains valid. Every prior inventory hash was rechecked successfully after this restoration. No product/source/index mutation was involved in this evidence bookkeeping.
+
+The standalone spec is done, all patch tasks resolved, and Suggested Review Order appended. No sprint/native ledger sync applies. VS Code command is unavailable in this environment; the finalized spec remains directly accessible by path. Private commit is authorized; parent exclusively owns integration/push/hosted checks.
+
+Staging exposed authentic trailing whitespace in seven raw logs/diff artifacts. Their exact bytes are committed as deterministic gzip files; raw-evidence-compression.json maps original paths and both raw/archive hashes. Before-review and handoff manifests intentionally retain original uncompressed hashes, verified by lossless decompression. No log content was normalized. All other evidence remains plain text. Source and staged whitespace checks pass after this archival representation change.

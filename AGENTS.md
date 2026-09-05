@@ -20,9 +20,13 @@ SR&ED report generation for a consulting firm. SvelteKit 2 + Svelte 5 runes, Tai
 
 ## Running and verifying
 
-- `npm test` never touches a browser; component tests are `npm run test:component` and need `npx playwright install chromium` once.
-- CI runs only `npm run check` and `npm test`; run `test:component` locally before touching `src/lib/components`.
-- `npm run check` needs `PUBLIC_CONVEX_URL` set to any value; CI uses a placeholder.
+- One command proves a change: `bash scripts/loop-verify.sh`. Numbered steps: preflight, Convex typecheck, `npm run check`, `npm test`, the test-discovery guard, `npm run build`, the two client-uploader harnesses. Browser-free by default.
+- Preflight defaults `PUBLIC_CONVEX_URL` and `PUBLIC_CONVEX_SITE_URL` to public placeholders when unset, so no deployment is needed; it also fails at step 1 naming a missing `node`/`npm`/`pwsh`/`git`.
+- Run `npm ci` in each fresh checkout and after dependency changes. The gate only bootstraps an empty `node_modules`; an existing directory does not establish installation freshness or ownership.
+- `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` adds the browser component suite (`npm run test:component`), which needs `npx playwright install chromium` once (Linux: `npx playwright install --with-deps chromium`). Optional preflight launches headless Chromium. `npm test` itself never touches a browser.
+- CI defines two jobs: one runs `bash scripts/loop-verify.sh`, the other installs Chromium and runs `npm run test:component`. Still run `test:component` locally before touching `src/lib/components`. Required branch-protection checks are configured separately from this workflow.
+
+- Existing component tests rewrite historical screenshots under `.audit`. Inspect their diffs after browser runs and restore only generated historical outputs that must stay unchanged, preserving unrelated work.
 
 ## Conventions that differ from defaults
 

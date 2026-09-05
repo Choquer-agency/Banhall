@@ -217,15 +217,25 @@ their original IDs.
 
 ## Verify, integrate, and ship
 
-The native `scripts/loop-verify.sh` gate runs Convex TypeScript, Svelte checks,
-unit tests, and the Windows/macOS uploader harnesses. `PUBLIC_CONVEX_URL` defaults
-to a placeholder for typechecking. The unit suite limits worker concurrency so
+Run `bash scripts/loop-verify.sh` for the eight-step gate: prerequisite checks,
+Convex TypeScript, Svelte checks, unit tests, test discovery, the production build,
+and the Windows/macOS uploader harnesses. Use Node 24 (see `.nvmrc`), npm, Git and
+PowerShell 7 (`pwsh`). Run `npm ci` inside each fresh checkout and after dependency
+changes; the gate bootstraps empty `node_modules` but does not validate an existing
+installation for freshness or ownership. Both `PUBLIC_CONVEX_URL` and `PUBLIC_CONVEX_SITE_URL` default
+to public placeholders when unset. The unit suite limits worker concurrency so
 independent worktrees do not each use the full host's worker pool.
 
 Combine completed branches in an isolated integration checkout. Resolve all
 conflicts while preserving each story's acceptance behavior, then run the full
-combined gate. UI changes also require `npm run test:component`; these browser
-tests are separate from `npm test`. Run a fresh `bmad-code-review` on the combined
+combined gate. UI changes also require the browser component suite: install
+Chromium once with `npx playwright install chromium` (on Linux use
+`npx playwright install --with-deps chromium`), then run
+`VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` to include the ninth step.
+Optional preflight verifies an actual headless launch. Existing component tests
+rewrite historical `.audit` screenshots: inspect the diffs and restore only
+generated historical outputs that must remain unchanged, preserving unrelated work.
+These browser tests are separate from `npm test`. Run a fresh `bmad-code-review` on the combined
 change and fix actionable findings. Review runtime evidence and any limitations
 against the story contracts.
 

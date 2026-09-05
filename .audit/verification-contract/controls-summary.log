@@ -1,0 +1,7 @@
+discovery-adapted exit 0
+discovery-orphan exit 1
+discovery-restored exit 0
+missing-pwsh exit 1
+convex-exit-37 exit 37
+missing-chromium exit 1
+all controls passed; real index unchanged
