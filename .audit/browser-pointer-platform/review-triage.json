@@ -1,0 +1,116 @@
+{
+  "layers": {
+    "blind": {
+      "exit": 0,
+      "suggestions": 10
+    },
+    "edge": {
+      "exit": 0,
+      "findings": 0
+    },
+    "gap": {
+      "exit": 0,
+      "findings": 0
+    },
+    "acceptance": {
+      "exit": 0,
+      "sourceViolations": 0,
+      "caveatMergedInto": 1
+    }
+  },
+  "execution": "Fresh ephemeral read-only CLI sessions; maximum2 concurrent; same Astra6 medium; normal auth/hooks; collaboration total thread cap blocked native spawns.",
+  "findings": [
+    {
+      "id": 1,
+      "source": "blind-hunter+acceptance-auditor",
+      "severity": "low",
+      "buildCategory": "patch",
+      "codeReviewCategory": "patch",
+      "status": "resolved",
+      "rationale": "Actual Linux run33987952188 passes exact frozen source; preserved raw log/head and hashes."
+    },
+    {
+      "id": 2,
+      "source": "blind-hunter",
+      "severity": "low",
+      "buildCategory": "patch",
+      "codeReviewCategory": "patch",
+      "status": "resolved",
+      "rationale": "Canonical context-file-list.json and context-file-list-summary.json prove 62 executions/61 unique browser files."
+    },
+    {
+      "id": 3,
+      "source": "blind-hunter",
+      "severity": "low",
+      "buildCategory": "patch",
+      "codeReviewCategory": "patch",
+      "status": "resolved",
+      "rationale": "Corrected SPEC to 215 unique executable test files, distinct from1970+463 test cases."
+    },
+    {
+      "id": 4,
+      "source": "blind-hunter",
+      "severity": "low",
+      "buildCategory": "patch",
+      "codeReviewCategory": "patch",
+      "status": "resolved",
+      "rationale": "Marked tasks complete and appended actual source-bound acceptance receipts."
+    },
+    {
+      "id": 5,
+      "source": "blind-hunter",
+      "severity": "low",
+      "buildCategory": "reject",
+      "codeReviewCategory": "dismiss",
+      "status": "dismissed",
+      "rationale": "Minimum count is identical to baseline; this change preserves the original scope. No missing row is demonstrated."
+    },
+    {
+      "id": 6,
+      "source": "blind-hunter",
+      "severity": "low",
+      "buildCategory": "reject",
+      "codeReviewCategory": "dismiss",
+      "status": "dismissed",
+      "rationale": "Class-based sizing selection is identical to baseline and unchanged product rows carry class. No introduced coverage loss demonstrated."
+    },
+    {
+      "id": 7,
+      "source": "blind-hunter",
+      "severity": "low",
+      "buildCategory": "reject",
+      "codeReviewCategory": "dismiss",
+      "status": "dismissed",
+      "rationale": "Captured rows are unchanged baseline behavior; fixture is static after render. No replacement path introduced or demonstrated."
+    },
+    {
+      "id": 8,
+      "source": "blind-hunter",
+      "severity": "low",
+      "buildCategory": "reject",
+      "codeReviewCategory": "dismiss",
+      "status": "dismissed",
+      "rationale": "Touch capability/media/layout verification is the existing contract; touch gesture expansion is not caused by this context fix."
+    },
+    {
+      "id": 9,
+      "source": "blind-hunter",
+      "severity": "low",
+      "buildCategory": "reject",
+      "codeReviewCategory": "dismiss",
+      "status": "dismissed",
+      "rationale": "390px drawer viewport is the preserved contract. Wide viewport introduces different rail behavior and is unrelated to current failure."
+    },
+    {
+      "id": 10,
+      "source": "blind-hunter",
+      "severity": "low",
+      "buildCategory": "reject",
+      "codeReviewCategory": "dismiss",
+      "status": "dismissed",
+      "rationale": "WorkspaceRail rowBase is applied directly to interactive anchors/buttons; measured rows are not wrapper-only targets."
+    }
+  ],
+  "remaining": 0,
+  "sourceChangedAfterReview": false
+}

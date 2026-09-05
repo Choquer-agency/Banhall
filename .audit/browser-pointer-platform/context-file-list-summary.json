@@ -1,0 +1,12 @@
+{
+  "executions": 62,
+  "uniqueFiles": 61,
+  "projectCounts": {
+    "component-pointer-fine": 1,
+    "component-pointer-coarse": 1,
+    "component (chromium)": 60
+  },
+  "duplicateFiles": {
+    "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-pointer/src/lib/components/workspace/WorkspaceChromePointer.component.test.ts": 2
+  }
+}
