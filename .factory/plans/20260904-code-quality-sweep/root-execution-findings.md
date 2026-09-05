@@ -39,3 +39,7 @@ Slop-2 merged as 7b9b01e, done commit ac69311, source 1ac92ae. QA test-verified 
 ## Pending DX closure of retired Disclosure example
 
 Independent review approved slop-3’s exact eight-file/506-line deletion and found one stale adopter citation in docs/design-system.md:403. Added removal of only MyWorkGroup from that adoption list to pending dx-1 AC5 and its predicate. Root confirmed ProjectsClientGroup.svelte:40,243 and WorkspaceHeader.svelte:13,194 still import and render Disclosure, so the design rule and those two examples remain accurate. This is one documentation file (eleven implementation files total for dx-1), no new criterion or product behavior change.
+
+## Dismissed: slop-3 historical sorting clause
+
+The slop-3 reviewer’s low/consider claim about docs/product-domain.md:797 is dismissed after context review. The clause says the preview may reorder only loaded rows, a permission/constraint rather than an obligation to keep a sort control. Lines 736–741 supersede the five-lane layout; lines 727 and 634–638 record approved removal of those Home regions/subscriptions; the approved August 14 amendment at 330–340 makes With you the only operational Home subscription. Retained MyWorkLaneSort.component.test.ts:25–45 explicitly requires the assigned-only subscription and no sort control; CurrentMyWorkView retains its frozen accountability tabs. Independent audit_slop review reached the same conclusion. No new product-domain amendment, implementation, or deferred obligation is warranted by this deletion.

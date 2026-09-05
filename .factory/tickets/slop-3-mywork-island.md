@@ -10,7 +10,7 @@ done_when: [! test -e src/lib/components/mywork/MyWorkGroup.svelte, ! test -e sr
 title: "Delete the retired My Work lane presentation: eight files kept alive only by their own tests"
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T08:09:22.512Z"
+updated: "2026-09-05T08:13:35.443Z"
 run: 20260905-072238-8-tickets
 branch: factory/slop-3-mywork-island
 merged: 4b6159f
@@ -46,3 +46,7 @@ Refactor pin: the `verify` run before deletion; after deletion the counts drop b
 The configured QA tool allowlist permits the verification commands but denies Edit/Write to audit files. The factory engine itself persists the QA structured summary and checks as `.audit/<ticket>/qa-<loop>.md` (engine.mjs, QA stage). Return the complete truthful QA report through those structured fields; the engine-written file is the canonical QA output for this run. The orchestrator links it from root evidence after merge. Do not spend retries attempting manual evidence writes or require a human merely to append this report. This changes no runtime verification requirement or tool permission. Actual failures, missing evidence and unverified behavior must still be reported accurately.
 
 AC3 production-build verification is explicitly in the engine verify list so it runs independently and is included in the derived QA command scope. This uses the already-approved build command with both placeholders; no new script or wrapper.
+
+## Orchestrator review disposition
+
+The slop-3 reviewer’s low/consider claim about docs/product-domain.md:797 is dismissed after context review. The clause says the preview may reorder only loaded rows, a permission/constraint rather than an obligation to keep a sort control. Lines 736–741 supersede the five-lane layout; lines 727 and 634–638 record approved removal of those Home regions/subscriptions; the approved August 14 amendment at 330–340 makes With you the only operational Home subscription. Retained MyWorkLaneSort.component.test.ts:25–45 explicitly requires the assigned-only subscription and no sort control; CurrentMyWorkView retains its frozen accountability tabs. Independent audit_slop review reached the same conclusion. No new product-domain amendment, implementation, or deferred obligation is warranted by this deletion.
