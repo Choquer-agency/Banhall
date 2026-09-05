@@ -105,7 +105,7 @@ describe("Editor search surface", () => {
     document.body.innerHTML = "";
   });
 
-  it("renders one strike per occurrence per pair and one insertion per replaced occurrence", async () => {
+  it("renders merged strikes per occurrence and insertion widgets per replacement pair", async () => {
     const { component } = await mountEditor();
 
     component.previewProposal(PREVIEW_PAIRS);
