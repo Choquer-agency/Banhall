@@ -1,0 +1,22 @@
+name: Pointer environment diagnostic
+on:
+  push:
+    branches: [codex/bmad-linux-pointer-diagnostic]
+permissions:
+  contents: read
+jobs:
+  pointer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install exact dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install Chromium variants
+        run: npx playwright install --with-deps chromium
+      - name: Observe actual pointer modes
+        run: node .github/scripts/pointer-probe.mjs
