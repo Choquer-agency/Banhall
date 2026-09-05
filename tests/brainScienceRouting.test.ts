@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { pickScienceRouted } from "../convex/ai/brain/scienceRouting";
 import type { CraScienceCode } from "../shared/craScienceCodes";
 

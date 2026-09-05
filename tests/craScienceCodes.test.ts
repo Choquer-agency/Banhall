@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import {
   CRA_SCIENCE_CODES,
   CRA_SCIENCE_CODE_ITEMS,

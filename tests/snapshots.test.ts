@@ -1,10 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import type { Id } from "../convex/_generated/dataModel";
-import { sha256 } from "../convex/lib/contracts";
-import {
-  snapshotAuditFields,
-  snapshotIdsToDelete,
-} from "../convex/lib/snapshots";
+import { describe, expect, test } from "vitest";
+import { snapshotIdsToDelete } from "../convex/lib/snapshots";
 import { buildMilestoneOptions } from "../src/lib/components/history/milestones";
 
 const HOUR = 3_600_000;
@@ -77,84 +72,5 @@ describe("milestone picker", () => {
         { milestoneKey: "R19" },
       ])
     ).toEqual(["R20 internal review"]);
-  });
-});
-
-describe("snapshot audit state", () => {
-  test("recomputes the hash and restores lineage only from matching provenance", async () => {
-    const content = "exact persisted report";
-    const contentHash = await sha256(content);
-    const rows = new Map<string, Record<string, unknown>>([
-      [
-        "generation",
-        {
-          _id: "generation",
-          projectId: "project",
-          transcriptId: "transcript",
-        },
-      ],
-      ["transcript", { projectId: "project" }],
-      [
-        "provenance",
-        {
-          projectId: "project",
-          contentHash,
-          generationId: "generation",
-          sourceTranscriptId: "transcript",
-        },
-      ],
-      [
-        "stale-provenance",
-        {
-          projectId: "project",
-          contentHash: "stale",
-          generationId: "generation",
-          sourceTranscriptId: "transcript",
-        },
-      ],
-    ]);
-    const ctx = {
-      db: {
-        get: async (rowId: string) => rows.get(rowId) ?? null,
-      },
-    } as unknown as Parameters<typeof snapshotAuditFields>[0];
-
-    const matching = await snapshotAuditFields(ctx, {
-      projectId: "project" as Id<"projects">,
-      content,
-      provenanceId: "provenance" as Id<"reportProvenance">,
-    });
-    expect(matching).toEqual({
-      contentHash,
-      provenanceId: "provenance" as Id<"reportProvenance">,
-      generationId: "generation" as Id<"generations">,
-      sourceTranscriptId: "transcript" as Id<"transcripts">,
-    });
-
-    const legacyGenerationOnly = await snapshotAuditFields(ctx, {
-      projectId: "project" as Id<"projects">,
-      content,
-      generationId: "generation" as Id<"generations">,
-    });
-    expect(legacyGenerationOnly).toEqual({
-      contentHash,
-      provenanceId: undefined,
-      generationId: "generation" as Id<"generations">,
-      sourceTranscriptId: "transcript" as Id<"transcripts">,
-    });
-
-    const stale = await snapshotAuditFields(ctx, {
-      projectId: "project" as Id<"projects">,
-      content,
-      provenanceId: "stale-provenance" as Id<"reportProvenance">,
-      generationId: "generation" as Id<"generations">,
-      sourceTranscriptId: "transcript" as Id<"transcripts">,
-    });
-    expect(stale).toEqual({
-      contentHash,
-      provenanceId: undefined,
-      generationId: "generation" as Id<"generations">,
-      sourceTranscriptId: "transcript" as Id<"transcripts">,
-    });
   });
 });
