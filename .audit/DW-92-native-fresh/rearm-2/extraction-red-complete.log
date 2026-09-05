@@ -1,0 +1,70 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup
+
+ ❯ |convex| convex/qaBlocking.test.ts (49 tests | 4 failed | 44 skipped) 178ms
+     × late first uncertainty heading preserves preceding legacy failure 139ms
+     × late first uncertainty heading preserves preceding rich text failure 2ms
+     × branching inline wrapper preserves marker and because (missing because) 28ms
+     × branching inline wrapper preserves marker and because (split because) 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > fresh review extraction boundaries > late first uncertainty heading preserves preceding legacy failure
+ FAIL  |convex| convex/qaBlocking.test.ts > fresh review extraction boundaries > late first uncertainty heading preserves preceding rich text failure
+AssertionError: expected [ 'IDENTITY_EVIDENCE_REQUIRED', …(2) ] to include 'QA_BLOCKING'
+ ❯ expectBlocked convex/qaBlocking.test.ts:61:60
+     59| }
+     60| async function expectBlocked(f: Fixture, subject = "qa-owner") {
+     61|   expect((await readiness(f)).blockers.map((b) => b.code)).toContain("…
+       |                                                            ^
+     62|   const before = await f.t.run((ctx) => ctx.db.get(f.projectId));
+     63|   const scheduledBefore = await f.t.run((ctx) => ctx.db.system.query("…
+ ❯ convex/qaBlocking.test.ts:431:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > fresh review extraction boundaries > branching inline wrapper preserves marker and because (missing because)
+AssertionError: expected [] to deeply equal ArrayContaining{…}
+
+- Expected
++ Received
+
+- ArrayContaining [
+-   ObjectContaining {
+-     "blocking": true,
+-     "check": "because_clause",
+-     "contentHash": "49422f6d06f34b2eae703bcf9a2b535e185a06d1e25baedee9fa94691538884c",
+-     "reportId": "0000000000000000000010007reports",
+-     "revisionNumber": 1,
+-   },
+- ]
++ []
+
+ ❯ convex/qaBlocking.test.ts:452:29
+    450|       await f.actor.mutation(api.projects.publishForReview, { projectI…
+    451|     } else {
+    452|       expect(await rows(f)).toEqual(expect.arrayContaining([expect.obj…
+       |                             ^
+    453|       await expectBlocked(f);
+    454|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > fresh review extraction boundaries > branching inline wrapper preserves marker and because (split because)
+AssertionError: expected [ 'QA_BLOCKING', …(3) ] to not include 'QA_BLOCKING'
+ ❯ convex/qaBlocking.test.ts:448:66
+    446|     await f.actor.mutation(api.reports.updateReportContent, { reportId…
+    447|     if (valid) {
+    448|       expect((await readiness(f)).blockers.map(b => b.code)).not.toCon…
+       |                                                                  ^
+    449|       expect((await rows(f)).filter(r => r.blocking)).toEqual([]);
+    450|       await f.actor.mutation(api.projects.publishForReview, { projectI…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 1 passed | 44 skipped (49)
+   Start at  17:31:44
+   Duration  557ms (transform 266ms, setup 0ms, import 213ms, tests 178ms, environment 43ms)
+

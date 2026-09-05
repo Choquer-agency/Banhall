@@ -106,10 +106,10 @@ export function buildTiptapDocument(
 export function extractReportSections(content: string): { s242: string; s244: string; s246: string } {
   const sections = { s242: "", s244: "", s246: "" };
   type Section = keyof typeof sections;
-  type Block = { text: string; heading: boolean; richText?: boolean };
+  type Block = { text: string; heading: boolean; richText?: boolean; title?: boolean };
   function nodeText(node: unknown): string {
-    type TextTask = { kind: "node"; node: unknown } | { kind: "separator" };
-    const pending: TextTask[] = [{ kind: "node", node }];
+    type TextTask = { kind: "node"; node: unknown; inlineContext: boolean } | { kind: "separator" };
+    const pending: TextTask[] = [{ kind: "node", node, inlineContext: false }];
     const text: string[] = [];
     // User-saved documents can be deeply nested. Keep traversal on the heap,
     // including nested inline content, while retaining each parent's separator.
@@ -127,10 +127,14 @@ export function extractReportSections(content: string): { s242: string; s244: st
       } else if ("type" in current && current.type === "hardBreak") {
         text.push("\n");
       } else if ("content" in current && Array.isArray(current.content)) {
-        const inline = "type" in current && ["paragraph", "heading", "codeBlock"].includes(String(current.type));
+        const inline = task.inlineContext || ("type" in current && ["paragraph", "heading", "codeBlock"].includes(String(current.type)));
         for (let index = current.content.length - 1; index >= 0; index--) {
-          pending.push({ kind: "node", node: current.content[index] });
-          if (index > 0 && !inline) pending.push({ kind: "separator" });
+          const child: unknown = current.content[index];
+          const previous: unknown = current.content[index - 1];
+          const isBlock = (value: unknown) => !!value && typeof value === "object" && "type" in value &&
+            ["paragraph", "heading", "codeBlock", "blockquote", "listItem"].includes(String(value.type));
+          pending.push({ kind: "node", node: child, inlineContext: inline });
+          if (index > 0 && (!inline || isBlock(child) || isBlock(previous))) pending.push({ kind: "separator" });
         }
       }
     }
@@ -164,7 +168,9 @@ export function extractReportSections(content: string): { s242: string; s244: st
         const node = pending.pop();
         if (!node || typeof node !== "object") continue;
         if ("type" in node && (node.type === "paragraph" || node.type === "heading" || node.type === "codeBlock")) {
-          blocks.push({ text: nodeText(node), heading: node.type === "heading", richText: true });
+          const title = node.type === "heading" && "attrs" in node && node.attrs &&
+            typeof node.attrs === "object" && "level" in node.attrs && node.attrs.level === 1;
+          blocks.push({ text: nodeText(node), heading: node.type === "heading", richText: true, title: !!title });
         } else if ("content" in node && Array.isArray(node.content)) {
           for (let index = node.content.length - 1; index >= 0; index--) {
             pending.push(node.content[index]);
@@ -192,8 +198,14 @@ export function extractReportSections(content: string): { s242: string; s244: st
   // A later appendix cannot hide prose before the first work/advancement section.
   const firstSection = blocks.find(block => block.heading && sectionHeading(block.text, block.richText));
   const startsWithUncertainty = firstSection && sectionHeading(firstSection.text, firstSection.richText) === "s242";
-  let section: Section | undefined = startsWithUncertainty ? undefined : "s242";
-  for (const block of blocks) {
+  // Generated titles remain preamble, but a later first 242 heading cannot
+  // discard preceding prose containing an already recognized uncertainty.
+  const firstSectionIndex = firstSection ? blocks.indexOf(firstSection) : blocks.length;
+  const substantivePreamble = blocks.slice(0, firstSectionIndex)
+    .some((block, index) => !(index === 0 && block.title) && checkBecauseClauses(block.text).uncertaintyCount > 0);
+  let section: Section | undefined = startsWithUncertainty && !substantivePreamble ? undefined : "s242";
+  for (const [index, block] of blocks.entries()) {
+    if (index === 0 && block.title && firstSectionIndex > 0 && startsWithUncertainty) continue;
     const next = block.heading ? sectionHeading(block.text, block.richText) : undefined;
     if (next) section = next;
     else if (section && block.text.trim()) {

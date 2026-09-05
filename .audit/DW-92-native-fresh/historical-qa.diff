@@ -1,0 +1,1632 @@
+diff --git a/convex/ai/postQa.ts b/convex/ai/postQa.ts
+index 12bbe49..466e73b 100644
+--- a/convex/ai/postQa.ts
++++ b/convex/ai/postQa.ts
+@@ -23,8 +23,13 @@ import {
+ import type { Id } from "../_generated/dataModel";
+ 
+ export const runReportQa = internalAction({
+-  args: { generationId: v.id("generations") },
++  args: { generationId: v.id("generations"), attemptStartedAt: v.optional(v.number()) },
+   handler: async (ctx, args) => {
++    const attempt = await ctx.runQuery(internal.generations.getPostQaAttempt, {
++      generationId: args.generationId,
++    });
++    if (!attempt || (args.attemptStartedAt !== undefined && args.attemptStartedAt !== attempt.startedAt)) return;
++    const attemptStartedAt = attempt.startedAt;
+     const input = await ctx.runQuery(internal.generations.getPostQaInput, {
+       generationId: args.generationId,
+     });
+@@ -33,6 +38,7 @@ export const runReportQa = internalAction({
+       // stuck and the panel spins forever. Mark the pass failed instead.
+       await ctx.runMutation(internal.generations.saveReportQa, {
+         generationId: args.generationId,
++        attemptStartedAt,
+         failed: true,
+       });
+       return;
+@@ -147,6 +153,8 @@ export const runReportQa = internalAction({
+       if (!qa) {
+         await ctx.runMutation(internal.generations.saveReportQa, {
+           generationId: args.generationId,
++          attemptStartedAt,
++          capturedRef: input.capturedRef,
+           failed: true,
+           ...(chronology ? { chronology: JSON.stringify(chronology) } : {}),
+         });
+@@ -154,6 +162,8 @@ export const runReportQa = internalAction({
+       }
+       await ctx.runMutation(internal.generations.saveReportQa, {
+         generationId: args.generationId,
++        attemptStartedAt,
++        capturedRef: input.capturedRef,
+         qa: JSON.stringify(qa),
+         ...(chronology ? { chronology: JSON.stringify(chronology) } : {}),
+         ...(typeof qa.overall_score === "number"
+@@ -165,6 +175,8 @@ export const runReportQa = internalAction({
+       console.error("post-assembly QA failed for generation", args.generationId, err);
+       await ctx.runMutation(internal.generations.saveReportQa, {
+         generationId: args.generationId,
++        attemptStartedAt,
++        capturedRef: input.capturedRef,
+         failed: true,
+       });
+     }
+diff --git a/convex/ai/prompts.ts b/convex/ai/prompts.ts
+index d2f254a..b7cfc28 100644
+--- a/convex/ai/prompts.ts
++++ b/convex/ai/prompts.ts
+@@ -554,9 +554,9 @@ export const QA_PROMPT_BRANCHES = {
+ - Does Section 246 contain the required paragraphs (advancement, specific advancements, project status, project goal)?`,
+     skeletonWaived: `### Structure Compliance: WAIVED
+ - This writer's profile replaces the built-in section skeleton with their own settings document. Paragraph counts, paragraph roles, ordering, mandated opening phrases, and the default framing conventions do NOT apply. Do NOT flag or deduct for a section having more, fewer, or differently arranged paragraphs than the default skeleton, for consolidated or split paragraphs, or for the absence of signal phrases.
+-- Every check below that names a paragraph position (P3, P5, "paragraphs 2, 3, and 4") is positional guidance for the DEFAULT skeleton only. For this report, locate the relevant content by what it says, not where it sits; if you cannot locate it, do not deduct.
++- Every check below that names a paragraph position (P3, P5, "paragraphs 2, 3, and 4") is positional guidance for the DEFAULT skeleton only. For this report, locate the relevant content by what it says, not where it sits; waive differences in position and architecture only. Absent substantive content still fails the applicable methodology check.
+ - Judge the substance instead: does the report, in the writer's own architecture, convey a genuine technological uncertainty, a systematic investigation, and a knowledge advancement that a CRA reviewer would accept? Deduct only for substantive weaknesses a writer would need to rework, never for deviation from the default structure.
+-- The CRA Verbiage, Conceptual Accuracy, Knowledge vs. Capability, Hypothesis Specificity, Passive vs. Active, and Experimentation Narrative Arc checks below describe the DEFAULT methodology. For this writer they are ADVISORY: report a genuine substantive weakness as a "warning" (no deduction) so the writer can decide; deduct only when a claim is unsupported by the source material or the section is empty of substance. The Human Prose, Writing Quality, Faithfulness, and Gaps checks apply as written.
++- Substantive CRA methodology remains mandatory under every skeleton: evaluate why_how_why_intact and uncertainties_distinguished honestly. Missing because clauses in recognized uncertainty statements anywhere in section 242 are non-waivable. House-style verbiage and opening phrases remain advisory. The Human Prose, Writing Quality, Faithfulness, and Gaps checks apply as written.
+ 
+ ### CRA Keyword Visibility Check: WAIVED
+ - Do NOT deduct for missing signal phrases ("The limitations to standard practice were...", "The technological objective was to...", "It was hypothesized that if...", "Through systematic investigation, it was determined that..."). Ignore any pre-computed opener results.`,
+@@ -671,7 +671,7 @@ ${
+ - Does paragraph 3 describe knowledge limitations (what the field doesn't know)?
+ - Does paragraph 5 describe approach-specific uncertainties (what's risky about their chosen solution)?
+ - If paragraph 3 contains product/tool limitations instead of knowledge limitations, flag it.
+-- FOR BECAUSE CLAUSES in 242 P5: Use the pre-computed "BECAUSE Clause Detection" results provided above. These were verified programmatically by scanning for the literal word "because" after each uncertainty statement. Trust these results; do not re-evaluate them.
++- FOR BECAUSE CLAUSES throughout 242: Use the pre-computed "BECAUSE Clause Detection" results provided above. These were verified programmatically by scanning for the literal word "because" after each uncertainty statement. Trust these results; do not re-evaluate them.
+ - IMPORTANT CLARIFICATION on knowledge vs product limitations: Phrases like "no documented methods existed for X", "no established approaches for X", "the knowledge required to X was insufficient", "the scientific basis for X had not been established" are ALL knowledge limitation language; they describe gaps in the field's understanding. A product limitation would be "the existing software could not do X" or "the tool failed to perform X"; it describes a specific product failing, not a gap in knowledge. Do NOT flag knowledge-gap language as product limitations.
+ 
+ ### Experimentation Narrative Arc Check (Section 244 only)
+diff --git a/convex/ai/qaChecks.ts b/convex/ai/qaChecks.ts
+index 928be79..35b6353 100644
+--- a/convex/ai/qaChecks.ts
++++ b/convex/ai/qaChecks.ts
+@@ -67,7 +67,7 @@ export function checkCRAOpeners(section246Text: string): CRAOpenerResult {
+   };
+ }
+ 
+-// ─── Check 2: BECAUSE clause detection for 242 P5 ──────────────────────────
++// ─── Check 2: BECAUSE clause detection throughout 242 ──────────────────────────
+ 
+ export interface BecauseClauseResult {
+   uncertaintyCount: number;
+@@ -80,8 +80,7 @@ export interface BecauseClauseResult {
+ 
+ export function checkBecauseClauses(section242Text: string): BecauseClauseResult {
+   const paragraphs = section242Text.split(/\n\n+/).filter((p) => p.trim());
+-  // P5 is the last paragraph (index 4)
+-  const p5 = paragraphs[4] ?? "";
++
+ 
+   // Split on uncertainty markers
+   const uncertaintyMarkers = [
+@@ -91,7 +90,7 @@ export function checkBecauseClauses(section242Text: string): BecauseClauseResult
+   ];
+ 
+   // Find all uncertainty statements by splitting on sentences
+-  const sentences = p5.split(/(?<=\.)\s+/);
++  const sentences = paragraphs.flatMap((paragraph) => paragraph.split(/(?<=[.!?])\s+/));
+   const uncertaintySentences: Array<{ excerpt: string; hasBecause: boolean }> = [];
+ 
+   for (const sentence of sentences) {
+@@ -243,9 +242,8 @@ export function sectionDeterministicFindings(
+     });
+   }
+ 
+-  // Positional/structural scans assume the default skeleton; a writer-defined
+-  // architecture (reportSkeleton waived) makes them meaningless, not wrong.
+-  if (section === "s242" && !overrides.reportSkeleton) {
++  // Substantive uncertainty checks are independent of the writer's skeleton.
++  if (section === "s242") {
+     const because = checkBecauseClauses(text);
+     for (const d of because.details) {
+       if (!d.hasBecause) {
+@@ -321,14 +319,10 @@ export function runDeterministicChecks(
+   summary += `\n`;
+ 
+   // BECAUSE clauses
+-  summary += `### BECAUSE Clause Detection (242 P5)\n`;
+-  if (overrides.reportSkeleton) {
+-    summary += `WAIVED by writer profile — this writer's own document defines the section architecture, so the default because-clause structure does not apply. Do not deduct for its absence.\n`;
+-  } else {
+-    summary += `Uncertainties with BECAUSE clauses: ${because.withBecause}/${because.uncertaintyCount}\n`;
+-    for (const d of because.details) {
+-      summary += `- ${d.hasBecause ? "PASS" : "FAIL"} — "${d.excerpt}"\n`;
+-    }
++  summary += `### BECAUSE Clause Detection (242, all paragraphs)\n`;
++  summary += `Uncertainties with BECAUSE clauses: ${because.withBecause}/${because.uncertaintyCount}\n`;
++  for (const d of because.details) {
++    summary += `- ${d.hasBecause ? "PASS" : "FAIL"} — "${d.excerpt}"\n`;
+   }
+   summary += `\n`;
+ 
+diff --git a/convex/chatV2.ts b/convex/chatV2.ts
+index 4223fd6..759ba8e 100644
+--- a/convex/chatV2.ts
++++ b/convex/chatV2.ts
+@@ -1,3 +1,4 @@
++import { persistDeterministicFindings } from "./lib/qaFindings";
+ import {
+   query,
+   mutation,
+@@ -33,7 +34,9 @@ import { getEffectiveWriterStyle } from "./writerProfiles";
+ import { domainError, sha256 } from "./lib/contracts";
+ import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+ import { proposalPairs } from "../shared/chatProposals";
+-import { chatEvidenceBudget } from "./appSettings";
++import { chatAdmissionLimits, chatEvidenceBudget } from "./appSettings";
++import { projectRollingCostUsdUnits, usdDecimalUnits } from "./aiUsage";
++import type { Id } from "./_generated/dataModel";
+ 
+ // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
+ // The @convex-dev/agent component owns threads/messages/stream deltas.
+@@ -233,6 +236,38 @@ export const listTurns = query({
+ 
+ // ─── Mutations ───────────────────────────────────────────────────────────────
+ 
++async function assertChatAdmission(
++  ctx: MutationCtx,
++  projectId: Id<"projects">,
++  userId: Id<"users">
++): Promise<void> {
++  const limits = await chatAdmissionLimits(ctx);
++  if (await projectRollingCostUsdUnits(ctx, { projectId, now: Date.now() }) > usdDecimalUnits(limits.dailyBudgetUsd)) {
++    domainError("CHAT_SPEND_BUDGET_EXCEEDED", "Project AI spending budget exceeded; chat is unavailable");
++  }
++  let queued = 0;
++  const ownTurns = ctx.db.query("chatTurns")
++    .withIndex("by_userId_and_status", (q) => q.eq("userId", userId).eq("status", "queued"));
++  for await (const turn of ownTurns) {
++    queued += 1;
++    if (queued >= limits.maxQueuedTurns) {
++      domainError("CHAT_QUEUE_LIMIT_EXCEEDED", "Your queued chat turn limit has been reached");
++    }
++  }
++  // Legacy turns belong to their prompt sender, never the shared thread creator.
++  const legacyTurns = ctx.db.query("chatTurns")
++    .withIndex("by_userId_and_status", (q) => q.eq("userId", undefined).eq("status", "queued"));
++  for await (const turn of legacyTurns) {
++    const [prompt] = await ctx.runQuery(components.agent.messages.getMessagesByIds, {
++      messageIds: [turn.promptMessageId],
++    });
++    if (prompt?.userId === userId) queued += 1;
++    if (queued >= limits.maxQueuedTurns) {
++      domainError("CHAT_QUEUE_LIMIT_EXCEEDED", "Your queued chat turn limit has been reached");
++    }
++  }
++}
++
+ export const sendMessage = mutation({
+   args: {
+     reportId: v.id("reports"),
+@@ -285,22 +320,21 @@ export const sendMessage = mutation({
+             .withIndex("by_reportId", (q) => q.eq("reportId", args.reportId))
+             .order("desc")
+             .first();
+-      if (latest) {
+-        agentThreadId = latest.agentThreadId;
+-      } else {
+-        const title = args.content.trim().slice(0, 60) || "New chat";
+-        agentThreadId = await createThread(ctx, components.agent, {
+-          userId,
+-          title,
+-        });
+-        await ctx.db.insert("agentChatThreads", {
+-          projectId: report.projectId,
+-          reportId: args.reportId,
+-          agentThreadId,
+-          title,
+-          createdAt: Date.now(),
+-        });
+-      }
++      agentThreadId = latest?.agentThreadId;
++    }
++
++    await assertChatAdmission(ctx, report.projectId, userId);
++
++    if (!agentThreadId) {
++      const title = args.content.trim().slice(0, 60) || "New chat";
++      agentThreadId = await createThread(ctx, components.agent, { userId, title });
++      await ctx.db.insert("agentChatThreads", {
++        projectId: report.projectId,
++        reportId: args.reportId,
++        agentThreadId,
++        title,
++        createdAt: Date.now(),
++      });
+     }
+ 
+     const excerpt = args.highlight
+@@ -319,6 +353,7 @@ export const sendMessage = mutation({
+     });
+ 
+     await ctx.db.insert("chatTurns", {
++      userId,
+       agentThreadId,
+       promptMessageId: messageId,
+       order: message.order,
+@@ -480,6 +515,7 @@ export const applyProposal = mutation({
+       provenanceId: undefined,
+       updatedAt: now,
+     });
++    await persistDeterministicFindings(ctx, report._id);
+     await ctx.db.patch(args.proposalId, { state: "applied" });
+     await pruneSnapshots(ctx, report._id);
+ 
+@@ -576,6 +612,7 @@ export const markProposalApplied = mutation({
+       provenanceId: undefined,
+       updatedAt: now,
+     });
++    await persistDeterministicFindings(ctx, report._id);
+     await ctx.db.patch(args.proposalId, { state: "applied" });
+     await pruneSnapshots(ctx, report._id);
+ 
+diff --git a/convex/comments.ts b/convex/comments.ts
+index 96d0294..da42343 100644
+--- a/convex/comments.ts
++++ b/convex/comments.ts
+@@ -1,3 +1,4 @@
++import { persistDeterministicFindings } from "./lib/qaFindings";
+ import { query, mutation } from "./_generated/server";
+ import { v } from "convex/values";
+ import {
+@@ -193,6 +194,7 @@ export const acceptEdit = mutation({
+       provenanceId: undefined,
+       updatedAt: now,
+     });
++    await persistDeterministicFindings(ctx, report._id);
+     await ctx.db.patch(args.commentId, { resolved: true });
+     await pruneSnapshots(ctx, report._id);
+   },
+diff --git a/convex/generations.ts b/convex/generations.ts
+index 52c0e61..133f060 100644
+--- a/convex/generations.ts
++++ b/convex/generations.ts
+@@ -1,3 +1,5 @@
++import { extractReportSections } from "./lib/tiptapReport";
++import { persistDeterministicFindings, persistMethodologyFindings, reportQaRef } from "./lib/qaFindings";
+ import {
+   query,
+   mutation,
+@@ -35,6 +37,8 @@ import { findActiveGeneration } from "./lib/activeGeneration";
+ import { analyzerContextBudget, defaultModelId } from "./appSettings";
+ import { buildTiptapDocument } from "./lib/tiptapReport";
+ import { sectionMetrics } from "./lib/lineLimits";
++import { deidentify } from "./lib/deidentify";
++import { recordReportEditDistance } from "./lib/editDistance";
+ import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
+ import {
+   buildTranscriptPromptText,
+@@ -1034,6 +1038,16 @@ async function createGeneratedReportArtifacts(
+     generatedAt: now,
+     updatedAt: now,
+   });
++  await persistDeterministicFindings(ctx, reportId, candidate.agentOutputs);
++  const createdReport = await ctx.db.get(reportId);
++  if (createdReport) {
++    let outputs: unknown;
++    try { outputs = JSON.parse(candidate.agentOutputs ?? "{}"); }
++    catch { /* Malformed initial QA is not compliance evidence. */ }
++    if (outputs && typeof outputs === "object" && "qa" in outputs) {
++      await persistMethodologyFindings(ctx, createdReport, outputs.qa);
++    }
++  }
+   await ctx.db.insert("reportSnapshots", {
+     projectId: candidate.projectId,
+     reportId,
+@@ -1049,6 +1063,11 @@ async function createGeneratedReportArtifacts(
+     createdByRole: "system",
+     createdAt: now,
+   });
++  // BNH-10 / CAP-2: freeze the (zero) post-edit distance at candidate
++  // selection. This is the single choke point for every "generated" baseline
++  // that belongs to a report, so all three candidate paths are covered here.
++  const report = await ctx.db.get(reportId);
++  if (report) await recordReportEditDistance(ctx, report, "candidate_selection");
+   return reportId;
+ }
+ 
+@@ -1599,12 +1618,29 @@ export const getIterativeSectionInput = internalQuery({
+   },
+ });
+ 
+-/** Input bundle for the post-assembly QA pass (iterative reports). */
++/** Capture the active attempt even when there is no report prose to evaluate. */
++export const getPostQaAttempt = internalQuery({
++  args: { generationId: v.id("generations") },
++  handler: async (ctx, args) => {
++    const generation = await ctx.db.get(args.generationId);
++    return generation?.postQaStatus === "running"
++      ? { startedAt: generation.postQaStartedAt ?? null }
++      : null;
++  },
++});
++
++/** Input bundle for the post-assembly QA pass over the current report. */
+ export const getPostQaInput = internalQuery({
+   args: { generationId: v.id("generations") },
+   handler: async (ctx, args) => {
+     const generation = await ctx.db.get(args.generationId);
+     if (!generation) return null;
++    const report = await ctx.db.query("reports")
++      .withIndex("by_generationId", q => q.eq("generationId", generation._id)).first();
++    if (!report) return null;
++    const capturedRef = await reportQaRef(report);
++    const currentSections = extractReportSections(report.content);
++    if (!Object.values(currentSections).some(text => text.trim())) return null;
+     if ((generation.candidateMode ?? "compare") === "iterative") {
+       const [analysisRow, brainRow] = await Promise.all([
+         ctx.db
+@@ -1653,16 +1689,17 @@ export const getPostQaInput = internalQuery({
+           model: run?.model ?? "",
+         };
+       }
+-      if (!sections.s242.text && !sections.s244.text && !sections.s246.text) {
++      if (!currentSections.s242.trim() && !currentSections.s244.trim() && !currentSections.s246.trim()) {
+         return null;
+       }
+       return {
+         projectId: generation.projectId,
+         requestedBy: generation.requestedBy,
+         analysis: analysisRow.content,
+-        section242: sections.s242.text,
+-        section244: sections.s244.text,
+-        section246: sections.s246.text,
++        section242: currentSections.s242,
++        capturedRef,
++        section244: currentSections.s244,
++        section246: currentSections.s246,
+         model: sections.s242.model || undefined,
+         styleOverrides,
+       };
+@@ -1680,8 +1717,7 @@ export const getPostQaInput = internalQuery({
+         styleOverrides?: Record<string, boolean>;
+       };
+       if (
+-        !outputs.analyzer ||
+-        (!outputs.section242 && !outputs.section244 && !outputs.section246)
++        !outputs.analyzer
+       ) {
+         return null;
+       }
+@@ -1695,9 +1731,10 @@ export const getPostQaInput = internalQuery({
+         projectId: generation.projectId,
+         requestedBy: generation.requestedBy,
+         analysis: JSON.stringify(outputs.analyzer),
+-        section242: outputs.section242 ?? "",
+-        section244: outputs.section244 ?? "",
+-        section246: outputs.section246 ?? "",
++        section242: currentSections.s242,
++        capturedRef,
++        section244: currentSections.s244,
++        section246: currentSections.s246,
+         model: selection?.model ?? undefined,
+         // PSOS-50: waivers frozen into agentOutputs at generation time.
+         // Absent only on legacy generations, where postQa falls back to the
+@@ -1717,6 +1754,8 @@ export const getPostQaInput = internalQuery({
+ export const saveReportQa = internalMutation({
+   args: {
+     generationId: v.id("generations"),
++    attemptStartedAt: v.optional(v.union(v.number(), v.null())),
++    capturedRef: v.optional(v.object({ reportId: v.id("reports"), revisionNumber: v.number(), contentHash: v.string() })),
+     qa: v.optional(v.string()),
+     chronology: v.optional(v.string()),
+     qaScore: v.optional(v.number()),
+@@ -1725,6 +1764,34 @@ export const saveReportQa = internalMutation({
+   handler: async (ctx, args) => {
+     const generation = await ctx.db.get(args.generationId);
+     if (!generation) return;
++    // A delayed completion must not settle a replacement attempt or overwrite
++    // results that have already completed, even when the report is unchanged.
++    if (args.attemptStartedAt !== undefined &&
++      (generation.postQaStatus !== "running" ||
++        (generation.postQaStartedAt ?? null) !== args.attemptStartedAt)) return;
++    const report = await ctx.db.query("reports")
++      .withIndex("by_generationId", q => q.eq("generationId", generation._id)).first();
++    if (args.capturedRef) {
++      const current = report ? await reportQaRef(report) : null;
++      if (!current || current.reportId !== args.capturedRef.reportId || current.revisionNumber !== args.capturedRef.revisionNumber || current.contentHash !== args.capturedRef.contentHash) {
++        // Only an identified active attempt may release the retry lock. Its
++        // stale scorecard and chronology never become current evidence.
++        if (args.attemptStartedAt !== undefined) {
++          await ctx.db.patch(generation._id, { postQaStatus: "failed" });
++        }
++        return;
++      }
++    }
++    if (report) {
++      await persistDeterministicFindings(ctx, report._id);
++      // Legacy calls have no proof of what content the model evaluated.
++      if (args.capturedRef && args.qa) {
++        let qa: unknown;
++        try { qa = JSON.parse(args.qa); }
++        catch { /* Malformed QA cannot establish a methodology failure. */ }
++        await persistMethodologyFindings(ctx, report, qa);
++      }
++    }
+     let outputs: Record<string, unknown> = {};
+     try {
+       const parsed: unknown = JSON.parse(generation.agentOutputs ?? "{}");
+@@ -1798,12 +1865,14 @@ export const requestReportQa = mutation({
+     // Idempotent: a pass already in flight keeps running across panel
+     // close/reopen — never double-spend the API call.
+     if (generation.postQaStatus === "running") return null;
++    const attemptStartedAt = Math.max(Date.now(), (generation.postQaStartedAt ?? 0) + 1);
+     await ctx.db.patch(generation._id, {
+       postQaStatus: "running",
+-      postQaStartedAt: Date.now(),
++      postQaStartedAt: attemptStartedAt,
+     });
+     await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
+       generationId: generation._id,
++      attemptStartedAt,
+     });
+     return null;
+   },
+@@ -2023,12 +2092,15 @@ export const approveSectionDraft = mutation({
+           ? 0
+           : Math.min(1, Math.max(0, 1 - kept / draftWords.length));
+       const caller = await getCurrentUserOrNull(ctx);
++      // CAP-1: these rows feed the firm-wide draft-style distiller, so the
++      // stored prose is de-identified. editRatio above is deliberately
++      // computed on the raw text — scrubbing must not move the number.
+       await ctx.db.insert("sectionEditEvents", {
+         projectId: generation.projectId,
+         generationId: generation._id,
+         section: args.section,
+-        draftText: cap(run.draftText),
+-        approvedText: cap(text),
++        draftText: cap(deidentify(run.draftText, project)),
++        approvedText: cap(deidentify(text, project)),
+         editRatio,
+         ...(caller ? { userId: caller._id } : {}),
+         createdAt: now,
+@@ -2151,7 +2223,10 @@ export const approveSectionDraft = mutation({
+             for (const event of events) {
+               const ghostText = ghostSections[event.section];
+               if (typeof ghostText === "string" && ghostText.trim()) {
+-                await ctx.db.patch(event._id, { ghostText: ghostText.slice(0, 6000) });
++                // CAP-1: same firm-wide digest input as draftText/approvedText.
++                await ctx.db.patch(event._id, {
++                  ghostText: deidentify(ghostText, project).slice(0, 6000),
++                });
+               }
+             }
+           }
+@@ -2195,6 +2270,7 @@ export const approveSectionDraft = mutation({
+     });
+     await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
+       generationId: generation._id,
++      attemptStartedAt: doneAt,
+     });
+     return reportId;
+   },
+diff --git a/convex/lib/auth.ts b/convex/lib/auth.ts
+index 4eeb3de..62fb31a 100644
+--- a/convex/lib/auth.ts
++++ b/convex/lib/auth.ts
+@@ -1,3 +1,4 @@
++import { hasBlockingQa } from "./qaFindings";
+ import type { QueryCtx, MutationCtx } from "../_generated/server";
+ import type { Doc, Id } from "../_generated/dataModel";
+ import {
+@@ -136,6 +137,10 @@ export async function getFilingReadiness(
+   const add = (code: FilingBlockerCode, message: string, claimId?: string) =>
+     blockers.push({ code, message, ...(claimId ? { claimId } : {}) });
+ 
++  if (report && await hasBlockingQa(ctx, report)) {
++    add("QA_BLOCKING", "Current report has unresolved substantive QA findings");
++  }
++
+   const evidence = await ctx.db
+     .query("projectIdentityEvidence")
+     .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+diff --git a/convex/lib/contracts.ts b/convex/lib/contracts.ts
+index cb077c2..00a6e5e 100644
+--- a/convex/lib/contracts.ts
++++ b/convex/lib/contracts.ts
+@@ -7,12 +7,15 @@ import {
+ import { PROJECT_TYPES } from "../../shared/projectTypes";
+ 
+ export const domainErrorCodes = [
++  "QA_BLOCKING",
+   "NOT_AUTHENTICATED",
+   "NOT_AUTHORIZED",
+   "NOT_FOUND",
+   "PROVIDER_NOT_CONFIGURED",
+   "PROVIDER_UNAVAILABLE",
+   "GENERATION_ACTIVE",
++  "CHAT_SPEND_BUDGET_EXCEEDED",
++  "CHAT_QUEUE_LIMIT_EXCEEDED",
+   "TRANSCRIPT_PROJECT_MISMATCH",
+   "STALE_REVISION",
+   "INVALID_TRANSITION",
+@@ -125,6 +128,7 @@ export const claimCitationValidator = v.object({
+ });
+ 
+ export type FilingBlockerCode =
++  | "QA_BLOCKING"
+   | "IDENTITY_EVIDENCE_REQUIRED"
+   | "CONTRACTOR_EVIDENCE_REQUIRED"
+   | "EVIDENCE_STALE"
+diff --git a/convex/lib/qaFindings.ts b/convex/lib/qaFindings.ts
+new file mode 100644
+index 0000000..ef69077
+--- /dev/null
++++ b/convex/lib/qaFindings.ts
+@@ -0,0 +1,97 @@
++import type { Doc, Id } from "../_generated/dataModel";
++import type { MutationCtx, QueryCtx } from "../_generated/server";
++import { sha256 } from "./contracts";
++import { checkBecauseClauses, sectionDeterministicFindings } from "../ai/qaChecks";
++import { qaScorecardSchema } from "../../shared/qaScorecard";
++import { normalizeStyleOverrides, STYLE_OVERRIDE_KEYS, type StyleOverrides } from "../../shared/styleOverrides";
++import { extractReportSections } from "./tiptapReport";
++
++function parseOverrides(raw: unknown): StyleOverrides {
++  const known: Partial<StyleOverrides> = {};
++  if (raw && typeof raw === "object") {
++    for (const [key, value] of Object.entries(raw)) {
++      const field = STYLE_OVERRIDE_KEYS.find((candidate) => candidate === key);
++      if (field && value === true) known[field] = true;
++    }
++  }
++  return normalizeStyleOverrides(known);
++}
++
++export async function reportQaRef(report: Doc<"reports">) {
++  return { reportId: report._id, revisionNumber: report.revisionNumber ?? 0,
++    contentHash: await sha256(report.content) };
++}
++
++async function storeFinding(ctx: MutationCtx, ref: Awaited<ReturnType<typeof reportQaRef>>,
++  finding: { section: string; check: string; message: string; blocking: boolean }) {
++  const findingKey = JSON.stringify([finding.section, finding.check, finding.message]);
++  const existing = await ctx.db.query("qaFindings")
++    .withIndex("by_reportId_and_revisionNumber_and_contentHash_and_findingKey", q =>
++      q.eq("reportId", ref.reportId).eq("revisionNumber", ref.revisionNumber)
++        .eq("contentHash", ref.contentHash).eq("findingKey", findingKey))
++    .first();
++  if (!existing) await ctx.db.insert("qaFindings", { ...ref, ...finding, findingKey });
++}
++
++export async function persistDeterministicFindings(ctx: MutationCtx, reportId: Id<"reports">, initialOutputs?: string) {
++  const report = await ctx.db.get(reportId);
++  if (!report) return;
++  const ref = await reportQaRef(report);
++  // Byte-identical content cannot clear an established methodology failure by
++  // advancing the revision (including a no-op save or a later restoration).
++  for (const message of ["why_how_why_intact", "uncertainties_distinguished"]) {
++    const previous = await ctx.db.query("qaFindings")
++      .withIndex("by_reportId_and_contentHash_and_check_and_message_and_blocking", q =>
++        q.eq("reportId", reportId).eq("contentHash", ref.contentHash)
++          .eq("check", "cra_methodology").eq("message", message).eq("blocking", true)).first();
++    if (previous) await storeFinding(ctx, ref, { section: "report", check: "cra_methodology", message, blocking: true });
++  }
++  let overrides = normalizeStyleOverrides(undefined);
++  if (report.generationId) {
++    const generation = await ctx.db.get(report.generationId);
++    try {
++      const outputs: unknown = JSON.parse(initialOutputs ?? generation?.agentOutputs ?? "{}");
++      if (outputs && typeof outputs === "object" && "styleOverrides" in outputs) {
++        overrides = parseOverrides(outputs.styleOverrides);
++      }
++    } catch { /* Legacy reports use default advisory checks. */ }
++  }
++  const generationId = report.generationId;
++  if (generationId) {
++    const brain = await ctx.db.query("generationArtifacts")
++      .withIndex("by_generationId_and_kind", q => q.eq("generationId", generationId).eq("kind", "brain_blocks")).first();
++    if (brain) {
++      try {
++        const parsed: unknown = JSON.parse(brain.content);
++        if (parsed && typeof parsed === "object" && "styleOverrides" in parsed) overrides = parseOverrides(parsed.styleOverrides);
++      } catch { /* Default advisory checks for malformed legacy artifacts. */ }
++    }
++  }
++  const sections = extractReportSections(report.content);
++  for (const section of ["s242", "s244", "s246"] as const) {
++    for (const finding of sectionDeterministicFindings(section, sections[section], overrides)) {
++      await storeFinding(ctx, ref, { ...finding, section, blocking: finding.check === "because_clause" });
++    }
++  }
++}
++
++export async function persistMethodologyFindings(ctx: MutationCtx, report: Doc<"reports">, qa: unknown) {
++  const parsed = qaScorecardSchema.safeParse(qa);
++  if (!parsed.success) return;
++  const ref = await reportQaRef(report);
++  for (const field of ["why_how_why_intact", "uncertainties_distinguished"] as const) {
++    if (parsed.data.cra_compliance[field] === false) {
++      await storeFinding(ctx, ref, { section: "report", check: "cra_methodology", message: field, blocking: true });
++    }
++  }
++}
++
++export async function hasBlockingQa(ctx: QueryCtx | MutationCtx, report: Doc<"reports">) {
++  const sections = extractReportSections(report.content);
++  if (checkBecauseClauses(sections.s242).details.some(f => !f.hasBecause)) return true;
++  const ref = await reportQaRef(report);
++  return (await ctx.db.query("qaFindings")
++    .withIndex("by_reportId_and_revisionNumber_and_contentHash_and_blocking", q =>
++      q.eq("reportId", ref.reportId).eq("revisionNumber", ref.revisionNumber)
++        .eq("contentHash", ref.contentHash).eq("blocking", true)).first()) !== null;
++}
+diff --git a/convex/lib/tiptapReport.ts b/convex/lib/tiptapReport.ts
+index 7d96427..77faab0 100644
+--- a/convex/lib/tiptapReport.ts
++++ b/convex/lib/tiptapReport.ts
+@@ -1,3 +1,5 @@
++import { checkBecauseClauses } from "../ai/qaChecks";
++
+ // Framework-free Tiptap report-document construction, shared by the node
+ // generation pipeline (convex/ai/pipeline.ts) and the default-runtime
+ // iterative-assembly mutations (convex/generations.ts). No "use node", no
+@@ -99,3 +101,106 @@ export function buildTiptapDocument(
+ 
+   return { type: "doc", content };
+ }
++
++/** Recover current section prose while preserving the distinction between headings and body text. */
++export function extractReportSections(content: string): { s242: string; s244: string; s246: string } {
++  const sections = { s242: "", s244: "", s246: "" };
++  type Section = keyof typeof sections;
++  type Block = { text: string; heading: boolean; richText?: boolean };
++  function nodeText(node: unknown): string {
++    type TextTask = { kind: "node"; node: unknown } | { kind: "separator" };
++    const pending: TextTask[] = [{ kind: "node", node }];
++    const text: string[] = [];
++    // User-saved documents can be deeply nested. Keep traversal on the heap,
++    // including nested inline content, while retaining each parent's separator.
++    while (pending.length) {
++      const task = pending.pop();
++      if (!task) break;
++      if (task.kind === "separator") {
++        text.push("\n\n");
++        continue;
++      }
++      const current = task.node;
++      if (!current || typeof current !== "object") continue;
++      if ("text" in current && typeof current.text === "string") {
++        text.push(current.text);
++      } else if ("type" in current && current.type === "hardBreak") {
++        text.push("\n");
++      } else if ("content" in current && Array.isArray(current.content)) {
++        const inline = "type" in current && ["paragraph", "heading", "codeBlock"].includes(String(current.type));
++        for (let index = current.content.length - 1; index >= 0; index--) {
++          pending.push({ kind: "node", node: current.content[index] });
++          if (index > 0 && !inline) pending.push({ kind: "separator" });
++        }
++      }
++    }
++    return text.join("");
++  }
++  function sectionHeading(text: string, richText = false): Section | undefined {
++    // A section label must never consume a statement recognized by the QA
++    // detector, including labels with no terminal punctuation.
++    if (checkBecauseClauses(text).uncertaintyCount > 0) return undefined;
++    const pattern = /^(?:#{1,6}\s*)?(?:Line|Section)\s+(242|244|246)(?:\s*[-—–:]\s*([^\n]*))?$/i;
++    const match = text.trim().match(pattern);
++    if (!match) return undefined;
++    // Plaintext has no node kind to distinguish a heading from a sentence.
++    // Only established labels can disambiguate plaintext cross-references,
++    // whether or not the sentence has terminal punctuation.
++    const label = match[2] ?? "";
++    if (!richText && label &&
++      !/^(?:(?:Scientific\/)?Technological Uncertainty|Uncertainty|Work(?: Performed)?|(?:Scientific\/)?Technological Advancement|Advancement)[.!?]?$/i.test(label)) return undefined;
++    return match[1] === "244" ? "s244" : match[1] === "246" ? "s246" : "s242";
++  }
++  let blocks: Block[] | undefined;
++  let parsed: unknown;
++  try {
++    parsed = JSON.parse(content);
++  } catch { /* Plaintext is a supported legacy format. */ }
++  if (parsed && typeof parsed === "object" && "type" in parsed && parsed.type === "doc") {
++    blocks = [];
++    if ("content" in parsed && Array.isArray(parsed.content)) {
++      const pending: unknown[] = [...parsed.content].reverse();
++      while (pending.length) {
++        const node = pending.pop();
++        if (!node || typeof node !== "object") continue;
++        if ("type" in node && (node.type === "paragraph" || node.type === "heading" || node.type === "codeBlock")) {
++          blocks.push({ text: nodeText(node), heading: node.type === "heading", richText: true });
++        } else if ("content" in node && Array.isArray(node.content)) {
++          for (let index = node.content.length - 1; index >= 0; index--) {
++            pending.push(node.content[index]);
++          }
++        } else {
++          const text = nodeText(node);
++          if (text) blocks.push({ text, heading: false });
++        }
++      }
++    }
++  }
++  if (!blocks) {
++    blocks = [];
++    let body: string[] = [];
++    for (const line of content.replace(/\r\n?/g, "\n").replace(/\n[^\S\n]+(?=\n)/g, "\n").split("\n")) {
++      if (sectionHeading(line)) {
++        if (body.length) blocks.push({ text: body.join("\n"), heading: false });
++        body = [];
++        blocks.push({ text: line, heading: true });
++      } else body.push(line);
++    }
++    if (body.length) blocks.push({ text: body.join("\n"), heading: false });
++  }
++  // Only an initial uncertainty section proves where its preamble ends.
++  // A later appendix cannot hide prose before the first work/advancement section.
++  const firstSection = blocks.find(block => block.heading && sectionHeading(block.text, block.richText));
++  const startsWithUncertainty = firstSection && sectionHeading(firstSection.text, firstSection.richText) === "s242";
++  let section: Section | undefined = startsWithUncertainty ? undefined : "s242";
++  for (const block of blocks) {
++    const next = block.heading ? sectionHeading(block.text, block.richText) : undefined;
++    if (next) section = next;
++    else if (section && block.text.trim()) {
++      // Hard breaks in rich text can encode the same blank paragraphs as
++      // legacy text. Keep soft wraps, but normalize whitespace-only blank lines.
++      sections[section] += block.text.replace(/\r\n?/g, "\n").replace(/\n[^\S\n]+(?=\n)/g, "\n").trim() + "\n\n";
++    }
++  }
++  return sections;
++}
+diff --git a/convex/projects.ts b/convex/projects.ts
+index d340da9..9c0dc0e 100644
+--- a/convex/projects.ts
++++ b/convex/projects.ts
+@@ -1,3 +1,4 @@
++import { persistDeterministicFindings, hasBlockingQa } from "./lib/qaFindings";
+ import {
+   query,
+   mutation,
+@@ -6,6 +7,7 @@ import {
+   type MutationCtx,
+ } from "./_generated/server";
+ import { v } from "convex/values";
++import { internal } from "./_generated/api";
+ import type { Doc, Id } from "./_generated/dataModel";
+ import {
+   getInternalProjectAccessOrNull,
+@@ -929,6 +931,7 @@ async function copyProjectInputRows(
+       revisionNumber: sourceReport.revisionNumber ?? 0,
+       contentHash,
+     });
++    await persistDeterministicFindings(ctx, reportId);
+     await ctx.db.patch(args.toProjectId, {
+       status: "review",
+       updatedAt: now,
+@@ -947,6 +950,12 @@ async function copyProjectInputRows(
+       projectId: args.toProjectId,
+       documentId,
+       sourceFileName: review.sourceFileName,
++      ...(review.revisionNumber !== undefined
++        ? { revisionNumber: review.revisionNumber }
++        : {}),
++      ...(review.contentHash !== undefined
++        ? { contentHash: review.contentHash }
++        : {}),
+       status: review.status,
+       ...(review.result ? { result: review.result } : {}),
+       ...(review.model ? { model: review.model } : {}),
+@@ -1035,11 +1044,18 @@ export const publishForReview = mutation({
+     if (!report || report.projectId !== args.projectId) {
+       domainError("NOT_AUTHORIZED", "Report does not belong to this project");
+     }
++    if (await hasBlockingQa(ctx, report)) {
++      domainError("QA_BLOCKING", "Current report has unresolved substantive QA findings");
++    }
+     await ctx.db.patch(args.projectId, {
+       sharedReportId: report._id,
+       status: "client_review",
+       updatedAt: Date.now(),
+     });
++    // BNH-10 / CAP-2: freeze the post-edit distance at client publish.
++    await ctx.scheduler.runAfter(0, internal.reportEditDistance.recordAtPublish, {
++      reportId: report._id,
++    });
+   },
+ });
+ 
+@@ -1107,6 +1123,24 @@ export const updateProjectTitle = mutation({
+   },
+ });
+ 
++// Reports are removed by the authorized parent transaction before cleanup runs.
++// Keep each cleanup transaction bounded regardless of the report's QA history.
++export const cleanupDeletedReportQaFindings = internalMutation({
++  args: { reportId: v.id("reports") },
++  handler: async (ctx, args) => {
++    if (await ctx.db.get(args.reportId)) return;
++    const batchSize = 128;
++    const findings = await ctx.db.query("qaFindings")
++      .withIndex("by_reportId_and_revisionNumber_and_contentHash_and_findingKey", q =>
++        q.eq("reportId", args.reportId))
++      .take(batchSize);
++    for (const finding of findings) await ctx.db.delete(finding._id);
++    if (findings.length === batchSize) {
++      await ctx.scheduler.runAfter(0, internal.projects.cleanupDeletedReportQaFindings, args);
++    }
++  },
++});
++
+ export const deleteProject = mutation({
+   args: { projectId: v.id("projects") },
+   handler: async (ctx, args) => {
+@@ -1147,7 +1181,10 @@ export const deleteProject = mutation({
+       .query("reports")
+       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+       .collect();
+-    for (const r of reports) await ctx.db.delete(r._id);
++    for (const r of reports) {
++      await ctx.db.delete(r._id);
++      await ctx.scheduler.runAfter(0, internal.projects.cleanupDeletedReportQaFindings, { reportId: r._id });
++    }
+ 
+     const comments = await ctx.db
+       .query("comments")
+diff --git a/convex/qaBlocking.test.ts b/convex/qaBlocking.test.ts
+new file mode 100644
+index 0000000..785cd75
+--- /dev/null
++++ b/convex/qaBlocking.test.ts
+@@ -0,0 +1,414 @@
++/// <reference types="vite/client" />
++import { convexTest } from "convex-test";
++import { describe, expect, test } from "vitest";
++import { api, internal } from "./_generated/api";
++import schema from "./schema";
++import { sha256 } from "./lib/contracts";
++import { buildTiptapDocument } from "./lib/tiptapReport";
++
++const modules = import.meta.glob("./**/*.ts");
++const FAILURE = "It was uncertain whether the alloy would resist fatigue.";
++const FIXED = "It was uncertain whether the alloy would resist fatigue because the cyclic response was unknown.";
++const contentFor = (text: string) => JSON.stringify(buildTiptapDocument("Alloy", text, "The team tested the alloy.", "The team learned the response."));
++const scorecard = (compliance: Record<string, boolean>) => JSON.stringify({
++  overall_score: 90,
++  section_scores: {},
++  cra_compliance: compliance,
++});
++
++async function setup(content = contentFor(FIXED)) {
++  const t = convexTest(schema, modules);
++  const ids = await t.run(async (ctx) => {
++    const ownerId = await ctx.db.insert("users", { authId: "qa-owner", role: "writer" });
++    await ctx.db.insert("users", { authId: "qa-manager", role: "manager" });
++    await ctx.db.insert("users", { authId: "qa-admin", role: "admin" });
++    await ctx.db.insert("users", { authId: "qa-other", role: "writer" });
++    const projectId = await ctx.db.insert("projects", {
++      title: "Alloy", clientName: "Client", createdBy: ownerId, ownerId,
++      status: "review", shareToken: "qa-token", createdAt: 1, updatedAt: 1,
++    });
++    const transcriptId = await ctx.db.insert("transcripts", { projectId, content: "Interview", createdAt: 1 });
++    const generationId = await ctx.db.insert("generations", {
++      projectId, transcriptId, requestedBy: ownerId, status: "completed", candidateMode: "single", startedAt: 1,
++      agentOutputs: JSON.stringify({ analyzer: { subject: "Alloy" }, section242: "Frozen old text", section244: "Old work", section246: "Old advancement" }),
++    });
++    const reportId = await ctx.db.insert("reports", {
++      projectId, generationId, content, revisionNumber: 0, contentHash: await sha256(content),
++      version: 1, generatedAt: 1, updatedAt: 1,
++    });
++    return { ownerId, projectId, generationId, reportId };
++  });
++  return { t, actor: t.withIdentity({ subject: "qa-owner" }), ...ids };
++}
++
++type Fixture = Awaited<ReturnType<typeof setup>>;
++async function rows(f: Fixture) {
++  return f.t.run(async (ctx) => (await ctx.db.query("qaFindings").collect()).filter((r) => r.reportId === f.reportId));
++}
++async function ref(f: Fixture) {
++  return f.t.run(async (ctx) => {
++    const report = await ctx.db.get(f.reportId);
++    if (!report) throw new Error("fixture report missing");
++    return { reportId: report._id, revisionNumber: report.revisionNumber ?? 0, contentHash: await sha256(report.content) };
++  });
++}
++async function readiness(f: Fixture) {
++  const result = await f.actor.query(api.projects.getProjectReadiness, { projectId: f.projectId, reportId: f.reportId });
++  if (!result) throw new Error("fixture readiness missing");
++  return result;
++}
++async function expectBlocked(f: Fixture, subject = "qa-owner") {
++  expect((await readiness(f)).blockers.map((b) => b.code)).toContain("QA_BLOCKING");
++  const before = await f.t.run((ctx) => ctx.db.get(f.projectId));
++  const scheduledBefore = await f.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
++  await expect(f.t.withIdentity({ subject }).mutation(api.projects.publishForReview, {
++    projectId: f.projectId, reportId: f.reportId,
++  })).rejects.toMatchObject({ data: { code: "QA_BLOCKING" } });
++  expect(await f.t.run((ctx) => ctx.db.get(f.projectId))).toEqual(before);
++  expect(await f.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).toEqual(scheduledBefore);
++}
++async function saveQa(f: Fixture, compliance: Record<string, boolean>) {
++  await f.t.mutation(internal.generations.saveReportQa, { generationId: f.generationId, capturedRef: await ref(f), qa: scorecard(compliance) });
++}
++
++describe("CAP-8 absolute current-revision QA gate", () => {
++  test("human content save persists because findings and rejects publish atomically", async () => {
++    const f = await setup();
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content: contentFor(FAILURE), expectedRevisionNumber: 0 });
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({
++      check: "because_clause", blocking: true, revisionNumber: 1, contentHash: await sha256(contentFor(FAILURE)),
++    })]));
++    await expectBlocked(f);
++  });
++
++  test.each(["why_how_why_intact", "uncertainties_distinguished"])("explicit %s failure persists and blocks both boundaries", async (key) => {
++    const f = await setup();
++    await saveQa(f, { [key]: false });
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ check: "cra_methodology", blocking: true, ...(await ref(f)) })]));
++    await expectBlocked(f);
++  });
++
++  test("house-style findings and false verbiage do not block client review", async () => {
++    const f = await setup();
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content: contentFor("The robust solution was tested."), expectedRevisionNumber: 0 });
++    await saveQa(f, { verbiage_present: false, why_how_why_intact: true, uncertainties_distinguished: true });
++    expect((await rows(f)).some((r) => r.check === "banned_word" && !r.blocking)).toBe(true);
++    expect((await readiness(f)).blockers.map((b) => b.code)).not.toContain("QA_BLOCKING");
++    // Other filing prerequisites remain absent, but do not prevent client review.
++    expect((await readiness(f)).ready).toBe(false);
++    await f.actor.mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: f.reportId });
++    expect(await f.t.run((ctx) => ctx.db.get(f.projectId))).toMatchObject({ sharedReportId: f.reportId, status: "client_review" });
++  });
++
++  test.each(["qa-manager", "qa-admin"])("%s cannot waive findings by reclassifying QA feedback", async (subject) => {
++    const f = await setup();
++    await saveQa(f, { why_how_why_intact: false });
++    await f.t.withIdentity({ subject }).mutation(api.reviews.saveQaItemFeedback, {
++      target: { reportId: f.reportId }, itemKey: "methodology", itemKind: "issue", section: "242",
++      itemText: "Methodology failure", originalSeverity: "deduction", overrideSeverity: "warning", vote: -1,
++    });
++    await expectBlocked(f, subject);
++  });
++
++  test("human correction preserves history without carrying old failure to new content", async () => {
++    const f = await setup(contentFor(FAILURE));
++    await saveQa(f, { why_how_why_intact: false });
++    const oldRows = await rows(f);
++    expect(oldRows.some((r) => r.check === "because_clause")).toBe(true);
++    await expectBlocked(f);
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content: contentFor(FIXED), expectedRevisionNumber: 0 });
++    expect(await rows(f)).toEqual(expect.arrayContaining(oldRows));
++    expect((await readiness(f)).blockers.map((b) => b.code)).not.toContain("QA_BLOCKING");
++    await f.actor.mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: f.reportId });
++  });
++
++  test("QA input uses current content and late completion cannot relabel the old revision", async () => {
++    const f = await setup();
++    const input = await f.t.query(internal.generations.getPostQaInput, { generationId: f.generationId });
++    expect(input?.section242).toContain(FIXED);
++    expect(input?.section242).not.toContain("Frozen old text");
++    expect(input?.capturedRef).toEqual(await ref(f));
++    if (!input) throw new Error("QA input missing");
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content: contentFor("The corrected investigation is documented."), expectedRevisionNumber: 0 });
++    await f.t.mutation(internal.generations.saveReportQa, { generationId: f.generationId, capturedRef: input.capturedRef, qa: scorecard({ why_how_why_intact: false }) });
++    expect((await rows(f)).filter((r) => r.check === "cra_methodology" && r.revisionNumber === 1)).toEqual([]);
++    expect((await readiness(f)).blockers.map((b) => b.code)).not.toContain("QA_BLOCKING");
++  });
++
++  test("legacy rows without QA, revision or hash still get the deterministic gate", async () => {
++    const f = await setup(FAILURE);
++    await f.t.run((ctx) => ctx.db.patch(f.reportId, { revisionNumber: undefined, contentHash: undefined }));
++    expect(await rows(f)).toEqual([]);
++    await expectBlocked(f);
++  });
++
++  test("foreign report identity and stale content hash cannot affect current readiness", async () => {
++    const f = await setup();
++    await saveQa(f, { uncertainties_distinguished: false });
++    const otherReportId = await f.t.run(async (ctx) => {
++      return ctx.db.insert("reports", { projectId: f.projectId, content: contentFor(FIXED), revisionNumber: 0, version: 2, generatedAt: 2, updatedAt: 2 });
++    });
++    const other = await f.actor.query(api.projects.getProjectReadiness, { projectId: f.projectId, reportId: otherReportId });
++    expect(other?.blockers.map((b) => b.code)).not.toContain("QA_BLOCKING");
++    // Deliberately corrupt the stored hash/revision to prove actual bytes fence old findings.
++    await f.t.run((ctx) => ctx.db.patch(f.reportId, { content: contentFor("Different content at the same number.") }));
++    expect((await readiness(f)).blockers.map((b) => b.code)).not.toContain("QA_BLOCKING");
++  });
++
++  test("same-revision QA retries are deduplicated and a passing score is not a waiver", async () => {
++    const f = await setup();
++    await saveQa(f, { why_how_why_intact: false });
++    const first = await rows(f);
++    await saveQa(f, { why_how_why_intact: false });
++    expect(await rows(f)).toEqual(first);
++    await saveQa(f, { why_how_why_intact: true });
++    expect(await rows(f)).toEqual(first);
++    await expectBlocked(f);
++  });
++
++  test("frozen style waivers remove advisory rows but never the because blocker", async () => {
++    const f = await setup();
++    await f.t.run((ctx) => ctx.db.patch(f.generationId, {
++      agentOutputs: JSON.stringify({ styleOverrides: {
++        bannedWords: true, openingClauses: true, repetitionCaps: true, reportSkeleton: true,
++      } }),
++    }));
++    await f.actor.mutation(api.reports.updateReportContent, {
++      reportId: f.reportId, content: contentFor("The robust solution. " + FAILURE), expectedRevisionNumber: 0,
++    });
++    const findings = await rows(f);
++    expect(findings.some((r) => r.check === "banned_word")).toBe(false);
++    expect(findings.some((r) => r.check === "because_clause" && r.blocking)).toBe(true);
++    await expectBlocked(f, "qa-manager");
++  });
++
++  test("legacy unpinned QA cannot create current methodology findings", async () => {
++    const f = await setup();
++    await f.t.mutation(internal.generations.saveReportQa, { generationId: f.generationId, qa: scorecard({ why_how_why_intact: false }) });
++    expect((await rows(f)).filter((r) => r.check === "cra_methodology")).toEqual([]);
++  });
++
++  test("publish authorization still precedes QA validation", async () => {
++    const f = await setup(contentFor(FAILURE));
++    await expect(f.t.withIdentity({ subject: "qa-other" }).mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: f.reportId })).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
++  });
++
++  test("single-candidate completion persists both deterministic and methodology failures", async () => {
++    const f = await setup();
++    const runId = await f.t.run(async (ctx) => {
++      await ctx.db.delete(f.reportId);
++      await ctx.db.patch(f.generationId, { status: "running", totalCandidates: 1 });
++      await ctx.db.patch(f.projectId, { activeGenerationId: f.generationId });
++      return ctx.db.insert("generationCandidateRuns", { projectId: f.projectId, generationId: f.generationId, model: "test-model", label: "A", status: "running", queuedAt: 1 });
++    });
++    await f.t.mutation(internal.generations.completeCandidateRun, {
++      candidateRunId: runId, content: contentFor(FAILURE),
++      agentOutputs: JSON.stringify({ qa: JSON.parse(scorecard({ uncertainties_distinguished: false })) }), qaScore: 90,
++    });
++    const report = await f.actor.query(api.reports.getLatestReport, { projectId: f.projectId });
++    if (!report) throw new Error("candidate produced no canonical report");
++    const generated = { ...f, reportId: report._id };
++    expect((await rows(generated)).filter((r) => r.blocking).map((r) => r.check)).toEqual(expect.arrayContaining(["because_clause", "cra_methodology"]));
++    await expectBlocked(generated);
++  });
++});
++
++describe("CAP-8 review regressions", () => {
++  test("body prose resembling a section heading cannot hide a failure", async () => {
++    const f = await setup(contentFor("Line 244 — " + FAILURE));
++    await expectBlocked(f);
++  });
++  test("no-op save carries exact-content methodology to the new revision", async () => {
++    const f = await setup();
++    await saveQa(f, { why_how_why_intact: false });
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content: contentFor(FIXED), expectedRevisionNumber: 0 });
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(f)), check: "cra_methodology", blocking: true })]));
++    await expectBlocked(f);
++  });
++  test("restoring byte-identical historical content carries its methodology failure", async () => {
++    const f = await setup();
++    await saveQa(f, { uncertainties_distinguished: false });
++    const snapshotId = await f.t.run(ctx => ctx.db.insert("reportSnapshots", {
++      projectId: f.projectId, reportId: f.reportId, content: contentFor(FIXED), reason: "manual", createdByRole: "writer", createdAt: 1,
++    }));
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content: contentFor("Different content"), expectedRevisionNumber: 0 });
++    await f.actor.mutation(api.snapshots.restoreSnapshot, { snapshotId, targetReportId: f.reportId, expectedRevisionNumber: 1 });
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(f)), check: "cra_methodology", blocking: true })]));
++    await expectBlocked(f);
++  });
++  test("identical advisory messages in different sections retain distinct retry identities", async () => {
++    const f = await setup(JSON.stringify(buildTiptapDocument("Title", "The robust solution.", "The robust solution.", "The robust solution.")));
++    await saveQa(f, {});
++    const findings = (await rows(f)).filter(row => row.check === "banned_word");
++    expect(findings.map(row => row.section).sort()).toEqual(["s242", "s244", "s246"]);
++    await saveQa(f, {});
++    expect((await rows(f)).filter(row => row.check === "banned_word")).toEqual(findings);
++  });
++  test.each(["single", "iterative"] as const)("empty current %s report has no QA input", async candidateMode => {
++    const f = await setup(JSON.stringify({ type: "doc", content: [] }));
++    await f.t.run(ctx => ctx.db.patch(f.generationId, { candidateMode }));
++    expect(await f.t.query(internal.generations.getPostQaInput, { generationId: f.generationId })).toBeNull();
++  });
++  test.each(["applyProposal", "markProposalApplied", "acceptEdit", "restoreSnapshot"] as const)("%s persists findings on the exact resulting revision", async path => {
++    const f = await setup();
++    if (path === "applyProposal" || path === "markProposalApplied") {
++      const proposalId = await f.t.run(ctx => ctx.db.insert("chatProposals", {
++        agentThreadId: "qa-thread", projectId: f.projectId, reportId: f.reportId, kind: "edit",
++        targetText: FIXED, newText: FAILURE, state: "pending", createdAt: 1,
++      }));
++      if (path === "applyProposal") await f.actor.mutation(api.chatV2.applyProposal, { proposalId });
++      else await f.actor.mutation(api.chatV2.markProposalApplied, { proposalId, content: contentFor(FAILURE), expectedRevisionNumber: 0 });
++    } else if (path === "acceptEdit") {
++      const commentId = await f.t.run(async ctx => {
++        const commenterId = await ctx.db.insert("commenters", { projectId: f.projectId, name: "Client", color: "blue", createdAt: 1 });
++        return ctx.db.insert("comments", { projectId: f.projectId, reportId: f.reportId, commenterId, commenterType: "client", highlightFrom: 0, highlightTo: FIXED.length, highlightText: FIXED, body: "Suggested correction", suggestedEdit: FAILURE, resolved: false, createdAt: 1 });
++      });
++      await f.actor.mutation(api.comments.acceptEdit, { commentId });
++    } else {
++      const snapshotId = await f.t.run(ctx => ctx.db.insert("reportSnapshots", { projectId: f.projectId, reportId: f.reportId, content: contentFor(FAILURE), reason: "manual", createdByRole: "writer", createdAt: 1 }));
++      await f.actor.mutation(api.snapshots.restoreSnapshot, { snapshotId, targetReportId: f.reportId, expectedRevisionNumber: 0 });
++    }
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(f)), section: "s242", check: "because_clause", blocking: true })]));
++    expect((await ref(f)).revisionNumber).toBe(1);
++  });
++  test("project copy persists deterministic findings for the destination report", async () => {
++    const f = await setup(contentFor(FAILURE));
++    const toProjectId = await f.t.run(ctx => ctx.db.insert("projects", { title: "Copy", clientName: "Client", createdBy: f.ownerId, ownerId: f.ownerId, status: "draft", shareToken: "copy", createdAt: 1, updatedAt: 1 }));
++    const copy = await f.actor.mutation(api.projects.prepareProjectContentCopy, { fromProjectId: f.projectId, toProjectId });
++    if (!copy.reportId) throw new Error("No copied report");
++    const copied = { ...f, reportId: copy.reportId, projectId: toProjectId };
++    expect(await rows(copied)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(copied)), check: "because_clause", blocking: true })]));
++  });
++});
++
++
++describe("CAP-8 extraction bypass regressions", () => {
++  test.each(["punctuated", "renamed", "removed", "nested"])("%s uncertainty headings retain blocking prose", async variant => {
++    const doc = buildTiptapDocument("Title", FAILURE, "Work.", "Knowledge.");
++    if (variant === "punctuated") doc.content[1] = { type: "heading", content: [{ type: "text", text: "Line 242 — Technological Uncertainty." }] };
++    if (variant === "renamed") doc.content[1] = { type: "heading", content: [{ type: "text", text: "Uncertainties" }] };
++    if (variant === "removed") doc.content.splice(1, 1);
++    const content = variant === "nested"
++      ? JSON.stringify({ type: "doc", content: [{ type: "blockquote", content: doc.content }] })
++      : JSON.stringify(doc);
++    const f = await setup(content);
++    await expectBlocked(f);
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
++    expect((await rows(f)).some(row => row.check === "because_clause" && row.blocking)).toBe(true);
++  });
++
++  test("legacy whitespace-only blank lines separate unrelated explanations", async () => {
++    const f = await setup("Line 242: Uncertainty\nIt was uncertain whether the alloy holds\n \t \nWe ran tests because evidence was needed.\nLine 244: Work\nTests.");
++    await expectBlocked(f);
++  });
++});
++
++
++test("legacy heading-like body sentences cannot hide uncertainty", async () => {
++  const f = await setup("Line 242: Uncertainty\nLine 244 — It was uncertain whether the alloy holds.\nLine 244: Work\nTests.");
++  await expectBlocked(f);
++});
++
++
++test.each(["legacy label", "rich heading", "split code block"])("%s retains substantive uncertainty at both gates", async variant => {
++  const doc = buildTiptapDocument("Title", "", "Work.", "Knowledge.");
++  doc.content.splice(2, 0, variant === "rich heading"
++    ? { type: "heading", content: [{ type: "text", text: "Line 244: " + FAILURE }] }
++    : { type: "codeBlock", content: [{ type: "text", text: "It was " }, { type: "text", text: "uncertain whether the alloy holds." }] });
++  const content = variant === "legacy label"
++    ? "Line 242: Uncertainty\nLine 244: It was uncertain whether the alloy holds\nLine 244: Work\nTests."
++    : JSON.stringify(doc);
++  const f = await setup(content);
++  await expectBlocked(f);
++  await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
++  expect((await rows(f)).some(row => row.check === "because_clause" && row.blocking)).toBe(true);
++});
++
++
++test("punctuated legacy work headings keep work prose outside the uncertainty gate", async () => {
++  const f = await setup("Line 242: Uncertainty\n" + FIXED + "\nLine 244: Work performed.\n" + FAILURE);
++  expect((await readiness(f)).blockers.map(b => b.code)).not.toContain("QA_BLOCKING");
++  await f.actor.mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: f.reportId });
++});
++
++test("selecting a candidate rejects invalid stored scorecards as blocking evidence", async () => {
++  const f = await setup();
++  const candidateId = await f.t.run(async ctx => {
++    await ctx.db.delete(f.reportId);
++    await ctx.db.patch(f.generationId, { status: "awaiting_selection", candidateMode: "compare" });
++    return ctx.db.insert("reportCandidates", {
++      generationId: f.generationId, projectId: f.projectId, model: "test-model", label: "A",
++      content: contentFor(FIXED), createdAt: 1,
++      agentOutputs: JSON.stringify({ qa: { overall_score: "high", cra_compliance: { why_how_why_intact: false } } }),
++    });
++  });
++  await f.actor.mutation(api.generations.selectReportCandidate, { generationId: f.generationId, candidateId });
++  const report = await f.actor.query(api.reports.getLatestReport, { projectId: f.projectId });
++  if (!report) throw new Error("candidate produced no report");
++  const generated = { ...f, reportId: report._id };
++  expect((await rows(generated)).filter(row => row.check === "cra_methodology")).toEqual([]);
++  expect((await readiness(generated)).blockers.map(b => b.code)).not.toContain("QA_BLOCKING");
++  await f.actor.mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: report._id });
++});
++
++test("legacy punctuated cross-references do not move following uncertainty into work", async () => {
++  const f = await setup("Line 242: Uncertainty\nContext.\nLine 244: This work is discussed below.\n" + FAILURE + "\nLine 244: Work\nTests.");
++  await expectBlocked(f);
++});
++
++
++describe("DW-92 native follow-up extraction regressions", () => {
++  test.each(["block containers", "inline containers"])("deep %s retain uncertainty on save and at both gates", async variant => {
++    const depth = 5000;
++    const content = variant === "block containers"
++      ? '{"type":"doc","content":[' + '{"type":"blockquote","content":['.repeat(depth)
++        + JSON.stringify({ type: "paragraph", content: [{ type: "text", text: FAILURE }] })
++        + ']}'.repeat(depth) + ']}'
++      : '{"type":"doc","content":[{"type":"paragraph","content":['
++        + '{"type":"inlineContainer","content":['.repeat(depth)
++        + JSON.stringify({ type: "text", text: FAILURE })
++        + ']}'.repeat(depth) + ']}]}';
++    const f = await setup(content);
++    await expectBlocked(f);
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({
++      ...(await ref(f)), section: "s242", check: "because_clause", blocking: true,
++    })]));
++    await expectBlocked(f);
++  });
++
++  test("unpunctuated legacy cross-references preserve uncertainty at both gates and on save", async () => {
++    const content = "Line 242: Uncertainty\nContext.\nLine 244: This work is discussed below\n" + FAILURE + "\nLine 244: Work\nTests.";
++    const f = await setup(content);
++    await expectBlocked(f);
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ check: "because_clause", blocking: true, ...(await ref(f)) })]));
++  });
++
++  test.each(["legacy", "rich text"])("late uncertainty heading cannot hide earlier renamed section in %s", async variant => {
++    const doc = buildTiptapDocument("Title", FAILURE, "Work.", "Knowledge.");
++    doc.content[1] = { type: "heading", content: [{ type: "text", text: "Uncertainties" }] };
++    doc.content.push({ type: "heading", content: [{ type: "text", text: "Line 242: Uncertainty" }] });
++    const content = variant === "legacy"
++      ? "Uncertainties\n" + FAILURE + "\nLine 244: Work\nTests.\nLine 242: Uncertainty\nAppendix."
++      : JSON.stringify(doc);
++    const f = await setup(content);
++    await expectBlocked(f);
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ check: "because_clause", blocking: true, ...(await ref(f)) })]));
++  });
++
++  test("rich-text whitespace-only blank lines cannot borrow an unrelated explanation", async () => {
++    const doc = buildTiptapDocument("Title", "", "Work.", "Knowledge.");
++    doc.content.splice(2, 0, { type: "paragraph", content: [
++      { type: "text", text: "It was uncertain whether the alloy holds" },
++      { type: "hardBreak" }, { type: "text", text: " \t " }, { type: "hardBreak" },
++      { type: "text", text: "We ran tests because evidence was needed." },
++    ] });
++    const content = JSON.stringify(doc);
++    const f = await setup(content);
++    await expectBlocked(f);
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ check: "because_clause", blocking: true, ...(await ref(f)) })]));
++  });
++});
+diff --git a/convex/qaFindingsCleanup.test.ts b/convex/qaFindingsCleanup.test.ts
+new file mode 100644
+index 0000000..ee2c1df
+--- /dev/null
++++ b/convex/qaFindingsCleanup.test.ts
+@@ -0,0 +1,87 @@
++/// <reference types="vite/client" />
++import { convexTest } from "convex-test";
++import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
++import { api, internal } from "./_generated/api";
++import schema from "./schema";
++
++const modules = import.meta.glob("./**/*.ts");
++
++async function setup(findingCount = 3) {
++  const t = convexTest(schema, modules);
++  const ids = await t.run(async ctx => {
++    const creatorId = await ctx.db.insert("users", { authId: "cleanup-creator", role: "writer" });
++    await ctx.db.insert("users", { authId: "cleanup-other", role: "writer" });
++    await ctx.db.insert("users", { authId: "cleanup-admin", role: "admin" });
++    const projectId = await ctx.db.insert("projects", {
++      title: "QA cleanup", clientName: "Client", createdBy: creatorId, ownerId: creatorId,
++      status: "draft", shareToken: "cleanup", createdAt: 1, updatedAt: 1,
++    });
++    const reportId = await ctx.db.insert("reports", {
++      projectId, content: "Report", version: 1, generatedAt: 1, updatedAt: 1,
++    });
++    const otherProjectId = await ctx.db.insert("projects", {
++      title: "Retained", clientName: "Client", createdBy: creatorId,
++      status: "draft", shareToken: "retained", createdAt: 1, updatedAt: 1,
++    });
++    const otherReportId = await ctx.db.insert("reports", {
++      projectId: otherProjectId, content: "Other", version: 1, generatedAt: 1, updatedAt: 1,
++    });
++    for (let i = 0; i < findingCount; i++) {
++      await ctx.db.insert("qaFindings", {
++        reportId, revisionNumber: i, contentHash: `hash-${i}`,
++        check: "because_clause", message: "Missing because", blocking: true,
++      });
++    }
++    const retainedFindingId = await ctx.db.insert("qaFindings", {
++      reportId: otherReportId, revisionNumber: 0, contentHash: "retained",
++      check: "cra_methodology", message: "why_how_why_intact", blocking: true,
++    });
++    return { projectId, reportId, otherReportId, retainedFindingId };
++  });
++  const findings = () => t.run(ctx => ctx.db.query("qaFindings")
++    .withIndex("by_reportId_and_revisionNumber_and_contentHash_and_findingKey", q => q.eq("reportId", ids.reportId)).collect());
++  return { t, ...ids, findings };
++}
++
++describe("deleted report QA cleanup", () => {
++  beforeEach(() => vi.useFakeTimers());
++  afterEach(() => vi.useRealTimers());
++
++  test.each(["cleanup-creator", "cleanup-admin"])("%s deletion cleans history across continuation batches", async subject => {
++    const f = await setup(257);
++    await f.t.withIdentity({ subject }).mutation(api.projects.deleteProject, { projectId: f.projectId });
++    expect(await f.t.run(ctx => ctx.db.get(f.projectId))).toBeNull();
++    expect(await f.t.run(ctx => ctx.db.get(f.reportId))).toBeNull();
++    await f.t.finishAllScheduledFunctions(() => vi.runAllTimers());
++    expect(await f.findings()).toEqual([]);
++    expect(await f.t.run(ctx => ctx.db.get(f.retainedFindingId))).not.toBeNull();
++  });
++
++  test("each transaction deletes only one bounded batch and schedules its continuation", async () => {
++    const f = await setup(257);
++    await f.t.run(ctx => ctx.db.delete(f.reportId));
++    await f.t.mutation(internal.projects.cleanupDeletedReportQaFindings, { reportId: f.reportId });
++    expect(await f.findings()).toHaveLength(129);
++    await f.t.finishAllScheduledFunctions(() => vi.runAllTimers());
++    expect(await f.findings()).toEqual([]);
++    await f.t.mutation(internal.projects.cleanupDeletedReportQaFindings, { reportId: f.reportId });
++    expect(await f.findings()).toEqual([]);
++  });
++
++  test("unauthorized project deletion retains findings and schedules no cleanup", async () => {
++    const f = await setup();
++    await expect(f.t.withIdentity({ subject: "cleanup-other" }).mutation(api.projects.deleteProject, {
++      projectId: f.projectId,
++    })).rejects.toThrow();
++    await f.t.finishAllScheduledFunctions(() => vi.runAllTimers());
++    expect(await f.t.run(ctx => ctx.db.get(f.reportId))).not.toBeNull();
++    expect(await f.findings()).toHaveLength(3);
++  });
++
++  test("cleanup refuses to remove findings from a live report", async () => {
++    const f = await setup();
++    await f.t.mutation(internal.projects.cleanupDeletedReportQaFindings, { reportId: f.reportId });
++    await f.t.finishAllScheduledFunctions(() => vi.runAllTimers());
++    expect(await f.findings()).toHaveLength(3);
++  });
++});
+diff --git a/convex/reports.ts b/convex/reports.ts
+index 5660221..61394fe 100644
+--- a/convex/reports.ts
++++ b/convex/reports.ts
+@@ -1,3 +1,4 @@
++import { persistDeterministicFindings } from "./lib/qaFindings";
+ import { query, mutation, internalMutation } from "./_generated/server";
+ import { v } from "convex/values";
+ import type { Doc, Id } from "./_generated/dataModel";
+@@ -16,6 +17,7 @@ import {
+   sha256,
+ } from "./lib/contracts";
+ import { extractPlainText } from "./lib/reportEdits";
++import { computeEditDistance } from "./lib/editDistance";
+ import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+ export const getLatestReport = query({
+   args: {
+@@ -67,6 +69,7 @@ export const updateReportContent = mutation({
+       provenanceId: undefined,
+       updatedAt: Date.now(),
+     });
++    await persistDeterministicFindings(ctx, args.reportId);
+     return revisionNumber + 1;
+   },
+ });
+@@ -402,31 +405,6 @@ export const failExport = mutation({
+ 
+ // ─── BNH-10 flywheel: post-edit distance ─────────────────────────────────────
+ 
+-/** Lowercased word multiset — cheap, order-insensitive edit signal. */
+-function wordBag(text: string): Map<string, number> {
+-  const bag = new Map<string, number>();
+-  for (const raw of text.toLowerCase().split(/\s+/)) {
+-    const w = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+-    if (!w) continue;
+-    bag.set(w, (bag.get(w) ?? 0) + 1);
+-  }
+-  return bag;
+-}
+-
+-function bagOverlap(a: Map<string, number>, b: Map<string, number>): number {
+-  let n = 0;
+-  for (const [w, ca] of a) n += Math.min(ca, b.get(w) ?? 0);
+-  return n;
+-}
+-
+-function bagSize(bag: Map<string, number>): number {
+-  let n = 0;
+-  for (const c of bag.values()) n += c;
+-  return n;
+-}
+-
+-const normalizePara = (p: string) => p.replace(/\s+/g, " ").trim().toLowerCase();
+-
+ /**
+  * Post-edit distance (PED): how much of the AI draft the writer changed before
+  * the report's current state — the north-star "is the system improving" metric
+@@ -463,40 +441,13 @@ export const postEditDistance = query({
+       .first();
+     if (!baseline) return null;
+ 
+-    const draftText = extractPlainText(baseline.content);
+-    const currentText = extractPlainText(report.content);
+-
+-    const draftBag = wordBag(draftText);
+-    const currentBag = wordBag(currentText);
+-    const draftWords = bagSize(draftBag);
+-    const currentWords = bagSize(currentBag);
+-    const similarity =
+-      draftWords + currentWords === 0
+-        ? 1
+-        : (2 * bagOverlap(draftBag, currentBag)) / (draftWords + currentWords);
+-
+-    const draftParas = draftText.split(/\n{2,}|\n/).map(normalizePara).filter(Boolean);
+-    const currentParas = new Map<string, number>();
+-    for (const p of currentText.split(/\n{2,}|\n/).map(normalizePara).filter(Boolean)) {
+-      currentParas.set(p, (currentParas.get(p) ?? 0) + 1);
+-    }
+-    let unchanged = 0;
+-    for (const p of draftParas) {
+-      const left = currentParas.get(p) ?? 0;
+-      if (left > 0) {
+-        unchanged += 1;
+-        currentParas.set(p, left - 1);
+-      }
+-    }
++    const result = computeEditDistance(
++      extractPlainText(baseline.content),
++      extractPlainText(report.content)
++    );
+ 
+     return {
+-      /** 0 = untouched draft, 1 = fully rewritten. */
+-      ped: 1 - similarity,
+-      wordSimilarity: similarity,
+-      draftWords,
+-      currentWords,
+-      paragraphsTotal: draftParas.length,
+-      paragraphsUnchanged: unchanged,
++      ...result,
+       draftLabel: baseline.label,
+       baselineAt: baseline.createdAt,
+     };
+diff --git a/convex/schema.ts b/convex/schema.ts
+index 5ea9ac2..b2e69ab 100644
+--- a/convex/schema.ts
++++ b/convex/schema.ts
+@@ -482,6 +482,7 @@ export default defineSchema({
+   })
+     .index("by_createdAt", ["createdAt"])
+     .index("by_projectId", ["projectId"])
++    .index("by_projectId_and_createdAt", ["projectId", "createdAt"])
+     .index("by_generationId", ["generationId"]),
+ 
+   transcripts: defineTable({
+@@ -522,6 +523,20 @@ export default defineSchema({
+     ])
+     .index("by_projectId", ["projectId"]),
+ 
++  qaFindings: defineTable({
++    section: v.optional(v.string()),
++    findingKey: v.optional(v.string()),
++    reportId: v.id("reports"),
++    revisionNumber: v.number(),
++    contentHash: v.string(),
++    check: v.string(),
++    message: v.string(),
++    blocking: v.boolean(),
++  })
++    .index("by_reportId_and_revisionNumber_and_contentHash_and_findingKey", ["reportId", "revisionNumber", "contentHash", "findingKey"])
++    .index("by_reportId_and_contentHash_and_check_and_message_and_blocking", ["reportId", "contentHash", "check", "message", "blocking"])
++    .index("by_reportId_and_revisionNumber_and_contentHash_and_blocking", ["reportId", "revisionNumber", "contentHash", "blocking"]),
++
+   reports: defineTable({
+     projectId: v.id("projects"),
+     content: v.string(),
+@@ -828,6 +843,7 @@ export default defineSchema({
+   // The agent UIMessage cannot durably express turn start/end, so app-owned
+   // timing keeps queued and terminal states stable across reloads and races.
+   chatTurns: defineTable({
++    userId: v.optional(v.id("users")),
+     agentThreadId: v.string(),
+     promptMessageId: v.string(),
+     order: v.number(),
+@@ -847,6 +863,7 @@ export default defineSchema({
+       "promptMessageId",
+     ])
+     .index("by_agentThreadId_and_order", ["agentThreadId", "order"])
++    .index("by_userId_and_status", ["userId", "status"])
+     // Stale-turn reaper: sweep queued/running rows regardless of thread.
+     .index("by_status", ["status"]),
+ 
+@@ -1275,6 +1292,31 @@ export default defineSchema({
+     .index("by_projectId", ["projectId"])
+     .index("by_projectId_and_milestoneKey", ["projectId", "milestoneKey"]),
+ 
++  // BNH-10 flywheel (CAP-2): post-edit distance frozen at the three milestones
++  // where the writer's divergence from the AI draft is meaningful. Rows are
++  // append-only readings; the read surface is index-only per report and per
++  // accountable writer (projects.ownerId, PSOS-07 — never createdBy).
++  reportEditDistance: defineTable({
++    reportId: v.id("reports"),
++    projectId: v.id("projects"),
++    generationId: v.optional(v.id("generations")),
++    // projects.ownerId at the time of the reading; optional because ownerId is
++    // still optional on legacy projects (those rows never appear per-writer).
++    writerUserId: v.optional(v.id("users")),
++    revisionNumber: v.number(),
++    /** 0 = untouched draft, 1 = fully rewritten. */
++    ped: v.number(),
++    computedAt: v.number(),
++    trigger: v.union(
++      v.literal("candidate_selection"),
++      v.literal("milestone"),
++      v.literal("client_publish")
++    ),
++  })
++    .index("by_reportId", ["reportId"])
++    .index("by_projectId", ["projectId"])
++    .index("by_writerUserId_and_computedAt", ["writerUserId", "computedAt"]),
++
+   // Human-verified claimant/participant identity and relationship evidence.
+   // Rows are retained and rejected/superseded rather than deleted.
+   projectIdentityEvidence: defineTable({
+@@ -1504,10 +1546,13 @@ export default defineSchema({
+   // One review per writer per report version. Surfaced to the admin alongside
+   // the AI QA score; NEVER auto-applied to the brain (manual review only).
+   writerReviews: defineTable({
++    // New judgments pin content; baseline revision is 0. Historical rows may lack both.
++    revisionNumber: v.optional(v.number()),
++    contentHash: v.optional(v.string()),
+     projectId: v.id("projects"),
+     reportId: v.id("reports"),
+     reportVersion: v.optional(v.number()),
+-    userId: v.string(),
++    userId: v.id("users"),
+     writerName: v.optional(v.string()),
+     score: v.number(), // writer's 0–100 quality score
+     comment: v.optional(v.string()),
+@@ -1547,6 +1592,9 @@ export default defineSchema({
+   // Per-writer feedback on individual generated QA observations. Target keys
+   // survive candidate deletion after selection; item text is copied for admin review.
+   qaItemFeedback: defineTable({
++    // New judgments pin content; baseline revision is 0. Historical rows may lack both.
++    revisionNumber: v.optional(v.number()),
++    contentHash: v.optional(v.string()),
+     targetKey: v.string(),
+     projectId: v.id("projects"),
+     reportId: v.optional(v.id("reports")),
+@@ -1614,6 +1662,9 @@ export default defineSchema({
+   // (source "review_pd"); `result` holds the structured feedback report JSON
+   // (strengths / risks / suggested strengthening / qualitative score).
+   pdReviews: defineTable({
++    // New judgments pin content; baseline revision is 0. Historical rows may lack both.
++    revisionNumber: v.optional(v.number()),
++    contentHash: v.optional(v.string()),
+     projectId: v.id("projects"),
+     documentId: v.id("projectDocuments"),
+     sourceFileName: v.string(),
+diff --git a/convex/snapshots.ts b/convex/snapshots.ts
+index 88b9a5f..e7395f0 100644
+--- a/convex/snapshots.ts
++++ b/convex/snapshots.ts
+@@ -1,3 +1,4 @@
++import { persistDeterministicFindings } from "./lib/qaFindings";
+ import { query, mutation } from "./_generated/server";
+ import type { Id } from "./_generated/dataModel";
+ import { v } from "convex/values";
+@@ -12,6 +13,7 @@ import {
+   snapshotAuditFields,
+ } from "./lib/snapshots";
+ import { domainError } from "./lib/contracts";
++import { recordReportEditDistance } from "./lib/editDistance";
+ 
+ const MILESTONE_LABELS: Record<string, string> = {
+   R0: "R0 draft",
+@@ -252,6 +254,9 @@ export const createMilestoneSnapshot = mutation({
+       createdByRole: "writer",
+       createdAt: Date.now(),
+     });
++    // BNH-10 / CAP-2: a milestone is one of the three points where the
++    // writer's divergence from the AI draft is worth freezing.
++    await recordReportEditDistance(ctx, report, "milestone");
+     await pruneSnapshots(ctx, args.reportId);
+     return id;
+   },
+@@ -306,6 +311,7 @@ export const restoreSnapshot = mutation({
+       revisionNumber: revisionNumber + 1,
+       updatedAt: now,
+     });
++    await persistDeterministicFindings(ctx, report._id);
+     await pruneSnapshots(ctx, report._id);
+     return revisionNumber + 1;
+   },

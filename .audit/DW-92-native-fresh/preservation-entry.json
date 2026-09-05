@@ -1,0 +1,14 @@
+{
+  "baseline": "86a43d9d500ceab34245744d223d4453eba7b667",
+  "protected_paths": [
+    "src",
+    "convex/_generated",
+    "convex/learning.ts",
+    "convex/ai/learning.ts",
+    "convex/brain.ts",
+    "_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/qa/stories/8-blocking-qa-policy.md",
+    "_bmad-output/implementation-artifacts/deferred-work.md"
+  ],
+  "tracked_diff": "",
+  "untracked_protected": ""
+}

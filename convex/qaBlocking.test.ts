@@ -127,6 +127,8 @@ describe("CAP-8 absolute current-revision QA gate", () => {
     const input = await f.t.query(internal.generations.getPostQaInput, { generationId: f.generationId });
     expect(input?.section242).toContain(FIXED);
     expect(input?.section242).not.toContain("Frozen old text");
+    expect(input?.section244.trim()).toBe("The team tested the alloy.");
+    expect(input?.section246.trim()).toBe("The team learned the response.");
     expect(input?.capturedRef).toEqual(await ref(f));
     if (!input) throw new Error("QA input missing");
     await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content: contentFor("The corrected investigation is documented."), expectedRevisionNumber: 0 });
@@ -270,6 +272,7 @@ describe("CAP-8 review regressions", () => {
     }
     expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(f)), section: "s242", check: "because_clause", blocking: true })]));
     expect((await ref(f)).revisionNumber).toBe(1);
+    await expectBlocked(f);
   });
   test("project copy persists deterministic findings for the destination report", async () => {
     const f = await setup(contentFor(FAILURE));
@@ -278,6 +281,7 @@ describe("CAP-8 review regressions", () => {
     if (!copy.reportId) throw new Error("No copied report");
     const copied = { ...f, reportId: copy.reportId, projectId: toProjectId };
     expect(await rows(copied)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(copied)), check: "because_clause", blocking: true })]));
+    await expectBlocked(copied);
   });
 });
 
@@ -411,4 +415,70 @@ describe("DW-92 native follow-up extraction regressions", () => {
     await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
     expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ check: "because_clause", blocking: true, ...(await ref(f)) })]));
   });
+});
+
+describe("fresh review extraction boundaries", () => {
+  test.each(["legacy", "rich text"])("late first uncertainty heading preserves preceding %s failure", async format => {
+    const content = format === "legacy"
+      ? `Uncertainties\n${FAILURE}\nLine 242: Uncertainty\nAppendix.\nLine 244: Work\nTests.`
+      : JSON.stringify({ type: "doc", content: [
+        { type: "heading", content: [{ type: "text", text: "Uncertainties" }] },
+        { type: "paragraph", content: [{ type: "text", text: FAILURE }] },
+        { type: "heading", content: [{ type: "text", text: "Line 242: Uncertainty" }] },
+        { type: "paragraph", content: [{ type: "text", text: "Appendix." }] },
+      ] });
+    const f = await setup(content);
+    await expectBlocked(f);
+    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
+    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(f)), check: "because_clause", blocking: true })]));
+    await expectBlocked(f);
+  });
+  test.each(["missing because", "split marker", "split because"])("branching inline wrapper preserves marker and because (%s)", async variant => {
+    const valid = variant !== "missing because";
+    const content = JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [
+      { type: "inlineContainer", content: [
+        { type: "text", text: variant === "split because" ? "It was uncertain whether the alloy holds" : "It was " },
+        { type: "text", text: variant === "split because" ? "" : "uncertain whether the alloy holds" },
+        { type: "text", text: valid ? " because its response was unknown." : "." },
+      ] },
+    ] }] });
+    const f = await setup(content);
+    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
+    if (valid) {
+      expect((await readiness(f)).blockers.map(b => b.code)).not.toContain("QA_BLOCKING");
+      expect((await rows(f)).filter(r => r.blocking)).toEqual([]);
+      await f.actor.mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: f.reportId });
+    } else {
+      expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(f)), check: "because_clause", blocking: true })]));
+      await expectBlocked(f);
+    }
+  });
+});
+
+test("generated title remains excluded when valid substantive preamble precedes late 242", async () => {
+  const content = JSON.stringify({ type: "doc", content: [
+    { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: FAILURE }] },
+    { type: "paragraph", content: [{ type: "text", text: FIXED }] },
+    { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Line 242: Uncertainty" }] },
+    { type: "paragraph", content: [{ type: "text", text: "Appendix." }] },
+  ] });
+  const f = await setup(content);
+  await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
+  expect((await rows(f)).filter(r => r.blocking)).toEqual([]);
+  expect((await readiness(f)).blockers.map(b => b.code)).not.toContain("QA_BLOCKING");
+  await f.actor.mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: f.reportId });
+});
+
+test("leading H1 section boundary retains its uncertainty body", async () => {
+  const content = JSON.stringify({ type: "doc", content: [
+    { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Line 242: Uncertainty" }] },
+    { type: "paragraph", content: [{ type: "text", text: FAILURE }] },
+    { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Line 244: Work" }] },
+    { type: "paragraph", content: [{ type: "text", text: "Tests." }] },
+  ] });
+  const f = await setup(content);
+  await expectBlocked(f);
+  await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
+  expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(f)), check: "because_clause", blocking: true })]));
+  await expectBlocked(f);
 });

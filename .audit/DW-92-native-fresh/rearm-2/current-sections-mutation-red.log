@@ -1,0 +1,30 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup
+
+ ❯ |convex| convex/qaBlocking.test.ts (49 tests | 1 failed | 48 skipped) 227ms
+     × QA input uses current content and late completion cannot relabel the old revision 226ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > CAP-8 absolute current-revision QA gate > QA input uses current content and late completion cannot relabel the old revision
+AssertionError: expected 'Old work' to be 'The team tested the alloy.' // Object.is equality
+
+Expected: "The team tested the alloy."
+Received: "Old work"
+
+ ❯ convex/qaBlocking.test.ts:130:38
+    128|     expect(input?.section242).toContain(FIXED);
+    129|     expect(input?.section242).not.toContain("Frozen old text");
+    130|     expect(input?.section244.trim()).toBe("The team tested the alloy."…
+       |                                      ^
+    131|     expect(input?.section246.trim()).toBe("The team learned the respon…
+    132|     expect(input?.capturedRef).toEqual(await ref(f));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 48 skipped (49)
+   Start at  17:32:07
+   Duration  613ms (transform 312ms, setup 0ms, import 217ms, tests 227ms, environment 43ms)
+

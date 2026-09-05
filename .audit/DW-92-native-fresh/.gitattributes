@@ -1,0 +1,3 @@
+# Raw process output and patch context are preserved byte for byte.
+*.log -whitespace
+*.diff -whitespace

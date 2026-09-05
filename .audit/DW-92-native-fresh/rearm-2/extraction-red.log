@@ -1,0 +1,57 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup
+
+ ❯ |convex| convex/qaBlocking.test.ts (48 tests | 3 failed | 44 skipped) 183ms
+     × late first uncertainty heading preserves preceding legacy failure 149ms
+     × late first uncertainty heading preserves preceding rich text failure 3ms
+     × branching inline wrapper preserves marker and because (valid=false) 26ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > fresh review extraction boundaries > late first uncertainty heading preserves preceding legacy failure
+ FAIL  |convex| convex/qaBlocking.test.ts > fresh review extraction boundaries > late first uncertainty heading preserves preceding rich text failure
+AssertionError: expected [ 'IDENTITY_EVIDENCE_REQUIRED', …(2) ] to include 'QA_BLOCKING'
+ ❯ expectBlocked convex/qaBlocking.test.ts:61:60
+     59| }
+     60| async function expectBlocked(f: Fixture, subject = "qa-owner") {
+     61|   expect((await readiness(f)).blockers.map((b) => b.code)).toContain("…
+       |                                                            ^
+     62|   const before = await f.t.run((ctx) => ctx.db.get(f.projectId));
+     63|   const scheduledBefore = await f.t.run((ctx) => ctx.db.system.query("…
+ ❯ convex/qaBlocking.test.ts:427:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > fresh review extraction boundaries > branching inline wrapper preserves marker and because (valid=false)
+AssertionError: expected [] to deeply equal ArrayContaining{…}
+
+- Expected
++ Received
+
+- ArrayContaining [
+-   ObjectContaining {
+-     "blocking": true,
+-     "check": "because_clause",
+-     "contentHash": "49422f6d06f34b2eae703bcf9a2b535e185a06d1e25baedee9fa94691538884c",
+-     "reportId": "0000000000000000000010007reports",
+-     "revisionNumber": 1,
+-   },
+- ]
++ []
+
+ ❯ convex/qaBlocking.test.ts:447:29
+    445|       await f.actor.mutation(api.projects.publishForReview, { projectI…
+    446|     } else {
+    447|       expect(await rows(f)).toEqual(expect.arrayContaining([expect.obj…
+       |                             ^
+    448|       await expectBlocked(f);
+    449|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 1 passed | 44 skipped (48)
+   Start at  17:30:54
+   Duration  582ms (transform 268ms, setup 0ms, import 225ms, tests 183ms, environment 45ms)
+

@@ -2,8 +2,8 @@
 title: 'DW-92 blocking QA native follow-up'
 type: 'chore'
 created: '2026-09-04'
-status: ready-for-dev
-baseline_revision: 89b4eeb50e40b38cc7acd42215ab4b9876e35cab
+status: 'done'
+baseline_revision: '86a43d9d500ceab34245744d223d4453eba7b667'
 review_loop_iteration: 0
 followup_review_recommended: true
 context: ['{project-root}/convex/_generated/ai/guidelines.md', '{project-root}/.factory/AGENTS.factory.md']
@@ -69,6 +69,10 @@ deferred: []
 
 - 2026-09-04: Resolve the native review finalization conflict by distinguishing ledger authorship from staging exact orchestrator-produced bytes. This operational correction follows the user's authorization to repair native loops and commit verified work. Product policy and prior blocked evidence are unchanged; native rearm owns active status, baseline and terminal-marker changes.
 
+## Fresh Native Invocation
+
+The native task is already bound to this flat spec and rearmed ready-for-dev. This invocation follows that binding, captures baseline `86a43d9d500ceab34245744d223d4453eba7b667`, retains all prior review history below, and records fresh evidence in `.audit/DW-92-native-fresh/`. Prior checklist completion and passing gates are historical; current acceptance requires this invocation's review and verification. Previous workflow baseline was `89b4eeb50e40b38cc7acd42215ab4b9876e35cab`.
+
 ## Review Triage Log
 
 ### 2026-09-04: Review pass
@@ -101,6 +105,27 @@ All four independent review layers completed. Full historical QA implementation 
   - `[low]` `[patch]` Execute final comparisons against verified source hashes and the entry commit.
   - `[low]` `[patch]` Use explicit verification failures that remain active under Python optimization.
 
+### 2026-09-04: Rearmed native fresh review
+- intent_gap: 0
+- bad_spec: 0
+- patch: 11: (high 3, medium 3, low 5)
+- defer: 0
+- reject: 1: (high 0, medium 0, low 1)
+- addressed_findings:
+  - `[high]` `[patch]` Preserve preceding substantive uncertainty when the first recognized 242 heading appears late, while excluding the identifiable generated title.
+  - `[high]` `[patch]` Preserve branching inline-wrapper cohesion for uncertainty markers and valid because explanations, retaining real block separation and heap traversal.
+  - `[high]` `[patch]` Repair the title fix's leading-H1 section-boundary regression; retain a registered before/after gate test.
+  - `[medium]` `[patch]` Verify non-iterative current sections244/246; a temporary frozen-value mutation fails the new assertion.
+  - `[medium]` `[patch]` Extend alternate-writer and destination-copy tests through readiness and atomic publish rejection.
+  - `[medium]` `[patch]` Capture untracked runtime inputs in verification source identity.
+  - `[low]` `[patch]` Qualify the initial inspection after reviewers found counterexamples.
+  - `[low]` `[patch]` Compare source and revision before and after each command.
+  - `[low]` `[patch]` Include root build configuration in source identity.
+  - `[low]` `[patch]` Retain unique per-run logs and manifests across repairs.
+  - `[low]` `[patch]` Map provider, retry, current-section and cleanup proof to exact executed test identities.
+
+All four independent layers completed against fresh artifacts and the full historical QA implementation/repairs. The edge reviewer confirmed both extraction cases fit the frozen contract. A subsequent verification review found the leading-H1 regression and confirmed its final repair. Detailed triage and retained failures are in `.audit/DW-92-native-fresh/review.md` and `evidence.md`. No product-policy expansion or new deferral. Follow-up recommendation true: high 3, medium 3, low 5; weighted medium/low score 14. Native acceptance remains subsequent orchestrator work.
+
 ## Verification
 
 **Commands:**
@@ -109,3 +134,21 @@ All four independent review layers completed. Full historical QA implementation 
 - `git diff --check`: no whitespace errors.
 - Compare original nested spec, `src/` and `convex/_generated/` against captured follow-up baseline: unchanged. Compare ledger working-tree bytes and staged blob against the invocation snapshot, accounting only for independently proven native writes; no worker-authored ledger changes.
 
+
+## Auto Run Result
+
+Status: done
+
+Fresh native worker review and verification are complete on the existing bound flat follow-up artifact. This invocation independently reviewed the original QA implementation and subsequent repairs, repaired two extraction edge cases plus a regression caught during repair review, and retained genuine new review and ordinary gate evidence. Original implementation baseline and the nested frozen QA contract/history remain unchanged.
+
+Files changed:
+- `convex/lib/tiptapReport.ts`: retain substantive prose before a late first 242 heading, preserve branching inline cohesion, and distinguish generated titles from actual leading H1 section boundaries.
+- `convex/qaBlocking.test.ts`: seven registered extraction regressions, current non-iterative 244/246 assertions, and readiness/publish coverage for alternate writers and copied reports.
+- `.audit/DW-92-native-fresh/`: independent reviews, canonical provenance, preserved red/intermediate/green logs, complete matrix mapping, source/configuration hashes, and final artifact checks; explicitly staged despite ignore rules.
+- This flat spec: new workflow baseline, preserved review history, current triage and genuine terminal result.
+
+Review: four independent layers and follow-up repair inspection completed. Eleven patches (high 3, medium 3, low 5), zero deferrals, one rejected low finding. Follow-up review recommended: true; medium/low score 14, with high findings repaired. The existing product choices and detector limitation remain preserved.
+
+Verification: final parent `python3 .audit/DW-92-native-fresh/verify.py` exited 0. Ordinary `bash scripts/loop-verify.sh` passed 1,753 tests in 148 files, Svelte check zero errors/warnings, Convex TypeScript, PowerShell 50/50 and Bash 18/18. Exact focused command passed 154 tests. Manifest `verification-20260905T003623Z-c59f46b4/commands.json` retains command outputs and matching before/after source hashes. No timeout overrides. Four baseline extraction failures, the intermediate generated-title regression, the leading-H1 regression, and a frozen-current-sections mutation failure were retained beside repaired passes. `git diff --check` passed.
+
+Residual risks: the frozen sentence-level because detector and exact-content methodology policy remain intentional limits. This worker result does not claim the orchestrator's subsequent review acceptance or ledger resolution. No worker-authored ledger or native-control changes, frontend changes, generated-code changes, or edits to the original nested QA spec occurred. Nothing was pushed or deployed.

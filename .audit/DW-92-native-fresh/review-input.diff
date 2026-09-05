@@ -1,0 +1,541 @@
+diff --git a/_bmad-output/implementation-artifacts/spec-dw-92-blocking-qa-native-followup.md b/_bmad-output/implementation-artifacts/spec-dw-92-blocking-qa-native-followup.md
+index 7674867..42ae706 100644
+--- a/_bmad-output/implementation-artifacts/spec-dw-92-blocking-qa-native-followup.md
++++ b/_bmad-output/implementation-artifacts/spec-dw-92-blocking-qa-native-followup.md
+@@ -2,8 +2,8 @@
+ title: 'DW-92 blocking QA native follow-up'
+ type: 'chore'
+ created: '2026-09-04'
+-status: ready-for-dev
+-baseline_revision: 89b4eeb50e40b38cc7acd42215ab4b9876e35cab
++status: 'in-review'
++baseline_revision: '86a43d9d500ceab34245744d223d4453eba7b667'
+ review_loop_iteration: 0
+ followup_review_recommended: true
+ context: ['{project-root}/convex/_generated/ai/guidelines.md', '{project-root}/.factory/AGENTS.factory.md']
+@@ -69,6 +69,10 @@ deferred: []
+ 
+ - 2026-09-04: Resolve the native review finalization conflict by distinguishing ledger authorship from staging exact orchestrator-produced bytes. This operational correction follows the user's authorization to repair native loops and commit verified work. Product policy and prior blocked evidence are unchanged; native rearm owns active status, baseline and terminal-marker changes.
+ 
++## Fresh Native Invocation
++
++The native task is already bound to this flat spec and rearmed ready-for-dev. This invocation follows that binding, captures baseline `86a43d9d500ceab34245744d223d4453eba7b667`, retains all prior review history below, and records fresh evidence in `.audit/DW-92-native-fresh/`. Prior checklist completion and passing gates are historical; current acceptance requires this invocation's review and verification. Previous workflow baseline was `89b4eeb50e40b38cc7acd42215ab4b9876e35cab`.
++
+ ## Review Triage Log
+ 
+ ### 2026-09-04: Review pass
+diff --git a/.audit/DW-92-native-fresh/commands.json b/.audit/DW-92-native-fresh/commands.json
+new file mode 100644
+index 0000000..8722580
+--- /dev/null
++++ b/.audit/DW-92-native-fresh/commands.json
+@@ -0,0 +1,34 @@
++[
++  {
++    "command": [
++      "bash",
++      "scripts/loop-verify.sh"
++    ],
++    "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup",
++    "revision": "86a43d9d500ceab34245744d223d4453eba7b667",
++    "started": "2026-09-05T00:25:25.338182+00:00",
++    "log": "parent-ordinary.log",
++    "source_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
++    "exit_code": 0,
++    "ended": "2026-09-05T00:26:22.167792+00:00",
++    "sha256": "9f63b4ef213456914dcf63e790c7e18346e37912e5ef47c9aa84779ffe1ac178"
++  },
++  {
++    "command": [
++      "npx",
++      "vitest",
++      "run",
++      "convex/ai/qaChecks.test.ts",
++      "convex/projects.test.ts",
++      "convex/qaBlocking.test.ts"
++    ],
++    "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup",
++    "revision": "86a43d9d500ceab34245744d223d4453eba7b667",
++    "started": "2026-09-05T00:26:22.193173+00:00",
++    "log": "parent-focused.log",
++    "source_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
++    "exit_code": 0,
++    "ended": "2026-09-05T00:26:24.003255+00:00",
++    "sha256": "b011b688d8f7f99d46ee4fe7e3f9554e1bbc7fe6cceb5261e6ec8b007ccd4b16"
++  }
++]
+diff --git a/.audit/DW-92-native-fresh/decisions.tsv b/.audit/DW-92-native-fresh/decisions.tsv
+new file mode 100644
+index 0000000..05adc51
+--- /dev/null
++++ b/.audit/DW-92-native-fresh/decisions.tsv
+@@ -0,0 +1,3 @@
++ts	phase	decision	why	evidence	result
++2026-09-05T00:22:23.026418+00:00	routing	Create flat follow-up suffix 2	Existing unsuffixed spec is not draft; preserve prior history	_bmad-output/implementation-artifacts/spec-dw-92-blocking-qa-native-followup.md	planned
++2026-09-05T00:23:42.256325+00:00	routing	Retain native-bound flat spec	User forbids binding another spec; read-only native state already binds rearmed flat artifact	.audit/DW-92-native-fresh/routing.json	corrected before implementation edits
+diff --git a/.audit/DW-92-native-fresh/evidence.md b/.audit/DW-92-native-fresh/evidence.md
+new file mode 100644
+index 0000000..56d6630
+--- /dev/null
++++ b/.audit/DW-92-native-fresh/evidence.md
+@@ -0,0 +1,34 @@
++# DW-92 fresh native finalization evidence
++
++Invocation and tested-source baseline: `86a43d9d500ceab34245744d223d4453eba7b667` (captured directly from Git). `revisions.json` records full canonical historical revisions, including original pre-implementation baseline `f122b086d745acc40b4decca26b9aaafc7257f6a`, implementation, and subsequent repairs.
++
++`routing.json` records the read-only discovery that this rearmed task already binds the unsuffixed flat follow-up spec. The initially authored uncommitted suffix-2 draft was removed before implementation edits to respect the user's prohibition on binding another spec. The original nested contract, native state and ledger were not edited. Prior checked tasks and reviews in the bound flat spec are historical context, not evidence for this pass.
++
++## Acceptance and frozen matrix mapping
++
++The following named tests run through registered Convex query/mutation boundaries in `convex/qaBlocking.test.ts`. The focused command runs the entire file without filtering or skips; ordinary verification also includes all generation and cleanup suites.
++
++| Contract row | Executed test identity |
++| --- | --- |
++| Because failure / persisted identity | `human content save persists because findings and rejects publish atomically` |
++| CRA methodology | `explicit %s failure persists and blocks both boundaries` (both approved flags) |
++| Advisory only | `house-style findings and false verbiage do not block client review` |
++| Waiver attempt | `%s cannot waive findings by reclassifying QA feedback` (manager/admin); `frozen style waivers remove advisory rows but never the because blocker` |
++| Human correction | `human correction preserves history without carrying old failure to new content`; `no-op save carries exact-content methodology to the new revision`; `restoring byte-identical historical content carries its methodology failure` |
++| Late QA | `QA input uses current content and late completion cannot relabel the old revision` |
++| Legacy/no rows | `legacy rows without QA, revision or hash still get the deterministic gate` |
++| Other report/hash | `foreign report identity and stale content hash cannot affect current readiness` |
++| Retry | `same-revision QA retries are deduplicated and a passing score is not a waiver` |
++| Authorization/atomic publish | `publish authorization still precedes QA validation`; shared `expectBlocked` checks project and scheduled-function state |
++| Alternate writers | `%s persists findings on the exact resulting revision` (proposal apply, stepped apply, comment accept, restore); `project copy persists deterministic findings for the destination report` |
++| Extraction repairs | `deep %s retain uncertainty on save and at both gates`; `unpunctuated legacy cross-references preserve uncertainty at both gates and on save`; `late uncertainty heading cannot hide earlier renamed section in %s`; `rich-text whitespace-only blank lines cannot borrow an unrelated explanation` |
++
++Full-suite `convex/generationAttribution.test.ts` adds provider-to-storage methodology proof, stale-attempt recovery and all three current canonical sections. `convex/qaFindingsCleanup.test.ts` exercises bounded cleanup and unauthorized/live-report refusal. Independent implementation inspection and formal review reports establish historical review scope. Final preservation and marker checks establish worker-result integrity; they do not claim orchestrator acceptance.
++
++## Verification
++
++Implementation pass: `rearm-2/verification-manifest.json`, `focused.log`, `loop-verify.log`, and `implementation-inspection.md` retain actual outputs and source/log hashes. Focused 147 tests; ordinary 1,746 tests in 148 files; Svelte check zero errors/warnings; Convex TypeScript passed; PowerShell 50/50 and Bash 18/18. No product source changes or newly reproduced product defect.
++
++Parent verification and formal review are recorded below after completion. Historical gates do not substitute for these fresh checks.
++
++Parent verification: `python3 .audit/DW-92-native-fresh/verify.py` exited 0. Both ordinary and focused commands passed; raw logs and start/end timestamps, canonical source revision and SHA-256 digests are in `commands.json`. Ordinary gate passed 1,746 tests in 148 files, both type checks, PowerShell 50/50 and Bash 18/18; focused passed 147 tests. No test timeout overrides.
+diff --git a/.audit/DW-92-native-fresh/parent-focused.log b/.audit/DW-92-native-fresh/parent-focused.log
+new file mode 100644
+index 0000000..c237906
+--- /dev/null
++++ b/.audit/DW-92-native-fresh/parent-focused.log
+@@ -0,0 +1,9 @@
++
++ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup
++
++
++ Test Files  3 passed (3)
++      Tests  147 passed (147)
++   Start at  17:26:22
++   Duration  1000ms (transform 718ms, setup 0ms, import 552ms, tests 852ms, environment 125ms)
++
+diff --git a/.audit/DW-92-native-fresh/parent-ordinary.log b/.audit/DW-92-native-fresh/parent-ordinary.log
+new file mode 100644
+index 0000000..3bec216
+--- /dev/null
++++ b/.audit/DW-92-native-fresh/parent-ordinary.log
+@@ -0,0 +1,94 @@
++
++> banhall-app@0.1.0 check
++> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
++
++Loading svelte-check in workspace: /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup
++Getting Svelte diagnostics...
++
++svelte-check found 0 errors and 0 warnings
++
++> banhall-app@0.1.0 test
++> vitest run
++
++
++ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup
++
++
++ Test Files  148 passed (148)
++      Tests  1746 passed (1746)
++   Start at  17:25:57
++   Duration  19.27s (transform 4.32s, setup 0ms, import 8.76s, tests 10.45s, environment 3.50s)
++
++ok    AC1 cloud placeholder (ReparsePoint attribute, empty LinkType) is a candidate
++ok    AC2 symlink is skipped as link
++ok    AC2 junction is skipped as link
++ok    AC2 Test-RealLink is false for a placeholder and true for a symlink
++ok    AC3 Word temp file is skipped as temp
++ok    AC3 dotfile is skipped as dotfile
++ok    AC3 disallowed extension is skipped as extension
++ok    AC3 allowed plain file is a candidate
++ok    AC3 extension match is case-insensitive
++ok    edge link is checked before temp
++ok    edge object without a LinkType property is not a link
++ok    edge empty allowed list skips everything as extension
++ok    edge missing or unset Attributes does not throw
++ok    zero-diag AC3 Offline attribute is cloud-only
++ok    zero-diag AC3 RecallOnDataAccess bit is cloud-only
++ok    zero-diag AC3 a hydrated local file is not cloud-only
++ok    zero-diag edge Test-CloudOnly tolerates a missing or unset Attributes
++ok    zero-diag AC1 histogram counts by extension, most frequent first
++ok    zero-diag edge histogram caps at top N and labels extensionless files
++ok    zero-diag edge histogram of nothing is empty
++ok    zero-diag AC1/AC5 formatter renders every required line for a zero-candidate scan
++ok    zero-diag edge formatter prints an all-zero block for an empty folder
++ok    zero-diag AC1 formatter never prints a file name
++ok    zero-diag AC1 root under a sync root reports yes, case- and separator-insensitively
++ok    zero-diag AC1 root outside every sync root reports no
++ok    zero-diag AC1 no OneDrive env var at all reports unknown
++SKIP  AC4 dotfile sub-case - this platform hides dotfiles from Get-ChildItem without -Force
++ok    AC4 exactly one candidate, the real .docx
++ok    AC4 temp and extension skips are tallied
++ok    AC4 the symlink is skipped as link
++ok    AC4 walk reports counts and no errors
++ok    AC4 a missing root yields zero candidates and a recorded error
++ok    zero-diag AC1 the scan records an extension histogram of every file it walked
++ok    zero-diag AC4 Test-RootUsable separates a folder, a file and a missing path
++ok    review-fix a bracket-named root is usable and yields its candidate
++ok    review-fix a wildcard read of that root is what loses it
++ok    AC6 banhall-uploader.ps1 parses and stays Windows PowerShell 5.1 compatible
++ok    AC6 uploader-lib.ps1 parses and stays Windows PowerShell 5.1 compatible
++ok    AC6 run-tests.ps1 parses and stays Windows PowerShell 5.1 compatible
++ok    AC6 one Get-UploadCandidates call site, inside the foreach over roots
++ok    AC6 all three input modes converge on roots
++ok    review-fix every path the uploader reads is a literal path
++ok    review-fix the upload body path is wildcard-escaped
++ok    regression banhall-uploader.ps1 never mentions ReparsePoint again
++ok    zero-diag AC4 every root-is-a-file message stops the run from a Test-RootUsable state
++ok    review-fix the uploader only claims a log was saved when a write succeeded
++ok    zero-diag AC2 the log is truncated before the scan and the SCAN lines beat the zero exit
++ok    zero-diag AC3 the cloud-only line is printed only when the count is above zero
++ok    zero-diag AC1 the zero-found branch prints the formatter's lines and never a file name
++ok    AC5 loop-verify.sh runs the harness under set -e
++ok    AC5 an injected failing case exits 1 and stops a set -e gate
++
++50 passed, 0 failed
++ok    AC1 walk classifies link/temp/dotfile/extension and keeps 3 candidates
++ok    AC4 symlink to an allowed file is skipped and counted under link
++ok    AC1 argument prefix is prepended to the relative path
++ok    AC1 zero-result block reports walked, per-reason skips, extensions, OneDrive
++ok    edge empty folder reports zeros and 'Extensions seen: none'
++ok    AC1 extension histogram is capped at 8, ties broken alphabetically
++ok    edge ext_of matches .NET GetExtension for dotfiles and bare names
++ok    AC3 root_state answers ok / is_file / missing
++ok    AC3 a file path prints 'That path is a file, not a folder' and exits 1
++ok    AC3 a folder passes and a missing path reports 'does not exist'
++ok    AC2 an unreadable file logs READ_ERROR and never calls the endpoint
++ok    AC2 control: a readable file does reach the stubbed endpoint
++ok    AC2 sha256_of returns nothing for an unreadable or missing file
++ok    AC1 under_onedrive answers yes / no / unknown
++ok    AC5 scripts/loop-verify.sh runs this harness exactly once
++ok    AC5 an injected failing case exits non-zero
++ok    shape banhall-uploader.sh uses no bash 4 constructs
++ok    shape every function is defined above the lib-only guard
++
++18 passed, 0 failed
+diff --git a/.audit/DW-92-native-fresh/preservation-entry.json b/.audit/DW-92-native-fresh/preservation-entry.json
+new file mode 100644
+index 0000000..82df551
+--- /dev/null
++++ b/.audit/DW-92-native-fresh/preservation-entry.json
+@@ -0,0 +1,14 @@
++{
++  "baseline": "86a43d9d500ceab34245744d223d4453eba7b667",
++  "protected_paths": [
++    "src",
++    "convex/_generated",
++    "convex/learning.ts",
++    "convex/ai/learning.ts",
++    "convex/brain.ts",
++    "_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/qa/stories/8-blocking-qa-policy.md",
++    "_bmad-output/implementation-artifacts/deferred-work.md"
++  ],
++  "tracked_diff": "",
++  "untracked_protected": ""
++}
+diff --git a/.audit/DW-92-native-fresh/rearm-2/focused.log b/.audit/DW-92-native-fresh/rearm-2/focused.log
+new file mode 100644
+index 0000000..3af5fa5
+--- /dev/null
++++ b/.audit/DW-92-native-fresh/rearm-2/focused.log
+@@ -0,0 +1,9 @@
++
++ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup
++
++
++ Test Files  3 passed (3)
++      Tests  147 passed (147)
++   Start at  17:23:23
++   Duration  1.09s (transform 752ms, setup 0ms, import 584ms, tests 953ms, environment 133ms)
++
+diff --git a/.audit/DW-92-native-fresh/rearm-2/implementation-inspection.md b/.audit/DW-92-native-fresh/rearm-2/implementation-inspection.md
+new file mode 100644
+index 0000000..e01cbcc
+--- /dev/null
++++ b/.audit/DW-92-native-fresh/rearm-2/implementation-inspection.md
+@@ -0,0 +1,24 @@
++# Fresh implementation inspection
++
++Inspected at baseline `86a43d9d500ceab34245744d223d4453eba7b667` under the native-bound unsuffixed follow-up spec. Both frontmatter context files were loaded before implementation inspection. No product or test edits were warranted by this inspection.
++
++Read the frozen original QA contract, its retained history, recovery operator note/report, and the approved CAP-8 amendment in `docs/product-domain.md:1605`. Inspected original implementation `b13d5ce9f93fe00ad0d02e15294954a20961b69d` writer/generation/schema/gate additions, lifecycle/cleanup repairs `5b2bed6a0f129af3c9799f8bc80e0fa3ec1e3a01`, extraction changes `40d34059ae38b891023681ac00989d040f9fc973` and `f1a61c44f80268df68b5ebd29bc848eee23490a2`, finalization-only `a62e1760a9931c9451c34baa2df8af29fa1e9538`, and current heap traversal/scheduler assertions `df97838bd97ee68ea6a923c310b3d4ae139556e1`. Historical successful runs are context only.
++
++## Findings and triage
++
++No verified in-scope implementation defect found. Specific concerns checked:
++
++- Exact identity uses actual content SHA-256 plus report ID and revision (`convex/lib/qaFindings.ts:21`). Stored hash corruption cannot relabel a prior finding. Same-content methodology carry-forward queries the same report/hash and only the two approved substantive flags.
++- Persistence at report creation and canonical human edit paths calls the shared helper inside the mutation. Both proposal paths, accepted comments, restore, copy, and iterative creation have registered boundary coverage in the existing suites.
++- `saveReportQa` checks attempt identity before content identity and persistence (`convex/generations.ts:1766`); identified stale completions release only the matching attempt and do not store the stale scorecard. Legacy unpinned calls cannot create methodology findings.
++- Publish checks project access and capability, then report membership, then shared QA gate, before project writes or scheduler calls (`convex/projects.ts:1037`). Shared test helper asserts unchanged project and scheduled functions on rejection (`convex/qaBlocking.test.ts:61`).
++- Extractor uses heap traversal in both block and inline passes and preserves paragraph separation, recognized substantive heading prose, renamed/deleted initial headings, established legacy heading labels, and code-block inline cohesion (`convex/lib/tiptapReport.ts:105`).
++- Deletion cleanup is bounded at 128 rows and refuses to remove findings for a live report (`convex/projects.ts:1122`, `convex/qaFindingsCleanup.test.ts`).
++
++Rejected policy expansions: mandatory AI reassessment after any changed byte, methodology classification from freeform issue text, and an improved linguistic because classifier. These would change the frozen contract. The existing sentence-level because detector limitation remains accepted historical scope, with no new deferral.
++
++## Fresh proof
++
++The exact focused gate passed 147 tests across three files. Its runtime tests cover the frozen matrix: current because/methodology failures, advisory-only content, manager/admin feedback and style waiver attempts, correction and no-op restore, late QA, legacy rows, foreign/stale identity, passing retry deduplication, canonical writers, and deep rich text. `focused.log` is unmodified process output; the manifest records its digest. The ordinary full gate is recorded separately when complete. This inspection does not claim native orchestrator acceptance.
++
++Ordinary `bash scripts/loop-verify.sh` completed with exit 0. Both TypeScript checks, full tests, and both uploader harnesses passed; raw `loop-verify.log` and its SHA-256 are retained. All inspected source hashes remained unchanged across verification. `git diff --check` exited 0. No product files were changed by this implementer. Parent workflow owns independent formal review, final preservation proof, staging, commit and terminal result.
+diff --git a/.audit/DW-92-native-fresh/rearm-2/loop-verify.log b/.audit/DW-92-native-fresh/rearm-2/loop-verify.log
+new file mode 100644
+index 0000000..739b924
+--- /dev/null
++++ b/.audit/DW-92-native-fresh/rearm-2/loop-verify.log
+@@ -0,0 +1,94 @@
++
++> banhall-app@0.1.0 check
++> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
++
++Loading svelte-check in workspace: /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup
++Getting Svelte diagnostics...
++
++svelte-check found 0 errors and 0 warnings
++
++> banhall-app@0.1.0 test
++> vitest run
++
++
++ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup
++
++
++ Test Files  148 passed (148)
++      Tests  1746 passed (1746)
++   Start at  17:24:06
++   Duration  20.55s (transform 5.11s, setup 0ms, import 9.77s, tests 11.48s, environment 3.56s)
++
++ok    AC1 cloud placeholder (ReparsePoint attribute, empty LinkType) is a candidate
++ok    AC2 symlink is skipped as link
++ok    AC2 junction is skipped as link
++ok    AC2 Test-RealLink is false for a placeholder and true for a symlink
++ok    AC3 Word temp file is skipped as temp
++ok    AC3 dotfile is skipped as dotfile
++ok    AC3 disallowed extension is skipped as extension
++ok    AC3 allowed plain file is a candidate
++ok    AC3 extension match is case-insensitive
++ok    edge link is checked before temp
++ok    edge object without a LinkType property is not a link
++ok    edge empty allowed list skips everything as extension
++ok    edge missing or unset Attributes does not throw
++ok    zero-diag AC3 Offline attribute is cloud-only
++ok    zero-diag AC3 RecallOnDataAccess bit is cloud-only
++ok    zero-diag AC3 a hydrated local file is not cloud-only
++ok    zero-diag edge Test-CloudOnly tolerates a missing or unset Attributes
++ok    zero-diag AC1 histogram counts by extension, most frequent first
++ok    zero-diag edge histogram caps at top N and labels extensionless files
++ok    zero-diag edge histogram of nothing is empty
++ok    zero-diag AC1/AC5 formatter renders every required line for a zero-candidate scan
++ok    zero-diag edge formatter prints an all-zero block for an empty folder
++ok    zero-diag AC1 formatter never prints a file name
++ok    zero-diag AC1 root under a sync root reports yes, case- and separator-insensitively
++ok    zero-diag AC1 root outside every sync root reports no
++ok    zero-diag AC1 no OneDrive env var at all reports unknown
++SKIP  AC4 dotfile sub-case - this platform hides dotfiles from Get-ChildItem without -Force
++ok    AC4 exactly one candidate, the real .docx
++ok    AC4 temp and extension skips are tallied
++ok    AC4 the symlink is skipped as link
++ok    AC4 walk reports counts and no errors
++ok    AC4 a missing root yields zero candidates and a recorded error
++ok    zero-diag AC1 the scan records an extension histogram of every file it walked
++ok    zero-diag AC4 Test-RootUsable separates a folder, a file and a missing path
++ok    review-fix a bracket-named root is usable and yields its candidate
++ok    review-fix a wildcard read of that root is what loses it
++ok    AC6 banhall-uploader.ps1 parses and stays Windows PowerShell 5.1 compatible
++ok    AC6 uploader-lib.ps1 parses and stays Windows PowerShell 5.1 compatible
++ok    AC6 run-tests.ps1 parses and stays Windows PowerShell 5.1 compatible
++ok    AC6 one Get-UploadCandidates call site, inside the foreach over roots
++ok    AC6 all three input modes converge on roots
++ok    review-fix every path the uploader reads is a literal path
++ok    review-fix the upload body path is wildcard-escaped
++ok    regression banhall-uploader.ps1 never mentions ReparsePoint again
++ok    zero-diag AC4 every root-is-a-file message stops the run from a Test-RootUsable state
++ok    review-fix the uploader only claims a log was saved when a write succeeded
++ok    zero-diag AC2 the log is truncated before the scan and the SCAN lines beat the zero exit
++ok    zero-diag AC3 the cloud-only line is printed only when the count is above zero
++ok    zero-diag AC1 the zero-found branch prints the formatter's lines and never a file name
++ok    AC5 loop-verify.sh runs the harness under set -e
++ok    AC5 an injected failing case exits 1 and stops a set -e gate
++
++50 passed, 0 failed
++ok    AC1 walk classifies link/temp/dotfile/extension and keeps 3 candidates
++ok    AC4 symlink to an allowed file is skipped and counted under link
++ok    AC1 argument prefix is prepended to the relative path
++ok    AC1 zero-result block reports walked, per-reason skips, extensions, OneDrive
++ok    edge empty folder reports zeros and 'Extensions seen: none'
++ok    AC1 extension histogram is capped at 8, ties broken alphabetically
++ok    edge ext_of matches .NET GetExtension for dotfiles and bare names
++ok    AC3 root_state answers ok / is_file / missing
++ok    AC3 a file path prints 'That path is a file, not a folder' and exits 1
++ok    AC3 a folder passes and a missing path reports 'does not exist'
++ok    AC2 an unreadable file logs READ_ERROR and never calls the endpoint
++ok    AC2 control: a readable file does reach the stubbed endpoint
++ok    AC2 sha256_of returns nothing for an unreadable or missing file
++ok    AC1 under_onedrive answers yes / no / unknown
++ok    AC5 scripts/loop-verify.sh runs this harness exactly once
++ok    AC5 an injected failing case exits non-zero
++ok    shape banhall-uploader.sh uses no bash 4 constructs
++ok    shape every function is defined above the lib-only guard
++
++18 passed, 0 failed
+diff --git a/.audit/DW-92-native-fresh/rearm-2/verification-manifest.json b/.audit/DW-92-native-fresh/rearm-2/verification-manifest.json
+new file mode 100644
+index 0000000..7f876af
+--- /dev/null
++++ b/.audit/DW-92-native-fresh/rearm-2/verification-manifest.json
+@@ -0,0 +1,27 @@
++{
++  "observed_at": "2026-09-05T00:24:49.390175+00:00",
++  "revision": "86a43d9d500ceab34245744d223d4453eba7b667",
++  "source_sha256": {
++    "convex/lib/qaFindings.ts": "e816d85d0db9a250e3f5c05a667793cc7ce2176c2f4b7085c2ee5ca776714f6b",
++    "convex/lib/tiptapReport.ts": "814ae4a22e85d8a706a42922e2d0a5e2bf960920bf18918207732732a4dad1a1",
++    "convex/ai/qaChecks.ts": "de5dce8681e7afedc7766942d3c51f865b6ad7f3c294ee18c33c68b18c723768",
++    "convex/generations.ts": "d054a4858b34cbe42e688985c6f73895e51c59bdcddca2fe4a4ba628393fa344",
++    "convex/ai/postQa.ts": "783201bc937a76c90021b62afcb87314baa62f639e5995c668f4d2f6921fe63a",
++    "convex/projects.ts": "e285a55175925199411ef8ac61f690d96e7fc015a5a53276c8e57e1f59e37fcc",
++    "convex/lib/auth.ts": "02893a5da10e7ee79c15299f5f4e0d773b7705d758ba8f019abf2c62e7fd9197",
++    "convex/qaBlocking.test.ts": "a47b7188f66d711cf49b746ed241ab07cb8420ce48091c201eadf9b15eebb41e",
++    "convex/qaFindingsCleanup.test.ts": "31c804452397968fbf87825beb9acb71178e0c47fbb36a715c2ae3596ba27503",
++    "scripts/loop-verify.sh": "5e34ec41305140f9b0d3c9bd1cfb9cbdf903e3bd3dd4d56cb9f7276ecb47eb75"
++  },
++  "focused_command": "npx vitest run convex/ai/qaChecks.test.ts convex/projects.test.ts convex/qaBlocking.test.ts",
++  "focused_exit_code": 0,
++  "focused_log_sha256": "c1306c56aa85034fad5eeb15d43e8a4a643c8794c848f55ab15ae00b2d03c465",
++  "ordinary_command": "bash scripts/loop-verify.sh",
++  "ordinary_status": "completed",
++  "note": "Manifest recorded after focused completion and during ordinary gate; launch timestamps were not separately captured. Focused native output contains its start time.",
++  "ordinary_exit_code": 0,
++  "ordinary_completion_observed_at": "2026-09-05T00:25:04.556964+00:00",
++  "ordinary_log_sha256": "a925e30b9df1ac538548ed6662be235702e29ea6f43399cbd2711e65739d7bea",
++  "diff_check_exit_code": 0,
++  "source_unchanged_after_gate": true
++}
+diff --git a/.audit/DW-92-native-fresh/revisions.json b/.audit/DW-92-native-fresh/revisions.json
+new file mode 100644
+index 0000000..bef7d51
+--- /dev/null
++++ b/.audit/DW-92-native-fresh/revisions.json
+@@ -0,0 +1,42 @@
++[
++  {
++    "input": "f122b086d745acc40b4decca26b9aaafc7257f6a",
++    "revision": "f122b086d745acc40b4decca26b9aaafc7257f6a",
++    "subject": "fix(loop): copy _bmad into lane worktrees (the loop rejects a symlink)"
++  },
++  {
++    "input": "b13d5ce9f93fe00ad0d02e15294954a20961b69d",
++    "revision": "b13d5ce9f93fe00ad0d02e15294954a20961b69d",
++    "subject": "CAP-8 enforce absolute current-revision QA blocking"
++  },
++  {
++    "input": "5b2bed6",
++    "revision": "5b2bed6a0f129af3c9799f8bc80e0fa3ec1e3a01",
++    "subject": "CAP-8 harden QA extraction, retry lifecycle and finding cleanup"
++  },
++  {
++    "input": "40d3405",
++    "revision": "40d34059ae38b891023681ac00989d040f9fc973",
++    "subject": "CAP-8 preserve uncertainty across section labels and code blocks"
++  },
++  {
++    "input": "f1a61c4",
++    "revision": "f1a61c44f80268df68b5ebd29bc848eee23490a2",
++    "subject": "DW-92 repair QA extraction bypasses and commit native review evidence"
++  },
++  {
++    "input": "a62e176",
++    "revision": "a62e1760a9931c9451c34baa2df8af29fa1e9538",
++    "subject": "DW-92 finalize original QA story after verified evidence commit"
++  },
++  {
++    "input": "df97838",
++    "revision": "df97838bd97ee68ea6a923c310b3d4ae139556e1",
++    "subject": "DW-92 repair deep QA extraction and record fresh native review evidence"
++  },
++  {
++    "input": "HEAD",
++    "revision": "86a43d9d500ceab34245744d223d4453eba7b667",
++    "subject": "docs(bmad): preserve native rearmed QA finalization spec"
++  }
++]
+diff --git a/.audit/DW-92-native-fresh/routing.json b/.audit/DW-92-native-fresh/routing.json
+new file mode 100644
+index 0000000..81dda06
+--- /dev/null
++++ b/.audit/DW-92-native-fresh/routing.json
+@@ -0,0 +1,11 @@
++{
++  "observed_at": "2026-09-05T00:23:42.255786+00:00",
++  "source": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/state.json",
++  "task": {
++    "phase": "dev-running",
++    "spec_file": "_bmad-output/implementation-artifacts/spec-dw-92-blocking-qa-native-followup.md",
++    "dispatched_spec_file": null,
++    "accepted_dev_session_index": 0
++  },
++  "decision": "Retain existing native-bound flat RESULT. Removed only newly authored uncommitted suffix-2 draft; native state untouched."
++}
+diff --git a/.audit/DW-92-native-fresh/start.json b/.audit/DW-92-native-fresh/start.json
+new file mode 100644
+index 0000000..ec6fe1e
+--- /dev/null
++++ b/.audit/DW-92-native-fresh/start.json
+@@ -0,0 +1,6 @@
++{
++  "revision": "86a43d9d500ceab34245744d223d4453eba7b667",
++  "time": "2026-09-05T00:22:23.026418+00:00",
++  "ledger_sha256": "fb971a062155ae6673cc6f145640b64bcf2e6423812b9f830f00d8a58547af97",
++  "ledger_git_blob": "1bc26b131ea72d07781bafa34c77db19897df4f9"
++}
+diff --git a/.audit/DW-92-native-fresh/verify.py b/.audit/DW-92-native-fresh/verify.py
+new file mode 100644
+index 0000000..f783051
+--- /dev/null
++++ b/.audit/DW-92-native-fresh/verify.py
+@@ -0,0 +1,30 @@
++"""Execute ordinary gates and retain actual command provenance and log hashes."""
++from datetime import datetime, timezone
++import hashlib
++import json
++from pathlib import Path
++import subprocess
++
++AUDIT = Path(__file__).resolve().parent
++ROOT = AUDIT.parents[1]
++
++def git(*args):
++    return subprocess.check_output(['git', *args], cwd=ROOT)
++
++records = []
++for filename, command in [
++    ('parent-ordinary.log', ['bash', 'scripts/loop-verify.sh']),
++    ('parent-focused.log', ['npx', 'vitest', 'run', 'convex/ai/qaChecks.test.ts', 'convex/projects.test.ts', 'convex/qaBlocking.test.ts']),
++]:
++    record = {'command': command, 'cwd': str(ROOT), 'revision': git('rev-parse', 'HEAD').decode().strip(),
++              'started': datetime.now(timezone.utc).isoformat(), 'log': filename,
++              'source_diff_sha256': hashlib.sha256(git('diff', 'HEAD', '--', 'convex', 'src', 'shared', 'scripts', 'package.json', 'package-lock.json', 'tsconfig.json', 'vitest.config.ts')).hexdigest()}
++    print('RUN ' + ' '.join(command), flush=True)
++    with (AUDIT / filename).open('wb') as log:
++        result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
++    record.update(exit_code=result.returncode, ended=datetime.now(timezone.utc).isoformat(), sha256=hashlib.sha256((AUDIT / filename).read_bytes()).hexdigest())
++    records.append(record)
++    (AUDIT / 'commands.json').write_text(json.dumps(records, indent=2) + '\n')
++    print('EXIT ' + str(result.returncode), flush=True)
++    if result.returncode:
++        raise SystemExit(result.returncode)

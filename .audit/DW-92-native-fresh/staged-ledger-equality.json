@@ -1,0 +1,8 @@
+{
+  "ledger": "_bmad-output/implementation-artifacts/deferred-work.md",
+  "working_sha256": "fb971a062155ae6673cc6f145640b64bcf2e6423812b9f830f00d8a58547af97",
+  "staged_sha256": "fb971a062155ae6673cc6f145640b64bcf2e6423812b9f830f00d8a58547af97",
+  "invocation_sha256": "fb971a062155ae6673cc6f145640b64bcf2e6423812b9f830f00d8a58547af97",
+  "unchanged_from_invocation": true,
+  "ledger_staged_as_change": false
+}
