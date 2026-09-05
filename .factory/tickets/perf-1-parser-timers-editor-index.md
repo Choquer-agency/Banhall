@@ -10,7 +10,7 @@ done_when: ["rg -q 'getTimerCount' src/lib/parseDocument.test.ts", test -f src/l
 title: PDF parsing leaves zero pending timers; proposal previews and find/replace build the editor search index once per batch and never for an empty batch
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T06:26:05.628Z"
+updated: "2026-09-05T06:27:42.434Z"
 run: 20260905-055642-10-tickets
 branch: factory/perf-1-parser-timers-editor-index
 merged: ed1d24f

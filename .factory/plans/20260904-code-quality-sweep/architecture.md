@@ -193,3 +193,7 @@ Add `perf-2-empty-upload-reads` as a tenth independent ticket. `upload-read-adde
 ## Runtime-discovered duplicate extension
 
 The passing real Editor baseline exposed duplicate Underline registration. The source and actual headless editor proof are in `underline-registration-proof.md` and its executable. Extend pending slop-2 AC4 with the two-line explicit registration removal in `src/lib/tiptapConfig.ts` and keep its dependency declaration. Eleven implementation files, six criteria, same refactor scope. Add a dependency on perf-1 so its real editor browser suite verifies this registration cleanup. This was discovered during execution, not included in plan validation-2; independent source and actual-command verification supports the narrow addendum.
+
+## Sequential deadline proof follow-up
+
+Add `proof-1-parser-budget-sequence` after perf-1. Root and independent performance review found its two 20-second fake delays start eagerly together; the production optimization was approved and QA passed, so this is a correction to the existing test fixture and its intermediate phase assertions. `parser-budget-addendum.md` traces the exact callback mechanics; `parser-budget-review.md` independently approves factory parsing, syntax, baseline source-guard failure and the eager negative control. Only two existing test files change, with no new test count or production edits. This eleventh ticket will run after the current ten-ticket engine selection finishes; it is required before sweep closeout.
