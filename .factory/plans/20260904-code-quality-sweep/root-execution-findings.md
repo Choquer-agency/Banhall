@@ -55,3 +55,7 @@ Root inspected installed package engines: Vite 8.1.5 requires ^20.19.0 || >=22.1
 ## TESTS2-REVIEW: migration preservation and scheduled-job isolation
 
 Independent review found three lost positive reader-role query cases, a live-turn fixture using real timers around a scheduled streaming action, and a fragment-only ordered prose assertion. Run 20260905-072238-8-tickets was stopped before acceptance. The existing engine-created ticket worktree receives a bounded factory-implement fix, then the remaining four tickets will resume through normal engine review and QA. Canonical tests-2 scope now explicitly includes the harmless temporary-exclusion cleanup already paired with file deletion; fresh open-PR query returned []. Details: root-tests2-review.md. Status: OPEN.
+
+## FINAL-PROOF-ISOLATION: preserve the existing dev server
+
+Read-only process inventory found an existing root Vite server on port 3001 (PID 63213) using the root node_modules. Final cold-bootstrap proof must not remove or replace its dependencies. Instead, use an owned disposable local clone under .audit/final-sweep at the exact final integration SHA, with a detached checkout, no product edits, no copied .env.local, explicit public placeholder URLs, and no initial node_modules. The real gate then bootstraps dependencies and git-based test discovery still sees every tracked file. This is isolated verification only; all implementation remains in factory-created ticket worktrees. Check source cleanliness afterward and report the exact revision and evidence path.
