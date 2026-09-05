@@ -10,7 +10,7 @@ done_when: ["node --input-type=module -e 'import { readFileSync } from \"node:fs
 title: Prove PDF load and page text consume sequential parts of the shared deadline
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T06:28:12.063Z"
+updated: "2026-09-05T06:29:26.994Z"
 ---
 ## Intent
 
@@ -56,3 +56,7 @@ Factory owns the worktree and gate; do not create another worktree. Evidence and
 - The rejection callback must reject with the exact existing `boom` object, and destroy/timer assertions must stay intact.
 - Duplicate preview pairs still render merged strikes and separate widgets. Only the test title changes.
 
+
+## QA output for this run
+
+The configured QA tool allowlist permits the verification commands but denies Edit/Write to audit files. The factory engine itself persists the QA structured summary and checks as `.audit/<ticket>/qa-<loop>.md` (engine.mjs, QA stage). Return the complete truthful QA report through those structured fields; the engine-written file is the canonical QA output for this run. The orchestrator links it from root evidence after merge. Do not spend retries attempting manual evidence writes or require a human merely to append this report. This changes no runtime verification requirement or tool permission. Actual failures, missing evidence and unverified behavior must still be reported accurately.

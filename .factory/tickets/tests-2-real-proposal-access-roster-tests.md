@@ -10,7 +10,7 @@ done_when: [test -f convex/chatProposalsApply.test.ts, "rg -q 'updateProposalWor
 title: "The proposal, project-access and roster scenarios from the two fake-db suites are proven against the real Convex endpoints with convex-test; the fake-db files and cases are deleted"
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T05:52:56.204Z"
+updated: "2026-09-05T06:29:26.990Z"
 ---
 ## Intent
 For the maintainer of `convex/chatV2.ts` and `convex/lib/teamRoster.ts`: the behaviours the old bun suites protected are pinned by tests that run in the gate and drive the real functions, and the handmade database that mirrored the implementation is gone. `tests/chatProposals.test.ts` (821 lines) invokes `applyProposal`, `updateProposalWording`, `rejectProposal` and `saveProposal`; the current `convex/chatProposals.test.ts:176-336` invokes `markProposalApplied`, a different endpoint, so nothing in the gate proves pinned-report isolation, unique-target gates, stale-then-retry, replay, deletion-only and ordered replacement, wording audit events, or the reject permission table (`orphan-test-map.md:26-47`). Nine of the ten failing old cases fail because the fixture lacks current tables or turn state, not because the behaviour changed; only "unrelated writer may apply" (`:777`) is a dead contract (`roleCapabilities.ts:75-104`; `docs/product-domain.md:188,1458`). `tests/projectReviewAccess.test.ts` is mostly covered by `convex/reportAuthz.test.ts:248-316` and `convex/projectAccess.test.ts:96-181`. `tests/teamRoster.test.ts:56,71` prove roster eligibility through a fake ctx; `api.users.listTeam` does not call `getTeamRosterMemberOrNull`, whose real callers are project creation (`convex/projects.ts:687`), reassignment (`projectWorkflow.ts:279`, `ownerBackfill.ts:384`) and `eligibleOwner.ts:9`. Principle: [16 prove it works] against the real artifact; [3 redesign from first principles]: a real fixture, not a second fake.
@@ -43,3 +43,7 @@ Refactor pin: the old bun suite at baseline (`bun test tests/chatProposals.test.
 - `saveProposal` with the same `toolCallId` but different content: pin the current behaviour (dedupe by id) explicitly.
 - Concurrent apply of two proposals targeting the same paragraph: out of scope; note it in `deferred` if the seeding makes it cheap to add.
 - Run twice: creating an existing file or deleting a missing one is a no-op for the predicates.
+
+## QA output for this run
+
+The configured QA tool allowlist permits the verification commands but denies Edit/Write to audit files. The factory engine itself persists the QA structured summary and checks as `.audit/<ticket>/qa-<loop>.md` (engine.mjs, QA stage). Return the complete truthful QA report through those structured fields; the engine-written file is the canonical QA output for this run. The orchestrator links it from root evidence after merge. Do not spend retries attempting manual evidence writes or require a human merely to append this report. This changes no runtime verification requirement or tool permission. Actual failures, missing evidence and unverified behavior must still be reported accurately.

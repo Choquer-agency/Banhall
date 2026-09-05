@@ -10,7 +10,7 @@ done_when: ["test \"$(rg -l 'bun:test' tests | wc -l | tr -d ' ')\" -eq 2", "rg 
 title: The twelve pure suites under tests/ run under vitest unchanged; the one superseded snapshot case retires with its mapping; the two fake-db suites are excluded by name for tests-2
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T05:52:56.203Z"
+updated: "2026-09-05T06:29:26.988Z"
 ---
 ## Intent
 For every agent and human who runs `npm test`: the pure behaviour tests under `tests/` stop being invisible. Twelve files import `bun:test` and no script, gate or CI job runs them (`vitest.config.ts:29` includes only `tests/aiUsage.test.ts`; `dx-audit.md:33`; `deferred-work.md` DW-10). `orphan-test-map.md:9-21` shows none of their subjects has a direct counterpart elsewhere (`diffWords`, `parseCanonicalReport`, `applyReplacements`, `issueDeduction`, `pickScienceRouted`, `candidateModelsForMode`, the CRA catalogue, `canUseIndustry`, the 78-character wrap boundaries, export preflight and metadata limits, `snapshotIdsToDelete`, `buildMilestoneOptions`, `userDisplayLabel`). Under bun they pass (`slop-audit.md:42-46`; the one failing pure case, `snapshots:84`, is superseded by `convex/lib/snapshots.test.ts:91,126`). The two suites built on a handmade database (`chatProposals`, `projectReviewAccess`) are tests-2's work and stay excluded by name until then. The maintainer inherits one runner and a `tests/` directory vitest includes like any other. Principle: [1 laziness protocol] for the one-line include instead of moving twelve files; [18 sequence work into verifiable units] for leaving the real-endpoint ports to tests-2.
@@ -41,3 +41,7 @@ Refactor pin: the bun run before conversion is the pin; the vitest run after mus
 - A kept case passes under bun and fails under vitest for a matcher difference (`toBeCloseTo`, error matching): fix the assertion to the vitest matcher; record it; the behaviour asserted stays the same.
 - `npm run check` reports a type error in a converted suite because `bun:test` typed `expect` more loosely: fix the test's types, not `tsconfig`.
 - Run twice: converting an already-converted file is a no-op; the predicates are idempotent.
+
+## QA output for this run
+
+The configured QA tool allowlist permits the verification commands but denies Edit/Write to audit files. The factory engine itself persists the QA structured summary and checks as `.audit/<ticket>/qa-<loop>.md` (engine.mjs, QA stage). Return the complete truthful QA report through those structured fields; the engine-written file is the canonical QA output for this run. The orchestrator links it from root evidence after merge. Do not spend retries attempting manual evidence writes or require a human merely to append this report. This changes no runtime verification requirement or tool permission. Actual failures, missing evidence and unverified behavior must still be reported accurately.

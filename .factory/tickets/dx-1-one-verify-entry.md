@@ -10,7 +10,7 @@ done_when: ["rg -q 'check-test-discovery' scripts/loop-verify.sh", "rg -q 'prefl
 title: "One verification entry point: loop-verify.sh preflights and names its steps and runs the discovery guard; CI runs the gate script and the browser suite; README and env.example describe this app"
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T05:52:56.201Z"
+updated: "2026-09-05T06:29:26.993Z"
 ---
 ## Intent
 For the next agent opening this repo cold: the README says what the app is and gives one command that proves a change; that command fails fast with the name of a missing tool, prints each step with its time, and runs the discovery guard from tests-3; CI runs exactly that command plus the browser suite, so CI and the factory gate cannot drift again. Today `README.md:1-19` is the `create-next-app` template (port 3000, `app/page.tsx`), `env.example` uses `NEXT_PUBLIC_*` names, CI (`ci.yml:28-38`) runs two of the gate's six steps on Node 22 while the changelog workflow and this Mac run Node 24, `loop-verify.sh` discovers a missing `pwsh` after three minutes of typechecking, and 51 browser test files run in no gate (`dx-audit.md:7-19,31-35`). The maintainer inherits one script, one CI job that calls it, and docs that stop contradicting `.factory/AGENTS.factory.md`. Principle: [5 minimize reader load] and [13 idempotent] for CI calling the gate script instead of restating it; [24 exit condition as predicate]: the browser job is added only now that ui-1 made it green and tests-3 made the guard pass.
@@ -42,3 +42,7 @@ For the next agent opening this repo cold: the README says what the app is and g
 - A worktree with no `node_modules`: the script's `npm ci` runs before preflight's `npx`-dependent checks; order the Chromium check after install.
 - The guard fails in CI because a branch added a test outside the includes: that is the intended failure; the message names the file.
 - Run twice: every edit is idempotent; the script leaves no files behind.
+
+## QA output for this run
+
+The configured QA tool allowlist permits the verification commands but denies Edit/Write to audit files. The factory engine itself persists the QA structured summary and checks as `.audit/<ticket>/qa-<loop>.md` (engine.mjs, QA stage). Return the complete truthful QA report through those structured fields; the engine-written file is the canonical QA output for this run. The orchestrator links it from root evidence after merge. Do not spend retries attempting manual evidence writes or require a human merely to append this report. This changes no runtime verification requirement or tool permission. Actual failures, missing evidence and unverified behavior must still be reported accurately.

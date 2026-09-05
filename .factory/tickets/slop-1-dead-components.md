@@ -10,7 +10,7 @@ done_when: [! test -e src/lib/components/comments/CommentHighlight.ts, ! test -e
 title: Delete the nine abandoned React-port components under src/lib/components; nothing imports them
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T05:52:56.203Z"
+updated: "2026-09-05T06:29:26.992Z"
 ---
 ## Intent
 For the next reader of `src/lib/components`: nine files (810 lines) ported from the pre-Svelte React tree and never wired in stop competing with live code. No route, component, test, styleguide page or script imports them; the only references are inside the dead files themselves (`CommentSidebar.svelte:5,159,196` imports `CommentThread`), and `ReportViewer.svelte:4` calls itself a temporary pre-Tiptap viewer (`slop-audit.md:5-21`, re-checked with one `rg` over `src shared convex scripts` in `research.md`). Nothing a user sees changes. Principle: [4 subtract before you add]; [1 laziness protocol]: deletion only, no renames, no tidying of what stays.
@@ -35,3 +35,7 @@ Refactor pin: the `verify` run before deletion is the pin; after deletion the `T
 - A `codex/*` or bmad lane branch still imports a deleted file: it fails `npm run check` on rebase with the file name; that is the intended signal.
 - `npm run build` warns about an unused export from a kept file: leave it (slop-2 handles helper exports).
 - Run twice: `git rm` on a missing path is a no-op for the predicates.
+
+## QA output for this run
+
+The configured QA tool allowlist permits the verification commands but denies Edit/Write to audit files. The factory engine itself persists the QA structured summary and checks as `.audit/<ticket>/qa-<loop>.md` (engine.mjs, QA stage). Return the complete truthful QA report through those structured fields; the engine-written file is the canonical QA output for this run. The orchestrator links it from root evidence after merge. Do not spend retries attempting manual evidence writes or require a human merely to append this report. This changes no runtime verification requirement or tool permission. Actual failures, missing evidence and unverified behavior must still be reported accurately.
