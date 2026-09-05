@@ -107,7 +107,7 @@ Deleted in this plan: 17 component/helper files, 4 dependencies, 2 legacy bun ha
 | perf-1 AC6 real editor + benchmark before/after | `src/lib/components/editor/Editor.component.test.ts`, `scripts/bench/editor-search.mjs`, `.audit/perf-1-…/evidence.md` | browser suite green at baseline and HEAD; 600 → 30 traversals; `matchPositionsSha256` equal; 201 → 0 timers |
 | ui-1 AC1-AC5 per triage row | the five test files, `WorkspaceHeader.svelte` (likely), fixtures | targeted component run; `npm run test:component` exit 0 |
 | ui-1 AC6 decisions + screenshots | `.audit/ui-1-…/` | one row per row of `dx-audit.md:55-64`; `*before*.png` / `*after*.png` for the header |
-| dx-1 AC1-AC6 | `scripts/loop-verify.sh`, `.github/workflows/ci.yml`, `.nvmrc`, `README.md`, `env.example`, two docs, `.factory/factory.toml` | `rg` predicates in the ticket; gate run output |
+| dx-1 AC1-AC6 | `scripts/loop-verify.sh`, `.github/workflows/ci.yml`, `.nvmrc`, `README.md`, `env.example`, `AGENTS.md`, three docs, `.factory/factory.toml` | `rg` predicates in the ticket; gate run output |
 
 Path check at `11bfe3e`: every "lands in" path exists except those marked new (`docSearch.ts`, `docSearch.test.ts`, `Editor.component.test.ts`, `scripts/bench/editor-search.mjs`, `chatProposalsApply.test.ts`, `check-test-discovery.mjs`, `.nvmrc`); verified with `ls`/`rg` during research and revision, and again with Glob/Grep on 2026-09-05 (no `scripts/bench/` yet; no suite under `src/lib/components/editor` or `chat`).
 
@@ -122,7 +122,7 @@ Path check at `11bfe3e`: every "lands in" path exists except those marked new (`
 - **Re-pin the header test to `h-8`.** Rejected: the 44px mobile target is a product contract (`docs/product-domain.md:233`); measure at 390px, fix the caller if short.
 - **Delete the rail Admin assertions as retired UI.** Rejected: the group exists for `admin && (isOwner || isDeveloper)` (`WorkspaceRail.svelte:228`); the fixture lacked the flags. Fix the fixture, keep structure checks, drop colour-count mirrors.
 - **One deletion ticket for all 17 files.** Rejected on sizing; abandoned ports and the My Work island are two islands with two verification sets.
-- **Lazy-load the unselected project page shell now.** Rejected: no fresh build baseline; inventory #21.
+- **Lazy-load the unselected project page shell now.** Deferred pending the product decision about instant `?workspace=current` restoration; the fresh node-closure artifact is `bundle-baseline.json` (inventory #21).
 - **Wire the browser suite as a CI job with `continue-on-error`.** Rejected [16].
 - **Defer the hermetic harness because signups are invite-only.** Withdrawn: the updated DX audit shows an anonymous local backend plus an imported inviter and invitation drive real signup without any bypass; the deferral reason is implementation scope.
 
@@ -181,3 +181,11 @@ Validation 1 (`validation-1.md`, verdict request_changes) applied on 2026-09-05,
 - [low] tests-1 edits 13 files against the 12-file hint: accepted as written; twelve one-line import swaps plus one config line, pin is mechanical [18].
 - [low] tests-2 `risky: []` while testing auth-gated endpoints: accepted as written; the ticket edits no auth code and `confirm = auto` makes the flag inert [11].
 Ticket keys unchanged. perf-1 now touches seven files (`parseDocument.ts`, its test, `docSearch.ts`, its test, `Editor.svelte`, `Editor.component.test.ts`, `scripts/bench/editor-search.mjs`), two packages, six criteria; still within `[sizing]`, so it is not split.
+
+## Orchestrator closeout of validation 2
+
+The medium documentation drift finding is accepted: dx-1 now updates the Running and verifying bullets in AGENTS.md, the historical browser-gate note, and system-map Q8 alongside CI. The actual PUBLIC_CONVEX_SITE_URL consumer is uploader setup, not the authClient comment. UI acceptance counts all discovered suites rather than fixing the baseline count. Project bundle deferral now cites the recorded fresh build and retains the product decision as its reason. The second reviewer reported no high findings; these concrete scope corrections satisfy its remaining requested changes before execution.
+
+## Upload-read addendum
+
+Add `perf-2-empty-upload-reads` as a tenth independent ticket. `upload-read-addendum.md` traces its four criteria to `convex/documents.ts`, the existing `documents.test.ts`, the existing upload-attempt tests and the public transaction-metrics runner. The only production change guards the existing dedupe collection with its existing nonempty-content predicate after access validation. There is no schema or API delta. The root independently reproduced baseline 3 queries / 5 document reads / 301074 bytes with three bodies and verified the named-test completion gate fails when absent. The existing document/upload-attempt suites pass with assertions required (33 tests). This replaces the metric-based PERF-3 deferral; larger document indexing remains deferred. Independent addendum review is in `upload-read-review.md`; main validation-2 covered only the preceding nine tickets.
