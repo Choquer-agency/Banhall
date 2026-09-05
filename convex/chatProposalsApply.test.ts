@@ -21,7 +21,6 @@ const AUTH = {
   assignedWriter: "cpa-assigned-writer",
   unrelatedWriter: "cpa-unrelated-writer",
   manager: "cpa-manager",
-  admin: "cpa-admin",
 } as const;
 
 type Actor = keyof typeof AUTH;
@@ -76,11 +75,6 @@ async function setup() {
       authId: AUTH.manager,
       role: "manager",
       firstName: "Mara",
-    });
-    const adminId = await ctx.db.insert("users", {
-      authId: AUTH.admin,
-      role: "admin",
-      firstName: "Ada",
     });
 
     // The Consultant who created the project is not its Owner: `createdBy`
@@ -181,11 +175,7 @@ async function setup() {
       createdAt: now,
     });
     return {
-      ownerId,
-      assignedWriterId,
-      unrelatedWriterId,
       managerId,
-      adminId,
       projectId,
       transcriptId,
       generationId,
