@@ -1,0 +1,15 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/chat/OptimisticSend.component.test.ts src/lib/components/chat/RegenerateTurn.component.test.ts src/lib/components/chat/RegenerateQueryState.component.test.ts src/lib/components/chat/RegenerateLimits.component.test.ts
+
+2:51:53 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw98-fix - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw98-fix
+
+2:51:54 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw98-fix - using default configuration.
+Port 63315 is in use, trying another one...
+
+ Test Files  4 passed (4)
+      Tests  82 passed (82)
+   Start at  02:51:54
+   Duration  42.28s (transform 0ms, setup 1.88s, import 6.09s, tests 30.39s, environment 0ms)

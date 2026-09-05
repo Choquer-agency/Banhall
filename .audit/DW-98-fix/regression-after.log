@@ -1,0 +1,15 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/chat/OptimisticSend.component.test.ts -t retries initial implicit A
+
+2:51:24 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw98-fix - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw98-fix
+
+2:51:24 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw98-fix - using default configuration.
+Port 63315 is in use, trying another one...
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 32 skipped (33)
+   Start at  02:51:24
+   Duration  5.47s (transform 0ms, setup 558ms, import 1.06s, tests 2.91s, environment 0ms)

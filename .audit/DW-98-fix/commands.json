@@ -1,0 +1,23 @@
+{
+  "unit": [
+    "npm",
+    "test"
+  ],
+  "convex-tsc": [
+    "npx",
+    "tsc",
+    "--noEmit",
+    "-p",
+    "convex/tsconfig.json"
+  ],
+  "check": [
+    "npm",
+    "run",
+    "check"
+  ],
+  "diff-check": [
+    "git",
+    "diff",
+    "--check"
+  ]
+}

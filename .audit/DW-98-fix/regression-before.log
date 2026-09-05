@@ -1,0 +1,61 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/chat/OptimisticSend.component.test.ts -t retries initial implicit A
+
+2:50:56 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw98-fix - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw98-fix
+
+2:50:56 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw98-fix - using default configuration.
+ ❯ |component (chromium)| src/lib/components/chat/OptimisticSend.component.test.ts (33 tests | 1 failed | 32 skipped) 1766ms
+   × retries initial implicit A with creation intent after separate B succeeds 1765ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/OptimisticSend.component.test.ts > retries initial implicit A with creation intent after separate B succeeds
+AssertionError: expected [ Array(3) ] to deeply equal [ Array(3) ]
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/OptimisticSend.component.test.ts/retries-initial-implicit-A-with-creation-intent-after-separate-B-succeeds-2.png
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -4,11 +4,10 @@[39m
+[2m      "highlight": {[22m
+[2m        "from": 2,[22m
+[2m        "text": "Initial A excerpt",[22m
+[2m        "to": 8,[22m
+[2m      },[22m
+[32m-     "newThread": true,[39m
+[2m      "reportId": "report-1",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "content": "Separate B",[22m
+[2m      "newThread": true,[22m
+[33m@@ -19,9 +18,8 @@[39m
+[2m      "highlight": {[22m
+[2m        "from": 2,[22m
+[2m        "text": "Initial A excerpt",[22m
+[2m        "to": 8,[22m
+[2m      },[22m
+[32m-     "newThread": true,[39m
+[2m      "reportId": "report-1",[22m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ src/lib/components/chat/OptimisticSend.component.test.ts:244:41
+    242|   // Assert the API contract directly. The stub does not run backend f…
+    243|   // chatV2.ts only bypasses latest B when captured newThread is expli…
+    244|   expect.soft(__mutationCalls(sendName)).toEqual([
+       |                                         ^
+    245|     { reportId, content: "Initial A", highlight, newThread: true },
+    246|     { reportId, content: "Separate B", newThread: true },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 32 skipped (33)
+   Start at  02:50:56
+   Duration  4.27s (transform 0ms, setup 533ms, import 915ms, tests 1.77s, environment 0ms)
