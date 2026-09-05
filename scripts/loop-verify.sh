@@ -39,16 +39,16 @@ step() {
 }
 
 missing() {
-  echo "loop-verify: required tool $1 not found. Install it: $2"
+  echo "loop-verify: required tool $1 not found. $2"
   exit 1
 }
 
 # set -e does not apply inside a function called from a || list, so every check
 # below exits or returns explicitly.
 preflight() {
-  command -v node >/dev/null 2>&1 || missing node "https://nodejs.org/en/download (Node 24, see .nvmrc)"
-  command -v npm >/dev/null 2>&1 || missing npm "ships with Node; https://nodejs.org/en/download"
-  command -v pwsh >/dev/null 2>&1 || missing pwsh "install PowerShell 7: https://learn.microsoft.com/powershell/scripting/install/installing-powershell"
+  command -v node >/dev/null 2>&1 || missing node "Install Node 24 (see .nvmrc): https://nodejs.org/en/download"
+  command -v npm >/dev/null 2>&1 || missing npm "npm ships with Node; install Node 24: https://nodejs.org/en/download"
+  command -v pwsh >/dev/null 2>&1 || missing pwsh "Install PowerShell 7: https://learn.microsoft.com/powershell/scripting/install/installing-powershell"
 
   local version major minor
   version="$(node -v)"
