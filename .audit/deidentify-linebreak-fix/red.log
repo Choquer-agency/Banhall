@@ -1,0 +1,189 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-deidentify-linebreak-fix
+
+ ❯ |convex| convex/learning.test.ts (15 tests | 2 failed) 353ms
+     × scrubs identifiers on the read side without rewriting stored rows 10ms
+     × a row whose project is gone still gets contact scrubbing 2ms
+ ❯ |convex| convex/generationLifecycle.test.ts (31 tests | 1 failed) 380ms
+     × scrubs contact patterns and preserves paragraph structure 7ms
+ ❯ |convex| convex/lib/deidentify.test.ts (28 tests | 4 failed) 19ms
+     × preserves LF boundaries during phone scrubbing 5ms
+     × preserves CR boundaries during phone scrubbing 1ms
+     × preserves line separator boundaries during phone scrubbing 1ms
+     × preserves paragraph separator boundaries during phone scrubbing 0ms
+ ❯ |convex| convex/brainFeedback.test.ts (18 tests | 1 failed) 140ms
+     × scrubs client identifiers from both the nominated content and its title 9ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/brainFeedback.test.ts > nominateFromReport de-identification > scrubs client identifiers from both the nominated content and its title
+AssertionError: expected '[redacted] engaged us on [redacted] a…' to be '[redacted] engaged us on [redacted] a…' // Object.is equality
+
+- Expected
++ Received
+
+  [redacted] engaged us on [redacted] after [redacted] scoped it.
+
+  Reach the lead at [redacted email] or [redacted phone].
+- 613
+- 555
+- 0134
++ [redacted phone]
+
+ ❯ convex/brainFeedback.test.ts:608:28
+    606|     expect(source.title).toBe("[redacted] (writer-rated 88/100)");
+    607|     // The prose keeps its paragraph structure — it is exemplar materi…
+    608|     expect(source.content).toBe(
+       |                            ^
+    609|       "[redacted] engaged us on [redacted] after [redacted] scoped it.…
+    610|       "Reach the lead at [redacted email] or [redacted phone].\n613\n5…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  |convex| convex/generationLifecycle.test.ts > approveSectionDraft de-identification > scrubs contact patterns and preserves paragraph structure
+AssertionError: expected 'Line one.\n[redacted phone]\n\nReach …' to be 'Line one.\n613\n555\n0134\n\nReach [r…' // Object.is equality
+
+- Expected
++ Received
+
+  Line one.
+- 613
+- 555
+- 0134
++ [redacted phone]
+
+  Reach [redacted email] or [redacted phone].
+
+ ❯ convex/generationLifecycle.test.ts:1525:34
+    1523|       ctx.db.query("sectionEditEvents").collect()
+    1524|     );
+    1525|     expect(events[0]?.draftText).toBe(
+       |                                  ^
+    1526|       "Line one.\n613\n555\n0134\n\nReach [redacted email] or [redacte…
+    1527|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  |convex| convex/learning.test.ts > proposal wording edits leave their project de-identified > scrubs identifiers on the read side without rewriting stored rows
+AssertionError: expected '[redacted] tested the [redacted]; ema…' to contain '[redacted email].\n613\n555\n0134'
+
+- Expected
++ Received
+
+- [redacted email].
+- 613
+- 555
+- 0134
++ [redacted] tested the [redacted]; email [redacted email].
++ [redacted phone]
+
+ ❯ convex/learning.test.ts:390:34
+    388|
+    389|     expect(rows).toHaveLength(1);
+    390|     expect(rows[0].originalText).toContain("[redacted email].\n613\n55…
+       |                                  ^
+    391|     expect(rows[0].editedText).toContain("[redacted phone].\n613\n555\…
+    392|     const combined = `${rows[0].originalText} ${rows[0].editedText}`;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  |convex| convex/learning.test.ts > proposal wording edits leave their project de-identified > a row whose project is gone still gets contact scrubbing
+AssertionError: expected 'Acme Farms tested the Raspberry Cane …' to contain '[redacted email].\n613\n555\n0134'
+
+- Expected
++ Received
+
+- [redacted email].
++ Acme Farms tested the Raspberry Cane Trial; email [redacted email].
+- 613
+- 555
+- 0134
++ [redacted phone]
+
+ ❯ convex/learning.test.ts:422:34
+    420|
+    421|     expect(rows).toHaveLength(1);
+    422|     expect(rows[0].originalText).toContain("[redacted email].\n613\n55…
+       |                                  ^
+    423|     expect(rows[0].editedText).toContain("[redacted phone].\n613\n555\…
+    424|     const combined = `${rows[0].originalText} ${rows[0].editedText}`;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  |convex| convex/lib/deidentify.test.ts > deidentify > preserves LF boundaries during phone scrubbing
+AssertionError: expected 'First line\n[redacted phone]\nLast li…' to be 'First line\n613\n555\n0134\nLast line' // Object.is equality
+
+- Expected
++ Received
+
+  First line
+- 613
+- 555
+- 0134
++ [redacted phone]
+  Last line
+
+ ❯ convex/lib/deidentify.test.ts:75:36
+     73|     ]) {
+     74|       const text = `First line${separator}${fragments}${separator}Last…
+     75|       expect(deidentify(text, {})).toBe(text);
+       |                                    ^
+     76|     }
+     77|     for (const phone of ["613-555-0134", "(613) 555-0134"]) {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  |convex| convex/lib/deidentify.test.ts > deidentify > preserves CR boundaries during phone scrubbing
+AssertionError: expected 'First line\r[redacted phone]\rLast li…' to be 'First line\r613\r555\r0134\rLast line' // Object.is equality
+
+Expected: "First line6135550134Last line"
+Received: "First line[redacted phone]Last line"
+
+ ❯ convex/lib/deidentify.test.ts:75:36
+     73|     ]) {
+     74|       const text = `First line${separator}${fragments}${separator}Last…
+     75|       expect(deidentify(text, {})).toBe(text);
+       |                                    ^
+     76|     }
+     77|     for (const phone of ["613-555-0134", "(613) 555-0134"]) {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  |convex| convex/lib/deidentify.test.ts > deidentify > preserves line separator boundaries during phone scrubbing
+AssertionError: expected 'First line\u2028[redacted phone]\u202…' to be 'First line\u2028613\u2028555\u2028013…' // Object.is equality
+
+Expected: "First line 613 555 0134 Last line"
+Received: "First line [redacted phone] Last line"
+
+ ❯ convex/lib/deidentify.test.ts:75:36
+     73|     ]) {
+     74|       const text = `First line${separator}${fragments}${separator}Last…
+     75|       expect(deidentify(text, {})).toBe(text);
+       |                                    ^
+     76|     }
+     77|     for (const phone of ["613-555-0134", "(613) 555-0134"]) {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  |convex| convex/lib/deidentify.test.ts > deidentify > preserves paragraph separator boundaries during phone scrubbing
+AssertionError: expected 'First line\u2029[redacted phone]\u202…' to be 'First line\u2029613\u2029555\u2029013…' // Object.is equality
+
+Expected: "First line 613 555 0134 Last line"
+Received: "First line [redacted phone] Last line"
+
+ ❯ convex/lib/deidentify.test.ts:75:36
+     73|     ]) {
+     74|       const text = `First line${separator}${fragments}${separator}Last…
+     75|       expect(deidentify(text, {})).toBe(text);
+       |                                    ^
+     76|     }
+     77|     for (const phone of ["613-555-0134", "(613) 555-0134"]) {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+
+ Test Files  4 failed (4)
+      Tests  8 failed | 84 passed (92)
+   Start at  16:51:40
+   Duration  1.12s (transform 749ms, setup 0ms, import 584ms, tests 893ms, environment 169ms)
+

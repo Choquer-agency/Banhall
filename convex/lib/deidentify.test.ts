@@ -58,6 +58,42 @@ describe("deidentify", () => {
     );
   });
 
+  test.each([
+    ["LF", "\n"],
+    ["CR", "\r"],
+    ["CRLF", "\r\n"],
+    ["line separator", "\u2028"],
+    ["paragraph separator", "\u2029"],
+  ])("preserves %s boundaries during phone scrubbing", (_label, separator) => {
+    for (const fragments of [
+      `613${separator}555${separator}0134`,
+      `(613)${separator}555-0134`,
+      `(613) 555${separator}0134`,
+      `(613)${separator}555${separator}0134`,
+    ]) {
+      const text = `First line${separator}${fragments}${separator}Last line`;
+      expect(deidentify(text, {})).toBe(text);
+    }
+    for (const phone of ["613-555-0134", "(613) 555-0134"]) {
+      expect(deidentify(`+1${separator}${phone}`, null)).toBe(
+        `+1${separator}[redacted phone]`
+      );
+    }
+  });
+
+  test.each([" ", "\t", "\u00a0", "\u1680", "\u2003", "\u202f", "\u205f", "\u3000", "\ufeff"])(
+    "retains same-line whitespace phone coverage for %j",
+    (separator) => {
+      for (const phone of [
+        `613${separator}555${separator}0134`,
+        `+1${separator}613${separator}555${separator}0134`,
+        `+1${separator}(613)${separator}555${separator}0134`,
+      ]) {
+        expect(deidentify(`Call ${phone}.`, undefined)).toBe("Call [redacted phone].");
+      }
+    }
+  );
+
   test("leaves separator-free digit runs alone", () => {
     // Accepted false negative: a bare ten-digit run is far more often a serial
     // or sample id in SR&ED prose than a phone number.

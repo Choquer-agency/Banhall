@@ -577,7 +577,7 @@ describe("nominateFromReport de-identification", () => {
         projectId,
         content: tiptap(
           `${CLIENT_NAME} engaged us on ${PROJECT_TITLE} after ${WRITER_NAME} scoped it.`,
-          "Reach the lead at tracy@acmemetals.ca or (613) 555-0134.",
+          "Reach the lead at tracy@acmemetals.ca or (613) 555-0134.\n613\n555\n0134",
         ),
         version: 1,
         generatedAt: now,
@@ -605,6 +605,11 @@ describe("nominateFromReport de-identification", () => {
     // is injected into drafting prompts.
     expect(source.title).toBe("[redacted] (writer-rated 88/100)");
     // The prose keeps its paragraph structure — it is exemplar material.
-    expect(source.content.split("\n\n")).toHaveLength(2);
+    expect(source.content).toBe(
+      "[redacted] engaged us on [redacted] after [redacted] scoped it.\n\n" +
+      "Reach the lead at [redacted email] or [redacted phone].\n613\n555\n0134"
+    );
+    const report = await t.run((ctx) => ctx.db.get(reportId));
+    expect(report?.content).toContain("(613) 555-0134");
   });
 });

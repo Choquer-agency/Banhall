@@ -73,8 +73,11 @@ export function deidentify(
     // serial, sample id, or measurement range in SR&ED prose than a phone
     // number, and the sprint accepts false negatives over corrupting the
     // technical vocabulary these exemplars exist for.
+    // Phone separators may include whitespace, but never a line or paragraph
+    // boundary. Apply this to the prefix too so a phone on the next line
+    // still redacts without consuming the preceding prefix or line break.
     .replace(
-      /(?<![\d(.])(?:\+?1[-.\s]?)?(?:\(\d{3}\)[-.\s]?\d{3}[-.\s]?\d{4}|\d{3}([-.\s])\d{3}\1\d{4})(?!\d)/g,
+      /(?<![\d(.])(?:\+?1(?:[-.]|[^\S\r\n\u2028\u2029])?)?(?:\(\d{3}\)(?:[-.]|[^\S\r\n\u2028\u2029])?\d{3}(?:[-.]|[^\S\r\n\u2028\u2029])?\d{4}|\d{3}((?:[-.]|[^\S\r\n\u2028\u2029]))\d{3}\1\d{4})(?!\d)/g,
       "[redacted phone]"
     );
 

@@ -1505,7 +1505,7 @@ describe("approveSectionDraft de-identification", () => {
       sections: {
         s242: {
           status: "awaiting_review",
-          draftText: "Line one.\n\nReach tracy@acmemetals.ca or (613) 555-0134.",
+          draftText: "Line one.\n613\n555\n0134\n\nReach tracy@acmemetals.ca or (613) 555-0134.",
         },
         s244: { status: "pending" },
         s246: { status: "pending" },
@@ -1516,14 +1516,17 @@ describe("approveSectionDraft de-identification", () => {
     await authed.mutation(api.generations.approveSectionDraft, {
       generationId,
       section: "s242",
-      text: "Line one.\n\nApproved without contacts.",
+      text: "Line one.\n613\n555\n0134\n\nApproved; call (613) 555-0134.",
     });
 
     const events = await t.run(async (ctx) =>
       ctx.db.query("sectionEditEvents").collect()
     );
     expect(events[0]?.draftText).toBe(
-      "Line one.\n\nReach [redacted email] or [redacted phone]."
+      "Line one.\n613\n555\n0134\n\nReach [redacted email] or [redacted phone]."
+    );
+    expect(events[0]?.approvedText).toBe(
+      "Line one.\n613\n555\n0134\n\nApproved; call [redacted phone]."
     );
   });
 
