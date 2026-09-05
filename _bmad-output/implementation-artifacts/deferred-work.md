@@ -184,7 +184,9 @@ location: convex/lib/snapshots.ts writePreEditSnapshot researchFields
 source_spec: `1-shared-pre-edit-snapshot-writer.md`
 severity: low
 reason: Every other foreign id on a reportSnapshots row is filtered through validGeneration/validTranscriptId/validTranscriptIds in convex/lib/snapshots.ts, which drop cross-project references. The research session id is passed straight to ctx.db.get and its count copied in. Pre-existing behaviour carried over verbatim from applyProposal, not introduced by this story, and not reachable today because the research layer only ever creates a session for the proposal's own report — but the helper is now the single choke point where a check belongs.
-status: open
+status: done 2026-09-04
+resolution: resolved by sweep bundle dw-snapshot-research-ownership
+resolution-undo: 190382ae03098dac8291ec510edc19c6897dfe36ad0412b4085962e41a419081 2026-09-04 7374617475733a206f70656e
 
 ### DW-24: Brain exemplars are appended to the analyzer user message after buildTrustedContext has finished, so they are neither delimited nor charged against the context budget.
 origin: spec-deferred 9e00a2db9df5

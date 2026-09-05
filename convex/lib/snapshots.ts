@@ -36,6 +36,18 @@ async function validGeneration(
   return generation?.projectId === projectId ? generation : undefined;
 }
 
+async function validResearchSession(
+  ctx: SnapshotCtx,
+  report: Doc<"reports">,
+  researchSessionId?: Id<"researchSessions">
+): Promise<Doc<"researchSessions"> | undefined> {
+  if (!researchSessionId) return undefined;
+  const session = await ctx.db.get(researchSessionId);
+  return session?.reportId === report._id && session.projectId === report.projectId
+    ? session
+    : undefined;
+}
+
 async function validTranscriptId(
   ctx: SnapshotCtx,
   projectId: Id<"projects">,
@@ -279,14 +291,17 @@ export async function writePreEditSnapshot(
   }
 ): Promise<Id<"reportSnapshots">> {
   const auditFields = await snapshotAuditFields(ctx, report);
+  const researchSession = await validResearchSession(
+    ctx,
+    report,
+    options.researchSessionId
+  );
   // Provenance for version history. The research layer owns the evidence
   // policy (brain patterns never count) and stored the number at review time.
-  const researchFields = options.researchSessionId
+  const researchFields = researchSession
     ? {
-        researchSessionId: options.researchSessionId,
-        researchSourceCount:
-          (await ctx.db.get(options.researchSessionId))?.evidenceSourceCount ??
-          0,
+        researchSessionId: researchSession._id,
+        researchSourceCount: researchSession.evidenceSourceCount ?? 0,
       }
     : {};
 
@@ -297,7 +312,7 @@ export async function writePreEditSnapshot(
     ...auditFields,
     sourceRevisionNumber: report.revisionNumber ?? 0,
     reason,
-    label: options.researchSessionId
+    label: researchSession
       ? RESEARCHED_LABEL
       : PRE_EDIT_DEFAULT_LABEL[reason],
     createdByRole: "system",

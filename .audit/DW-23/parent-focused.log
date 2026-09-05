@@ -1,0 +1,13 @@
+
+> banhall-app@0.1.0 test
+> vitest run convex/snapshots.test.ts convex/preEditSnapshot.test.ts convex/lib/snapshots.test.ts
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-snapshot-research-ownership
+
+
+ Test Files  3 passed (3)
+      Tests  37 passed (37)
+   Start at  19:13:32
+   Duration  702ms (transform 484ms, setup 0ms, import 407ms, tests 456ms, environment 136ms)
+
