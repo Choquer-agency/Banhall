@@ -1,6 +1,6 @@
 import type { MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
-import { extractPlainText } from "./reportEdits";
+import { tryExtractPlainText } from "./reportEdits";
 
 // ─── BNH-10 flywheel: post-edit distance (PED) ───────────────────────────────
 
@@ -113,10 +113,11 @@ export async function recordReportEditDistance(
       .first();
     if (!baseline) return null;
 
-    const { ped } = computeEditDistance(
-      extractPlainText(baseline.content),
-      extractPlainText(report.content)
-    );
+    const draftText = tryExtractPlainText(baseline.content);
+    const currentText = tryExtractPlainText(report.content);
+    if (draftText === null || currentText === null) return null;
+
+    const { ped } = computeEditDistance(draftText, currentText);
     const revisionNumber = report.revisionNumber ?? 0;
 
     // Repeat-trigger dedupe: a second identical reading (same trigger, same
