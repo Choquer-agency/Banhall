@@ -6,11 +6,11 @@ deps: []
 touches: [convex]
 risky: []
 verify: [npx vitest run convex/documents.test.ts convex/uploadAttempts.test.ts --expect.requireAssertions]
-done_when: [>-]
+done_when: ["node --input-type=module -e 'import { execFileSync } from \"node:child_process\"; const name = \"empty and whitespace uploads keep document reads constant\"; const report = JSON.parse(execFileSync(process.execPath, [\"node_modules/vitest/vitest.mjs\", \"run\", \"convex/documents.test.ts\", \"--testNamePattern\", \"^uploadDocument processing status \" + name + \"$\", \"--reporter=json\", \"--expect.requireAssertions\"], { encoding: \"utf8\" })); const matches = report.testResults.flatMap(file => file.assertionResults).filter(result => result.title === name); if (!report.success || report.numPassedTests !== 1 || matches.length !== 1 || matches[0].status !== \"passed\") throw new Error(\"Expected exactly one passing upload read-invariance test; missing, skipped, or failed is not done\");'"]
 title: Empty and whitespace-only uploads avoid reading existing document bodies
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T05:56:41.840Z"
+updated: "2026-09-05T06:00:13.816Z"
 ---
 ## Intent
 
