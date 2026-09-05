@@ -9,11 +9,6 @@ import { checkBecauseClauses } from "../ai/qaChecks";
 // constant has no capture group; keep the two in sync.
 const GAP_CAPTURE_RE = /\[GAP:\s*([^\]]*)\]/g;
 
-const REPORT_BLOCK_TYPES = new Set([
-  "paragraph", "heading", "codeBlock", "blockquote", "listItem", "bulletList",
-  "orderedList", "table", "tableRow", "tableCell", "tableHeader", "horizontalRule",
-]);
-
 /** Split section prose into Tiptap paragraph nodes, highlighting [GAP: …]
  * markers so the editor renders them as fill-me-in prompts. */
 export function textToParagraphs(text: string): Array<Record<string, unknown>> {
@@ -127,12 +122,6 @@ export function extractReportSections(content: string): { s242: string; s244: st
       }
       const current = task.node;
       if (!current || typeof current !== "object") continue;
-      // Boundaries belong to the block itself, even when inline wrappers hide
-      // it from adjoining text. Queue its exit before visiting its children.
-      if ("type" in current && typeof current.type === "string" && REPORT_BLOCK_TYPES.has(current.type)) {
-        text.push("\n\n");
-        pending.push({ kind: "separator" });
-      }
       if ("text" in current && typeof current.text === "string") {
         text.push(current.text);
       } else if ("type" in current && current.type === "hardBreak") {
@@ -140,8 +129,12 @@ export function extractReportSections(content: string): { s242: string; s244: st
       } else if ("content" in current && Array.isArray(current.content)) {
         const inline = task.inlineContext || ("type" in current && ["paragraph", "heading", "codeBlock"].includes(String(current.type)));
         for (let index = current.content.length - 1; index >= 0; index--) {
-          pending.push({ kind: "node", node: current.content[index], inlineContext: inline });
-          if (index > 0 && !inline) pending.push({ kind: "separator" });
+          const child: unknown = current.content[index];
+          const previous: unknown = current.content[index - 1];
+          const isBlock = (value: unknown) => !!value && typeof value === "object" && "type" in value &&
+            ["paragraph", "heading", "codeBlock", "blockquote", "listItem", "bulletList", "orderedList", "table", "tableRow", "tableCell", "tableHeader"].includes(String(value.type));
+          pending.push({ kind: "node", node: child, inlineContext: inline });
+          if (index > 0 && (!inline || isBlock(child) || isBlock(previous))) pending.push({ kind: "separator" });
         }
       }
     }

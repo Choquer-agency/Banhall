@@ -1,0 +1,5 @@
+ts	phase	decision	why	evidence	result
+2026-09-04	route	Review supplied done spec	Workflow directs fresh review	entry-spec.md	in-review
+2026-09-04	ownership	Preserve existing ledger close	Native close precedes review invocation	native-provenance.json	No worker ledger edits
+2026-09-04	review	Repair extraction and evidence gaps	Independent review found reproducible boundary risks	review.md	No product-policy expansion
+2026-09-04	finalize	Commit reviewed native bytes and proof	All runtime and ownership checks pass	60606e5d50f098b0115e8ead746297653628c302	Clean working copy verified
