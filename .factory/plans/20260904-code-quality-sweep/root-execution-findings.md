@@ -11,3 +11,7 @@ QA could not append its report under its tool allowlist. The engine saved the fu
 ## Applied to pending tickets: engine-persisted QA report
 
 For tickets not yet started, added run-specific QA output guidance: return the full report through the structured fields the engine already persists, instead of repeatedly attempting audit-file writes denied by the existing tool allowlist. No permissions or verification requirements changed. Active perf-2 was excluded because its worktree and scope were already loaded. Root will link canonical QA outputs into evidence after each merge.
+
+## Corrected pending DX scope: dependency consumes SITE URL at build time
+
+Slop-1's initial build with only PUBLIC_CONVEX_URL failed with MISSING_EXPORT PUBLIC_CONVEX_SITE_URL at `node_modules/@mmailaender/convex-better-auth-svelte/dist/sveltekit/index.js:3`. Root confirmed installed adapter0.8.2 imports both public URLs; hooks.server.ts, +layout.server.ts and api/auth/[...all]/+server.ts import that adapter. The earlier source-only review correctly rejected the authClient comment as a reader but missed this dependency consumer. Updated pending dx-1 AC3/AC4 to document both URL placeholders for production-build verification and cite both adapter and uploader setup. Typecheck still needs only PUBLIC_CONVEX_URL.
