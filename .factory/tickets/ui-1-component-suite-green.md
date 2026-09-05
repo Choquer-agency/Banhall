@@ -1,6 +1,6 @@
 ---
 key: ui-1-component-suite-green
-status: todo
+status: done
 kind: bug
 deps: []
 touches: [src]
@@ -10,7 +10,13 @@ done_when: [npx vitest run --config vitest.component.config.ts src/lib/component
 title: "The browser component suite passes: seven stale fixtures and class contracts are re-pinned to the shipped behaviour, and the header action is measured against the 44px mobile contract and fixed if short"
 plan: 20260904-code-quality-sweep
 ui: true
-updated: "2026-09-05T08:47:20.862Z"
+updated: "2026-09-05T09:52:24.000Z"
+run: 20260905-085105-4-tickets
+branch: factory/ui-1-component-suite-green
+merged: acf55d9
+verdict: test-verified
+evidence: .audit/ui-1-component-suite-green/evidence.md
+deferred: ["Button's reduced-motion behaviour is left unasserted: @vitest/browser 4.1.10 exposes no per-test prefers-reduced-motion emulation, only a run-wide Playwright context option", "The header's 44px floor is measured at 390px and 1280px only; 320px and 428px are not covered"]
 ---
 ## Intent
 For every agent that must "run browser component tests for touched components" (`AGENTS.md`): the suite can be trusted again. At `11bfe3e`, `npm run test:component` reports 8 failed of 289 tests in 5 files (`component-baseline.log:384-535`). The DX audit traced each to its mechanism and commit (`dx-audit.md:51-66`): seven are stale fixtures or class-token contracts (the Projects link now carries `group=client`, `WorkspaceDashboard.svelte:153`; `Button.svelte:54` broadened its transition in `113ef7c`; the drawer's settings menu became a Settings link plus a Sign out confirmation dialog in `66f131b`, `WorkspaceRail.svelte:351`, `UserMenu.svelte:81`; the Admin group renders only for `role === "admin" && (isOwner || isDeveloper)`, `WorkspaceRail.svelte:228`, and gained a House rules link, `:124`; rail transitions went 300 → 150 ms in `c7167fb`). The eighth, `WorkspaceHeader.component.test.ts:164`, expects `py-2.5` where the header now uses `size="xs"` (`h-8`) at every width (`WorkspaceHeader.svelte:179`, `Button.svelte:35`), and the failure screenshot at mobile width shows a target that looks under the 44px contract (`docs/product-domain.md:233`). Nobody noticed because the suite is in no gate (dx-1 depends on this ticket). Principle: [16 prove it works]: a red suite proves nothing and a re-pin to `h-8` would hide a candidate regression; [3 redesign from first principles]: pin the contract the shipped design has, by role, attribute and geometry, not by class inventory.
