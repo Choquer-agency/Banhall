@@ -1,6 +1,6 @@
 ---
 key: slop-1-dead-components
-status: todo
+status: done
 kind: refactor
 deps: []
 touches: [src]
@@ -10,7 +10,13 @@ done_when: [! test -e src/lib/components/comments/CommentHighlight.ts, ! test -e
 title: Delete the nine abandoned React-port components under src/lib/components; nothing imports them
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T06:29:26.992Z"
+updated: "2026-09-05T06:56:38.820Z"
+run: 20260905-055642-10-tickets
+branch: factory/slop-1-dead-components
+merged: 9e3940d
+verdict: test-verified
+evidence: .audit/slop-1-dead-components/evidence.md
+deferred: ["docs/svelte-migration.md:77 still lists ui/MenuToggleIcon and ui/Header in its historical port inventory; outside the done_when predicate and outside this ticket's deletion-only scope"]
 ---
 ## Intent
 For the next reader of `src/lib/components`: nine files (810 lines) ported from the pre-Svelte React tree and never wired in stop competing with live code. No route, component, test, styleguide page or script imports them; the only references are inside the dead files themselves (`CommentSidebar.svelte:5,159,196` imports `CommentThread`), and `ReportViewer.svelte:4` calls itself a temporary pre-Tiptap viewer (`slop-audit.md:5-21`, re-checked with one `rg` over `src shared convex scripts` in `research.md`). Nothing a user sees changes. Principle: [4 subtract before you add]; [1 laziness protocol]: deletion only, no renames, no tidying of what stays.
