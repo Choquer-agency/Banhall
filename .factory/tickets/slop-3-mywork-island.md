@@ -10,13 +10,13 @@ done_when: [! test -e src/lib/components/mywork/MyWorkGroup.svelte, ! test -e sr
 title: "Delete the retired My Work lane presentation: eight files kept alive only by their own tests"
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T08:13:35.443Z"
+updated: "2026-09-05T10:08:45.173Z"
 run: 20260905-072238-8-tickets
 branch: factory/slop-3-mywork-island
 merged: 4b6159f
 verdict: test-verified
 evidence: .audit/slop-3-mywork-island/evidence.md
-deferred: ["docs/design-system.md:403 still names MyWorkGroup as an adopter of the shared Disclosure motion; the prose is now stale but AC1 forbids editing files npm run check does not name", MyWorkLaneSort.component.test.ts keeps a stale filename while testing the current Home bounded subscription; the ticket explicitly retains it]
+deferred: ["docs/design-system.md:403 still names MyWorkGroup as an adopter of the shared Disclosure motion; the prose is now stale but AC1 forbids editing files npm run check does not name"]
 ---
 ## Intent
 For the reader of `src/lib/mywork` and `src/lib/components/mywork`: the lane sort, lane preferences and row/group components that the current Home replaced (`MyWorkView.svelte:4-8` renders `HomeStartProject`, `WithYouBand`, `RecentProjectsRail`; `CurrentMyWorkView.svelte` has its own retained ledger) stop looking like live code. `laneSort.ts` is imported only by its test and `myWorkPreferences.ts`; `myWorkPreferences.ts` only by its test; `MyWorkRow.svelte` only by its fixture and its test; `MyWorkGroup.svelte` by nothing (`slop-audit.md:23-36`, re-checked with `rg` in `research.md`). `MyWorkLaneSort.component.test.ts` has a stale name but tests the current Home's bounded subscription and stays. Nothing a user sees changes. Principle: [4 subtract before you add]; [1 laziness protocol].
@@ -50,3 +50,11 @@ AC3 production-build verification is explicitly in the engine verify list so it 
 ## Orchestrator review disposition
 
 The slop-3 reviewer’s low/consider claim about docs/product-domain.md:797 is dismissed after context review. The clause says the preview may reorder only loaded rows, a permission/constraint rather than an obligation to keep a sort control. Lines 736–741 supersede the five-lane layout; lines 727 and 634–638 record approved removal of those Home regions/subscriptions; the approved August 14 amendment at 330–340 makes With you the only operational Home subscription. Retained MyWorkLaneSort.component.test.ts:25–45 explicitly requires the assigned-only subscription and no sort control; CurrentMyWorkView retains its frozen accountability tabs. Independent audit_slop review reached the same conclusion. No new product-domain amendment, implementation, or deferred obligation is warranted by this deletion.
+
+## Sweep disposition reconciliation, 2026-09-05
+
+The live Home test filename is deliberately retained under this ticket scope; renaming it would be cosmetic. The stale Disclosure documentation remains assigned to dx-1.
+
+Historical entries removed from the open deferred list, preserved here:
+
+- MyWorkLaneSort.component.test.ts keeps a stale filename while testing the current Home bounded subscription; the ticket explicitly retains it

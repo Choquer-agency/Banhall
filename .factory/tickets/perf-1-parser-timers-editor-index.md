@@ -10,13 +10,13 @@ done_when: ["rg -q 'getTimerCount' src/lib/parseDocument.test.ts", test -f src/l
 title: PDF parsing leaves zero pending timers; proposal previews and find/replace build the editor search index once per batch and never for an empty batch
 plan: 20260904-code-quality-sweep
 ui: false
-updated: "2026-09-05T08:42:42.320Z"
+updated: "2026-09-05T10:08:45.170Z"
 run: 20260905-055642-10-tickets
 branch: factory/perf-1-parser-timers-editor-index
 merged: ed1d24f
 verdict: test-verified
 evidence: .audit/perf-1-parser-timers-editor-index/evidence.md
-deferred: ["8 pre-existing component-suite failures (Button, WorkspaceChrome, WorkspaceHeader, WorkspaceRail x4, workspaceRoutes) are unchanged from the plan-dir baseline and belong to ui-1-component-suite-green", "no real-PDF-in-Chromium proof: the pdfjs-dist boundary is mocked, so the pdf.js contract itself is unverified by this ticket", ReadOnlyEditor.svelte still carries its own private copies of findTextInDoc and buildDecorationSet; deduplicating them against docSearch.ts is outside this ticket, "Editor mount logs [tiptap warn]: Duplicate extension names found: [underline] — pre-existing extension config overlap, now visible because a suite mounts the editor"]
+deferred: ["no real-PDF-in-Chromium proof: the pdfjs-dist boundary is mocked, so the pdf.js contract itself is unverified by this ticket", ReadOnlyEditor.svelte still carries its own private copies of findTextInDoc and buildDecorationSet; deduplicating them against docSearch.ts is outside this ticket]
 ---
 ## Intent
 For a writer uploading a 40-page PDF and for a writer previewing a proposal with many replacement pairs: the browser stops doing avoidable work, and a writer typing with no preview open keeps doing none. `withDeadline` (`src/lib/parseDocument.ts:64-73`) never clears its timer, so every successful N-page parse leaves 2N+1 callbacks alive for up to 60 s (measured by the auditor and re-measured by the orchestrator: 201 operations, 201 pending, `performance-audit.md:12`, `orchestrator-review.md:19`). `buildDecorationSet` (`Editor.svelte:508-509`) and `findReplaceMatches` (`:1115-1117`) call `findAllOccurrencesCI` per pair, and each call rebuilds the full-document search index (`:261`) and lowercases the whole haystack (`:262`): 20 pairs, 30 builds, 600 traversals, median 63 ms at 23k chars and 274-282 ms at 91k. With no diffs the baseline performs zero walks, and that must stay true. The maintainer inherits a deadline helper that cleans up, a `docSearch.ts` module whose functions are unit-testable in the gate, a browser suite that mounts the real editor, a maintained benchmark under `scripts/bench/` that runs unchanged at baseline and at HEAD, golden expectations captured from the baseline implementation, and tests that fail if either regression returns. Principle: [9 build the lever]: the harness the reviewer reruns is a repo script, not a plan-dir file that breaks on the first refactor; [16 prove it works]: counts are the criterion, golden output guards the move, the browser suite proves the wiring, timing is context; [17 fix root causes]: the batch does the index build and the case fold once, not just the traversal; [1 laziness protocol]: `findAllInDoc` stays where it is.
@@ -55,3 +55,12 @@ Perf measurement: metric = `descendantTraversals` per 30 builds (600 → 30) and
 - Harness at a commit where `docSearch.ts` is absent: same behaviour as the plan-dir original.
 
 Sweep closeout disposition: proof-1-parser-budget-sequence resolves the cumulative parser fixture gap; slop-2-dead-helpers-and-deps resolves the duplicate Underline warning. Historical deferred entries are preserved for traceability and are not open obligations. The real-PDF app proof and independent ReadOnlyEditor search follow-up remain open.
+
+## Sweep disposition reconciliation, 2026-09-05
+
+Browser failures are resolved by ui-1 (acf55d9, QA51files/292cases); duplicate Underline registration is resolved by slop-2 (7b9b01e, real editable/read-only proof).
+
+Historical entries removed from the open deferred list, preserved here:
+
+- 8 pre-existing component-suite failures (Button, WorkspaceChrome, WorkspaceHeader, WorkspaceRail x4, workspaceRoutes) are unchanged from the plan-dir baseline and belong to ui-1-component-suite-green
+- Editor mount logs [tiptap warn]: Duplicate extension names found: [underline] — pre-existing extension config overlap, now visible because a suite mounts the editor
