@@ -6,10 +6,79 @@ import {
   parseOpenRouterResearchResponse,
   parseReviewerResult,
   projectEvidenceSearchQuery,
+  redactExternalText,
   selectProjectEvidence,
 } from "./core";
 
 describe("Contextual Research core", () => {
+  describe("research redaction", () => {
+    test.each([
+      ["(613) 555-0134", "[redacted phone]"],
+      ["Call (613) 555-0134 today.", "Call [redacted phone] today."],
+      ["Contact:(613) 555-0134!", "Contact:[redacted phone]!"],
+      ["Call(613) 555-0134 today.", "Call[redacted phone] today."],
+      ["Call+16135550134 today.", "Call[redacted phone] today."],
+      ["6135550134", "[redacted phone]"],
+      ["613.555.0134", "[redacted phone]"],
+      ["613-555-0134", "[redacted phone]"],
+      ["613 555 0134", "[redacted phone]"],
+      ["613-555 0134", "[redacted phone]"],
+      ["1-613-555-0134", "[redacted phone]"],
+      ["+1 (613) 555-0134", "[redacted phone]"],
+      ["+16135550134", "[redacted phone]"],
+      ["(613)5550134; +1-604-555-0199", "[redacted phone]; [redacted phone]"],
+    ])("consumes the complete phone in %s", (input, expected) => {
+      expect(redactExternalText(input, [])).toBe(expected);
+    });
+
+    test.each([
+      "sample6135550134",
+      "sample613-555-0134",
+      "_6135550134",
+      "26135550134",
+      "6135550134sample",
+      "613-555-0134sample",
+      "(613) 555-0134sample",
+      "6135550134_",
+      "61355501342",
+    ])("retains word-boundary protection for %s", (input) => {
+      expect(redactExternalText(input, [])).toBe(input);
+    });
+
+    test("preserves existing URL and email redaction behavior", () => {
+      expect(redactExternalText(
+        "Email JANE+lab@Example.org; see (https://example.org/paper), http://example.net/page.",
+        []
+      )).toBe("Email [redacted email]; see ([redacted URL]), [redacted URL]");
+    });
+
+    test("replaces overlapping names longest-first and regex-special names literally", () => {
+      expect(redactExternalText(
+        "ACME FARMS and acme use A+B (Lab). AAB Lab stays; Al stays; Acmeology changes.",
+        [" Acme ", "Acme Farms", "A+B (Lab)", "Acme", "Al", ""]
+      )).toBe("[redacted] and [redacted] use [redacted]. AAB Lab stays; Al stays; [redacted]ology changes.");
+    });
+
+    test("preserves trim, space and tab collapse, and paragraph normalization", () => {
+      expect(redactExternalText(" \t First  \t paragraph.\n\n\nSecond\t  paragraph. \t ", []))
+        .toBe("First paragraph.\n\nSecond paragraph.");
+    });
+  });
+
+  test("redacts the complete parenthesized phone in the outbound selected passage", () => {
+    const brief = buildExternalBrief({
+      selectedText: "Call (613) 555-0134 about the cultivar trial (24 samples at 5 C).",
+      surroundingContext: "",
+      instruction: "Find the scientific baseline.",
+      knownNames: [],
+    });
+
+    expect(brief).toContain("Selected report passage:\nCall [redacted phone] about the cultivar trial (24 samples at 5 C).");
+    expect(brief).not.toContain("([redacted phone]");
+    expect(brief).not.toContain("613");
+    expect(brief).not.toContain("555-0134");
+  });
+
   test("redacts known client identifiers from the external brief", () => {
     const brief = buildExternalBrief({
       selectedText: "Acme Farms measured canes for jane@acme.example at 604-555-0199.",
