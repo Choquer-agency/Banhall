@@ -1,0 +1,50 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-analyzer-provenance-fix
+
+ ❯ |convex| tests/aiUsage.test.ts (13 tests | 1 failed | 12 skipped) 7ms
+     × analyzer routing discloses fixed compare and selected single, iterative and legacy models 7ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| tests/aiUsage.test.ts > generation prompt program > analyzer routing discloses fixed compare and selected single, iterative and legacy models
+AssertionError: expected { kind: 'candidate', …(1) } to deeply equal { kind: 'mode-dependent', …(4) }
+
+- Expected
++ Received
+
+  {
+-   "compare": {
+-     "kind": "fixed",
+-     "modelId": "claude-sonnet-5",
+-   },
+-   "iterative": {
+    "fallbackModelId": "claude-sonnet-5",
+    "kind": "candidate",
+-   },
+-   "kind": "mode-dependent",
+-   "legacyCandidate": {
+-     "fallbackModelId": "claude-sonnet-5",
+-     "kind": "candidate",
+-   },
+-   "single": {
+-     "fallbackModelId": "claude-sonnet-5",
+-     "kind": "candidate",
+-   },
+  }
+
+ ❯ tests/aiUsage.test.ts:48:58
+     46| describe("generation prompt program", () => {
+     47|   test("analyzer routing discloses fixed compare and selected single, …
+     48|     expect(generationPromptProgram.calls.analyzer.model).toEqual({
+       |                                                          ^
+     49|       kind: "mode-dependent",
+     50|       compare: { kind: "fixed", modelId: MODEL },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 skipped (13)
+   Start at  17:01:41
+   Duration  556ms (transform 203ms, setup 0ms, import 391ms, tests 7ms, environment 42ms)
+

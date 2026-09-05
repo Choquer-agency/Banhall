@@ -1,0 +1,10 @@
+$ npx vitest run --project convex tests/aiUsage.test.ts convex/ai/pipeline.compare.test.ts convex/ai/promptScaffolds.test.ts convex/generationAttribution.test.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-analyzer-provenance-fix
+
+
+ Test Files  4 passed (4)
+      Tests  70 passed (70)
+   Start at  17:04:01
+   Duration  1.47s (transform 952ms, setup 0ms, import 1.39s, tests 801ms, environment 194ms)
+
