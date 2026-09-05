@@ -61,11 +61,19 @@ too: the installed `@mmailaender/convex-better-auth-svelte` SvelteKit adapter im
 
 ## Running the real app
 
-Beyond the prerequisites you need a Convex deployment. `npx convex dev` provisions one and writes
-`CONVEX_DEPLOYMENT` and the deployment URLs; copy `env.example` to `.env.local` and fill in the
-public names there, then set the Convex-side names (listed as comments in `env.example`) on the
-deployment itself with `npx convex env set`. Real deployment URLs are only needed to run the app,
-never to verify a change.
+Beyond the prerequisites you need a Convex deployment. In this order:
+
+```bash
+cp env.example .env.local
+npx convex dev
+```
+
+`env.example` first: `npx convex dev` provisions a deployment and fills three names in place in
+`.env.local` — `CONVEX_DEPLOYMENT`, `PUBLIC_CONVEX_URL` and `PUBLIC_CONVEX_SITE_URL` (the CLI
+detects SvelteKit and picks the `PUBLIC_` names). Copying the template afterwards would blank all
+three. `PUBLIC_BUILD_TIME` stays empty locally. Then set the Convex-side names, listed as comments
+at the bottom of `env.example`, on the deployment itself with `npx convex env set`. Real
+deployment URLs are only needed to run the app, never to verify a change.
 
 ## Hermetic instance — not yet built
 

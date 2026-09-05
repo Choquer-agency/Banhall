@@ -4,17 +4,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# A git worktree starts with no node_modules of its own. Bare specifiers still
-# resolve by walking up to the main checkout's node_modules, but literal
-# ../node_modules/... paths (convex/researchReviewMode.test.ts registers the
-# workflow/workpool component schemas that way) do not, so the gate must install
-# dependencies here before it can mean anything. This runs before preflight so
-# preflight can resolve the playwright package.
-if [ -z "$(ls -A node_modules 2>/dev/null | grep -v '^\.' || true)" ]; then
-  echo "loop-verify: node_modules is empty, installing dependencies"
-  npm ci --no-audit --no-fund
-fi
-
 VERIFY_COMPONENT="${VERIFY_COMPONENT:-0}"
 if [ "$VERIFY_COMPONENT" = "1" ]; then
   STEP_TOTAL=9
@@ -75,6 +64,18 @@ preflight() {
   else
     export PUBLIC_CONVEX_SITE_URL="https://placeholder.convex.site"
     echo "  PUBLIC_CONVEX_SITE_URL from placeholder"
+  fi
+
+  # A git worktree starts with no node_modules of its own. Bare specifiers still
+  # resolve by walking up to the main checkout's node_modules, but literal
+  # ../node_modules/... paths (convex/researchReviewMode.test.ts registers the
+  # workflow/workpool component schemas that way) do not, so the gate must
+  # install dependencies here before it can mean anything. It runs after the
+  # tool checks so a cold checkout still fails on a missing tool first, and
+  # before the Chromium check, which needs the playwright package.
+  if [ -z "$(ls -A node_modules 2>/dev/null | grep -v '^\.' || true)" ]; then
+    echo "  node_modules is empty, installing dependencies"
+    npm ci --no-audit --no-fund || return $?
   fi
 
   if [ "$VERIFY_COMPONENT" = "1" ]; then
