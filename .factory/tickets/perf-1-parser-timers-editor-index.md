@@ -10,6 +10,11 @@ done_when: ["rg -q 'getTimerCount' src/lib/parseDocument.test.ts", test -f src/l
 title: PDF parsing leaves zero pending timers; proposal previews and find/replace build the editor search index once per batch and never for an empty batch
 plan: 20260904-code-quality-sweep
 ui: false
+deferred:
+  - "8 pre-existing component-suite failures (Button, WorkspaceChrome, WorkspaceHeader, WorkspaceRail x4, workspaceRoutes) are unchanged from the plan-dir baseline and belong to ui-1-component-suite-green"
+  - "no real-PDF-in-Chromium proof: the pdfjs-dist boundary is mocked, so the pdf.js contract itself is unverified by this ticket"
+  - "ReadOnlyEditor.svelte still carries its own private copies of findTextInDoc and buildDecorationSet; deduplicating them against docSearch.ts is outside this ticket"
+  - "Editor mount logs [tiptap warn]: Duplicate extension names found: [underline] — pre-existing extension config overlap, now visible because a suite mounts the editor"
 updated: "2026-09-05T05:52:56.202Z"
 ---
 ## Intent
