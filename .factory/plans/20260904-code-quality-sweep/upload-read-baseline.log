@@ -1,0 +1,3 @@
+{"kind":"upload_read_measurement_context","cwd":"/Users/johnnynguyen/Documents/Repos/Banhall","node":"v24.19.0","commit":"11bfe3ebcb79fd8be78e2e057b45ea69db0f88be","source":"convex/documents.ts","sourceSha256":"3ab18a85774fc3bcdd44d68d680831ade83cbc15b1b08ea06c3c214167c8eab9","convexVersion":"1.42.3","convexTestVersion":"0.0.54"}
+{"kind":"actual_registered_upload_local_convex_test","existingCount":0,"existingDocumentChars":100000,"databaseQueries":3,"documentsRead":2,"bytesRead":375,"status":"reference_only"}
+{"kind":"actual_registered_upload_local_convex_test","existingCount":3,"existingDocumentChars":100000,"databaseQueries":3,"documentsRead":5,"bytesRead":301074,"status":"reference_only"}

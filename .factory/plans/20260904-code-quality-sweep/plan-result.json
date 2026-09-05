@@ -1,0 +1,18 @@
+{
+  "status": "ready",
+  "plan_dir": ".factory/plans/20260904-code-quality-sweep",
+  "tickets": [
+    "tests-1-one-runner",
+    "tests-2-real-proposal-access-roster-tests",
+    "tests-3-runner-cleanup-and-guard",
+    "ui-1-component-suite-green",
+    "slop-1-dead-components",
+    "slop-3-mywork-island",
+    "slop-2-dead-helpers-and-deps",
+    "perf-1-parser-timers-editor-index",
+    "dx-1-one-verify-entry"
+  ],
+  "risky": [],
+  "questions": [],
+  "summary": "For the consumer (any agent or human opening Banhall): one verification command that preflights tools, names its steps and runs a test-discovery guard; CI runs that same script plus the browser component suite; the README describes this SvelteKit/Convex app; the 14 bun-only suites under tests/ run in the gate with their proposal, access and roster scenarios re-proven against the real Convex endpoints; 17 dead component files, 6 test-only helper exports and 4 unused dependencies are gone; a 40-page PDF parse leaves zero timers and a 20-pair proposal preview walks the document once (and an empty preview walks it zero times); the eight red browser tests are fixed per the DX audit's row-by-row triage, including a measured 44px mobile check on the header action. For the maintainer: two runners and a script that proves nothing is orphaned, no handmade fake database, golden ranges captured from the baseline editor implementation, and an inventory of 35 findings in research.md with every non-fixed item carrying a reason and a next proof (notably: a hermetic local Convex backend is feasible without shared credentials and is factory verify-skill work, not a credential blocker). Nine tickets (the idea asked for 3-6; the orchestrator review required splitting on the 12-file sizing hint): tests-1 → tests-2 → tests-3 → dx-1, ui-1 → dx-1, slop-1/slop-3/slop-2/perf-1 independent. None touches a risky domain. One overlap to watch: ui-1 edits src/routes/workspaceRoutes.component.test.ts:52-55, a file the escalated workspace-2-drop-dead-gate-branches ticket also owns on different lines; the engine's overlap check will flag it and the ticket records a deferred row if blocked. Medium-confidence near-duplicates: none among existing tickets; the closest prior art is RETROSPECTIVE.md action item 4 (CI guard for orphan tests), which tests-3 implements."
+}
