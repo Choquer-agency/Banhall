@@ -25,3 +25,5 @@ Final verifier exited 0. Both required command vectors passed without timeout ov
 pre-final-check.log records the actual rejection of a missing terminal result. The final checker subsequently verifies the concrete completed spec. Native final acceptance remains a separate orchestrator operation. Accepted sentence-level detector, structural generated-title and exact-content methodology limitations are unchanged.
 
 Audit-local whitespace attributes preserve raw logs/diffs and the exact entry-spec snapshot, including its original trailing blank line. Source and final spec whitespace remain checked.
+
+Reviewed repair and evidence committed as `0c0b076391770a2ff67b4b8c89b6f98b9073722f`, read directly from Git. Postcommit artifact validation passed, all 34 committed file bytes matched the worktree, and git status --porcelain was empty. committed-check.json retains this observation; the subsequent evidence-only commit does not change runtime source.
