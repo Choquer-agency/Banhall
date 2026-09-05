@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-ped-malformed-content-rejection
+
+
+ Test Files  3 passed (3)
+      Tests  76 passed (76)
+   Start at  19:05:41
+   Duration  795ms (transform 434ms, setup 0ms, import 397ms, tests 364ms, environment 95ms)
+

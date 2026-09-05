@@ -387,7 +387,9 @@ location: convex/lib/editDistance.ts
 source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: medium
 reason: extractPlainText (convex/lib/reportEdits.ts:168) swallows JSON.parse failures and returns "". recordReportEditDistance then computes computeEditDistance(draft, "") = ped 1 and writes it as a legitimate "fully rewritten" point; if both sides fail it writes ped 0. The read-time query has always had the same blind spot, but persistence makes the bogus point permanent in the trend.
-status: open
+status: done 2026-09-04
+resolution: resolved by sweep bundle dw-ped-malformed-content-rejection
+resolution-undo: 6195ef1ed5d92e8c4606f143a0a7bb2b9e5930a181cac72abe377eca8344aec6 2026-09-04 7374617475733a206f70656e
 
 ### DW-49: The client_publish reading is taken by a scheduled mutation, so a report edited between publishForReview and the drain records post-publish content and revisionNumber.
 origin: spec-deferred 8bd581101280
@@ -531,7 +533,9 @@ location: convex/lib/editDistance.ts:116
 source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: medium
 reason: convex/lib/reportEdits.ts:168 returns empty text on parse failure; convex/lib/editDistance.ts uses that same extractor to preserve the read-time formula. The existing recovery deferral is retained for orchestrator resolution.
-status: open
+status: done 2026-09-04
+resolution: resolved by sweep bundle dw-ped-malformed-content-rejection
+resolution-undo: 6195ef1ed5d92e8c4606f143a0a7bb2b9e5930a181cac72abe377eca8344aec6 2026-09-04 7374617475733a206f70656e
 
 ### DW-67: Recovery review reconfirmed historical writer-series rows survive deletion and ownership changes.
 origin: spec-deferred 65c0249ac3e4

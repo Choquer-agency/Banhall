@@ -1,0 +1,20 @@
+{
+  "journal": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/journal.jsonl",
+  "closure_event": {
+    "ts": 1788573708.195819,
+    "kind": "sweep-bundle-closed",
+    "story_key": "dw-ped-malformed-content-rejection",
+    "dw_ids": [
+      "DW-48",
+      "DW-66"
+    ],
+    "log_task": "dw-ped-malformed-content-rejection-dev-1",
+    "log_pos": 3019701
+  },
+  "invocation_ledger_git_blob": "4a044b3a4c95a8993b403729ab9188cc2f5940de",
+  "invocation_ledger_sha256": "9eef8f3897486623fc9a14e270e3c60eb359459ff47868b1549a08c4802a596d",
+  "reviewed_head": "0a52e0ab50a259e86c70dc5c3472dbabfbf9882d",
+  "working_tree_and_staged_match_snapshot": true,
+  "staged_git_blob": "4a044b3a4c95a8993b403729ab9188cc2f5940de",
+  "staged_sha256": "9eef8f3897486623fc9a14e270e3c60eb359459ff47868b1549a08c4802a596d"
+}

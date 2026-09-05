@@ -81,6 +81,15 @@ deferred: []
   - [low] [patch] Qualified baseline hash timing in baseline.txt.
   - [low] [patch] Inventoried parent verification commands and outcomes in evidence and decisions.
 
+### 2026-09-04 Fresh review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 1: (high 0, medium 0, low 1)
+- defer: 0
+- reject: 12: (high 0, medium 0, low 12)
+- addressed_findings:
+  - [low] [patch] Added native journal provenance and exact-byte finalization evidence for the pre-existing orchestrator closure.
+
 ## Verification
 
 **Commands:**
@@ -88,23 +97,24 @@ deferred: []
 - `bash scripts/loop-verify.sh`: ordinary full gate passes.
 
 
+
 ## Auto Run Result
 
 Status: done.
 
-Implemented failure-aware text extraction and skipped persisted PED when either input fails parsing or traversal. Preserved legitimate empty documents, read-time fallback, formula, and caller completion.
+Implemented failure-aware extraction that skips persisted PED on JSON parse or traversal failure while preserving empty documents, legacy read fallback, formula, and caller completion. Fresh four-layer review required no production changes.
 
-Files changed:
-- `convex/lib/reportEdits.ts`: added failure-aware extraction; kept legacy empty fallback.
-- `convex/lib/editDistance.ts`: skip failed input before computing or inserting.
-- `convex/reportEditDistance.test.ts`: 26 public operation cases across milestone and scheduled publish.
-- `tests/reportEdits.test.ts`: ten empty/failure/text compatibility cases.
-- `.audit/DW-48-DW-66/`: baseline, actual red/green/full-gate output, independent review triage, decisions and AC evidence.
+Files changed since baseline:
+- `convex/lib/reportEdits.ts`: failure-aware extraction with legacy wrapper.
+- `convex/lib/editDistance.ts`: skip invalid inputs before persistence.
+- `convex/reportEditDistance.test.ts`: public milestone/publish regression matrix.
+- `tests/reportEdits.test.ts`: extraction success/failure compatibility.
+- `.audit/DW-48-DW-66/`: red/green evidence, fresh verification, review triage, native provenance.
+- This spec: review and completion record.
+- Deferred-work ledger: exact pre-existing native closure bytes staged without agent content changes, supported by native journal evidence.
 
-Review: three low documentation patches, zero deferred, twelve rejected. Edge-case and verification reviewers found no gaps. Intent auditor confirmed explicit parse-failure scope and public surface alignment. Follow-up recommendation false: high 0, medium 0, low 3, score 3.
+Review this pass: one low audit documentation patch, zero deferred, twelve rejected. Patched severity counts high 0, medium 0, low 1; score 1; follow-up recommendation false.
 
-Verification: baseline regression showed 16 failures with bogus persisted PED 1 and 0 before production edits. Focused suite passed 76 tests. Ordinary full gate passed 148 files and 1,835 tests, zero Svelte errors/warnings, and both uploader harnesses (50 and 18 passes). Parent repeated focused and full commands successfully; post-review reruns also passed. Every matrix row is covered by executed tests. `git diff --check` passed.
+Verification: fresh focused command exited 0 (76 tests); fresh full gate exited 0 (1835 tests, zero Svelte diagnostics, uploader harnesses 50 and 18 passes). Previous baseline red log retains 16 failures showing bogus PED 1 and 0. Production implementation commit: `6c6cb7023417b38d0b8aee09a34dc4fe26d6cec3`. Fresh reviewed source HEAD: `0a52e0ab50a259e86c70dc5c3472dbabfbf9882d`.
 
-Implementation commit: `6c6cb7023417b38d0b8aee09a34dc4fe26d6cec3`.
-
-Residual limits: existing traversable non-document JSON is not schema-validated; historical readings are not backfilled. Red-run chronology is retained in the conversation, with its artifact limitation documented in evidence. The deferred-work ledger remains unchanged; final native acceptance belongs to the orchestrator.
+Residual limits: no full Tiptap schema validation or historical backfill; original red-before-edit chronology has the documented attestation limitation. Final native acceptance remains the orchestrator's responsibility.

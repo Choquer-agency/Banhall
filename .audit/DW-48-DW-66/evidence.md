@@ -88,3 +88,11 @@ The implementer directly observed both exit statuses. `git diff --check` also pa
 ## Final preservation check
 
 Deferred-work ledger Git blob remained `a7fd4e71b44092d51fbc5da2df98457e5fe3b4ee` before and after implementation/review. No ledger bytes were staged. Four code/test files are committed at the implementation revision above. Independent review decisions are retained in `review.md`.
+
+## Fresh review and native finalization, 2026-09-04
+
+Reviewed source HEAD: `0a52e0ab50a259e86c70dc5c3472dbabfbf9882d`. Production files were unchanged during this follow-up. The parent directly ran both spec commands and observed exit 0: `npx vitest run convex/reportEditDistance.test.ts convex/lib/editDistance.test.ts tests/reportEdits.test.ts` (76 tests, `followup-focused.log`) and `bash scripts/loop-verify.sh` (1835 tests, zero Svelte diagnostics, uploader harnesses 50 and 18 passes, `followup-full-gate.log`).
+
+The earlier preservation check describes the implementation session. This review invocation already contained native ledger closure bytes with Git blob `4a044b3a4c95a8993b403729ab9188cc2f5940de`. Native journal event `sweep-bundle-closed` identifies this bundle and DW-48/DW-66; the following review dispatch establishes ordering. `native-finalization.json` retains the exact closure event, journal source, invocation digest, and staged-byte checks. The agent did not author or alter ledger content. Staging these exact native bytes is authorized by AGENTS.md Native BMAD ledger finalization. This commit does not establish final native run acceptance. sprint-status.yaml was not written or reverted.
+
+Four fresh review layers found no required production changes. One low documentation patch records native provenance; twelve findings were rejected with reasons in `followup-review.md`. No deferrals or intent/spec gaps. Follow-up score 1, recommendation false.
