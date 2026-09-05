@@ -1,0 +1,13 @@
+{
+  "head": "c94860f7e2bf37d863acc1446692fc622f236bc4",
+  "source_revision": "c94860f7e2bf37d863acc1446692fc622f236bc4",
+  "protected_files_unchanged": true,
+  "orchestrator_files_match_invocation": true,
+  "source_matches_verified_commit": true,
+  "terminal_result_valid": true,
+  "logs_sha256": {
+    "final-ordinary-gate.log": "09d78c85bbe7e094d3a73c45da71aa6ce497e67a2ece8fc368ca9f9a51de323a",
+    "final-focused.log": "e9e2d24eb43190bbf10e9708bcd3115e7e62800792ba2c4518c8b62b4ea17eb6",
+    "final-convex-tsc.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

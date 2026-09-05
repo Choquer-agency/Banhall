@@ -82,6 +82,21 @@ deferred: []
 
 All four independent review layers completed. Full historical QA implementation and subsequent repairs were reviewed as context. No new product decision or deferral; detailed independent finding evaluations are in `.audit/DW-92-native-followup/review.md`. Final repaired-source verification subsequently passed: ordinary gate 1732 tests, focused gate 147 tests, both type checks and uploader harnesses. Exact command provenance is retained in the audit manifest.
 
+### 2026-09-04: Supplied-spec follow-up review
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7: (high 0, medium 2, low 5)
+- defer: 0
+- reject: 5: (high 0, medium 3, low 2)
+- addressed_findings:
+  - `[low]` `[patch]` Clarified historical completion claims and restored the actual terminal result in this flat spec.
+  - `[medium]` `[patch]` Require a unique terminal marker and consistent mandatory result fields.
+  - `[low]` `[patch]` Include protected learn/chat source in preservation checks.
+  - `[medium]` `[patch]` Detect untracked additions beneath protected paths.
+  - `[low]` `[patch]` Bind retained raw command logs to SHA-256 digests.
+  - `[low]` `[patch]` Execute final comparisons against verified source hashes and the entry commit.
+  - `[low]` `[patch]` Use explicit verification failures that remain active under Python optimization.
+
 ## Verification
 
 **Commands:**
@@ -94,22 +109,15 @@ All four independent review layers completed. Full historical QA implementation 
 
 Status: done
 
-Fresh DW-92 worker review, repairs and ordinary verification are complete. The reviewed repair and audit evidence were committed as `df97838bd97ee68ea6a923c310b3d4ae139556e1` before this terminal write-back. This standard flat spec is the sole new RESULT artifact. Original nested QA contract, original implementation baseline, prior reviews and deferral remain unchanged; native orchestrator acceptance and ledger resolution remain subsequent orchestrator responsibilities.
+Fresh four-layer review and ordinary verification completed against product-source commit `c94860f7e2bf37d863acc1446692fc622f236bc4`. No new product defect or product-policy decision was identified. Prior QA repairs remain unchanged. Historical audit claims are distinguished from this invocation's fresh command evidence and actual terminal marker.
 
 Files changed:
-- `convex/lib/tiptapReport.ts`: replace recursive block/text extraction with iterative traversal and catch only JSON parse errors, preventing deep valid content from silently losing uncertainty.
-- `convex/qaBlocking.test.ts`: two deep-nesting registered-boundary regressions and assertions that rejected publishing leaves scheduled functions unchanged.
-- `convex/generationAttribution.test.ts`: iterative canonical assembly proves artifact-sourced advisory waivers retain exact-reference substantive findings.
-- `.audit/DW-92-native-followup/`: genuine new four-layer review, red/green logs, mutation proof, exact acceptance mapping, command/source provenance, preservation proof and cross-model trail audit, explicitly staged despite ignore rules.
-- This flat spec: fresh baseline, review triage and native Auto Run Result.
+- This flat spec: append current triage and the genuine worker result.
+- `.audit/DW-92-native-followup/recheck/`: retain fresh review input, review triage, command logs/provenance, source and protected-file checks, and evidence.
+- `.audit/DW-92-native-followup/decisions.tsv`: append this invocation's decisions.
 
-Review: 5 patches (high 1, medium 2, low 2), 0 new deferrals, 6 rejected findings. Follow-up review recommended: true because a high finding was patched; medium/low score is 8. Independent repair inspection found no additional issues. Cross-model trail audit found two premature wording statements; both were corrected before evidence commit.
+Review: seven audit patches (high 0, medium 2, low 5), zero deferrals, five rejected findings. Follow-up review recommended: true; weighted score 11.
 
-Verification on final repaired source:
-- `bash scripts/loop-verify.sh`: exit 0; 148 files / 1732 tests; Svelte 0 errors and warnings; Convex TypeScript; PowerShell 50/50 and Bash 18/18.
-- Exact original focused gate: exit 0; 147 tests in three files.
-- Explicit `npx tsc -p convex/tsconfig.json --noEmit`: exit 0, recorded in final command manifest.
-- Two deep-nesting cases failed on baseline, then passed with 91 targeted tests after repair. Disabling iterative artifact lookup made its new assertion fail; restoring original source made it pass. Final full gate ran all these tests without name filtering or timeout overrides.
-- Protected-path preservation and staged whitespace checks passed; verified source hashes match final gate input.
+Verification: ordinary gate exited zero with 1,732 tests, both type checks, PowerShell 50/50 and Bash 18/18. Focused gate passed 147 tests. Explicit Convex TypeScript exited zero. Final source and preservation checks compare actual artifacts. Missing terminal marker was reproduced as a failing final check before this write. Detailed results are in `.audit/DW-92-native-followup/recheck/evidence.md` and the actual raw logs.
 
-Residual limits: original sentence-level uncertainty detection and exact-content methodology policy remain as specified. The PowerShell harness reports one platform-specific dotfile subcase skip. Local gates and this genuine worker result do not claim external native acceptance; no control state, old runs, integration checkout or deferred ledger was edited.
+Residual risks: the accepted sentence-level detector and exact-content methodology limits remain. Native final acceptance is still the orchestrator's operation. The orchestrator-owned ledger was dirty at invocation and has been preserved without staging or modification; its status is neither a defect nor evidence of verification.
