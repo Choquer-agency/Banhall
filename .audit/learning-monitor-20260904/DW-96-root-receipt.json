@@ -1,0 +1,16 @@
+{
+  "at": "2026-09-05T06:26:16.607378+00:00",
+  "commit": "091ec5a22f57ae3f566d6b70c56c3a61069763fc",
+  "reviewed_hash_checks": {
+    "convex/ai/learning.ts": true,
+    "convex/learningFailure.test.ts": true,
+    "review_diff": true
+  },
+  "gate_exit_receipts": {
+    "after-convex-types.exit": "0",
+    "after-focused.exit": "0",
+    "after-svelte-check.exit": "0",
+    "after-full.exit": "0"
+  },
+  "limits": "Verifies private commit source matches reviewed bytes and recorded gates; not integrated proof."
+}

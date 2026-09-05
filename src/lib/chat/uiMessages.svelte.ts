@@ -183,6 +183,13 @@ export function createUIMessages(
   });
 
   return {
+    // Local acknowledgements inspect only this thread's persisted page. Never
+    // allow a streaming projection (or equal text) to acknowledge a request.
+    hasPersistedMessage({ threadId, messageId }: { threadId: string; messageId: string }) {
+      const args = getArgs();
+      return args !== "skip" && args.threadId === threadId &&
+        pageResults.some(message => message.role === "user" && message.id === messageId);
+    },
     get results() {
       return results;
     },

@@ -2,13 +2,14 @@
 import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { api, internal } from "./_generated/api";
+import { api, components, internal } from "./_generated/api";
 import schema from "./schema";
 import {
   CHAT_CONTEXT_OPTIONS,
   reportChatAgent,
 } from "./ai/chatAgentV2";
 import type { ModelMessage } from "ai";
+import { CHAT_EVIDENCE_GUIDANCE } from "./ai/prompts";
 
 const modules = import.meta.glob("./**/*.ts");
 const authId = "auth-chat-turns";
@@ -21,7 +22,7 @@ function createTest() {
 
 async function setup() {
   const t = createTest();
-  const { projectId, reportId } = await t.run(async (ctx) => {
+  const { projectId, reportId, userId } = await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", {
       authId,
       role: "writer",
@@ -46,10 +47,11 @@ async function setup() {
       generatedAt: now,
       updatedAt: now,
     });
-    return { projectId, reportId };
+    return { projectId, reportId, userId };
   });
   return {
     t,
+    userId,
     projectId,
     reportId,
     actor: t.withIdentity({ subject: authId }),
@@ -281,6 +283,230 @@ describe("bounded chat context", () => {
 
     const finished = await setupResult.t.run(async (ctx) => ctx.db.get(turn._id));
     expect(finished?.status).toBe("completed");
+  });
+
+  /**
+   * Story 4 (CAP-4): the boundary is a property of the request the action
+   * actually issues, so it is asserted on the real payload. Source scanning
+   * cannot see that `getChatContextV2` stopped returning `evidenceBudget` or a
+   * document's `category`/`uploaderRole`: all three are optional, so the
+   * builder would silently fall back to defaults and client trust with every
+   * other test still green.
+   */
+  test("streamChatReply sends evidence in the user message and never in the system prompt", async () => {
+    const setupResult = await setup();
+    const reportBody = "The reactor seal failed at 400 kPa during cycle 12.";
+    const analyzerFinding = "ANALYZER-JSON-FINDING";
+    const documentBody = "NOTES-DOCUMENT-BODY";
+    await setupResult.t.run(async (ctx) => {
+      await ctx.db.patch(setupResult.reportId, {
+        content: JSON.stringify({
+          type: "doc",
+          content: [
+            { type: "paragraph", content: [{ type: "text", text: reportBody }] },
+          ],
+        }),
+      });
+      const transcriptId = await ctx.db.insert("transcripts", {
+        projectId: setupResult.projectId,
+        content: "Interview content",
+        createdAt: Date.now(),
+      });
+      await ctx.db.insert("generations", {
+        projectId: setupResult.projectId,
+        transcriptId,
+        status: "completed",
+        agentOutputs: JSON.stringify({ analyzer: { finding: analyzerFinding } }),
+        startedAt: Date.now(),
+      });
+      await ctx.db.insert("projectDocuments", {
+        projectId: setupResult.projectId,
+        fileName: "notes.md",
+        fileType: "md",
+        content: documentBody,
+        category: "writer_notes",
+        uploaderRole: "writer",
+        source: "upload",
+        uploadedBy: authId,
+        createdAt: Date.now(),
+      });
+    });
+    const { result, turn } = await sendQueuedTurn(setupResult);
+    const decisionTarget = "PRIOR-DECISION-TARGET";
+    await setupResult.t.run(async (ctx) => {
+      await ctx.db.insert("chatProposals", {
+        agentThreadId: result.threadId,
+        toolCallId: "call-prior",
+        projectId: setupResult.projectId,
+        reportId: setupResult.reportId,
+        kind: "edit",
+        targetText: decisionTarget,
+        newText: "PRIOR-DECISION-CANDIDATE",
+        state: "rejected",
+        createdAt: Date.now(),
+      });
+    });
+
+    const streamText = vi
+      .spyOn(reportChatAgent, "streamText")
+      .mockResolvedValue({
+        consumeStream: async () => {},
+      } as unknown as Awaited<ReturnType<typeof reportChatAgent.streamText>>);
+    await setupResult.t.action(internal.ai.chatAgentV2.streamChatReply, {
+      agentThreadId: result.threadId,
+      promptMessageId: result.messageId,
+      reportId: setupResult.reportId,
+    });
+
+    const call = streamText.mock.calls[0];
+    if (!call) throw new Error("streamText call missing");
+    const system = String(call[2]?.system ?? "");
+    const messages = call[2]?.messages ?? [];
+    expect(messages).toHaveLength(1);
+    const evidence = String(
+      (messages[0] as { role: string; content: unknown }).content
+    );
+    expect((messages[0] as { role: string }).role).toBe("user");
+
+    // Not one byte of client evidence carries system authority.
+    for (const secret of [reportBody, analyzerFinding, documentBody, decisionTarget]) {
+      expect(system).not.toContain(secret);
+      expect(evidence).toContain(secret);
+    }
+    // The report arrives inside its own markers, under the guidance.
+    expect(evidence).toContain(CHAT_EVIDENCE_GUIDANCE);
+    const open = evidence.indexOf("--- BEGIN [CURRENT REPORT] ---");
+    const close = evidence.indexOf("--- END [CURRENT REPORT] ---");
+    expect(open).toBeGreaterThan(-1);
+    expect(evidence.indexOf(reportBody)).toBeGreaterThan(open);
+    expect(evidence.indexOf(reportBody)).toBeLessThan(close);
+    // The document's stored provenance reached the marker line.
+    expect(evidence).toContain(
+      "--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---"
+    );
+
+    const finished = await setupResult.t.run(async (ctx) => ctx.db.get(turn._id));
+    expect(finished?.status).toBe("completed");
+  });
+
+  test("streamChatReply applies the evidence budget the query resolved", async () => {
+    const setupResult = await setup();
+    await setupResult.t.run(async (ctx) => {
+      const adminId = await ctx.db.insert("users", {
+        authId: `${authId}-budget-admin`,
+        role: "admin",
+      });
+      // One document allowed; the second must never reach the provider.
+      await ctx.db.insert("appSettings", {
+        key: "ai.chatMaxEvidenceDocuments",
+        value: "1",
+        updatedBy: adminId,
+        updatedAt: Date.now(),
+      });
+      for (const name of ["first.md", "second.md"]) {
+        await ctx.db.insert("projectDocuments", {
+          projectId: setupResult.projectId,
+          fileName: name,
+          fileType: "md",
+          content: `Body of ${name}`,
+          category: "other",
+          source: "upload",
+          uploadedBy: authId,
+          createdAt: Date.now(),
+        });
+      }
+    });
+    const { result } = await sendQueuedTurn(setupResult);
+
+    const streamText = vi
+      .spyOn(reportChatAgent, "streamText")
+      .mockResolvedValue({
+        consumeStream: async () => {},
+      } as unknown as Awaited<ReturnType<typeof reportChatAgent.streamText>>);
+    // Captured, not silenced: the line is the story's only operator signal.
+    const infoLines: string[] = [];
+    const info = vi
+      .spyOn(console, "info")
+      .mockImplementation((...parts: unknown[]) => {
+        infoLines.push(parts.map(String).join(" "));
+      });
+    try {
+      await setupResult.t.action(internal.ai.chatAgentV2.streamChatReply, {
+        agentThreadId: result.threadId,
+        promptMessageId: result.messageId,
+        reportId: setupResult.reportId,
+      });
+    } finally {
+      info.mockRestore();
+    }
+
+    const call = streamText.mock.calls[0];
+    if (!call) throw new Error("streamText call missing");
+    const evidence = String(
+      (call[2]?.messages?.[0] as { content: unknown }).content
+    );
+    expect(evidence).toContain("first.md");
+    expect(evidence).not.toContain("Body of second.md");
+    expect(evidence.match(/--- BEGIN \[OTHER SUPPORTING MATERIAL\]/g)).toHaveLength(1);
+    // The dropped document is named in the message and in the cut log, so a
+    // budget gap never reads as an interview gap.
+    expect(evidence).toContain(
+      "[1 further attached document(s) were omitted to fit the context budget.]"
+    );
+    const cutLine = infoLines.find((line) =>
+      line.startsWith(`chat evidence ${result.threadId}`)
+    );
+    expect(cutLine).toBeDefined();
+    expect(cutLine).toContain(setupResult.reportId);
+    expect(cutLine).toContain("left out second.md");
+  });
+
+  test("streamChatReply keeps the sender's style preferences in the system prompt", async () => {
+    const setupResult = await setup();
+    const preferences = "PREFER-FIRST-PERSON-PLURAL";
+    const userId = await setupResult.t.run(async (ctx) => {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_authId", (q) => q.eq("authId", authId))
+        .unique();
+      if (!user) throw new Error("writer missing");
+      await ctx.db.insert("writerProfiles", {
+        userId: user._id,
+        customInstructions: preferences,
+        enabled: true,
+        styleOverrides: { bannedWords: true },
+        updatedBy: user._id,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      return user._id;
+    });
+    const { result } = await sendQueuedTurn(setupResult);
+
+    const streamText = vi
+      .spyOn(reportChatAgent, "streamText")
+      .mockResolvedValue({
+        consumeStream: async () => {},
+      } as unknown as Awaited<ReturnType<typeof reportChatAgent.streamText>>);
+    await setupResult.t.action(internal.ai.chatAgentV2.streamChatReply, {
+      agentThreadId: result.threadId,
+      promptMessageId: result.messageId,
+      reportId: setupResult.reportId,
+      userId,
+    });
+
+    const call = streamText.mock.calls[0];
+    if (!call) throw new Error("streamText call missing");
+    const system = String(call[2]?.system ?? "");
+    const evidence = String(
+      (call[2]?.messages?.[0] as { content: unknown }).content
+    );
+    // The waiver footer points at these preferences; the action must forward
+    // them so the reference is never dangling, and they are the writer's own
+    // direction, so they stay out of the evidence message.
+    expect(system).toContain("WRITER'S PERSONAL STYLE PREFERENCES");
+    expect(system).toContain(preferences);
+    expect(evidence).not.toContain(preferences);
   });
 });
 
@@ -1318,4 +1544,319 @@ describe("bounded turn and proposal reads", () => {
       setupResult.t.query(api.chatV2.listProposals, { threadId })
     ).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
   });
+});
+
+
+describe("CAP-11 chat admission", () => {
+  async function recordCost(s: Awaited<ReturnType<typeof setup>>, costUsd: number, createdAt = Date.now(), projectId = s.projectId, callSite = "generation:242") {
+    await s.t.mutation(internal.aiUsage.logUsage, {
+      projectId, callSite, model: "test", inputTokens: 0, outputTokens: 0, costUsd, createdAt,
+    });
+  }
+
+  async function state(s: Awaited<ReturnType<typeof setup>>) {
+    const app = await s.t.run(async (ctx) => ({
+      threads: await ctx.db.query("agentChatThreads").collect(),
+      turns: await ctx.db.query("chatTurns").collect(),
+      jobs: await ctx.db.system.query("_scheduled_functions").collect(),
+    }));
+    const threads = await s.t.query(components.agent.threads.listThreadsByUserId, { userId: s.userId });
+    const messages = await Promise.all(app.threads.map((thread) => s.actor.query(api.chatV2.listMessages, {
+      threadId: thread.agentThreadId, paginationOpts: { cursor: null, numItems: 100 },
+    })));
+    return { app, threads, messages };
+  }
+
+  test("admits exactly the default budget, sums all call sites, and rejects without side effects", async () => {
+    const s = await setup();
+    await recordCost(s, 25);
+    await recordCost(s, 25, Date.now(), s.projectId, "chat");
+    const { turn, result } = await sendQueuedTurn(s);
+    expect(turn.userId).toBe(s.userId);
+    await recordCost(s, 0.01);
+    const before = await state(s);
+    for (const target of [{ newThread: true }, { newThread: false }, { threadId: result.threadId }]) {
+      await expect(s.actor.mutation(api.chatV2.sendMessage, { reportId: s.reportId, content: "refused", ...target }))
+        .rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+      expect(await state(s)).toEqual(before);
+    }
+  });
+
+  test("includes both window endpoints and excludes old, future, and other-project cost", async () => {
+    const s = await setup();
+    const other = await s.t.run(async (ctx) => {
+      const project = await ctx.db.get(s.projectId);
+      if (!project) throw new Error("missing project");
+      return ctx.db.insert("projects", { title: "Other", clientName: "Client", status: "review", createdBy: s.userId, shareToken: "other", createdAt: Date.now(), updatedAt: Date.now() });
+    });
+    const start = Date.now() - 24 * 60 * 60 * 1000;
+    await recordCost(s, 100, start - 1);
+    await recordCost(s, 100, Date.now() + 1);
+    await recordCost(s, 100, Date.now(), other);
+    await recordCost(s, 25, start);
+    await recordCost(s, 25, Date.now());
+    await sendQueuedTurn(s);
+    await recordCost(s, 0.01, start);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+  });
+
+  test("counts queued turns across projects and releases capacity on start", async () => {
+    const s = await setup();
+    const otherReport = await s.t.run(async (ctx) => {
+      const projectId = await ctx.db.insert("projects", { title: "Other", clientName: "Client", status: "review", createdBy: s.userId, shareToken: "other", createdAt: Date.now(), updatedAt: Date.now() });
+      return ctx.db.insert("reports", { projectId, content: "{}", version: 1, generatedAt: Date.now(), updatedAt: Date.now() });
+    });
+    const first = await sendQueuedTurn(s);
+    const other = await sendQueuedTurn({ ...s, reportId: otherReport });
+    await sendQueuedTurn(s);
+    const before = await state(s);
+    for (const target of [{ newThread: true }, { newThread: false }, { threadId: other.result.threadId }]) {
+      await expect(s.actor.mutation(api.chatV2.sendMessage, { reportId: otherReport, content: "full", ...target }))
+        .rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
+    }
+    expect(await state(s)).toEqual(before);
+    await s.t.run(async (ctx) => { await ctx.db.insert("users", { authId: "other-sender", role: "writer" }); });
+    await s.t.withIdentity({ subject: "other-sender" }).mutation(api.chatV2.sendMessage, { reportId: s.reportId, content: "another sender", threadId: first.result.threadId });
+    await s.t.mutation(internal.chatV2.markTurnStarted, { agentThreadId: first.result.threadId, promptMessageId: first.result.messageId, startedAt: Date.now() });
+    await sendQueuedTurn(s);
+  });
+
+  test("running and all terminal states do not consume queued slots", async () => {
+    const s = await setup();
+    for (const status of ["running", "completed", "failed", "aborted"] as const) {
+      const { turn } = await sendQueuedTurn(s);
+      await s.t.run(async (ctx) => ctx.db.patch(turn._id, { status }));
+    }
+    for (let i = 0; i < 3; i++) await sendQueuedTurn(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
+  });
+
+  test("legacy shared turns use prompt sender and tolerate missing prompt ownership", async () => {
+    const s = await setup();
+    const { threadId } = await s.t.run(async (ctx) => reportChatAgent.createThread(ctx, { userId: "other-creator" }));
+    await insertMappedThread(s, threadId);
+    for (const userId of [undefined, "other-sender", s.userId, s.userId, s.userId]) {
+      const saved = await s.t.run(async (ctx) => reportChatAgent.saveMessages(ctx, {
+        threadId, userId, messages: [{ role: "user", content: "legacy" }], skipEmbeddings: true,
+      }));
+      const message = saved.messages[0];
+      if (!message) throw new Error("missing prompt");
+      await insertTurn(s.t, { agentThreadId: threadId, promptMessageId: message._id, order: message.order, status: "queued" });
+    }
+    const before = await state(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
+    expect(await state(s)).toEqual(before);
+  });
+
+  test("legacy prompts without this sender never inherit the thread creator", async () => {
+    const s = await setup();
+    const { threadId } = await s.t.run(async (ctx) => reportChatAgent.createThread(ctx, { userId: s.userId }));
+    await insertMappedThread(s, threadId);
+    for (const owner of [undefined, "someone-else", "deleted-prompt"]) {
+      const promptThreadId = owner === undefined
+        ? (await s.t.run(async (ctx) => reportChatAgent.createThread(ctx, {}))).threadId
+        : threadId;
+      const saved = await s.t.run(async (ctx) => reportChatAgent.saveMessages(ctx, {
+        threadId: promptThreadId, userId: owner,
+        messages: [{ role: "user", content: "legacy" }], skipEmbeddings: true,
+      }));
+      const message = saved.messages[0];
+      if (!message) throw new Error("missing prompt");
+      expect(message.userId).toBe(owner);
+      await insertTurn(s.t, { agentThreadId: promptThreadId, promptMessageId: message._id, order: message.order, status: "queued" });
+      if (owner === "deleted-prompt") {
+        await s.t.mutation(components.agent.messages.deleteByIds, { messageIds: [message._id] });
+      }
+    }
+    const { turn } = await sendQueuedTurn(s);
+    await s.t.run(async (ctx) => ctx.db.patch(turn._id, { userId: undefined }));
+    await sendQueuedTurn(s);
+    await sendQueuedTurn(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
+  });
+
+  async function admin(s: Awaited<ReturnType<typeof setup>>) {
+    await s.t.run(async (ctx) => { await ctx.db.insert("users", { authId: "admission-admin", role: "admin" }); });
+    return s.t.withIdentity({ subject: "admission-admin" });
+  }
+
+  test("administrator settings immediately control both limits", async () => {
+    const s = await setup();
+    const actor = await admin(s);
+    await actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd: 0.5, maxQueuedTurns: 1 });
+    await recordCost(s, 0.5);
+    await sendQueuedTurn(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
+    await recordCost(s, 0.01);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+  });
+
+  test("invalid and unauthorized setting updates preserve both values atomically", async () => {
+    const s = await setup();
+    const actor = await admin(s);
+    const valid = { dailyBudgetUsd: 1.5, maxQueuedTurns: 2 };
+    await actor.mutation(api.appSettings.setChatAdmissionLimits, valid);
+    const before = await s.t.run(async (ctx) => ctx.db.query("appSettings").collect());
+    for (const dailyBudgetUsd of [0, -1, NaN, Infinity, -Infinity]) {
+      await expect(actor.mutation(api.appSettings.setChatAdmissionLimits, { ...valid, dailyBudgetUsd }))
+        .rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+    }
+    for (const maxQueuedTurns of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+      await expect(actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd: 99, maxQueuedTurns }))
+        .rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+    }
+    await s.t.run(async (ctx) => { await ctx.db.insert("users", { authId: "anonymous-admin", role: "admin", isAnonymous: true }); });
+    for (const reader of [s.actor, s.rolelessActor, s.t.withIdentity({ subject: "anonymous-admin" })]) {
+      await expect(reader.mutation(api.appSettings.setChatAdmissionLimits, valid)).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+    }
+    await expect(s.t.mutation(api.appSettings.setChatAdmissionLimits, valid)).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
+    expect(await s.t.run(async (ctx) => ctx.db.query("appSettings").collect())).toEqual(before);
+  });
+
+  test.each([
+    { budget: "bad", queue: "1", admitted: 1 },
+    { budget: "50", queue: "1.5", admitted: 3 },
+    { budget: "Infinity", queue: "9007199254740992", admitted: 3 },
+    { budget: "0", queue: "-1", admitted: 3 },
+  ])("stale settings fall back independently: $budget / $queue", async ({ budget, queue, admitted }) => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      for (const [key, value] of [["ai.chatDailyBudgetUsd", budget], ["ai.chatMaxQueuedTurns", queue]]) {
+        await ctx.db.insert("appSettings", { key, value, updatedBy: s.userId, updatedAt: Date.now() });
+      }
+    });
+    await recordCost(s, 50);
+    for (let i = 0; i < admitted; i++) await sendQueuedTurn(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
+  });
+
+  test("compares exact decimal costs at a fractional budget", async () => {
+    const s = await setup();
+    const actor = await admin(s);
+    await actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd: 0.3, maxQueuedTurns: 3 });
+    await recordCost(s, 0.1);
+    await recordCost(s, 0.2, Date.now(), s.projectId, "chat");
+    await sendQueuedTurn(s);
+    await recordCost(s, 0.000001, Date.now(), s.projectId, "financial");
+    const before = await state(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+    expect(await state(s)).toEqual(before);
+  });
+
+  test.each([1e-20, Number.MIN_VALUE])("preserves scientific-notation cost %s without rounding away an excess", async (extra) => {
+    const s = await setup();
+    const actor = await admin(s);
+    await actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd: 0.3, maxQueuedTurns: 3 });
+    await recordCost(s, 0.3);
+    await recordCost(s, extra);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+  });
+
+  test.each([1e21, Number.MAX_VALUE])("admits exact large budget %s and rejects a tiny excess", async (dailyBudgetUsd) => {
+    const s = await setup();
+    const actor = await admin(s);
+    await actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd, maxQueuedTurns: 3 });
+    await recordCost(s, dailyBudgetUsd);
+    await sendQueuedTurn(s);
+    await recordCost(s, Number.MIN_VALUE);
+    const before = await state(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+    expect(await state(s)).toEqual(before);
+  });
+
+  test("reads whitespace-padded scientific budget from stored settings", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => ctx.db.insert("appSettings", {
+      key: "ai.chatDailyBudgetUsd", value: "  5E-1  ", updatedBy: s.userId, updatedAt: Date.now(),
+    }));
+    await recordCost(s, 0.5);
+    await sendQueuedTurn(s);
+    await recordCost(s, 0.01);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+  });
+
+  test("sums 10000 fractional rows exactly and includes the decisive last range row", async () => {
+    const s = await setup();
+    const actor = await admin(s);
+    await actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd: 0.3, maxQueuedTurns: 3 });
+    for (let batch = 0; batch < 20; batch++) {
+      await s.t.run(async (ctx) => {
+        for (let offset = 0; offset < 500; offset++) {
+          await ctx.db.insert("aiUsage", {
+            projectId: s.projectId, callSite: offset % 2 ? "chat" : "financial", model: "test",
+            inputTokens: 0, outputTokens: 0, costUsd: 0.00003,
+            createdAt: Date.now() - 10000 + batch * 500 + offset,
+          });
+        }
+      });
+    }
+    await sendQueuedTurn(s);
+    await recordCost(s, 0.00001);
+    const before = await state(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+    expect(await state(s)).toEqual(before);
+  });
+
+  test("readmits a blocked project after recorded usage expires", async () => {
+    const s = await setup();
+    await recordCost(s, 51);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+    vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000 + 1);
+    await sendQueuedTurn(s);
+  });
+
+  test("updates both existing settings without duplicate keys and immediately raises or lowers admission", async () => {
+    const s = await setup();
+    const actor = await admin(s);
+    const setLimits = (dailyBudgetUsd: number, maxQueuedTurns: number) => actor.mutation(
+      api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd, maxQueuedTurns }
+    );
+    await setLimits(0.5, 3);
+    await recordCost(s, 0.4);
+    await sendQueuedTurn(s);
+    await setLimits(0.3, 3);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+    await setLimits(0.5, 3);
+    await sendQueuedTurn(s);
+    await setLimits(0.5, 1);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
+    await setLimits(0.5, 3);
+    await sendQueuedTurn(s);
+    const rows = await s.t.run(async (ctx) => ctx.db.query("appSettings").collect());
+    expect(rows.map(({ key, value }) => ({ key, value })).sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { key: "ai.chatDailyBudgetUsd", value: "0.5" },
+      { key: "ai.chatMaxQueuedTurns", value: "3" },
+    ]);
+  });
+
+  test.each(["bad", "Infinity", "0", "-1", "0x10", "", "   "])("malformed budget %s rejects over default with free queue and no side effects", async (value) => {
+    const s = await setup();
+    await s.t.run(async (ctx) => ctx.db.insert("appSettings", {
+      key: "ai.chatDailyBudgetUsd", value, updatedBy: s.userId, updatedAt: Date.now(),
+    }));
+    await recordCost(s, 50.01);
+    const before = await state(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+    expect(await state(s)).toEqual(before);
+  });
+
+  test("keeps a valid fractional budget while a malformed queue independently defaults to three", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      for (const [key, value] of [["ai.chatDailyBudgetUsd", "0.3"], ["ai.chatMaxQueuedTurns", "bad"]]) {
+        await ctx.db.insert("appSettings", { key, value, updatedBy: s.userId, updatedAt: Date.now() });
+      }
+    });
+    await recordCost(s, 0.3);
+    const { turn } = await sendQueuedTurn(s);
+    await sendQueuedTurn(s);
+    await sendQueuedTurn(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
+    await s.t.run(async (ctx) => ctx.db.patch(turn._id, { status: "completed" }));
+    await recordCost(s, 0.01);
+    const before = await state(s);
+    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
+    expect(await state(s)).toEqual(before);
+  });
+
 });

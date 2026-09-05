@@ -1,0 +1,1908 @@
+diff --git a/convex/chatTurns.test.ts b/convex/chatTurns.test.ts
+index 65d00bc..09d6837 100644
+--- a/convex/chatTurns.test.ts
++++ b/convex/chatTurns.test.ts
+@@ -2,13 +2,14 @@
+ import agentTest from "@convex-dev/agent/test";
+ import { convexTest } from "convex-test";
+ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+-import { api, internal } from "./_generated/api";
++import { api, components, internal } from "./_generated/api";
+ import schema from "./schema";
+ import {
+   CHAT_CONTEXT_OPTIONS,
+   reportChatAgent,
+ } from "./ai/chatAgentV2";
+ import type { ModelMessage } from "ai";
++import { CHAT_EVIDENCE_GUIDANCE } from "./ai/prompts";
+ 
+ const modules = import.meta.glob("./**/*.ts");
+ const authId = "auth-chat-turns";
+@@ -21,7 +22,7 @@ function createTest() {
+ 
+ async function setup() {
+   const t = createTest();
+-  const { projectId, reportId } = await t.run(async (ctx) => {
++  const { projectId, reportId, userId } = await t.run(async (ctx) => {
+     const userId = await ctx.db.insert("users", {
+       authId,
+       role: "writer",
+@@ -46,10 +47,11 @@ async function setup() {
+       generatedAt: now,
+       updatedAt: now,
+     });
+-    return { projectId, reportId };
++    return { projectId, reportId, userId };
+   });
+   return {
+     t,
++    userId,
+     projectId,
+     reportId,
+     actor: t.withIdentity({ subject: authId }),
+@@ -282,6 +284,230 @@ describe("bounded chat context", () => {
+     const finished = await setupResult.t.run(async (ctx) => ctx.db.get(turn._id));
+     expect(finished?.status).toBe("completed");
+   });
++
++  /**
++   * Story 4 (CAP-4): the boundary is a property of the request the action
++   * actually issues, so it is asserted on the real payload. Source scanning
++   * cannot see that `getChatContextV2` stopped returning `evidenceBudget` or a
++   * document's `category`/`uploaderRole`: all three are optional, so the
++   * builder would silently fall back to defaults and client trust with every
++   * other test still green.
++   */
++  test("streamChatReply sends evidence in the user message and never in the system prompt", async () => {
++    const setupResult = await setup();
++    const reportBody = "The reactor seal failed at 400 kPa during cycle 12.";
++    const analyzerFinding = "ANALYZER-JSON-FINDING";
++    const documentBody = "NOTES-DOCUMENT-BODY";
++    await setupResult.t.run(async (ctx) => {
++      await ctx.db.patch(setupResult.reportId, {
++        content: JSON.stringify({
++          type: "doc",
++          content: [
++            { type: "paragraph", content: [{ type: "text", text: reportBody }] },
++          ],
++        }),
++      });
++      const transcriptId = await ctx.db.insert("transcripts", {
++        projectId: setupResult.projectId,
++        content: "Interview content",
++        createdAt: Date.now(),
++      });
++      await ctx.db.insert("generations", {
++        projectId: setupResult.projectId,
++        transcriptId,
++        status: "completed",
++        agentOutputs: JSON.stringify({ analyzer: { finding: analyzerFinding } }),
++        startedAt: Date.now(),
++      });
++      await ctx.db.insert("projectDocuments", {
++        projectId: setupResult.projectId,
++        fileName: "notes.md",
++        fileType: "md",
++        content: documentBody,
++        category: "writer_notes",
++        uploaderRole: "writer",
++        source: "upload",
++        uploadedBy: authId,
++        createdAt: Date.now(),
++      });
++    });
++    const { result, turn } = await sendQueuedTurn(setupResult);
++    const decisionTarget = "PRIOR-DECISION-TARGET";
++    await setupResult.t.run(async (ctx) => {
++      await ctx.db.insert("chatProposals", {
++        agentThreadId: result.threadId,
++        toolCallId: "call-prior",
++        projectId: setupResult.projectId,
++        reportId: setupResult.reportId,
++        kind: "edit",
++        targetText: decisionTarget,
++        newText: "PRIOR-DECISION-CANDIDATE",
++        state: "rejected",
++        createdAt: Date.now(),
++      });
++    });
++
++    const streamText = vi
++      .spyOn(reportChatAgent, "streamText")
++      .mockResolvedValue({
++        consumeStream: async () => {},
++      } as unknown as Awaited<ReturnType<typeof reportChatAgent.streamText>>);
++    await setupResult.t.action(internal.ai.chatAgentV2.streamChatReply, {
++      agentThreadId: result.threadId,
++      promptMessageId: result.messageId,
++      reportId: setupResult.reportId,
++    });
++
++    const call = streamText.mock.calls[0];
++    if (!call) throw new Error("streamText call missing");
++    const system = String(call[2]?.system ?? "");
++    const messages = call[2]?.messages ?? [];
++    expect(messages).toHaveLength(1);
++    const evidence = String(
++      (messages[0] as { role: string; content: unknown }).content
++    );
++    expect((messages[0] as { role: string }).role).toBe("user");
++
++    // Not one byte of client evidence carries system authority.
++    for (const secret of [reportBody, analyzerFinding, documentBody, decisionTarget]) {
++      expect(system).not.toContain(secret);
++      expect(evidence).toContain(secret);
++    }
++    // The report arrives inside its own markers, under the guidance.
++    expect(evidence).toContain(CHAT_EVIDENCE_GUIDANCE);
++    const open = evidence.indexOf("--- BEGIN [CURRENT REPORT] ---");
++    const close = evidence.indexOf("--- END [CURRENT REPORT] ---");
++    expect(open).toBeGreaterThan(-1);
++    expect(evidence.indexOf(reportBody)).toBeGreaterThan(open);
++    expect(evidence.indexOf(reportBody)).toBeLessThan(close);
++    // The document's stored provenance reached the marker line.
++    expect(evidence).toContain(
++      "--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---"
++    );
++
++    const finished = await setupResult.t.run(async (ctx) => ctx.db.get(turn._id));
++    expect(finished?.status).toBe("completed");
++  });
++
++  test("streamChatReply applies the evidence budget the query resolved", async () => {
++    const setupResult = await setup();
++    await setupResult.t.run(async (ctx) => {
++      const adminId = await ctx.db.insert("users", {
++        authId: `${authId}-budget-admin`,
++        role: "admin",
++      });
++      // One document allowed; the second must never reach the provider.
++      await ctx.db.insert("appSettings", {
++        key: "ai.chatMaxEvidenceDocuments",
++        value: "1",
++        updatedBy: adminId,
++        updatedAt: Date.now(),
++      });
++      for (const name of ["first.md", "second.md"]) {
++        await ctx.db.insert("projectDocuments", {
++          projectId: setupResult.projectId,
++          fileName: name,
++          fileType: "md",
++          content: `Body of ${name}`,
++          category: "other",
++          source: "upload",
++          uploadedBy: authId,
++          createdAt: Date.now(),
++        });
++      }
++    });
++    const { result } = await sendQueuedTurn(setupResult);
++
++    const streamText = vi
++      .spyOn(reportChatAgent, "streamText")
++      .mockResolvedValue({
++        consumeStream: async () => {},
++      } as unknown as Awaited<ReturnType<typeof reportChatAgent.streamText>>);
++    // Captured, not silenced: the line is the story's only operator signal.
++    const infoLines: string[] = [];
++    const info = vi
++      .spyOn(console, "info")
++      .mockImplementation((...parts: unknown[]) => {
++        infoLines.push(parts.map(String).join(" "));
++      });
++    try {
++      await setupResult.t.action(internal.ai.chatAgentV2.streamChatReply, {
++        agentThreadId: result.threadId,
++        promptMessageId: result.messageId,
++        reportId: setupResult.reportId,
++      });
++    } finally {
++      info.mockRestore();
++    }
++
++    const call = streamText.mock.calls[0];
++    if (!call) throw new Error("streamText call missing");
++    const evidence = String(
++      (call[2]?.messages?.[0] as { content: unknown }).content
++    );
++    expect(evidence).toContain("first.md");
++    expect(evidence).not.toContain("Body of second.md");
++    expect(evidence.match(/--- BEGIN \[OTHER SUPPORTING MATERIAL\]/g)).toHaveLength(1);
++    // The dropped document is named in the message and in the cut log, so a
++    // budget gap never reads as an interview gap.
++    expect(evidence).toContain(
++      "[1 further attached document(s) were omitted to fit the context budget.]"
++    );
++    const cutLine = infoLines.find((line) =>
++      line.startsWith(`chat evidence ${result.threadId}`)
++    );
++    expect(cutLine).toBeDefined();
++    expect(cutLine).toContain(setupResult.reportId);
++    expect(cutLine).toContain("left out second.md");
++  });
++
++  test("streamChatReply keeps the sender's style preferences in the system prompt", async () => {
++    const setupResult = await setup();
++    const preferences = "PREFER-FIRST-PERSON-PLURAL";
++    const userId = await setupResult.t.run(async (ctx) => {
++      const user = await ctx.db
++        .query("users")
++        .withIndex("by_authId", (q) => q.eq("authId", authId))
++        .unique();
++      if (!user) throw new Error("writer missing");
++      await ctx.db.insert("writerProfiles", {
++        userId: user._id,
++        customInstructions: preferences,
++        enabled: true,
++        styleOverrides: { bannedWords: true },
++        updatedBy: user._id,
++        createdAt: Date.now(),
++        updatedAt: Date.now(),
++      });
++      return user._id;
++    });
++    const { result } = await sendQueuedTurn(setupResult);
++
++    const streamText = vi
++      .spyOn(reportChatAgent, "streamText")
++      .mockResolvedValue({
++        consumeStream: async () => {},
++      } as unknown as Awaited<ReturnType<typeof reportChatAgent.streamText>>);
++    await setupResult.t.action(internal.ai.chatAgentV2.streamChatReply, {
++      agentThreadId: result.threadId,
++      promptMessageId: result.messageId,
++      reportId: setupResult.reportId,
++      userId,
++    });
++
++    const call = streamText.mock.calls[0];
++    if (!call) throw new Error("streamText call missing");
++    const system = String(call[2]?.system ?? "");
++    const evidence = String(
++      (call[2]?.messages?.[0] as { content: unknown }).content
++    );
++    // The waiver footer points at these preferences; the action must forward
++    // them so the reference is never dangling, and they are the writer's own
++    // direction, so they stay out of the evidence message.
++    expect(system).toContain("WRITER'S PERSONAL STYLE PREFERENCES");
++    expect(system).toContain(preferences);
++    expect(evidence).not.toContain(preferences);
++  });
+ });
+ 
+ describe("chat turn lifecycle", () => {
+@@ -1319,3 +1545,318 @@ describe("bounded turn and proposal reads", () => {
+     ).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
+   });
+ });
++
++
++describe("CAP-11 chat admission", () => {
++  async function recordCost(s: Awaited<ReturnType<typeof setup>>, costUsd: number, createdAt = Date.now(), projectId = s.projectId, callSite = "generation:242") {
++    await s.t.mutation(internal.aiUsage.logUsage, {
++      projectId, callSite, model: "test", inputTokens: 0, outputTokens: 0, costUsd, createdAt,
++    });
++  }
++
++  async function state(s: Awaited<ReturnType<typeof setup>>) {
++    const app = await s.t.run(async (ctx) => ({
++      threads: await ctx.db.query("agentChatThreads").collect(),
++      turns: await ctx.db.query("chatTurns").collect(),
++      jobs: await ctx.db.system.query("_scheduled_functions").collect(),
++    }));
++    const threads = await s.t.query(components.agent.threads.listThreadsByUserId, { userId: s.userId });
++    const messages = await Promise.all(app.threads.map((thread) => s.actor.query(api.chatV2.listMessages, {
++      threadId: thread.agentThreadId, paginationOpts: { cursor: null, numItems: 100 },
++    })));
++    return { app, threads, messages };
++  }
++
++  test("admits exactly the default budget, sums all call sites, and rejects without side effects", async () => {
++    const s = await setup();
++    await recordCost(s, 25);
++    await recordCost(s, 25, Date.now(), s.projectId, "chat");
++    const { turn, result } = await sendQueuedTurn(s);
++    expect(turn.userId).toBe(s.userId);
++    await recordCost(s, 0.01);
++    const before = await state(s);
++    for (const target of [{ newThread: true }, { newThread: false }, { threadId: result.threadId }]) {
++      await expect(s.actor.mutation(api.chatV2.sendMessage, { reportId: s.reportId, content: "refused", ...target }))
++        .rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
++      expect(await state(s)).toEqual(before);
++    }
++  });
++
++  test("includes both window endpoints and excludes old, future, and other-project cost", async () => {
++    const s = await setup();
++    const other = await s.t.run(async (ctx) => {
++      const project = await ctx.db.get(s.projectId);
++      if (!project) throw new Error("missing project");
++      return ctx.db.insert("projects", { title: "Other", clientName: "Client", status: "review", createdBy: s.userId, shareToken: "other", createdAt: Date.now(), updatedAt: Date.now() });
++    });
++    const start = Date.now() - 24 * 60 * 60 * 1000;
++    await recordCost(s, 100, start - 1);
++    await recordCost(s, 100, Date.now() + 1);
++    await recordCost(s, 100, Date.now(), other);
++    await recordCost(s, 25, start);
++    await recordCost(s, 25, Date.now());
++    await sendQueuedTurn(s);
++    await recordCost(s, 0.01, start);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
++  });
++
++  test("counts queued turns across projects and releases capacity on start", async () => {
++    const s = await setup();
++    const otherReport = await s.t.run(async (ctx) => {
++      const projectId = await ctx.db.insert("projects", { title: "Other", clientName: "Client", status: "review", createdBy: s.userId, shareToken: "other", createdAt: Date.now(), updatedAt: Date.now() });
++      return ctx.db.insert("reports", { projectId, content: "{}", version: 1, generatedAt: Date.now(), updatedAt: Date.now() });
++    });
++    const first = await sendQueuedTurn(s);
++    const other = await sendQueuedTurn({ ...s, reportId: otherReport });
++    await sendQueuedTurn(s);
++    const before = await state(s);
++    for (const target of [{ newThread: true }, { newThread: false }, { threadId: other.result.threadId }]) {
++      await expect(s.actor.mutation(api.chatV2.sendMessage, { reportId: otherReport, content: "full", ...target }))
++        .rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
++    }
++    expect(await state(s)).toEqual(before);
++    await s.t.run(async (ctx) => { await ctx.db.insert("users", { authId: "other-sender", role: "writer" }); });
++    await s.t.withIdentity({ subject: "other-sender" }).mutation(api.chatV2.sendMessage, { reportId: s.reportId, content: "another sender", threadId: first.result.threadId });
++    await s.t.mutation(internal.chatV2.markTurnStarted, { agentThreadId: first.result.threadId, promptMessageId: first.result.messageId, startedAt: Date.now() });
++    await sendQueuedTurn(s);
++  });
++
++  test("running and all terminal states do not consume queued slots", async () => {
++    const s = await setup();
++    for (const status of ["running", "completed", "failed", "aborted"] as const) {
++      const { turn } = await sendQueuedTurn(s);
++      await s.t.run(async (ctx) => ctx.db.patch(turn._id, { status }));
++    }
++    for (let i = 0; i < 3; i++) await sendQueuedTurn(s);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
++  });
++
++  test("legacy shared turns use prompt sender and tolerate missing prompt ownership", async () => {
++    const s = await setup();
++    const { threadId } = await s.t.run(async (ctx) => reportChatAgent.createThread(ctx, { userId: "other-creator" }));
++    await insertMappedThread(s, threadId);
++    for (const userId of [undefined, "other-sender", s.userId, s.userId, s.userId]) {
++      const saved = await s.t.run(async (ctx) => reportChatAgent.saveMessages(ctx, {
++        threadId, userId, messages: [{ role: "user", content: "legacy" }], skipEmbeddings: true,
++      }));
++      const message = saved.messages[0];
++      if (!message) throw new Error("missing prompt");
++      await insertTurn(s.t, { agentThreadId: threadId, promptMessageId: message._id, order: message.order, status: "queued" });
++    }
++    const before = await state(s);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
++    expect(await state(s)).toEqual(before);
++  });
++
++  test("legacy prompts without this sender never inherit the thread creator", async () => {
++    const s = await setup();
++    const { threadId } = await s.t.run(async (ctx) => reportChatAgent.createThread(ctx, { userId: s.userId }));
++    await insertMappedThread(s, threadId);
++    for (const owner of [undefined, "someone-else", "deleted-prompt"]) {
++      const promptThreadId = owner === undefined
++        ? (await s.t.run(async (ctx) => reportChatAgent.createThread(ctx, {}))).threadId
++        : threadId;
++      const saved = await s.t.run(async (ctx) => reportChatAgent.saveMessages(ctx, {
++        threadId: promptThreadId, userId: owner,
++        messages: [{ role: "user", content: "legacy" }], skipEmbeddings: true,
++      }));
++      const message = saved.messages[0];
++      if (!message) throw new Error("missing prompt");
++      expect(message.userId).toBe(owner);
++      await insertTurn(s.t, { agentThreadId: promptThreadId, promptMessageId: message._id, order: message.order, status: "queued" });
++      if (owner === "deleted-prompt") {
++        await s.t.mutation(components.agent.messages.deleteByIds, { messageIds: [message._id] });
++      }
++    }
++    const { turn } = await sendQueuedTurn(s);
++    await s.t.run(async (ctx) => ctx.db.patch(turn._id, { userId: undefined }));
++    await sendQueuedTurn(s);
++    await sendQueuedTurn(s);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
++  });
++
++  async function admin(s: Awaited<ReturnType<typeof setup>>) {
++    await s.t.run(async (ctx) => { await ctx.db.insert("users", { authId: "admission-admin", role: "admin" }); });
++    return s.t.withIdentity({ subject: "admission-admin" });
++  }
++
++  test("administrator settings immediately control both limits", async () => {
++    const s = await setup();
++    const actor = await admin(s);
++    await actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd: 0.5, maxQueuedTurns: 1 });
++    await recordCost(s, 0.5);
++    await sendQueuedTurn(s);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
++    await recordCost(s, 0.01);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
++  });
++
++  test("invalid and unauthorized setting updates preserve both values atomically", async () => {
++    const s = await setup();
++    const actor = await admin(s);
++    const valid = { dailyBudgetUsd: 1.5, maxQueuedTurns: 2 };
++    await actor.mutation(api.appSettings.setChatAdmissionLimits, valid);
++    const before = await s.t.run(async (ctx) => ctx.db.query("appSettings").collect());
++    for (const dailyBudgetUsd of [0, -1, NaN, Infinity, -Infinity]) {
++      await expect(actor.mutation(api.appSettings.setChatAdmissionLimits, { ...valid, dailyBudgetUsd }))
++        .rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
++    }
++    for (const maxQueuedTurns of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
++      await expect(actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd: 99, maxQueuedTurns }))
++        .rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
++    }
++    await s.t.run(async (ctx) => { await ctx.db.insert("users", { authId: "anonymous-admin", role: "admin", isAnonymous: true }); });
++    for (const reader of [s.actor, s.rolelessActor, s.t.withIdentity({ subject: "anonymous-admin" })]) {
++      await expect(reader.mutation(api.appSettings.setChatAdmissionLimits, valid)).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
++    }
++    await expect(s.t.mutation(api.appSettings.setChatAdmissionLimits, valid)).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
++    expect(await s.t.run(async (ctx) => ctx.db.query("appSettings").collect())).toEqual(before);
++  });
++
++  test.each([
++    { budget: "bad", queue: "1", admitted: 1 },
++    { budget: "50", queue: "1.5", admitted: 3 },
++    { budget: "Infinity", queue: "9007199254740992", admitted: 3 },
++    { budget: "0", queue: "-1", admitted: 3 },
++  ])("stale settings fall back independently: $budget / $queue", async ({ budget, queue, admitted }) => {
++    const s = await setup();
++    await s.t.run(async (ctx) => {
++      for (const [key, value] of [["ai.chatDailyBudgetUsd", budget], ["ai.chatMaxQueuedTurns", queue]]) {
++        await ctx.db.insert("appSettings", { key, value, updatedBy: s.userId, updatedAt: Date.now() });
++      }
++    });
++    await recordCost(s, 50);
++    for (let i = 0; i < admitted; i++) await sendQueuedTurn(s);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
++  });
++
++  test("compares exact decimal costs at a fractional budget", async () => {
++    const s = await setup();
++    const actor = await admin(s);
++    await actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd: 0.3, maxQueuedTurns: 3 });
++    await recordCost(s, 0.1);
++    await recordCost(s, 0.2, Date.now(), s.projectId, "chat");
++    await sendQueuedTurn(s);
++    await recordCost(s, 0.000001, Date.now(), s.projectId, "financial");
++    const before = await state(s);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
++    expect(await state(s)).toEqual(before);
++  });
++
++  test.each([1e-20, Number.MIN_VALUE])("preserves scientific-notation cost %s without rounding away an excess", async (extra) => {
++    const s = await setup();
++    const actor = await admin(s);
++    await actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd: 0.3, maxQueuedTurns: 3 });
++    await recordCost(s, 0.3);
++    await recordCost(s, extra);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
++  });
++
++  test.each([1e21, Number.MAX_VALUE])("admits exact large budget %s and rejects a tiny excess", async (dailyBudgetUsd) => {
++    const s = await setup();
++    const actor = await admin(s);
++    await actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd, maxQueuedTurns: 3 });
++    await recordCost(s, dailyBudgetUsd);
++    await sendQueuedTurn(s);
++    await recordCost(s, Number.MIN_VALUE);
++    const before = await state(s);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
++    expect(await state(s)).toEqual(before);
++  });
++
++  test("reads whitespace-padded scientific budget from stored settings", async () => {
++    const s = await setup();
++    await s.t.run(async (ctx) => ctx.db.insert("appSettings", {
++      key: "ai.chatDailyBudgetUsd", value: "  5E-1  ", updatedBy: s.userId, updatedAt: Date.now(),
++    }));
++    await recordCost(s, 0.5);
++    await sendQueuedTurn(s);
++    await recordCost(s, 0.01);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
++  });
++
++  test("sums 10000 fractional rows exactly and includes the decisive last range row", async () => {
++    const s = await setup();
++    const actor = await admin(s);
++    await actor.mutation(api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd: 0.3, maxQueuedTurns: 3 });
++    for (let batch = 0; batch < 20; batch++) {
++      await s.t.run(async (ctx) => {
++        for (let offset = 0; offset < 500; offset++) {
++          await ctx.db.insert("aiUsage", {
++            projectId: s.projectId, callSite: offset % 2 ? "chat" : "financial", model: "test",
++            inputTokens: 0, outputTokens: 0, costUsd: 0.00003,
++            createdAt: Date.now() - 10000 + batch * 500 + offset,
++          });
++        }
++      });
++    }
++    await sendQueuedTurn(s);
++    await recordCost(s, 0.00001);
++    const before = await state(s);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
++    expect(await state(s)).toEqual(before);
++  });
++
++  test("readmits a blocked project after recorded usage expires", async () => {
++    const s = await setup();
++    await recordCost(s, 51);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
++    vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000 + 1);
++    await sendQueuedTurn(s);
++  });
++
++  test("updates both existing settings without duplicate keys and immediately raises or lowers admission", async () => {
++    const s = await setup();
++    const actor = await admin(s);
++    const setLimits = (dailyBudgetUsd: number, maxQueuedTurns: number) => actor.mutation(
++      api.appSettings.setChatAdmissionLimits, { dailyBudgetUsd, maxQueuedTurns }
++    );
++    await setLimits(0.5, 3);
++    await recordCost(s, 0.4);
++    await sendQueuedTurn(s);
++    await setLimits(0.3, 3);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
++    await setLimits(0.5, 3);
++    await sendQueuedTurn(s);
++    await setLimits(0.5, 1);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
++    await setLimits(0.5, 3);
++    await sendQueuedTurn(s);
++    const rows = await s.t.run(async (ctx) => ctx.db.query("appSettings").collect());
++    expect(rows.map(({ key, value }) => ({ key, value })).sort((a, b) => a.key.localeCompare(b.key))).toEqual([
++      { key: "ai.chatDailyBudgetUsd", value: "0.5" },
++      { key: "ai.chatMaxQueuedTurns", value: "3" },
++    ]);
++  });
++
++  test.each(["bad", "Infinity", "0", "-1", "0x10", "", "   "])("malformed budget %s rejects over default with free queue and no side effects", async (value) => {
++    const s = await setup();
++    await s.t.run(async (ctx) => ctx.db.insert("appSettings", {
++      key: "ai.chatDailyBudgetUsd", value, updatedBy: s.userId, updatedAt: Date.now(),
++    }));
++    await recordCost(s, 50.01);
++    const before = await state(s);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
++    expect(await state(s)).toEqual(before);
++  });
++
++  test("keeps a valid fractional budget while a malformed queue independently defaults to three", async () => {
++    const s = await setup();
++    await s.t.run(async (ctx) => {
++      for (const [key, value] of [["ai.chatDailyBudgetUsd", "0.3"], ["ai.chatMaxQueuedTurns", "bad"]]) {
++        await ctx.db.insert("appSettings", { key, value, updatedBy: s.userId, updatedAt: Date.now() });
++      }
++    });
++    await recordCost(s, 0.3);
++    const { turn } = await sendQueuedTurn(s);
++    await sendQueuedTurn(s);
++    await sendQueuedTurn(s);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_QUEUE_LIMIT_EXCEEDED" } });
++    await s.t.run(async (ctx) => ctx.db.patch(turn._id, { status: "completed" }));
++    await recordCost(s, 0.01);
++    const before = await state(s);
++    await expect(sendQueuedTurn(s)).rejects.toMatchObject({ data: { code: "CHAT_SPEND_BUDGET_EXCEEDED" } });
++    expect(await state(s)).toEqual(before);
++  });
++
++});
+diff --git a/convex/chatV2.ts b/convex/chatV2.ts
+index d61e68e..759ba8e 100644
+--- a/convex/chatV2.ts
++++ b/convex/chatV2.ts
+@@ -1,3 +1,4 @@
++import { persistDeterministicFindings } from "./lib/qaFindings";
+ import {
+   query,
+   mutation,
+@@ -22,7 +23,7 @@ import {
+   requireInternalProjectAccess,
+ } from "./lib/auth";
+ import { requireAnthropicConfigured } from "./lib/providerConfig";
+-import { pruneSnapshots, snapshotAuditFields } from "./lib/snapshots";
++import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
+ import { requireReportEditAccess } from "./lib/roleCapabilities";
+ import {
+   applyReplacements,
+@@ -33,6 +34,9 @@ import { getEffectiveWriterStyle } from "./writerProfiles";
+ import { domainError, sha256 } from "./lib/contracts";
+ import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+ import { proposalPairs } from "../shared/chatProposals";
++import { chatAdmissionLimits, chatEvidenceBudget } from "./appSettings";
++import { projectRollingCostUsdUnits, usdDecimalUnits } from "./aiUsage";
++import type { Id } from "./_generated/dataModel";
+ 
+ // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
+ // The @convex-dev/agent component owns threads/messages/stream deltas.
+@@ -232,6 +236,38 @@ export const listTurns = query({
+ 
+ // ─── Mutations ───────────────────────────────────────────────────────────────
+ 
++async function assertChatAdmission(
++  ctx: MutationCtx,
++  projectId: Id<"projects">,
++  userId: Id<"users">
++): Promise<void> {
++  const limits = await chatAdmissionLimits(ctx);
++  if (await projectRollingCostUsdUnits(ctx, { projectId, now: Date.now() }) > usdDecimalUnits(limits.dailyBudgetUsd)) {
++    domainError("CHAT_SPEND_BUDGET_EXCEEDED", "Project AI spending budget exceeded; chat is unavailable");
++  }
++  let queued = 0;
++  const ownTurns = ctx.db.query("chatTurns")
++    .withIndex("by_userId_and_status", (q) => q.eq("userId", userId).eq("status", "queued"));
++  for await (const turn of ownTurns) {
++    queued += 1;
++    if (queued >= limits.maxQueuedTurns) {
++      domainError("CHAT_QUEUE_LIMIT_EXCEEDED", "Your queued chat turn limit has been reached");
++    }
++  }
++  // Legacy turns belong to their prompt sender, never the shared thread creator.
++  const legacyTurns = ctx.db.query("chatTurns")
++    .withIndex("by_userId_and_status", (q) => q.eq("userId", undefined).eq("status", "queued"));
++  for await (const turn of legacyTurns) {
++    const [prompt] = await ctx.runQuery(components.agent.messages.getMessagesByIds, {
++      messageIds: [turn.promptMessageId],
++    });
++    if (prompt?.userId === userId) queued += 1;
++    if (queued >= limits.maxQueuedTurns) {
++      domainError("CHAT_QUEUE_LIMIT_EXCEEDED", "Your queued chat turn limit has been reached");
++    }
++  }
++}
++
+ export const sendMessage = mutation({
+   args: {
+     reportId: v.id("reports"),
+@@ -284,22 +320,21 @@ export const sendMessage = mutation({
+             .withIndex("by_reportId", (q) => q.eq("reportId", args.reportId))
+             .order("desc")
+             .first();
+-      if (latest) {
+-        agentThreadId = latest.agentThreadId;
+-      } else {
+-        const title = args.content.trim().slice(0, 60) || "New chat";
+-        agentThreadId = await createThread(ctx, components.agent, {
+-          userId,
+-          title,
+-        });
+-        await ctx.db.insert("agentChatThreads", {
+-          projectId: report.projectId,
+-          reportId: args.reportId,
+-          agentThreadId,
+-          title,
+-          createdAt: Date.now(),
+-        });
+-      }
++      agentThreadId = latest?.agentThreadId;
++    }
++
++    await assertChatAdmission(ctx, report.projectId, userId);
++
++    if (!agentThreadId) {
++      const title = args.content.trim().slice(0, 60) || "New chat";
++      agentThreadId = await createThread(ctx, components.agent, { userId, title });
++      await ctx.db.insert("agentChatThreads", {
++        projectId: report.projectId,
++        reportId: args.reportId,
++        agentThreadId,
++        title,
++        createdAt: Date.now(),
++      });
+     }
+ 
+     const excerpt = args.highlight
+@@ -318,6 +353,7 @@ export const sendMessage = mutation({
+     });
+ 
+     await ctx.db.insert("chatTurns", {
++      userId,
+       agentThreadId,
+       promptMessageId: messageId,
+       order: message.order,
+@@ -466,27 +502,10 @@ export const applyProposal = mutation({
+     const content = JSON.stringify(updated);
+     const revisionNumber = report.revisionNumber ?? 0;
+     const now = Date.now();
+-    const auditFields = await snapshotAuditFields(ctx, report);
+-    // Provenance for version history. The research layer owns the evidence
+-    // policy (brain patterns never count) and stored the number at review time.
+-    const researchSourceCount = proposal.researchSessionId
+-      ? ((await ctx.db.get(proposal.researchSessionId))?.evidenceSourceCount ?? 0)
+-      : 0;
+-    await ctx.db.insert("reportSnapshots", {
+-      projectId: report.projectId,
+-      reportId: report._id,
+-      content: report.content,
+-      ...auditFields,
+-      sourceRevisionNumber: revisionNumber,
+-      reason: "pre_chat_edit",
+-      label: proposal.researchSessionId ? "Before researched edit" : "Before AI edit",
+-      createdByRole: "system",
++    await writePreEditSnapshot(ctx, report, "pre_chat_edit", {
+       createdAt: now,
+       ...(proposal.researchSessionId
+-        ? {
+-            researchSessionId: proposal.researchSessionId,
+-            researchSourceCount,
+-          }
++        ? { researchSessionId: proposal.researchSessionId }
+         : {}),
+     });
+     await ctx.db.patch(report._id, {
+@@ -496,6 +515,7 @@ export const applyProposal = mutation({
+       provenanceId: undefined,
+       updatedAt: now,
+     });
++    await persistDeterministicFindings(ctx, report._id);
+     await ctx.db.patch(args.proposalId, { state: "applied" });
+     await pruneSnapshots(ctx, report._id);
+ 
+@@ -583,18 +603,7 @@ export const markProposalApplied = mutation({
+     }
+ 
+     const now = Date.now();
+-    const auditFields = await snapshotAuditFields(ctx, report);
+-    await ctx.db.insert("reportSnapshots", {
+-      projectId: report.projectId,
+-      reportId: report._id,
+-      content: report.content,
+-      ...auditFields,
+-      sourceRevisionNumber: revisionNumber,
+-      reason: "pre_chat_edit",
+-      label: "Before AI edit",
+-      createdByRole: "system",
+-      createdAt: now,
+-    });
++    await writePreEditSnapshot(ctx, report, "pre_chat_edit", { createdAt: now });
+     await ctx.db.patch(report._id, {
+       content: args.content,
+       contentHash: await sha256(args.content),
+@@ -603,6 +612,7 @@ export const markProposalApplied = mutation({
+       provenanceId: undefined,
+       updatedAt: now,
+     });
++    await persistDeterministicFindings(ctx, report._id);
+     await ctx.db.patch(args.proposalId, { state: "applied" });
+     await pruneSnapshots(ctx, report._id);
+ 
+@@ -1038,8 +1048,19 @@ export const getChatContextV2 = internalQuery({
+       agentOutputs: generation?.agentOutputs ?? null,
+       documents: documents
+         .filter((d) => !d.archived) // BNH-24: archived docs are out of AI context
+-        .map((d) => ({ fileName: d.fileName, content: d.content })),
++        // CAP-3/CAP-4: provenance travels with the document. Trust and the
++        // marker label are derived from stored facts, so the action never
++        // invents them; absent fields fail closed in `chatEvidence`.
++        .map((d) => ({
++          fileName: d.fileName,
++          content: d.content,
++          ...(d.category ? { category: d.category } : {}),
++          ...(d.uploaderRole ? { uploaderRole: d.uploaderRole } : {}),
++        })),
+       decisions,
++      // Resolved in the query, exactly as `getGenerationInput` resolves the
++      // analyzer's: the action sends context, it does not decide policy.
++      evidenceBudget: await chatEvidenceBudget(ctx),
+     };
+   },
+ });
+diff --git a/convex/comments.ts b/convex/comments.ts
+index c87932a..da42343 100644
+--- a/convex/comments.ts
++++ b/convex/comments.ts
+@@ -1,3 +1,4 @@
++import { persistDeterministicFindings } from "./lib/qaFindings";
+ import { query, mutation } from "./_generated/server";
+ import { v } from "convex/values";
+ import {
+@@ -7,7 +8,7 @@ import {
+ import { requireReportEditAccess } from "./lib/roleCapabilities";
+ import { domainError, sha256 } from "./lib/contracts";
+ import { applyReplacements, type PMNode } from "./lib/reportEdits";
+-import { pruneSnapshots, snapshotAuditFields } from "./lib/snapshots";
++import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
+ 
+ const COMMENTER_COLORS = [
+   "#818CF8",
+@@ -183,15 +184,7 @@ export const acceptEdit = mutation({
+     // restorable through the ordinary snapshot restore path. The replacement
+     // checks above throw before this insert, so a rejected accept persists no
+     // snapshot.
+-    await ctx.db.insert("reportSnapshots", {
+-      projectId: report.projectId,
+-      reportId: report._id,
+-      content: report.content,
+-      ...(await snapshotAuditFields(ctx, report)),
+-      sourceRevisionNumber: revisionNumber,
+-      reason: "pre_client_edit",
+-      label: "Before client edit",
+-      createdByRole: "system",
++    await writePreEditSnapshot(ctx, report, "pre_client_edit", {
+       createdAt: now,
+     });
+     await ctx.db.patch(report._id, {
+@@ -201,6 +194,7 @@ export const acceptEdit = mutation({
+       provenanceId: undefined,
+       updatedAt: now,
+     });
++    await persistDeterministicFindings(ctx, report._id);
+     await ctx.db.patch(args.commentId, { resolved: true });
+     await pruneSnapshots(ctx, report._id);
+   },
+diff --git a/convex/documents.test.ts b/convex/documents.test.ts
+index 26ab24d..228d06e 100644
+--- a/convex/documents.test.ts
++++ b/convex/documents.test.ts
+@@ -156,6 +156,85 @@ describe("uploadDocument processing status", () => {
+     ).toBe("reference_only");
+   });
+ 
++  test("records the uploader's internal role, and never backfills it on dedupe", async () => {
++    const { t, projectId, writer } = await setup();
++
++    // CAP-3: the analyzer's trust in a writer's-notes document comes from this
++    // stored role, because `uploadedBy` is not a usable join key to `users`.
++    const documentId = await writer.mutation(api.documents.uploadDocument, {
++      projectId,
++      fileName: "notes.md",
++      fileType: "txt",
++      content: "Writer direction.",
++      category: "writer_notes",
++    });
++    expect(
++      await t.run(async (ctx) => (await ctx.db.get(documentId))?.uploaderRole)
++    ).toBe("writer");
++
++    // A row that predates this field stays roleless: the dedupe branch resolves
++    // to a *different* upload event, so its role is not a fact about that row.
++    const legacyId = await t.run(async (ctx) =>
++      await ctx.db.insert("projectDocuments", {
++        projectId,
++        fileName: "legacy-notes.md",
++        fileType: "txt",
++        content: "Legacy direction.",
++        category: "writer_notes",
++        source: "chat_upload",
++        uploadedBy: "writer@banhall.com",
++        createdAt: Date.now(),
++      })
++    );
++    const deduped = await writer.mutation(api.documents.uploadDocument, {
++      projectId,
++      fileName: "legacy-notes.md",
++      fileType: "txt",
++      content: "Legacy direction.",
++      category: "writer_notes",
++    });
++    expect(deduped).toBe(legacyId);
++    // Assert the key's absence rather than its value: a dedupe branch that
++    // wrote `uploaderRole: undefined` would be indistinguishable from one that
++    // wrote nothing if we only compared values, and only true absence proves
++    // the row was left alone.
++    expect(
++      await t.run(async (ctx) => {
++        const row = await ctx.db.get(legacyId);
++        return row !== null && "uploaderRole" in row;
++      })
++    ).toBe(false);
++
++    // Complementary case: an already-attributed row must keep the role it was
++    // stored with, even when a user holding a different role re-uploads it.
++    // Without this, code that patched `uploaderRole` on the dedupe branch would
++    // still pass the roleless case above.
++    const attributedId = await t.run(async (ctx) =>
++      await ctx.db.insert("projectDocuments", {
++        projectId,
++        fileName: "manager-notes.md",
++        fileType: "txt",
++        content: "Manager direction.",
++        category: "writer_notes",
++        source: "chat_upload",
++        uploadedBy: "manager@banhall.com",
++        uploaderRole: "manager",
++        createdAt: Date.now(),
++      })
++    );
++    const rededuped = await writer.mutation(api.documents.uploadDocument, {
++      projectId,
++      fileName: "manager-notes.md",
++      fileType: "txt",
++      content: "Manager direction.",
++      category: "writer_notes",
++    });
++    expect(rededuped).toBe(attributedId);
++    expect(
++      await t.run(async (ctx) => (await ctx.db.get(attributedId))?.uploaderRole)
++    ).toBe("manager");
++  });
++
+   test("two unreadable files with the same name stay separate rows", async () => {
+     const { t, projectId, writer } = await setup();
+     // Both store "", so a (fileName, content) dedupe would merge them. They are
+diff --git a/convex/documents.ts b/convex/documents.ts
+index 2702292..6f0f7b1 100644
+--- a/convex/documents.ts
++++ b/convex/documents.ts
+@@ -144,6 +144,11 @@ export const uploadDocument = mutation({
+       processingStatus: derived.status,
+       processingDetail: derived.detail,
+       uploadedBy: user._id,
++      // CAP-3: the analyzer's trust in this document comes from who uploaded
++      // it, not from the category the uploader picked. `uploadedBy` is not a
++      // usable join key (see schema), so the role is recorded here.
++      // `requireInternalProjectAccess` above already rejected a roleless user.
++      ...(user.role ? { uploaderRole: user.role } : {}),
+       createdAt: Date.now(),
+     });
+ 
+diff --git a/convex/generationAttribution.test.ts b/convex/generationAttribution.test.ts
+index 3339b0d..6f4b058 100644
+--- a/convex/generationAttribution.test.ts
++++ b/convex/generationAttribution.test.ts
+@@ -9,17 +9,24 @@ import type {
+   GenerationResponse,
+ } from "./ai/openrouterCore";
+ import { runPipelineForModel } from "./ai/pipeline";
++import { buildTrustedContext, DEFAULT_CONTEXT_BUDGET } from "./ai/trustedContext";
++import { CONTEXT_INPUTS_GUIDANCE } from "./ai/prompts";
++import { CONDENSE_VERSION } from "./lib/transcripts";
+ import {
+   currentPromptVersion,
+   generationPromptProgram,
+   hashPromptProgram,
+ } from "./ai/promptProgram";
+ import schema from "./schema";
++import { sha256 } from "./lib/contracts";
++import { buildTiptapDocument } from "./lib/tiptapReport";
+ import { NO_STYLE_OVERRIDES } from "../shared/styleOverrides";
+ 
+ const modules = import.meta.glob("./**/*.ts");
+ const AUTH_ID = "generation-attribution-writer";
+ const PROMPT_VERSION = `sha256:${"a".repeat(64)}`;
++const CANDIDATE_DOCUMENT_BODY = "Frozen writer notes for the candidate run.";
++const LEGACY_DOCUMENT_BODY = "Unattributed direction frozen before CAP-3.";
+ const RETRY_PROMPT_VERSION = `sha256:${"b".repeat(64)}`;
+ 
+ beforeEach(() => {
+@@ -123,17 +130,25 @@ function observingPipelineClientFactory(calls: ObservedPipelineCall[]) {
+ 
+ type OpenRouterRequest = {
+   messages?: Array<{ role?: string; content?: string }>;
+-  tool_choice?: { function?: { name?: string } };
++  tool_choice?: { function?: { name?: string }; name?: string };
+ };
+ 
+-function successfulOpenRouterFetch(requests: OpenRouterRequest[]) {
++function successfulOpenRouterFetch(requests: OpenRouterRequest[], compliance: Record<string, boolean> = {}) {
+   return vi.fn(async (_input: unknown, init?: { body?: unknown }) => {
+     if (typeof init?.body !== "string") {
+       throw new Error("OpenRouter test request had no JSON body");
+     }
+     const request = JSON.parse(init.body) as OpenRouterRequest;
+     requests.push(request);
+-    const toolName = request.tool_choice?.function?.name;
++    const toolName = request.tool_choice?.function?.name ?? request.tool_choice?.name;
++    // Entry analysis can use the direct Anthropic model. Return its real
++    // response envelope so analyzer validation succeeds for both gateways.
++    if (request.tool_choice?.name) {
++      return new Response(JSON.stringify({
++        ...generationResponseFor(toolName),
++        usage: { input_tokens: 0, output_tokens: 0 },
++      }), { status: 200, headers: { "Content-Type": "application/json" } });
++    }
+     const response = generationResponseFor(toolName);
+     const tool = response.content.find((block) => block.type === "tool_use");
+     return new Response(
+@@ -148,7 +163,7 @@ function successfulOpenRouterFetch(requests: OpenRouterRequest[]) {
+                       id: tool.id,
+                       function: {
+                         name: tool.name,
+-                        arguments: JSON.stringify(tool.input),
++                        arguments: JSON.stringify(toolName === "submit_qa_scorecard" ? { ...TEST_QA_SCORECARD, cra_compliance: compliance } : tool.input),
+                       },
+                     },
+                   ],
+@@ -195,6 +210,16 @@ async function insertProjectFixture(t: ReturnType<typeof convexTest>) {
+   });
+ }
+ 
++/**
++ * The analyzer user message the production path builds — delimited, guided
++ * and budgeted — so the fixture cannot drift from the real shape.
++ */
++function analyzerMessageFor(transcript: string): string {
++  return buildTrustedContext({
++    transcriptParts: [{ label: "Interview transcript", content: transcript }],
++  }).userMessage;
++}
++
+ async function insertDigest(
+   t: ReturnType<typeof convexTest>,
+   input: {
+@@ -736,7 +761,7 @@ describe("generation payload provenance", () => {
+       observingPipelineClientFactory(blankCalls),
+       "claude-sonnet-5",
+       "A runtime transcript",
+-      [],
++      analyzerMessageFor("A runtime transcript"),
+       "Runtime title",
+       { analyzer: "", s242: "", s244: "", s246: "" },
+       "standard",
+@@ -766,7 +791,7 @@ describe("generation payload provenance", () => {
+       observingPipelineClientFactory(pairedCalls),
+       "claude-sonnet-5",
+       "A different runtime transcript",
+-      [],
++      analyzerMessageFor("A different runtime transcript"),
+       "A different runtime title",
+       { analyzer: "", s242: "", s244: "", s246: "" },
+       "standard",
+@@ -805,6 +830,124 @@ describe("generation payload provenance", () => {
+     );
+   });
+ 
++  it("settles stale QA without attribution and permits a fenced retry", async () => {
++    vi.useFakeTimers();
++    try {
++      const t = convexTest(schema, modules);
++      const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
++      await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
++      const input = await t.query(internal.generations.getPostQaInput, { generationId: fixture.generationId });
++      if (!input) throw new Error("Missing QA input");
++      const response = successfulOpenRouterFetch([], { why_how_why_intact: false });
++      let edited = false;
++      vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: { body?: unknown }) => {
++        if (!edited) {
++          edited = true;
++          await t.withIdentity({ subject: AUTH_ID }).mutation(api.reports.updateReportContent, {
++            reportId: input.capturedRef.reportId,
++            content: "Human corrected content",
++            expectedRevisionNumber: 0,
++          });
++        }
++        return response(url, init);
++      }));
++      await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId, attemptStartedAt: fixture.now });
++      expect((await t.run(ctx => ctx.db.get(fixture.generationId)))?.postQaStatus).toBe("failed");
++      expect(await t.run(ctx => ctx.db.query("qaFindings").collect())).not.toEqual(expect.arrayContaining([expect.objectContaining({ check: "cra_methodology" })]));
++      const beforeRetry = await t.run(ctx => ctx.db.get(fixture.generationId));
++      expect(JSON.parse(beforeRetry?.agentOutputs ?? "{}").qa).toBeUndefined();
++      vi.stubGlobal("fetch", successfulOpenRouterFetch([], { why_how_why_intact: true }));
++      await t.withIdentity({ subject: AUTH_ID }).mutation(api.generations.requestReportQa, { generationId: fixture.generationId });
++      const retry = await t.run(ctx => ctx.db.get(fixture.generationId));
++      expect(retry?.postQaStatus).toBe("running");
++      expect(retry?.postQaStartedAt).toBeGreaterThan(fixture.now);
++      // A late failure from the old attempt cannot release the new retry lock.
++      await t.mutation(internal.generations.saveReportQa, {
++        generationId: fixture.generationId, attemptStartedAt: fixture.now,
++        capturedRef: input.capturedRef, failed: true,
++      });
++      expect(await t.run(ctx => ctx.db.get(fixture.generationId))).toEqual(retry);
++      await t.finishAllScheduledFunctions(vi.runAllTimers);
++      const completed = await t.run(ctx => ctx.db.get(fixture.generationId));
++      expect(completed?.postQaStatus).toBe("done");
++      // Neither a duplicate old action nor its completion may overwrite success.
++      await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId, attemptStartedAt: fixture.now });
++      await t.mutation(internal.generations.saveReportQa, {
++        generationId: fixture.generationId, attemptStartedAt: fixture.now,
++        capturedRef: input.capturedRef, qa: JSON.stringify({ ...TEST_QA_SCORECARD, cra_compliance: { why_how_why_intact: false } }),
++      });
++      expect(await t.run(ctx => ctx.db.get(fixture.generationId))).toEqual(completed);
++    } finally { vi.useRealTimers(); }
++  });
++
++  it("settles empty QA input and recovers after content is restored", async () => {
++    vi.useFakeTimers();
++    try {
++      const t = convexTest(schema, modules);
++      const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
++      await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
++      const report = await t.run(ctx => ctx.db.query("reports").unique());
++      if (!report) throw new Error("Missing report");
++      await t.run(ctx => ctx.db.patch(report._id, { content: JSON.stringify({ type: "doc", content: [] }) }));
++      const fetch = successfulOpenRouterFetch([]);
++      vi.stubGlobal("fetch", fetch);
++      await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId, attemptStartedAt: fixture.now });
++      expect(fetch).not.toHaveBeenCalled();
++      expect((await t.run(ctx => ctx.db.get(fixture.generationId)))?.postQaStatus).toBe("failed");
++      await t.withIdentity({ subject: AUTH_ID }).mutation(api.reports.updateReportContent, {
++        reportId: report._id, content: "Restored prose", expectedRevisionNumber: 0,
++      });
++      await t.withIdentity({ subject: AUTH_ID }).mutation(api.generations.requestReportQa, { generationId: fixture.generationId });
++      await t.finishAllScheduledFunctions(vi.runAllTimers);
++      expect((await t.run(ctx => ctx.db.get(fixture.generationId)))?.postQaStatus).toBe("done");
++      expect(fetch).toHaveBeenCalled();
++    } finally { vi.useRealTimers(); }
++  });
++
++  it("iterative QA captures all current sections instead of frozen approved runs", async () => {
++    const t = convexTest(schema, modules);
++    const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
++    const content = JSON.stringify(buildTiptapDocument("Current report", "Current uncertainty", "Current investigation", "Current advancement"));
++    const reportId = await t.run(async ctx => {
++      await ctx.db.patch(fixture.generationId, { candidateMode: "iterative" });
++      for (const kind of ["analysis", "brain_blocks"] as const) {
++        await ctx.db.insert("generationArtifacts", { generationId: fixture.generationId, kind, content: JSON.stringify(kind === "analysis" ? TEST_ANALYSIS : { styleOverrides: NO_STYLE_OVERRIDES }) });
++      }
++      for (const section of ["s242", "s244", "s246"] as const) {
++        await ctx.db.insert("generationSectionRuns", {
++          generationId: fixture.generationId, projectId: fixture.projectId, section,
++          status: "approved", approvedText: `Frozen approved ${section}`,
++          model: "openai/gpt-5.6-luna", label: "Luna", attempt: 1, queuedAt: fixture.now,
++        });
++      }
++      const report = await ctx.db.query("reports").unique();
++      if (!report) throw new Error("Missing report");
++      await ctx.db.patch(report._id, { content, revisionNumber: 3 });
++      return report._id;
++    });
++    const input = await t.query(internal.generations.getPostQaInput, { generationId: fixture.generationId });
++    expect(input?.section242.trim()).toBe("Current uncertainty");
++    expect(input?.section244.trim()).toBe("Current investigation");
++    expect(input?.section246.trim()).toBe("Current advancement");
++    expect(input?.capturedRef).toEqual({ reportId, revisionNumber: 3, contentHash: await sha256(content) });
++  });
++
++  it("post-QA provider methodology failures persist and block current readiness and publishing", async () => {
++    const t = convexTest(schema, modules);
++    const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
++    await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
++    vi.stubGlobal("fetch", successfulOpenRouterFetch([], { why_how_why_intact: false }));
++    await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId });
++    const report = await t.run(ctx => ctx.db.query("reports").unique());
++    if (!report) throw new Error("Missing report");
++    const findings = await t.run(ctx => ctx.db.query("qaFindings").collect());
++    expect(findings).toEqual(expect.arrayContaining([expect.objectContaining({ reportId: report._id, revisionNumber: 0, contentHash: await sha256(report.content), check: "cra_methodology", blocking: true })]));
++    const actor = t.withIdentity({ subject: AUTH_ID });
++    const readiness = await actor.query(api.projects.getProjectReadiness, { projectId: fixture.projectId, reportId: report._id });
++    expect(readiness?.blockers.map(row => row.code)).toContain("QA_BLOCKING");
++    await expect(actor.mutation(api.projects.publishForReview, { projectId: fixture.projectId, reportId: report._id })).rejects.toMatchObject({ data: { code: "QA_BLOCKING" } });
++  });
++
+   it("fetches but omits a selected blank post-QA digest through the real provider path", async () => {
+     const currentVersion = await currentPromptVersion();
+     const t = convexTest(schema, modules);
+@@ -1182,6 +1325,35 @@ describe("generation entry handoffs through the real actions", () => {
+         originalLength: 30,
+         capturedAt: fixture.now,
+       });
++      await ctx.db.insert("generationSources", {
++        generationId,
++        projectId: fixture.projectId,
++        kind: "project_document",
++        label: "writer_notes:notes.md",
++        content: CANDIDATE_DOCUMENT_BODY,
++        contentHash: "candidate-document-hash",
++        truncated: false,
++        originalLength: CANDIDATE_DOCUMENT_BODY.length,
++        // CAP-3: writer's-notes trust now comes from the uploader's role, so
++        // this fixture carries an internal one to keep the WRITER'S NOTES
++        // label the assertions below expect.
++        uploaderRole: "writer",
++        capturedAt: fixture.now,
++      });
++      // CAP-3: a legacy frozen writer_notes row with no uploaderRole, run
++      // through the real entry action, must reach the analyzer as client
++      // evidence — the whole seam in one traversal, not two tested halves.
++      await ctx.db.insert("generationSources", {
++        generationId,
++        projectId: fixture.projectId,
++        kind: "project_document",
++        label: "writer_notes:legacy.md",
++        content: LEGACY_DOCUMENT_BODY,
++        contentHash: "legacy-document-hash",
++        truncated: false,
++        originalLength: LEGACY_DOCUMENT_BODY.length,
++        capturedAt: fixture.now,
++      });
+       const candidateRunId = await ctx.db.insert("generationCandidateRuns", {
+         generationId,
+         projectId: fixture.projectId,
+@@ -1237,6 +1409,37 @@ describe("generation entry handoffs through the real actions", () => {
+     expect(analyzerBody).toBeDefined();
+     expect(analyzerBody).not.toContain(styleText);
+     expect(analyzerBody).not.toContain(qaText);
++    // The trusted-context module is actually wired into the request: the
++    // guidance ships on every analyzer call and every frozen source — the
++    // transcript included — travels between BEGIN/END markers.
++    const analyzerUser = JSON.parse(analyzerBody!) as {
++      messages: Array<{ role: string; content: string }>;
++    };
++    const userText = analyzerUser.messages
++      .filter((message) => message.role === "user")
++      .map((message) => message.content)
++      .join("\n");
++    expect(userText).toContain(CONTEXT_INPUTS_GUIDANCE);
++    expect(userText).toContain("--- BEGIN [INTERVIEW TRANSCRIPT] ---");
++    expect(userText).toContain("--- END [INTERVIEW TRANSCRIPT] ---");
++    expect(userText).toContain(
++      "--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---",
++    );
++    expect(userText).toContain(
++      "--- END [WRITER'S NOTES (unreliable narrator)] notes.md ---",
++    );
++    expect(userText).toContain(CANDIDATE_DOCUMENT_BODY);
++    // The roleless legacy row is demoted end to end: OTHER SUPPORTING MATERIAL
++    // label, never the WRITER'S NOTES header, and after the attributed notes.
++    expect(userText).toContain(
++      `--- BEGIN [OTHER SUPPORTING MATERIAL] legacy.md ---\n${LEGACY_DOCUMENT_BODY}\n--- END [OTHER SUPPORTING MATERIAL] legacy.md ---`,
++    );
++    expect(userText).not.toContain("[WRITER'S NOTES (unreliable narrator)] legacy.md");
++    expect(
++      userText.indexOf("--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---"),
++    ).toBeLessThan(
++      userText.indexOf("--- BEGIN [OTHER SUPPORTING MATERIAL] legacy.md ---"),
++    );
+ 
+     // Usage rows are scheduled at the transport boundary; flush them and read
+     // through the Story 11 index. Every candidate-owned call carries the run
+@@ -1848,7 +2051,7 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
+           status: section === "s246" ? "awaiting_review" : "approved",
+           ...(section === "s246"
+             ? { draftText: "Drafted 246" }
+-            : { approvedText: `Approved ${section}` }),
++            : { approvedText: section === "s242" ? "It was uncertain whether this scales." : `Approved ${section}` }),
+           model: "claude-sonnet-5",
+           label: "Sonnet 5",
+           attempt: 1,
+@@ -1893,6 +2096,8 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
+       sourceTranscriptId: transcriptIds[0],
+       sourceTranscriptIds: transcriptIds,
+     });
++    if (!written.report) throw new Error("Missing iterative report");
++    expect(await t.run(ctx => ctx.db.query("qaFindings").collect())).toEqual(expect.arrayContaining([expect.objectContaining({ reportId: written.report._id, revisionNumber: 0, contentHash: await sha256(written.report.content), section: "s242", check: "because_clause", blocking: true })]));
+     expect(written.snapshots).toHaveLength(2);
+     for (const snapshot of written.snapshots) {
+       expect(snapshot).toMatchObject({
+@@ -1907,3 +2112,396 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
+     ]);
+   });
+ });
++
++
++/**
++ * Story 2: the budget outcome must actually be recorded by the production
++ * entry actions — deleting the `recordContextBudget` call in either pipeline
++ * has to fail here, not merely go unnoticed because the mutation is exercised
++ * directly elsewhere.
++ */
++describe("the analyzer context budget is recorded by the entry actions", () => {
++  afterEach(() => {
++    vi.unstubAllGlobals();
++  });
++
++  /**
++   * Digest mode: the frozen full text is over budget by declaration
++   * (`inputMode: "digest"`), and a stored digest for exactly its bytes lets
++   * `ensureCondensedInputs` reuse it without a condense call — so the entry
++   * action freezes a `transcript_digest` row and re-reads before analyzing.
++   */
++  const DIGEST_FULL_TEXT = `${"F".repeat(200)} FULL-TEXT SENTINEL`;
++  const DIGEST_TEXT = "DIGEST SENTINEL";
++
++  async function reservedGenerationWithSources(
++    t: ReturnType<typeof convexTest>,
++    candidateMode: "single" | "iterative",
++    inputMode: "full" | "digest" = "full",
++  ) {
++    return await t.run(async (ctx) => {
++      const now = Date.now();
++      const transcriptText =
++        inputMode === "digest" ? DIGEST_FULL_TEXT : "A usable interview transcript.";
++      const userId = await ctx.db.insert("users", {
++        authId: `budget-record-${candidateMode}`,
++        role: "writer",
++      });
++      const projectId = await ctx.db.insert("projects", {
++        title: "Budget recording project",
++        clientName: "Test client",
++        status: "draft",
++        createdBy: userId,
++        shareToken: `budget-record-${candidateMode}`,
++        createdAt: now,
++        updatedAt: now,
++      });
++      const transcriptId = await ctx.db.insert("transcripts", {
++        projectId,
++        content: transcriptText,
++        createdAt: now,
++      });
++      const generationId = await ctx.db.insert("generations", {
++        projectId,
++        transcriptId,
++        transcriptIds: [transcriptId],
++        ...(inputMode === "digest" ? { inputMode } : {}),
++        status: "reserved",
++        requestedAt: now,
++        requestedBy: userId,
++        candidateMode,
++        ...(candidateMode === "single"
++          ? { singleModelId: "claude-sonnet-5" }
++          : {}),
++        previousProjectStatus: "draft",
++        learningDigestIds: [],
++        startedAt: now,
++      });
++      await ctx.db.patch(projectId, {
++        activeGenerationId: generationId,
++        status: "generating",
++      });
++      await ctx.db.insert("generationSources", {
++        generationId,
++        projectId,
++        kind: "transcript",
++        transcriptId,
++        label: "Interview transcript",
++        content: transcriptText,
++        contentHash: "budget-record-transcript-hash",
++        truncated: false,
++        originalLength: transcriptText.length,
++        capturedAt: now,
++      });
++      if (inputMode === "digest") {
++        await ctx.db.insert("transcriptDigests", {
++          transcriptId,
++          projectId,
++          sourceContentHash: "budget-record-transcript-hash",
++          condenseVersion: CONDENSE_VERSION,
++          content: DIGEST_TEXT,
++          structured: "[]",
++          model: "claude-sonnet-5",
++          promptVersion: PROMPT_VERSION,
++          charCount: DIGEST_TEXT.length,
++          originalLength: transcriptText.length,
++          createdAt: now,
++        });
++      }
++      await ctx.db.insert("generationSources", {
++        generationId,
++        projectId,
++        kind: "project_document",
++        label: "writer_notes:notes.md",
++        content: CANDIDATE_DOCUMENT_BODY,
++        contentHash: "budget-record-document-hash",
++        truncated: false,
++        originalLength: CANDIDATE_DOCUMENT_BODY.length,
++        // CAP-3: an internal role is what earns the notes label; this fixture
++        // carries one so its expected label is unchanged.
++        uploaderRole: "writer",
++        capturedAt: now,
++      });
++      return { generationId };
++    });
++  }
++
++  /** The analyzer request's user text, whichever transport shape carried it. */
++  function analyzerUserTextOf(requests: OpenRouterRequest[]): string {
++    const bodies = requests.map((request) => JSON.stringify(request));
++    const index = bodies.findIndex((body) =>
++      body.includes("submit_transcript_analysis"),
++    );
++    expect(index).toBeGreaterThan(-1);
++    const request = requests[index] as unknown as {
++      messages: Array<{
++        role: string;
++        content: string | Array<{ type: string; text?: string }>;
++      }>;
++    };
++    return request.messages
++      .filter((message) => message.role === "user")
++      .map((message) =>
++        typeof message.content === "string"
++          ? message.content
++          : message.content.map((block) => block.text ?? "").join("\n"),
++      )
++      .join("\n");
++  }
++
++  async function writeBudgetSettings(
++    t: ReturnType<typeof convexTest>,
++    values: Record<string, string>,
++  ) {
++    await t.run(async (ctx) => {
++      const adminId = await ctx.db.insert("users", {
++        authId: `budget-admin-${Object.keys(values).join("-")}`,
++        role: "admin",
++      });
++      for (const [key, value] of Object.entries(values)) {
++        await ctx.db.insert("appSettings", {
++          key,
++          value,
++          updatedBy: adminId,
++          updatedAt: Date.now(),
++        });
++      }
++    });
++  }
++
++  it.each([
++    ["one-shot", internal.ai.pipeline.generateReport, "single"] as const,
++    [
++      "iterative",
++      internal.ai.iterative.startIterativeGeneration,
++      "iterative",
++    ] as const,
++  ])(
++    "the %s entry action applies the admin-tuned budget and tells the writer what it cut",
++    async (_label, action, candidateMode) => {
++      const t = convexTest(schema, modules);
++      const { generationId } = await reservedGenerationWithSources(
++        t,
++        candidateMode,
++      );
++      // 100 tokens total; a 1-token (4-char) document cap cuts the notes.
++      await writeBudgetSettings(t, {
++        "ai.analyzerContextBudgetTokens": "100",
++        "ai.analyzerDocumentBudgetTokens": "1",
++      });
++      const requests: OpenRouterRequest[] = [];
++      vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
++
++      await t.action(action, { generationId });
++
++      const rows = await t.run((ctx) =>
++        ctx.db
++          .query("generationSources")
++          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
++          .collect(),
++      );
++      const transcriptRow = rows.find((row) => row.kind === "transcript")!;
++      const documentRow = rows.find((row) => row.kind === "project_document")!;
++      expect(transcriptRow.contextBudget).toEqual({
++        budgetTokens: 100,
++        included: true,
++        includedLength: transcriptRow.content.length,
++        truncated: false,
++      });
++      expect(documentRow.contextBudget).toEqual({
++        budgetTokens: 100,
++        included: true,
++        includedLength: 4,
++        truncated: true,
++      });
++      // The frozen capture facts are untouched by the recording.
++      expect(documentRow.content).toBe(CANDIDATE_DOCUMENT_BODY);
++      expect(documentRow.truncated).toBe(false);
++
++      const generation = await t.run((ctx) => ctx.db.get(generationId));
++      expect(generation?.progressLog).toContain(
++        "Using 1 frozen contextual document(s), weighted by SR&ED priority.",
++      );
++      expect(generation?.progressLog).toContain(
++        "Context budget (100 tokens) shortened notes.md.",
++      );
++
++      {
++        const userText = analyzerUserTextOf(requests);
++        expect(userText).toContain(
++          `--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\n${CANDIDATE_DOCUMENT_BODY.slice(0, 4)}\n[TRUNCATED: 38 of 42 characters omitted to fit the context budget.]\n--- END`,
++        );
++        expect(userText).not.toContain(CANDIDATE_DOCUMENT_BODY);
++      }
++    },
++  );
++
++  it("a candidate sends the budget it was scheduled with, not a later retune", async () => {
++    const t = convexTest(schema, modules);
++    const { generationId } = await reservedGenerationWithSources(t, "single");
++    const candidateRunId = await t.run(async (ctx) => {
++      const generation = (await ctx.db.get(generationId))!;
++      // claimCandidateRun only hands out runs of a running generation.
++      await ctx.db.patch(generationId, { status: "running" });
++      return await ctx.db.insert("generationCandidateRuns", {
++        generationId,
++        projectId: generation.projectId,
++        model: "openai/gpt-5.6-luna",
++        label: "GPT-5.6 Luna",
++        status: "queued",
++        queuedAt: Date.now(),
++      });
++    });
++    // Settings now say "documents are fine"; the scheduled payload says the
++    // report was recorded with no documents at all. The payload wins.
++    const requests: OpenRouterRequest[] = [];
++    vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
++    await t.action(internal.ai.pipeline.generateCandidate, {
++      candidateRunId,
++      generationId,
++      brainExemplars: { analyzer: "", s242: "", s244: "", s246: "" },
++      contextBudget: { ...DEFAULT_CONTEXT_BUDGET, maxDocuments: 0 },
++    });
++    const userText = analyzerUserTextOf(requests);
++    expect(userText).toContain("--- BEGIN [INTERVIEW TRANSCRIPT] ---");
++    expect(userText).not.toContain("notes.md");
++    expect(userText).not.toContain(CANDIDATE_DOCUMENT_BODY);
++  });
++
++  it("a candidate scheduled without a budget falls back to the frozen input's admin-tuned one", async () => {
++    // The transition window: a candidate queued before `contextBudget` was in
++    // the scheduler payload must still honour the settings, not the defaults.
++    const t = convexTest(schema, modules);
++    const { generationId } = await reservedGenerationWithSources(t, "single");
++    const candidateRunId = await t.run(async (ctx) => {
++      const generation = (await ctx.db.get(generationId))!;
++      await ctx.db.patch(generationId, { status: "running" });
++      return await ctx.db.insert("generationCandidateRuns", {
++        generationId,
++        projectId: generation.projectId,
++        model: "openai/gpt-5.6-luna",
++        label: "GPT-5.6 Luna",
++        status: "queued",
++        queuedAt: Date.now(),
++      });
++    });
++    await writeBudgetSettings(t, { "ai.analyzerDocumentBudgetTokens": "1" });
++    const requests: OpenRouterRequest[] = [];
++    vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
++    await t.action(internal.ai.pipeline.generateCandidate, {
++      candidateRunId,
++      generationId,
++      brainExemplars: { analyzer: "", s242: "", s244: "", s246: "" },
++    });
++    const userText = analyzerUserTextOf(requests);
++    expect(userText).toContain(
++      `--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\n${CANDIDATE_DOCUMENT_BODY.slice(0, 4)}\n[TRUNCATED: 38 of 42 characters omitted to fit the context budget.]\n--- END`,
++    );
++    expect(userText).not.toContain(CANDIDATE_DOCUMENT_BODY);
++  });
++
++  it.each([
++    ["one-shot", internal.ai.pipeline.generateReport, "single"] as const,
++    [
++      "iterative",
++      internal.ai.iterative.startIterativeGeneration,
++      "iterative",
++    ] as const,
++  ])(
++    "the %s entry action analyzes and records the digest rows in digest mode, not the full text",
++    async (_label, action, candidateMode) => {
++      const t = convexTest(schema, modules);
++      const { generationId } = await reservedGenerationWithSources(
++        t,
++        candidateMode,
++        "digest",
++      );
++      const requests: OpenRouterRequest[] = [];
++      vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
++
++      await t.action(action, { generationId });
++
++      const rows = await t.run((ctx) =>
++        ctx.db
++          .query("generationSources")
++          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
++          .collect(),
++      );
++      const fullTextRow = rows.find((row) => row.kind === "transcript")!;
++      const digestRow = rows.find((row) => row.kind === "transcript_digest")!;
++      const documentRow = rows.find((row) => row.kind === "project_document")!;
++      expect(digestRow.content).toBe(DIGEST_TEXT);
++      // Only the rows the analyzer read carry the budget outcome: the digest
++      // it was built from and the documents, never the superseded full text.
++      expect(fullTextRow.contextBudget).toBeUndefined();
++      expect(digestRow.contextBudget).toEqual({
++        budgetTokens: DEFAULT_CONTEXT_BUDGET.totalTokens,
++        included: true,
++        includedLength: DIGEST_TEXT.length,
++        truncated: false,
++      });
++      expect(documentRow.contextBudget?.included).toBe(true);
++
++      {
++        const userText = analyzerUserTextOf(requests);
++        expect(userText).toContain(
++          `--- BEGIN [INTERVIEW TRANSCRIPT] ---\n${DIGEST_TEXT}\n--- END [INTERVIEW TRANSCRIPT] ---`,
++        );
++        expect(userText).not.toContain("FULL-TEXT SENTINEL");
++      }
++    },
++  );
++
++  it.each([
++    ["one-shot", internal.ai.pipeline.generateReport, "single"] as const,
++    [
++      "iterative",
++      internal.ai.iterative.startIterativeGeneration,
++      "iterative",
++    ] as const,
++  ])(
++    "the %s entry action patches contextBudget onto every frozen source",
++    async (_label, action, candidateMode) => {
++      const t = convexTest(schema, modules);
++      const { generationId } = await reservedGenerationWithSources(
++        t,
++        candidateMode,
++      );
++      const requests: OpenRouterRequest[] = [];
++      vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
++
++      // Whatever happens downstream, the recording is a committed mutation
++      // that must have landed by the time the action returns.
++      await t.action(action, { generationId });
++
++      {
++        // Both entry flows analyze once using the trusted frozen context.
++        const userText = analyzerUserTextOf(requests);
++        expect(userText).toContain(CONTEXT_INPUTS_GUIDANCE);
++        expect(userText).toContain("--- BEGIN [INTERVIEW TRANSCRIPT] ---");
++        expect(userText).toContain("--- END [INTERVIEW TRANSCRIPT] ---");
++        expect(userText).toContain(
++          "--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---",
++        );
++        expect(userText).toContain(CANDIDATE_DOCUMENT_BODY);
++      }
++
++      const rows = await t.run((ctx) =>
++        ctx.db
++          .query("generationSources")
++          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
++          .collect(),
++      );
++      expect(rows).toHaveLength(2);
++      for (const row of rows) {
++        expect(row.contextBudget).toBeDefined();
++        expect(row.contextBudget?.budgetTokens).toBe(
++          DEFAULT_CONTEXT_BUDGET.totalTokens,
++        );
++        expect(row.contextBudget?.included).toBe(true);
++        expect(row.contextBudget?.includedLength).toBe(row.content.length);
++        expect(row.contextBudget?.truncated).toBe(false);
++      }
++    },
++  );
++});
+diff --git a/convex/generationInput.test.ts b/convex/generationInput.test.ts
+index 2c85427..940282e 100644
+--- a/convex/generationInput.test.ts
++++ b/convex/generationInput.test.ts
+@@ -6,6 +6,7 @@ import schema from "./schema";
+ import type { Id } from "./_generated/dataModel";
+ import { sha256 } from "./lib/contracts";
+ import { mapClaimToPart } from "./lib/transcripts";
++import { DEFAULT_CONTEXT_BUDGET } from "./ai/trustedContext";
+ 
+ const modules = import.meta.glob("./**/*.ts");
+ type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>;
+@@ -85,6 +86,13 @@ async function frozenSources(t: TestConvex, generationId: Id<"generations">) {
+   );
+ }
+ 
++/** (fileName, uploaderRole) of each contextDoc, with absence normalized. */
++function contextDocRoles(
++  input: { contextDocs: Array<{ fileName: string; uploaderRole?: string }> } | null
++) {
++  return (input?.contextDocs ?? []).map((d) => [d.fileName, d.uploaderRole ?? null]);
++}
++
+ function generationInput(t: TestConvex, generationId: Id<"generations">) {
+   return t.query(internal.generations.getGenerationInput, { generationId });
+ }
+@@ -373,3 +381,224 @@ describe("claims cite the part they came from (AC4)", () => {
+     expect(provenance?.claims[0].sources[0].generationSourceId).toBe(sources[1]._id);
+   });
+ });
++
++
++/**
++ * Story 2: the analyzer's context budget. `getGenerationInput` hands the
++ * action the ids and the resolved budget; `recordContextBudget` writes the
++ * outcome back onto the frozen rows without touching a capture-time fact.
++ */
++describe("the analyzer context budget travels with the frozen input", () => {
++  async function settingsAdmin(t: TestConvex) {
++    return await t.run((ctx) =>
++      ctx.db.insert("users", { authId: "budget-admin", role: "admin" })
++    );
++  }
++
++  it("returns a sourceId per context doc and the default budget", async () => {
++    const { t, authed, projectId } = await setup(
++      [{ content: "Interview body" }],
++      ["Context document body"]
++    );
++    const generationId = await authed.mutation(api.generations.requestGeneration, {
++      projectId,
++    });
++    const input = await generationInput(t, generationId);
++    expect(input?.contextBudget).toEqual(DEFAULT_CONTEXT_BUDGET);
++    const rows = await t.run(async (ctx) =>
++      (
++        await ctx.db
++          .query("generationSources")
++          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
++          .collect()
++      ).filter((row) => row.kind === "project_document")
++    );
++    expect(input?.contextDocs).toHaveLength(1);
++    expect(input?.contextDocs[0]).toMatchObject({
++      sourceId: rows[0]._id,
++      fileName: "doc-0.txt",
++      category: "other",
++      content: "Context document body",
++    });
++  });
++
++  it("freezes the uploader role onto the source row and surfaces it (CAP-3)", async () => {
++    const { t, authed, projectId } = await setup([{ content: "Interview body" }]);
++    // Two writer's-notes rows that differ only in whether an internal uploader
++    // role was recorded. Trust must be pinned to the reservation, so the frozen
++    // row has to carry the role forward; the legacy row must stay roleless and
++    // reach the analyzer as client evidence.
++    await t.run(async (ctx) => {
++      const now = Date.now();
++      await ctx.db.insert("projectDocuments", {
++        projectId,
++        fileName: "attributed.md",
++        fileType: "txt",
++        content: "Internal direction.",
++        category: "writer_notes",
++        source: "upload",
++        uploadedBy: "writer@banhall.com",
++        uploaderRole: "manager",
++        createdAt: now,
++      });
++      await ctx.db.insert("projectDocuments", {
++        projectId,
++        fileName: "legacy.md",
++        fileType: "txt",
++        content: "Unattributed direction.",
++        category: "writer_notes",
++        source: "upload",
++        uploadedBy: "writer@banhall.com",
++        createdAt: now + 1,
++      });
++    });
++    const generationId = await authed.mutation(api.generations.requestGeneration, {
++      projectId,
++    });
++    const rows = await t.run(async (ctx) =>
++      (
++        await ctx.db
++          .query("generationSources")
++          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
++          .collect()
++      ).filter((row) => row.kind === "project_document")
++    );
++    expect(
++      rows.map((row) => [row.label, row.uploaderRole ?? null])
++    ).toEqual([
++      ["writer_notes:attributed.md", "manager"],
++      ["writer_notes:legacy.md", null],
++    ]);
++    expect(
++      contextDocRoles(await generationInput(t, generationId))
++    ).toEqual([
++      ["attributed.md", "manager"],
++      ["legacy.md", null],
++    ]);
++  });
++
++  it("takes admin overrides per field and ignores unparseable ones", async () => {
++    const { t, authed, projectId } = await setup([{ content: "Interview body" }]);
++    const generationId = await authed.mutation(api.generations.requestGeneration, {
++      projectId,
++    });
++    const adminId = await settingsAdmin(t);
++    await t.run(async (ctx) => {
++      const now = Date.now();
++      for (const [key, value] of [
++        ["ai.analyzerContextBudgetTokens", "90000"],
++        ["ai.analyzerTranscriptBudgetTokens", "abc"],
++        ["ai.analyzerDocumentBudgetTokens", "-5"],
++        ["ai.analyzerMaxContextDocuments", "3"],
++      ] as const) {
++        await ctx.db.insert("appSettings", {
++          key,
++          value,
++          updatedBy: adminId,
++          updatedAt: now,
++        });
++      }
++    });
++    const input = await generationInput(t, generationId);
++    expect(input?.contextBudget).toEqual({
++      totalTokens: 90_000,
++      transcriptTokens: DEFAULT_CONTEXT_BUDGET.transcriptTokens,
++      perDocumentTokens: DEFAULT_CONTEXT_BUDGET.perDocumentTokens,
++      maxDocuments: 3,
++    });
++  });
++
++  it("records the budget outcome without rewriting any capture-time fact", async () => {
++    const { t, authed, projectId } = await setup(
++      [{ label: "First", position: 0, content: "Alpha body" }],
++      ["Context document body"]
++    );
++    const generationId = await authed.mutation(api.generations.requestGeneration, {
++      projectId,
++    });
++    const before = await t.run((ctx) =>
++      ctx.db
++        .query("generationSources")
++        .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
++        .collect()
++    );
++    const transcriptRow = before.find((row) => row.kind === "transcript")!;
++    const documentRow = before.find((row) => row.kind === "project_document")!;
++
++    await t.mutation(internal.generations.recordContextBudget, {
++      generationId,
++      budgetTokens: 150_000,
++      applied: [
++        {
++          sourceId: transcriptRow._id,
++          included: true,
++          includedLength: 7,
++          truncated: true,
++        },
++      ],
++    });
++
++    const after = await t.run((ctx) =>
++      ctx.db
++        .query("generationSources")
++        .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
++        .collect()
++    );
++    const patched = after.find((row) => row._id === transcriptRow._id)!;
++    const untouched = after.find((row) => row._id === documentRow._id)!;
++    expect(patched.contextBudget).toEqual({
++      budgetTokens: 150_000,
++      included: true,
++      includedLength: 7,
++      truncated: true,
++    });
++    expect(patched.content).toBe(transcriptRow.content);
++    expect(patched.contentHash).toBe(transcriptRow.contentHash);
++    expect(patched.truncated).toBe(transcriptRow.truncated);
++    expect(patched.originalLength).toBe(transcriptRow.originalLength);
++    expect(untouched.contextBudget).toBeUndefined();
++  });
++
++  it("skips a source id that belongs to another generation", async () => {
++    const { t, authed, projectId } = await setup([{ content: "Alpha body" }]);
++    const firstId = await authed.mutation(api.generations.requestGeneration, {
++      projectId,
++    });
++    const foreign = await t.run(async (ctx) =>
++      (
++        await ctx.db
++          .query("generationSources")
++          .withIndex("by_generationId", (q) => q.eq("generationId", firstId))
++          .collect()
++      )[0]
++    );
++    const otherGenerationId = await t.run(async (ctx) =>
++      ctx.db.insert("generations", {
++        projectId,
++        status: "running",
++        requestedBy: (await ctx.db.query("users").first())!._id,
++        candidateMode: "single",
++        singleModelId: "claude-sonnet-5",
++        candidatesDone: 0,
++        candidatesFailed: 0,
++        startedAt: Date.now(),
++      })
++    );
++    await expect(
++      t.mutation(internal.generations.recordContextBudget, {
++        generationId: otherGenerationId,
++        budgetTokens: 150_000,
++        applied: [
++          {
++            sourceId: foreign._id,
++            included: true,
++            includedLength: 1,
++            truncated: false,
++          },
++        ],
++      })
++    ).resolves.toBeNull();
++    const row = await t.run((ctx) => ctx.db.get(foreign._id));
++    expect(row?.contextBudget).toBeUndefined();
++  });
++});

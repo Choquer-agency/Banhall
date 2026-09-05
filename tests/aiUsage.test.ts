@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { estimateCostUsd } from "../convex/aiUsage";
 import { voyageTokenCount } from "../convex/ai/providers";
+import { MODEL } from "../convex/ai/model";
 import { sha256 } from "../convex/lib/contracts";
 import {
   PROMPT_PROGRAM_CONTRACT_ID,
@@ -43,6 +44,29 @@ describe("AI usage pricing", () => {
 });
 
 describe("generation prompt program", () => {
+  test("analyzer routing discloses fixed compare and selected single, iterative and legacy models", async () => {
+    expect(generationPromptProgram.calls.analyzer.model).toEqual({
+      kind: "mode-dependent",
+      compare: { kind: "fixed", modelId: MODEL },
+      single: { kind: "candidate", fallbackModelId: MODEL },
+      iterative: { kind: "candidate", fallbackModelId: MODEL },
+      legacyCandidate: { kind: "candidate", fallbackModelId: MODEL },
+    });
+    const previousProgram = {
+      ...generationPromptProgram,
+      calls: {
+        ...generationPromptProgram.calls,
+        analyzer: {
+          ...generationPromptProgram.calls.analyzer,
+          model: { kind: "candidate", fallbackModelId: MODEL },
+        },
+      },
+    };
+    expect(await hashPromptProgram(generationPromptProgram)).not.toBe(
+      await hashPromptProgram(previousProgram)
+    );
+  });
+
   test("canonical serialization ignores nested object insertion order", async () => {
     const left = {
       z: [{ beta: 2, alpha: 1 }],
@@ -196,6 +220,10 @@ describe("generation prompt program", () => {
       ["tool choice", ["configuration", "structuredOutput", "request", "toolChoice", "type"], changedString],
       ["token cap", ["calls", "chronology", "request", "maxTokens"], increment],
       ["thinking setting", ["calls", "section244", "request", "thinking", "type"], changedString],
+      ["analyzer compare routing", ["calls", "analyzer", "model", "compare", "modelId"], changedString],
+      ["analyzer single routing", ["calls", "analyzer", "model", "single", "fallbackModelId"], changedString],
+      ["analyzer iterative routing", ["calls", "analyzer", "model", "iterative", "fallbackModelId"], changedString],
+      ["analyzer legacy routing", ["calls", "analyzer", "model", "legacyCandidate", "fallbackModelId"], changedString],
       ["model routing", ["configuration", "models", "modeRouting", "single", "fallbackModelId"], changedString],
       ["length setting", ["configuration", "length", "charsPerLine"], increment],
       ["Brain threshold", ["configuration", "brain", "search", "rawSearchFloor"], increment],

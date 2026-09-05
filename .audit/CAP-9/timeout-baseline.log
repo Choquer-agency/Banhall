@@ -1,0 +1,30 @@
+
+> banhall-app@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-schema/.bmad-loop/runs/20260904-121620-6b94/worktrees/9
+
+ ❯ |src| src/lib/components/ui/formControlContract.test.ts (3 tests | 1 failed) 6558ms
+     × routes every visible native data-entry field through the shared contract 6541ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |src| src/lib/components/ui/formControlContract.test.ts > borderless form-control source contract > routes every visible native data-entry field through the shared contract
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/lib/components/ui/formControlContract.test.ts:61:3
+     59|
+     60| describe("borderless form-control source contract", () => {
+     61|   it("routes every visible native data-entry field through the shared …
+       |   ^
+     62|     const violations: string[] = [];
+     63|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 126 passed (127)
+      Tests  1 failed | 1365 passed (1366)
+   Start at  12:47:00
+   Duration  38.05s (transform 86.08s, setup 0ms, import 122.16s, tests 68.90s, environment 25.21s)

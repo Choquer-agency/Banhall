@@ -1,0 +1,15 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/chat/OptimisticSend.component.test.ts
+
+4:53:24 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix
+
+4:53:24 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix - using default configuration.
+
+ Test Files  1 passed (1)
+      Tests  34 passed (34)
+   Start at  04:53:24
+   Duration  33.88s (transform 0ms, setup 499ms, import 904ms, tests 31.43s, environment 0ms)
+

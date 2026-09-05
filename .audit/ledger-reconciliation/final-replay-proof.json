@@ -1,0 +1,15 @@
+{
+  "source": ".audit/ledger-reconciliation/preview-20260904T214745464731Z-b74bce7a257e",
+  "replay": ".audit/ledger-reconciliation/preview-20260904T214820074372Z-faa118b64b7d",
+  "identical_artifacts": {
+    "deferred-work.preview.md": "c04e5520e713503584be9bf7f033d73ef2f6b14240e625a357638dac297e2bb5",
+    "mapping.tsv": "6d064747b38c89bf3c1c73afb273d1ca5585f7a508811dc9c92a8f00ac817b8a",
+    "entries.json": "783228b5e1ca5f24b767d1620953287338907b3a05d3297877b6d183faa92ea7",
+    "source-damage-repairs.json": "208cf65696e03cb97a9488471ab09d8625941b338f44aa965861f364607b2381",
+    "content-variants-requiring-review.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "distinct-origin-alias-candidates.json": "faddb532239b2af5b6fcfbb227189c97982d16ad9df852a28442916f442084f5",
+    "active-reference-rewrite-suggestions.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "historical-references-immutable.json": "64ff800dd4a26f05237c6714ca5a2239fb053e9bee52f98c77bc95db1f42980b",
+    "proof.json": "5ac3bf5199f83692363e527837d24aeeb5ebb6103b915fa3d1970b0422e1dc32"
+  }
+}

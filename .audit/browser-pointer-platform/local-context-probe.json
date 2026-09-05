@@ -1,0 +1,82 @@
+{
+  "provenance": "Exact JSON observations returned by actual local node Playwright probe, unified exec session84780 exit0, Darwin arm64; browser/contexts closed in finally. Recorded from tool output, not synthetic test output.",
+  "method": "chromium.launch headless; newContext({hasTouch}); CDP enable/disable touch; one requestAnimationFrame before each read; mediaFine tested only after fine was already true, so it does not establish pointer override support.",
+  "observations": [
+    {
+      "hasTouch": false,
+      "phase": "newContext",
+      "state": {
+        "coarse": false,
+        "fine": true,
+        "none": false
+      }
+    },
+    {
+      "hasTouch": false,
+      "phase": "touch",
+      "enabled": true,
+      "state": {
+        "coarse": true,
+        "fine": false,
+        "none": false
+      }
+    },
+    {
+      "hasTouch": false,
+      "phase": "touch",
+      "enabled": false,
+      "state": {
+        "coarse": false,
+        "fine": true,
+        "none": false
+      }
+    },
+    {
+      "hasTouch": false,
+      "phase": "mediaFine",
+      "state": {
+        "coarse": false,
+        "fine": true,
+        "none": false
+      }
+    },
+    {
+      "hasTouch": true,
+      "phase": "newContext",
+      "state": {
+        "coarse": true,
+        "fine": false,
+        "none": false
+      }
+    },
+    {
+      "hasTouch": true,
+      "phase": "touch",
+      "enabled": true,
+      "state": {
+        "coarse": true,
+        "fine": false,
+        "none": false
+      }
+    },
+    {
+      "hasTouch": true,
+      "phase": "touch",
+      "enabled": false,
+      "state": {
+        "coarse": false,
+        "fine": true,
+        "none": false
+      }
+    },
+    {
+      "hasTouch": true,
+      "phase": "mediaFine",
+      "state": {
+        "coarse": false,
+        "fine": true,
+        "none": false
+      }
+    }
+  ]
+}

@@ -3,7 +3,9 @@ import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import type { DomainErrorCode } from "./lib/contracts";
 import { sha256 } from "./lib/contracts";
+import { writePreEditSnapshot, type PreEditSnapshotReason } from "./lib/snapshots";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -64,7 +66,7 @@ async function setup() {
       generatedAt: now,
       updatedAt: now,
     });
-    return { projectId, generationId, reportId, transcriptIds };
+    return { projectId, generationId, reportId, transcriptIds, userId };
   });
   return { t: t.withIdentity({ subject: AUTH_ID }), raw: t, ...ids };
 }
@@ -145,5 +147,288 @@ describe("snapshots carry the transcript set (AC5)", () => {
       sourceTranscriptId: transcriptIds[0],
       sourceTranscriptIds: transcriptIds,
     });
+  });
+});
+
+describe.each<{ reason: PreEditSnapshotReason; defaultLabel: string }>([
+  { reason: "pre_chat_edit", defaultLabel: "Before AI edit" },
+  { reason: "pre_client_edit", defaultLabel: "Before client edit" },
+])("the shared pre-edit writer: $reason", ({ reason, defaultLabel }) => {
+  it.each([
+    { scenario: "valid session", valid: true, count: 3 },
+    { scenario: "valid zero count", valid: true, count: 0 },
+    { scenario: "no session", valid: false, count: 3 },
+    { scenario: "missing session", valid: false, count: 3 },
+    { scenario: "foreign report", valid: false, count: 3 },
+    { scenario: "foreign project", valid: false, count: 3 },
+    { scenario: "fully foreign", valid: false, count: 3 },
+  ])("preserves the checkpoint with $scenario", async ({ scenario, valid, count }) => {
+    const { raw, projectId, reportId, generationId, transcriptIds, userId } =
+      await setup();
+    const createdAt = 1_700_000_000_002;
+    const contentHash = await sha256(CONTENT);
+
+    const snapshot = await raw.run(async (ctx) => {
+      const provenanceId = await ctx.db.insert("reportProvenance", {
+        projectId,
+        generationId,
+        sourceTranscriptId: transcriptIds[0],
+        sourceTranscriptIds: transcriptIds,
+        contentHash,
+        status: "approved",
+        claims: [],
+        createdAt,
+      });
+      await ctx.db.patch(reportId, { provenanceId, revisionNumber: 7 });
+      const report = await ctx.db.get(reportId);
+      if (!report) throw new Error("Missing fixture report");
+
+      let sessionProjectId = projectId;
+      let sessionReportId = reportId;
+      if (scenario === "foreign project" || scenario === "fully foreign") {
+        sessionProjectId = await ctx.db.insert("projects", {
+          title: "Other project",
+          clientName: "Other client",
+          status: "review",
+          createdBy: userId,
+          shareToken: "other-snapshot-token",
+          createdAt,
+          updatedAt: createdAt,
+        });
+      }
+      if (scenario === "foreign report" || scenario === "fully foreign") {
+        sessionReportId = await ctx.db.insert("reports", {
+          projectId: sessionProjectId,
+          content: "Other report",
+          version: 1,
+          generatedAt: createdAt,
+          updatedAt: createdAt,
+        });
+      }
+      let researchSessionId: Id<"researchSessions"> | undefined;
+      if (scenario !== "no session") {
+        researchSessionId = await ctx.db.insert("researchSessions", {
+          projectId: sessionProjectId,
+          reportId: sessionReportId,
+          requestedBy: userId,
+          selectedText: "Report content",
+          selectionFrom: 0,
+          selectionTo: 14,
+          surroundingContext: CONTENT,
+          instruction: "Back this with sources",
+          externalBrief: "Redacted brief",
+          reportRevisionNumber: 7,
+          status: "completed",
+          evidenceSourceCount: count,
+          createdAt,
+          updatedAt: createdAt,
+        });
+        if (scenario === "missing session") await ctx.db.delete(researchSessionId);
+      }
+      const snapshotId = await writePreEditSnapshot(ctx, report, reason, {
+        createdAt,
+        researchSessionId,
+      });
+      return {
+        snapshotId,
+        researchSessionId,
+        provenanceId,
+        originalReport: report,
+      };
+    });
+
+    // Read after the writer's transaction commits to verify persisted history.
+    const { row, report } = await raw.run(async (ctx) => ({
+      row: await ctx.db.get(snapshot.snapshotId),
+      report: await ctx.db.get(reportId),
+    }));
+    expect(row).toMatchObject({
+      projectId,
+      reportId,
+      reason,
+      createdByRole: "system",
+      content: CONTENT,
+      contentHash,
+      sourceRevisionNumber: 7,
+      createdAt,
+      provenanceId: snapshot.provenanceId,
+      generationId,
+      sourceTranscriptId: transcriptIds[0],
+      sourceTranscriptIds: transcriptIds,
+    });
+    expect(report).toEqual(snapshot.originalReport);
+    expect.soft(row?.label).toBe(valid ? "Before researched edit" : defaultLabel);
+    if (valid) {
+      expect(row).toMatchObject({
+        researchSessionId: snapshot.researchSessionId,
+        researchSourceCount: count,
+      });
+    } else {
+      expect.soft(row).not.toHaveProperty("researchSessionId");
+      expect.soft(row).not.toHaveProperty("researchSourceCount");
+    }
+  });
+});
+
+/**
+ * Assert a mutation rejected with a specific `domainError` code. Matching the
+ * serialized message would let a guard pass for the wrong reason —
+ * `restoreSnapshot` raises NOT_AUTHORIZED from both `requireReportEditAccess`
+ * and the cross-project rule — so this asserts `data.code` exactly and takes an
+ * optional message pattern to pin the intended guard.
+ */
+async function expectDomainError(
+  run: () => Promise<unknown>,
+  code: DomainErrorCode,
+  messagePattern?: RegExp
+) {
+  let thrown: unknown;
+  let threw = false;
+  try {
+    await run();
+  } catch (error) {
+    thrown = error;
+    threw = true;
+  }
+  expect(threw, `expected a ${code} rejection but the call resolved`).toBe(true);
+  const data = (thrown as { data?: unknown } | null)?.data;
+  expect(
+    data !== null && typeof data === "object",
+    `expected a ConvexError carrying domain-error data, got: ${String(thrown)}`
+  ).toBe(true);
+  const payload = data as { code?: unknown; message?: unknown };
+  expect(payload.code).toBe(code);
+  if (messagePattern) expect(String(payload.message)).toMatch(messagePattern);
+}
+
+describe("restoreSnapshot guards", () => {
+  /** A manual snapshot of the report's current content. */
+  async function seedSnapshot(
+    raw: ReturnType<typeof convexTest>,
+    projectId: Id<"projects">,
+    reportId: Id<"reports">,
+    content = "Older content"
+  ) {
+    return await raw.run(async (ctx) =>
+      ctx.db.insert("reportSnapshots", {
+        projectId,
+        reportId,
+        content,
+        contentHash: await sha256(content),
+        sourceRevisionNumber: 0,
+        reason: "manual",
+        createdByRole: "writer",
+        createdAt: Date.now(),
+      })
+    );
+  }
+
+  it("refuses a restore fenced to an older revision", async () => {
+    const { t, raw, projectId, reportId } = await setup();
+    const snapshotId = await seedSnapshot(raw, projectId, reportId);
+    await raw.run((ctx) =>
+      ctx.db.patch(reportId, { content: "Newer content", revisionNumber: 2 })
+    );
+
+    await expectDomainError(
+      () =>
+        t.mutation(api.snapshots.restoreSnapshot, {
+          snapshotId,
+          targetReportId: reportId,
+          expectedRevisionNumber: 1,
+        }),
+      "STALE_REVISION"
+    );
+
+    const state = await raw.run(async (ctx) => ({
+      report: await ctx.db.get(reportId),
+      preRestore: (await ctx.db.query("reportSnapshots").collect()).filter(
+        (row) => row.reason === "pre_restore"
+      ),
+    }));
+    expect(state.report).toMatchObject({
+      content: "Newer content",
+      revisionNumber: 2,
+    });
+    expect(state.preRestore).toHaveLength(0);
+  });
+
+  it("refuses a restore onto a report in another project", async () => {
+    const { t, raw, projectId, reportId } = await setup();
+    const snapshotId = await seedSnapshot(raw, projectId, reportId);
+    // A second project the same writer owns, so only the cross-project rule
+    // can reject the restore.
+    const foreignReportId = await raw.run(async (ctx) => {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_authId", (q) => q.eq("authId", AUTH_ID))
+        .unique();
+      const now = Date.now();
+      const otherProjectId = await ctx.db.insert("projects", {
+        title: "Other project",
+        clientName: "Other client",
+        status: "review",
+        createdBy: user!._id,
+        ownerId: user!._id,
+        shareToken: "snapshots-token-other",
+        createdAt: now,
+        updatedAt: now,
+      });
+      return await ctx.db.insert("reports", {
+        projectId: otherProjectId,
+        content: "Foreign report content",
+        contentHash: await sha256("Foreign report content"),
+        revisionNumber: 0,
+        version: 1,
+        generatedAt: now,
+        updatedAt: now,
+      });
+    });
+
+    await expectDomainError(
+      () =>
+        t.mutation(api.snapshots.restoreSnapshot, {
+          snapshotId,
+          targetReportId: foreignReportId,
+          expectedRevisionNumber: 0,
+        }),
+      "NOT_AUTHORIZED",
+      /another project/i
+    );
+
+    const state = await raw.run(async (ctx) => ({
+      report: await ctx.db.get(reportId),
+      foreign: await ctx.db.get(foreignReportId),
+      snapshots: await ctx.db.query("reportSnapshots").collect(),
+    }));
+    expect(state.report).toMatchObject({ content: CONTENT, revisionNumber: 0 });
+    expect(state.foreign).toMatchObject({
+      content: "Foreign report content",
+      revisionNumber: 0,
+    });
+    expect(state.snapshots.map((row) => row.reason)).toEqual(["manual"]);
+  });
+
+  it("refuses a restore from a snapshot that no longer exists", async () => {
+    const { t, raw, projectId, reportId } = await setup();
+    const snapshotId = await seedSnapshot(raw, projectId, reportId);
+    await raw.run((ctx) => ctx.db.delete(snapshotId));
+
+    await expectDomainError(
+      () =>
+        t.mutation(api.snapshots.restoreSnapshot, {
+          snapshotId,
+          targetReportId: reportId,
+          expectedRevisionNumber: 0,
+        }),
+      "NOT_FOUND"
+    );
+
+    const state = await raw.run(async (ctx) => ({
+      report: await ctx.db.get(reportId),
+      snapshots: await ctx.db.query("reportSnapshots").collect(),
+    }));
+    expect(state.report).toMatchObject({ content: CONTENT, revisionNumber: 0 });
+    expect(state.snapshots).toHaveLength(0);
   });
 });

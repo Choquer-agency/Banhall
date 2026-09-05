@@ -328,6 +328,32 @@ describe("project duplication", () => {
         uploadedBy: "Owner",
         createdAt: now,
       });
+      // CAP-3: trust belongs to the content's origin, not to whoever pressed
+      // duplicate. The acting copier here is a `writer`, so a source role of
+      // `manager` proves the copy carried the source's role rather than being
+      // re-stamped, and the roleless row proves nothing is derived from the
+      // copier — that would launder a client file into internal direction.
+      await ctx.db.insert("projectDocuments", {
+        projectId,
+        fileName: "Attributed notes.md",
+        fileType: "txt",
+        content: "Internal direction.",
+        category: "writer_notes",
+        source: "context_input",
+        uploadedBy: "Manager",
+        uploaderRole: "manager",
+        createdAt: now,
+      });
+      await ctx.db.insert("projectDocuments", {
+        projectId,
+        fileName: "Unattributed notes.md",
+        fileType: "txt",
+        content: "Unattributed direction.",
+        category: "writer_notes",
+        source: "context_input",
+        uploadedBy: "Owner",
+        createdAt: now,
+      });
       await ctx.db.insert("projectIdentityEvidence", {
         projectId,
         subjectName: "Client",
@@ -349,6 +375,23 @@ describe("project duplication", () => {
         createdAt: now,
         completedAt: now,
       });
+      for (const provenance of [
+        { revisionNumber: 7, contentHash: "historical-hash" },
+        { revisionNumber: 0, contentHash: "" },
+        { revisionNumber: 9 },
+        { contentHash: "hash-only-history" },
+      ]) {
+        await ctx.db.insert("pdReviews", {
+          projectId,
+          documentId: reviewDoc,
+          sourceFileName: "Existing PD.docx",
+          status: "completed",
+          result: "attributed review",
+          createdBy: "Owner",
+          createdAt: now,
+          ...provenance,
+        });
+      }
       return {
         destinationProjectId: destination,
         destinationTranscriptId: transcriptId,
@@ -364,9 +407,9 @@ describe("project duplication", () => {
       }
     );
 
-    expect(result.documents).toHaveLength(3);
+    expect(result.documents).toHaveLength(5);
     expect(result.evidenceCopied).toBe(1);
-    expect(result.pdReviewsCopied).toBe(1);
+    expect(result.pdReviewsCopied).toBe(5);
     expect(result.reportId).toBeTruthy();
     const copied = await t.run(async (ctx) => ({
       documents: await ctx.db
@@ -386,7 +429,7 @@ describe("project duplication", () => {
         .withIndex("by_projectId", (q) => q.eq("projectId", destinationProjectId))
         .collect(),
     }));
-    expect(copied.documents).toHaveLength(3);
+    expect(copied.documents).toHaveLength(5);
     expect(copied.documents.find((doc) => doc.fileName === "Support.pdf")).toMatchObject({
       archived: true,
       category: "background",
@@ -397,11 +440,32 @@ describe("project duplication", () => {
       processingStatus: "could_not_read",
       processingDetail: "no_text_extracted",
     });
+    expect(
+      copied.documents.find((doc) => doc.fileName === "Attributed notes.md")
+        ?.uploaderRole
+    ).toBe("manager");
+    // Absent, not re-stamped with the copier's `writer` role: assert the key
+    // is missing, since a written nullish value would also read as no role.
+    const copiedUnattributed = copied.documents.find(
+      (doc) => doc.fileName === "Unattributed notes.md"
+    );
+    expect(copiedUnattributed).toBeTruthy();
+    expect(copiedUnattributed && "uploaderRole" in copiedUnattributed).toBe(false);
     expect(copied.evidence[0]?.projectDocumentId).toBeTruthy();
     expect(copied.reviews[0]).toMatchObject({
       sourceFileName: "Existing PD.docx",
       result: "review output",
     });
+    expect(copied.reviews[0]).not.toHaveProperty("revisionNumber");
+    expect(copied.reviews[0]).not.toHaveProperty("contentHash");
+    expect(copied.reviews.slice(1)).toEqual([
+      expect.objectContaining({ revisionNumber: 7, contentHash: "historical-hash" }),
+      expect.objectContaining({ revisionNumber: 0, contentHash: "" }),
+      expect.objectContaining({ revisionNumber: 9 }),
+      expect.objectContaining({ contentHash: "hash-only-history" }),
+    ]);
+    expect(copied.reviews[3]).not.toHaveProperty("contentHash");
+    expect(copied.reviews[4]).not.toHaveProperty("revisionNumber");
     expect(copied.reports[0]).toMatchObject({
       sourceTranscriptId: destinationTranscriptId,
       sourceTranscriptIds: [destinationTranscriptId],

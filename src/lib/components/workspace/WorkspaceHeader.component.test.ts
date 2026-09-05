@@ -154,14 +154,16 @@ describe("WorkspaceHeader", () => {
     expect(document.querySelector('a[href="/project/new"]')).toBeNull();
   });
 
-  it("uses the shared theme-aware default button for the page-level creation action", async () => {
+  it.each([390, 1440])("uses the shared compact creation action at %ipx", async (width) => {
+    await browserPage.viewport(width, 900);
     await render(WorkspaceHeader, baseProps());
 
     const newProject = document.querySelector<HTMLAnchorElement>('a[href="/project/new"]');
     expect(newProject?.className).toContain("bg-action-primary");
     expect(newProject?.className).toContain("text-action-primary-foreground");
     expect(newProject?.className).not.toContain("bg-fir");
-    expect(newProject?.className).toContain("py-2.5");
+    expect(newProject?.getBoundingClientRect().height).toBe(32);
+    await expect.element(browserPage.getByRole("link", { name: "New project", exact: true })).toHaveAttribute("href", "/project/new");
     expect(newProject?.className).not.toContain("sm:h-7");
     expect(newProject?.parentElement?.className).toContain("ml-auto");
     expect(newProject?.parentElement?.className).not.toContain("md:ml-0");

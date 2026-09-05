@@ -1,0 +1,8 @@
+{
+  "baseline": "9da55bece5948da12129720dd2330a3032c985bf",
+  "head": "df97838bd97ee68ea6a923c310b3d4ae139556e1",
+  "protected_paths_unchanged": true,
+  "original_spec_sha256": "ce0426d5316bfd8ce713d0345573f2c172b9ecb71ddc41a867eb93759051c55b",
+  "flat_result_spec": "_bmad-output/implementation-artifacts/spec-dw-92-blocking-qa-native-followup.md",
+  "auto_run_result_present": true
+}

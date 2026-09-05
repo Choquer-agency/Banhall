@@ -1,0 +1,41 @@
+{
+  "at": "2026-09-05T12:34:22.388897+00:00",
+  "completion_head": "569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c",
+  "native_queue": "Finished. All19 original capabilities accounted for:18 accepted native capability records and boundary CAP6 shipped earlier.",
+  "runtime": "Both own-worktree exact bmad-build renderers verified successful after ignored runtime seeding. Do not render using original Banhall project-root.",
+  "next": [
+    "Commit final evidence, push PR, verify CI, merge main and verify main CI."
+  ],
+  "shipping": "No push, PR or main merge yet.",
+  "previous_active_repairs": [
+    {
+      "agent": "/root/browser_gate_diagnostic",
+      "checkout": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-feedback-read-fix",
+      "branch": "codex/bmad-feedback-read-fix",
+      "baseline": "e3f23432121b6d3145cff7040c485ac28739a25f",
+      "scope": "Bound feedback agent-message reads while preserving latest-text snapshot; real enforced-limit baseline repro already confirmed",
+      "result": "feedback-read-fix-result.md"
+    },
+    {
+      "agent": "/root/published_status_fix",
+      "checkout": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix",
+      "branch": "codex/bmad-published-status-fix",
+      "baseline": "e3f23432121b6d3145cff7040c485ac28739a25f",
+      "scope": "Honest Sent status after mutation publication, preserving exact persisted page reconciliation and all send guards",
+      "result": "published-status-fix-result.md"
+    }
+  ],
+  "active_repairs": [],
+  "native_dispositions": {
+    "ids": [
+      "DW-94",
+      "DW-95",
+      "DW-96",
+      "DW-97",
+      "DW-98",
+      "DW-99"
+    ],
+    "status": "done",
+    "receipt": "native-disposition-receipt.json"
+  }
+}

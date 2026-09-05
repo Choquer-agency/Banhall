@@ -1,0 +1,56 @@
+{
+  "captured_at": "2026-09-04T19:29:28.998070-07:00",
+  "head": "e13e6253d0440ec4b28ea9ca5605fe7dbdc77d05",
+  "commands": [
+    {
+      "name": "native-entrypoint",
+      "command": [
+        "python3",
+        ".audit/native-entrypoint-retirement/verify.py"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "non-audit-whitespace",
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "14d3d1795d9f861257ac122f7183449b248a369a",
+        "HEAD",
+        "--",
+        ".",
+        ":!.audit/**"
+      ],
+      "exit_code": 2
+    }
+  ],
+  "versions": {
+    "node": "v24.19.0",
+    "npm": "11.17.0",
+    "powershell": "7.6.5"
+  },
+  "lockfile_sha256": "d4213ef7b50aa850ea095dbe6c65b35306ae7589a90073c0e377147421a33dac",
+  "paths": {
+    "node_modules": {
+      "resolved": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/node_modules",
+      "symlink": false,
+      "inside_root": true
+    },
+    ".svelte-kit": {
+      "resolved": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.svelte-kit",
+      "symlink": false,
+      "inside_root": true
+    },
+    "node_modules/.bin/tsc": {
+      "resolved": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/node_modules/typescript/bin/tsc",
+      "symlink": true,
+      "inside_root": true
+    },
+    "node_modules/.bin/vitest": {
+      "resolved": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/node_modules/vitest/vitest.mjs",
+      "symlink": true,
+      "inside_root": true
+    }
+  }
+}

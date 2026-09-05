@@ -1,0 +1,23 @@
+{
+  "baseline": "8e022cf6eb8e737a00dff818c337ca01fd354414",
+  "hostedCandidate": "84dab21fc3f2e635f0ead01a7c671dfc279fa644",
+  "run": 33987952188,
+  "files": {
+    "vitest.component.config.ts": {
+      "private": "5bef635e41707470cab1eb78de35dbad5a0d889917ad74f2ed7b6bdb0ef9eced",
+      "hosted": "5bef635e41707470cab1eb78de35dbad5a0d889917ad74f2ed7b6bdb0ef9eced",
+      "matches": true
+    },
+    "src/lib/components/workspace/WorkspaceChrome.component.test.ts": {
+      "private": "5588dce6e0d5585774559e1bc96de388f12a5bc169d31358c69abae18c12d6f2",
+      "hosted": "5588dce6e0d5585774559e1bc96de388f12a5bc169d31358c69abae18c12d6f2",
+      "matches": true
+    },
+    "src/lib/components/workspace/WorkspaceChromePointer.component.test.ts": {
+      "private": "e49bfe675558b77f78fb109a2e157e43007120ae62bf0652f67c798c3641b0bd",
+      "hosted": "e49bfe675558b77f78fb109a2e157e43007120ae62bf0652f67c798c3641b0bd",
+      "matches": true
+    }
+  },
+  "sourceChangesAfterGate": false
+}

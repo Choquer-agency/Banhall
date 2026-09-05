@@ -1,7 +1,6 @@
 import { internalAction } from "../_generated/server";
 import { components, internal } from "../_generated/api";
 import { v } from "convex/values";
-import { MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
 import { z } from "zod";
 import {
   Agent,
@@ -16,14 +15,12 @@ import { MODEL } from "./model";
 import { buildChatSystemPromptV2 } from "./prompts";
 import {
   NO_STYLE_OVERRIDES,
-  hasAnyStyleOverride,
   normalizeStyleOverrides,
   type StyleOverrides,
 } from "../../shared/styleOverrides";
-import {
-  scrubBannedWordsUnlessWaived,
-  extractPlainText,
-} from "../lib/reportEdits";
+import { scrubBannedWordsUnlessWaived } from "../lib/reportEdits";
+import { buildChatTurnRequest, type ChatTurnContext } from "./chatEvidence";
+import { describeContextCuts } from "./trustedContext";
 import { preserveReasoningSignature } from "./reasoningSignature";
 import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
 
@@ -309,21 +306,18 @@ export const streamChatReply = internalAction({
 
     try {
       // Explicit annotations break api-graph type circularity (TS7006 cascade).
-      // The sender's profile loads in parallel with the grounding context so
+      // The sender's profile loads in parallel with the evidence context so
       // the waiver lookup adds no serial round-trip to time-to-first-token.
-      const contextPromise: Promise<{
-        reportContent: string | null;
-        agentOutputs: string | null;
-        documents: { fileName: string; content: string }[];
-        decisions: {
-          state: "pending" | "applied" | "rejected" | "stale";
-          target: string;
-          candidate: string;
-        }[];
-      }> = ctx.runQuery(internal.chatV2.getChatContextV2, {
-        reportId: args.reportId,
-        agentThreadId: args.agentThreadId,
-      });
+      // `ChatTurnContext` is a plain interface with no api-graph reference, so
+      // naming it here keeps the action and the builder from drifting without
+      // reintroducing the circularity.
+      const contextPromise: Promise<ChatTurnContext> = ctx.runQuery(
+        internal.chatV2.getChatContextV2,
+        {
+          reportId: args.reportId,
+          agentThreadId: args.agentThreadId,
+        }
+      );
       // PSOS-49/50: the sender's EFFECTIVE house-style waivers + preferences
       // (org-wide modes apply even for legacy turns with no userId). Never
       // blocks the reply; a failed lookup means default enforcement.
@@ -347,51 +341,25 @@ export const streamChatReply = internalAction({
         ? normalizeStyleOverrides(writerStyle.styleOverrides)
         : NO_STYLE_OVERRIDES;
 
-      const reportText = context.reportContent
-        ? extractPlainText(context.reportContent)
-        : "(no report content available)";
-
-      let analysisText = "(no transcript analysis available)";
-      if (context.agentOutputs) {
-        try {
-          const parsed = JSON.parse(context.agentOutputs);
-          if (parsed.analyzer) {
-            analysisText = JSON.stringify(parsed.analyzer, null, 2);
-          }
-        } catch {
-          /* ignore */
-        }
+      // CAP-4: the action assembles nothing. `buildChatTurnRequest` owns the
+      // whole request shape, so the system string carries only policy plus the
+      // writer's own style (byte-stable across turns) and every piece of
+      // evidence travels in one ephemeral user-role message, delimited,
+      // neutralized and budgeted.
+      const turn = buildChatTurnRequest({
+        context,
+        styleOverrides,
+        customInstructions: writerStyle?.customInstructions ?? null,
+      });
+      // Operator telemetry only: this story logs, it does not surface anything
+      // in the UI. Without the line, material the budget dropped is invisible
+      // when a reply later reads as if the interview had a gap.
+      const cuts = describeContextCuts(turn.report);
+      if (cuts) {
+        console.info(
+          `chat evidence ${args.agentThreadId} (report ${args.reportId}): ${cuts}`
+        );
       }
-
-      const docsText = context.documents.length
-        ? context.documents
-            .map(
-              (d) =>
-                `--- Document: ${d.fileName} ---\n${d.content.slice(0, 20000)}`
-            )
-            .join("\n\n")
-        : "(no documents uploaded)";
-
-      const editDecisions = context.decisions
-        .map(
-          (d, i) =>
-            `[Edit ${i + 1} — ${d.state.toUpperCase()}]\nCanonical target from report: ${d.target}\nCandidate replacement (context only — never use as target unless it is present in CURRENT REPORT): ${d.candidate}`
-        )
-        .join("\n\n");
-
-      // The waiver footer in the system prompt points at the writer's own
-      // preferences — inject them so the reference is never dangling. Bounded
-      // like the context documents.
-      const writerPreferencesBlock =
-        hasAnyStyleOverride(styleOverrides) && writerStyle?.customInstructions
-          ? `\n\n# WRITER'S PERSONAL STYLE PREFERENCES (authoritative for the waived house-style areas named in your instructions)\n${writerStyle.customInstructions.slice(0, MAX_INSTRUCTIONS_CHARS)}`
-          : "";
-
-      const grounding = `# CURRENT REPORT (the only document you may edit)\n${reportText}\n\n# TRANSCRIPT ANALYSIS (source of truth — do not exceed it)\n${analysisText}\n\n# UPLOADED CONTEXT DOCUMENTS\n${docsText}${writerPreferencesBlock}${
-        editDecisions
-          ? `\n\n# PRIOR EDIT DECISIONS (the exact text you proposed and whether the writer accepted/rejected it — your memory for iterating. If they liked a rejected version and want a small change, reuse it with only that change. Context only — never repeat this block in your reply.)\n${editDecisions}`
-          : ""
-      }`;
 
       // Second cancellation fence: context loading above is slow enough that
       // the writer can press stop during it. Without this, an aborted turn
@@ -407,7 +375,10 @@ export const streamChatReply = internalAction({
         { threadId: args.agentThreadId },
         {
           promptMessageId: args.promptMessageId,
-          system: `${buildChatSystemPromptV2(styleOverrides)}\n\n${grounding}`,
+          system: turn.system,
+          // Ephemeral: with `promptMessageId` set the agent library saves no
+          // input messages, so the evidence never enters thread history.
+          messages: turn.messages,
           tools: buildChatTools(styleOverrides.bannedWords),
           providerOptions: { anthropic: CHAT_THINKING },
           maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,

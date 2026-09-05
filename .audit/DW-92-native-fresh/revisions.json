@@ -1,0 +1,42 @@
+[
+  {
+    "input": "f122b086d745acc40b4decca26b9aaafc7257f6a",
+    "revision": "f122b086d745acc40b4decca26b9aaafc7257f6a",
+    "subject": "fix(loop): copy _bmad into lane worktrees (the loop rejects a symlink)"
+  },
+  {
+    "input": "b13d5ce9f93fe00ad0d02e15294954a20961b69d",
+    "revision": "b13d5ce9f93fe00ad0d02e15294954a20961b69d",
+    "subject": "CAP-8 enforce absolute current-revision QA blocking"
+  },
+  {
+    "input": "5b2bed6",
+    "revision": "5b2bed6a0f129af3c9799f8bc80e0fa3ec1e3a01",
+    "subject": "CAP-8 harden QA extraction, retry lifecycle and finding cleanup"
+  },
+  {
+    "input": "40d3405",
+    "revision": "40d34059ae38b891023681ac00989d040f9fc973",
+    "subject": "CAP-8 preserve uncertainty across section labels and code blocks"
+  },
+  {
+    "input": "f1a61c4",
+    "revision": "f1a61c44f80268df68b5ebd29bc848eee23490a2",
+    "subject": "DW-92 repair QA extraction bypasses and commit native review evidence"
+  },
+  {
+    "input": "a62e176",
+    "revision": "a62e1760a9931c9451c34baa2df8af29fa1e9538",
+    "subject": "DW-92 finalize original QA story after verified evidence commit"
+  },
+  {
+    "input": "df97838",
+    "revision": "df97838bd97ee68ea6a923c310b3d4ae139556e1",
+    "subject": "DW-92 repair deep QA extraction and record fresh native review evidence"
+  },
+  {
+    "input": "HEAD",
+    "revision": "86a43d9d500ceab34245744d223d4453eba7b667",
+    "subject": "docs(bmad): preserve native rearmed QA finalization spec"
+  }
+]

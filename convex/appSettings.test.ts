@@ -3,6 +3,9 @@ import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
+import { analyzerContextBudget, chatEvidenceBudget } from "./appSettings";
+import { DEFAULT_CONTEXT_BUDGET } from "./ai/trustedContext";
+import { DEFAULT_CHAT_EVIDENCE_BUDGET } from "./ai/chatEvidence";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -43,5 +46,141 @@ describe("My work rollout readiness", () => {
     });
     await expect(f.admin.mutation(api.appSettings.setMyWorkRollout, { killSwitch: false, defaultView: "my_work", ready: true })).rejects.toThrow(/reconciliation/i);
     await expect(f.admin.mutation(api.appSettings.setMyWorkRollout, { killSwitch: true, defaultView: "all_projects", ready: false })).resolves.toBeNull();
+  });
+});
+
+
+/**
+ * Story 2: the analyzer context budget is admin-tunable, and a stale or
+ * fat-fingered value must never break a generation — it falls back silently,
+ * per field.
+ */
+describe("analyzer context budget settings", () => {
+  async function writeSetting(
+    f: Awaited<ReturnType<typeof setup>>,
+    key: string,
+    value: string
+  ) {
+    await f.t.run((ctx) =>
+      ctx.db.insert("appSettings", {
+        key,
+        value,
+        updatedBy: f.adminId,
+        updatedAt: Date.now(),
+      })
+    );
+  }
+
+  it("falls back to the module constants when nothing is configured", async () => {
+    const f = await setup();
+    expect(await f.t.run((ctx) => analyzerContextBudget(ctx))).toEqual(
+      DEFAULT_CONTEXT_BUDGET
+    );
+  });
+
+  it("reads each configured field as a positive integer", async () => {
+    const f = await setup();
+    await writeSetting(f, "ai.analyzerContextBudgetTokens", "120000");
+    await writeSetting(f, "ai.analyzerTranscriptBudgetTokens", " 80000 ");
+    await writeSetting(f, "ai.analyzerDocumentBudgetTokens", "5000");
+    await writeSetting(f, "ai.analyzerMaxContextDocuments", "6");
+    expect(await f.t.run((ctx) => analyzerContextBudget(ctx))).toEqual({
+      totalTokens: 120_000,
+      transcriptTokens: 80_000,
+      perDocumentTokens: 5_000,
+      maxDocuments: 6,
+    });
+  });
+
+  it("falls back per field on unparseable, zero, negative and fractional values", async () => {
+    const f = await setup();
+    await writeSetting(f, "ai.analyzerContextBudgetTokens", "abc");
+    await writeSetting(f, "ai.analyzerTranscriptBudgetTokens", "0");
+    await writeSetting(f, "ai.analyzerDocumentBudgetTokens", "-5");
+    await writeSetting(f, "ai.analyzerMaxContextDocuments", "2.5");
+    expect(await f.t.run((ctx) => analyzerContextBudget(ctx))).toEqual(
+      DEFAULT_CONTEXT_BUDGET
+    );
+  });
+
+  it("rejects notations that do not mean what an admin typed", async () => {
+    const f = await setup();
+    // "1e9" and "0x2710" both survive Number() as positive integers.
+    await writeSetting(f, "ai.analyzerContextBudgetTokens", "1e9");
+    await writeSetting(f, "ai.analyzerTranscriptBudgetTokens", "0x2710");
+    await writeSetting(f, "ai.analyzerDocumentBudgetTokens", "+5000");
+    await writeSetting(f, "ai.analyzerMaxContextDocuments", "6 documents");
+    expect(await f.t.run((ctx) => analyzerContextBudget(ctx))).toEqual(
+      DEFAULT_CONTEXT_BUDGET
+    );
+  });
+});
+
+/**
+ * Story 4: the three chat evidence knobs the SPEC names are admin-tunable and
+ * fall back per field, silently. The report/analysis/decision caps are not
+ * settings and must always come through as the module constants.
+ */
+describe("chat evidence budget settings", () => {
+  async function writeSetting(
+    f: Awaited<ReturnType<typeof setup>>,
+    key: string,
+    value: string
+  ) {
+    await f.t.run((ctx) =>
+      ctx.db.insert("appSettings", {
+        key,
+        value,
+        updatedBy: f.adminId,
+        updatedAt: Date.now(),
+      })
+    );
+  }
+
+  it("falls back to the module constants when nothing is configured", async () => {
+    const f = await setup();
+    expect(await f.t.run((ctx) => chatEvidenceBudget(ctx))).toEqual(
+      DEFAULT_CHAT_EVIDENCE_BUDGET
+    );
+  });
+
+  it("reads the three configured knobs and leaves the rest constant", async () => {
+    const f = await setup();
+    await writeSetting(f, "ai.chatEvidenceBudgetTokens", "90000");
+    await writeSetting(f, "ai.chatEvidenceDocumentBudgetTokens", " 8000 ");
+    await writeSetting(f, "ai.chatMaxEvidenceDocuments", "4");
+    expect(await f.t.run((ctx) => chatEvidenceBudget(ctx))).toEqual({
+      ...DEFAULT_CHAT_EVIDENCE_BUDGET,
+      totalTokens: 90_000,
+      perDocumentTokens: 8_000,
+      maxDocuments: 4,
+    });
+  });
+
+  it("falls back per field on unparseable, zero, negative and exotic notations", async () => {
+    const f = await setup();
+    await writeSetting(f, "ai.chatEvidenceBudgetTokens", "abc");
+    await writeSetting(f, "ai.chatEvidenceDocumentBudgetTokens", "0");
+    await writeSetting(f, "ai.chatMaxEvidenceDocuments", "-5");
+    expect(await f.t.run((ctx) => chatEvidenceBudget(ctx))).toEqual(
+      DEFAULT_CHAT_EVIDENCE_BUDGET
+    );
+
+    const g = await setup();
+    await writeSetting(g, "ai.chatEvidenceBudgetTokens", "1e9");
+    await writeSetting(g, "ai.chatEvidenceDocumentBudgetTokens", "0x2710");
+    await writeSetting(g, "ai.chatMaxEvidenceDocuments", "12 documents");
+    expect(await g.t.run((ctx) => chatEvidenceBudget(ctx))).toEqual(
+      DEFAULT_CHAT_EVIDENCE_BUDGET
+    );
+  });
+
+  it("keeps one configured field from disturbing the others", async () => {
+    const f = await setup();
+    await writeSetting(f, "ai.chatMaxEvidenceDocuments", "3");
+    expect(await f.t.run((ctx) => chatEvidenceBudget(ctx))).toEqual({
+      ...DEFAULT_CHAT_EVIDENCE_BUDGET,
+      maxDocuments: 3,
+    });
   });
 });

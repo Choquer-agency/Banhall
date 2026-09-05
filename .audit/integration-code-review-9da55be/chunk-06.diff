@@ -1,0 +1,2603 @@
+diff --git a/convex/reviews.test.ts b/convex/reviews.test.ts
+index 7e8aec2..23b0b20 100644
+--- a/convex/reviews.test.ts
++++ b/convex/reviews.test.ts
+@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
+ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+ import { api } from "./_generated/api";
+ import schema from "./schema";
++import { sha256 } from "./lib/contracts";
+ 
+ const modules = import.meta.glob("./**/*.ts");
+ 
+@@ -257,3 +258,264 @@ describe("submitWriterReview Brain nomination", () => {
+     expect(await nominations(f)).toEqual([]);
+   });
+ });
++
++describe("CAP-9 review provenance", () => {
++  test.each([
++    {
++      revisionNumber: 4,
++      contentHash: "stored-report-hash",
++      expectedRevision: 4,
++    },
++    {
++      revisionNumber: undefined,
++      contentHash: "stored-legacy-hash",
++      expectedRevision: 0,
++    },
++    { revisionNumber: 6, contentHash: undefined, expectedRevision: 6 },
++  ])(
++    "new writer and QA reviews independently pin revision $revisionNumber and hash $contentHash",
++    async ({ revisionNumber, contentHash, expectedRevision }) => {
++      const f = await setup();
++      await f.t.run((ctx) =>
++        ctx.db.patch(f.reportId, { revisionNumber, contentHash })
++      );
++      const writerId = await f.writer.mutation(api.reviews.submitWriterReview, {
++        reportId: f.reportId,
++        score: 70,
++      });
++      const qaId = await f.writer.mutation(api.reviews.saveQaItemFeedback, {
++        target: { reportId: f.reportId },
++        itemKey: "risk",
++        itemKind: "issue",
++        section: "242",
++        itemText: "Risk",
++        vote: 1,
++      });
++      for (const id of [writerId, qaId]) {
++        expect(await f.t.run((ctx) => ctx.db.get(id))).toMatchObject({
++          revisionNumber: expectedRevision,
++          contentHash: contentHash ?? (await sha256(REPORT_DOC)),
++          userId: f.writerId,
++        });
++      }
++    }
++  );
++
++  test.each([undefined, ""])(
++    "legacy report hash %s falls back for writer and QA inserts and updates",
++    async (contentHash) => {
++      const f = await setup();
++      await f.t.run((ctx) => ctx.db.patch(f.reportId, { contentHash }));
++      const writerId = await f.writer.mutation(api.reviews.submitWriterReview, {
++        reportId: f.reportId,
++        score: 70,
++      });
++      const feedback = {
++        target: { reportId: f.reportId },
++        itemKey: "risk",
++        itemKind: "issue" as const,
++        section: "242",
++        itemText: "Clarify uncertainty",
++        vote: 1 as const,
++      };
++      const qaId = await f.writer.mutation(
++        api.reviews.saveQaItemFeedback,
++        feedback
++      );
++      const expectedHash = await sha256(REPORT_DOC);
++      for (const id of [writerId, qaId]) {
++        expect(await f.t.run((ctx) => ctx.db.get(id))).toMatchObject({
++          revisionNumber: 0,
++          contentHash: expectedHash,
++        });
++      }
++      await f.t.run((ctx) =>
++        ctx.db.patch(f.reportId, {
++          content: "Edited report",
++          revisionNumber: 3,
++          contentHash: "stored-edited-hash",
++        })
++      );
++      expect(
++        await f.writer.mutation(api.reviews.submitWriterReview, {
++          reportId: f.reportId,
++          score: 80,
++        })
++      ).toBe(writerId);
++      expect(
++        await f.writer.mutation(api.reviews.saveQaItemFeedback, feedback)
++      ).toBe(qaId);
++      for (const id of [writerId, qaId]) {
++        expect(await f.t.run((ctx) => ctx.db.get(id))).toMatchObject({
++          revisionNumber: 3,
++          contentHash: "stored-edited-hash",
++          userId: f.writerId,
++        });
++      }
++      await f.t.run((ctx) =>
++        ctx.db.patch(f.reportId, {
++          content: "Edited legacy",
++          revisionNumber: undefined,
++          contentHash: "",
++        })
++      );
++      await f.writer.mutation(api.reviews.submitWriterReview, {
++        reportId: f.reportId,
++        score: 80,
++      });
++      await f.writer.mutation(api.reviews.saveQaItemFeedback, feedback);
++      for (const id of [writerId, qaId]) {
++        expect(await f.t.run((ctx) => ctx.db.get(id))).toMatchObject({
++          revisionNumber: 0,
++          contentHash: await sha256("Edited legacy"),
++        });
++      }
++    }
++  );
++
++  test("candidate feedback retains its key after selection but pins the submitted report", async () => {
++    const f = await setup();
++    const { generationId, candidateId } = await f.t.run(async (ctx) => {
++      const generationId = await ctx.db.insert("generations", {
++        projectId: f.projectId,
++        status: "awaiting_selection",
++        startedAt: Date.now(),
++      });
++      const candidateId = await ctx.db.insert("reportCandidates", {
++        projectId: f.projectId,
++        generationId,
++        model: "test",
++        label: "A",
++        content: REPORT_DOC,
++        agentOutputs: "{}",
++        createdAt: Date.now(),
++      });
++      return { generationId, candidateId };
++    });
++    const feedback = {
++      itemKey: "risk",
++      itemKind: "issue" as const,
++      section: "242",
++      itemText: "Risk",
++      vote: 1 as const,
++    };
++    const qaId = await f.writer.mutation(api.reviews.saveQaItemFeedback, {
++      ...feedback,
++      target: { candidateId },
++    });
++    expect(await f.t.run((ctx) => ctx.db.get(qaId))).toMatchObject({
++      revisionNumber: 0,
++      contentHash: await sha256(REPORT_DOC),
++    });
++    await f.t.run((ctx) =>
++      ctx.db.patch(candidateId, { content: "Changed candidate" })
++    );
++    expect(
++      await f.writer.mutation(api.reviews.saveQaItemFeedback, {
++        ...feedback,
++        target: { candidateId },
++      })
++    ).toBe(qaId);
++    expect(await f.t.run((ctx) => ctx.db.get(qaId))).toMatchObject({
++      revisionNumber: 0,
++      contentHash: await sha256("Changed candidate"),
++    });
++    const reportId = await f.writer.mutation(
++      api.generations.selectReportCandidate,
++      { generationId, candidateId }
++    );
++    await f.t.run((ctx) =>
++      ctx.db.patch(reportId, {
++        content: "Edited selected report",
++        revisionNumber: 2,
++        contentHash: "selected-report-hash",
++      })
++    );
++    expect(
++      await f.writer.mutation(api.reviews.saveQaItemFeedback, {
++        ...feedback,
++        target: { reportId },
++      })
++    ).toBe(qaId);
++    const rows = await f.t.run((ctx) =>
++      ctx.db.query("qaItemFeedback").collect()
++    );
++    expect(rows).toHaveLength(1);
++    expect(rows[0]).toMatchObject({
++      targetKey: `candidate:${candidateId}`,
++      revisionNumber: 2,
++      contentHash: "selected-report-hash",
++    });
++  });
++
++  test("legacy writer and QA queries preserve absence until resubmission pins the same rows", async () => {
++    const f = await setup();
++    const { writerId, qaId } = await f.t.run(async (ctx) => {
++      const writerId = await ctx.db.insert("writerReviews", {
++        projectId: f.projectId,
++        reportId: f.reportId,
++        userId: f.writerId,
++        score: 71,
++        createdAt: 0,
++        updatedAt: 0,
++      });
++      const qaId = await ctx.db.insert("qaItemFeedback", {
++        projectId: f.projectId,
++        reportId: f.reportId,
++        targetKey: `report:${f.reportId}`,
++        userId: f.writerId,
++        itemKey: "risk",
++        itemKind: "issue",
++        section: "242",
++        itemText: "Risk",
++        createdAt: 0,
++        updatedAt: 0,
++      });
++      return { writerId, qaId };
++    });
++    expect(
++      await f.writer.query(api.reviews.getMyWriterReview, {
++        reportId: f.reportId,
++      })
++    ).toEqual({ score: 71, comment: "" });
++    expect(
++      await f.writer.query(api.reviews.getMyQaItemFeedback, {
++        target: { reportId: f.reportId },
++      })
++    ).toEqual([{ itemKey: "risk", overrideSeverity: null, vote: null }]);
++    for (const row of await f.t.run(async (ctx) => [
++      ...(await ctx.db.query("writerReviews").collect()),
++      ...(await ctx.db.query("qaItemFeedback").collect()),
++    ])) {
++      expect(row).not.toHaveProperty("revisionNumber");
++      expect(row).not.toHaveProperty("contentHash");
++    }
++    expect(
++      await f.writer.mutation(api.reviews.submitWriterReview, {
++        reportId: f.reportId,
++        score: 78,
++      })
++    ).toBe(writerId);
++    expect(
++      await f.writer.mutation(api.reviews.saveQaItemFeedback, {
++        target: { reportId: f.reportId },
++        itemKey: "risk",
++        itemKind: "issue",
++        section: "242",
++        itemText: "Risk",
++        vote: 1,
++      })
++    ).toBe(qaId);
++    for (const id of [writerId, qaId]) {
++      expect(await f.t.run((ctx) => ctx.db.get(id))).toMatchObject({
++        revisionNumber: 0,
++        contentHash: await sha256(REPORT_DOC),
++        userId: f.writerId,
++      });
++    }
++    expect(await writerReviews(f)).toHaveLength(1);
++    expect(
++      await f.t.run((ctx) => ctx.db.query("qaItemFeedback").collect())
++    ).toHaveLength(1);
++  });
++});
+diff --git a/convex/reviews.ts b/convex/reviews.ts
+index c66796f..b9b3568 100644
+--- a/convex/reviews.ts
++++ b/convex/reviews.ts
+@@ -7,7 +7,7 @@ import {
+   requireInternalProjectAccess,
+   requireRole,
+ } from "./lib/auth";
+-import { domainError } from "./lib/contracts";
++import { domainError, sha256 } from "./lib/contracts";
+ import { canOverrideQaSeverity } from "../shared/roles";
+ import { resolveLiveUserLabel, userDisplayLabel } from "./lib/teamRoster";
+ 
+@@ -63,9 +63,14 @@ export const submitWriterReview = mutation({
+       )
+       .first();
+ 
++    const provenance = {
++      revisionNumber: report.revisionNumber ?? 0,
++      contentHash: report.contentHash || (await sha256(report.content)),
++    };
+     let reviewId: Id<"writerReviews">;
+     if (existing) {
+       await ctx.db.patch(existing._id, {
++        ...provenance,
+         score,
+         comment,
+         aiScore: args.aiScore,
+@@ -80,6 +85,7 @@ export const submitWriterReview = mutation({
+         reportVersion: report.version,
+         userId: user._id,
+         writerName,
++        ...provenance,
+         score,
+         comment,
+         aiScore: args.aiScore,
+@@ -141,6 +147,9 @@ async function resolveQaTarget(
+     const targetKey = await getReportCandidateTargetKey(ctx, target.reportId);
+     return {
+       targetKey,
++      reviewedContent: report.content,
++      revisionNumber: report.revisionNumber ?? 0,
++      contentHash: report.contentHash,
+       projectId: report.projectId,
+       reportId: report._id,
+       generationId: report.generationId,
+@@ -152,6 +161,9 @@ async function resolveQaTarget(
+   const access = await requireInternalProjectAccess(ctx, candidate.projectId);
+   return {
+     targetKey: `candidate:${target.candidateId}`,
++    reviewedContent: candidate.content,
++    revisionNumber: 0,
++    contentHash: undefined,
+     projectId: candidate.projectId,
+     candidateId: candidate._id,
+     generationId: candidate.generationId,
+@@ -206,6 +218,8 @@ export const saveQaItemFeedback = mutation({
+       domainError("NOT_AUTHORIZED", "Only managers can reclassify QA severity");
+     }
+     const value = {
++      revisionNumber: target.revisionNumber,
++      contentHash: target.contentHash || (await sha256(target.reviewedContent)),
+       itemKind: args.itemKind,
+       section: args.section,
+       itemText: args.itemText,
+diff --git a/convex/schema.ts b/convex/schema.ts
+index 0067e93..b2e69ab 100644
+--- a/convex/schema.ts
++++ b/convex/schema.ts
+@@ -482,6 +482,7 @@ export default defineSchema({
+   })
+     .index("by_createdAt", ["createdAt"])
+     .index("by_projectId", ["projectId"])
++    .index("by_projectId_and_createdAt", ["projectId", "createdAt"])
+     .index("by_generationId", ["generationId"]),
+ 
+   transcripts: defineTable({
+@@ -522,6 +523,20 @@ export default defineSchema({
+     ])
+     .index("by_projectId", ["projectId"]),
+ 
++  qaFindings: defineTable({
++    section: v.optional(v.string()),
++    findingKey: v.optional(v.string()),
++    reportId: v.id("reports"),
++    revisionNumber: v.number(),
++    contentHash: v.string(),
++    check: v.string(),
++    message: v.string(),
++    blocking: v.boolean(),
++  })
++    .index("by_reportId_and_revisionNumber_and_contentHash_and_findingKey", ["reportId", "revisionNumber", "contentHash", "findingKey"])
++    .index("by_reportId_and_contentHash_and_check_and_message_and_blocking", ["reportId", "contentHash", "check", "message", "blocking"])
++    .index("by_reportId_and_revisionNumber_and_contentHash_and_blocking", ["reportId", "revisionNumber", "contentHash", "blocking"]),
++
+   reports: defineTable({
+     projectId: v.id("projects"),
+     content: v.string(),
+@@ -828,6 +843,7 @@ export default defineSchema({
+   // The agent UIMessage cannot durably express turn start/end, so app-owned
+   // timing keeps queued and terminal states stable across reloads and races.
+   chatTurns: defineTable({
++    userId: v.optional(v.id("users")),
+     agentThreadId: v.string(),
+     promptMessageId: v.string(),
+     order: v.number(),
+@@ -847,6 +863,7 @@ export default defineSchema({
+       "promptMessageId",
+     ])
+     .index("by_agentThreadId_and_order", ["agentThreadId", "order"])
++    .index("by_userId_and_status", ["userId", "status"])
+     // Stale-turn reaper: sweep queued/running rows regardless of thread.
+     .index("by_status", ["status"]),
+ 
+@@ -1017,6 +1034,18 @@ export default defineSchema({
+     ),
+     source: v.string(),
+     uploadedBy: v.string(),
++    // CAP-3: the internal role of the user who uploaded this document, frozen
++    // at write time. `uploadedBy` is a free-form string (a user id on one path,
++    // a display label on three others) so it is NOT a usable join key to
++    // `users`; the role has to be a stored fact. ABSENT MEANS CLIENT TRUST:
++    // every row predating this field, and any row whose writer is unknown, is
++    // presented to the analyzer as ordinary client evidence. Never backfilled.
++    // On a duplicated project this describes the ORIGIN row's uploader and is
++    // carried forward verbatim, while `uploadedBy` names whoever duplicated;
++    // the two fields may describe different people by design.
++    uploaderRole: v.optional(
++      v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))
++    ),
+     createdAt: v.number(),
+   })
+     .index("by_projectId", ["projectId"])
+@@ -1263,6 +1292,31 @@ export default defineSchema({
+     .index("by_projectId", ["projectId"])
+     .index("by_projectId_and_milestoneKey", ["projectId", "milestoneKey"]),
+ 
++  // BNH-10 flywheel (CAP-2): post-edit distance frozen at the three milestones
++  // where the writer's divergence from the AI draft is meaningful. Rows are
++  // append-only readings; the read surface is index-only per report and per
++  // accountable writer (projects.ownerId, PSOS-07 — never createdBy).
++  reportEditDistance: defineTable({
++    reportId: v.id("reports"),
++    projectId: v.id("projects"),
++    generationId: v.optional(v.id("generations")),
++    // projects.ownerId at the time of the reading; optional because ownerId is
++    // still optional on legacy projects (those rows never appear per-writer).
++    writerUserId: v.optional(v.id("users")),
++    revisionNumber: v.number(),
++    /** 0 = untouched draft, 1 = fully rewritten. */
++    ped: v.number(),
++    computedAt: v.number(),
++    trigger: v.union(
++      v.literal("candidate_selection"),
++      v.literal("milestone"),
++      v.literal("client_publish")
++    ),
++  })
++    .index("by_reportId", ["reportId"])
++    .index("by_projectId", ["projectId"])
++    .index("by_writerUserId_and_computedAt", ["writerUserId", "computedAt"]),
++
+   // Human-verified claimant/participant identity and relationship evidence.
+   // Rows are retained and rejected/superseded rather than deleted.
+   projectIdentityEvidence: defineTable({
+@@ -1387,6 +1441,28 @@ export default defineSchema({
+     truncated: v.boolean(),
+     originalLength: v.number(),
+     capturedAt: v.number(),
++    // CAP-3: uploader role frozen off the `projectDocuments` row at
++    // reservation, so the analyzer's trust decision is pinned to the
++    // reservation rather than re-read live. ABSENT MEANS CLIENT TRUST (legacy
++    // rows, transcript rows, and any document whose uploader role is unknown).
++    uploaderRole: v.optional(
++      v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))
++    ),
++    // Budget-application metadata, NOT capture metadata: what the analyzer's
++    // context budget did with this row (see convex/ai/trustedContext.ts).
++    // Written after the fact by generations.recordContextBudget; absent on
++    // legacy rows, on any row whose generation predates the budget, and on
++    // full-text transcript rows a digest-mode generation superseded with
++    // transcript_digest rows (only the rows the analyzer read are recorded).
++    // `content`/`contentHash`/`truncated`/`originalLength` above stay frozen.
++    contextBudget: v.optional(
++      v.object({
++        budgetTokens: v.number(),
++        included: v.boolean(),
++        includedLength: v.number(),
++        truncated: v.boolean(),
++      })
++    ),
+   })
+     .index("by_generationId", ["generationId"])
+     .index("by_projectId_and_generationId", ["projectId", "generationId"]),
+@@ -1470,10 +1546,13 @@ export default defineSchema({
+   // One review per writer per report version. Surfaced to the admin alongside
+   // the AI QA score; NEVER auto-applied to the brain (manual review only).
+   writerReviews: defineTable({
++    // New judgments pin content; baseline revision is 0. Historical rows may lack both.
++    revisionNumber: v.optional(v.number()),
++    contentHash: v.optional(v.string()),
+     projectId: v.id("projects"),
+     reportId: v.id("reports"),
+     reportVersion: v.optional(v.number()),
+-    userId: v.string(),
++    userId: v.id("users"),
+     writerName: v.optional(v.string()),
+     score: v.number(), // writer's 0–100 quality score
+     comment: v.optional(v.string()),
+@@ -1485,9 +1564,37 @@ export default defineSchema({
+     .index("by_user_report", ["userId", "reportId"])
+     .index("by_projectId", ["projectId"]),
+ 
++  // ─── Reviewer decision recorded when a project leaves internal review ──────
++  // Required (fail-closed, typed REVIEW_DECISION_REQUIRED) on the two
++  // internal-review completion edges — `internal_review` → `edits` and
++  // `internal_review` → `ready_for_delivery` — and written by
++  // `setWorkflowStage` in the same transaction as the stage patch and the
++  // `stage_changed` event. The row pins the judgement to the exact report
++  // revision that was read (`revisionNumber` + `contentHash`), so "the review
++  // is done" is an audited fact rather than an unattributed stage flip.
++  // `toStage` is inlined rather than imported from lib/contracts to keep the
++  // schema free of runtime imports; only the two completion destinations are
++  // representable.
++  reviewDecisions: defineTable({
++    projectId: v.id("projects"),
++    reportId: v.id("reports"),
++    reviewerId: v.id("users"),
++    revisionNumber: v.number(),
++    contentHash: v.string(),
++    decision: v.union(v.literal("approve"), v.literal("return")),
++    toStage: v.union(v.literal("edits"), v.literal("ready_for_delivery")),
++    note: v.optional(v.string()),
++    createdAt: v.number(),
++  })
++    .index("by_projectId", ["projectId"])
++    .index("by_reportId", ["reportId"]),
++
+   // Per-writer feedback on individual generated QA observations. Target keys
+   // survive candidate deletion after selection; item text is copied for admin review.
+   qaItemFeedback: defineTable({
++    // New judgments pin content; baseline revision is 0. Historical rows may lack both.
++    revisionNumber: v.optional(v.number()),
++    contentHash: v.optional(v.string()),
+     targetKey: v.string(),
+     projectId: v.id("projects"),
+     reportId: v.optional(v.id("reports")),
+@@ -1555,6 +1662,9 @@ export default defineSchema({
+   // (source "review_pd"); `result` holds the structured feedback report JSON
+   // (strengths / risks / suggested strengthening / qualitative score).
+   pdReviews: defineTable({
++    // New judgments pin content; baseline revision is 0. Historical rows may lack both.
++    revisionNumber: v.optional(v.number()),
++    contentHash: v.optional(v.string()),
+     projectId: v.id("projects"),
+     documentId: v.id("projectDocuments"),
+     sourceFileName: v.string(),
+diff --git a/convex/snapshots.test.ts b/convex/snapshots.test.ts
+index d8c3eee..126d72b 100644
+--- a/convex/snapshots.test.ts
++++ b/convex/snapshots.test.ts
+@@ -3,7 +3,9 @@ import { convexTest } from "convex-test";
+ import { describe, expect, it } from "vitest";
+ import { api } from "./_generated/api";
+ import type { Id } from "./_generated/dataModel";
++import type { DomainErrorCode } from "./lib/contracts";
+ import { sha256 } from "./lib/contracts";
++import { snapshotAuditFields, writePreEditSnapshot } from "./lib/snapshots";
+ import schema from "./schema";
+ 
+ const modules = import.meta.glob("./**/*.ts");
+@@ -64,7 +66,7 @@ async function setup() {
+       generatedAt: now,
+       updatedAt: now,
+     });
+-    return { projectId, generationId, reportId, transcriptIds };
++    return { projectId, generationId, reportId, transcriptIds, userId };
+   });
+   return { t: t.withIdentity({ subject: AUTH_ID }), raw: t, ...ids };
+ }
+@@ -147,3 +149,298 @@ describe("snapshots carry the transcript set (AC5)", () => {
+     });
+   });
+ });
++
++describe("the shared pre-edit writer owns the checkpoint shape", () => {
++  it("labels a researched checkpoint, copies its source count, and carries the audit fields", async () => {
++    const { raw, projectId, reportId, generationId, transcriptIds } =
++      await setup();
++
++    const snapshot = await raw.run(async (ctx) => {
++      const user = await ctx.db
++        .query("users")
++        .withIndex("by_authId", (q) => q.eq("authId", AUTH_ID))
++        .unique();
++      const researchSessionId = await ctx.db.insert("researchSessions", {
++        projectId,
++        reportId,
++        requestedBy: user!._id,
++        selectedText: "Report content",
++        selectionFrom: 0,
++        selectionTo: 14,
++        surroundingContext: CONTENT,
++        instruction: "Back this with sources",
++        externalBrief: "Redacted brief",
++        reportRevisionNumber: 0,
++        status: "completed",
++        evidenceSourceCount: 3,
++        createdAt: Date.now(),
++        updatedAt: Date.now(),
++      });
++      const report = (await ctx.db.get(reportId))!;
++      // The label is derived, never supplied: the session id alone must be
++      // enough for the writer to mark this checkpoint as research-backed.
++      const snapshotId = await writePreEditSnapshot(
++        ctx,
++        report,
++        "pre_chat_edit",
++        { createdAt: 1_700_000_000_000, researchSessionId }
++      );
++      return {
++        row: await ctx.db.get(snapshotId),
++        expectedAudit: await snapshotAuditFields(ctx, report),
++        researchSessionId,
++      };
++    });
++
++    expect(snapshot.row).toMatchObject({
++      reason: "pre_chat_edit",
++      label: "Before researched edit",
++      createdByRole: "system",
++      content: CONTENT,
++      sourceRevisionNumber: 0,
++      createdAt: 1_700_000_000_000,
++      researchSessionId: snapshot.researchSessionId,
++      researchSourceCount: 3,
++    });
++    // Dropping the audit-field spread is the refactor's main regression risk,
++    // so pin the lineage against both the helper and the fixture's own ids.
++    expect(snapshot.row).toMatchObject({
++      contentHash: await sha256(CONTENT),
++      generationId,
++      sourceTranscriptId: transcriptIds[0],
++      sourceTranscriptIds: transcriptIds,
++    });
++    expect(snapshot.expectedAudit).toMatchObject({
++      contentHash: await sha256(CONTENT),
++      generationId,
++      sourceTranscriptId: transcriptIds[0],
++      sourceTranscriptIds: transcriptIds,
++    });
++  });
++
++  it("keeps the research label and falls back to zero sources when the session is gone", async () => {
++    const { raw, reportId, userId } = await setup();
++
++    const row = await raw.run(async (ctx) => {
++      const report = (await ctx.db.get(reportId))!;
++      const researchSessionId = await ctx.db.insert("researchSessions", {
++        projectId: report.projectId,
++        reportId,
++        requestedBy: userId,
++        selectedText: "Report content",
++        selectionFrom: 0,
++        selectionTo: 14,
++        surroundingContext: CONTENT,
++        instruction: "Back this with sources",
++        externalBrief: "Redacted brief",
++        reportRevisionNumber: 0,
++        status: "completed",
++        evidenceSourceCount: 3,
++        createdAt: Date.now(),
++        updatedAt: Date.now(),
++      });
++      // The proposal still points at the session; the row itself is gone.
++      await ctx.db.delete(researchSessionId);
++      const id = await writePreEditSnapshot(ctx, report, "pre_chat_edit", {
++        createdAt: 1_700_000_000_002,
++        researchSessionId,
++      });
++      return { row: await ctx.db.get(id), researchSessionId };
++    });
++
++    // Matches the pre-refactor `applyProposal` behaviour: the trail is kept,
++    // the count degrades to 0 rather than throwing.
++    expect(row.row).toMatchObject({
++      label: "Before researched edit",
++      researchSessionId: row.researchSessionId,
++      researchSourceCount: 0,
++    });
++  });
++
++  it("defaults the label per reason, omits research fields, and still audits", async () => {
++    const { raw, reportId, generationId, transcriptIds } = await setup();
++
++    const row = await raw.run(async (ctx) => {
++      const report = (await ctx.db.get(reportId))!;
++      const id = await writePreEditSnapshot(ctx, report, "pre_client_edit", {
++        createdAt: 1_700_000_000_001,
++      });
++      return await ctx.db.get(id);
++    });
++
++    expect(row).toMatchObject({
++      reason: "pre_client_edit",
++      label: "Before client edit",
++      createdAt: 1_700_000_000_001,
++      contentHash: await sha256(CONTENT),
++      generationId,
++      sourceTranscriptId: transcriptIds[0],
++      sourceTranscriptIds: transcriptIds,
++    });
++    expect(row?.researchSessionId).toBeUndefined();
++    expect(row?.researchSourceCount).toBeUndefined();
++  });
++});
++
++/**
++ * Assert a mutation rejected with a specific `domainError` code. Matching the
++ * serialized message would let a guard pass for the wrong reason —
++ * `restoreSnapshot` raises NOT_AUTHORIZED from both `requireReportEditAccess`
++ * and the cross-project rule — so this asserts `data.code` exactly and takes an
++ * optional message pattern to pin the intended guard.
++ */
++async function expectDomainError(
++  run: () => Promise<unknown>,
++  code: DomainErrorCode,
++  messagePattern?: RegExp
++) {
++  let thrown: unknown;
++  let threw = false;
++  try {
++    await run();
++  } catch (error) {
++    thrown = error;
++    threw = true;
++  }
++  expect(threw, `expected a ${code} rejection but the call resolved`).toBe(true);
++  const data = (thrown as { data?: unknown } | null)?.data;
++  expect(
++    data !== null && typeof data === "object",
++    `expected a ConvexError carrying domain-error data, got: ${String(thrown)}`
++  ).toBe(true);
++  const payload = data as { code?: unknown; message?: unknown };
++  expect(payload.code).toBe(code);
++  if (messagePattern) expect(String(payload.message)).toMatch(messagePattern);
++}
++
++describe("restoreSnapshot guards", () => {
++  /** A manual snapshot of the report's current content. */
++  async function seedSnapshot(
++    raw: ReturnType<typeof convexTest>,
++    projectId: Id<"projects">,
++    reportId: Id<"reports">,
++    content = "Older content"
++  ) {
++    return await raw.run(async (ctx) =>
++      ctx.db.insert("reportSnapshots", {
++        projectId,
++        reportId,
++        content,
++        contentHash: await sha256(content),
++        sourceRevisionNumber: 0,
++        reason: "manual",
++        createdByRole: "writer",
++        createdAt: Date.now(),
++      })
++    );
++  }
++
++  it("refuses a restore fenced to an older revision", async () => {
++    const { t, raw, projectId, reportId } = await setup();
++    const snapshotId = await seedSnapshot(raw, projectId, reportId);
++    await raw.run((ctx) =>
++      ctx.db.patch(reportId, { content: "Newer content", revisionNumber: 2 })
++    );
++
++    await expectDomainError(
++      () =>
++        t.mutation(api.snapshots.restoreSnapshot, {
++          snapshotId,
++          targetReportId: reportId,
++          expectedRevisionNumber: 1,
++        }),
++      "STALE_REVISION"
++    );
++
++    const state = await raw.run(async (ctx) => ({
++      report: await ctx.db.get(reportId),
++      preRestore: (await ctx.db.query("reportSnapshots").collect()).filter(
++        (row) => row.reason === "pre_restore"
++      ),
++    }));
++    expect(state.report).toMatchObject({
++      content: "Newer content",
++      revisionNumber: 2,
++    });
++    expect(state.preRestore).toHaveLength(0);
++  });
++
++  it("refuses a restore onto a report in another project", async () => {
++    const { t, raw, projectId, reportId } = await setup();
++    const snapshotId = await seedSnapshot(raw, projectId, reportId);
++    // A second project the same writer owns, so only the cross-project rule
++    // can reject the restore.
++    const foreignReportId = await raw.run(async (ctx) => {
++      const user = await ctx.db
++        .query("users")
++        .withIndex("by_authId", (q) => q.eq("authId", AUTH_ID))
++        .unique();
++      const now = Date.now();
++      const otherProjectId = await ctx.db.insert("projects", {
++        title: "Other project",
++        clientName: "Other client",
++        status: "review",
++        createdBy: user!._id,
++        ownerId: user!._id,
++        shareToken: "snapshots-token-other",
++        createdAt: now,
++        updatedAt: now,
++      });
++      return await ctx.db.insert("reports", {
++        projectId: otherProjectId,
++        content: "Foreign report content",
++        contentHash: await sha256("Foreign report content"),
++        revisionNumber: 0,
++        version: 1,
++        generatedAt: now,
++        updatedAt: now,
++      });
++    });
++
++    await expectDomainError(
++      () =>
++        t.mutation(api.snapshots.restoreSnapshot, {
++          snapshotId,
++          targetReportId: foreignReportId,
++          expectedRevisionNumber: 0,
++        }),
++      "NOT_AUTHORIZED",
++      /another project/i
++    );
++
++    const state = await raw.run(async (ctx) => ({
++      report: await ctx.db.get(reportId),
++      foreign: await ctx.db.get(foreignReportId),
++      snapshots: await ctx.db.query("reportSnapshots").collect(),
++    }));
++    expect(state.report).toMatchObject({ content: CONTENT, revisionNumber: 0 });
++    expect(state.foreign).toMatchObject({
++      content: "Foreign report content",
++      revisionNumber: 0,
++    });
++    expect(state.snapshots.map((row) => row.reason)).toEqual(["manual"]);
++  });
++
++  it("refuses a restore from a snapshot that no longer exists", async () => {
++    const { t, raw, projectId, reportId } = await setup();
++    const snapshotId = await seedSnapshot(raw, projectId, reportId);
++    await raw.run((ctx) => ctx.db.delete(snapshotId));
++
++    await expectDomainError(
++      () =>
++        t.mutation(api.snapshots.restoreSnapshot, {
++          snapshotId,
++          targetReportId: reportId,
++          expectedRevisionNumber: 0,
++        }),
++      "NOT_FOUND"
++    );
++
++    const state = await raw.run(async (ctx) => ({
++      report: await ctx.db.get(reportId),
++      snapshots: await ctx.db.query("reportSnapshots").collect(),
++    }));
++    expect(state.report).toMatchObject({ content: CONTENT, revisionNumber: 0 });
++    expect(state.snapshots).toHaveLength(0);
++  });
++});
+diff --git a/convex/snapshots.ts b/convex/snapshots.ts
+index 88b9a5f..e7395f0 100644
+--- a/convex/snapshots.ts
++++ b/convex/snapshots.ts
+@@ -1,3 +1,4 @@
++import { persistDeterministicFindings } from "./lib/qaFindings";
+ import { query, mutation } from "./_generated/server";
+ import type { Id } from "./_generated/dataModel";
+ import { v } from "convex/values";
+@@ -12,6 +13,7 @@ import {
+   snapshotAuditFields,
+ } from "./lib/snapshots";
+ import { domainError } from "./lib/contracts";
++import { recordReportEditDistance } from "./lib/editDistance";
+ 
+ const MILESTONE_LABELS: Record<string, string> = {
+   R0: "R0 draft",
+@@ -252,6 +254,9 @@ export const createMilestoneSnapshot = mutation({
+       createdByRole: "writer",
+       createdAt: Date.now(),
+     });
++    // BNH-10 / CAP-2: a milestone is one of the three points where the
++    // writer's divergence from the AI draft is worth freezing.
++    await recordReportEditDistance(ctx, report, "milestone");
+     await pruneSnapshots(ctx, args.reportId);
+     return id;
+   },
+@@ -306,6 +311,7 @@ export const restoreSnapshot = mutation({
+       revisionNumber: revisionNumber + 1,
+       updatedAt: now,
+     });
++    await persistDeterministicFindings(ctx, report._id);
+     await pruneSnapshots(ctx, report._id);
+     return revisionNumber + 1;
+   },
+diff --git a/docs/bmad-loop-policy.example.toml b/docs/bmad-loop-policy.example.toml
+new file mode 100644
+index 0000000..5334ad4
+--- /dev/null
++++ b/docs/bmad-loop-policy.example.toml
+@@ -0,0 +1,38 @@
++# Copy to .bmad-loop/policy.toml after native bmad-loop init.
++# Local machine policy; the native engine owns run state and hook registration.
++[gates]
++mode = "none"
++retrospective = "notify"
++
++[adapter]
++name = "codex"
++model = "gpt-6-astra"
++extra_args = ["--dangerously-bypass-approvals-and-sandbox", "-c", 'model_reasoning_effort="medium"']
++cleanup_session_on_finish = true
++
++# All stages inherit the adapter/model/effort above.
++[review]
++enabled = true
++trigger = "always"
++on_timeout = "retry"
++
++[scm]
++isolation = "worktree"
++branch_per = "run"
++max_parallel = 1
++merge_strategy = "merge"
++delete_branch = false
++keep_failed = true
++seed_adapter_defaults = true
++# Dependencies are installed by the tracked npm-bootstrap project plugin.
++worktree_seed = []
++
++[verify]
++commands = ["bash scripts/loop-verify.sh"]
++
++[stories]
++source = "stories"
++spec_folder = "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat"
++
++[sweep]
++auto = "never"
+diff --git a/docs/bmad-loop.md b/docs/bmad-loop.md
+index f370afd..e27b0a4 100644
+--- a/docs/bmad-loop.md
++++ b/docs/bmad-loop.md
+@@ -1,90 +1,244 @@
+-# BMAD story loop (bmad-loop)
++# Native BMAD story loop
+ 
+-Deterministic orchestrator: [bmad-code-org/bmad-loop](https://github.com/bmad-code-org/bmad-loop)
+-(v0.11.1, installed 2026-09-01 via `uv tool`). Python drives pick → dev → verify →
+-review → commit; LLMs only do the creative work in fresh tmux sessions.
++Use `bmad-help` to identify the current story or epic, and `bmad-loop` to run it.
++The installed engine verified for this project is version 0.11.1. It owns
++story selection, isolated worktrees, session hooks, verification, retries,
++review, and local merge-back. Each coding session invokes `bmad-build-auto`.
+ 
+-Model split for this repo:
++Implementation, independent review, and deferred-work triage use Codex
++`gpt-6-astra` with `model_reasoning_effort="medium"`. The policy has
++`[review].trigger = "always"` and `[scm].max_parallel = 1`. Later stories in a
++queue inherit the completed changes from earlier stories. The custom
++`loop-parallel.py` launcher has been retired.
+ 
+-| Stage | Who | Why |
+-|---|---|---|
+-| PRD, spec, story breakdown, spec checkpoints | Claude Fable 5.1, interactive (`/bmad-spec`, `/bmad-create-prd`, …) | plans and approves tickets |
+-| Dev pass (`bmad-build-auto` plan + implement + inline review) | Claude Opus 5, `--effort medium` (was Codex `gpt-5.6-sol` until 2026-09-02; rate limits) | implements |
+-| Review pass (fresh-context `bmad-build-auto` on the done spec), sweep triage | Claude Fable 5.1 (`claude-fable-5-1`) | verifies |
++## Configure a checkout
+ 
+-`[review].trigger = "always"`, so every story gets the Fable review, and every
+-story in `stories.yaml` carries `spec_checkpoint: true`, so the run pauses after
+-planning for a human/Fable approval before Codex writes code.
++The project needs a physical local `_bmad/` installation, the installed skills,
++Codex, uv, and a supported terminal multiplexer. Keep those installs and the
++machine-specific `.bmad-loop/policy.toml` out of product commits.
+ 
+-## Pieces
++For a newly configured checkout, use the installed `bmad-loop-setup` skill and
++native initialization. For the verified engine version:
+ 
+-| Piece | Where |
+-|---|---|
+-| Policy (per machine, gitignored) | `.bmad-loop/policy.toml`; template committed as `.bmad-loop/policy.example.toml` |
+-| Hook relay | `.bmad-loop/bmad_loop_hook.py`, registered in `.claude/settings.json` (committed) and `.codex/hooks.json` (gitignored, absolute path) |
+-| Verify gate | `scripts/loop-verify.sh` = convex tsc + `npm run check` + `npm test` |
+-| Skills for Codex | `.agents/skills/bmad-*` are symlinks to `.claude/skills/bmad-*` (Codex reads `.agents/`) |
+-| Spec kernel + companions | `_bmad-output/specs/spec-<slug>/SPEC.md`, `touchpoints.md`, `.memlog.md` |
+-| Story list (execution order) | `_bmad-output/specs/spec-<slug>/stories.yaml` |
+-| Per-story spec + result | `_bmad-output/specs/spec-<slug>/stories/<id>-*.md` (written by build-auto) |
+-| Run state, journal, ATTENTION | `.bmad-loop/runs/<run-id>/` (gitignored) |
++```bash
++uv tool install "bmad-loop[tui] @ git+https://github.com/bmad-code-org/bmad-loop.git@v0.11.1"
++bmad-loop init --cli codex
++```
+ 
+-## Spec folders
++A minimal policy example is
++[`bmad-loop-policy.example.toml`](bmad-loop-policy.example.toml). Copy it to
++`.bmad-loop/policy.toml` only when configuring a new project; preserve existing
++local limits and settings when updating an established run. The example's
++unattended Codex permission flag is intended for an already authorized local
++build environment. `gates.mode = "none"` reflects the user's authorization to
++complete this repair run. Story-level `spec_checkpoint` and `done_checkpoint`
++settings still control their native checkpoints; preserve them for work that
++requires human approval.
++
++Native isolation provisions the skill/adapter files and registers hooks for
++the specific worktree. Do not point `_bmad/` at another checkout with a symlink.
++Inspect the native event log to confirm real SessionStart and Stop delivery.
++If trust blocks a session, use Codex's normal workspace/hook trust UI for that
++exact path, then confirm a subsequent genuine event reaches the native run.
++Registration alone is not proof of hook delivery.
++
++The tracked project extension
++[`.bmad-loop/plugins/npm-bootstrap/plugin.toml`](../.bmad-loop/plugins/npm-bootstrap/plugin.toml)
++installs each worker's dependencies from that worker's lockfile using
++`npm ci --include=dev`. Native 0.11.1 loads declarative plugins directly from the
++project folder; this extension has no Python module and needs no Python trust
++enablement. Keep the same manifest in every independently configured native
++project, including the pipeline lane and learn-chat queue.
++
++The blocking `pre_worktree_setup` hook runs after native provisioning mounts the
++worker and before its coding session. It first requires a local regular
++`package.json` and either `package-lock.json` or `npm-shrinkwrap.json`, so npm
++cannot search an ancestor project for installation inputs. It explicitly runs that worker's
++`./node_modules/.bin/svelte-kit sync`, TypeScript, and Vitest version probes.
++The explicit sync is required because package.json's prepare script tolerates
++sync errors. A nonzero exit vetoes setup; `fail_closed = true` also vetoes timeout
++or transport failure, with a bounded 20-minute readiness budget (1200 seconds).
++The native engine records a defer
++outcome and must not start coding for that unit. `post_worktree_setup` is
++observe-only in this engine version and cannot enforce readiness.
++
++Remove only `node_modules` from existing `scm.worktree_seed` lists, preserving
++all other seeds and policy. Do not seed dependencies: native 0.11.1's copier
++follows npm executable symlinks and can flatten `.bin` entrypoints into broken
++regular files. Each worker needs a physical local installation and generated
++Svelte files; the hook rejects symlinked `node_modules` or `.svelte-kit` before
++installation and repeats the ownership checks after installation and sync.
++It verifies all three executable targets resolve inside the worker's
++`node_modules`, and the generated `tsconfig.json` resolves inside its
++`.svelte-kit`. Never share either directory between active workers.
++
++For readiness evidence, inspect the native journal for `plugins-active` whose
++plugin list includes `npm-bootstrap`, then a successful `plugin-hook` for
++`npm-bootstrap` at `pre_worktree_setup` with `rc: 0`, before the unit's `session-start`. In the
++worker, rerun the explicit local TypeScript/Vitest probes and verify their
++resolved executable targets stay inside that worker's `node_modules`. A
++folder's existence, ancestor-resolved commands, or hook registration alone does
++not prove successful installation. The full story gate still runs afterward.
++The isolated registry probe records `plugin-loaded` with `mode: "declarative"`
++because it passes a journal to the registry. The live engine builds its registry
++without that journal, so use `plugins-active` for runtime activation evidence.
++
++## Run and inspect an epic
++
++First compare the epic's reconciliation note and acceptance criteria with the
++current target code. The sprint-2 specs carry a 2026-09-01 reconciliation note;
++verify their anchors again when running against a newer target. Completed
++stories are evidence to retain, not instructions to reimplement.
++
++Start from a clean branch intended to receive this epic. The engine pins that
++target at run creation and makes the implementation worktree itself.
+ 
+-| Folder | State |
+-|---|---|
+-| `spec-ai-engine-sprint-1` | Stories 1–8, 13 shipped on `main` (`e3391ea`, `4ea1bb9`). Its `RETROSPECTIVE.md` describes the parallel run on branch `bmad-loop`, which is reference only (conflicts with `main` in 20 files). |
+-| `spec-ai-engine-sprint-1b` | Current loop target: the four still-open stories 9–12 (CAP-8, CAP-9a, CAP-9b, CAP-10). |
+-| `spec-ai-engine-sprint-2-boundary`, `spec-ai-engine-sprint-2-learn-chat` | Drafted on `bmad-loop` against pre-`4ea1bb9` code; reconcile against `main` before running (2A story 6 is already done by `requireReportEditAccess`). |
++```bash
++bmad-loop validate --spec _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat
++bmad-loop run --dry-run --spec _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat
++bmad-loop run --spec _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat
++bmad-loop status --json
++bmad-loop tui
++```
+ 
+-## Per-machine setup (once)
++Use `--project /absolute/project/path` to inspect a run in another native project.
++Independent existing lanes may finish in their own worktrees. Overlapping
++stories should use one sequential native queue rather than an external fan-out
++script.
++
++A process exiting zero is not a completed story: a paused engine can also exit
++zero. Check native `finished`, every task's `phase`, its `commit_sha`, the actual
++Git commit, and the recorded verification results. `escalated`, `deferred`,
++`awaiting-operator`, and stopped runs require the corresponding follow-up.
++For full implementation completion require `finished: true` and every intended
++task at `phase: "done"`, with its commit and passing gate evidence. A skipped or
++deferred item does not count as implemented; resolve its remaining obligation
++or record an explicit approved exclusion.
++The source files are `_bmad-output/specs/<epic>/stories.yaml` and the generated
++`stories/<id>-*.md`; native state, journals, feedback, and `ATTENTION` live under
++`.bmad-loop/runs/<run-id>/`.
++
++## Recover an interrupted attempt
++
++The native registry is loaded once per runner. For an existing active item,
++allow it to finish after a local `npm ci --include=dev` repair if necessary;
++coordinate the repair while its coding process is not using the dependency
++tree. Explicitly run local Svelte sync and binary probes after the repair.
++Stop gracefully at a safe item boundary, install the manifest and remove only
++dependency seeds in the owning project's policy, then resume natively so the
++new registry applies. Never mutate an active worker's index or native state.
++For setup failures, inspect the recorded `plugin-hook` nonzero exit or
++`plugin-hook-error` and the native veto/deferred outcome before recovery. Do not
++claim the unit completed or let it fall back to ancestor dependencies.
++Native 0.11.1's timeout stops the hook subprocess but does not guarantee every
++npm descendant has ended. After a timeout, inspect and finish stopping the old
++installer before retrying or reusing that worker. The defer veto still prevents
++coding; do not patch the engine or add a custom controller to bypass it.
++
++Read native status, `ATTENTION`, session results, verification output, and Git
++status first. Preserve the run branch plus all dirty tracked/untracked artifacts
++before restarting. Confirm the former coding session has ended and avoid
++concurrent changes to a worker's Git index. From the interrupted worktree, a
++preservation example is:
+ 
+ ```bash
+-uv tool install "bmad-loop[tui] @ git+https://github.com/bmad-code-org/bmad-loop.git@v0.11.1"
+-cd Banhall
+-bmad-loop init --cli claude --cli codex     # hooks + skills; skips existing skill dirs
+-cp .bmad-loop/policy.example.toml .bmad-loop/policy.toml
+-codex     # accept workspace trust, then Hooks → "t" (trust all); /quit
+-claude    # accept trust; /exit
+-bmad-loop validate --spec _bmad-output/specs/spec-ai-engine-sprint-1b
++git branch codex/preserve-RUN_ID HEAD
++git rev-parse HEAD > ../RUN_ID.head.txt
++git diff --binary > ../RUN_ID.unstaged.patch
++git diff --cached --binary > ../RUN_ID.staged.patch
++git ls-files --others --exclude-standard -z | tar -cf ../RUN_ID.untracked.tar --null -T -
+ ```
+ 
+-## Run an epic
++Choose unique backup names. Inspect and securely copy any required ignored run
++artifacts separately; the archive intentionally excludes ignored files. Keep
++those backups outside the worktree that native restart will remove, and never
++commit credentials or environment files as recovery artifacts. Read
++`target_branch` in the run's `state.json` to identify the pinned target; the
++worker's current `bmad-loop/<run-id>` branch is its temporary source.
++
++In worktree mode, an unfinished session can restart by discarding its old unit
++worktree and run branch, then rebuilding from the pinned target branch. Keeping
++commits only on the temporary run branch does not make the next attempt reuse
++them. Preserve a separate ref and patch first; to reuse the implementation,
++commit the intended recovery base and corrected spec on the pinned target
++before resuming. This is preparation for verification, not approval for main.
++
++For an actual spec ambiguity, use native `resolve` and `bmad-loop-resolve` to
++record the human's decision. For an already-understood operational failure,
++native re-arm can be separated from restart:
++
++```bash
++bmad-loop resolve --project /absolute/project/path RUN_ID --no-interactive --no-resume
++# Preserve the engine-rearmed spec and intended recovery base on the pinned target.
++# Validate the corrected epic and confirm a clean, preserved recovery base first.
++bmad-loop validate --project /absolute/project/path --spec _bmad-output/specs/EPIC_FOLDER
++bmad-loop resume --project /absolute/project/path RUN_ID
++```
+ 
+-The tree must be clean (commit or stash first). Runs edit the checkout in
+-place (`[scm] isolation = "none"`); worktree isolation is off because a fresh
+-worktree has no `node_modules` and the verify gate would fail.
++For a stopped run without an escalation, preserve its work before `resume`;
++`resolve` does not apply. In engine 0.11.1, `deferred` is terminal within that
++run: `resume` skips it, and escalation resolution cannot re-arm it. Preserve the
++implementation and use the native deferred-work sweep to prove and close the
++remaining obligation. Preserve the original story contract and historical
++implementation baseline as review context. For a story stored under a nested
++`_bmad-output/specs/.../stories` directory, create a standard follow-up result
++spec directly under `_bmad-output/implementation-artifacts` through
++`bmad-build-auto`. Engine 0.11.1 permits ancestor baselines during sweep
++verification, but its first-session artifact discovery is nonrecursive and
++cannot discover the adopted nested story as the result. Keep the failed run's
++historical status intact and link the successful sweep evidence; do not relabel
++the old attempt as successful. Never hand-edit `state.json`, terminal result markers,
++or story statuses to manufacture completion. Never synthesize session hook events; use native session recovery.
++
++Preserve existing deferred-work entries exactly. An unchanged ledger append
++made by the engine can be included in a bookkeeping commit if needed for a
++clean review checkout; changing the entry's status or resolution belongs to the
++native sweep. When combining branches, reconcile colliding DW IDs by their
++origin, source spec, and content, preserving every distinct entry. Keep main's
++existing IDs stable and assign unused IDs to distinct incoming entries that
++collide. Record an old-branch/old-ID to new-ID mapping and update active ledger
++references before invoking a sweep; historical immutable run snapshots retain
++their original IDs.
++
++## Verify, integrate, and ship
++
++The native `scripts/loop-verify.sh` gate runs Convex TypeScript, Svelte checks,
++unit tests, and the Windows/macOS uploader harnesses. `PUBLIC_CONVEX_URL` defaults
++to a placeholder for typechecking. The unit suite limits worker concurrency so
++independent worktrees do not each use the full host's worker pool.
++
++Combine completed branches in an isolated integration checkout. Resolve all
++conflicts while preserving each story's acceptance behavior, then run the full
++combined gate. UI changes also require `npm run test:component`; these browser
++tests are separate from `npm test`. Run a fresh `bmad-code-review` on the combined
++change and fix actionable findings. Review runtime evidence and any limitations
++against the story contracts.
++
++Use the native deferred-work sweep to classify and repair recorded follow-ups:
+ 
+ ```bash
+-bmad-loop run --dry-run --spec _bmad-output/specs/spec-ai-engine-sprint-1b   # schedule only
+-bmad-loop run --spec _bmad-output/specs/spec-ai-engine-sprint-1b             # go
+-bmad-loop tui                                                                # watch; p = review a checkpoint, a = attach
+-bmad-loop status; bmad-loop resume <run-id>; bmad-loop resolve <run-id>
++bmad-loop sweep --dry-run
++bmad-loop sweep --no-prompt
+ ```
+ 
+-To run in a side checkout instead of this one: `git worktree add ../Banhall-loop -b loop/<slug> main`,
+-symlink `node_modules`, copy `.env.local`, `npx svelte-kit sync`, then re-run the
+-per-machine steps there (`.codex/hooks.json` embeds an absolute path).
+-
+-## Gotchas
+-
+-- `bmad-build-auto` renders through `uv run _bmad/scripts/render_skill.py`; `_bmad/render/` is gitignored.
+-- Codex trust and hook trust are per path; a new worktree needs the interactive first run again.
+-- Codex writes hook trust to `~/.codex/config.toml` only on a clean exit. After pressing `t`, quit with
+-  Ctrl-C twice and confirm `grep 'Banhall/.codex/hooks.json' ~/.codex/config.toml` shows `session_start`
+-  and `stop` entries. Untrusted hooks never fire, the events dir under `~/.local/state/bmad-loop/` stays
+-  empty, and every session waits out the 10-minute stall grace before the engine rescues it from disk.
+-- Engine stuck on a session that visibly finished: pipe a Stop payload through the relay with the
+-  session's `BMAD_LOOP_RUN_DIR`, `BMAD_LOOP_TASK_ID`, and `BMAD_LOOP_EVENTS_DIR` set (see `ps eww` on the
+-  CLI process); the engine picks it up within seconds.
+-- `npm run check` needs `PUBLIC_CONVEX_URL`; the verify script defaults it to a placeholder.
+-- Component tests (`npm run test:component`) are not in the verify gate; run them by hand before merging UI stories.
+-- The old Claude-Workflow orchestrator (`.claude/workflows/bmad-story-loop.js`) is superseded by this tool.
+-- Story hints (`invoke_dev_with`) must name symbols that exist; touchpoints must point at vitest-run files (see sprint 1 retrospective).
+-- The engine squashes every commit made after a dev session launched into that story's single
+-  commit, and the remote then rejects the push as non-fast-forward if one of those commits was
+-  already pushed. Commit and push only while the run is paused at a checkpoint or stopped;
+-  during a session, park edits outside the tree (scratchpad patch or `git stash push <file>`).
+-- Codex can block its own turn end with a modal (update prompt, "approaching rate limits, switch
+-  model?"). No Stop hook fires until it is dismissed. Answer it in the agent pane, then inject
+-  the Stop event by hand if the engine is still waiting.
++The sweep's `bmad-loop-sweep` skill verifies entries against current code and
++leaves product decisions for the human. Do not treat every historical open
++entry as proof of a current failure.
++
++Keep the integration checkout fixed for the entire sweep, including while its
++workers are isolated. Engine 0.11.1 also scans a project-root artifact fallback;
++a concurrent merge can expose an unrelated spec there and bind it to the
++active unit. If a run crashes with an outside-worktree spec binding, preserve
++its work and use a fresh native sweep with standard follow-up artifacts.
++`resume` retains that poisoned absolute binding; `resolve` applies only to a
++real escalation. The [source audit and recovery evidence](../.audit/sweep-spec-recovery/report.md)
++record the observed failure and supported recovery constraints.
++
++After any sweep or review repair changes the tree, repeat the combined gate,
++applicable component tests, and review on that resulting revision. Only the
++final unchanged, verified revision is eligible for promotion.
++
++After local verification and review pass, follow the user's shipping
++authorization: commit the final tree, push the integration branch, wait for PR
++CI and resolve its failures, then merge to `main`. Verify the resulting remote
++main commit and CI. Never push partial attempts or reuse the retired collector.
+diff --git a/docs/product-domain.md b/docs/product-domain.md
+index f2105a8..fded948 100644
+--- a/docs/product-domain.md
++++ b/docs/product-domain.md
+@@ -86,7 +86,7 @@ Per-edge policy is derived from the origin and destination stages:
+ | Rule | Edges | Policy |
+ |---|---|---|
+ | Default authority | All edges unless overridden below | O, M, A |
+-| Review completion | `internal_review` → `edits`, `internal_review` → `ready_for_delivery` | H additionally authorized (H, O, M, A) |
++| Review completion | `internal_review` → `edits`, `internal_review` → `ready_for_delivery` | H additionally authorized (H, O, M, A); a reviewer decision (`return` for `edits`, `approve` for `ready_for_delivery`) must be recorded atomically against the project's latest report revision, else typed `REVIEW_DECISION_REQUIRED` |
+ | Reopen abandoned | `abandoned` → any stage | M, A only; audit note required |
+ | Delivered administrative correction | `delivered` → `on_hold` | M, A only; audit note required |
+ | Leaving delivered | `delivered` → any stage | Audit note required; existing outcome records remain immutable |
+@@ -168,6 +168,7 @@ Rules:
+ - Before the first post-amendment candidate is saved, the system freezes the pre-amendment active digest (or explicit absence) so deployment cannot silently change production behavior.
+ - Personal digests cannot be published globally. Per-writer activation requires a separately approved scope and privacy contract.
+ - Brain sources remain governed separately. Digest publication does not ingest report content into the Brain or alter deterministic CRA scoring rules.
++- The [2026-09-04 privacy amendment](#2026-09-04-privacy-at-selected-firm-wide-knowledge-boundaries-cap-1) defines the approved de-identification boundaries and the privacy review required to publish a digest.
+ 
+ ## Role and capability matrix
+ 
+@@ -1556,6 +1557,123 @@ it follow in `transcripts-2` through `transcripts-7`.
+   working two-hour transcript at the 2026-08-26 client meeting; recorded here
+   before any code relies on the contract.
+ 
++### 2026-09-04 — Recorded reviewer decision on internal-review completion
++
++Transition-policy amendment. Origin: AI engine sprint 2 boundary spec
++(`_bmad-output/specs/spec-ai-engine-sprint-2-boundary`, story 7). Leaving
++`internal_review` was an unaudited stage flip: nothing recorded who judged the
++report, what they decided, or which revision they had actually read.
++
++- **What changes:** the two internal-review completion edges
++  (`internal_review` → `edits` and `internal_review` → `ready_for_delivery`)
++  carry a new `review_decision` requirement in the transition matrix. A
++  `setWorkflowStage` call across either edge must supply
++  `reviewDecision: { decision }`, and the decision must agree with the
++  destination — `edits` ⇒ `return`, `ready_for_delivery` ⇒ `approve`. Supplying
++  a decision on any other edge is a typed `INVALID_INPUT` rather than a silent
++  drop. No authority rule, note rule, OCC semantics, open-work check before
++  `abandoned`, or same-stage no-op changes; every other edge behaves exactly as
++  before.
++- **Implementation:** additive `reviewDecisions` table (`projectId`,
++  `reportId`, `reviewerId`, `revisionNumber`, `contentHash`, `decision`,
++  `toStage`, optional `note`, `createdAt`; `by_projectId` and `by_reportId`
++  indexes). `setWorkflowStage` resolves the project's latest report and writes
++  one decision row in the same transaction as the stage patch and the
++  `stage_changed` event — no second mutation, no scheduler hop. The row pins
++  `report.revisionNumber ?? 0` and `report.contentHash ?? sha256(content)`, so
++  a legacy report is pinned to revision 0 with a freshly computed hash. The
++  requirement is checked before the fail-closed `promoted_branch` check so it
++  is observable on the `ready_for_delivery` edge too. This story writes the
++  record only; no reader, query, or UI panel yet.
++- **New typed error:** `REVIEW_DECISION_REQUIRED` when the decision is absent
++  on a completion edge.
++- **No-report consequence:** a project in `internal_review` with no `reports`
++  row cannot leave through either completion edge — typed `INVALID_STATE`,
++  because a judgement cannot be pinned to a revision that does not exist. Such
++  a project can still move to any other stage (for example back to `drafting`)
++  under the unchanged default policy.
++- **Migration:** additive; no backfill and no field added to an existing table.
++  Historical completions have no decision row.
++- **Tests:** `convex/projectWorkflow.test.ts` (N×N matrix, missing decision on
++  both edges, contradictory decision, decision on an unrelated edge, missing
++  report, legacy report, happy path asserting the stored row and the single
++  `stage_changed` event); `convex/dashboardStageCounts.test.ts` and
++  `convex/workItems.test.ts` pass unmodified.
++- **Approval:** proposed 2026-09-04 from the approved sprint spec; recorded
++  here before the behavior change ships.
++
++### 2026-09-04: absolute blocking QA (CAP-8)
++
++
++The user approved CAP-8 as an absolute gate on filing readiness and client publishing for the current report revision and actual content. Missing because clauses on recognized uncertainty statements anywhere in section 242 and explicit false `cra_compliance.why_how_why_intact` or `cra_compliance.uncertainties_distinguished` in validated QA are non-waivable, including manager/admin and writer `reportSkeleton` overrides. This supersedes only the conflicting blocking-QA portion of the 2026-09-01 skeleton amendment. House-style opener/verbiage, banned words and repetition remain advisory with existing style waivers. Feedback and later passing scores cannot resolve a failure on unchanged content; human content corrections produce a new revision. Saving or restoring byte-identical content retains its known methodology failures on the resulting revision. Missing QA or missing compliance data alone is not a blocker.
++
++- **Scope and approval:** sprint 2 boundary CAP-8, story 8; product-owner invocation on 2026-09-04 explicitly resolved the policy as absolute, with no waiver.
++- **Compatibility:** additive `qaFindings` rows, no backfill; legacy reports are checked deterministically at readiness/publish. New post-QA revision references are optional for older callers, whose unpinned results cannot establish methodology findings.
++- **Authorization:** existing role/capability checks remain; `QA_BLOCKING` rejects publish before writes. Human workflow stages are unchanged.
++- **Tests:** `convex/qaBlocking.test.ts`, detector/prompt/extraction suites and existing project authorization tests.
++
++### 2026-09-04: Privacy at selected firm-wide knowledge boundaries (CAP-1)
++
++Records the approved [story 2 contract](../_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/2-de-identification-before-firm-wide-knowledge.md)
++for [CAP-1](../_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/SPEC.md#capabilities).
++The documentation obligation originated as DW42 in the learn/chat run; that
++run-local label is not a canonical ticket identifier.
++
++- **De-identification:** `convex/lib/deidentify.ts` applies best-effort,
++  project-record and regex matching, without a model call. The identifier set
++  is `clientName`, `title`, `sredTitle`, `writer`, `interviewer`, and
++  `interviewees`. Every project-record identifier string is trimmed; blank
++  values and values shorter than three characters are ignored, including
++  titles. Email and phone patterns are applied separately. Replacements use `[redacted]`,
++  `[redacted email]`, and `[redacted phone]`, preserving prose layout rather
++  than collapsing whitespace. False negatives are accepted in this sprint;
++  this is not a guarantee that all client identifiers are removed.
++- **Write boundaries:** `nominateFromReport` scrubs the report's plain-text
++  content and the project-title portion of its label before importing a
++  `brainSources` candidate. It still enters the pending approval queue.
++  `approveSectionDraft` scrubs `sectionEditEvents.draftText` and
++  `approvedText` before insertion and scrubs `ghostText` when patched later.
++  The edit ratio continues to use raw prose, and report/section prose itself
++  is unchanged by this scrub.
++- **Read boundary:** `proposalWordingEditEvents` retain their raw stored
++  `originalText` and `editedText`. `getProposalWordingEditsForDigest` scrubs
++  those fields when returning learning input, using the current project
++  record. If the project no longer exists, email and phone patterns still
++  apply. A renamed project's previous identifiers may survive this read.
++- **Digest instruction:** both QA-calibration and drafting-style distillation
++  prompts require generic rules and prohibit carrying company names, person
++  names, project titles, email addresses, or phone numbers from events into
++  rules, including identifiers missed by the best-effort scrub.
++- **Publication precondition:** an administrator with `settings.configure`
++  must explicitly submit `privacyReviewed: true` to `selectDigest` for every
++  non-null `digestId`, confirming review for client identifiers. This also
++  applies when restoring an older version or selecting the same version.
++  An absent or false flag rejects the publish operation before a selection
++  event is written. `digestId: null` still disables guidance, including a
++  rollback to no guidance, without privacy attestation; authorization and
++  the current-selection concurrency check still apply. The reviews page
++  holds a separate checkbox for each digest kind, gates its publish buttons,
++  and clears that kind's checkbox after successful publication. Disable
++  guidance is not gated by the privacy checkbox.
++- **Governance and compatibility:** candidates remain immutable and inactive
++  until administrator selection; personal digests cannot be published
++  globally. Existing selection-history and Brain-approval governance remain
++  unchanged. No schema field or persisted privacy-attestation field is added
++  to `learningDigestSelections`. Scrubbing is forward-only for the nomination
++  and section-event write boundaries; existing stored content is not
++  backfilled. CAP-1 does not extend scrubbing to other Brain import paths or
++  other free-text learning streams. Their residual privacy exposure remains
++  recorded in [story 2's deferred findings](../_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/2-de-identification-before-firm-wide-knowledge.md).
++- **Verification pointers:** `convex/lib/deidentify.test.ts`,
++  `convex/brainFeedback.test.ts`, `convex/generationLifecycle.test.ts`, and
++  `convex/learning.test.ts` cover the helper, nomination, section writes,
++  proposal reads, and publication gate. The per-kind checkbox and reset are
++  covered by `src/routes/admin/reviews/reviewsPublishGate.component.test.ts`.
++- **Approval:** records the already approved CAP-1 contract in AI engine
++  sprint 2 learn/chat story 2, as authorized for the 2026-09-04 failed-story
++  repair ([authorization record](../.audit/DW42/evidence.md#authorization-and-source-provenance)). No additional product
++  policy or capability is introduced by this documentation amendment.
++
+ ## Amendment process
+ 
+ A change to vocabulary, an invariant, a transition edge, or a decision above requires:
+diff --git a/docs/system-map.md b/docs/system-map.md
+index 6d1107e..788f79b 100644
+--- a/docs/system-map.md
++++ b/docs/system-map.md
+@@ -106,6 +106,7 @@ erDiagram
+   reports ||--o{ comments : ""
+   reports ||--o{ chatProposals : ""
+   reports ||--o{ writerReviews : ""
++  reports ||--o{ reviewDecisions : "internal-review completion, pinned to revision"
+   reports ||--o{ agentChatThreads : ""
+   generations ||--o{ reportCandidates : ""
+   generations ||--o{ generationSources : "frozen input bytes"
+@@ -126,8 +127,8 @@ stateDiagram-v2
+   intake --> interview_complete
+   interview_complete --> drafting
+   drafting --> internal_review : also via workItems.create(confirmedStageChange)
+-  internal_review --> edits : + handoff_assignee authority
+-  internal_review --> ready_for_delivery : + handoff_assignee, requires promoted_branch (fails closed)
++  internal_review --> edits : + handoff_assignee authority, requires review_decision (return)
++  internal_review --> ready_for_delivery : + handoff_assignee, requires review_decision (approve) then promoted_branch (fails closed)
+   edits --> client_review
+   client_review --> revisions
+   revisions --> ready_for_delivery : requires promoted_branch (fails closed)
+@@ -139,7 +140,7 @@ stateDiagram-v2
+   delivered --> revisions : note required
+ ```
+ 
+-Every stage write goes through `patchProjectWorkflowStage`, which moves the dashboard `stageCounts` bucket in the same transaction and appends a `projectEvents` row. `ready_for_delivery` and `delivered` fail closed because `reportBranches` and `productionOutcomes` do not exist: **no project can reach a terminal stage today (Q1)**.
++Every stage write goes through `patchProjectWorkflowStage`, which moves the dashboard `stageCounts` bucket in the same transaction and appends a `projectEvents` row. `ready_for_delivery` and `delivered` fail closed because `reportBranches` and `productionOutcomes` do not exist: **no project can reach a terminal stage today (Q1)**. The two internal-review completion edges also fail closed without a recorded reviewer decision (2026-09-04 amendment): `setWorkflowStage` requires a `reviewDecision` agreeing with the destination and writes one `reviewDecisions` row — reviewer, report, `revisionNumber`, `contentHash` — in the same transaction, typed `REVIEW_DECISION_REQUIRED` when absent and `INVALID_STATE` when the project has no report to pin. Checked before `promoted_branch` so it is observable on the approve edge.
+ 
+ ## 7. Routes
+ 
+@@ -279,7 +280,7 @@ sequenceDiagram
+   A->>M: markTurnStarted (queued to running)
+   A->>M: getChatContextV2 + writerProfiles
+   A->>M: isTurnActive?
+-  A->>C: streamText(system=prompt+grounding, tools, recentMessages 30)
++  A->>C: streamText(system=policy+writer style, messages=[evidence user msg], tools, recentMessages 30)
+   C-->>W: listMessages/syncStreams deltas
+   C->>T: tool call proposeEdit(targetText,newText)
+   T->>S: runMutation(saveProposal)
+@@ -374,7 +375,7 @@ Read the solid arrows: the loop from writer signal to digest to prompt is live a
+ | Every model call is metered and attributed | Yes | AD-9 |
+ | Style rules are tiered so CRA limits cannot be waived | Yes | AD-16 |
+ | Learning is measurable (does the Brain or a digest reduce editing?) | No: write-only signals | AD-12 |
+-| Client text cannot steer the model (trust boundary) | Partial: transcript unfenced, chat grounding in system prompt, trust by client-settable category | AD-11, AD-11a |
++| Client text cannot steer the model (trust boundary) | Partial: transcript fenced (CAP-2), trust from uploader role (CAP-3), chat evidence in a delimited user message (CAP-4); remaining CAP items open | AD-11, AD-11a |
+ | Client identities are stripped before firm-wide knowledge | No | AD-13 |
+ | Deleting a project erases its data | No: 8 of 49 tables, no blobs | AD-19 |
+ | Egress to AI providers is registered and class-gated | No register; OpenRouter has no `data_collection: deny` | AD-20, AD-21 |
+@@ -389,7 +390,7 @@ Summary: the workflow, provenance, and human-gating foundations are real and tes
+ | # | Divergence | Why it matters |
+ | --- | --- | --- |
+ | 1 | `ready_for_delivery` and `delivered` fail closed | No project can be finished (Q1, product blocker) |
+-| 9 | Transcript unfenced; chat grounding in system prompt; writer's notes may "govern how you work" via a client-settable category | Prompt injection channel; AD-11a is the cheap interim fix |
++| 9 | Transcript fencing, uploader-role trust and the chat evidence boundary landed (CAP-2, CAP-3, CAP-4); the rest of AD-11 is open | Prompt injection channel narrowed; remaining CAP items are the follow-up |
+ | 11 | Verbatim client text and titles enter digests and the Brain | Client A's sentences and name can surface in client B's draft |
+ | 12 | `brainProvenance` and post-edit distance are write-only | Cannot prove learning works or roll back a bad digest on evidence |
+ | 39 | ~50 writes (delete document and blob, delete comment, research egress, chat spend, identity fields) need only "any role" | Any invited writer can act destructively on any client's project with no trail |
+@@ -425,7 +426,7 @@ svelte 5.56.6, @sveltejs/kit 2.70.1, vite 8.1.5, tailwindcss 4.3.3, bits-ui 2.18
+ ## 16. Where to go next
+ 
+ 1. Owner decisions taken 2026-09-04 (Q1, Q5, Q10, Q12, Q13, Q14). Still owner-level: Q2, Q3, Q6, Q11, and the Q12 threshold number.
+-2. Ship AD-11a now (four small changes: fence the transcript, demote writer's notes to facts and framing, move chat grounding to a user message, one injection fixture).
++2. AD-11a shipped (transcript fenced, writer's notes demoted, chat grounding moved to a user message, injection fixtures); continue with the remaining AD-11 CAP items.
+ 3. Run the two Sprint 2 specs (`spec-ai-engine-sprint-2-boundary`, `spec-ai-engine-sprint-2-learn-chat`) through sprint planning; they build AD-11, AD-12, AD-13.
+ 4. New stories not in either spec: AD-19 erasure cascade, `reportBranches` + `productionOutcomes` (Q1), Owner-or-Admin interim gate (Q10), in-app alerts (Q12, Q13), CI codegen diff and build (AD-22).
+ 5. NFR evidence audit (`bmad-testarch-nfr`) once AD-11a and AD-19 land.
+diff --git a/docs/the-brain.md b/docs/the-brain.md
+index 18cfed3..6438457 100644
+--- a/docs/the-brain.md
++++ b/docs/the-brain.md
+@@ -77,6 +77,27 @@ never commit them. Only the `.example.json` template is tracked.
+ **One-off (admin UI):** pending imports appear in `/admin/brain` → Queue →
+ review full text → Approve.
+ 
++### Privacy at the report-nomination boundary (CAP-1, 2026-09-04)
++
++`convex/brain.ts`'s `nominateFromReport` applies `deidentify` to the report's
++plain-text content and the project-title portion of its label before creating
++a pending `brainSources` candidate. Administrator approval is still required
++before production retrieval of approved sources; pending sources remain
++available in the administrator review queue. The scrub uses project-record identifiers and email/phone
++patterns, preserves prose layout, and is best-effort; identifiers can survive.
++This boundary applies to new report nominations. It does not backfill existing
++sources or extend scrubbing to the bulk, curated, or writer-feedback import
++paths described here.
++
++Learning digests have a separate publication gate: an administrator with
++`settings.configure` must pass `privacyReviewed: true` to `selectDigest` for
++any non-null digest selection, including restoring an older version.
++Selecting `digestId: null` disables guidance without that attestation, while
++retaining authorization and concurrency checks. This does not approve a Brain
++source or change the Brain's governance. See the
++[approved privacy contract](product-domain.md#2026-09-04-privacy-at-selected-firm-wide-knowledge-boundaries-cap-1)
++for the exact event write/read boundaries, privacy-review UI, and limitations.
++
+ ## Governance cheat-sheet (`/admin/brain`)
+ 
+ | Action | Effect |
+diff --git a/scripts/loop-parallel.py b/scripts/loop-parallel.py
+new file mode 100755
+index 0000000..84c90d9
+--- /dev/null
++++ b/scripts/loop-parallel.py
+@@ -0,0 +1,213 @@
++#!/usr/bin/env -S /Users/johnnynguyen/.local/share/uv/tools/bmad-loop/bin/python
++"""Run one epic's stories as several concurrent bmad-loop lanes.
++
++bmad-loop clamps scm.max_parallel to 1 (fan-out is unbuilt upstream), so
++parallelism here means several bmad-loop processes, each with:
++
++  * its own git worktree      -> its own .git index, so no index.lock races
++  * its own lane branch       -> merges never collide mid-run
++  * its own lane spec folder  -> a subset of stories.yaml, in declared order
++  * its own run + tmux session
++
++A lane is declared per story with a `lane:` key in stories.yaml (unknown keys
++are ignored by bmad-loop's parser, so the file stays valid upstream):
++
++    - id: "2"
++      lane: ctx          # stories sharing a lane run serially, in file order
++      title: ...
++
++Stories with no `lane` land in lane "main". Put dependent stories in the SAME
++lane, and split lanes by the files they touch: two lanes editing one file will
++conflict when their branches merge.
++
++Usage:
++  scripts/loop-parallel.py <spec-folder> [--base main] [--plan] [--merge-into BRANCH]
++
++  --plan          print the lane partition and exit (no worktrees, no runs)
++  --base          branch the lanes fork from (default: current branch)
++  --merge-into    branch that collects the lanes (default: parallel/<epic>)
++"""
++
++from __future__ import annotations
++
++import argparse
++import os
++import shutil
++import subprocess
++import sys
++import time
++from pathlib import Path
++
++import yaml
++
++REPO = Path(__file__).resolve().parent.parent
++LANE_ROOT = REPO / ".bmad-loop" / "lanes"
++
++
++def git(*args, cwd=REPO, check=True):
++    r = subprocess.run(["git", "--no-optional-locks", *args], cwd=cwd,
++                       capture_output=True, text=True)
++    if check and r.returncode != 0:
++        raise SystemExit(f"git {' '.join(args)} failed:\n{r.stderr.strip()}")
++    return r.stdout.strip()
++
++
++def partition(spec: Path):
++    stories = yaml.safe_load((spec / "stories.yaml").read_text())
++    lanes: dict[str, list] = {}
++    for s in stories:
++        lanes.setdefault(str(s.get("lane") or "main"), []).append(s)
++    return lanes
++
++
++def build_lane_spec(spec: Path, lane: str, stories: list) -> Path:
++    """A lane's spec folder: a copy of the epic with a subset stories.yaml.
++    Lives inside the repo so every worktree sees it after one commit."""
++    out = spec / "lanes" / lane
++    if out.exists():
++        shutil.rmtree(out)
++    out.mkdir(parents=True)
++    for name in ("SPEC.md", "touchpoints.md"):
++        if (spec / name).exists():
++            shutil.copy2(spec / name, out / name)
++    if (spec / "stories").is_dir():
++        shutil.copytree(spec / "stories", out / "stories")
++    subset = [{k: v for k, v in s.items() if k != "lane"} for s in stories]
++    (out / "stories.yaml").write_text(
++        yaml.safe_dump(subset, sort_keys=False, allow_unicode=True, width=100)
++    )
++    return out
++
++
++# Gitignored paths a fresh worktree still needs: bmad-loop refuses to start
++# without _bmad/bmm/config.yaml, and the verify gate runs npm.
++SEED = ("_bmad", "node_modules", ".env.local")
++
++
++def seed_worktree(worktree: Path):
++    """Symlink the gitignored essentials into a lane worktree.
++
++    .gitignore lists `_bmad/` with a trailing slash, which matches directories
++    only, so a *symlink* named `_bmad` reads as untracked and bmad-loop refuses
++    to start on a dirty worktree. Exclude the seeds through this worktree's own
++    info/exclude, which never touches the main checkout."""
++    for name in SEED:
++        src, dst = REPO / name, worktree / name
++        if src.exists() and not dst.exists():
++            dst.symlink_to(src)
++    # A linked worktree reads $GIT_COMMON_DIR/info/exclude, not its own gitdir's,
++    # so the rules go in the shared file. Harmless in the main checkout, where
++    # these paths are real directories already covered by .gitignore.
++    common = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir",
++                      cwd=worktree))
++    info = common / "info"
++    info.mkdir(parents=True, exist_ok=True)
++    exclude = info / "exclude"
++    have = exclude.read_text() if exclude.exists() else ""
++    add = [f"/{n}" for n in SEED if f"/{n}" not in have.split()]
++    if add:
++        with exclude.open("a") as fh:
++            fh.write(("" if have.endswith("\n") or not have else "\n")
++                     + "# bmad-loop lane worktree seeds\n" + "\n".join(add) + "\n")
++
++
++def lane_policy(worktree: Path, spec_rel: str):
++    """Each worktree needs its own policy: same knobs, lane's spec folder.
++    policy.toml is gitignored, so it is copied rather than inherited."""
++    src = REPO / ".bmad-loop" / "policy.toml"
++    dst = worktree / ".bmad-loop" / "policy.toml"
++    dst.parent.mkdir(parents=True, exist_ok=True)
++    out = []
++    for line in src.read_text().splitlines():
++        if line.startswith("spec_folder ="):
++            line = f'spec_folder = "{spec_rel}"'
++        elif line.startswith("target_branch ="):
++            line = 'target_branch = ""'
++        out.append(line)
++    dst.write_text("\n".join(out) + "\n")
++
++
++def main():
++    ap = argparse.ArgumentParser()
++    ap.add_argument("spec")
++    ap.add_argument("--base", default=None)
++    ap.add_argument("--plan", action="store_true")
++    ap.add_argument("--merge-into", default=None)
++    a = ap.parse_args()
++
++    spec = (REPO / a.spec).resolve()
++    if not (spec / "stories.yaml").exists():
++        raise SystemExit(f"no stories.yaml in {spec}")
++    epic = spec.name
++    base = a.base or git("rev-parse", "--abbrev-ref", "HEAD")
++    collect = a.merge_into or f"parallel/{epic}"
++    lanes = partition(spec)
++
++    print(f"epic {epic}   base {base}   lanes {len(lanes)}")
++    for lane, stories in lanes.items():
++        ids = ", ".join(str(s["id"]) for s in stories)
++        print(f"  {lane:10s} {len(stories):2d} stories: {ids}")
++    if a.plan:
++        return
++    if len(lanes) == 1:
++        raise SystemExit("only one lane; use scripts/loop.sh instead")
++    if git("status", "--porcelain", "--untracked-files=no"):
++        raise SystemExit("working tree dirty; commit first")
++
++    # 1. materialize every lane spec and commit once, so all worktrees see them
++    specs = {lane: build_lane_spec(spec, lane, st) for lane, st in lanes.items()}
++    git("add", "-A", str(spec / "lanes"))
++    if git("diff", "--cached", "--name-only"):
++        git("commit", "-q", "-m", f"chore(loop): lane specs for {epic}")
++
++    # 2. one worktree + branch + process per lane
++    LANE_ROOT.mkdir(parents=True, exist_ok=True)
++    procs = {}
++    for lane, lane_spec in specs.items():
++        branch = f"lane/{epic}/{lane}"
++        wt = LANE_ROOT / f"{epic}-{lane}"
++        if wt.exists():
++            git("worktree", "remove", "--force", str(wt), check=False)
++        git("branch", "-f", branch, "HEAD")
++        git("worktree", "add", "--quiet", str(wt), branch)
++        rel = str(lane_spec.relative_to(REPO))
++        seed_worktree(wt)
++        lane_policy(wt, rel)
++        log = LANE_ROOT / f"{epic}-{lane}.log"
++        env = {k: v for k, v in os.environ.items()
++               if not k.startswith(("CLAUDECODE", "CLAUDE_CODE", "CLAUDE_PID", "CLAUDE_EFFORT"))}
++        env.setdefault("PUBLIC_CONVEX_URL", "https://placeholder.convex.cloud")
++        procs[lane] = (subprocess.Popen(
++            ["bmad-loop", "run", "--project", str(wt), "--spec", rel],
++            cwd=wt, env=env, stdin=subprocess.DEVNULL,
++            stdout=open(log, "w"), stderr=subprocess.STDOUT), branch, wt, log)
++        print(f"  started lane {lane} -> {branch}  (log {log})")
++        time.sleep(5)  # stagger the initial worktree adds
++
++    # 3. wait
++    for lane, (p, branch, wt, log) in procs.items():
++        rc = p.wait()
++        print(f"  lane {lane} exited rc={rc}  ({log})")
++
++    # 4. collect. When collect == base that branch is already checked out here,
++    # so `branch -f` would fail; merge the lanes into it in place instead.
++    if collect != base:
++        git("checkout", "-q", base)
++        git("branch", "-f", collect, base)
++    git("checkout", "-q", collect)
++    conflicts = []
++    for lane, (_p, branch, _wt, _log) in procs.items():
++        r = subprocess.run(["git", "merge", "--no-edit", branch],
++                           cwd=REPO, capture_output=True, text=True)
++        if r.returncode != 0:
++            conflicts.append(lane)
++            subprocess.run(["git", "merge", "--abort"], cwd=REPO)
++            print(f"  MERGE CONFLICT from lane {lane}; left for a human")
++        else:
++            print(f"  merged lane {lane}")
++    print(f"\ncollected on {collect}" + (f"; unmerged lanes: {', '.join(conflicts)}" if conflicts else ""))
++    print("worktrees kept under .bmad-loop/lanes for inspection")
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/scripts/loop-verify.sh b/scripts/loop-verify.sh
+index 2615343..dd74adf 100755
+--- a/scripts/loop-verify.sh
++++ b/scripts/loop-verify.sh
+@@ -5,6 +5,17 @@
+ set -euo pipefail
+ cd "$(dirname "$0")/.."
+ export PUBLIC_CONVEX_URL="${PUBLIC_CONVEX_URL:-https://placeholder.convex.cloud}"
++
++# A git worktree starts with no node_modules of its own. Bare specifiers still
++# resolve by walking up to the main checkout's node_modules, but literal
++# ../node_modules/... paths (convex/researchReviewMode.test.ts registers the
++# workflow/workpool component schemas that way) do not, so the gate must install
++# dependencies here before it can mean anything.
++if [ -z "$(ls -A node_modules 2>/dev/null | grep -v '^\.' || true)" ]; then
++  echo "loop-verify: node_modules is empty, installing dependencies"
++  npm ci --no-audit --no-fund
++fi
++
+ npx tsc -p convex/tsconfig.json --noEmit
+ npm run check
+ npm test
+diff --git a/shared/workflowLabels.ts b/shared/workflowLabels.ts
+index 00ce63f..8fab373 100644
+--- a/shared/workflowLabels.ts
++++ b/shared/workflowLabels.ts
+@@ -33,9 +33,13 @@ export const WORKFLOW_STAGE_DESCRIPTIONS: Record<WorkflowStage, string> = {
+   abandoned: "The project will not proceed in its current scope.",
+ };
+ 
+-export const TRANSITION_REQUIREMENT_BLOCKERS: Record<TransitionRequirement, string> = {
++// `null` marks a requirement the caller can satisfy in the same request, so it
++// never disables the option: `review_decision` is supplied with the stage
++// change itself. The others fail closed until their storage lands.
++export const TRANSITION_REQUIREMENT_BLOCKERS: Record<TransitionRequirement, string | null> = {
+   promoted_branch: "Needs a promoted report branch before this stage is available.",
+   delivery_outcome: "Needs a recorded delivery or filing outcome before this stage is available.",
++  review_decision: null,
+ };
+ 
+ export const MAX_WORKFLOW_NOTE_CHARS = 2_000;
+@@ -62,16 +66,15 @@ export function workflowStageOptions(
+       transition.from === from &&
+       transition.authorities.some((authority) => authoritySet.has(authority))
+   ).map((transition) => {
+-    const requirements = transition.requirements ?? [];
++    const blockers = (transition.requirements ?? [])
++      .map((requirement) => TRANSITION_REQUIREMENT_BLOCKERS[requirement])
++      .filter((blocker): blocker is string => blocker !== null);
+     return {
+       to: transition.to,
+       label: WORKFLOW_STAGE_LABELS[transition.to],
+       description: WORKFLOW_STAGE_DESCRIPTIONS[transition.to],
+       requiresNote: transition.requiresNote === true,
+-      disabledReason:
+-        requirements.length > 0
+-          ? requirements.map((requirement) => TRANSITION_REQUIREMENT_BLOCKERS[requirement]).join(" ")
+-          : null,
++      disabledReason: blockers.length > 0 ? blockers.join(" ") : null,
+     };
+   });
+ }
+diff --git a/shared/workflowTransitions.ts b/shared/workflowTransitions.ts
+index 1ead07d..d12f4f0 100644
+--- a/shared/workflowTransitions.ts
++++ b/shared/workflowTransitions.ts
+@@ -6,7 +6,26 @@ export type TransitionAuthority =
+   | "manager"
+   | "admin";
+ 
+-export type TransitionRequirement = "delivery_outcome" | "promoted_branch";
++export type TransitionRequirement =
++  | "delivery_outcome"
++  | "promoted_branch"
++  | "review_decision";
++
++/** The reviewer judgement an internal-review completion edge records. */
++export type ReviewDecision = "approve" | "return";
++
++/**
++ * The decision value that agrees with an internal-review completion edge:
++ * returning the report for edits is a `return`, promoting it to
++ * `ready_for_delivery` is an `approve`. Shared by the mutation (which enforces
++ * agreement) and the UI (which derives the value from the destination), so the
++ * mapping lives in exactly one place.
++ */
++export function reviewDecisionForStage(to: WorkflowStage): ReviewDecision | undefined {
++  if (to === "edits") return "return";
++  if (to === "ready_for_delivery") return "approve";
++  return undefined;
++}
+ 
+ export type WorkflowTransitionRule = {
+   from: WorkflowStage;
+@@ -26,20 +45,29 @@ const reviewAuthorities = [
+ const managerAdmin = ["manager", "admin"] as const;
+ 
+ function transitionRule(from: WorkflowStage, to: WorkflowStage): WorkflowTransitionRule {
++  // The two internal-review completion edges: the handoff assignee is
++  // additionally authorized on them AND they are the edges that must record a
++  // reviewer decision. One predicate, both policies.
++  const isReviewCompletion =
++    from === "internal_review" && (to === "edits" || to === "ready_for_delivery");
+   const authorities =
+     from === "abandoned" || (from === "delivered" && to === "on_hold")
+       ? managerAdmin
+-      : from === "internal_review" && (to === "edits" || to === "ready_for_delivery")
++      : isReviewCompletion
+         ? reviewAuthorities
+         : ownerManagerAdmin;
+   const requiresNote =
+     to === "on_hold" || to === "abandoned" || from === "delivered" || from === "abandoned";
+-  const requirements: readonly TransitionRequirement[] | undefined =
++  const baseRequirements: readonly TransitionRequirement[] =
+     to === "delivered"
+       ? ["delivery_outcome"]
+       : to === "ready_for_delivery"
+         ? ["promoted_branch"]
+-        : undefined;
++        : [];
++  const allRequirements: readonly TransitionRequirement[] = isReviewCompletion
++    ? [...baseRequirements, "review_decision"]
++    : baseRequirements;
++  const requirements = allRequirements.length ? allRequirements : undefined;
+   return {
+     from,
+     to,
+@@ -57,8 +85,12 @@ function transitionRule(from: WorkflowStage, to: WorkflowStage): WorkflowTransit
+  * and the exceptional `delivered` → `on_hold` correction stay
+  * Manager/Admin-only; the handoff assignee keeps authority over the two
+  * internal-review completion edges. Requirements are data hooks: PSOS-09
+- * enforces delivery outcomes by failing closed, and `promoted_branch`
+- * fails closed until branch storage lands.
++ * enforces delivery outcomes by failing closed, `promoted_branch` fails
++ * closed until branch storage lands, and `review_decision` (2026-09-04
++ * amendment) requires the two internal-review completion edges to record a
++ * `reviewDecisions` row pinned to the report revision that was reviewed
++ * (`internal_review` → `ready_for_delivery` therefore carries both
++ * `promoted_branch` and `review_decision`).
+  */
+ export const WORKFLOW_TRANSITIONS: readonly WorkflowTransitionRule[] =
+   WORKFLOW_STAGES.flatMap((from) =>
+diff --git a/src/lib/components/project/ProjectWorkflowMenu.svelte b/src/lib/components/project/ProjectWorkflowMenu.svelte
+index ef67631..928dfdb 100644
+--- a/src/lib/components/project/ProjectWorkflowMenu.svelte
++++ b/src/lib/components/project/ProjectWorkflowMenu.svelte
+@@ -9,6 +9,7 @@
+   import type { Id } from "../../../../convex/_generated/dataModel";
+   import type { FunctionReturnType } from "convex/server";
+   import type { WorkflowStage } from "../../../../shared/workflowStages";
++  import { reviewDecisionForStage } from "../../../../shared/workflowTransitions";
+   import StageBadge from "$lib/components/ui/StageBadge.svelte";
+   import {
+     WORKFLOW_STAGE_LABELS,
+@@ -283,10 +284,18 @@
+     stageBusy = true;
+     stageError = null;
+     try {
++      // Leaving internal review records a reviewer decision in the same
++      // mutation. The value is derived from the destination edge (the shared
++      // matrix helper), so the dialog needs no extra control.
++      const decision =
++        header?.workflowStage === "internal_review"
++          ? reviewDecisionForStage(toStage)
++          : undefined;
+       const result = await setWorkflowStage({
+         projectId,
+         toStage,
+         note,
++        ...(decision ? { reviewDecision: { decision } } : {}),
+         expectedVersion: baseline.version,
+       });
+       if (result.status === "updated") {
+diff --git a/src/lib/components/ui/Button.component.test.ts b/src/lib/components/ui/Button.component.test.ts
+index 04ebd84..c4dd38f 100644
+--- a/src/lib/components/ui/Button.component.test.ts
++++ b/src/lib/components/ui/Button.component.test.ts
+@@ -1,4 +1,5 @@
+ import { describe, expect, it, vi } from "vitest";
++import { cdp } from "vitest/browser";
+ import { render } from "vitest-browser-svelte";
+ import { createRawSnippet } from "svelte";
+ import Button from "./Button.svelte";
+@@ -26,7 +27,6 @@ const CORE_TOKENS = [
+   "px-4",
+   "text-sm",
+   "font-medium",
+-  "transition-colors",
+   "focus-visible:outline-none",
+   "focus-visible:ring-2",
+   "focus-visible:ring-offset-2",
+@@ -49,6 +49,22 @@ describe("Button", () => {
+       expect(classes).toContain(token);
+   });
+ 
++  it.each([undefined, "/project/new"])("transitions colors and opacity with a reduced-motion escape (href=%s)", async (href) => {
++    await render(Button, { href, children: label });
++    const control = document.querySelector<HTMLElement>(href ? "a" : "button")!;
++    try {
++      await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
++      expect(window.matchMedia("(prefers-reduced-motion: no-preference)").matches).toBe(true);
++      expect(getComputedStyle(control).transitionProperty).toBe("color, background-color, border-color, opacity");
++      expect(getComputedStyle(control).transitionDuration).toBe("0.2s");
++      await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
++      expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
++      expect(getComputedStyle(control).transitionProperty).toBe("none");
++    } finally {
++      await cdp().send("Emulation.setEmulatedMedia", { features: [] });
++    }
++  });
++
+   it("renders the secondary variant anchor with the secondary tokens", async () => {
+     await render(Button, {
+       href: "/login",
+@@ -101,7 +117,10 @@ describe("Button", () => {
+   });
+ 
+   it("keeps disabled on the button branch only", async () => {
+-    const view = await render(Button, { disabled: true, children: label });
++    const onclick = vi.fn();
++    const view = await render(Button, { disabled: true, onclick, children: label });
++    document.body.querySelector("button")?.click();
++    expect(onclick).not.toHaveBeenCalled();
+     expect(document.body.querySelector("button")?.disabled).toBe(true);
+     view.unmount();
+ 
+diff --git a/src/lib/components/workspace/WorkspaceChrome.component.test.ts b/src/lib/components/workspace/WorkspaceChrome.component.test.ts
+index b4b8d1d..8a13a36 100644
+--- a/src/lib/components/workspace/WorkspaceChrome.component.test.ts
++++ b/src/lib/components/workspace/WorkspaceChrome.component.test.ts
+@@ -1,18 +1,22 @@
+-import { beforeEach, describe, expect, it } from "vitest";
+-import { page as browserPage } from "vitest/browser";
++import { beforeEach, describe, expect, it, vi } from "vitest";
++import { page as browserPage, userEvent, cdp } from "vitest/browser";
+ import { render } from "vitest-browser-svelte";
+ import { createRawSnippet } from "svelte";
++import { authClient } from "$lib/authClient";
+ import WorkspaceChrome from "./WorkspaceChrome.svelte";
+ import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
+ import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
+ import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+ 
++vi.mock("$lib/authClient", () => ({ authClient: { signOut: vi.fn() } }));
++
+ const tallContent = createRawSnippet(() => ({
+   render: () => `<div data-testid="tall-content" style="height:1800px">Utility content</div>`,
+ }));
+ 
+ describe("WorkspaceChrome", () => {
+   beforeEach(() => {
++    vi.mocked(authClient.signOut).mockReset();
+     __resetPage();
+     __resetNavigation();
+     __resetConvexStub();
+@@ -66,7 +70,7 @@ describe("WorkspaceChrome", () => {
+     ).not.toContain("/projects");
+   });
+ 
+-  it("autofocuses the modal drawer and layers its 44px account menu above the drawer", async () => {
++  it.each(["cancel", "Escape"])("layers sign-out confirmation above the drawer and restores focus on %s", async (dismiss) => {
+     await browserPage.viewport(390, 844);
+     __setQueryData("users:getCurrentUser", {
+       _id: "admin-1",
+@@ -83,18 +87,96 @@ describe("WorkspaceChrome", () => {
+       .poll(() => document.activeElement?.getAttribute("aria-label"))
+       .toBe("Close workspace navigation");
+ 
+-    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+-    dialog.querySelector<HTMLButtonElement>('button[aria-label="Settings menu"]')!.click();
+-    await expect.poll(() => document.querySelector('[data-menu-layer="drawer"]')).not.toBeNull();
++    const drawer = document.querySelector<HTMLElement>('[role="dialog"]')!;
++    const trigger = drawer.querySelector<HTMLButtonElement>('button[aria-label="Sign out"]')!;
++    const signOut = vi.mocked(authClient.signOut);
++    signOut.mockClear();
++    try {
++      trigger.focus();
++      await userEvent.keyboard("{Enter}");
++      await expect.element(browserPage.getByRole("dialog", { name: "Sign out?", exact: true })).toBeVisible();
++      const confirmation = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
++        .find((element) => element !== drawer)!;
++      expect(drawer.contains(confirmation)).toBe(false);
++      expect(Number.parseInt(getComputedStyle(confirmation.parentElement!).zIndex, 10))
++        .toBeGreaterThan(Number.parseInt(getComputedStyle(drawer).zIndex, 10));
++      const rows = Array.from(confirmation.querySelectorAll<HTMLButtonElement>("button"));
++      expect(rows.map((row) => row.textContent?.trim())).toEqual(["Stay signed in", "Sign out"]);
++      await expect.poll(() => rows.every((row) => row.getBoundingClientRect().height >= 44)).toBe(true);
++      expect(trigger.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
++      await expect.poll(() => confirmation.contains(document.activeElement)).toBe(true);
++      for (let step = 0; step < rows.length + 1; step += 1) {
++        await userEvent.keyboard("{Tab}");
++        expect(confirmation.contains(document.activeElement)).toBe(true);
++      }
++      for (let step = 0; step < rows.length + 1; step += 1) {
++        await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
++        expect(confirmation.contains(document.activeElement)).toBe(true);
++      }
++      // Real hit tests account for ancestor stacking contexts, unlike z-index alone.
++      await expect.poll(() => rows.every((row) => {
++        const bounds = row.getBoundingClientRect();
++        return row.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
++      })).toBe(true);
++      const drawerClose = drawer.querySelector<HTMLButtonElement>('button[aria-label="Close workspace navigation"]')!;
++      const closeBounds = drawerClose.getBoundingClientRect();
++      expect(drawer.contains(document.elementFromPoint(
++        closeBounds.x + closeBounds.width / 2, closeBounds.y + closeBounds.height / 2
++      ))).toBe(false);
++      if (dismiss === "cancel") {
++        await browserPage.getByRole("button", { name: "Stay signed in", exact: true }).click();
++      } else {
++        await userEvent.keyboard("{Escape}");
++      }
++      await expect.poll(() => document.activeElement).toBe(trigger);
++      await expect.poll(() => confirmation.isConnected).toBe(false);
++      expect(drawer.isConnected).toBe(true);
++      expect(signOut).not.toHaveBeenCalled();
++      expect(__navigationCalls.filter((call) => call.kind === "goto")).toEqual([]);
++      await browserPage.getByRole("button", { name: "Close workspace navigation", exact: true }).click();
++      await expect.poll(() => drawer.isConnected).toBe(false);
++    } finally {
++      signOut.mockClear();
++    }
++  });
+ 
+-    const menu = document.querySelector<HTMLElement>('[data-menu-layer="drawer"]')!;
+-    expect(Number.parseInt(getComputedStyle(menu).zIndex, 10)).toBeGreaterThan(110);
+-    const rows = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+-    expect(rows.length).toBeGreaterThan(0);
+-    // Measure after the sanctioned 300ms scale/fade settles; transformed
+-    // in-flight bounds are intentionally smaller than the layout box.
+-    await expect
+-      .poll(() => rows.every((row) => row.getBoundingClientRect().height >= 44))
+-      .toBe(true);
++  it.each(["coarse", "fine"])("keeps actual drawer rows at their approved %s-pointer size", async (pointer) => {
++    await browserPage.viewport(390, 844);
++    try {
++      await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: pointer === "coarse" });
++      expect(window.matchMedia(`(pointer: ${pointer})`).matches).toBe(true);
++      expect(window.matchMedia(`(pointer: ${pointer === "coarse" ? "fine" : "coarse"})`).matches).toBe(false);
++      await render(WorkspaceChrome, { title: "Settings", children: tallContent });
++      await browserPage.getByRole("button", { name: "Open workspace navigation", exact: true }).click();
++      await expect.element(browserPage.getByRole("button", { name: "Close workspace navigation", exact: true })).toBeVisible();
++      const drawer = document.querySelector<HTMLElement>("[data-workspace-drawer]")!;
++      const rows = Array.from(drawer.querySelectorAll<HTMLElement>(".workspace-rail-row"));
++      expect(rows.length).toBeGreaterThanOrEqual(2);
++      await expect.poll(() => rows.map((row) => row.getBoundingClientRect().height))
++        .toEqual(rows.map(() => pointer === "coarse" ? 44 : 28));
++      await browserPage.getByRole("button", { name: "Close workspace navigation", exact: true }).click();
++      await expect.poll(() => drawer.isConnected).toBe(false);
++    } finally {
++      await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: false });
++    }
+   });
++
++  it("signs out once after confirmation and navigates to login", async () => {
++    await browserPage.viewport(390, 844);
++    const signOut = vi.mocked(authClient.signOut);
++    signOut.mockResolvedValueOnce({ data: { success: true }, error: null });
++    await render(WorkspaceChrome, { title: "Settings", children: tallContent });
++    await browserPage.getByRole("button", { name: "Open workspace navigation", exact: true }).click();
++    await expect.element(browserPage.getByRole("button", { name: "Close workspace navigation", exact: true })).toBeVisible();
++    await browserPage.getByRole("button", { name: "Sign out", exact: true }).click();
++    const confirmation = browserPage.getByRole("dialog", { name: "Sign out?", exact: true });
++    await expect.element(confirmation).toBeVisible();
++    expect(signOut).not.toHaveBeenCalled();
++    await confirmation.getByRole("button", { name: "Sign out", exact: true }).click();
++    await expect.poll(() => signOut.mock.calls.length).toBe(1);
++    await expect.poll(() => __navigationCalls.filter((call) => call.kind === "goto"))
++      .toEqual([{ kind: "goto", url: "/login" }]);
++    await expect.element(confirmation).not.toBeInTheDocument();
++  });
++
+ });
+diff --git a/src/lib/components/workspace/WorkspaceHeader.component.test.ts b/src/lib/components/workspace/WorkspaceHeader.component.test.ts
+index c02dd2e..3490403 100644
+--- a/src/lib/components/workspace/WorkspaceHeader.component.test.ts
++++ b/src/lib/components/workspace/WorkspaceHeader.component.test.ts
+@@ -154,14 +154,16 @@ describe("WorkspaceHeader", () => {
+     expect(document.querySelector('a[href="/project/new"]')).toBeNull();
+   });
+ 
+-  it("uses the shared theme-aware default button for the page-level creation action", async () => {
++  it.each([390, 1440])("uses the shared compact creation action at %ipx", async (width) => {
++    await browserPage.viewport(width, 900);
+     await render(WorkspaceHeader, baseProps());
+ 
+     const newProject = document.querySelector<HTMLAnchorElement>('a[href="/project/new"]');
+     expect(newProject?.className).toContain("bg-action-primary");
+     expect(newProject?.className).toContain("text-action-primary-foreground");
+     expect(newProject?.className).not.toContain("bg-fir");
+-    expect(newProject?.className).toContain("py-2.5");
++    expect(newProject?.getBoundingClientRect().height).toBe(32);
++    await expect.element(browserPage.getByRole("link", { name: "New project", exact: true })).toHaveAttribute("href", "/project/new");
+     expect(newProject?.className).not.toContain("sm:h-7");
+     expect(newProject?.parentElement?.className).toContain("ml-auto");
+     expect(newProject?.parentElement?.className).not.toContain("md:ml-0");
+diff --git a/src/lib/components/workspace/WorkspaceRail.component.test.ts b/src/lib/components/workspace/WorkspaceRail.component.test.ts
+index ed271e3..2655f56 100644
+--- a/src/lib/components/workspace/WorkspaceRail.component.test.ts
++++ b/src/lib/components/workspace/WorkspaceRail.component.test.ts
+@@ -1,4 +1,5 @@
+ import { beforeEach, describe, expect, it, vi } from "vitest";
++import { cdp, userEvent } from "vitest/browser";
+ import { render } from "vitest-browser-svelte";
+ import WorkspaceRail from "./WorkspaceRail.svelte";
+ import { __resetPage } from "$lib/test/app-state-stub.svelte";
+@@ -28,6 +29,17 @@ const navLink = (label: string) =>
+     (anchor) => anchor.textContent?.trim() === label
+   );
+ 
++const ADMIN_DESTINATIONS = [
++  ["The Brain", "/admin/brain"],
++  ["OneDrive ingestion", "/admin/ingestion"],
++  ["Project tags", "/admin/tags"],
++  ["QA reviews", "/admin/reviews"],
++  ["Users & roles", "/admin/users"],
++  ["House rules", "/admin/house-rules"],
++  ["Model preferences", "/admin/models"],
++  ["AI usage & cost", "/admin/usage"],
++];
++
+ describe("WorkspaceRail", () => {
+   beforeEach(() => {
+     __resetPage();
+@@ -98,17 +110,28 @@ describe("WorkspaceRail", () => {
+   });
+ 
+   it("keeps the drawer chrome fixed, scrolls only its links, and starts Admin compact", async () => {
+-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
++    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
+     await render(WorkspaceRail, baseProps({ variant: "drawer" }));
+ 
+     expect(document.querySelector("[data-rail-drawer-header]")?.className).toContain("shrink-0");
+     expect(document.querySelector("[data-rail-scroll]")?.className).toContain("overflow-y-auto");
+     expect(document.querySelector("[data-admin-group-toggle]")?.getAttribute("aria-expanded")).toBe("false");
+     expect(document.querySelector("#workspace-admin-links")).toBeNull();
++    const toggle = document.querySelector<HTMLButtonElement>("[data-admin-group-toggle]")!;
++    expect(toggle.getAttribute("aria-controls")).toBe("workspace-admin-links");
++    toggle.focus();
++    await userEvent.keyboard("{Enter}");
++    await expect.poll(() => toggle.getAttribute("aria-expanded")).toBe("true");
++    expect(Array.from(document.querySelectorAll<HTMLAnchorElement>("#workspace-admin-links a"))
++      .map((link) => [link.textContent?.trim(), link.getAttribute("href")])).toEqual(ADMIN_DESTINATIONS);
++    await userEvent.keyboard(" ");
++    await expect.poll(() => toggle.getAttribute("aria-expanded")).toBe("false");
++    expect(document.querySelector("#workspace-admin-links")).toBeNull();
++    expect(document.activeElement).toBe(toggle);
+   });
+ 
+   it("presents Admin as an Attio-style left-chevron group with distinct icon colours", async () => {
+-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
++    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
+     await render(WorkspaceRail, baseProps());
+ 
+     const group = document.querySelector<HTMLButtonElement>("[data-admin-group-toggle]");
+@@ -117,17 +140,36 @@ describe("WorkspaceRail", () => {
+     expect(group?.firstElementChild?.tagName).toBe("svg");
+ 
+     const iconTiles = Array.from(document.querySelectorAll<HTMLElement>("[data-admin-icon-tone]"));
+-    expect(iconTiles).toHaveLength(7);
+-    expect(new Set(iconTiles.map((tile) => tile.className.match(/bg-[a-z]+-500/)?.[0])).size).toBe(7);
++    expect(iconTiles).toHaveLength(8);
++    expect(new Set(iconTiles.map((tile) => tile.className.match(/bg-[a-z]+-500/)?.[0])).size).toBe(8);
+     expect(document.querySelector('[data-admin-icon-tone="ingestion"] svg')).not.toBeNull();
+     expect(document.querySelector("#workspace-admin-links")?.className).toContain("gap-1");
+ 
+-    group?.click();
++    group?.focus();
++    await userEvent.keyboard("{Enter}");
+     await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+     expect(group?.getAttribute("aria-expanded")).toBe("false");
+     expect(document.querySelector("#workspace-admin-links")).toBeNull();
+   });
+ 
++  it.each([
++    { role: "admin", isDeveloper: true, isOwner: false, visible: true },
++    { role: "admin", isDeveloper: true, isOwner: true, visible: true },
++    { role: "admin", isDeveloper: false, isOwner: true, visible: true },
++    { role: "admin", isDeveloper: false, isOwner: false, visible: false },
++    { role: "writer", isDeveloper: true, isOwner: false, visible: false },
++    { role: "writer", isDeveloper: true, isOwner: true, visible: false },
++    { role: "writer", isDeveloper: false, isOwner: true, visible: false },
++  ])("gates Admin destinations for $role developer=$isDeveloper owner=$isOwner", async ({ visible, ...user }) => {
++    // Product-domain exposure amendment: role AND either presentation flag.
++    __setQueryData("users:getCurrentUser", user);
++    await render(WorkspaceRail, baseProps());
++    const destinations = Array.from(document.querySelectorAll<HTMLAnchorElement>('#workspace-admin-links a'))
++      .map((link) => [link.textContent?.trim(), link.getAttribute("href")]);
++    expect(destinations).toEqual(visible ? ADMIN_DESTINATIONS : []);
++    expect(document.querySelector("[data-admin-group-toggle]") !== null).toBe(visible);
++  });
++
+   it("shows only What's new from the utility links for non-developers", async () => {
+     __setQueryData("users:getCurrentUser", {
+       role: "admin",
+@@ -167,25 +209,41 @@ describe("WorkspaceRail", () => {
+   });
+ 
+   it("moves the Admin records group below the primary workspace links", async () => {
+-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
++    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
+     await render(WorkspaceRail, baseProps());
+ 
+     expect(document.querySelector("[data-rail-admin]")?.className).toContain("mt-5");
+   });
+ 
+-  it("shares the compact rail rhythm with fine-pointer drawers without shrinking touch targets", async () => {
+-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
+-    await render(WorkspaceRail, baseProps({ variant: "drawer" }));
++  it.each(["rail", "drawer"])("keeps 150ms color motion and the standalone %s target size", async (variant) => {
++    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
++    await render(WorkspaceRail, baseProps({ variant }));
+ 
+     const home = navLink("Home");
+     expect(home?.className).toContain("workspace-rail-row");
+-    expect(home?.className).toContain("min-h-11");
+-    expect(home?.className).toContain("duration-300");
++    expect(home?.className).toContain(variant === "drawer" ? "min-h-11" : "h-7");
++    expect(home).toBeDefined();
++    expect(home!.getBoundingClientRect().height).toBe(variant === "drawer" ? 44 : 28);
++    try {
++      await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
++      expect(window.matchMedia("(prefers-reduced-motion: no-preference)").matches).toBe(true);
++      const style = getComputedStyle(home!);
++      expect(style.transitionDuration).toBe("0.15s");
++      expect(style.transitionProperty.split(",").map((property) => property.trim())).toEqual([
++        "color", "background-color", "border-color", "outline-color", "text-decoration-color",
++        "fill", "stroke", "--tw-gradient-from", "--tw-gradient-via", "--tw-gradient-to",
++      ]);
++      await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
++      expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
++      expect(getComputedStyle(home!).transitionProperty).toBe("none");
++    } finally {
++      await cdp().send("Emulation.setEmulatedMedia", { features: [] });
++    }
+     expect(document.querySelector("[data-rail-admin]")?.className).toContain("mt-5");
+   });
+ 
+   it("keeps the component expanded because full collapse is owned by WorkspaceShell", async () => {
+-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
++    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
+     await render(WorkspaceRail, baseProps({ collapsed: true, onToggleRail: () => {} }));
+ 
+     expect(document.querySelector('a[aria-label="Admin Writer dashboard"]')?.textContent).toContain("Admin Writer");
+@@ -197,7 +255,7 @@ describe("WorkspaceRail", () => {
+   });
+ 
+   it("ignores collapsed inside the mobile drawer — the drawer instance always renders expanded", async () => {
+-    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer" });
++    __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
+     await render(WorkspaceRail, baseProps({ variant: "drawer", collapsed: true }));
+ 
+     expect(document.querySelector('a[aria-label="Admin Writer dashboard"]')?.textContent).toContain("Admin Writer");
+diff --git a/src/lib/workflow/workflowLabels.test.ts b/src/lib/workflow/workflowLabels.test.ts
+index 4cc3dc5..1d13da7 100644
+--- a/src/lib/workflow/workflowLabels.test.ts
++++ b/src/lib/workflow/workflowLabels.test.ts
+@@ -1,6 +1,7 @@
+ import { describe, expect, it } from "vitest";
+ import { WORKFLOW_STAGES } from "../../../shared/workflowStages";
+ import {
++  TRANSITION_REQUIREMENT_BLOCKERS,
+   WORKFLOW_STAGE_DESCRIPTIONS,
+   WORKFLOW_STAGE_LABELS,
+   effectiveWorkflowStage,
+@@ -53,6 +54,17 @@ describe("workflow labels and options", () => {
+     );
+     const resume = workflowStageOptions("on_hold", ["owner"]);
+     expect(resume.find((option) => option.to === "internal_review")?.disabledReason).toBeNull();
++    // `review_decision` is satisfied in the same request (the caller supplies
++    // the decision), so it must NOT disable a row: a non-null disabledReason
++    // hard-disables the option in StageChangeDialog and would make completing
++    // an internal review unreachable from the UI.
++    const review = workflowStageOptions("internal_review", ["owner"]);
++    expect(review.find((option) => option.to === "edits")?.disabledReason).toBeNull();
++    // The approve edge still shows exactly the promoted-branch reason — the
++    // review requirement must not be concatenated onto it.
++    expect(review.find((option) => option.to === "ready_for_delivery")?.disabledReason).toBe(
++      TRANSITION_REQUIREMENT_BLOCKERS.promoted_branch
++    );
+   });
+ 
+   it("carries audit-note requirements from the matrix", () => {
+diff --git a/src/routes/admin/reviews/+page.svelte b/src/routes/admin/reviews/+page.svelte
+index ce7abfe..80b9731 100644
+--- a/src/routes/admin/reviews/+page.svelte
++++ b/src/routes/admin/reviews/+page.svelte
+@@ -2,6 +2,7 @@
+   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
+   import { resolve } from "$app/paths";
+   import Spinner from "$lib/components/ui/Spinner.svelte";
++  import Checkbox from "$lib/components/ui/Checkbox.svelte";
+   import { goto } from "$app/navigation";
+   import { useMutation, useQuery } from "convex-svelte";
+   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
+@@ -32,6 +33,13 @@
+   let showStyleHistory = $state(false);
+   let changingDigest = $state<string | null>(null);
+   let digestError = $state<string | null>(null);
++  // CAP-1: publishing a digest firm-wide needs an explicit human confirmation
++  // that it carries no client identifier. Per digest kind; never gates
++  // "Disable guidance", which must always stay reachable.
++  let privacyReviewed = $state<{ qa_calibration: boolean; draft_style: boolean }>({
++    qa_calibration: false,
++    draft_style: false,
++  });
+ 
+   function digestDate(ms: number) {
+     return new Date(ms).toLocaleString("en-CA", {
+@@ -68,7 +76,15 @@
+     changingDigest = `${kind}:${digestId ?? "disabled"}`;
+     digestError = null;
+     try {
+-      await selectDigest({ kind, digestId, expectedSelectionId, reason });
++      await selectDigest({
++        kind,
++        digestId,
++        expectedSelectionId,
++        reason,
++        ...(digestId ? { privacyReviewed: privacyReviewed[kind] } : {}),
++      });
++      // Confirmation is per publish, never sticky across versions.
++      if (digestId) privacyReviewed[kind] = false;
+     } catch (error) {
+       digestError = error instanceof Error ? error.message : "Learning guidance could not be updated.";
+     } finally {
+@@ -213,6 +229,12 @@
+                 {showCalibrationHistory ? "Hide" : "Show"} previous versions ({digestHistory.length})
+               </button>
+               {#if showCalibrationHistory}
++                <div class="mt-3 rounded-xl border border-line bg-surface p-4">
++                  <Checkbox
++                    bind:checked={privacyReviewed.qa_calibration}
++                    labelText="I reviewed this version and it contains no client names, project titles, emails, or phone numbers."
++                  />
++                </div>
+                 <div class="mt-3 space-y-3">
+                   {#each digestHistory as digest (digest._id)}
+                     <div class={`card p-5 ${digest._id === calibration.publishedDigestId ? "border-primary" : ""}`}>
+@@ -228,7 +250,8 @@
+                         {#if digest._id !== calibration.publishedDigestId && !digest.isPersonal}
+                           <button
+                             onclick={() => changePublishedDigest("qa_calibration", digest._id, calibration.selectionId, "Published after administrator review")}
+-                            disabled={changingDigest !== null}
++                            disabled={changingDigest !== null || !privacyReviewed.qa_calibration}
++                            title={privacyReviewed.qa_calibration ? undefined : "Confirm the privacy review above first"}
+                             class="min-h-11 rounded-lg bg-primary-selected px-3 text-xs font-semibold text-white hover:bg-primary-dark disabled:opacity-50"
+                           >Publish this version</button>
+                         {/if}
+@@ -296,6 +319,12 @@
+                 {showStyleHistory ? "Hide" : "Show"} previous versions ({styleHistory.length})
+               </button>
+               {#if showStyleHistory}
++                <div class="mt-3 rounded-xl border border-line bg-surface p-4">
++                  <Checkbox
++                    bind:checked={privacyReviewed.draft_style}
++                    labelText="I reviewed this version and it contains no client names, project titles, emails, or phone numbers."
++                  />
++                </div>
+                 <div class="mt-3 space-y-3">
+                   {#each styleHistory as digest (digest._id)}
+                     <div class={`card p-5 ${digest._id === style.publishedDigestId ? "border-primary" : ""}`}>
+@@ -311,7 +340,8 @@
+                         {#if digest._id !== style.publishedDigestId && !digest.isPersonal}
+                           <button
+                             onclick={() => changePublishedDigest("draft_style", digest._id, style.selectionId, "Published after administrator review")}
+-                            disabled={changingDigest !== null}
++                            disabled={changingDigest !== null || !privacyReviewed.draft_style}
++                            title={privacyReviewed.draft_style ? undefined : "Confirm the privacy review above first"}
+                             class="min-h-11 rounded-lg bg-primary-selected px-3 text-xs font-semibold text-white hover:bg-primary-dark disabled:opacity-50"
+                           >Publish this version</button>
+                         {/if}
+diff --git a/src/routes/admin/reviews/reviewsPublishGate.component.test.ts b/src/routes/admin/reviews/reviewsPublishGate.component.test.ts
+new file mode 100644
+index 0000000..5b8d433
+--- /dev/null
++++ b/src/routes/admin/reviews/reviewsPublishGate.component.test.ts
+@@ -0,0 +1,152 @@
++import { beforeEach, describe, expect, it } from "vitest";
++import { render } from "vitest-browser-svelte";
++import ReviewsPage from "./+page.svelte";
++import { __resetPage } from "$lib/test/app-state-stub.svelte";
++import { __resetNavigation } from "$lib/test/app-navigation-stub";
++import {
++  __mutationCalls,
++  __resetConvexStub,
++  __setQueryData,
++} from "$lib/test/convex-svelte-stub.svelte";
++
++/**
++ * CAP-1: publishing a learning digest firm-wide requires an administrator to
++ * confirm it carries no client identifier. The confirmation must gate only
++ * publication — disabling guidance stays reachable — and it must reach the
++ * mutation as `privacyReviewed`, not merely disable a button.
++ */
++
++const CANDIDATE = {
++  _id: "digest-candidate",
++  content: "Learned from 6 human feedback events:\n- Tighten openings.",
++  sourceCount: 6,
++  feedbackCutoff: 2,
++  model: "test-model",
++  createdAt: 1_756_000_000_000,
++  isPersonal: false,
++};
++
++const PUBLISHED = {
++  ...CANDIDATE,
++  _id: "digest-published",
++  content: "Learned from 5 human feedback events:\n- Keep background short.",
++  createdAt: 1_755_000_000_000,
++};
++
++function digestHistory() {
++  return {
++    publishedDigestId: PUBLISHED._id,
++    selectionId: "selection-1",
++    explicitlyDisabled: false,
++    digests: [CANDIDATE, PUBLISHED],
++    selections: [],
++  };
++}
++
++function buttonsByText(text: string) {
++  return [...document.querySelectorAll("button")].filter(
++    (candidate) => candidate.textContent?.trim() === text
++  );
++}
++
++/**
++ * Both digest panels render the same toggle label; `index` selects the kind
++ * (0 = QA calibration, 1 = drafting style).
++ */
++async function showHistory(index: number) {
++  await expect
++    .poll(() => buttonsByText("Show previous versions (2)").length)
++    .toBeGreaterThan(index);
++  buttonsByText("Show previous versions (2)")[index]!.click();
++  // Only the opened panel lists versions, so exactly one candidate is
++  // publishable: the published row renders no button.
++  await expect
++    .poll(() => buttonsByText("Publish this version").length)
++    .toBe(1);
++}
++
++beforeEach(() => {
++  __resetPage();
++  __resetNavigation();
++  __resetConvexStub();
++  __setQueryData("reviews:listWriterReviews", {
++    rows: [],
++    itemRows: [],
++    total: 0,
++    avgHuman: null,
++    avgGap: null,
++  });
++  __setQueryData("learning:getDigestHistory", digestHistory());
++});
++
++describe("/admin/reviews digest privacy gate", () => {
++  // Both digest kinds carry the gate independently; `kind` is the value the
++  // mutation must receive, `index` the panel position on the page.
++  const KINDS = [
++    { kind: "qa_calibration", index: 0 },
++    { kind: "draft_style", index: 1 },
++  ] as const;
++
++  for (const { kind, index } of KINDS) {
++    it(`blocks ${kind} publication until the privacy review is confirmed, then sends the flag`, async () => {
++      render(ReviewsPage);
++      await showHistory(index);
++
++      // Unconfirmed: publication is refused, disabling guidance is not.
++      expect(buttonsByText("Publish this version")[0]!.disabled).toBe(true);
++      expect(buttonsByText("Disable guidance")[index]!.disabled).toBe(false);
++
++      // Only this panel's history is open, so it owns the only checkbox.
++      const checkboxes =
++        document.querySelectorAll<HTMLElement>('[role="checkbox"]');
++      expect(checkboxes).toHaveLength(1);
++      checkboxes[0]!.click();
++
++      await expect
++        .poll(() => buttonsByText("Publish this version")[0]!.disabled)
++        .toBe(false);
++      buttonsByText("Publish this version")[0]!.click();
++
++      await expect
++        .poll(() => __mutationCalls("learning:selectDigest").length)
++        .toBe(1);
++      expect(__mutationCalls("learning:selectDigest")[0]).toMatchObject({
++        kind,
++        digestId: CANDIDATE._id,
++        privacyReviewed: true,
++      });
++
++      // The confirmation is per publish, never sticky: a second version must
++      // not inherit the first one's review. Without the reset an administrator
++      // confirms once and every later publish carries `privacyReviewed: true`
++      // untruthfully, and the server gate cannot tell the difference.
++      await expect
++        .poll(() =>
++          document
++            .querySelector<HTMLElement>('[role="checkbox"]')
++            ?.getAttribute("aria-checked")
++        )
++        .toBe("false");
++      expect(buttonsByText("Publish this version")[0]!.disabled).toBe(true);
++    });
++  }
++
++  it("disables guidance without a privacy confirmation and sends no flag", async () => {
++    render(ReviewsPage);
++
++    await expect
++      .poll(() => buttonsByText("Disable guidance").length)
++      .toBeGreaterThan(0);
++    expect(buttonsByText("Disable guidance")[0]!.disabled).toBe(false);
++    buttonsByText("Disable guidance")[0]!.click();
++
++    await expect
++      .poll(() => __mutationCalls("learning:selectDigest").length)
++      .toBe(1);
++    const [call] = __mutationCalls("learning:selectDigest") as Array<
++      Record<string, unknown>
++    >;
++    expect(call.digestId).toBe(null);
++    expect("privacyReviewed" in call).toBe(false);
++  });
++});
+diff --git a/src/routes/workspaceRoutes.component.test.ts b/src/routes/workspaceRoutes.component.test.ts
+index 575660b..78edc92 100644
+--- a/src/routes/workspaceRoutes.component.test.ts
++++ b/src/routes/workspaceRoutes.component.test.ts
+@@ -36,8 +36,14 @@ describe("canonical workspace routes", () => {
+     __resetConvexStub();
+   });
+ 
+-  it("/projects renders the workspace shell for a flagged user", async () => {
+-    __setPageUrl("/projects?layout=board");
++  it.each([
++    ["layout=board&utm=x", "layout=board&utm=x&group=client"],
++    ["layout=board&group=status&utm=x", "layout=board&group=status&utm=x"],
++    ["utm=x", "utm=x&layout=list&group=client"],
++    ["group=status&utm=x", "group=status&utm=x&layout=list"],
++    ["utm=first&utm=second&note=R%26D%20%2B%20caf%C3%A9", "utm=first&utm=second&note=R%26D%20%2B%20caf%C3%A9&layout=list&group=client"],
++  ])("/projects preserves query %s and supplies missing Projects defaults", async (query, projectsQuery) => {
++    __setPageUrl(`/projects?${query}`);
+     __setQueryData("workspaceRollout:getAccess", { available: true });
+     seedWorkspaceQueries();
+     await browserPage.viewport(1440, 900);
+@@ -48,10 +54,18 @@ describe("canonical workspace routes", () => {
+       .poll(() => document.querySelector("div[data-workspace-shell]"))
+       .not.toBeNull();
+     expect(document.querySelector('[data-dashboard-experience="preview"]')).not.toBeNull();
+-    // The rail links carry ?layout through between the canonical routes.
++    // 0b094ed4: Home preserves params; Projects adds only absent defaults.
+     const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>("nav a"));
+-    expect(anchors.some((a) => a.getAttribute("href") === "/my-work?layout=board")).toBe(true);
+-    expect(anchors.some((a) => a.getAttribute("href") === "/projects?layout=board")).toBe(true);
++    for (const [pathname, expectedQuery] of [["/my-work", query], ["/projects", projectsQuery]]) {
++      const link = anchors.find((anchor) => new URL(anchor.href).pathname === pathname);
++      expect(link).toBeDefined();
++      const actual = new URL(link!.href);
++      const expected = new URLSearchParams(expectedQuery);
++      expect([...actual.searchParams.keys()]).toEqual([...expected.keys()]);
++      for (const key of new Set(expected.keys())) {
++        expect(actual.searchParams.getAll(key)).toEqual(expected.getAll(key));
++      }
++    }
+     expect(gotoUrls()).toHaveLength(0);
+   });
+ 
+diff --git a/tests/brainScienceRouting.test.ts b/tests/brainScienceRouting.test.ts
+index 37f2c2c..3c23a13 100644
+--- a/tests/brainScienceRouting.test.ts
++++ b/tests/brainScienceRouting.test.ts
+@@ -1,4 +1,4 @@
+-import { describe, expect, test } from "bun:test";
++import { describe, expect, test } from "vitest";
+ import { pickScienceRouted } from "../convex/ai/brain/scienceRouting";
+ import type { CraScienceCode } from "../shared/craScienceCodes";
+ 

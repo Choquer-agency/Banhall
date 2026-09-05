@@ -1,0 +1,5 @@
+{
+  "result": "PASS: invocation snapshot == working bytes == staged blob",
+  "sha256": "e5c97b9772675d3ca1ad3fdd2249e98eb0baecd0af9c36bfba3c28c695c13f93",
+  "git_blob": "a7fd4e71b44092d51fbc5da2df98457e5fe3b4ee"
+}

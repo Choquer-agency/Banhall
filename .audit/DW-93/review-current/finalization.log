@@ -1,0 +1,4 @@
+PASS current invocation protected bytes and index
+PASS terminal spec, staged allowlist, staged equality, and whitespace
+Invocation revision: a338f6a08274e7a26b3f0195fb15424f7f30a1ed
+Staged files: 19

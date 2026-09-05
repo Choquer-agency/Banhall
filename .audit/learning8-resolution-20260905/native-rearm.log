@@ -1,0 +1,3 @@
+warning: the re-drive of this story will mount a fresh worktree, so the re-arm's spec writes (/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/8/_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/8-admin-learning-health-page.md) land in a tree it discards — the re-driven session reads the COMMITTED spec, so commit the corrected spec on `sprint2-learn-chat` or the story re-wedges on the escalated attempt's status; Commit the corrected spec on `sprint2-learn-chat` before resuming
+re-armed 8
+resume when ready: bmad-loop resume 20260904-133944-0158

@@ -1,0 +1,116 @@
+{
+  "run": "20260904-162523-6e72",
+  "task": "dw-blocking-qa-native-followup",
+  "phase": "done",
+  "accepted_commit": "bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d",
+  "integration_head": "02bbedad0a9c14a8482f5af0f83ebb17b0bdb736",
+  "extractor_sha256": "798806db4384e9bb5957ff45bd280f02c9b946ad51e9e1f7d5bbd23efd6287a3",
+  "matches_additional_structural_audit": true,
+  "events": [
+    {
+      "ts": 1788566219.4014452,
+      "kind": "sweep-bundle-closed",
+      "story_key": "dw-blocking-qa-native-followup",
+      "dw_ids": [
+        "DW-92"
+      ],
+      "log_task": "dw-blocking-qa-native-followup-dev-1",
+      "log_pos": 5208025
+    },
+    {
+      "ts": 1788568883.228995,
+      "kind": "sweep-bundle-closed",
+      "story_key": "dw-blocking-qa-native-followup",
+      "dw_ids": [
+        "DW-92"
+      ],
+      "log_task": "dw-blocking-qa-native-followup-dev-1-g1",
+      "log_pos": 4849986
+    },
+    {
+      "ts": 1788569407.233126,
+      "kind": "review-result",
+      "story_key": "dw-blocking-qa-native-followup",
+      "cycle": 1,
+      "status": "done",
+      "followup_review_recommended": true,
+      "followup_damped": false,
+      "log_task": "dw-blocking-qa-native-followup-review-1-g1",
+      "log_pos": 2127412
+    },
+    {
+      "ts": 1788569870.400349,
+      "kind": "review-result",
+      "story_key": "dw-blocking-qa-native-followup",
+      "cycle": 2,
+      "status": "done",
+      "followup_review_recommended": true,
+      "followup_damped": true,
+      "log_task": "dw-blocking-qa-native-followup-review-2-g1",
+      "log_pos": 1840479
+    },
+    {
+      "ts": 1788569923.267999,
+      "kind": "review-followup-damped",
+      "story_key": "dw-blocking-qa-native-followup",
+      "cycle": 2,
+      "cap": 1,
+      "refiled": "DW-94",
+      "re_review_capped": false,
+      "log_task": "dw-blocking-qa-native-followup-review-2-g1",
+      "log_pos": 1840479
+    },
+    {
+      "ts": 1788569923.504517,
+      "kind": "story-done",
+      "story_key": "dw-blocking-qa-native-followup",
+      "commit": "bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d",
+      "log_task": "dw-blocking-qa-native-followup-review-2-g1",
+      "log_pos": 1840479
+    },
+    {
+      "ts": 1788569923.855663,
+      "kind": "unit-merged",
+      "story_key": "dw-blocking-qa-native-followup",
+      "branch": "bmad-loop/20260904-162523-6e72",
+      "target": "codex/bmad-completion",
+      "strategy": "merge",
+      "source": "bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d",
+      "log_task": "dw-blocking-qa-native-followup-review-2-g1",
+      "log_pos": 1840479
+    }
+  ],
+  "final_gates": {
+    "source": "committed .audit/DW-92-native-final-pass/verification-650807b4/",
+    "raw_summary_lines": [
+      {
+        "log": "ordinary.log",
+        "line": "svelte-check found 0 errors and 0 warnings"
+      },
+      {
+        "log": "ordinary.log",
+        "line": " Test Files  148 passed (148)"
+      },
+      {
+        "log": "ordinary.log",
+        "line": "      Tests  1772 passed (1772)"
+      },
+      {
+        "log": "ordinary.log",
+        "line": "50 passed, 0 failed"
+      },
+      {
+        "log": "ordinary.log",
+        "line": "18 passed, 0 failed"
+      },
+      {
+        "log": "focused.log",
+        "line": " Test Files  3 passed (3)"
+      },
+      {
+        "log": "focused.log",
+        "line": "      Tests  173 passed (173)"
+      }
+    ]
+  }
+}

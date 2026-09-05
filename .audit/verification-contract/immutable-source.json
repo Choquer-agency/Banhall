@@ -1,0 +1,25 @@
+{
+  "baseline": "dd787d4287bcdf970aa3bcb25f0781dc765e030c",
+  "unchanged_tracked_files": 4555,
+  "archives": [
+    {
+      "path": ".audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/ai/qaChecks.test.ts",
+      "blob": "15b9378843535000f55c7a922c9f809ee9d36d41",
+      "sha256": "14037caf89e2740510631d7ffd6c90f2609a8dfdbfb700161dd52b3bccdb0c39"
+    },
+    {
+      "path": ".audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/lib/tiptapReport.test.ts",
+      "blob": "19870c6dfc3f811f7add3008d17eaf575dae9bc9",
+      "sha256": "c5ad8f5fc8a3890e813bfb2bc4ad388f51879b8282c5d5fef3b8b5df5c960557"
+    },
+    {
+      "path": ".audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/qaBlocking.test.ts",
+      "blob": "3ec1424be20c20a9d46e508037d53a13699e5c49",
+      "sha256": "b7928f1e2f7f698e25b4404a1f9bd020dde06f549d1689ced7374e64696fea6b"
+    }
+  ],
+  "preserved_guidance": [
+    "AGENTS policy and native ledger guidance",
+    "docs/bmad-loop adjacent native integration guidance"
+  ]
+}

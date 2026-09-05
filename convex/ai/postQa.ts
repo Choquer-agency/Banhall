@@ -23,8 +23,13 @@ import {
 import type { Id } from "../_generated/dataModel";
 
 export const runReportQa = internalAction({
-  args: { generationId: v.id("generations") },
+  args: { generationId: v.id("generations"), attemptStartedAt: v.optional(v.number()) },
   handler: async (ctx, args) => {
+    const attempt = await ctx.runQuery(internal.generations.getPostQaAttempt, {
+      generationId: args.generationId,
+    });
+    if (!attempt || (args.attemptStartedAt !== undefined && args.attemptStartedAt !== attempt.startedAt)) return;
+    const attemptStartedAt = attempt.startedAt;
     const input = await ctx.runQuery(internal.generations.getPostQaInput, {
       generationId: args.generationId,
     });
@@ -33,6 +38,7 @@ export const runReportQa = internalAction({
       // stuck and the panel spins forever. Mark the pass failed instead.
       await ctx.runMutation(internal.generations.saveReportQa, {
         generationId: args.generationId,
+        attemptStartedAt,
         failed: true,
       });
       return;
@@ -147,6 +153,8 @@ export const runReportQa = internalAction({
       if (!qa) {
         await ctx.runMutation(internal.generations.saveReportQa, {
           generationId: args.generationId,
+          attemptStartedAt,
+          capturedRef: input.capturedRef,
           failed: true,
           ...(chronology ? { chronology: JSON.stringify(chronology) } : {}),
         });
@@ -154,6 +162,8 @@ export const runReportQa = internalAction({
       }
       await ctx.runMutation(internal.generations.saveReportQa, {
         generationId: args.generationId,
+        attemptStartedAt,
+        capturedRef: input.capturedRef,
         qa: JSON.stringify(qa),
         ...(chronology ? { chronology: JSON.stringify(chronology) } : {}),
         ...(typeof qa.overall_score === "number"
@@ -165,6 +175,8 @@ export const runReportQa = internalAction({
       console.error("post-assembly QA failed for generation", args.generationId, err);
       await ctx.runMutation(internal.generations.saveReportQa, {
         generationId: args.generationId,
+        attemptStartedAt,
+        capturedRef: input.capturedRef,
         failed: true,
       });
     }

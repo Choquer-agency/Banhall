@@ -36,6 +36,7 @@ import {
   ANALYZER_CATEGORY_ORDER,
   ANALYZER_REQUEST,
 } from "./analyzerAgent";
+import { DEFAULT_CONTEXT_BUDGET } from "./trustedContext";
 import {
   CONDENSE_CONCURRENCY,
   CONDENSE_REQUEST,
@@ -291,9 +292,20 @@ export const generationPromptProgram = {
       contextGuidance: CONTEXT_INPUTS_GUIDANCE,
       contextCategoryLabels: ANALYZER_CATEGORY_LABELS,
       contextCategoryOrder: ANALYZER_CATEGORY_ORDER,
+      // The analyzer's context budget is part of the disclosed contract: it
+      // decides how much of each frozen source actually reaches the model.
+      contextBudget: DEFAULT_CONTEXT_BUDGET,
       request: ANALYZER_REQUEST,
       schema: ANALYSIS_SCHEMA,
-      model: { kind: "candidate", fallbackModelId: MODEL },
+      // Compare entry analysis is independent of candidate pair order.
+      // Older queued candidates without shared analysis still select their model.
+      model: {
+        kind: "mode-dependent",
+        compare: { kind: "fixed", modelId: MODEL },
+        single: { kind: "candidate", fallbackModelId: MODEL },
+        iterative: { kind: "candidate", fallbackModelId: MODEL },
+        legacyCandidate: { kind: "candidate", fallbackModelId: MODEL },
+      },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
     },

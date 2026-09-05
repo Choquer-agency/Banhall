@@ -1,36 +1,32 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Banhall
 
-## Getting Started
+Banhall generates SR&ED reports for a consulting firm. It uses SvelteKit 2, Svelte 5, Tailwind CSS and Convex. The domain contract is in [docs/product-domain.md](docs/product-domain.md); repository conventions are in [AGENTS.md](AGENTS.md).
 
-First, run the development server:
+## Verification
+
+Install Node 24 (pinned in `.nvmrc`, with npm), PowerShell 7 (`pwsh`), and Git. Install this checkout's lockfile dependencies, then run:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm ci
+bash scripts/loop-verify.sh
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Run `npm ci` inside each fresh checkout and after dependency changes. The gate only bootstraps an empty `node_modules`; it does not validate an existing installation for freshness or ownership.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The gate checks prerequisites, installs dependencies into an empty checkout, typechecks Convex and Svelte, runs unit tests, checks test discovery, builds the app and runs both client-uploader harnesses. It supplies public placeholder Convex URLs when unset, so verification does not require a deployment.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+To include browser component tests, install Chromium once and enable the ninth step:
 
-## Learn More
+```bash
+npm ci
+npx playwright install chromium
+VERIFY_COMPONENT=1 bash scripts/loop-verify.sh
+```
 
-To learn more about Next.js, take a look at the following resources:
+On Linux, use `npx playwright install --with-deps chromium` to install browser system dependencies too. Optional preflight launches and closes headless Chromium to check readiness.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`npm test` is browser-free. Run the component suite before changing `src/lib/components`. CI defines separate verification and component jobs; the component job installs Chromium. Required status checks are configured separately in branch protection.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The discovery guard accounts for three exact historical QA source copies retained under `.audit/integration-code-review-9da55be/qa-structural-boundary-input/`. Every other tracked `*.test.ts` file must be discovered by one of the two canonical Vitest configurations.
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Existing component tests write screenshots into tracked historical `.audit` paths. Check `git status` and screenshot diffs after a browser run. Preserve intentional new evidence, but restore only generated changes to historical outputs that the task requires keeping unchanged; do not discard unrelated work.

@@ -77,6 +77,27 @@ never commit them. Only the `.example.json` template is tracked.
 **One-off (admin UI):** pending imports appear in `/admin/brain` → Queue →
 review full text → Approve.
 
+### Privacy at the report-nomination boundary (CAP-1, 2026-09-04)
+
+`convex/brain.ts`'s `nominateFromReport` applies `deidentify` to the report's
+plain-text content and the project-title portion of its label before creating
+a pending `brainSources` candidate. Administrator approval is still required
+before production retrieval of approved sources; pending sources remain
+available in the administrator review queue. The scrub uses project-record identifiers and email/phone
+patterns, preserves prose layout, and is best-effort; identifiers can survive.
+This boundary applies to new report nominations. It does not backfill existing
+sources or extend scrubbing to the bulk, curated, or writer-feedback import
+paths described here.
+
+Learning digests have a separate publication gate: an administrator with
+`settings.configure` must pass `privacyReviewed: true` to `selectDigest` for
+any non-null digest selection, including restoring an older version.
+Selecting `digestId: null` disables guidance without that attestation, while
+retaining authorization and concurrency checks. This does not approve a Brain
+source or change the Brain's governance. See the
+[approved privacy contract](product-domain.md#2026-09-04-privacy-at-selected-firm-wide-knowledge-boundaries-cap-1)
+for the exact event write/read boundaries, privacy-review UI, and limitations.
+
 ## Governance cheat-sheet (`/admin/brain`)
 
 | Action | Effect |

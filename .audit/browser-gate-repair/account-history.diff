@@ -1,0 +1,384 @@
+commit 66f131b00482af027bc83b9786d85d9050a6dec4
+Author: conquerthecrowns <bryce@choquercreative.com>
+Date:   Mon Aug 24 15:34:18 2026 -0700
+
+    feat(ai): human-prose guard, voice consistency rule, 75k preference limit
+    
+    Closes two writer flags (2026-08-23, 3GA Marine):
+    - RULES_VOICE_CONSISTENCY: in mandated-opener paragraphs voice follows
+      sentence function (neutral for mechanisms, we/our for team actions) with
+      explicit precedence over the company-as-subject rule; QA checks it with a
+      firstPersonRequested flag derived from the writer's preferences
+    - MAX_INSTRUCTIONS_CHARS 60k -> 75k, shared by server validation, counters,
+      style analysis, and the chat agent (was silently sliced at 20k)
+    
+    Human prose (no-em-dashes + plain-language rules), always on:
+    - shared/humanProse.ts: RULES_HUMAN_PROSE block and findDashConnectors()
+      deterministic scanner (em dash, --, spaced hyphen, spaced en dash; ignores
+      compounds, ranges, closed en dashes, equation minus, line structure)
+    - dash_connector findings in section review and the QA pre-computed checks;
+      compression pass told not to reintroduce dashes; chat replies covered
+    - every system prompt recast to be dash-clean itself (test enforces it)
+    - locked-rules catalogue and admin house-rules page list both new rules
+    
+    Also carries the in-progress PSOS-42..50 house-style governance work
+    (houseStyle, styleOverrides, writerStyle, admin/house-rules) that these
+    changes build on.
+    
+    Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
+diff --git a/src/lib/components/ui/UserMenu.svelte b/src/lib/components/ui/UserMenu.svelte
+index 5be8ce6..89f3cb7 100644
+--- a/src/lib/components/ui/UserMenu.svelte
++++ b/src/lib/components/ui/UserMenu.svelte
+@@ -1,6 +1,6 @@
+-<!-- Avatar account menu in app bars; Settings launcher in the workspace rail. -->
++<!-- Avatar account menu in app bars; confirmed sign-out action in the workspace rail. -->
+ <script lang="ts">
+-  import { DropdownMenu } from "bits-ui";
++  import { Dialog, DropdownMenu } from "bits-ui";
+   import { goto } from "$app/navigation";
+   import { resolve } from "$app/paths";
+   import { useQuery } from "convex-svelte";
+@@ -9,8 +9,10 @@
+   import { clearAllOutboxes } from "$lib/uploads/attemptOutbox";
+   import { api } from "../../../../convex/_generated/api";
+   import { displayName } from "$lib/displayName";
+-  import { CaretUpDownIcon, GearSixIcon, SignOutIcon } from "phosphor-svelte";
++  import { SignOutIcon } from "phosphor-svelte";
+   import { toast } from "svelte-sonner";
++  import { modalPop, overlayFade } from "$lib/motion";
++  import Tooltip from "$lib/components/ui/Tooltip.svelte";
+ 
+   const auth = useAuth();
+   const userQ = useQuery(api.users.getCurrentUser, () =>
+@@ -54,11 +56,6 @@
+   let open = $state(false);
+   let signingOut = $state(false);
+ 
+-  function openSettings() {
+-    open = false;
+-    void goto(resolve("/settings"));
+-  }
+-
+   async function handleSignOut() {
+     if (signingOut) return;
+     signingOut = true;
+@@ -81,56 +78,107 @@
+   }
+ </script>
+ 
+-<DropdownMenu.Root bind:open>
+-  <DropdownMenu.Trigger
+-    aria-label={triggerVariant === "rail" ? "Settings menu" : "Account menu"}
+-    data-user-menu-rail={triggerVariant === "rail" ? "" : undefined}
+-    class={triggerVariant === "rail"
+-      ? `flex h-11 w-full items-center gap-2 rounded-md px-2 text-left text-sm font-medium text-ink transition-colors hover:bg-workspace-rail-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir md:h-9 ${open ? "bg-workspace-rail-selected" : ""}`
+-      : `flex h-11 w-11 items-center justify-center rounded-full text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:h-8 md:w-8 ${
+-          tone === "light"
+-            ? open
+-              ? "bg-navy text-white"
+-              : "bg-chrome text-navy hover:bg-primary-wash"
+-            : open
+-              ? "bg-white text-navy"
+-              : "bg-white/15 text-white hover:bg-white/25"
+-        }`}
+-  >
+-    {#if triggerVariant === "rail"}
+-      <GearSixIcon size={16} weight="regular" aria-hidden="true" class="shrink-0" />
+-      <span class="min-w-0 flex-1 truncate">Settings</span>
+-      <CaretUpDownIcon size={14} weight="regular" aria-hidden="true" class="text-ink-muted" />
+-    {:else}
+-      {initials}
+-    {/if}
+-  </DropdownMenu.Trigger>
+-  <DropdownMenu.Portal>
+-    <DropdownMenu.Content
+-      data-workspace-theme={menuTheme === "dark" ? "dark" : undefined}
+-      side="bottom"
+-      align="end"
+-      sideOffset={8}
+-      preventScroll={false}
+-      data-menu-layer={menuLayer}
+-      class={`${menuLayer === "drawer" ? "z-[130]" : "z-[80]"} w-56 overflow-hidden rounded-lg border border-line bg-surface shadow-lg`}
++{#if triggerVariant === "rail"}
++  <Dialog.Root bind:open>
++    <Tooltip text="Sign out" side="top" delayDuration={300}>
++      {#snippet children({ props })}
++        <Dialog.Trigger
++          {...props}
++          aria-label="Sign out"
++          data-user-menu-rail
++          class="flex size-11 shrink-0 items-center justify-center rounded-r-md text-ink-muted transition-colors duration-150 ease-out hover:text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none md:size-9"
++        >
++          <SignOutIcon size={16} weight="regular" aria-hidden="true" />
++        </Dialog.Trigger>
++      {/snippet}
++    </Tooltip>
++    <Dialog.Portal>
++      <Dialog.Overlay forceMount>
++        {#snippet child({ props, open: isOpen })}
++          {#if isOpen}
++            <div
++              {...props}
++              transition:overlayFade
++              class={`${menuLayer === "drawer" ? "z-[130]" : "z-[110]"} fixed inset-0 bg-navy/35`}
++            ></div>
++          {/if}
++        {/snippet}
++      </Dialog.Overlay>
++      <div class={`${menuLayer === "drawer" ? "z-[130]" : "z-[110]"} pointer-events-none fixed inset-0 flex items-end p-0 sm:items-center sm:justify-center sm:p-4`}>
++        <Dialog.Content
++          forceMount
++          onEscapeKeydown={(event) => {
++            if (signingOut) event.preventDefault();
++          }}
++          onInteractOutside={(event) => {
++            if (signingOut) event.preventDefault();
++          }}
++        >
++          {#snippet child({ props, open: isOpen })}
++            {#if isOpen}
++              <div
++                {...props}
++                transition:modalPop
++                class="pointer-events-auto w-full rounded-t-xl border border-line bg-surface p-5 shadow-xl sm:max-w-sm sm:rounded-xl"
++              >
++                <Dialog.Title class="text-title">Sign out?</Dialog.Title>
++                <Dialog.Description class="mt-1.5 text-sm leading-relaxed text-ink-secondary">
++                  You’ll need to sign in again to access your Banhall workspace.
++                </Dialog.Description>
++                <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
++                  <Dialog.Close
++                    disabled={signingOut}
++                    class="min-h-11 rounded-lg px-4 text-sm font-medium text-ink-secondary transition-colors hover:bg-workspace-rail-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-50"
++                  >
++                    Stay signed in
++                  </Dialog.Close>
++                  <button
++                    type="button"
++                    disabled={signingOut}
++                    onclick={handleSignOut}
++                    class="min-h-11 rounded-lg bg-red-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 disabled:opacity-50"
++                  >
++                    {signingOut ? "Signing out…" : "Sign out"}
++                  </button>
++                </div>
++              </div>
++            {/if}
++          {/snippet}
++        </Dialog.Content>
++      </div>
++    </Dialog.Portal>
++  </Dialog.Root>
++{:else}
++  <DropdownMenu.Root bind:open>
++    <DropdownMenu.Trigger
++      aria-label="Account menu"
++      class={`flex h-11 w-11 items-center justify-center rounded-full text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:h-8 md:w-8 ${
++        tone === "light"
++          ? open
++            ? "bg-navy text-white"
++            : "bg-chrome text-navy hover:bg-primary-wash"
++          : open
++            ? "bg-white text-navy"
++            : "bg-white/15 text-white hover:bg-white/25"
++      }`}
+     >
+-      {#if triggerVariant === "avatar"}
++      {initials}
++    </DropdownMenu.Trigger>
++    <DropdownMenu.Portal>
++      <DropdownMenu.Content
++        data-workspace-theme={menuTheme === "dark" ? "dark" : undefined}
++        side="bottom"
++        align="end"
++        sideOffset={8}
++        preventScroll={false}
++        data-menu-layer={menuLayer}
++        class={`${menuLayer === "drawer" ? "z-[130]" : "z-[80]"} w-56 overflow-hidden rounded-lg border border-line bg-surface shadow-lg`}
++      >
+         <div data-account-menu-identity class="flex items-center gap-2.5 border-b border-line-soft px-3.5 py-3">
+           <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] bg-chrome text-[0.6875rem] font-semibold text-fir">{initials}</span>
+           <p class="min-w-0 truncate text-sm font-semibold text-ink">{label || "Account"}</p>
+         </div>
+-      {/if}
+-      <div>
+-        {#if triggerVariant === "rail"}
+-          <DropdownMenu.Item
+-            onSelect={openSettings}
+-            class="flex h-11 min-h-11 w-full shrink-0 items-center gap-2.5 px-3.5 text-left text-sm font-medium text-ink transition-colors hover:bg-workspace-rail-hover focus-visible:bg-workspace-rail-hover focus-visible:outline-none"
+-          >
+-            <GearSixIcon size={16} weight="regular" aria-hidden="true" class="shrink-0" />
+-            Open Settings
+-          </DropdownMenu.Item>
+-        {/if}
++        <div>
+         <DropdownMenu.Item
+           onSelect={handleSignOut}
+           disabled={signingOut}
+@@ -139,7 +187,8 @@
+           <SignOutIcon size={16} weight="regular" aria-hidden="true" class="shrink-0" />
+           {signingOut ? "Signing out…" : "Sign out"}
+         </DropdownMenu.Item>
+-      </div>
+-    </DropdownMenu.Content>
+-  </DropdownMenu.Portal>
+-</DropdownMenu.Root>
++        </div>
++      </DropdownMenu.Content>
++    </DropdownMenu.Portal>
++  </DropdownMenu.Root>
++{/if}
+diff --git a/src/lib/components/workspace/WorkspaceRail.svelte b/src/lib/components/workspace/WorkspaceRail.svelte
+index 368b784..768f800 100644
+--- a/src/lib/components/workspace/WorkspaceRail.svelte
++++ b/src/lib/components/workspace/WorkspaceRail.svelte
+@@ -105,9 +105,12 @@
+   // Attio-density: 28px rows on desktop, 44px minimum in the touch drawer.
+   // A drawer opened in a narrow desktop window returns to the compact rail
+   // rhythm through the fine-pointer media rule below.
++  // Labels carry translate-y-[0.5px]: Geist caps sit ~0.5px above the
++  // 16px Phosphor glyphs when both are flex-centred, which reads as text
++  // floating high. Measured at 1x and 2x DPR (2026-08-22).
+   const rowHeight = $derived(variant === "rail" ? "h-7" : "min-h-11");
+   const rowBase = $derived(
+-    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md pl-2 pr-1 text-left text-sm font-medium leading-5 tracking-[-0.01em] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
++    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md pl-2 pr-1 [&>svg]:shrink-0 text-left text-sm font-medium leading-5 tracking-[-0.01em] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
+   );
+   const idleRow = "text-ink hover:bg-workspace-rail-hover";
+   const selectedRow = "bg-workspace-rail-selected font-semibold text-ink";
+@@ -118,6 +121,7 @@
+     { href: "/admin/tags", label: "Project tags", icon: "tag", tone: "bg-orange-500" },
+     { href: "/admin/reviews", label: "QA reviews", icon: "reviews", tone: "bg-teal-500" },
+     { href: "/admin/users", label: "Users & roles", icon: "users", tone: "bg-sky-500" },
++    { href: "/admin/house-rules", label: "House rules", icon: "reviews", tone: "bg-rose-500" },
+     { href: "/admin/models", label: "Model preferences", icon: "models", tone: "bg-violet-500" },
+     { href: "/admin/usage", label: "AI usage & cost", icon: "usage", tone: "bg-emerald-500" },
+   ] as const;
+@@ -207,7 +211,7 @@
+           }}
+         >
+           <HouseIcon size={16} weight="regular" aria-hidden="true" />
+-          <span>Home</span>
++          <span class="min-w-0 translate-y-[0.5px] truncate">Home</span>
+         </a>
+ 
+         <a
+@@ -217,7 +221,7 @@
+           onclick={onNavigate}
+         >
+           <FolderSimpleIcon size={16} weight="regular" aria-hidden="true" />
+-          <span>Projects</span>
++          <span class="min-w-0 translate-y-[0.5px] truncate">Projects</span>
+         </a>
+       </div>
+ 
+@@ -260,7 +264,7 @@
+                     {:else if link.icon === "models"}<SlidersHorizontalIcon size={12} weight="bold" aria-hidden="true" />
+                     {:else}<ChartBarIcon size={12} weight="bold" aria-hidden="true" />{/if}
+                   </span>
+-                  <span class="min-w-0 truncate">{link.label}</span>
++                  <span class="min-w-0 translate-y-[0.5px] truncate">{link.label}</span>
+                 </a>
+               {/each}
+             </div>
+@@ -280,9 +284,9 @@
+               aria-current={pathname.startsWith(resolve("/alerts")) ? "page" : undefined}
+             >
+               <BellIcon size={16} weight="regular" aria-hidden="true" />
+-              <span>Alerts</span>
++              <span class="min-w-0 translate-y-[0.5px] truncate">Alerts</span>
+               {#if openAlerts > 0}
+-                <span class="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[0.625rem] font-semibold leading-none text-white">{openAlerts > 99 ? "99+" : openAlerts}</span>
++                <span class="ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[0.625rem] font-semibold leading-none text-white">{openAlerts > 99 ? "99+" : openAlerts}</span>
+               {/if}
+             </a>
+             <a
+@@ -292,7 +296,7 @@
+               aria-current={pathname.startsWith(resolve("/requests")) ? "page" : undefined}
+             >
+               <LightbulbIcon size={16} weight="regular" aria-hidden="true" />
+-              <span>Feature requests</span>
++              <span class="min-w-0 translate-y-[0.5px] truncate">Feature requests</span>
+             </a>
+           {/if}
+           <a
+@@ -302,9 +306,9 @@
+             aria-current={pathname.startsWith(resolve("/changelog")) ? "page" : undefined}
+           >
+             <MegaphoneIcon size={16} weight="regular" aria-hidden="true" />
+-            <span>What's new</span>
++            <span class="min-w-0 translate-y-[0.5px] truncate">What's new</span>
+             {#if unseenChangelog > 0}
+-              <span class="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-none text-white">{unseenChangelog > 99 ? "99+" : unseenChangelog}</span>
++              <span class="ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-none text-white">{unseenChangelog > 99 ? "99+" : unseenChangelog}</span>
+             {/if}
+           </a>
+           <!-- Flag issue is for every user (2026-08-19): bug reports and
+@@ -319,7 +323,7 @@
+             class={`${rowBase} ${idleRow}`}
+           >
+             <FlagIcon size={16} weight="regular" aria-hidden="true" />
+-            <span>Flag issue</span>
++            <span class="min-w-0 translate-y-[0.5px] truncate">Flag issue</span>
+           </button>
+           {#if isDeveloper}
+             <button
+@@ -332,7 +336,7 @@
+               class={`${rowBase} ${idleRow}`}
+             >
+               <ArrowSquareOutIcon size={16} weight="regular" aria-hidden="true" />
+-              <span>{currentExperienceLabel}</span>
++              <span class="min-w-0 translate-y-[0.5px] truncate">{currentExperienceLabel}</span>
+             </button>
+           {/if}
+         </div>
+@@ -340,25 +344,29 @@
+     </div>
+   </div>
+ 
+-  <div class="flex items-center gap-1 border-t border-workspace-rail-line px-2 pt-2">
+-    <div class="min-w-0 flex-1">
+-      <UserMenu tone="light" menuTheme="light" menuLayer={variant === "drawer" ? "drawer" : "app"} triggerVariant="rail" />
++  <div class="border-t border-workspace-rail-line px-2 pt-2">
++    <!-- One composite footer surface: Settings owns the active state while
++         sign-out remains an adjacent action inside the same visual group. -->
++    <div
++      data-rail-account-actions
++      class={`flex items-center rounded-md transition-colors duration-150 ease-out motion-reduce:transition-none ${pathname.startsWith(resolve("/settings")) ? "bg-workspace-rail-selected" : "hover:bg-workspace-rail-hover"}`}
++    >
++      <a
++        href={resolve("/settings")}
++        aria-current={pathname.startsWith(resolve("/settings")) ? "page" : undefined}
++        onclick={onNavigate}
++        class={`flex min-w-0 flex-1 items-center gap-2 rounded-l-md px-2 text-left text-sm font-medium text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir ${variant === "rail" ? "h-9" : "h-11"} ${pathname.startsWith(resolve("/settings")) ? "font-semibold" : ""}`}
++      >
++        <GearSixIcon size={16} weight="regular" aria-hidden="true" class="shrink-0" />
++        <span class="min-w-0 flex-1 truncate">Settings</span>
++      </a>
++      <UserMenu
++        tone="light"
++        menuTheme="light"
++        menuLayer={variant === "drawer" ? "drawer" : "app"}
++        triggerVariant="rail"
++      />
+     </div>
+-    <!-- One-click Settings (2026-08-19): straight to the page, no popover hop. -->
+-    <Tooltip text="Settings" side="top" delayDuration={300}>
+-      {#snippet children({ props })}
+-        <a
+-          {...props}
+-          href={resolve("/settings")}
+-          aria-label="Settings"
+-          aria-current={pathname.startsWith(resolve("/settings")) ? "page" : undefined}
+-          onclick={onNavigate}
+-          class={`flex shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors duration-150 ease-out hover:bg-workspace-rail-hover hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none ${variant === "rail" ? "size-8" : "size-11"} ${pathname.startsWith(resolve("/settings")) ? "bg-workspace-rail-selected text-ink" : ""}`}
+-        >
+-          <GearSixIcon size={16} weight="regular" aria-hidden="true" />
+-        </a>
+-      {/snippet}
+-    </Tooltip>
+   </div>
+ </nav>
+ 

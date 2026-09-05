@@ -1,0 +1,18 @@
+[
+  {
+    "path": "node_modules/@vitest/browser-playwright/dist/index.d.ts",
+    "sha256": "72ef861333c7870a29fc0e248129c4afc0741c0716a74c3da409d05e41ff1322"
+  },
+  {
+    "path": "node_modules/@vitest/browser-playwright/dist/index.js",
+    "sha256": "84ad06effb3079eead564d7ebe5b420b3809b9159c77a02c872d3edd5b4d6715"
+  },
+  {
+    "path": "node_modules/playwright-core/types/types.d.ts",
+    "sha256": "6c688250f2b7061cec3a17ab8797671137b653f8c4e81a6df3190cb112a7579a"
+  },
+  {
+    "path": "node_modules/playwright-core/lib/coreBundle.js",
+    "sha256": "3258d1cf334c6afc95f22aa9c292436cb976b391e0437f1359c83b84f0cb9d66"
+  }
+]

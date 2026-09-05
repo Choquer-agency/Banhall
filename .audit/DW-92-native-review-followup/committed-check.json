@@ -1,0 +1,12 @@
+{
+  "revision": "60606e5d50f098b0115e8ead746297653628c302",
+  "entry_revision": "2e5e4b3c3932ba8ce151fffff33d713d49116bd6",
+  "ledger_working_and_index_sha256": "cb250d5f4192346e6eace540ed96d915c8964f0237faee0c07ffa8c105bc05e6",
+  "ledger_matches_native_invocation": true,
+  "protected_unchanged": true,
+  "commands_and_logs_verified": true,
+  "runtime_inputs_verified": true,
+  "terminal_result_valid": true,
+  "committed_artifact_revision": "60606e5d50f098b0115e8ead746297653628c302",
+  "working_copy_clean": true
+}

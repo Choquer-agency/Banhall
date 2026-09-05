@@ -6,6 +6,7 @@ import {
   workItemKindValidator,
   workItemStatusValidator,
 } from "./lib/contracts";
+import { admissionValidator, attemptOutcomeValidator } from "./lib/learningAdmission";
 import { styleOverridesValidator } from "./lib/styleOverrides";
 
 export default defineSchema({
@@ -482,6 +483,7 @@ export default defineSchema({
   })
     .index("by_createdAt", ["createdAt"])
     .index("by_projectId", ["projectId"])
+    .index("by_projectId_and_createdAt", ["projectId", "createdAt"])
     .index("by_generationId", ["generationId"]),
 
   transcripts: defineTable({
@@ -521,6 +523,20 @@ export default defineSchema({
       "condenseVersion",
     ])
     .index("by_projectId", ["projectId"]),
+
+  qaFindings: defineTable({
+    section: v.optional(v.string()),
+    findingKey: v.optional(v.string()),
+    reportId: v.id("reports"),
+    revisionNumber: v.number(),
+    contentHash: v.string(),
+    check: v.string(),
+    message: v.string(),
+    blocking: v.boolean(),
+  })
+    .index("by_reportId_and_revisionNumber_and_contentHash_and_findingKey", ["reportId", "revisionNumber", "contentHash", "findingKey"])
+    .index("by_reportId_and_contentHash_and_check_and_message_and_blocking", ["reportId", "contentHash", "check", "message", "blocking"])
+    .index("by_reportId_and_revisionNumber_and_contentHash_and_blocking", ["reportId", "revisionNumber", "contentHash", "blocking"]),
 
   reports: defineTable({
     projectId: v.id("projects"),
@@ -745,6 +761,7 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_projectId_and_status", ["projectId", "status"])
     .index("by_status_and_startedAt", ["status", "startedAt"])
+    .index("by_startedAt", ["startedAt"])
     .index("by_postQaStatus", ["postQaStatus"]),
 
   // ─── BNH-15: model A/B testing ─────────────────────────────────────────────
@@ -828,6 +845,7 @@ export default defineSchema({
   // The agent UIMessage cannot durably express turn start/end, so app-owned
   // timing keeps queued and terminal states stable across reloads and races.
   chatTurns: defineTable({
+    userId: v.optional(v.id("users")),
     agentThreadId: v.string(),
     promptMessageId: v.string(),
     order: v.number(),
@@ -847,8 +865,29 @@ export default defineSchema({
       "promptMessageId",
     ])
     .index("by_agentThreadId_and_order", ["agentThreadId", "order"])
+    .index("by_userId_and_status", ["userId", "status"])
     // Stale-turn reaper: sweep queued/running rows regardless of thread.
     .index("by_status", ["status"]),
+
+  // Immutable first vote per viewer and durable completed answer.
+  chatAnswerFeedback: defineTable({
+    turnId: v.id("chatTurns"),
+    userId: v.id("users"),
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    answerMessageId: v.string(),
+    promptText: v.string(),
+    answerText: v.string(),
+    learningSnapshot: v.optional(v.object({
+      version: v.literal(1),
+      promptText: v.string(),
+      answerText: v.string(),
+    })),
+    vote: v.union(v.literal(1), v.literal(-1)),
+    createdAt: v.number(),
+  }).index("by_turnId_and_userId", ["turnId", "userId"]),
 
   // One row per tool call the assistant makes (proposeEdit / proposeReplacements
   // / highlightPassages). Same lifecycle semantics as chatMessages.proposedEdit.
@@ -1017,6 +1056,18 @@ export default defineSchema({
     ),
     source: v.string(),
     uploadedBy: v.string(),
+    // CAP-3: the internal role of the user who uploaded this document, frozen
+    // at write time. `uploadedBy` is a free-form string (a user id on one path,
+    // a display label on three others) so it is NOT a usable join key to
+    // `users`; the role has to be a stored fact. ABSENT MEANS CLIENT TRUST:
+    // every row predating this field, and any row whose writer is unknown, is
+    // presented to the analyzer as ordinary client evidence. Never backfilled.
+    // On a duplicated project this describes the ORIGIN row's uploader and is
+    // carried forward verbatim, while `uploadedBy` names whoever duplicated;
+    // the two fields may describe different people by design.
+    uploaderRole: v.optional(
+      v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))
+    ),
     createdAt: v.number(),
   })
     .index("by_projectId", ["projectId"])
@@ -1263,6 +1314,42 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_projectId_and_milestoneKey", ["projectId", "milestoneKey"]),
 
+  // Terminal operational observations, independent of billing. No retrieval text.
+  rerankOutcomes: defineTable({
+    operationId: v.string(),
+    observedAt: v.number(),
+    callSite: v.string(),
+    outcome: v.union(v.literal("success"), v.literal("fallback"), v.literal("skip"), v.literal("search_error")),
+  })
+    .index("by_operationId", ["operationId"])
+    .index("by_observedAt", ["observedAt"]),
+
+  // BNH-10 flywheel (CAP-2): post-edit distance frozen at the three milestones
+  // where the writer's divergence from the AI draft is meaningful. Rows are
+  // append-only readings; the read surface is index-only per report and per
+  // accountable writer (projects.ownerId, PSOS-07 — never createdBy).
+  reportEditDistance: defineTable({
+    reportId: v.id("reports"),
+    projectId: v.id("projects"),
+    generationId: v.optional(v.id("generations")),
+    // projects.ownerId at the time of the reading; optional because ownerId is
+    // still optional on legacy projects (those rows never appear per-writer).
+    writerUserId: v.optional(v.id("users")),
+    revisionNumber: v.number(),
+    /** 0 = untouched draft, 1 = fully rewritten. */
+    ped: v.number(),
+    computedAt: v.number(),
+    trigger: v.union(
+      v.literal("candidate_selection"),
+      v.literal("milestone"),
+      v.literal("client_publish")
+    ),
+  })
+    .index("by_reportId", ["reportId"])
+    .index("by_projectId", ["projectId"])
+    .index("by_writerUserId_and_computedAt", ["writerUserId", "computedAt"])
+    .index("by_computedAt", ["computedAt"]),
+
   // Human-verified claimant/participant identity and relationship evidence.
   // Rows are retained and rejected/superseded rather than deleted.
   projectIdentityEvidence: defineTable({
@@ -1387,6 +1474,28 @@ export default defineSchema({
     truncated: v.boolean(),
     originalLength: v.number(),
     capturedAt: v.number(),
+    // CAP-3: uploader role frozen off the `projectDocuments` row at
+    // reservation, so the analyzer's trust decision is pinned to the
+    // reservation rather than re-read live. ABSENT MEANS CLIENT TRUST (legacy
+    // rows, transcript rows, and any document whose uploader role is unknown).
+    uploaderRole: v.optional(
+      v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))
+    ),
+    // Budget-application metadata, NOT capture metadata: what the analyzer's
+    // context budget did with this row (see convex/ai/trustedContext.ts).
+    // Written after the fact by generations.recordContextBudget; absent on
+    // legacy rows, on any row whose generation predates the budget, and on
+    // full-text transcript rows a digest-mode generation superseded with
+    // transcript_digest rows (only the rows the analyzer read are recorded).
+    // `content`/`contentHash`/`truncated`/`originalLength` above stay frozen.
+    contextBudget: v.optional(
+      v.object({
+        budgetTokens: v.number(),
+        included: v.boolean(),
+        includedLength: v.number(),
+        truncated: v.boolean(),
+      })
+    ),
   })
     .index("by_generationId", ["generationId"])
     .index("by_projectId_and_generationId", ["projectId", "generationId"]),
@@ -1470,10 +1579,13 @@ export default defineSchema({
   // One review per writer per report version. Surfaced to the admin alongside
   // the AI QA score; NEVER auto-applied to the brain (manual review only).
   writerReviews: defineTable({
+    // New judgments pin content; baseline revision is 0. Historical rows may lack both.
+    revisionNumber: v.optional(v.number()),
+    contentHash: v.optional(v.string()),
     projectId: v.id("projects"),
     reportId: v.id("reports"),
     reportVersion: v.optional(v.number()),
-    userId: v.string(),
+    userId: v.id("users"),
     writerName: v.optional(v.string()),
     score: v.number(), // writer's 0–100 quality score
     comment: v.optional(v.string()),
@@ -1485,9 +1597,37 @@ export default defineSchema({
     .index("by_user_report", ["userId", "reportId"])
     .index("by_projectId", ["projectId"]),
 
+  // ─── Reviewer decision recorded when a project leaves internal review ──────
+  // Required (fail-closed, typed REVIEW_DECISION_REQUIRED) on the two
+  // internal-review completion edges — `internal_review` → `edits` and
+  // `internal_review` → `ready_for_delivery` — and written by
+  // `setWorkflowStage` in the same transaction as the stage patch and the
+  // `stage_changed` event. The row pins the judgement to the exact report
+  // revision that was read (`revisionNumber` + `contentHash`), so "the review
+  // is done" is an audited fact rather than an unattributed stage flip.
+  // `toStage` is inlined rather than imported from lib/contracts to keep the
+  // schema free of runtime imports; only the two completion destinations are
+  // representable.
+  reviewDecisions: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    reviewerId: v.id("users"),
+    revisionNumber: v.number(),
+    contentHash: v.string(),
+    decision: v.union(v.literal("approve"), v.literal("return")),
+    toStage: v.union(v.literal("edits"), v.literal("ready_for_delivery")),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_reportId", ["reportId"]),
+
   // Per-writer feedback on individual generated QA observations. Target keys
   // survive candidate deletion after selection; item text is copied for admin review.
   qaItemFeedback: defineTable({
+    // New judgments pin content; baseline revision is 0. Historical rows may lack both.
+    revisionNumber: v.optional(v.number()),
+    contentHash: v.optional(v.string()),
     targetKey: v.string(),
     projectId: v.id("projects"),
     reportId: v.optional(v.id("reports")),
@@ -1555,6 +1695,9 @@ export default defineSchema({
   // (source "review_pd"); `result` holds the structured feedback report JSON
   // (strengths / risks / suggested strengthening / qualitative score).
   pdReviews: defineTable({
+    // New judgments pin content; baseline revision is 0. Historical rows may lack both.
+    revisionNumber: v.optional(v.number()),
+    contentHash: v.optional(v.string()),
     projectId: v.id("projects"),
     documentId: v.id("projectDocuments"),
     sourceFileName: v.string(),
@@ -1675,6 +1818,7 @@ export default defineSchema({
 
   learningDigests: defineTable({
     kind: v.union(v.literal("qa_calibration"), v.literal("draft_style")),
+    admission: v.optional(admissionValidator), // absent on historical candidates
     content: v.string(), // immutable candidate prompt block
     sourceCount: v.number(), // feedback rows that informed this digest
     feedbackCutoff: v.number(), // newest feedback updatedAt included
@@ -1686,6 +1830,14 @@ export default defineSchema({
   })
     .index("by_kind", ["kind"])
     .index("by_kind_and_userId", ["kind", "userId"]),
+
+  // Latest operational outcome per global kind, separate from immutable candidates.
+  learningDigestAttempts: defineTable({
+    kind: v.union(v.literal("qa_calibration"), v.literal("draft_style")),
+    attemptedAt: v.number(),
+    outcome: attemptOutcomeValidator,
+    admission: admissionValidator,
+  }).index("by_kind", ["kind"]),
 
   // Append-only publication ledger. Automatic distillation only creates
   // immutable candidates; an authorized administrator explicitly selects the

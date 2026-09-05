@@ -1,0 +1,135 @@
+commit d0f659e654d0571ba1d8e00ca97402fd8c23c099
+Author: conquerthecrowns <bryce@choquercreative.com>
+Date:   Mon Aug 17 13:47:37 2026 -0700
+
+    Workspace, dashboard, and ingestion-review iteration (in-flight)
+    
+    Batches the working tree's in-progress work so it ships alongside the
+    ingestion feature: workspace rail/user-menu rework with developer gating,
+    dashboard projections and projectType widening, ingestion schema fields for
+    the deleted/restore review flow, and component-test updates.
+    
+    Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
+diff --git a/src/lib/components/ui/Button.svelte b/src/lib/components/ui/Button.svelte
+index c2fec05..9a27c74 100644
+--- a/src/lib/components/ui/Button.svelte
++++ b/src/lib/components/ui/Button.svelte
+@@ -11,13 +11,13 @@
+ 
+   const variantStyles: Record<Variant, string> = {
+     primary:
+-      "border border-transparent bg-primary text-white hover:bg-primary-dark focus-visible:ring-primary",
++      "border border-transparent bg-action-primary text-action-primary-foreground hover:bg-action-primary-hover focus-visible:ring-action-primary",
+     "primary-outline":
+-      "border border-primary bg-transparent text-primary hover:bg-primary hover:text-white focus-visible:ring-primary",
++      "border border-action-primary bg-transparent text-action-primary hover:bg-action-primary hover:text-action-primary-foreground focus-visible:ring-action-primary",
+     secondary:
+-      "bg-chrome text-navy border border-gray-200 hover:bg-primary-wash focus-visible:ring-primary",
++      "border border-line bg-chrome text-ink hover:bg-primary-wash focus-visible:ring-primary",
+     ghost:
+-      "border border-transparent text-gray-600 hover:text-ink hover:bg-primary-wash focus-visible:ring-primary",
++      "border border-transparent text-ink-secondary hover:bg-primary-wash hover:text-ink focus-visible:ring-primary",
+     // Destructive actions take a red hover (design system rule 9). A class
+     // override can't express this: the class string is concatenated, not
+     // cn-merged, so a conflicting hover:bg-* would be settled by stylesheet
+@@ -25,7 +25,15 @@
+     "danger-ghost":
+       "border border-transparent text-red-600 hover:bg-red-50 hover:text-red-700 focus-visible:ring-red-500",
+     link:
+-      "p-0! text-primary hover:text-primary-dark focus-visible:ring-primary",
++      "p-0! text-action-primary hover:text-action-primary-hover focus-visible:ring-action-primary",
++  };
++
++  // "xs" is the toolbar scale: fixed h-8 and 13px text so the button sits
++  // level with the h-7 controls inside the 49px workspace header.
++  const sizeStyles: Record<"md" | "sm" | "xs", string> = {
++    md: "px-4 py-2.5 text-sm",
++    sm: "px-4 py-2 text-sm",
++    xs: "h-8 px-3 text-[0.8125rem]",
+   };
+ 
+   let {
+@@ -37,13 +45,13 @@
+     children,
+     ...rest
+   }: HTMLButtonAttributes &
+-    HTMLAnchorAttributes & { variant?: Variant; size?: "md" | "sm"; href?: string } = $props();
++    HTMLAnchorAttributes & { variant?: Variant; size?: "md" | "sm" | "xs"; href?: string } = $props();
+ 
+   // One computed class string shared by both render branches, so anchor-shaped
+   // Buttons can never drift from button-shaped ones. (The `disabled:` base
+   // utilities are inert on anchors, which never receive the attribute.)
+   const classes = $derived(
+-    `inline-flex items-center justify-center rounded-lg px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${size === "sm" ? "py-2" : "py-2.5"} ${variantStyles[variant]} ${className}`
++    `inline-flex items-center justify-center rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${sizeStyles[size]} ${variantStyles[variant]} ${className}`
+   );
+ </script>
+ 
+diff --git a/src/lib/components/workspace/WorkspaceHeader.svelte b/src/lib/components/workspace/WorkspaceHeader.svelte
+index 47e267f..de77b81 100644
+--- a/src/lib/components/workspace/WorkspaceHeader.svelte
++++ b/src/lib/components/workspace/WorkspaceHeader.svelte
+@@ -4,12 +4,12 @@
+   // with the ^K affordance, and the New project action. On narrow screens
+   // search collapses to an icon that reveals a full-width row. The bar
+   // shares the content plane (bg-canvas — white in the workspace scope)
+-  // with a hairline divider; lagoon carries the primary action using the
+-  // AA `primary-selected` + white pair (lagoon `primary` under 13px white
+-  // or fir text measures below 4.5:1 — audit 2026-08-06). The decorative
+-  // left title tick was removed 2026-08-06 — the title stands alone.
++  // with a hairline divider; the shared Button's theme-aware primary-action
++  // role carries creation in both light and dark scopes. The decorative left
++  // title tick was removed 2026-08-06 — the title stands alone.
+   import { resolve } from "$app/paths";
+   import { MagnifyingGlassIcon, PlusIcon } from "phosphor-svelte";
++  import Button from "$lib/components/ui/Button.svelte";
+   import Disclosure from "$lib/components/ui/Disclosure.svelte";
+   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
+   import { searchShortcutHint } from "$lib/workspace/searchContinuity";
+@@ -124,7 +124,7 @@
+       onkeydown={handleInputKeydown}
+       aria-label="Search projects"
+       placeholder="Search projects…"
+-      class={`h-7 w-full rounded-lg border border-workspace-rail-line bg-workspace-control pl-8 text-[0.8125rem] text-ink placeholder:text-ink-faint ${withHint ? "pr-10" : "pr-3"}`}
++      class={`field-control h-7 w-full rounded-lg pl-8 text-[0.8125rem] text-ink placeholder:text-ink-faint ${withHint ? "pr-10" : "pr-3"}`}
+     />
+     {#if withHint}
+       <kbd class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 font-sans text-[0.6875rem] font-medium text-ink-faint">{shortcutHint}</kbd>
+@@ -132,7 +132,7 @@
+   </div>
+ {/snippet}
+ 
+-<header data-workspace-toolbar class="flex h-[49px] shrink-0 items-center gap-2 border-b border-workspace-rail-line bg-canvas px-3 sm:px-4">
++<header data-workspace-toolbar data-workspace-page-header class="flex h-[49px] shrink-0 items-center gap-2 border-b border-workspace-rail-line bg-canvas px-3 sm:px-4">
+   <!-- Shared drawer hamburger + desktop rail toggle: one a11y contract,
+        owned by WorkspaceShellControls (dedup with WorkspaceChrome). -->
+   <WorkspaceShellControls tone="light" {onOpenNavigation} {railHidden} {onToggleRail} />
+@@ -153,7 +153,7 @@
+     </div>
+   </div>
+ 
+-  <div class="ml-auto flex shrink-0 items-center gap-1.5 md:ml-0">
++  <div class="ml-auto flex shrink-0 items-center gap-1.5">
+     <button
+       type="button"
+       aria-label="Search projects"
+@@ -174,14 +174,15 @@
+     </button>
+ 
+     {#if showNewProject}
+-      <a
++      <Button
+         href={resolve("/project/new")}
+-        class="inline-flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-fir px-3 text-[0.8125rem] font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none sm:h-7 sm:px-3"
++        size="xs"
++        class="gap-1.5 motion-reduce:transition-none"
+       >
+         <PlusIcon size={15} weight="bold" aria-hidden="true" />
+         <span class="hidden sm:inline">New project</span>
+         <span class="sr-only sm:hidden">New project</span>
+-      </a>
++      </Button>
+     {/if}
+   </div>
+ </header>

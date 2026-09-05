@@ -1,0 +1,35 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup
+
+ ❯ |convex| convex/qaBlocking.test.ts (63 tests | 5 failed | 58 skipped) 142ms
+   × nested paragraph blocks inside inline wrapper cannot borrow because 134ms
+   × nested heading blocks inside inline wrapper cannot borrow because 2ms
+   × nested codeBlock blocks inside inline wrapper cannot borrow because 2ms
+   × nested blockquote blocks inside inline wrapper cannot borrow because 2ms
+   × nested listItem blocks inside inline wrapper cannot borrow because 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/qaBlocking.test.ts > nested paragraph blocks inside inline wrapper cannot borrow because
+ FAIL  |convex| convex/qaBlocking.test.ts > nested heading blocks inside inline wrapper cannot borrow because
+ FAIL  |convex| convex/qaBlocking.test.ts > nested codeBlock blocks inside inline wrapper cannot borrow because
+ FAIL  |convex| convex/qaBlocking.test.ts > nested blockquote blocks inside inline wrapper cannot borrow because
+ FAIL  |convex| convex/qaBlocking.test.ts > nested listItem blocks inside inline wrapper cannot borrow because
+AssertionError: expected [ 'IDENTITY_EVIDENCE_REQUIRED', …(2) ] to include 'QA_BLOCKING'
+ ❯ expectBlocked convex/qaBlocking.test.ts:61:60
+     59| }
+     60| async function expectBlocked(f: Fixture, subject = "qa-owner") {
+     61|   expect((await readiness(f)).blockers.map((b) => b.code)).toContain("…
+       |                                                            ^
+     62|   const before = await f.t.run((ctx) => ctx.db.get(f.projectId));
+     63|   const scheduledBefore = await f.t.run((ctx) => ctx.db.system.query("…
+ ❯ convex/qaBlocking.test.ts:513:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 58 skipped (63)
+   Start at  17:46:20
+   Duration  541ms (transform 243ms, setup 0ms, import 223ms, tests 142ms, environment 42ms)
+

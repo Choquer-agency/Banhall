@@ -1,0 +1,5 @@
+
+> banhall-app@0.1.0 check
+> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
+
+sh: line 1: 61539 Killed: 9               svelte-check --tsconfig ./tsconfig.json

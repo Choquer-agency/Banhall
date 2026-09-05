@@ -1,0 +1,18 @@
+{
+  "at": "2026-09-05T12:38:25.890435+00:00",
+  "method": "Actual vitest list --filesOnly for both unchanged canonical configs; no external branch script imported",
+  "head": "569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c",
+  "tracked_test_files": 217,
+  "discovered_test_files": 214,
+  "counts": {
+    "vitest.config.ts": 154,
+    "vitest.component.config.ts": 60
+  },
+  "archived_source_copies_excluded": [
+    ".audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/ai/qaChecks.test.ts",
+    ".audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/lib/tiptapReport.test.ts",
+    ".audit/integration-code-review-9da55be/qa-structural-boundary-input/convex/qaBlocking.test.ts"
+  ],
+  "orphans": [],
+  "note": "First classification asserted three incorrect archival filenames. The actual retained QA source-copy inventory is recorded here. Both listing commands succeeded; no source or runner config was changed."
+}

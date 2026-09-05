@@ -1,0 +1,24 @@
+commit c7167fb59d3eb46b7a21aafbad6a292ed25ea0df
+Author: conquerthecrowns <bryce@choquercreative.com>
+Date:   Tue Aug 18 10:10:40 2026 -0700
+
+    style: faster sidebar transitions, lighter selected state
+    
+    Rail rows move from 300ms to 150ms ease-out color transitions, and the
+    workspace-rail-selected token lightens from #DFEAE8 to #E9F1EF.
+    
+    Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
+diff --git a/src/lib/components/workspace/WorkspaceRail.svelte b/src/lib/components/workspace/WorkspaceRail.svelte
+index c6b3c11..5394ba2 100644
+--- a/src/lib/components/workspace/WorkspaceRail.svelte
++++ b/src/lib/components/workspace/WorkspaceRail.svelte
+@@ -95,7 +95,7 @@
+   // rhythm through the fine-pointer media rule below.
+   const rowHeight = $derived(variant === "rail" ? "h-7" : "min-h-11");
+   const rowBase = $derived(
+-    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md pl-2 pr-1 text-left text-sm font-medium leading-5 tracking-[-0.01em] transition-colors duration-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
++    `${rowHeight} workspace-rail-row flex w-full items-center gap-2 rounded-md pl-2 pr-1 text-left text-sm font-medium leading-5 tracking-[-0.01em] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none`
+   );
+   const idleRow = "text-ink hover:bg-workspace-rail-hover";
+   const selectedRow = "bg-workspace-rail-selected font-semibold text-ink";

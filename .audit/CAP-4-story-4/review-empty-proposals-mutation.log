@@ -1,0 +1,47 @@
+$ npx vitest run convex/learning.test.ts -t two independently diverse streams share
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/4
+
+ ❯ |convex| convex/learning.test.ts (35 tests | 1 failed | 34 skipped) 284ms
+     × two independently diverse streams share the five-record minimum 283ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/learning.test.ts > CAP-4 independent stream admission and provenance > two independently diverse streams share the five-record minimum
+AssertionError: expected [] to deeply equal [ { …(2) }, { …(2) }, { …(2) } ]
+
+- Expected
++ Received
+
+- [
+-   {
+-     "editedText": "Revised wording with measurable outcomes.",
+-     "originalText": "Proposed wording before correction.",
+-   },
+-   {
+-     "editedText": "Revised wording with measurable outcomes.",
+-     "originalText": "Proposed wording before correction.",
+-   },
+-   {
+-     "editedText": "Revised wording with measurable outcomes.",
+-     "originalText": "Proposed wording before correction.",
+-   },
+- ]
++ []
+
+ ❯ convex/learning.test.ts:1151:39
+    1149|       })),
+    1150|     );
+    1151|     expect(JSON.parse(proposalBlock)).toEqual(
+       |                                       ^
+    1152|       Array.from({ length: 3 }, () => ({
+    1153|         originalText: "Proposed wording before correction.",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 34 skipped (35)
+   Start at  21:41:17
+   Duration  713ms (transform 327ms, setup 0ms, import 239ms, tests 284ms, environment 43ms)
+

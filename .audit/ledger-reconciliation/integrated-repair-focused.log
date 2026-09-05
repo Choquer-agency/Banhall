@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion
+
+
+ Test Files  17 passed (17)
+      Tests  233 passed (233)
+   Start at  14:24:37
+   Duration  7.69s (transform 5.39s, setup 0ms, import 7.71s, tests 1.55s, environment 981ms)
+

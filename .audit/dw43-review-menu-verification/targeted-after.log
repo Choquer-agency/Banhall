@@ -1,0 +1,15 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/project/ProjectWorkflowMenu.component.test.ts
+
+5:04:35 PM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-review-menu-verification - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-review-menu-verification
+
+5:04:35 PM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-review-menu-verification - using default configuration.
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  17:04:35
+   Duration  10.32s (transform 0ms, setup 504ms, import 6.36s, tests 2.56s, environment 0ms)
+

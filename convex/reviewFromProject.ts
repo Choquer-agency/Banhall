@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { requireInternalProjectAccess } from "./lib/auth";
-import { domainError } from "./lib/contracts";
+import { domainError, sha256 } from "./lib/contracts";
 import { requireCapability } from "./lib/roleCapabilities";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { extractPlainText } from "./lib/reportEdits";
@@ -188,6 +188,8 @@ export const createReviewProjectRecord = internalMutation({
       processingStatus: derived.status,
       processingDetail: derived.detail,
       uploadedBy: userDisplayLabel(user),
+      // CAP-3: the acting internal user authored this review PD.
+      ...(user.role ? { uploaderRole: user.role } : {}),
       createdAt: now,
     });
 
@@ -207,6 +209,8 @@ export const createReviewProjectRecord = internalMutation({
       documentId,
       sourceFileName: fileName,
       status: "running",
+      revisionNumber: 0,
+      contentHash: await sha256(pdText),
       createdBy: user._id,
       createdAt: now,
     });

@@ -1,0 +1,2 @@
+7fd67ff60de0c77e7652b3733f0ed009f4374b5c23e08f3d53d6bee9675c1bd4  src/lib/components/chat/AgentChatPanel.svelte
+8d82472fd9d94f79b9d5622b1090e9a4c398edf8d3685a3a5a8583868511d094  src/lib/components/chat/OptimisticSend.component.test.ts

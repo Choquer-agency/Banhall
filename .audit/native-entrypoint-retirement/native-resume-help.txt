@@ -1,0 +1,8 @@
+usage: bmad-loop resume [-h] [--project PROJECT] run_id
+
+positional arguments:
+  run_id
+
+options:
+  -h, --help         show this help message and exit
+  --project PROJECT  target project root (default: cwd)

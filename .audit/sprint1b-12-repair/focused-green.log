@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-unlearn-fix
+
+
+ Test Files  2 passed (2)
+      Tests  25 passed (25)
+   Start at  13:24:11
+   Duration  1.71s (transform 726ms, setup 0ms, import 1.10s, tests 403ms, environment 225ms)
+

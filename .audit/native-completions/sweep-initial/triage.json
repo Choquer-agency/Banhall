@@ -1,0 +1,1012 @@
+{
+  "workflow": "deferred-sweep-triage",
+  "open_ids": [
+    "DW-1",
+    "DW-2",
+    "DW-3",
+    "DW-4",
+    "DW-5",
+    "DW-6",
+    "DW-7",
+    "DW-8",
+    "DW-9",
+    "DW-10",
+    "DW-11",
+    "DW-12",
+    "DW-13",
+    "DW-14",
+    "DW-15",
+    "DW-16",
+    "DW-17",
+    "DW-18",
+    "DW-19",
+    "DW-20",
+    "DW-21",
+    "DW-22",
+    "DW-23",
+    "DW-24",
+    "DW-25",
+    "DW-26",
+    "DW-27",
+    "DW-28",
+    "DW-29",
+    "DW-30",
+    "DW-31",
+    "DW-32",
+    "DW-33",
+    "DW-34",
+    "DW-35",
+    "DW-36",
+    "DW-37",
+    "DW-38",
+    "DW-39",
+    "DW-40",
+    "DW-41",
+    "DW-42",
+    "DW-43",
+    "DW-44",
+    "DW-45",
+    "DW-46",
+    "DW-47",
+    "DW-48",
+    "DW-49",
+    "DW-50",
+    "DW-51",
+    "DW-52",
+    "DW-53",
+    "DW-54",
+    "DW-55",
+    "DW-56",
+    "DW-57",
+    "DW-58",
+    "DW-59",
+    "DW-60",
+    "DW-61",
+    "DW-62",
+    "DW-63",
+    "DW-64",
+    "DW-65",
+    "DW-66",
+    "DW-67",
+    "DW-68",
+    "DW-69",
+    "DW-70",
+    "DW-71",
+    "DW-72",
+    "DW-73",
+    "DW-74",
+    "DW-75",
+    "DW-76",
+    "DW-77",
+    "DW-78",
+    "DW-79",
+    "DW-80",
+    "DW-81",
+    "DW-82",
+    "DW-83",
+    "DW-84",
+    "DW-85",
+    "DW-86",
+    "DW-87",
+    "DW-88",
+    "DW-89",
+    "DW-90",
+    "DW-91",
+    "DW-92",
+    "DW-93"
+  ],
+  "already_resolved": [
+    {
+      "id": "DW-1",
+      "evidence": "176817b restored and migrated the proposal suite to Vitest; vitest.config.ts includes it and .audit/proposal-tests/vitest-reviewed-green.log records 133 passing tests across 15 restored files."
+    },
+    {
+      "id": "DW-10",
+      "evidence": "176817b migrated the legacy suites to Vitest; vitest.config.ts includes tests/**/*.test.ts and explicitly places the two Convex suites in the edge-runtime project; no bun:test imports remain under tests."
+    },
+    {
+      "id": "DW-22",
+      "evidence": ".audit/sprint1b-12-review/review.md records the independent review; 901446a repairs its retained findings, with final verification in .audit/sprint1b-12-repair/evidence.md and Story 12:269-273."
+    },
+    {
+      "id": "DW-33",
+      "evidence": "2462c4cc6eb67501d4f412d15674435e8adfd43b fixes metadata sanitization; convex/ai/trustedContext.ts:245-268 uses the same Unicode dash vocabulary in sanitizeFileName and neutralizeMarkers, with filename regressions."
+    },
+    {
+      "id": "DW-40",
+      "evidence": "2462c4cc6eb67501d4f412d15674435e8adfd43b neutralizes Unicode metadata marker runs at convex/ai/trustedContext.ts:267; transcript labels use that sanitizer at :460, with filename and transcript-label regressions in trustedContext.test.ts:402."
+    },
+    {
+      "id": "DW-46",
+      "evidence": "3e575b7c68a80ef560b746be78e1b016e1dda750 regenerates the Convex API; convex/_generated/api.d.ts:112 and :238 retain reportEditDistance registration, with successful real codegen recorded in .audit/CAP-2-story-3/evidence.md:18-23."
+    },
+    {
+      "id": "DW-91",
+      "evidence": "docs/product-domain.md:1617-1671 records de-identification boundaries and publication attestation; docs/the-brain.md:80-99 describes nomination scrubbing and the publication gate. Implemented by 453a4c5, 25b9986 and a84022d, integrated in e3b350b."
+    }
+  ],
+  "bundles": [
+    {
+      "name": "blocking-qa-native-followup",
+      "dw_ids": [
+        "DW-92"
+      ],
+      "intent": "Resume a real BMAD follow-up using _bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/qa/stories/8-blocking-qa-policy.md as the existing result spec. It remains in-review with followup_review_recommended; preservation 6182a5d and integration 021f0b4 do not establish native completion. Inspect implementation from f122b086d745acc40b4decca26b9aaafc7257f6a and later repairs, preserve the frozen contract and history, and run standard current-code gates. Commit fresh review and verification evidence in the authorized isolated session before native acceptance, explicitly staging ignored audit evidence when used. Run the native BMAD follow-up with Astra medium and adopt the original story spec; ancestral-baseline verification supports preserving the historical baseline rather than replacing it."
+    },
+    {
+      "name": "persisted-ped-native-followup",
+      "dw_ids": [
+        "DW-93"
+      ],
+      "intent": "Perform a fresh native follow-up using _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md as the existing result spec, preserving its frozen contract and historical baseline. Assess the full implementation and run ordinary gates without test-timeout CLI overrides. The spec retains followup_review_recommended at line 8; API regeneration in 3e575b7 does not fulfill this separate native finalization obligation. Commit fresh review and verification evidence before acceptance and retain old deferred run history. Use native BMAD with Astra medium and ancestral-baseline verification to preserve historical baseline 740008e1369faaf6eab001f95efeb10a9e52d1e5 rather than rewriting it."
+    },
+    {
+      "name": "ped-invalid-content-guard",
+      "dw_ids": [
+        "DW-48"
+      ],
+      "intent": "Reject malformed report or baseline JSON before persisting PED while preserving valid empty documents and the formula. convex/lib/editDistance.ts:116-118 delegates to extractPlainText, whose catch at convex/lib/reportEdits.ts:193-194 converts parse errors to empty text. Keep recording failures isolated from milestone callers and prove malformed inputs produce no measurement."
+    },
+    {
+      "name": "snapshot-research-ownership",
+      "dw_ids": [
+        "DW-23"
+      ],
+      "intent": "Validate research-session ownership before copying research provenance into a pre-edit snapshot. convex/lib/snapshots.ts:284-289 copies evidenceSourceCount without matching project and report. Drop mismatched provenance consistently with generation and transcript filters and cover valid, cross-report and cross-project cases."
+    },
+    {
+      "name": "research-phone-redaction-boundary",
+      "dw_ids": [
+        "DW-88"
+      ],
+      "intent": "Correct research redaction to replace parenthesized phone numbers completely. convex/ai/research/core.ts:57 begins its phone expression with a word boundary, leaving the opening parenthesis outside the match. Fix the boundary and add a regression while preserving contact and URL redaction."
+    },
+    {
+      "name": "evidence-scaffold-neutralization",
+      "dw_ids": [
+        "DW-35"
+      ],
+      "intent": "Prevent evidence bodies from impersonating generated truncation, omission and gap notices while retaining genuine scaffolding. convex/ai/trustedContext.ts:250 neutralizes only BEGIN/END shapes, while :291 and :303 generate notices source text can reproduce. Add shared neutralization and analyzer/chat regressions for forged notices and genuine rendering."
+    },
+    {
+      "name": "brain-generation-usage-attribution",
+      "dw_ids": [
+        "DW-4",
+        "DW-9"
+      ],
+      "intent": "Finish attribution of generation-owned Brain embedding and rerank usage and prove persistence across the generation boundary. convex/ai/brain/retrieve.ts:245 and :291 still schedule usage without generationId or durationMs, while convex/generationAttribution.test.ts:1217, :1291 and :1465 cover several formerly missing digest and candidate seams. Propagate generation ownership through retrieval without assigning candidate ownership before candidates exist, and cover remaining provider-to-index and entry flows."
+    },
+    {
+      "name": "deduplicate-unlearn-restarts",
+      "dw_ids": [
+        "DW-17"
+      ],
+      "intent": "Prevent repeated revokeSource requests from launching concurrent deletion ladders for the same source and entry while retaining manual restart after exhaustion. convex/brain.ts:366 schedules a fresh unlearnSource on every revoked-row request with a retained handle; 901446a fences terminal bookkeeping but leaves concurrent ladders possible. Add transactional ownership and regressions for concurrent requests, exhaustion and subsequent restart."
+    },
+    {
+      "name": "complete-analyzer-input-budget",
+      "dw_ids": [
+        "DW-24",
+        "DW-27"
+      ],
+      "intent": "Bound and accurately describe every input in the analyzer's final request. convex/ai/analyzerAgent.ts:120 appends brainExemplars after trusted-context construction, and convex/ai/prompts.ts:837-845 assumes attached materials on transcript-only requests. Apply appropriate containment and final budget accounting to exemplars, clarify zero-document guidance, and preserve the distinction between Brain style patterns and client evidence."
+    },
+    {
+      "name": "pd-review-document-trust",
+      "dw_ids": [
+        "DW-29"
+      ],
+      "intent": "Route PD review supporting documents through the document-trust seam before composing provider input. convex/ai/reviewAgent.ts:81-95 annotates raw results as ContextDoc[] and interpolates category, filename and content directly. Preserve uploader provenance, derive effective trust and category, and use shared containment so writer_notes authority requires uploader evidence."
+    },
+    {
+      "name": "downstream-evidence-boundaries",
+      "dw_ids": [
+        "DW-39"
+      ],
+      "intent": "Apply data boundaries and marker neutralization to client-derived analysis and transcript windows before downstream section and condensation calls. convex/ai/section242Agent.ts:41 concatenates JSON analysis and additions, its siblings follow the same pattern, and condenseUserMessage prefixes raw text. Keep trusted guidance outside evidence, preserve source meaning, update condensation prompt versioning, and add request-boundary tests."
+    },
+    {
+      "name": "generation-chain-action-budget",
+      "dw_ids": [
+        "DW-70"
+      ],
+      "intent": "Bound the complete generation entry chain across condensation, Brain retrieval and analysis before candidate scheduling. convex/ai/condense.ts:125-139 reserves only non-request time, convex/ai/pipeline.ts:679-700 then awaits analysis, and convex/ai/providers.ts:44-52 bounds one provider slot. Introduce durable phase boundaries or an equivalent end-to-end budget using existing state and scheduling modules while preserving frozen input, attribution, fencing and recovery. Prove slow phases and retries through deterministic action tests."
+    },
+    {
+      "name": "research-shared-trust-context",
+      "dw_ids": [
+        "DW-26"
+      ],
+      "intent": "Complete research-side adoption of shared trusted-context primitives. Chat already uses them through convex/ai/chatAgentV2.ts:344-350 and convex/ai/chatEvidence.ts:20-35, but convex/ai/research/actions.ts:165-178 assembles inline blocks. Reuse delimiting, marker neutralization and budget accounting while preserving citation keys, verification and proposal-only editing."
+    },
+    {
+      "name": "injection-corpus-metadata-budgets",
+      "dw_ids": [
+        "DW-37",
+        "DW-38"
+      ],
+      "intent": "Extend the shared injection corpus to vary adversarial filenames and transcript labels under constrained and exhausted budgets. convex/ai/contextBoundary.test.ts:219, :238 and :267 hard-code benign filenames and use default budgets. Although 2462c4c repaired Unicode sanitization with builder unit tests, corpus coverage remains absent. Assert containment, authentic END lines and omission notices across both pipelines."
+    },
+    {
+      "name": "review-transition-ui-contract",
+      "dw_ids": [
+        "DW-43",
+        "DW-45"
+      ],
+      "intent": "Prove the production workflow menu supplies reviewDecision and explain reportless review completion before submission. ProjectWorkflowMenu.svelte:292-299 builds the decision but lacks direct component tests, and shared/workflowLabels.ts:59-77 lacks report availability input. Cover return and approve submission and reportless states while preserving server transition and permission rules."
+    },
+    {
+      "name": "skip-identical-scrubbed-edit-pairs",
+      "dw_ids": [
+        "DW-90"
+      ],
+      "intent": "Exclude edit pairs made identical by de-identification from digest evidence without changing recorded raw-text editRatio. convex/generations.ts:2087-2104 computes the metric before scrubbing, while convex/learning.ts:108-114 filters only on that metric. Add a read-side equality filter and regression for identifier-only edits."
+    },
+    {
+      "name": "snapshot-checkpoint-contract-tests",
+      "dw_ids": [
+        "DW-72",
+        "DW-74"
+      ],
+      "intent": "Pin snapshot checkpoints and restoration lineage in the existing suites. Cover the complete pre_restore checkpoint and lineage rewrite at convex/snapshots.ts:289-315, including legacy snapshots clearing unavailable provenance. Add milestone label, duplicate and stale-revision tests for :207-260 and retention thinning tests for convex/lib/snapshots.ts:188-247. Current tests only assert restored transcripts or stale-restore absence and do not directly exercise the retention and milestone helpers."
+    },
+    {
+      "name": "candidate-artifact-edge-tests",
+      "dw_ids": [
+        "DW-55",
+        "DW-73",
+        "DW-76",
+        "DW-78"
+      ],
+      "intent": "Complete candidate materialization and ghost lifecycle coverage using existing generation fixtures. Verify single-candidate completion and iterative approval each create exactly one zero-distance PED origin through convex/generations.ts:1066-1070, alongside existing explicit-selection coverage. Exercise completed generations without reports, terminal ghost errors and live ghost failures at :1095-1175. Verify provenance propagation, the existing-report short circuit, version increment at :1005-1064, and unavailable_legacy projection at convex/snapshots.ts:92; current generation and PED suites leave these edges uncovered."
+    },
+    {
+      "name": "section-approval-edge-tests",
+      "dw_ids": [
+        "DW-77",
+        "DW-79"
+      ],
+      "intent": "Add approval guard and edit-event edge coverage to convex/generationLifecycle.test.ts. Prove rejection without writes or scheduling for guards at convex/generations.ts:2052-2056 and :2113-2115. Exercise absent draft text, whitespace-only words and all 6000-character caps, preserving raw-text editRatio at :2085-2104. Existing tests contain no assertions for these guard messages or caps."
+    },
+    {
+      "name": "brain-governance-failure-regression",
+      "dw_ids": [
+        "DW-20"
+      ],
+      "intent": "Prove that a failing governance status join preserves degraded retrieval. convex/ai/brain/retrieve.ts:274 runs the join inside the catch returning empty exemplars with degraded true, while current tests cover successful filtering only. Add a focused rejection-path regression without changing that behavior."
+    },
+    {
+      "name": "agent-evidence-library-contract",
+      "dw_ids": [
+        "DW-34"
+      ],
+      "intent": "Build a deterministic harness observing model input ordering and persisted messages through the actual agent streamText implementation. convex/chatTurns.test.ts:262-266 and :350-354 replace streamText with resolved spies. Resolve streaming completion in the harness, then prove evidence precedes the writer prompt and is absent from saved thread history."
+    },
+    {
+      "name": "chat-window-followup-review",
+      "dw_ids": [
+        "DW-2"
+      ],
+      "intent": "Complete the independent follow-up review of sprint-1b Story 9 against its original contract and current code. Its specification retains followup_review_recommended at line 7 and the final score at line 168; verify bounded messages, proposal joins and authorization, repair demonstrated contract violations, and preserve the completed legacy-test restoration."
+    },
+    {
+      "name": "generation-attribution-followup-review",
+      "dw_ids": [
+        "DW-11"
+      ],
+      "intent": "Complete the independent follow-up review of sprint-1b Story 10 against its approved attribution contract. Its specification retains followup_review_recommended at line 7 and a score of 10 at line 257; recheck handoffs and integration assertions, repair demonstrated contract defects, and preserve separately deferred policy choices."
+    },
+    {
+      "name": "trusted-context-followup-review",
+      "dw_ids": [
+        "DW-28"
+      ],
+      "intent": "Complete the independent follow-up review of sprint-2 Story 2 against its trusted-context contract and integrated code. Its specification retains followup_review_recommended at line 8 and a score of 14 at line 266. Recheck source assembly, delimiters, budget persistence and both generation entry paths, repairing demonstrated contract violations."
+    },
+    {
+      "name": "boundary-followup-review",
+      "dw_ids": [
+        "DW-36",
+        "DW-41"
+      ],
+      "intent": "Complete the independent follow-up review of the chat-evidence boundary and injection-suite stories, repairing concrete contract violations with targeted regressions. Both specifications retain followup_review_recommended at line 8. Review the integrated tree including the later Unicode repair to resolve the remaining recommendation without repeating repaired findings."
+    },
+    {
+      "name": "orchestration-seam-followup-review",
+      "dw_ids": [
+        "DW-84"
+      ],
+      "intent": "Complete the independent follow-up review using _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/1-orchestration-seam-tests.md and its preserved baseline and history. The specification retains followup_review_recommended at line 8 and in its final review despite done status. Inspect actual lifecycle and snapshot changes, run ordinary gates, and record fresh evidence without implicitly reopening deferred scope."
+    },
+    {
+      "name": "expose-generation-context-cuts",
+      "dw_ids": [
+        "DW-25",
+        "DW-30"
+      ],
+      "intent": "Show writers when generation inputs were truncated, omitted or demoted from writer notes to client evidence. convex/generations.ts:899-926 persists contextBudget but getGeneration does not expose it, and trust telemetry lacks a human consumer. Add an authorized projection and concise disclosure in the existing generation interface using frozen source facts."
+    },
+    {
+      "name": "unlearn-operator-explanations",
+      "dw_ids": [
+        "DW-15",
+        "DW-21"
+      ],
+      "intent": "Explain confirmed erasure and failed remediation in the existing Brain audit view and documentation. src/routes/admin/brain/+page.svelte:17 lacks unlearn_confirmed and unlearn_failed labels, line 187 calls system actors admin, and docs/the-brain.md:11 describes plain index deletion. Add faithful labels and actor text, document confirmed erasure and bounded retries, and add the appropriate changelog entry."
+    },
+    {
+      "name": "ped-system-map-refresh",
+      "dw_ids": [
+        "DW-52"
+      ],
+      "intent": "Update the system map to describe persisted PED milestones and available report and writer series accurately. docs/system-map.md:360 and :365 still say PED is never stored, although convex/reportEditDistance.ts:20 and :59 expose persisted series. Identify the dashboard as pending until CAP-3 lands."
+    },
+    {
+      "name": "generation-return-contracts",
+      "dw_ids": [
+        "DW-14"
+      ],
+      "intent": "Declare accurate return validators for the remaining registered functions in convex/generations.ts without changing observable results. Validators now exist at lines 768, 2393, 2567 and 2634, but getGeneration at line 169 and most functions still omit them. Preserve null and legacy projection semantics and verify the resulting contracts."
+    },
+    {
+      "name": "chat-context-return-contract",
+      "dw_ids": [
+        "DW-32"
+      ],
+      "intent": "Add a return validator to getChatContextV2 while preserving its runtime shape and behavior. convex/chatV2.ts:992-994 proceeds directly from args to handler. Derive the action context type from the validated return where possible and retain category, uploader-role and evidence-budget integration assertions."
+    },
+    {
+      "name": "ped-indexed-read-efficiency",
+      "dw_ids": [
+        "DW-50",
+        "DW-61",
+        "DW-63"
+      ],
+      "intent": "Make PED baseline lookup, chronological capping and candidate-origin recording efficient without changing response shapes or measurement semantics. Baseline scans remain at convex/reports.ts:437-441 and convex/lib/editDistance.ts:109-113, while convex/reportEditDistance.ts:28-38 caps insertion order before sorting computedAt. Introduce shared indexed baseline lookup and a report/computedAt index, and reuse report and baseline data at convex/generations.ts:1051-1070 instead of repeated reads and a known-zero diff. Preserve first-generated-baseline selection, deduplication and all completion paths."
+    },
+    {
+      "name": "shared-domain-error-test-helper",
+      "dw_ids": [
+        "DW-75"
+      ],
+      "intent": "Consolidate duplicate Convex domain-error assertions into one shared test helper. Private unwrapping remains in convex/brainFeedback.test.ts:273, comments.test.ts:149, chatProposals.test.ts:137, generationInput.test.ts:25, projects.test.ts:1174, reportAuthz.test.ts:207, reviews.test.ts:100, generationLifecycle.test.ts:19 and snapshots.test.ts:292. Preserve or strengthen strict domain-code checks instead of broad rejection assertions."
+    }
+  ],
+  "blocked": [
+    {
+      "id": "DW-62",
+      "blocker": "CAP-3: Admins can see whether learning is working. (_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/SPEC.md:32-34). Its dashboard and refresh lifecycle are unbuilt; convex/reportEditDistance.ts:84-87 anchors sinceDays only when the query runs."
+    }
+  ],
+  "skip": [
+    {
+      "id": "DW-65",
+      "reason": "Duplicate finding superseded by DW-49, which remains separately actionable in this partition; convex/reportEditDistance.ts:117-122 still reloads publication data at scheduler drain. Closing only this duplicate preserves the substantive obligation."
+    },
+    {
+      "id": "DW-66",
+      "reason": "Duplicate finding superseded by DW-48, which remains separately actionable in this partition; convex/lib/editDistance.ts:116-119 and convex/lib/reportEdits.ts:193-194 still conflate malformed JSON with empty text. Closing only this duplicate preserves the substantive obligation."
+    },
+    {
+      "id": "DW-67",
+      "reason": "Duplicate finding superseded by DW-47 and DW-56, which remains separately actionable in this partition; convex/reportEditDistance.ts:89-112 still reads historical writer attribution without current-project lookup. Closing only this duplicate preserves the substantive obligation."
+    },
+    {
+      "id": "DW-68",
+      "reason": "Duplicate finding superseded by DW-54, which remains separately actionable in this partition; convex/reportEditDistance.ts:28-50 and :89-112 still return capped arrays without metadata. Closing only this duplicate preserves the substantive obligation."
+    },
+    {
+      "id": "DW-80",
+      "reason": "Duplicate finding superseded by DW-75, which remains separately actionable in this partition; the same private domain-error helpers remain, including convex/generationLifecycle.test.ts:19. Closing only this duplicate preserves the substantive obligation."
+    },
+    {
+      "id": "DW-81",
+      "reason": "Duplicate finding superseded by DW-77, which remains separately actionable in this partition; the same guards remain at convex/generations.ts:2052-2056 and :2113-2115. Closing only this duplicate preserves the substantive obligation."
+    },
+    {
+      "id": "DW-82",
+      "reason": "Duplicate finding superseded by DW-78, which remains separately actionable in this partition; the same live ghost failure branch remains at convex/generations.ts:1155-1175. Closing only this duplicate preserves the substantive obligation."
+    },
+    {
+      "id": "DW-83",
+      "reason": "Duplicate finding superseded by DW-79, which remains separately actionable in this partition; the same event edge branches remain at convex/generations.ts:2085-2104. Closing only this duplicate preserves the substantive obligation."
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DW-3",
+      "question": "Keep the approved start-time hash or reject mixed-deployment handoffs?",
+      "context": "convex/ai/instrument.ts:53 unions digest IDs without comparing prompt versions. Story 10:147 explicitly removes the mismatch fence and accepts the mid-flight deployment limitation.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Add deployment fencing",
+          "effect": "build",
+          "intent": "Amend the contract, define recovery, and enforce prompt-version compatibility before later provider handoffs."
+        },
+        {
+          "key": "2",
+          "label": "Keep start-time hash",
+          "effect": "close",
+          "resolution": "Retain the approved start-time hash and documented mixed-deployment limitation."
+        }
+      ],
+      "recommendation": "2"
+    },
+    {
+      "id": "DW-5",
+      "question": "Which calls may extend generation provenance after terminal status?",
+      "context": "convex/generations.ts:756-768 explicitly permits terminal digest updates. Story 10:147 removed the fence to preserve completed-generation post-QA, leaving late ghost calls on the same mechanism.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Fence non-QA late calls",
+          "effect": "build",
+          "intent": "Amend the handoff contract to distinguish permitted post-QA from stale generation and ghost calls, enforcing the distinction before disclosure and digest union."
+        },
+        {
+          "key": "2",
+          "label": "Keep current union",
+          "effect": "close",
+          "resolution": "Accept that all actual generation-owned disclosures, including late calls, extend the union."
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-6",
+      "question": "How should retry generations represent candidates copied from an earlier generation?",
+      "context": "convex/generations.ts:586-714 copies successful candidates while original report and usage remain keyed to their source generation. The retry contract does not define ownership for reused outputs.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Preserve explicit origin lineage",
+          "effect": "build",
+          "intent": "Define originating-generation lineage for reused candidates, retain original spend, and distinguish reused provenance from new retry calls."
+        },
+        {
+          "key": "2",
+          "label": "Defer ownership policy",
+          "effect": "keep-open"
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-7",
+      "question": "Expand prompt hash coverage beyond the approved simplified manifest?",
+      "context": "convex/ai/promptProgram.ts:232-266 retains descriptive topology strings while structured validation feedback is assembled at convex/ai/structured.ts:88-98. Story 10:147 explicitly simplified coverage, and its review at :257 retained this deferral.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Expand authoritative coverage",
+          "effect": "build",
+          "intent": "Amend the manifest contract so stable QA rendering, validation summaries, science-code labels and recovery definitions are shared by runtime and hashing, removing misleading hash-only descriptions."
+        },
+        {
+          "key": "2",
+          "label": "Keep bounded manifest",
+          "effect": "close",
+          "resolution": "Accept the approved simplified manifest and document its coverage limits."
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-8",
+      "question": "What should happen when usage cannot be persisted or attribution relationships are invalid?",
+      "context": "convex/ai/instrument.ts:73-82 swallows simultaneous scheduler and mutation failure. convex/aiUsage.ts:216-223 copies generation and candidate IDs without checking project relationships, so stricter accounting needs an explicit success and recovery policy.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Validate and expose accounting failure",
+          "effect": "build",
+          "intent": "Validate project, generation and candidate relationships transactionally and define a recoverable accounting-failure signal that preserves successful provider output while exposing incomplete attribution."
+        },
+        {
+          "key": "2",
+          "label": "Accept best-effort accounting",
+          "effect": "close",
+          "resolution": "Retain best-effort persistence and caller-trusted attribution as explicit limitations."
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-12",
+      "question": "Keep cost inside the live generation query or separate its subscription?",
+      "context": "convex/generations.ts:193-199 reads the entire aiUsage generation range inside getGeneration. Story 11 requires same-query summing and forbids progress UI changes, so removing this dependency needs a follow-up contract change.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Separate cost subscription",
+          "effect": "build",
+          "intent": "Approve a dedicated authorized cost query and update consumers so usage inserts do not republish the complete generation projection."
+        },
+        {
+          "key": "2",
+          "label": "Measure before changing",
+          "effect": "keep-open"
+        }
+      ],
+      "recommendation": "2"
+    },
+    {
+      "id": "DW-13",
+      "question": "Should all internal roles formally retain per-generation spend visibility?",
+      "context": "convex/generations.ts:173-175 uses the all-internal gate at convex/lib/auth.ts:34-42. docs/product-domain.md:205 lacks the generation-level exception already recorded in Story 11.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Record internal-role visibility",
+          "effect": "build",
+          "intent": "Record the approved generation-level spend permission in docs/product-domain.md, distinguish aggregate usage administration, and preserve query authorization."
+        },
+        {
+          "key": "2",
+          "label": "Defer domain approval",
+          "effect": "keep-open"
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-16",
+      "question": "Should source-less erasure failures create governance audit records?",
+      "context": "convex/brain.ts:407-413 specifies no governance bookkeeping for source-less calls. recordUnlearnFailure at :508 requires a source, and the independent review confirms this approved contract.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Add orphan failure evidence",
+          "effect": "build",
+          "intent": "Amend source-less bookkeeping policy and record capped orphan failures with remote entry identity without inventing source rows or reapproving content."
+        },
+        {
+          "key": "2",
+          "label": "Keep source-less contract",
+          "effect": "close",
+          "resolution": "Retain approved deletion-only source-less calls without governance bookkeeping."
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-18",
+      "question": "How should remediation retain multiple failed remote entries for one source?",
+      "context": "convex/brain.ts:514-522 preserves a failed entry handle only when no current handle exists; otherwise it survives in audit text. revokeSource at :366 retries only the single retained handle, and 901446a leaves this ownership issue deferred.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Track outstanding erasures",
+          "effect": "build",
+          "intent": "Approve durable per-source and remote-entry erasure records and restart all outstanding failures without overwriting the current source handle."
+        },
+        {
+          "key": "2",
+          "label": "Defer storage model",
+          "effect": "keep-open"
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-19",
+      "question": "Should erasure failures remain auditable after source deletion or reapproval?",
+      "context": "convex/brain.ts:514-524 inserts failure evidence only for an existing non-approved source. The completed review and regressions deliberately preserve no audit record after reapproval.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Record attempt history separately",
+          "effect": "build",
+          "intent": "Amend the policy to record historical erasure failures independently of current source status, without restoring handles on reapproved or deleted rows."
+        },
+        {
+          "key": "2",
+          "label": "Keep current-status policy",
+          "effect": "close",
+          "resolution": "Retain the deliberate guard against audit entries contradicting current approval state."
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-31",
+      "question": "Should document trust represent uploader authority or document-content origin?",
+      "context": "convex/lib/auth.ts:45-60 requires internal access for upload operations, and roles contain no client uploader. CAP-3 freezes uploader role at convex/generations.ts:505-506, leaving writer-uploaded client material indistinguishable from writer-authored notes.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Add explicit document origin",
+          "effect": "build",
+          "intent": "Approve a domain-level document-origin and intake policy, then derive trust from origin and authorized writer intent rather than uploader role alone."
+        },
+        {
+          "key": "2",
+          "label": "Accept uploader-authority scope",
+          "effect": "close",
+          "resolution": "Accept internal writers as responsible for writer_notes tagging and define CAP-3 as protection for legacy or unauthorized metadata."
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-42",
+      "question": "Which report should an internal-review decision attest when a project has multiple reports?",
+      "context": "convex/projectWorkflow.ts:406-410 selects the newest-created report consistently with existing conventions. convex/generations.ts:1036-1037 distinguishes per-report revisionNumber from cross-report version, so highest revisionNumber could select an older report.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Keep latest-created report",
+          "effect": "build",
+          "intent": "Document latest-report selection and add a multi-report regression proving decisions pin the report presented as current."
+        },
+        {
+          "key": "2",
+          "label": "Defer report selection policy",
+          "effect": "keep-open"
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-44",
+      "question": "Should review completion prove the reviewer saw the exact attested revision?",
+      "context": "ProjectWorkflowMenu.svelte:298-299 sends the decision and workflow expectedVersion only. convex/projectWorkflow.ts:406-410 resolves the report during the mutation, as the source story deliberately specifies.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Fence the reviewed revision",
+          "effect": "build",
+          "intent": "Approve a product-domain amendment, capture report identity and revision/hash in the UI, and reject transitions when that baseline differs from the current report."
+        },
+        {
+          "key": "2",
+          "label": "Retain commit-time attestation",
+          "effect": "close",
+          "resolution": "Accept server-side resolution and document that decisions attest the report current when the transition commits."
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-47",
+      "question": "Should project deletion erase historical PED readings?",
+      "context": "convex/projects.ts:1180-1185 deletes reports without reportEditDistance cleanup. convex/reportEditDistance.ts:89-97 continues reading historical rows by writer identity, and related audit tables also lack a unified deletion policy.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Delete associated PED history",
+          "effect": "build",
+          "intent": "Approve retention, implement bounded cleanup during project deletion, and cover writer series and existing orphan handling."
+        },
+        {
+          "key": "2",
+          "label": "Decide retention jointly",
+          "effect": "keep-open"
+        }
+      ],
+      "recommendation": "2"
+    },
+    {
+      "id": "DW-49",
+      "question": "Should client-publish PED measure publication-time or scheduler-drain state?",
+      "context": "convex/projects.ts:1056 schedules recordAtPublish with only reportId. convex/reportEditDistance.ts:117-122 reloads content and owner later under the deliberately specified call shape.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Capture publication-time state",
+          "effect": "build",
+          "intent": "Amend measurement semantics and capture immutable publication-time report, revision and owner data for the scheduled recorder, with race regressions."
+        },
+        {
+          "key": "2",
+          "label": "Accept drain-time measurement",
+          "effect": "close",
+          "resolution": "Define client_publish as a scheduled post-publication observation rather than an exact publication snapshot."
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-51",
+      "question": "Should historical reports receive reconstructed candidate-selection origin readings?",
+      "context": "convex/reportEditDistance.ts contains no historical backfill path. The CAP-2 story explicitly excludes backfill even though generated snapshots survive.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Add historical origin backfill",
+          "effect": "build",
+          "intent": "Approve a bounded idempotent backfill from retained generated snapshots that distinguishes inferred attribution and timestamps."
+        },
+        {
+          "key": "2",
+          "label": "Start history at rollout",
+          "effect": "close",
+          "resolution": "Accept rollout-time coverage with no reconstructed historical candidate-selection origin."
+        }
+      ],
+      "recommendation": "2"
+    },
+    {
+      "id": "DW-53",
+      "question": "Should PED gain restoration and finalization milestones?",
+      "context": "convex/schema.ts:1310-1313 permits candidate_selection, milestone and client_publish only. CAP-2 specifies those three triggers, so extension changes the measurement contract and future dashboard vocabulary.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Add restore and finalize readings",
+          "effect": "build",
+          "intent": "Approve additional trigger semantics, add schema support and hooks in restoreSnapshot and finalizeProject, and test content changes and repeated actions."
+        },
+        {
+          "key": "2",
+          "label": "Choose with dashboard design",
+          "effect": "keep-open"
+        }
+      ],
+      "recommendation": "2"
+    },
+    {
+      "id": "DW-54",
+      "question": "How should the future learning dashboard expose capped PED histories?",
+      "context": "convex/reportEditDistance.ts:11-12 caps histories at 200 and 500, while :34-50 and :99-112 return arrays without truncation metadata. CAP-3 is unbuilt, so a new response establishes its consumer contract.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Return truncation metadata",
+          "effect": "build",
+          "intent": "Approve an additive or versioned response with rows and explicit truncation metadata, test both caps, and define CAP-3 labeling for partial windows."
+        },
+        {
+          "key": "3",
+          "label": "Add cursor pagination",
+          "effect": "build",
+          "intent": "Approve paginated report and writer series with stable chronological cursors and tests, and record CAP-3 consumer requirements."
+        },
+        {
+          "key": "2",
+          "label": "Decide with CAP-3",
+          "effect": "keep-open"
+        }
+      ],
+      "recommendation": "2"
+    },
+    {
+      "id": "DW-56",
+      "question": "What PED attribution and visibility should survive project ownership changes?",
+      "context": "convex/lib/editDistance.ts:139-144 captures ownerId at recording time. convex/reportEditDistance.ts:89-112 returns those historical project/report IDs without checking current access.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Keep attribution and fence access",
+          "effect": "build",
+          "intent": "Approve historical writer attribution with current project access checks, document ownership transfer, and test that actors lacking current access cannot read reassigned project details."
+        },
+        {
+          "key": "2",
+          "label": "Defer attribution and access policy",
+          "effect": "keep-open"
+        }
+      ],
+      "recommendation": "2"
+    },
+    {
+      "id": "DW-57",
+      "question": "Should viewing other writers' PED become an administrable capability?",
+      "context": "convex/reportEditDistance.ts:67-71 hardcodes admin/manager-or-self. shared/capabilities.ts lacks a PED permission, so adding one changes the recorded permission surface.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Add a recorded capability",
+          "effect": "build",
+          "intent": "Approve a capability for viewing others' series, preserve self-access and default roles, and wire query and permission UI through the capability matrix with authorization tests."
+        },
+        {
+          "key": "2",
+          "label": "Keep fixed authorization",
+          "effect": "close",
+          "resolution": "Retain admin/manager-or-self as an intentionally fixed metric access policy."
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-58",
+      "question": "Should PED carry formula versions before the dashboard is built?",
+      "context": "convex/schema.ts:1299-1314 has no formula version, while convex/lib/editDistance.ts:48 labels the implementation v1. Adding metadata requires explicit legacy interpretation and a consumer contract beyond CAP-2's enumerated columns.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Version readings additively",
+          "effect": "build",
+          "intent": "Approve optional formulaVersion, interpret missing legacy values as v1, write versions on new rows, and define separation of incompatible future versions without changing the formula."
+        },
+        {
+          "key": "2",
+          "label": "Wait for a formula change",
+          "effect": "keep-open"
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-59",
+      "question": "Should share-token clients retain read-time PED access?",
+      "context": "convex/reports.ts:420-435 accepts shareToken and client_review access as CAP-2 explicitly preserves. convex/reportEditDistance.ts:25-26 restricts persisted series to internal users.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Make PED internal-only",
+          "effect": "build",
+          "intent": "Approve and document internal-only PED, tighten postEditDistance authorization while preserving internal response shape, and test share-token denial."
+        },
+        {
+          "key": "2",
+          "label": "Approve client visibility",
+          "effect": "close",
+          "resolution": "Record explicit approval of shared-report PED exposure and its distinction from internal persisted series."
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-60",
+      "question": "What retention should apply when a PED report is removed?",
+      "context": "convex/schema.ts:1295-1298 describes append-only readings, and convex/reportEditDistance.ts:23-24 returns null after report deletion. No retention or report-removal cleanup exists, so pruning historical data requires policy.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Remove orphaned measurements",
+          "effect": "build",
+          "intent": "Approve report-level retention and implement bounded orphan cleanup and cleanup at actual report deletion paths, coordinated with project deletion policy and retention tests."
+        },
+        {
+          "key": "2",
+          "label": "Decide retention jointly",
+          "effect": "keep-open"
+        }
+      ],
+      "recommendation": "2"
+    },
+    {
+      "id": "DW-64",
+      "question": "Should deduplication suppress repeated triggers separated by other triggers?",
+      "context": "convex/lib/editDistance.ts:125-134 compares only the newest report reading. This implements the source story's explicit newest-row rule, so per-trigger deduplication changes event-history semantics.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Deduplicate per trigger",
+          "effect": "build",
+          "intent": "Approve per-trigger deduplication, add an appropriate report/trigger index, and test publish-milestone-publish with unchanged and changed revisions."
+        },
+        {
+          "key": "2",
+          "label": "Keep event sequence semantics",
+          "effect": "close",
+          "resolution": "Retain newest-row comparison so alternating milestones remain distinct observations even at identical PED."
+        }
+      ],
+      "recommendation": "2"
+    },
+    {
+      "id": "DW-69",
+      "question": "Should review submissions reject changes since the reviewer viewed the target?",
+      "context": "convex/reviews.ts:40-68 and :203-222 record mutation-time revision/hash without an expected observation. CAP-9 explicitly excludes stale-review rejection, required arguments and UI changes.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Add observation fencing",
+          "effect": "build",
+          "intent": "Approve expected revision/hash semantics, update callers and mutations together, and prove concurrent edits cannot attach a review to unseen content."
+        },
+        {
+          "key": "2",
+          "label": "Accept submission-time target",
+          "effect": "close",
+          "resolution": "Define reviews as describing the server target at submission time without observation fencing."
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-71",
+      "question": "Should blocking QA require a because explanation for each uncertainty within a sentence?",
+      "context": "convex/ai/qaChecks.ts:93-105 uses uncertaintyMarkers.some and one because check per sentence. The story requires the existing detector and excludes a new linguistic methodology detector.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Approve statement-level detection",
+          "effect": "build",
+          "intent": "Define deterministic boundaries for multiple uncertainties, amend detector scope, and implement per-statement because checks with positive and negative regressions."
+        },
+        {
+          "key": "2",
+          "label": "Defer linguistic scope",
+          "effect": "keep-open"
+        }
+      ],
+      "recommendation": "2"
+    },
+    {
+      "id": "DW-85",
+      "question": "Should privacy scrubbing extend to historical section edits and Brain sources?",
+      "context": "convex/learning.ts:100-116 returns stored section text, and convex/brain.ts:229-248 scrubs new nominations only. docs/product-domain.md:1661-1666 explicitly records forward-only scrubbing without historical backfill.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Approve historical remediation",
+          "effect": "build",
+          "intent": "Approve historical-data scope and a bounded remediation or read-boundary strategy for old section events and Brain sources, preserving governance and testing legacy rows."
+        },
+        {
+          "key": "2",
+          "label": "Keep forward-only scope",
+          "effect": "close",
+          "resolution": "Accept historical rows remaining outside CAP-1's documented privacy boundary."
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-86",
+      "question": "Should privacy scrubbing cover QA feedback, candidate comments and approved writer feedback?",
+      "context": "convex/learning.ts:38-45, :58-62 and :138-150 return raw strings, and convex/brain.ts:698-705 imports unsanitized writer feedback. docs/product-domain.md:1663-1666 explicitly excludes those other learning and import streams.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Extend privacy boundaries",
+          "effect": "build",
+          "intent": "Approve extending privacy to all three streams, scrub project identifiers and contacts at digest and Brain crossings, and test project-linked and orphan inputs."
+        },
+        {
+          "key": "2",
+          "label": "Retain selected boundaries",
+          "effect": "close",
+          "resolution": "Keep these streams outside CAP-1's explicitly selected privacy scope."
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-87",
+      "question": "Should curated Brain import titles redact client identifiers?",
+      "context": "convex/ingestion.ts:198 derives titles from clientName, fiscalYearLabel and name; labels reach prompts through convex/ai/brain/retrieve.ts:115. docs/the-brain.md:88-90 excludes curated imports from nomination-only privacy.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Scrub curated labels",
+          "effect": "build",
+          "intent": "Approve curated-label de-identification, remove client identifiers before source creation, and test useful prompt-facing titles without client names."
+        },
+        {
+          "key": "2",
+          "label": "Preserve curated labels",
+          "effect": "close",
+          "resolution": "Retain identifying titles for administrator-curated sources under the documented exclusion."
+        }
+      ],
+      "recommendation": "1"
+    },
+    {
+      "id": "DW-89",
+      "question": "Should proposal-edit privacy survive project renames?",
+      "context": "convex/learning.ts:82-91 scrubs historical edits against the live project. docs/product-domain.md:1637-1642 accepts old-name survival, while the story excludes chat write-site and schema changes.",
+      "options": [
+        {
+          "key": "1",
+          "label": "Approve durable scrub context",
+          "effect": "build",
+          "intent": "Approve write-time scrubbing or historical identifier capture, amend scope restrictions, and test that project renames cannot re-expose old identifiers."
+        },
+        {
+          "key": "2",
+          "label": "Accept current-name matching",
+          "effect": "close",
+          "resolution": "Retain current-project matching and its explicitly documented rename limitation."
+        }
+      ],
+      "recommendation": "1"
+    }
+  ],
+  "escalations": []
+}

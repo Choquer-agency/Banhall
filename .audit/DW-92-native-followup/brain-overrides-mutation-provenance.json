@@ -1,0 +1,14 @@
+{
+  "command": [
+    "npx",
+    "vitest",
+    "run",
+    "convex/generationAttribution.test.ts",
+    "-t",
+    "stamps the frozen set on the iterative report and its ghost comparison snapshot"
+  ],
+  "mutation": "Temporarily replace the generationId branch condition with false in persistDeterministicFindings, bypassing brain_blocks lookup and overrides.",
+  "expected_exit": 1,
+  "actual_exit": 1,
+  "source_restored_byte_identical": true
+}

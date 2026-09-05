@@ -1,0 +1,15 @@
+Clone command: cp -cR /Users/johnnynguyen/Documents/Repos/Banhall/node_modules node_modules
+Worker node_modules is symlink: False
+External dependency symlinks: 0
+@convex-dev/agent/package.json: independent inode=True; sha256=5e3add7ce8f6079c699956d3ec2181a5d8784ce02d098e6a572f06be8ee1a100
+convex/package.json: independent inode=True; sha256=c8a1da2881ddaadee73147a551a37a7ebe4163f04e48601fef13db51c460183b
+svelte-check/package.json: independent inode=True; sha256=5fffec08b97ddbe152b4775a6e3dcc5e3e2aff1d18eb4c48ed1fe0afe62d0992
+vitest/package.json: independent inode=True; sha256=caa41f04799bd42f3cfd100c4282e630d77ffc7deb1e7e4927794fcb7f137f34
+package-lock.json: d4213ef7b50aa850ea095dbe6c65b35306ae7589a90073c0e377147421a33dac
+/Users/johnnynguyen/Documents/Repos/Banhall/package-lock.json: d4213ef7b50aa850ea095dbe6c65b35306ae7589a90073c0e377147421a33dac
+Revision: 495b3bbf828fbc52381b557378bc7b0b1cd1a2cf
+Production diff:
+@convex-dev/agent 0.6.4 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11/node_modules/@convex-dev/agent/package.json
+convex 1.42.3 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11/node_modules/convex/package.json
+svelte-check 4.7.3 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11/node_modules/svelte-check/package.json
+vitest 4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend/.bmad-loop/runs/20260904-121647-f30f/worktrees/11/node_modules/vitest/package.json

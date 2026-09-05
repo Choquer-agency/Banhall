@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildContextBlock } from "./analyzerAgent";
+import { buildTrustedContext, DEFAULT_CONTEXT_BUDGET } from "./trustedContext";
 import { CONDENSE_SCHEMA, CONDENSE_SYSTEM_PROMPT } from "./condenseAgent";
 import { generationPromptProgram, hashPromptProgram } from "./promptProgram";
 import {
@@ -9,7 +9,7 @@ import {
   TRANSCRIPT_BUDGET_CHARS,
 } from "../lib/transcripts";
 import { priorSectionsBlock } from "./iterative";
-import { buildStyleGuidance, lengthBudgetBlock } from "./pipeline";
+import { buildStyleGuidance, lengthBudgetBlock, toContextDocs } from "./pipeline";
 import { CONTEXT_INPUTS_GUIDANCE, waivedCategoryLabels } from "./prompts";
 import { numberParagraphs } from "./qaAgent";
 import { CHARS_PER_LINE, LINE_LIMITS, wordBudget } from "../lib/lineLimits";
@@ -78,23 +78,71 @@ describe("prompt scaffold composition", () => {
     ).toBe("[P1] First para still first\n\n[P2] Second\n\n[P3] Third");
   });
 
-  it("renders attached context documents exactly and in trust order", () => {
-    expect(buildContextBlock([])).toBe("");
+  it("renders the transcript and attached documents exactly and in trust order", () => {
+    // Zero documents still emits the guidance, and the transcript itself is
+    // wrapped in the same BEGIN/END markers the guidance promises.
     expect(
-      buildContextBlock([
-        { category: "other", fileName: "misc.txt", content: "Misc content." },
-        {
-          category: "writer_notes",
-          fileName: "notes.md",
-          content: "Note content.",
-        },
-      ]),
+      buildTrustedContext({
+        transcriptParts: [{ label: "Interview transcript", content: "Interview body" }],
+      }).userMessage,
     ).toBe(
-      `\n\n${CONTEXT_INPUTS_GUIDANCE}\n\n# ATTACHED CONTEXTUAL MATERIALS\n` +
+      "Here is the interview transcript to analyze:\n\n" +
+        "--- BEGIN [INTERVIEW TRANSCRIPT] ---\nInterview body\n--- END [INTERVIEW TRANSCRIPT] ---" +
+        `\n\n${CONTEXT_INPUTS_GUIDANCE}`,
+    );
+
+    expect(
+      buildTrustedContext({
+        transcriptParts: [{ label: "Interview transcript", content: "Interview body" }],
+        documents: [
+          { category: "other", fileName: "misc.txt", content: "Misc content." },
+          {
+            category: "writer_notes",
+            fileName: "notes.md",
+            content: "Note content.",
+            // CAP-3: only an internal uploader keeps the notes label.
+            uploaderRole: "writer",
+          },
+        ],
+      }).userMessage,
+    ).toBe(
+      "Here is the interview transcript to analyze:\n\n" +
+        "--- BEGIN [INTERVIEW TRANSCRIPT] ---\nInterview body\n--- END [INTERVIEW TRANSCRIPT] ---" +
+        `\n\n${CONTEXT_INPUTS_GUIDANCE}` +
+        "\n\n# ATTACHED CONTEXTUAL MATERIALS\n" +
         "--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\nNote content.\n--- END [WRITER'S NOTES (unreliable narrator)] notes.md ---" +
         "\n\n" +
         "--- BEGIN [OTHER SUPPORTING MATERIAL] misc.txt ---\nMisc content.\n--- END [OTHER SUPPORTING MATERIAL] misc.txt ---",
     );
+  });
+
+  it("hands a legacy frozen source to the analyzer as client evidence (CAP-3)", () => {
+    // The whole seam a legacy row travels: a `generationSources` row frozen
+    // before CAP-3 carries no uploaderRole, `getGenerationInput` surfaces that
+    // absence, `toContextDocs` narrows it away, and the assembled message must
+    // label the document OTHER SUPPORTING MATERIAL — never as the authoritative
+    // direction the guidance grants WRITER'S NOTES.
+    const legacyContextDocs = [
+      // Hand-built pre-narrowing input. `getGenerationInput` omits the key
+      // entirely (generationInput.test.ts pins that); an explicit `undefined`
+      // is the widest shape `toContextDocs` accepts and must narrow the same.
+      {
+        category: "writer_notes",
+        fileName: "legacy.md",
+        content: "Unattributed direction.",
+        uploaderRole: undefined,
+      },
+    ];
+    const docs = toContextDocs(legacyContextDocs);
+    expect("uploaderRole" in docs[0]).toBe(false);
+
+    const { userMessage, report } = buildTrustedContext({ documents: docs });
+    expect(userMessage).toContain(
+      "--- BEGIN [OTHER SUPPORTING MATERIAL] legacy.md ---\nUnattributed direction.\n--- END [OTHER SUPPORTING MATERIAL] legacy.md ---",
+    );
+    expect(userMessage).not.toContain("[WRITER'S NOTES");
+    expect(report.sources[0].trust).toBe("client");
+    expect(report.sources[0].category).toBe("other");
   });
 });
 
@@ -116,6 +164,20 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       },
       thinking: { kind: "omitted" },
       structuredPolicy: "single-attempt",
+    });
+  });
+
+  it("discloses the analyzer context budget defaults", () => {
+    // The budget decides how much of each frozen source reaches the model, so
+    // retuning the defaults must move promptVersion.
+    expect(generationPromptProgram.calls.analyzer.contextBudget).toEqual(
+      DEFAULT_CONTEXT_BUDGET
+    );
+    expect(DEFAULT_CONTEXT_BUDGET).toEqual({
+      totalTokens: 150_000,
+      transcriptTokens: 100_000,
+      perDocumentTokens: 10_000,
+      maxDocuments: 12,
     });
   });
 

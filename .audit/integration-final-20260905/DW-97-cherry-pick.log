@@ -1,0 +1,34 @@
+Auto-merging src/lib/components/chat/AgentChatPanel.svelte
+[codex/bmad-completion daa4cf8] fix(chat): retain active research guard after publication
+ Date: Sat Sep 5 01:32:30 2026 -0700
+ 32 files changed, 1649 insertions(+), 5 deletions(-)
+ create mode 100644 .audit/DW-97-fix/check.exit
+ create mode 100644 .audit/DW-97-fix/check.log
+ create mode 100644 .audit/DW-97-fix/component-full.exit
+ create mode 100644 .audit/DW-97-fix/component-full.log
+ create mode 100644 .audit/DW-97-fix/convex-types.exit
+ create mode 100644 .audit/DW-97-fix/convex-types.log
+ create mode 100644 .audit/DW-97-fix/decisions.tsv
+ create mode 100644 .audit/DW-97-fix/diff-check.exit
+ create mode 100644 .audit/DW-97-fix/diff-check.log
+ create mode 100644 .audit/DW-97-fix/evidence.md
+ create mode 100644 .audit/DW-97-fix/focused-fixture-error.exit
+ create mode 100644 .audit/DW-97-fix/focused-fixture-error.log
+ create mode 100644 .audit/DW-97-fix/focused-green.exit
+ create mode 100644 .audit/DW-97-fix/focused-green.log
+ create mode 100644 .audit/DW-97-fix/manifest.json
+ create mode 100644 .audit/DW-97-fix/npm-ci.exit
+ create mode 100644 .audit/DW-97-fix/npm-ci.log
+ create mode 100644 .audit/DW-97-fix/red-confirmed.exit
+ create mode 100644 .audit/DW-97-fix/red-confirmed.log
+ create mode 100644 .audit/DW-97-fix/red.exit
+ create mode 100644 .audit/DW-97-fix/red.log
+ create mode 100644 .audit/DW-97-fix/regenerate-after.png
+ create mode 100644 .audit/DW-97-fix/regenerate-keyboard-after.png
+ create mode 100644 .audit/DW-97-fix/review-diff.json
+ create mode 100644 .audit/DW-97-fix/review.json
+ create mode 100644 .audit/DW-97-fix/spec.md
+ create mode 100644 .audit/DW-97-fix/sync.exit
+ create mode 100644 .audit/DW-97-fix/sync.log
+ create mode 100644 .audit/DW-97-fix/unit.exit
+ create mode 100644 .audit/DW-97-fix/unit.log

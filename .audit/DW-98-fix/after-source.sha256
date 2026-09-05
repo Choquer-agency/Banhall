@@ -1,0 +1,4 @@
+77134cca53605feb7d7690a1724c6c67d5f50232510f052220024e7ec5567175  src/lib/components/chat/AgentChatPanel.svelte
+c9d064ecf8832b65971da77074e295710e160ca07f5ea92b7c95130d052c707c  src/lib/components/chat/OptimisticSend.component.test.ts
+3ccfca0a184a8cce612037a68290e571bd1c13a84c6c6a816edcd814763e3c78  src/lib/test/convex-svelte-stub.svelte.ts
+59b9db036d6e181414ff9a0553e710bf4419fe7287709fdc3d717b427b6e0fe5  convex/chatV2.ts

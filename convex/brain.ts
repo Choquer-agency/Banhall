@@ -15,6 +15,7 @@ import { eraseBrainEntry } from "./ai/brain/erase";
 import { requireBrainConfigured } from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { extractPlainText } from "./lib/reportEdits";
+import { deidentify } from "./lib/deidentify";
 import {
   getCurrentUserOrNull,
   requireInternalProjectAccess,
@@ -225,13 +226,17 @@ export const nominateFromReport = internalMutation({
     if (!report) return;
     const project = await ctx.db.get(report.projectId);
     if (!project) return;
-    const content = extractPlainText(report.content);
-    if (!content.trim()) return;
+    const rawContent = extractPlainText(report.content);
+    if (!rawContent.trim()) return;
+    // CAP-1: this row becomes firm-wide Brain knowledge, and both its content
+    // and its title reach drafting prompts (the title as the exemplar label).
+    // Scrub client identifiers out of both before they leave the project.
+    const content = deidentify(rawContent, project);
     await importSource(
       ctx,
       {
         kind: "pd_pair",
-        title: `${project.title} (writer-rated ${args.score}/100)`,
+        title: `${deidentify(project.title, project)} (writer-rated ${args.score}/100)`,
         industry: project.industry ?? "general",
         writerName: args.writerName,
         // Conservative default weight; the admin reweights on approval.
@@ -435,6 +440,26 @@ export const unlearnSource = internalAction({
   },
 });
 
+// Persisted compatibility contract: historical audit rows use this exact text.
+function unlearnConfirmationReason(ragEntryId: string): string {
+  return `Erasure confirmed for entry ${ragEntryId}`;
+}
+
+/** Existing audit evidence is the durable source/entry fence, including old rows. */
+async function hasUnlearnConfirmation(
+  ctx: MutationCtx,
+  sourceId: Id<"brainSources">,
+  ragEntryId: string,
+): Promise<boolean> {
+  const reason = unlearnConfirmationReason(ragEntryId);
+  for await (const row of ctx.db
+    .query("brainAuditLog")
+    .withIndex("by_source", (q) => q.eq("sourceId", sourceId))) {
+    if (row.action === "unlearn_confirmed" && row.reason === reason) return true;
+  }
+  return false;
+}
+
 /**
  * Success bookkeeping. Clears `ragEntryId` ONLY if it still equals the erased
  * id (a re-ingest may have written a newer one) and writes the single
@@ -453,11 +478,12 @@ export const recordUnlearnConfirmed = internalMutation({
     if (s.ragEntryId === args.ragEntryId) {
       await ctx.db.patch(args.sourceId, { ragEntryId: undefined });
     }
+    if (await hasUnlearnConfirmation(ctx, args.sourceId, args.ragEntryId)) return;
     await ctx.db.insert("brainAuditLog", {
       action: "unlearn_confirmed",
       sourceId: args.sourceId,
       actorId: "system",
-      reason: `Erasure confirmed for entry ${args.ragEntryId}`,
+      reason: unlearnConfirmationReason(args.ragEntryId),
       at: Date.now(),
     });
   },
@@ -477,6 +503,9 @@ export const recordUnlearnFailure = internalMutation({
   },
   handler: async (ctx, args) => {
     if (args.sourceId) {
+      // A concurrent attempt may have confirmed erasure before this failure
+      // arrived. Never restore its handle, log a stale failure, or retry it.
+      if (await hasUnlearnConfirmation(ctx, args.sourceId, args.ragEntryId)) return;
       const s = await ctx.db.get(args.sourceId);
       if (s && s.status !== "approved") {
         if (!s.ragEntryId) {

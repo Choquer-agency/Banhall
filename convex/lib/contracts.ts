@@ -7,12 +7,15 @@ import {
 import { PROJECT_TYPES } from "../../shared/projectTypes";
 
 export const domainErrorCodes = [
+  "QA_BLOCKING",
   "NOT_AUTHENTICATED",
   "NOT_AUTHORIZED",
   "NOT_FOUND",
   "PROVIDER_NOT_CONFIGURED",
   "PROVIDER_UNAVAILABLE",
   "GENERATION_ACTIVE",
+  "CHAT_SPEND_BUDGET_EXCEEDED",
+  "CHAT_QUEUE_LIMIT_EXCEEDED",
   "TRANSCRIPT_PROJECT_MISMATCH",
   "STALE_REVISION",
   "INVALID_TRANSITION",
@@ -24,6 +27,7 @@ export const domainErrorCodes = [
   "INVALID_STATE",
   "INVALID_INPUT",
   "BLOCKING_EXISTS",
+  "REVIEW_DECISION_REQUIRED",
 ] as const;
 
 export type DomainErrorCode = (typeof domainErrorCodes)[number];
@@ -124,6 +128,7 @@ export const claimCitationValidator = v.object({
 });
 
 export type FilingBlockerCode =
+  | "QA_BLOCKING"
   | "IDENTITY_EVIDENCE_REQUIRED"
   | "CONTRACTOR_EVIDENCE_REQUIRED"
   | "EVIDENCE_STALE"

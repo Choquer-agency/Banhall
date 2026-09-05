@@ -1,0 +1,40 @@
+{
+  "journal": "../../journal.jsonl",
+  "events": [
+    {
+      "ts": 1788567558.2509382,
+      "kind": "session-start",
+      "task_id": "dw-blocking-qa-native-followup-dev-1-g1",
+      "role": "dev",
+      "adapter": "codex",
+      "model": "gpt-6-astra",
+      "story_key": "dw-blocking-qa-native-followup",
+      "prompt": "/bmad-build-auto Implement the deferred-work bundle described in `/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/bundles/blocking-qa-native-followup/intent.md` \u2014 it carries the intent and the verbatim ledger entries to resolve. Do NOT edit the deferred-work ledger; the orchestrator records resolution.",
+      "log_task": "dw-blocking-qa-native-followup-dev-1-g1",
+      "log_pos": 0
+    },
+    {
+      "ts": 1788568883.228995,
+      "kind": "sweep-bundle-closed",
+      "story_key": "dw-blocking-qa-native-followup",
+      "dw_ids": [
+        "DW-92"
+      ],
+      "log_task": "dw-blocking-qa-native-followup-dev-1-g1",
+      "log_pos": 4849986
+    },
+    {
+      "ts": 1788568883.233424,
+      "kind": "session-start",
+      "task_id": "dw-blocking-qa-native-followup-review-1-g1",
+      "role": "review",
+      "adapter": "codex",
+      "model": "gpt-6-astra",
+      "story_key": "dw-blocking-qa-native-followup",
+      "prompt": "/bmad-build-auto /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup/_bmad-output/implementation-artifacts/spec-dw-92-blocking-qa-native-followup.md \u2014 do NOT modify, re-open, or rewrite existing deferred-work ledger entries; the orchestrator owns their status and resolution. sprint-status.yaml is owned by the orchestrator: never write it, and never revert a change to it. A row at done or awaiting-operator is the orchestrator's own bookkeeping \u2014 not a defect to fix, and not proof that the work is verified. If the story cannot be finished without a human decision, finalize the spec to status: blocked and say why. That is the hand-back channel; the board is not.",
+      "log_task": "dw-blocking-qa-native-followup-review-1-g1",
+      "log_pos": 0
+    }
+  ],
+  "entry_snapshot": "entry.json"
+}

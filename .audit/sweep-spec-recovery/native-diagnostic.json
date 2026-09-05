@@ -1,0 +1,829 @@
+{
+  "backstop_repairs": {
+    "story:s0-37e929c6406b": 3
+  },
+  "env": {
+    "git_version": "git version 2.39.2 (Apple Git-143)",
+    "multiplexer": "TmuxMultiplexer",
+    "os": "Darwin",
+    "os_release": "25.1.0",
+    "package_version": "0.11.1",
+    "python_version": "3.13.5",
+    "sys_platform": "darwin",
+    "tmux_version": "tmux 3.7c",
+    "win32_on_wsl_path": false
+  },
+  "generated_at": "2026-09-04T23:22:11Z",
+  "runs": [
+    {
+      "current_epic": null,
+      "files": [
+        {
+          "category": "logs",
+          "count": 2,
+          "total_bytes": 29241467,
+          "total_lines": 620
+        },
+        {
+          "category": "tasks",
+          "count": 8,
+          "total_bytes": 53176,
+          "total_lines": null
+        },
+        {
+          "category": "bundles",
+          "count": 1,
+          "total_bytes": 2059,
+          "total_lines": null
+        },
+        {
+          "category": "worktrees",
+          "count": 43168,
+          "total_bytes": 575627378,
+          "total_lines": null
+        },
+        {
+          "category": "events",
+          "count": 5,
+          "total_bytes": 2015,
+          "total_lines": null
+        },
+        {
+          "category": "verify",
+          "count": 2,
+          "total_bytes": 5270,
+          "total_lines": null
+        }
+      ],
+      "finished": false,
+      "journal": {
+        "defer_count": 0,
+        "duration_s": 4958.83,
+        "entries": [
+          {
+            "kind": "run-start",
+            "run_id": "20260904-145336-4d56",
+            "run_type": "sweep",
+            "trigger": "cli",
+            "ts_offset": 0.0
+          },
+          {
+            "kind": "plugins-active",
+            "plugins": [
+              "npm-bootstrap"
+            ],
+            "ts_offset": 0.003
+          },
+          {
+            "branch": "branch-f15ac3836316",
+            "kind": "target-branch",
+            "ts_offset": 0.029
+          },
+          {
+            "adapter": "codex",
+            "kind": "session-start",
+            "log_pos": 0,
+            "log_task": "story-6ac8ecf3ce5a",
+            "model": "gpt-6-astra",
+            "prompt_present": true,
+            "role": "triage",
+            "story_key": "s0-37e929c6406b",
+            "task_id": "story-6ac8ecf3ce5a",
+            "ts_offset": 0.098
+          },
+          {
+            "kind": "session-end",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "status": "completed",
+            "task_id": "story-6ac8ecf3ce5a",
+            "tokens": 2609792,
+            "tokens_weighted": 354752,
+            "ts_offset": 580.934
+          },
+          {
+            "attempt": 1,
+            "env_fault": false,
+            "errors": [],
+            "kind": "triage-decision",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ok": true,
+            "session_status": "completed",
+            "ts_offset": 580.943
+          },
+          {
+            "already_resolved": 7,
+            "blocked": 1,
+            "bundles": 33,
+            "decisions": 30,
+            "kind": "s0-37e929c6406b-result",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "skip": 8,
+            "ts_offset": 580.944
+          },
+          {
+            "dw_ids": [
+              "dw-a187878b99a9",
+              "dw-a2361d305316",
+              "dw-605f07e50d34",
+              "dw-40ed1343539f",
+              "dw-eec015d75cfc",
+              "dw-da4ca142c70d",
+              "dw-e42632d64f0c"
+            ],
+            "kind": "sweep-resolved-closed",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.028
+          },
+          {
+            "commit": "commit-98c0017cff9c",
+            "kind": "sweep-ledger-commit",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "message_present": true,
+            "ts_offset": 581.268
+          },
+          {
+            "dw_id": "DW-3",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.269
+          },
+          {
+            "dw_id": "DW-5",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.269
+          },
+          {
+            "dw_id": "DW-6",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.269
+          },
+          {
+            "dw_id": "DW-7",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.269
+          },
+          {
+            "dw_id": "DW-8",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.269
+          },
+          {
+            "dw_id": "DW-12",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.269
+          },
+          {
+            "dw_id": "DW-13",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.269
+          },
+          {
+            "dw_id": "DW-16",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-18",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-19",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-31",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-42",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-44",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-47",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-49",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-51",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-53",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-54",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-56",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-57",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-58",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-59",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-60",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-64",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-69",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.27
+          },
+          {
+            "dw_id": "DW-71",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.271
+          },
+          {
+            "dw_id": "DW-85",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.271
+          },
+          {
+            "dw_id": "DW-86",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.271
+          },
+          {
+            "dw_id": "DW-87",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.271
+          },
+          {
+            "dw_id": "DW-89",
+            "kind": "decision-skipped-unattended",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.271
+          },
+          {
+            "dropped": [
+              "evidence-scaffold-neutralization",
+              "brain-generation-usage-attribution",
+              "deduplicate-unlearn-restarts",
+              "complete-analyzer-input-budget",
+              "pd-review-document-trust",
+              "downstream-evidence-boundaries",
+              "generation-chain-action-budget",
+              "research-shared-trust-context",
+              "injection-corpus-metadata-budgets",
+              "review-transition-ui-contract",
+              "skip-identical-scrubbed-edit-pairs",
+              "snapshot-checkpoint-contract-tests",
+              "candidate-artifact-edge-tests",
+              "section-approval-edge-tests",
+              "brain-governance-failure-regression",
+              "agent-evidence-library-contract",
+              "chat-window-followup-review",
+              "generation-attribution-followup-review",
+              "trusted-context-followup-review",
+              "boundary-followup-review",
+              "orchestration-seam-followup-review",
+              "expose-generation-context-cuts",
+              "unlearn-operator-explanations",
+              "ped-system-map-refresh",
+              "generation-return-contracts",
+              "chat-context-return-contract",
+              "ped-indexed-read-efficiency",
+              "shared-domain-error-test-helper"
+            ],
+            "kind": "sweep-bundles-truncated",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "ts_offset": 581.573
+          },
+          {
+            "dw_ids": [
+              "dw-1406119c1375"
+            ],
+            "kind": "bundle-start",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "story_key": "s0-c0f93b593c27",
+            "ts_offset": 581.573
+          },
+          {
+            "branch": "branch-146a2ddae856",
+            "kind": "worktree-opened",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "path": "<redacted:str>",
+            "story_key": "s0-c0f93b593c27",
+            "ts_offset": 583.082
+          },
+          {
+            "blocking": true,
+            "kind": "plugin-hook",
+            "log_pos": 2155838,
+            "log_task": "story-6ac8ecf3ce5a",
+            "plugin": "npm-bootstrap",
+            "rc": 0,
+            "stage": "pre_worktree_setup",
+            "ts_offset": 609.697
+          },
+          {
+            "adapter": "codex",
+            "kind": "session-start",
+            "log_pos": 0,
+            "log_task": "story-bf2d074ca927",
+            "model": "gpt-6-astra",
+            "prompt_present": true,
+            "role": "dev",
+            "story_key": "s0-c0f93b593c27",
+            "task_id": "story-bf2d074ca927",
+            "ts_offset": 609.822
+          },
+          {
+            "kind": "session-synthesized-from-frontmatter",
+            "log_pos": 27085629,
+            "log_task": "story-bf2d074ca927",
+            "role": "dev",
+            "task_id": "story-bf2d074ca927",
+            "ts_offset": 4905.009
+          },
+          {
+            "kind": "spec-marker-repair-skipped",
+            "log_pos": 27085629,
+            "log_task": "story-bf2d074ca927",
+            "reason_present": true,
+            "spec": "spec-7739b766e6bd",
+            "story_key": "s0-c0f93b593c27",
+            "ts_offset": 4905.012
+          },
+          {
+            "kind": "session-end",
+            "log_pos": 27085629,
+            "log_task": "story-bf2d074ca927",
+            "status": "completed",
+            "task_id": "story-bf2d074ca927",
+            "tokens": 2632708,
+            "tokens_weighted": 339882,
+            "ts_offset": 4905.021
+          },
+          {
+            "kind": "spec-reconcile-skipped-out-of-tree",
+            "log_pos": 27085629,
+            "log_task": "story-bf2d074ca927",
+            "spec": "spec-7739b766e6bd",
+            "story_key": "s0-c0f93b593c27",
+            "ts_offset": 4905.026
+          },
+          {
+            "kind": "spec-deferrals-skipped-out-of-tree",
+            "log_pos": 27085629,
+            "log_task": "story-bf2d074ca927",
+            "spec": "spec-7739b766e6bd",
+            "story_key": "s0-c0f93b593c27",
+            "ts_offset": 4905.027
+          },
+          {
+            "attempt": 1,
+            "capture_error_present": false,
+            "command_index": 0,
+            "command_present": true,
+            "kind": "verify-command-result",
+            "log_pos": 27085629,
+            "log_task": "story-bf2d074ca927",
+            "output_tail_present": true,
+            "returncode": 0,
+            "stderr_bytes": 0,
+            "stderr_captured_bytes": 0,
+            "stderr_path_present": true,
+            "stderr_truncated": false,
+            "stdout_bytes": 5270,
+            "stdout_captured_bytes": 5270,
+            "stdout_path_present": true,
+            "stdout_truncated": false,
+            "story_key": "s0-c0f93b593c27",
+            "ts_offset": 4958.775,
+            "verification_sequence": 1,
+            "verification_stage": "dev"
+          },
+          {
+            "action": "proceed",
+            "attempt": 1,
+            "env_fault": false,
+            "kind": "dev-decision",
+            "log_pos": 27085629,
+            "log_task": "story-bf2d074ca927",
+            "reason_present": false,
+            "session_status": "completed",
+            "session_vanished": false,
+            "story_key": "s0-c0f93b593c27",
+            "ts_offset": 4958.778
+          },
+          {
+            "dw_ids": [
+              "dw-1406119c1375"
+            ],
+            "kind": "sweep-bundle-closed",
+            "log_pos": 27085629,
+            "log_task": "story-bf2d074ca927",
+            "story_key": "s0-c0f93b593c27",
+            "ts_offset": 4958.797
+          },
+          {
+            "epic": null,
+            "error_present": true,
+            "kind": "run-crash",
+            "log_pos": 27085629,
+            "log_task": "story-bf2d074ca927",
+            "message_present": true,
+            "ts_offset": 4958.83
+          }
+        ],
+        "escalation_count": 0,
+        "first_ts": 1788558816.5261362,
+        "kind_histogram": {
+          "bundle-start": 1,
+          "decision-skipped-unattended": 30,
+          "dev-decision": 1,
+          "plugin-hook": 1,
+          "plugins-active": 1,
+          "run-crash": 1,
+          "run-start": 1,
+          "s0-37e929c6406b-result": 1,
+          "session-end": 2,
+          "session-start": 2,
+          "session-synthesized-from-frontmatter": 1,
+          "spec-deferrals-skipped-out-of-tree": 1,
+          "spec-marker-repair-skipped": 1,
+          "spec-reconcile-skipped-out-of-tree": 1,
+          "sweep-bundle-closed": 1,
+          "sweep-bundles-truncated": 1,
+          "sweep-ledger-commit": 1,
+          "sweep-resolved-closed": 1,
+          "target-branch": 1,
+          "triage-decision": 1,
+          "verify-command-result": 1,
+          "worktree-opened": 1
+        },
+        "last_ts": 1788563775.356587,
+        "per_alias_event_counts": {
+          "story-6ac8ecf3ce5a": {
+            "bundle-start": 1,
+            "decision-skipped-unattended": 30,
+            "plugin-hook": 1,
+            "s0-37e929c6406b-result": 1,
+            "session-end": 1,
+            "session-start": 1,
+            "sweep-bundles-truncated": 1,
+            "sweep-ledger-commit": 1,
+            "sweep-resolved-closed": 1,
+            "triage-decision": 1,
+            "worktree-opened": 1
+          },
+          "story-bf2d074ca927": {
+            "dev-decision": 1,
+            "run-crash": 1,
+            "session-end": 1,
+            "session-start": 1,
+            "session-synthesized-from-frontmatter": 1,
+            "spec-deferrals-skipped-out-of-tree": 1,
+            "spec-marker-repair-skipped": 1,
+            "spec-reconcile-skipped-out-of-tree": 1,
+            "sweep-bundle-closed": 1,
+            "verify-command-result": 1
+          }
+        },
+        "plugin_error_count": 0,
+        "total_entries": 53
+      },
+      "n_tasks": 2,
+      "paused": false,
+      "paused_reason_present": false,
+      "paused_stage": null,
+      "phase_histogram": {
+        "done": 1,
+        "review-running": 1
+      },
+      "plugin_shared_keys": 0,
+      "policy": {
+        "adapter": {
+          "cleanup_session_on_finish": true,
+          "dev": {
+            "extra_args_count": 3,
+            "model": "gpt-6-astra",
+            "name": "codex",
+            "stop_without_result_nudges": null,
+            "usage_grace_s": null
+          },
+          "extra_args_count": 3,
+          "model": "gpt-6-astra",
+          "name": "codex",
+          "review": {
+            "extra_args_count": 3,
+            "model": "gpt-6-astra",
+            "name": "codex",
+            "stop_without_result_nudges": null,
+            "usage_grace_s": null
+          },
+          "stop_without_result_nudges": null,
+          "triage": {
+            "extra_args_count": 3,
+            "model": "gpt-6-astra",
+            "name": "codex",
+            "stop_without_result_nudges": null,
+            "usage_grace_s": null
+          },
+          "usage_grace_s": null
+        },
+        "cleanup": {
+          "archive_old": true,
+          "auto_clean_on_finish": true,
+          "clean_tmp": true,
+          "retention_days": 0,
+          "run_retention": 10,
+          "trim_artifacts": true
+        },
+        "dev": {
+          "skill": "bmad-dev-auto"
+        },
+        "gates": {
+          "mode": "none",
+          "on_escalation": "pause",
+          "retrospective": "notify"
+        },
+        "limits": {
+          "cache_read_weight": 0.1,
+          "dev_contract_nudge": true,
+          "dev_stall_grace_s": 600,
+          "dev_stall_nudges": 2,
+          "dev_stall_nudges_cap": 6,
+          "git_timeout_s": 120,
+          "max_dev_attempts": 2,
+          "max_followup_reviews": 1,
+          "max_review_cycles": 3,
+          "max_tokens_per_session": 4000000,
+          "max_tokens_per_story": 4000000,
+          "session_budget_grace_s": 240,
+          "session_budget_mode": "warn",
+          "session_timeout_min": 150,
+          "stop_without_result_nudges": 1,
+          "teardown_grace_s": 20,
+          "workflow_stall_nudges_cap": 3
+        },
+        "mux": {
+          "backend": "<redacted:str>"
+        },
+        "notify": {
+          "desktop": true,
+          "file": true
+        },
+        "operator": {
+          "enabled": true
+        },
+        "plugins": {
+          "enabled": [],
+          "settings": []
+        },
+        "review": {
+          "enabled": true,
+          "on_status_contradiction": "escalate",
+          "on_timeout": "retry",
+          "trigger": "always"
+        },
+        "scm": {
+          "branch_per": "run",
+          "commit_message_template_set": false,
+          "delete_branch": false,
+          "failed_diff_max_mb": 5,
+          "failed_diff_unlimited": false,
+          "isolation": "worktree",
+          "keep_failed": true,
+          "max_parallel": 1,
+          "merge_strategy": "merge",
+          "preserve_keep": 20,
+          "rollback_on_failure": false,
+          "seed_adapter_defaults": true,
+          "target_branch": "<redacted:str>",
+          "worktree_seed_count": 0
+        },
+        "stories": {
+          "source": "stories",
+          "spec_folder": "<redacted:str>"
+        },
+        "sweep": {
+          "auto": "never",
+          "max_bundles": 5,
+          "max_cycles": 5,
+          "max_migration_attempts": 2,
+          "max_triage_attempts": 2,
+          "repeat": false
+        },
+        "tui": {
+          "deferred_height": 0,
+          "left_width": 51,
+          "low_frame_rate": false,
+          "runs_height": 0,
+          "tasks_height": 0
+        },
+        "verify": {
+          "commands": [
+            "<redacted:str>"
+          ],
+          "stream_capture_kb": 256
+        }
+      },
+      "project_alias": "project-1da10985cd4b",
+      "repo_root_diverges": false,
+      "run_id": "20260904-145336-4d56",
+      "run_type": "sweep",
+      "session_tally": {
+        "by_role": {
+          "dev": 1,
+          "triage": 1
+        },
+        "by_status": {
+          "completed": 2
+        }
+      },
+      "started_date": "2026-09-04",
+      "stopped": false,
+      "sweep_cycle": 1,
+      "sweeps_refused": {},
+      "sweeps_triggered": [],
+      "tasks": [
+        {
+          "alias": "s0-37e929c6406b",
+          "attempt": 1,
+          "committed": false,
+          "deferred_with_reason": false,
+          "dw_count": 0,
+          "epic": 0,
+          "followup_review_recommended": false,
+          "generation": 0,
+          "n_sessions": 1,
+          "phase": "done",
+          "rearmed": false,
+          "resolved_redrive": false,
+          "review_cycle": 0,
+          "sessions": {
+            "by_role": {
+              "triage": 1
+            },
+            "by_status": {
+              "completed": 1
+            }
+          },
+          "spec_present": false,
+          "terminal": true,
+          "tokens": {
+            "cache_creation_tokens": 0,
+            "cache_read_tokens": 2505600,
+            "input_tokens": 91063,
+            "output_tokens": 13129,
+            "total": 2609792,
+            "weighted": 354752
+          },
+          "worktree_isolated": false
+        },
+        {
+          "alias": "s0-c0f93b593c27",
+          "attempt": 1,
+          "committed": false,
+          "deferred_with_reason": false,
+          "dw_count": 1,
+          "epic": 0,
+          "followup_review_recommended": false,
+          "generation": 0,
+          "n_sessions": 1,
+          "phase": "review-running",
+          "rearmed": false,
+          "resolved_redrive": false,
+          "review_cycle": 1,
+          "sessions": {
+            "by_role": {
+              "dev": 1
+            },
+            "by_status": {
+              "completed": 1
+            }
+          },
+          "spec_present": true,
+          "terminal": false,
+          "tokens": {
+            "cache_creation_tokens": 0,
+            "cache_read_tokens": 2547584,
+            "input_tokens": 72584,
+            "output_tokens": 12540,
+            "total": 2632708,
+            "weighted": 339882
+          },
+          "worktree_isolated": true
+        }
+      ],
+      "token_totals": {
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 5053184,
+        "input_tokens": 163647,
+        "output_tokens": 25669,
+        "total": 5242500,
+        "weighted": 694634
+      },
+      "warnings": []
+    }
+  ],
+  "schema_version": 1,
+  "tool_version": "0.11.1"
+}

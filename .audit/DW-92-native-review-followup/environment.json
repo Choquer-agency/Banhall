@@ -1,0 +1,25 @@
+{
+  "node --version": {
+    "exit_code": 0,
+    "output": "v24.19.0\n"
+  },
+  "npm --version": {
+    "exit_code": 0,
+    "output": "11.17.0\n"
+  },
+  "pwsh -NoProfile -Command $PSVersionTable.PSVersion.ToString()": {
+    "exit_code": 0,
+    "output": "7.6.5\n"
+  },
+  "bash --version": {
+    "exit_code": 0,
+    "output": "GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)\nCopyright (C) 2007 Free Software Foundation, Inc.\n"
+  },
+  "environment_hashes": {
+    "CI": null,
+    "NODE_OPTIONS": null,
+    "PUBLIC_CONVEX_URL": "3c97dc8463d1df8c6617bf30f5f5bd28421bf3c698c04a8181090afc4d48eac8",
+    "VITEST_MAX_THREADS": null,
+    "VITEST_MIN_THREADS": null
+  }
+}

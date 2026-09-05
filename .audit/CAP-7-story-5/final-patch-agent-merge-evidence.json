@@ -1,0 +1,7 @@
+{
+  "file": "node_modules/@convex-dev/agent/dist/UIMessages.js",
+  "sha256": "9428bd3a2dff05666f90ec9227e3719dc6e1e8325fcda3690e2c4cb1eea6213c",
+  "function": "combineUIMessages",
+  "line": 582,
+  "behavior": "Adjacent assistant messages with equal order merge parts and text into one UI message; the final status/metadata/agentName are copied, while the previous message identity is retained."
+}

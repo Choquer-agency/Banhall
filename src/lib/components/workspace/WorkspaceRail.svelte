@@ -119,6 +119,7 @@
     { href: "/admin/brain", label: "The Brain", icon: "brain", tone: "bg-blue-500" },
     { href: "/admin/ingestion", label: "OneDrive ingestion", icon: "ingestion", tone: "bg-cyan-500" },
     { href: "/admin/tags", label: "Project tags", icon: "tag", tone: "bg-orange-500" },
+    { href: "/admin/learning", label: "Learning health", icon: "usage", tone: "bg-primary-dark" },
     { href: "/admin/reviews", label: "QA reviews", icon: "reviews", tone: "bg-teal-500" },
     { href: "/admin/users", label: "Users & roles", icon: "users", tone: "bg-sky-500" },
     { href: "/admin/house-rules", label: "House rules", icon: "reviews", tone: "bg-rose-500" },

@@ -1,0 +1,108 @@
+{
+  "observed_at": "2026-09-04T21:18:59.345479+00:00",
+  "source_journal": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/journal.jsonl",
+  "source_journal_sha256": "95bc6657d8358b2ea897848474d44c628abaa835a0b23412e0d06b826e82bb63",
+  "source_journal_bytes": 22566,
+  "extraction": "Parse JSONL; select last run-resume through first subsequent session-start, preserving every intervening event. Snapshot journal may later append.",
+  "event_line_numbers": [
+    26,
+    31
+  ],
+  "events": [
+    {
+      "ts": 1788555973.8366022,
+      "kind": "run-resume",
+      "security_config_changed": false,
+      "code_root_changed": false,
+      "was_paused": "CRITICAL escalation from dev session: Status: blocked\nBlocking condition: patch verification failed. The unmodified `npm test` gate repeatedly times out in unrelated chat-context and form-control source-contract tests on this host.\n\nThe existing implementation already mirrors iterative generation: analyze once, persist the analysis before fanout, pass validated analysis to both candidates, and mark generation-owned Anthropic prefixes for caching. No runtime or test changes were required in this run.\n\nFiles changed:\n- This story: current baseline, review triage, follow-up flag and blocked verification result.\n- `.audit/CAP-10/evidence.md`: source inspection, revision provenance, matrix mapping and fresh gate results.\n- `.audit/CAP-10/decisions.tsv`: append-only inspection and verification decisions.\n- `.audit/CAP-10/rearm-*.log`: retained installation, failing attempts and passing command output.\n\nReview: 10 low documentation/evidence patches applied, 0 medium, 0 high; 0 new deferred items and 0 rejected items after deduplication. Follow-up review recommended: true (score 10 under the workflow formula). Four layers identified no runtime gap.\n\nVerification: local focused suite passed 27 tests; serial full suite passed all 1376 tests in 128 files with `npm test -- --maxWorkers=1 --testTimeout=30000`; type check passed with zero errors and warnings. Latest unmodified `npm test` passed 1374 tests and timed out in 2. The redundant post-documentation type check was stopped after that failure. Diff whitespace verification passed.\n\nThe six matrix cases are covered by executed tests. The existing action-chain deadline risk remains deferred; live provider cache hits are not claimed. See [verification evidence](../../../../../../.audit/CAP-10/evidence.md) for exact revisions, commands and output tails. No push, PR or deployment was performed.",
+      "cache_read_weight": 0.1,
+      "policy_changed": false
+    },
+    {
+      "ts": 1788555973.8967109,
+      "kind": "plugins-active",
+      "plugins": [
+        "npm-bootstrap"
+      ]
+    },
+    {
+      "ts": 1788555974.067157,
+      "kind": "resume-restart",
+      "story_key": "10",
+      "phase": "pending"
+    },
+    {
+      "ts": 1788555998.784277,
+      "kind": "worktree-opened",
+      "story_key": "10",
+      "branch": "bmad-loop/20260904-121631-a914",
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10"
+    },
+    {
+      "ts": 1788556113.16572,
+      "kind": "plugin-hook",
+      "plugin": "npm-bootstrap",
+      "stage": "pre_worktree_setup",
+      "rc": 0,
+      "blocking": true
+    },
+    {
+      "ts": 1788556113.395682,
+      "kind": "session-start",
+      "task_id": "10-dev-1-g2",
+      "role": "dev",
+      "adapter": "codex",
+      "model": "gpt-6-astra",
+      "story_key": "10",
+      "prompt": "/bmad-build-auto Spec folder: _bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/pipeline. Story id: 10.\nRead touchpoints.md row CAP-10. iterative.ts already does analyzer-once; mirror it. Prove one analyzer call for two candidates with a stubbed client.",
+      "log_task": "10-dev-1-g2",
+      "log_pos": 0
+    }
+  ],
+  "filesystem": {
+    "node_modules": {
+      "is_symlink": false,
+      "is_directory": true,
+      "is_file": false,
+      "mode": "drwxr-xr-x",
+      "realpath": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules"
+    },
+    ".svelte-kit": {
+      "is_symlink": false,
+      "is_directory": true,
+      "is_file": false,
+      "mode": "drwxr-xr-x",
+      "realpath": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/.svelte-kit"
+    },
+    ".svelte-kit/tsconfig.json": {
+      "is_symlink": false,
+      "is_directory": false,
+      "is_file": true,
+      "mode": "-rw-r--r--",
+      "realpath": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/.svelte-kit/tsconfig.json"
+    },
+    "node_modules/.bin/svelte-kit": {
+      "is_symlink": true,
+      "is_directory": false,
+      "is_file": true,
+      "mode": "lrwxr-xr-x",
+      "realpath": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@sveltejs/kit/svelte-kit.js"
+    },
+    "node_modules/.bin/tsc": {
+      "is_symlink": true,
+      "is_directory": false,
+      "is_file": true,
+      "mode": "lrwxr-xr-x",
+      "realpath": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/typescript/bin/tsc"
+    },
+    "node_modules/.bin/vitest": {
+      "is_symlink": true,
+      "is_directory": false,
+      "is_file": true,
+      "mode": "lrwxr-xr-x",
+      "realpath": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/vitest/vitest.mjs"
+    }
+  },
+  "pre_review_manifest_sha256": "883c509231cd17cec4496c306e2568645dc5cd6b83e76e01a4bd7a091f11a87d",
+  "note": "This historical real native session used pre-review manifest. Revised manifest has separate fixture and deployment proof; next fresh native worker will prove revised live lifecycle."
+}

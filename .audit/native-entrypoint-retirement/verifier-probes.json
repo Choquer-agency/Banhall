@@ -1,0 +1,74 @@
+{
+  "fixture_only": true,
+  "checks": [
+    {
+      "case": "actual reviewed source",
+      "expected_pass": true,
+      "actual_pass": true,
+      "issues": []
+    },
+    {
+      "case": "restored scripts/loop-parallel.py",
+      "expected_pass": false,
+      "actual_pass": false,
+      "issues": [
+        "retired entry point exists: scripts/loop-parallel.py"
+      ]
+    },
+    {
+      "case": "restored scripts/loop.sh",
+      "expected_pass": false,
+      "actual_pass": false,
+      "issues": [
+        "retired entry point exists: scripts/loop.sh"
+      ]
+    },
+    {
+      "case": "active skill caller",
+      "expected_pass": false,
+      "actual_pass": false,
+      "issues": [
+        "retired basename reference requires review: .agents/active/SKILL.md"
+      ]
+    },
+    {
+      "case": "relative factory caller",
+      "expected_pass": false,
+      "actual_pass": false,
+      "issues": [
+        "retired basename reference requires review: .factory/caller.sh"
+      ]
+    },
+    {
+      "case": "modified operator guide",
+      "expected_pass": false,
+      "actual_pass": false,
+      "issues": [
+        "retirement guide changed; inspect references and recovery safeguards",
+        "preserved gate/guide differs from reviewed bytes: docs/bmad-loop.md"
+      ]
+    },
+    {
+      "case": "empty native gate",
+      "expected_pass": false,
+      "actual_pass": false,
+      "issues": [
+        "preserved gate/guide differs from reviewed bytes: scripts/loop-verify.sh"
+      ]
+    },
+    {
+      "case": "uninspected tracked symlink",
+      "expected_pass": false,
+      "actual_pass": false,
+      "issues": [
+        "uninspected tracked symlink: tracked-caller"
+      ]
+    },
+    {
+      "case": "restored fixture",
+      "expected_pass": true,
+      "actual_pass": true,
+      "issues": []
+    }
+  ]
+}

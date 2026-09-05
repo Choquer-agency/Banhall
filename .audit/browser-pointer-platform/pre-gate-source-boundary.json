@@ -1,0 +1,82 @@
+{
+  "baseline": "8e022cf6eb8e737a00dff818c337ca01fd354414",
+  "trackedFilesChecked": 4789,
+  "allowedChanges": [
+    "src/lib/components/workspace/WorkspaceChrome.component.test.ts",
+    "vitest.component.config.ts"
+  ],
+  "unexpectedChanges": [],
+  "sourceHashes": {
+    "src/lib/components/workspace/WorkspaceChrome.component.test.ts": "5588dce6e0d5585774559e1bc96de388f12a5bc169d31358c69abae18c12d6f2",
+    "src/lib/components/workspace/WorkspaceChromePointer.component.test.ts": "e49bfe675558b77f78fb109a2e157e43007120ae62bf0652f67c798c3641b0bd",
+    "vitest.component.config.ts": "5bef635e41707470cab1eb78de35dbad5a0d889917ad74f2ed7b6bdb0ef9eced"
+  },
+  "symlinkChecks": [
+    {
+      "path": ".claude/skills/brandkit",
+      "kind": "symlink",
+      "matches": true
+    },
+    {
+      "path": ".claude/skills/design-taste-frontend",
+      "kind": "symlink",
+      "matches": true
+    },
+    {
+      "path": ".claude/skills/design-taste-frontend-v1",
+      "kind": "symlink",
+      "matches": true
+    },
+    {
+      "path": ".claude/skills/full-output-enforcement",
+      "kind": "symlink",
+      "matches": true
+    },
+    {
+      "path": ".claude/skills/gpt-taste",
+      "kind": "symlink",
+      "matches": true
+    },
+    {
+      "path": ".claude/skills/high-end-visual-design",
+      "kind": "symlink",
+      "matches": true
+    },
+    {
+      "path": ".claude/skills/image-to-code",
+      "kind": "symlink",
+      "matches": true
+    },
+    {
+      "path": ".claude/skills/imagegen-frontend-mobile",
+      "kind": "symlink",
+      "matches": true
+    },
+    {
+      "path": ".claude/skills/imagegen-frontend-web",
+      "kind": "symlink",
+      "matches": true
+    },
+    {
+      "path": ".claude/skills/industrial-brutalist-ui",
+      "kind": "symlink",
+      "matches": true
+    },
+    {
+      "path": ".claude/skills/minimalist-ui",
+      "kind": "symlink",
+      "matches": true
+    },
+    {
+      "path": ".claude/skills/redesign-existing-projects",
+      "kind": "symlink",
+      "matches": true
+    },
+    {
+      "path": ".claude/skills/stitch-design-taste",
+      "kind": "symlink",
+      "matches": true
+    }
+  ],
+  "firstPassCorrection": "Path.is_file follows symbolic links, so first pass misclassified 13 unchanged relative symlinks. Final check compares actual symlink target bytes."
+}

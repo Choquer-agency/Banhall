@@ -1,0 +1,53 @@
+{
+  "run_id": "20260904-121631-a914",
+  "worker": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10",
+  "worker_revision": "0f5bd6b1c9161d2da7f4e828976177fe6f87003a",
+  "manifest_sha256": "883c509231cd17cec4496c306e2568645dc5cd6b83e76e01a4bd7a091f11a87d",
+  "journal_events": [
+    {
+      "ts": 1788555973.8967109,
+      "kind": "plugins-active",
+      "plugins": [
+        "npm-bootstrap"
+      ]
+    },
+    {
+      "ts": 1788556113.16572,
+      "kind": "plugin-hook",
+      "plugin": "npm-bootstrap",
+      "stage": "pre_worktree_setup",
+      "rc": 0,
+      "blocking": true
+    },
+    {
+      "ts": 1788556113.395682,
+      "kind": "session-start",
+      "task_id": "10-dev-1-g2",
+      "role": "dev",
+      "adapter": "codex",
+      "model": "gpt-6-astra",
+      "story_key": "10",
+      "prompt": "/bmad-build-auto Spec folder: _bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/pipeline. Story id: 10.\nRead touchpoints.md row CAP-10. iterative.ts already does analyzer-once; mirror it. Prove one analyzer call for two candidates with a stubbed client.",
+      "log_task": "10-dev-1-g2",
+      "log_pos": 0
+    }
+  ],
+  "local_probes": [
+    {
+      "name": "tsc",
+      "link": "../typescript/bin/tsc",
+      "resolved": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/typescript/bin/tsc",
+      "exit_code": 0,
+      "stdout": "Version 5.9.3"
+    },
+    {
+      "name": "vitest",
+      "link": "../vitest/vitest.mjs",
+      "resolved": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/vitest/vitest.mjs",
+      "exit_code": 0,
+      "stdout": "vitest/4.1.10 darwin-arm64 node-v24.19.0"
+    }
+  ],
+  "lockfile_sha256": "d4213ef7b50aa850ea095dbe6c65b35306ae7589a90073c0e377147421a33dac",
+  "physical_worker_dependencies": true
+}

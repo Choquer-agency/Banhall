@@ -1,0 +1,3 @@
+# Independent GitHub release audit
+
+Agent `/root/browser_gate_diagnostic`, 2026-09-05 17:06 UTC, read-only. PR2 remained on dd787d4 and MERGEABLE/UNSTABLE. Old Typecheck & test passed. Vercel failed with only a generic GitHub-visible error; Preview Comments success is not deployment success. Main protection API returned Branch not protected; branch rules and rulesets were empty, and gh pr checks --required reported none. No failing check is enforced by GitHub. User contract still requires fresh Verification gate and Component suite (browser) successes on the final updated head. Deployment success remains unverified. No source, GitHub configuration or branch mutations performed.

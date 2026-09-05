@@ -7,13 +7,23 @@ import { v } from "convex/values";
 import { instrumentedAnthropic } from "./instrument";
 import { clientForModel } from "./providers";
 import type { GenerationClient } from "./openrouterCore";
-import { runAnalyzerAgent, type ContextDoc } from "./analyzerAgent";
+import { runAnalyzerAgent, parseTranscriptAnalysis, type TranscriptAnalysis } from "./analyzerAgent";
+import {
+  buildTrustedContext,
+  DEFAULT_CONTEXT_BUDGET,
+  describeContextCuts,
+  isInternalUploaderRole,
+  type ContextBudget,
+  type ContextDoc,
+  type TrustedContextReport,
+  type TrustedTranscriptPart,
+} from "./trustedContext";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
 import { runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
-import { CANDIDATE_MODELS, candidateModelsForMode } from "./model";
+import { MODEL, CANDIDATE_MODELS, candidateModelsForMode } from "./model";
 import { normalizeProviderError } from "./providers";
 import { buildTiptapDocument } from "../lib/tiptapReport";
 import {
@@ -174,7 +184,13 @@ export async function compressToFit(
 }
 
 export function toContextDocs(
-  documents: Array<{ category: string; fileName: string; content: string }>
+  documents: Array<{
+    category: string;
+    fileName: string;
+    content: string;
+    uploaderRole?: string;
+    sourceId?: Id<"generationSources">;
+  }>
 ): ContextDoc[] {
   return documents.map((document) => {
     let category: ContextDoc["category"] = "other";
@@ -190,7 +206,83 @@ export function toContextDocs(
       category,
       fileName: document.fileName,
       content: document.content,
+      // CAP-3: narrowed the same way the category is. Anything outside the
+      // role union — absent, unknown, legacy — stays absent, which
+      // `documentTrust` reads as client trust.
+      ...(isInternalUploaderRole(document.uploaderRole)
+        ? { uploaderRole: document.uploaderRole }
+        : {}),
+      ...(document.sourceId ? { sourceId: document.sourceId } : {}),
     };
+  });
+}
+
+/**
+ * The analyzer's user message for one frozen generation input.
+ *
+ * Deterministic in the frozen rows and the budget resolved by
+ * `getGenerationInput`. Entry actions record and send it once; legacy queued
+ * candidates rebuild it only when no shared analysis was supplied.
+ */
+export function buildAnalyzerContext(input: {
+  transcriptParts: TrustedTranscriptPart[];
+  contextDocs: Array<{
+    category: string;
+    fileName: string;
+    content: string;
+    // CAP-3: declared here, not merely passed through by a caller spreading
+    // the whole getGenerationInput result — `toContextDocs` reads it to derive
+    // the document's trust.
+    uploaderRole?: string;
+    sourceId?: Id<"generationSources">;
+  }>;
+  contextBudget?: ContextBudget;
+}): { userMessage: string; report: TrustedContextReport } {
+  return buildTrustedContext({
+    transcriptParts: input.transcriptParts,
+    documents: toContextDocs(input.contextDocs),
+    budget: input.contextBudget ?? DEFAULT_CONTEXT_BUDGET,
+  });
+}
+
+/** Wire shape of a resolved budget, for handing the recorded one to candidates. */
+export const contextBudgetValidator = v.object({
+  totalTokens: v.number(),
+  transcriptTokens: v.number(),
+  perDocumentTokens: v.number(),
+  maxDocuments: v.number(),
+});
+
+/** Documents the budget actually let through to the analyzer. */
+export function includedDocumentCount(report: TrustedContextReport): number {
+  return report.sources.filter(
+    (source) => source.kind === "document" && source.included
+  ).length;
+}
+
+/** Persist the budget outcome onto the frozen rows it describes. */
+export async function recordContextBudget(
+  ctx: ActionCtx,
+  generationId: Id<"generations">,
+  report: TrustedContextReport
+): Promise<void> {
+  const applied = report.sources.flatMap((source) =>
+    source.sourceId
+      ? [
+          {
+            sourceId: source.sourceId,
+            included: source.included,
+            includedLength: source.includedLength,
+            truncated: source.truncated,
+          },
+        ]
+      : []
+  );
+  if (!applied.length) return;
+  await ctx.runMutation(internal.generations.recordContextBudget, {
+    generationId,
+    budgetTokens: report.budget.totalTokens,
+    applied,
   });
 }
 
@@ -254,8 +346,11 @@ export async function runPipelineForModel(
     learningDigestIds?: Id<"learningDigests">[]
   ) => GenerationClient,
   modelId: string,
+  // Unbudgeted joined transcript: quote validation and provenance offsets must
+  // see exactly the frozen text, never the budgeted analyzer copy.
   transcript: string,
-  contextDocs: ContextDoc[],
+  // Prebuilt by buildAnalyzerContext — already delimited, guided and budgeted.
+  analyzerUserMessage: string,
   title: string,
   brainExemplars: BrainExemplarBlocks,
   lengthTarget: LengthTarget = "standard",
@@ -264,17 +359,17 @@ export async function runPipelineForModel(
   qaCalibrationDigestId?: Id<"learningDigests">,
   draftStyleDigestId?: Id<"learningDigests">,
   writerFlavor?: string,
-  styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES
+  styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES,
+  sharedAnalysis?: TranscriptAnalysis
 ): Promise<{
   content: string;
   agentOutputs: string;
   qaScore: number | null;
   claimDrafts: ProvenanceDraft[];
 }> {
-  const analysis = await runAnalyzerAgent(
+  const analysis = sharedAnalysis ?? await runAnalyzerAgent(
     anthropicFor("generation:analyzer"),
-    transcript,
-    contextDocs,
+    analyzerUserMessage,
     modelId,
     brainExemplars.analyzer
   );
@@ -460,9 +555,6 @@ export const generateReport = internalAction({
         throw new Error("Project science code is not a valid CRA T4088 line 206 code");
       }
       await log(describeTranscriptInput(input.transcriptParts));
-      if (contextDocs.length > 0) {
-        await log(`Using ${contextDocs.length} frozen contextual document(s), weighted by SR&ED priority.`);
-      }
 
       // Over-budget transcript sets are reduced to stored digests and frozen
       // as their own source rows before anything reads the transcript text;
@@ -486,6 +578,20 @@ export const generateReport = internalAction({
         input = condensed;
       }
       const transcript = input.transcript;
+
+      // Bound and delimit what the analyzer sees, once per generation, and
+      // record the outcome on the frozen rows before any candidate fans out.
+      // The validated result is handed to every candidate below.
+      const analyzerContext = buildAnalyzerContext(input);
+      await recordContextBudget(ctx, genId, analyzerContext.report);
+      // Report what the budget actually kept, not what was frozen: a writer
+      // told "using 15 documents" when 12 reached the model is being misled.
+      const includedDocs = includedDocumentCount(analyzerContext.report);
+      if (includedDocs > 0) {
+        await log(`Using ${includedDocs} frozen contextual document(s), weighted by SR&ED priority.`);
+      }
+      const cuts = describeContextCuts(analyzerContext.report);
+      if (cuts) await log(cuts);
 
       // BNH-10: pull gold-standard reference passages from The Brain once per
       // generation (shared across all candidate models). Extracted to
@@ -565,6 +671,35 @@ export const generateReport = internalAction({
 
       const { writerFlavor, styleOverrides } = await writerStylePromise;
 
+      // Compare analysis uses the default model, independent of pair order.
+      // Single mode preserves its selected model, as in iterative generation.
+      const analysisModel = input.candidateMode === "compare"
+        ? MODEL
+        : candidateModels[0]?.id ?? MODEL;
+      await log("Analyzing the transcript once for all candidate drafts.");
+      const analysis = await runAnalyzerAgent(
+        clientForModel(ctx, analysisModel, {
+          callSite: "generation:analyzer",
+          projectId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+          attribution: { generationId: genId },
+        }),
+        analyzerContext.userMessage,
+        analysisModel,
+        brainBlocks.analyzer
+      );
+      const serializedAnalysis = JSON.stringify(analysis);
+      await ctx.runMutation(internal.generations.saveIterativeArtifacts, {
+        generationId: genId,
+        analysis: serializedAnalysis,
+        brainBlocks: JSON.stringify({
+          blocks: brainBlocks,
+          styleGuidance: buildStyleGuidance(draftStyle, writerFlavor, styleOverrides ?? NO_STYLE_OVERRIDES),
+          ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
+          styleOverrides: styleOverrides ?? NO_STYLE_OVERRIDES,
+        }),
+      });
+
       const candidateLabel =
         candidateModels.length === 1 ? "candidate draft" : "candidate drafts";
       await log(
@@ -587,6 +722,10 @@ export const generateReport = internalAction({
             candidateRunId,
             generationId: genId,
             brainExemplars: brainBlocks,
+            analysis: serializedAnalysis,
+            // Retained for legacy analyzer fallback compatibility; shared
+            // analysis already reflects this recorded frozen-context budget.
+            contextBudget: analyzerContext.report.budget,
             ...(qaCalibration ? { qaCalibration } : {}),
             ...(draftStyle ? { draftStyle } : {}),
             ...(qaCalibrationDigestId ? { qaCalibrationDigestId } : {}),
@@ -614,6 +753,7 @@ export const generateCandidate = internalAction({
   args: {
     candidateRunId: v.id("generationCandidateRuns"),
     generationId: v.id("generations"),
+    analysis: v.optional(v.string()),
     brainExemplars: v.object({
       analyzer: v.string(),
       s242: v.string(),
@@ -626,6 +766,9 @@ export const generateCandidate = internalAction({
     draftStyleDigestId: v.optional(v.id("learningDigests")),
     writerFlavor: v.optional(v.string()),
     styleOverrides: v.optional(styleOverridesValidator),
+    // Resolved by generateReport when it recorded the budget report; absent
+    // only for a candidate scheduled before this field existed.
+    contextBudget: v.optional(contextBudgetValidator),
   },
   handler: async (ctx, args) => {
     const run = await ctx.runMutation(internal.generations.claimCandidateRun, {
@@ -660,12 +803,21 @@ export const generateCandidate = internalAction({
         },
       });
     try {
+      const sharedAnalysis = args.analysis === undefined
+        ? undefined
+        : parseTranscriptAnalysis(args.analysis);
+      const analyzerUserMessage = sharedAnalysis === undefined
+        ? buildAnalyzerContext({
+            ...input,
+            contextBudget: args.contextBudget ?? input.contextBudget,
+          }).userMessage
+        : "";
       const { content, agentOutputs, qaScore, claimDrafts } =
         await runPipelineForModel(
           clientFor,
           run.model,
           input.transcript,
-          toContextDocs(input.contextDocs),
+          analyzerUserMessage,
           input.title,
           args.brainExemplars,
           input.lengthTarget,
@@ -674,7 +826,8 @@ export const generateCandidate = internalAction({
           args.qaCalibrationDigestId,
           args.draftStyleDigestId,
           args.writerFlavor,
-          normalizeStyleOverrides(args.styleOverrides)
+          normalizeStyleOverrides(args.styleOverrides),
+          sharedAnalysis
         );
       const claims = await Promise.all(
         claimDrafts.map(async (claim) => {

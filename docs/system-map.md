@@ -106,6 +106,7 @@ erDiagram
   reports ||--o{ comments : ""
   reports ||--o{ chatProposals : ""
   reports ||--o{ writerReviews : ""
+  reports ||--o{ reviewDecisions : "internal-review completion, pinned to revision"
   reports ||--o{ agentChatThreads : ""
   generations ||--o{ reportCandidates : ""
   generations ||--o{ generationSources : "frozen input bytes"
@@ -126,8 +127,8 @@ stateDiagram-v2
   intake --> interview_complete
   interview_complete --> drafting
   drafting --> internal_review : also via workItems.create(confirmedStageChange)
-  internal_review --> edits : + handoff_assignee authority
-  internal_review --> ready_for_delivery : + handoff_assignee, requires promoted_branch (fails closed)
+  internal_review --> edits : + handoff_assignee authority, requires review_decision (return)
+  internal_review --> ready_for_delivery : + handoff_assignee, requires review_decision (approve) then promoted_branch (fails closed)
   edits --> client_review
   client_review --> revisions
   revisions --> ready_for_delivery : requires promoted_branch (fails closed)
@@ -139,7 +140,7 @@ stateDiagram-v2
   delivered --> revisions : note required
 ```
 
-Every stage write goes through `patchProjectWorkflowStage`, which moves the dashboard `stageCounts` bucket in the same transaction and appends a `projectEvents` row. `ready_for_delivery` and `delivered` fail closed because `reportBranches` and `productionOutcomes` do not exist: **no project can reach a terminal stage today (Q1)**.
+Every stage write goes through `patchProjectWorkflowStage`, which moves the dashboard `stageCounts` bucket in the same transaction and appends a `projectEvents` row. `ready_for_delivery` and `delivered` fail closed because `reportBranches` and `productionOutcomes` do not exist: **no project can reach a terminal stage today (Q1)**. The two internal-review completion edges also fail closed without a recorded reviewer decision (2026-09-04 amendment): `setWorkflowStage` requires a `reviewDecision` agreeing with the destination and writes one `reviewDecisions` row — reviewer, report, `revisionNumber`, `contentHash` — in the same transaction, typed `REVIEW_DECISION_REQUIRED` when absent and `INVALID_STATE` when the project has no report to pin. Checked before `promoted_branch` so it is observable on the approve edge.
 
 ## 7. Routes
 
@@ -279,7 +280,7 @@ sequenceDiagram
   A->>M: markTurnStarted (queued to running)
   A->>M: getChatContextV2 + writerProfiles
   A->>M: isTurnActive?
-  A->>C: streamText(system=prompt+grounding, tools, recentMessages 30)
+  A->>C: streamText(system=policy+writer style, messages=[evidence user msg], tools, recentMessages 30)
   C-->>W: listMessages/syncStreams deltas
   C->>T: tool call proposeEdit(targetText,newText)
   T->>S: runMutation(saveProposal)
@@ -355,13 +356,16 @@ flowchart LR
   WR -->|LIVE: pending queue, admin approves| BRAIN[(Brain RAG)]
   BRAIN -->|LIVE: retrieveBrainBlocks| PIPE
   PIPE -->|LIVE write| BP[(generations.brainProvenance)]
-  BP -.->|DEAD-END: zero readers| NW1((no reader))
-  PED[reports.postEditDistance query] -.->|DEAD-END: computed on read, never stored, no UI caller| NW2((no reader))
+  BP -->|LIVE: source use and associated judgments| LH
+  PED[reportEditDistance persisted milestone samples] --> LH[learningHealth.getHealth admin query]
+  RETRIEVE[searchBrainExemplars terminal result] -->|LIVE: best-effort recordRerankOutcome| RO[(rerankOutcomes)]
+  RO -->|LIVE: bounded observedAt window| LH
+  LH --> AL["/admin/learning: 30/90-day measured PED, source judgments, rerank outcomes"]
   PROV -.->|DEAD-END: no consumer joins provenance to outcomes| NW3((no reader))
   CRA[cra_letter / craOutcome] -.->|STUB: schema only, no retrieval or weighting| NW4((no reader))
 ```
 
-Read the solid arrows: the loop from writer signal to digest to prompt is live and governed. Read the dotted ones: nothing today can tell you whether the learning helps. Post-edit distance is computed but never stored, `brainProvenance` is written but never read, and CRA outcome signals are schema only. That is AD-12's job.
+Read the solid arrows: the loop from writer signal to digest to prompt is live and governed. Read the dotted ones: nothing today can tell you whether the learning helps. Persisted post-edit distance, source provenance with associated judgments, and prospective rerank outcomes now feed `/admin/learning`. These bounded observational signals do not establish whether learning causes better reports; prompt/digest outcome attribution remains unmeasured, and CRA outcome signals remain schema only.
 
 ## 12. Verdict: is it a step up over pasting into ChatGPT?
 
@@ -373,8 +377,8 @@ Read the solid arrows: the loop from writer signal to digest to prompt is live a
 | Knowledge is admin-governed; revocation is confirmed erasure | Yes | AD-6 |
 | Every model call is metered and attributed | Yes | AD-9 |
 | Style rules are tiered so CRA limits cannot be waived | Yes | AD-16 |
-| Learning is measurable (does the Brain or a digest reduce editing?) | No: write-only signals | AD-12 |
-| Client text cannot steer the model (trust boundary) | Partial: transcript unfenced, chat grounding in system prompt, trust by client-settable category | AD-11, AD-11a |
+| Learning is measurable (does the Brain or a digest reduce editing?) | Partial: observed editing, source judgments and rerank reliability; no causal attribution | AD-12 |
+| Client text cannot steer the model (trust boundary) | Partial: transcript fenced (CAP-2), trust from uploader role (CAP-3), chat evidence in a delimited user message (CAP-4); remaining CAP items open | AD-11, AD-11a |
 | Client identities are stripped before firm-wide knowledge | No | AD-13 |
 | Deleting a project erases its data | No: 8 of 49 tables, no blobs | AD-19 |
 | Egress to AI providers is registered and class-gated | No register; OpenRouter has no `data_collection: deny` | AD-20, AD-21 |
@@ -389,7 +393,7 @@ Summary: the workflow, provenance, and human-gating foundations are real and tes
 | # | Divergence | Why it matters |
 | --- | --- | --- |
 | 1 | `ready_for_delivery` and `delivered` fail closed | No project can be finished (Q1, product blocker) |
-| 9 | Transcript unfenced; chat grounding in system prompt; writer's notes may "govern how you work" via a client-settable category | Prompt injection channel; AD-11a is the cheap interim fix |
+| 9 | Transcript fencing, uploader-role trust and the chat evidence boundary landed (CAP-2, CAP-3, CAP-4); the rest of AD-11 is open | Prompt injection channel narrowed; remaining CAP items are the follow-up |
 | 11 | Verbatim client text and titles enter digests and the Brain | Client A's sentences and name can surface in client B's draft |
 | 12 | `brainProvenance` and post-edit distance are write-only | Cannot prove learning works or roll back a bad digest on evidence |
 | 39 | ~50 writes (delete document and blob, delete comment, research egress, chat spend, identity fields) need only "any role" | Any invited writer can act destructively on any client's project with no trail |
@@ -425,7 +429,7 @@ svelte 5.56.6, @sveltejs/kit 2.70.1, vite 8.1.5, tailwindcss 4.3.3, bits-ui 2.18
 ## 16. Where to go next
 
 1. Owner decisions taken 2026-09-04 (Q1, Q5, Q10, Q12, Q13, Q14). Still owner-level: Q2, Q3, Q6, Q11, and the Q12 threshold number.
-2. Ship AD-11a now (four small changes: fence the transcript, demote writer's notes to facts and framing, move chat grounding to a user message, one injection fixture).
+2. AD-11a shipped (transcript fenced, writer's notes demoted, chat grounding moved to a user message, injection fixtures); continue with the remaining AD-11 CAP items.
 3. Run the two Sprint 2 specs (`spec-ai-engine-sprint-2-boundary`, `spec-ai-engine-sprint-2-learn-chat`) through sprint planning; they build AD-11, AD-12, AD-13.
 4. New stories not in either spec: AD-19 erasure cascade, `reportBranches` + `productionOutcomes` (Q1), Owner-or-Admin interim gate (Q10), in-app alerts (Q12, Q13), CI codegen diff and build (AD-22).
 5. NFR evidence audit (`bmad-testarch-nfr`) once AD-11a and AD-19 land.

@@ -1,0 +1,29 @@
+{
+  "at": "2026-09-05T12:29:12.080355+00:00",
+  "private_commit": "f42c7f3322cf2d48a0bcd45597ddde14f084e888",
+  "integrated_commit": "f621540e7872261def967cb0921bf00d5d3cc986",
+  "manifest": "all entries verified",
+  "source_hashes": {
+    "convex/chatFeedback.ts": "3add4b42c7cf8ca141fcd78ccaccc6fe117d2599ed3d66e565fe556520914add",
+    "convex/chatFeedbackReadLimits.test.ts": "0fc3835aff7b4b3a65421366e487b3a7d4b179b2943bcd21de0cf3ea906c1b77",
+    "vitest.config.ts": "46f1a8f3856809d72340bcba349bb2712dc6591c1c73494ffe7db18b845ec951",
+    "vitest.component.config.ts": "5a1000bff4f304306bc754684dc8f9e392e3f4f1beb8f729071e4146524f4aa0",
+    "package-lock.json": "d4213ef7b50aa850ea095dbe6c65b35306ae7589a90073c0e377147421a33dac"
+  },
+  "review_diff": "tracked_diff exact committed production diff; new_files exact added source bytes",
+  "exits": {
+    ".audit/feedback-read-fix/whitespace.exit": 0,
+    ".audit/feedback-read-fix/loop-verify.exit": 0,
+    ".audit/feedback-read-fix/before.exit": 1,
+    ".audit/feedback-read-fix/loop-verify-final.exit": 0,
+    ".audit/feedback-read-fix/focused.exit": 0,
+    ".audit/feedback-read-fix/focused-final.exit": 0,
+    ".audit/feedback-read-fix/npm-ci.exit": 0,
+    ".audit/feedback-read-fix/component.exit": 0,
+    ".audit/feedback-read-fix/build-final.exit": 0,
+    ".audit/feedback-read-fix/build.exit": 0,
+    ".audit/feedback-read-fix/whitespace-final.exit": 0,
+    ".audit/feedback-read-fix/component-final.exit": 0
+  },
+  "process_correction": "Prior root verifier assumed nonexistent diff key and exited before serialized-diff receipt. Cherry-pick nonetheless ran in same orchestration cell. All manifest/source hashes had passed; this completed serialized-diff and exit verification before final acceptance or publication."
+}

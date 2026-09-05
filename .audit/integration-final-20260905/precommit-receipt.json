@@ -1,0 +1,22 @@
+{
+  "verified_product_revision": "569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c",
+  "protected_files_still_unchanged": 3273,
+  "only_original_tracked_change": "native-produced selected ledger statuses/resolutions",
+  "staged_files": 151,
+  "staged_bytes": 2906934,
+  "largest_staged": [
+    [
+      438417,
+      ".audit/integration-final-20260905/final-gates/source-before.json"
+    ],
+    [
+      430201,
+      ".audit/integration-final-20260905/combined-review.diff"
+    ],
+    [
+      417242,
+      ".audit/integration-final-20260905/source-before-gates.json"
+    ]
+  ],
+  "index_ledger_sha256": "9b6bc26f390c8a296b8f9815d488165689fe22f050f695b2e930fba1225d0294"
+}

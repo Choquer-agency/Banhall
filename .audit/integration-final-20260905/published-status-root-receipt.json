@@ -1,0 +1,31 @@
+{
+  "at": "2026-09-05T12:30:11.898332+00:00",
+  "private_commit": "4555939ad846c638e291b06fd74e9ff3b637f881",
+  "manifest": {
+    "baseline": "e3f23432121b6d3145cff7040c485ac28739a25f",
+    "sources": {
+      "src/lib/components/chat/AgentChatPanel.svelte": "5307bb513bf7eca39615b3cd017950188c78a9d26427533925b43db050be0c94",
+      "src/lib/components/chat/OptimisticSend.component.test.ts": "bac4cc1945a42182c2060b30401b2e94914e6662fa868d4bb68bc4f01de192ad"
+    }
+  },
+  "source_diff": "exact committed source/test diff matches reviewed bundle",
+  "whitespace": "source diff passes. Full commit diff-check reports only raw retained log blank lines at EOF; original log bytes preserved.",
+  "exits": {
+    "red": 1,
+    "fixture-navigation": 1,
+    "fixture-metadata": 1,
+    "component-after": 0,
+    "check": 0,
+    "component-before": 0,
+    "fixture-initial": 1,
+    "unit": 0,
+    "focused-green": 0
+  },
+  "fresh_layers": [
+    "blind",
+    "edge",
+    "verification",
+    "acceptance"
+  ],
+  "unresolved_findings": 0
+}

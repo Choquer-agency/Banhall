@@ -1,0 +1,11 @@
+{
+  "captured_at": "2026-09-04T19:32:44.619223-07:00",
+  "native_run_finished": true,
+  "ledger": "_bmad-output/implementation-artifacts/deferred-work.md",
+  "existing_prefix_preserved": true,
+  "before_sha256": "a726f4d6fc3e8e3b2a333b45d68af16e5612c0bcabc44cb87e5c4e9b4c609410",
+  "append_sha256": "a1f3e01853383735cbeefb2c332f174cb869354875a53f0f4a3a5320b5554108",
+  "after_sha256": "40a9df09a2c3821ba109aabc5c0d10c548d8f2810939abf619df1d171ed45c6c",
+  "new_bullets": 2,
+  "note": "Append only root BMAD review deferrals; no existing native closures/advisories/statuses changed."
+}

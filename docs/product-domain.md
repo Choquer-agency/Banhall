@@ -86,7 +86,7 @@ Per-edge policy is derived from the origin and destination stages:
 | Rule | Edges | Policy |
 |---|---|---|
 | Default authority | All edges unless overridden below | O, M, A |
-| Review completion | `internal_review` → `edits`, `internal_review` → `ready_for_delivery` | H additionally authorized (H, O, M, A) |
+| Review completion | `internal_review` → `edits`, `internal_review` → `ready_for_delivery` | H additionally authorized (H, O, M, A); a reviewer decision (`return` for `edits`, `approve` for `ready_for_delivery`) must be recorded atomically against the project's latest report revision, else typed `REVIEW_DECISION_REQUIRED` |
 | Reopen abandoned | `abandoned` → any stage | M, A only; audit note required |
 | Delivered administrative correction | `delivered` → `on_hold` | M, A only; audit note required |
 | Leaving delivered | `delivered` → any stage | Audit note required; existing outcome records remain immutable |
@@ -168,6 +168,7 @@ Rules:
 - Before the first post-amendment candidate is saved, the system freezes the pre-amendment active digest (or explicit absence) so deployment cannot silently change production behavior.
 - Personal digests cannot be published globally. Per-writer activation requires a separately approved scope and privacy contract.
 - Brain sources remain governed separately. Digest publication does not ingest report content into the Brain or alter deterministic CRA scoring rules.
+- The [2026-09-04 privacy amendment](#2026-09-04-privacy-at-selected-firm-wide-knowledge-boundaries-cap-1) defines the approved de-identification boundaries and the privacy review required to publish a digest.
 
 ## Role and capability matrix
 
@@ -1555,6 +1556,167 @@ it follow in `transcripts-2` through `transcripts-7`.
 - **Approval:** product owner requested several transcripts per project and a
   working two-hour transcript at the 2026-08-26 client meeting; recorded here
   before any code relies on the contract.
+
+### 2026-09-04 — Recorded reviewer decision on internal-review completion
+
+Transition-policy amendment. Origin: AI engine sprint 2 boundary spec
+(`_bmad-output/specs/spec-ai-engine-sprint-2-boundary`, story 7). Leaving
+`internal_review` was an unaudited stage flip: nothing recorded who judged the
+report, what they decided, or which revision they had actually read.
+
+- **What changes:** the two internal-review completion edges
+  (`internal_review` → `edits` and `internal_review` → `ready_for_delivery`)
+  carry a new `review_decision` requirement in the transition matrix. A
+  `setWorkflowStage` call across either edge must supply
+  `reviewDecision: { decision }`, and the decision must agree with the
+  destination — `edits` ⇒ `return`, `ready_for_delivery` ⇒ `approve`. Supplying
+  a decision on any other edge is a typed `INVALID_INPUT` rather than a silent
+  drop. No authority rule, note rule, OCC semantics, open-work check before
+  `abandoned`, or same-stage no-op changes; every other edge behaves exactly as
+  before.
+- **Implementation:** additive `reviewDecisions` table (`projectId`,
+  `reportId`, `reviewerId`, `revisionNumber`, `contentHash`, `decision`,
+  `toStage`, optional `note`, `createdAt`; `by_projectId` and `by_reportId`
+  indexes). `setWorkflowStage` resolves the project's latest report and writes
+  one decision row in the same transaction as the stage patch and the
+  `stage_changed` event — no second mutation, no scheduler hop. The row pins
+  `report.revisionNumber ?? 0` and `report.contentHash ?? sha256(content)`, so
+  a legacy report is pinned to revision 0 with a freshly computed hash. The
+  requirement is checked before the fail-closed `promoted_branch` check so it
+  is observable on the `ready_for_delivery` edge too. This story writes the
+  record only; no reader, query, or UI panel yet.
+- **New typed error:** `REVIEW_DECISION_REQUIRED` when the decision is absent
+  on a completion edge.
+- **No-report consequence:** a project in `internal_review` with no `reports`
+  row cannot leave through either completion edge — typed `INVALID_STATE`,
+  because a judgement cannot be pinned to a revision that does not exist. Such
+  a project can still move to any other stage (for example back to `drafting`)
+  under the unchanged default policy.
+- **Migration:** additive; no backfill and no field added to an existing table.
+  Historical completions have no decision row.
+- **Tests:** `convex/projectWorkflow.test.ts` (N×N matrix, missing decision on
+  both edges, contradictory decision, decision on an unrelated edge, missing
+  report, legacy report, happy path asserting the stored row and the single
+  `stage_changed` event); `convex/dashboardStageCounts.test.ts` and
+  `convex/workItems.test.ts` pass unmodified.
+- **Approval:** proposed 2026-09-04 from the approved sprint spec; recorded
+  here before the behavior change ships.
+
+### 2026-09-04: absolute blocking QA (CAP-8)
+
+
+The user approved CAP-8 as an absolute gate on filing readiness and client publishing for the current report revision and actual content. Missing because clauses on recognized uncertainty statements anywhere in section 242 and explicit false `cra_compliance.why_how_why_intact` or `cra_compliance.uncertainties_distinguished` in validated QA are non-waivable, including manager/admin and writer `reportSkeleton` overrides. This supersedes only the conflicting blocking-QA portion of the 2026-09-01 skeleton amendment. House-style opener/verbiage, banned words and repetition remain advisory with existing style waivers. Feedback and later passing scores cannot resolve a failure on unchanged content; human content corrections produce a new revision. Saving or restoring byte-identical content retains its known methodology failures on the resulting revision. Missing QA or missing compliance data alone is not a blocker.
+
+- **Scope and approval:** sprint 2 boundary CAP-8, story 8; product-owner invocation on 2026-09-04 explicitly resolved the policy as absolute, with no waiver.
+- **Compatibility:** additive `qaFindings` rows, no backfill; legacy reports are checked deterministically at readiness/publish. New post-QA revision references are optional for older callers, whose unpinned results cannot establish methodology findings.
+- **Authorization:** existing role/capability checks remain; `QA_BLOCKING` rejects publish before writes. Human workflow stages are unchanged.
+- **Tests:** `convex/qaBlocking.test.ts`, detector/prompt/extraction suites and existing project authorization tests.
+
+### 2026-09-04: Privacy at selected firm-wide knowledge boundaries (CAP-1)
+
+Records the approved [story 2 contract](../_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/2-de-identification-before-firm-wide-knowledge.md)
+for [CAP-1](../_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/SPEC.md#capabilities).
+The documentation obligation originated as DW42 in the learn/chat run; that
+run-local label is not a canonical ticket identifier.
+
+- **De-identification:** `convex/lib/deidentify.ts` applies best-effort,
+  project-record and regex matching, without a model call. The identifier set
+  is `clientName`, `title`, `sredTitle`, `writer`, `interviewer`, and
+  `interviewees`. Every project-record identifier string is trimmed; blank
+  values and values shorter than three characters are ignored, including
+  titles. Email and phone patterns are applied separately. Replacements use `[redacted]`,
+  `[redacted email]`, and `[redacted phone]`, preserving prose layout rather
+  than collapsing whitespace. False negatives are accepted in this sprint;
+  this is not a guarantee that all client identifiers are removed.
+- **Write boundaries:** `nominateFromReport` scrubs the report's plain-text
+  content and the project-title portion of its label before importing a
+  `brainSources` candidate. It still enters the pending approval queue.
+  `approveSectionDraft` scrubs `sectionEditEvents.draftText` and
+  `approvedText` before insertion and scrubs `ghostText` when patched later.
+  The edit ratio continues to use raw prose, and report/section prose itself
+  is unchanged by this scrub.
+- **Read boundary:** `proposalWordingEditEvents` retain their raw stored
+  `originalText` and `editedText`. `getProposalWordingEditsForDigest` scrubs
+  those fields when returning learning input, using the current project
+  record. If the project no longer exists, email and phone patterns still
+  apply. A renamed project's previous identifiers may survive this read.
+- **Digest instruction:** both QA-calibration and drafting-style distillation
+  prompts require generic rules and prohibit carrying company names, person
+  names, project titles, email addresses, or phone numbers from events into
+  rules, including identifiers missed by the best-effort scrub.
+- **Publication precondition:** an administrator with `settings.configure`
+  must explicitly submit `privacyReviewed: true` to `selectDigest` for every
+  non-null `digestId`, confirming review for client identifiers. This also
+  applies when restoring an older version or selecting the same version.
+  An absent or false flag rejects the publish operation before a selection
+  event is written. `digestId: null` still disables guidance, including a
+  rollback to no guidance, without privacy attestation; authorization and
+  the current-selection concurrency check still apply. The reviews page
+  holds a separate checkbox for each digest kind, gates its publish buttons,
+  and clears that kind's checkbox after successful publication. Disable
+  guidance is not gated by the privacy checkbox.
+- **Governance and compatibility:** candidates remain immutable and inactive
+  until administrator selection; personal digests cannot be published
+  globally. Existing selection-history and Brain-approval governance remain
+  unchanged. No schema field or persisted privacy-attestation field is added
+  to `learningDigestSelections`. Scrubbing is forward-only for the nomination
+  and section-event write boundaries; existing stored content is not
+  backfilled. CAP-1 does not extend scrubbing to other Brain import paths or
+  other free-text learning streams. Their residual privacy exposure remains
+  recorded in [story 2's deferred findings](../_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/2-de-identification-before-firm-wide-knowledge.md).
+- **Verification pointers:** `convex/lib/deidentify.test.ts`,
+  `convex/brainFeedback.test.ts`, `convex/generationLifecycle.test.ts`, and
+  `convex/learning.test.ts` cover the helper, nomination, section writes,
+  proposal reads, and publication gate. The per-kind checkbox and reset are
+  covered by `src/routes/admin/reviews/reviewsPublishGate.component.test.ts`.
+- **Approval:** records the already approved CAP-1 contract in AI engine
+  sprint 2 learn/chat story 2, as authorized for the 2026-09-04 failed-story
+  repair ([authorization record](../.audit/DW42/evidence.md#authorization-and-source-provenance)). No additional product
+  policy or capability is introduced by this documentation amendment.
+
+### 2026-09-04: Digest diversity and signal provenance (CAP-4)
+
+Records the [human-approved CAP-4 decision](../_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/decisions/digest-diversity-policy-2026-09-04.md)
+and [story 4 contract](../_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/4-digest-diversity-gate-and-signal-provenance.md).
+
+- Each stream reads a bounded recent window of up to 500 records before
+  applying meaningful-signal filters. Admission and exclusion counts cover only
+  records remaining after those filters, not the full feedback history.
+- Apply existing meaningful-signal filters first, then exclude records missing
+  writer or project attribution. The producer is the signal's author, never
+  the project creator, owner, approving administrator, or a placeholder.
+- Each stream independently needs at least two distinct producers and two
+  distinct projects among its attributed records. Omit streams that fail;
+  they cannot veto qualifying streams or pool their diversity with another
+  stream. Additional streams must use this same rule.
+- At least five admitted records are required overall. This minimum is shared
+  across qualifying streams. Below it, generation skips the model call and
+  creates no candidate.
+- The same admitted records determine prompt input, source count, exact signal
+  IDs, per-producer contributions, and freshness cutoff. Excluded records
+  remain intact and cannot advance the cutoff or cause redistillation when
+  admitted inputs have not changed. Existing cutoff deduplication remains.
+- Immutable candidates retain their admitted provenance and exclusion snapshot.
+  Excluded totals count unique records; missing-writer and missing-project
+  reason counts can overlap. Insufficient-diversity counts describe attributed
+  records omitted because their stream failed diversity.
+- A separate latest-attempt record per digest kind exposes admission details
+  and outcomes for insufficient inputs, no admitted feedback newer than the
+  last candidate cutoff, unsupported model rules, saved candidates, cutoff
+  deduplication, and failed generation. Generation failures record a safe
+  generic attempt outcome and rethrow the original failure for operational
+  handling; provider errors and secrets are not exposed in admission details. Administrators can inspect
+  it even when no candidate exists. Historical metadata stays unavailable;
+  it is never fabricated or backfilled.
+- Attribution IDs stay internal and are excluded from provider payloads.
+  Learning reads apply existing best-effort project-aware de-identification to
+  QA feedback, candidate comments, section edits, proposal wording edits, and
+  approved feedback prose. This extends CAP-1's read protection while retaining
+  source records and the helper's documented limitations.
+- Supported rules create unpublished candidates only. Compatibility freeze,
+  personal isolation, `settings.configure` access, separate administrator
+  selection, and per-publication privacy confirmation remain in force.
+  This amendment introduces no new permission or report-editing authority.
 
 ## Amendment process
 

@@ -1,0 +1,41 @@
+{
+  "source_files_verified": 3141,
+  "historical_screenshots_restored": [
+    {
+      "path": ".audit/DW-98-fix/implicit-A-retained.png",
+      "before": "a6a58a360643f7c1add66c5b43e83d6ba92fb068ae62ef3228c6169a22f5e172",
+      "capture": "7d46830ee4535afb9f770913e2e9bc37abab2f1d5a9e18b2d6e53b38507157e2",
+      "retained": ".audit/integration-final-20260905/canonical-recaptures/.audit/DW-98-fix/implicit-A-retained.png"
+    },
+    {
+      "path": ".audit/story-7/optimistic-after.png",
+      "before": "e092b1bbd2de36ee6b51caf1d9f86fa8070c4150b75b2a5c86d0db60f1b84b05",
+      "capture": "7be2b1801fb6e5099e60699c9c0205f0c9713d8bf65f9ed6e6d770cd74ff9a20",
+      "retained": ".audit/integration-final-20260905/canonical-recaptures/.audit/story-7/optimistic-after.png"
+    },
+    {
+      "path": ".audit/story-7/optimistic-scrolled-after.png",
+      "before": "25b92f3507a89356fbc330cccb712aaa041d6bbe8bd5592a3046da6892f0fbd5",
+      "capture": "0a32903a0f7895e9cf706f6521ba5f3a4a6ce93f1508a36a94da121deed66dcc",
+      "retained": ".audit/integration-final-20260905/canonical-recaptures/.audit/story-7/optimistic-scrolled-after.png"
+    },
+    {
+      "path": ".audit/story-7/retry-highlight-only.png",
+      "before": "7780e90f51f992a660c7c51375727cd3f04307272e70c4f1eac51d94eeaea165",
+      "capture": "d5214919e4f43a7f4bcb008325cc696099ee93cf855809e45fd39e520855bd72",
+      "retained": ".audit/integration-final-20260905/canonical-recaptures/.audit/story-7/retry-highlight-only.png"
+    },
+    {
+      "path": ".audit/story-7/retry-text-and-highlight.png",
+      "before": "43800bfd2c3c97af43b4722599c04c9d67d0a1b20b8660100e1e2092f54742ad",
+      "capture": "f6911a20e2982351b5526cd988fbca598bafdbb61dacb6cdf58f00ce70cd9130",
+      "retained": ".audit/integration-final-20260905/canonical-recaptures/.audit/story-7/retry-text-and-highlight.png"
+    },
+    {
+      "path": ".audit/story-7/second-overflow-after.png",
+      "before": "72be6d34dc4a3d755268ff1f02d605d9bd1373592731b542fd99ae414448db7f",
+      "capture": "4b880d9e6c0476d98f72c99a81ebe96f5d19c9fb03f8d7e62ba760bf110ebdc0",
+      "retained": ".audit/integration-final-20260905/canonical-recaptures/.audit/story-7/second-overflow-after.png"
+    }
+  ]
+}

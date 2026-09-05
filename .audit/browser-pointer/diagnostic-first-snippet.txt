@@ -1,0 +1,42 @@
+
+// Temporary real-browser diagnostic; preserved as audit text and removed before final gates.
+describe("pointer readiness diagnostic", () => {
+  it("observes both real transitions", async () => {
+    for (const coarse of [true, false]) {
+      await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: coarse });
+      const immediate = {
+        coarse: window.matchMedia("(pointer: coarse)").matches,
+        fine: window.matchMedia("(pointer: fine)").matches,
+      };
+      const start = performance.now();
+      await expectPointerState({ coarse });
+      console.info(JSON.stringify({ kind: "transition", desiredCoarse: coarse, immediate,
+        ready: { coarse: window.matchMedia("(pointer: coarse)").matches,
+          fine: window.matchMedia("(pointer: fine)").matches }, elapsedMs: performance.now() - start }));
+    }
+  });
+
+  it.each([true, false])("rejects the opposite of actual coarse=%s", async (coarse) => {
+    try {
+      await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: coarse });
+      await expectPointerState({ coarse });
+      const start = performance.now();
+      let failure: unknown;
+      try {
+        await expectPointerState({ coarse: !coarse });
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(Error);
+      if (!(failure instanceof Error)) throw new Error("Expected bounded wrong-state rejection");
+      expect(failure.message).toContain("timed out");
+      expect(window.matchMedia("(pointer: coarse)").matches).toBe(coarse);
+      expect(window.matchMedia("(pointer: fine)").matches).toBe(!coarse);
+      console.info(JSON.stringify({ kind: "negative-control", actualCoarse: coarse,
+        requestedCoarse: !coarse, elapsedMs: performance.now() - start, message: failure.message }));
+    } finally {
+      await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: false });
+      await expectPointerState({ coarse: false });
+    }
+  });
+});

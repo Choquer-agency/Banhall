@@ -1,3 +1,4 @@
+import { persistDeterministicFindings } from "./lib/qaFindings";
 import { query, mutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
@@ -12,6 +13,7 @@ import {
   snapshotAuditFields,
 } from "./lib/snapshots";
 import { domainError } from "./lib/contracts";
+import { recordReportEditDistance } from "./lib/editDistance";
 
 const MILESTONE_LABELS: Record<string, string> = {
   R0: "R0 draft",
@@ -252,6 +254,9 @@ export const createMilestoneSnapshot = mutation({
       createdByRole: "writer",
       createdAt: Date.now(),
     });
+    // BNH-10 / CAP-2: a milestone is one of the three points where the
+    // writer's divergence from the AI draft is worth freezing.
+    await recordReportEditDistance(ctx, report, "milestone");
     await pruneSnapshots(ctx, args.reportId);
     return id;
   },
@@ -306,6 +311,7 @@ export const restoreSnapshot = mutation({
       revisionNumber: revisionNumber + 1,
       updatedAt: now,
     });
+    await persistDeterministicFindings(ctx, report._id);
     await pruneSnapshots(ctx, report._id);
     return revisionNumber + 1;
   },

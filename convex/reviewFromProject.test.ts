@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
+import { sha256 } from "./lib/contracts";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -153,6 +154,8 @@ describe("createReviewFromProject", () => {
       "Line 244 — Work Performed"
     );
     expect(reviewPd?.processingStatus).toBe("ready");
+    // CAP-3: the acting internal user authored this review PD.
+    expect(reviewPd?.uploaderRole).toBe("writer");
 
     // The AI review is running against exactly that document.
     expect(state.reviews).toHaveLength(1);
@@ -162,6 +165,11 @@ describe("createReviewFromProject", () => {
       sourceFileName: "Alpha PD (report v2).txt",
       createdBy: writerId,
     });
+
+    if (!reviewPd || !state.report) throw new Error("Review artifacts missing");
+    expect(state.reviews[0].revisionNumber).toBe(0);
+    expect(state.reviews[0].contentHash).toBe(await sha256(reviewPd.content));
+    expect(state.reviews[0].contentHash).not.toBe(await sha256(state.report.content));
 
     // Every transcript of the source is inherited, in order, byte-identical
     // and with the source hash reused rather than recomputed.

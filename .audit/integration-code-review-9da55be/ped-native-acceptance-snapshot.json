@@ -1,0 +1,523 @@
+{
+  "state": {
+    "story_key": "dw-persisted-ped-native-followup",
+    "epic": 0,
+    "phase": "done",
+    "attempt": 1,
+    "review_cycle": 2,
+    "followup_reviews_spent": 1,
+    "generation": 0,
+    "followup_review_recommended": true,
+    "baseline_commit": "bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d",
+    "baseline_untracked": [],
+    "baseline_ledger_digest": "a8deb3473406d7cf90f89922f31c0e38b475f5b39f1b226a72189d1f8b7a0161",
+    "pre_harvest_ledger": null,
+    "pre_harvest_ledger_captured": false,
+    "post_engine_ledger_digest": null,
+    "harvest_wrote_ledger": false,
+    "ledger_changed_before_harvest": false,
+    "harvested_deferrals": [],
+    "bundle_closes_intended": [
+      "DW-93"
+    ],
+    "refiled_followups": [
+      {
+        "title": "Follow-up review still recommended for dw-persisted-ped-native-followup after the damping cap was spent",
+        "origin": "review-budget-followup",
+        "source_spec": "spec-dw-93-persisted-ped-native-followup.md",
+        "reason": "The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-162523-6e72; this entry preserves the lingering recommendation for a deliberate later review.",
+        "severity": "low"
+      }
+    ],
+    "story_closes_intended": [],
+    "board_advance_intended": null,
+    "accepted_dev_session_index": 0,
+    "harvest_carry_commit_pending": false,
+    "isolated_ledger_carried": true,
+    "spec_file": "_bmad-output/implementation-artifacts/spec-dw-93-persisted-ped-native-followup.md",
+    "dispatched_spec_file": null,
+    "dispatched_spec_snapshot": null,
+    "commit_sha": "b984822a8aeb70b7eb48a5d617ed18846392b1d2",
+    "operator_actions": [],
+    "defer_reason": null,
+    "preserve_ref": null,
+    "preserve_partial": false,
+    "rearmed": false,
+    "resolved_redrive": false,
+    "plan_checkpoint_pending": false,
+    "plan_review_owed": false,
+    "sentinel_kind": "",
+    "restore_patch": null,
+    "dw_ids": [
+      "DW-93"
+    ],
+    "bundle_file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/bundles/persisted-ped-native-followup/intent.md",
+    "worktree_path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-persisted-ped-native-followup",
+    "branch": "bmad-loop/20260904-162523-6e72",
+    "sessions": [
+      {
+        "task_id": "dw-persisted-ped-native-followup-dev-1",
+        "role": "dev",
+        "status": "completed",
+        "adapter": "codex",
+        "model": "gpt-6-astra",
+        "session_id": "01a06f13-930a-77c3-ab20-40cb08ef89b6",
+        "transcript_path": "/Users/johnnynguyen/.codex/sessions/2026/09/04/rollout-2026-09-04T17-59-08-01a06f13-930a-77c3-ab20-40cb08ef89b6.jsonl",
+        "usage": {
+          "input_tokens": 98904,
+          "output_tokens": 12618,
+          "cache_read_tokens": 5173632,
+          "cache_creation_tokens": 0
+        },
+        "result_json": {
+          "workflow": "auto-dev",
+          "story_key": "dw-persisted-ped-native-followup",
+          "spec_file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-persisted-ped-native-followup/_bmad-output/implementation-artifacts/spec-dw-93-persisted-ped-native-followup.md",
+          "baseline_commit": "bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d",
+          "status": "done",
+          "escalations": [],
+          "dw_ids": [
+            "DW-93"
+          ],
+          "followup_review_recommended": true
+        }
+      },
+      {
+        "task_id": "dw-persisted-ped-native-followup-review-1",
+        "role": "review",
+        "status": "completed",
+        "adapter": "codex",
+        "model": "gpt-6-astra",
+        "session_id": "01a06f23-0517-7d33-a757-2e04233666d1",
+        "transcript_path": "/Users/johnnynguyen/.codex/sessions/2026/09/04/rollout-2026-09-04T18-16-01-01a06f23-0517-7d33-a757-2e04233666d1.jsonl",
+        "usage": {
+          "input_tokens": 58752,
+          "output_tokens": 10574,
+          "cache_read_tokens": 1561984,
+          "cache_creation_tokens": 0
+        },
+        "result_json": {
+          "workflow": "auto-dev",
+          "story_key": "dw-persisted-ped-native-followup",
+          "spec_file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-persisted-ped-native-followup/_bmad-output/implementation-artifacts/spec-dw-93-persisted-ped-native-followup.md",
+          "baseline_commit": "bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d",
+          "status": "done",
+          "escalations": [],
+          "dw_ids": [
+            "DW-93"
+          ],
+          "followup_review_recommended": true
+        }
+      },
+      {
+        "task_id": "dw-persisted-ped-native-followup-review-2",
+        "role": "review",
+        "status": "completed",
+        "adapter": "codex",
+        "model": "gpt-6-astra",
+        "session_id": "01a06f29-a5e2-7e93-86a7-c285af803b3f",
+        "transcript_path": "/Users/johnnynguyen/.codex/sessions/2026/09/04/rollout-2026-09-04T18-23-15-01a06f29-a5e2-7e93-86a7-c285af803b3f.jsonl",
+        "usage": {
+          "input_tokens": 58732,
+          "output_tokens": 8895,
+          "cache_read_tokens": 1241344,
+          "cache_creation_tokens": 0
+        },
+        "result_json": {
+          "workflow": "auto-dev",
+          "story_key": "dw-persisted-ped-native-followup",
+          "spec_file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-persisted-ped-native-followup/_bmad-output/implementation-artifacts/spec-dw-93-persisted-ped-native-followup.md",
+          "baseline_commit": "bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d",
+          "status": "done",
+          "escalations": [],
+          "dw_ids": [
+            "DW-93"
+          ],
+          "followup_review_recommended": true
+        }
+      }
+    ],
+    "tokens": {
+      "input_tokens": 216388,
+      "output_tokens": 32087,
+      "cache_read_tokens": 7976960,
+      "cache_creation_tokens": 0
+    },
+    "token_budget_warned": false
+  },
+  "journal": [
+    {
+      "line": 123,
+      "entry": {
+        "ts": 1788569932.197435,
+        "kind": "bundle-start",
+        "story_key": "dw-persisted-ped-native-followup",
+        "dw_ids": [
+          "DW-93"
+        ],
+        "log_task": "dw-blocking-qa-native-followup-review-2-g1",
+        "log_pos": 1840479
+      }
+    },
+    {
+      "line": 124,
+      "entry": {
+        "ts": 1788569933.297346,
+        "kind": "worktree-opened",
+        "story_key": "dw-persisted-ped-native-followup",
+        "branch": "bmad-loop/20260904-162523-6e72",
+        "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-persisted-ped-native-followup",
+        "log_task": "dw-blocking-qa-native-followup-review-2-g1",
+        "log_pos": 1840479
+      }
+    },
+    {
+      "line": 126,
+      "entry": {
+        "ts": 1788569947.7750158,
+        "kind": "session-start",
+        "task_id": "dw-persisted-ped-native-followup-dev-1",
+        "role": "dev",
+        "adapter": "codex",
+        "model": "gpt-6-astra",
+        "story_key": "dw-persisted-ped-native-followup",
+        "prompt": "/bmad-build-auto Implement the deferred-work bundle described in `/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/bundles/persisted-ped-native-followup/intent.md` \u2014 it carries the intent and the verbatim ledger entries to resolve. Do NOT edit the deferred-work ledger; the orchestrator records resolution.",
+        "log_task": "dw-persisted-ped-native-followup-dev-1",
+        "log_pos": 0
+      }
+    },
+    {
+      "line": 127,
+      "entry": {
+        "ts": 1788570906.3043299,
+        "kind": "session-end",
+        "task_id": "dw-persisted-ped-native-followup-dev-1",
+        "status": "completed",
+        "tokens": 5285154,
+        "tokens_weighted": 628885,
+        "log_task": "dw-persisted-ped-native-followup-dev-1",
+        "log_pos": 3661174
+      }
+    },
+    {
+      "line": 128,
+      "entry": {
+        "ts": 1788570960.106366,
+        "kind": "verify-command-result",
+        "story_key": "dw-persisted-ped-native-followup",
+        "attempt": 1,
+        "verification_stage": "dev",
+        "verification_sequence": 1,
+        "command_index": 0,
+        "command": "bash scripts/loop-verify.sh",
+        "returncode": 0,
+        "output_tail": "  review-fix every path the uploader reads is a literal path\nok    review-fix the upload body path is wildcard-escaped\nok    regression banhall-uploader.ps1 never mentions ReparsePoint again\nok    zero-diag AC4 every root-is-a-file message stops the run from a Test-RootUsable state\nok    review-fix the uploader only claims a log was saved when a write succeeded\nok    zero-diag AC2 the log is truncated before the scan and the SCAN lines beat the zero exit\nok    zero-diag AC3 the cloud-only line is printed only when the count is above zero\nok    zero-diag AC1 the zero-found branch prints the formatter's lines and never a file name\nok    AC5 loop-verify.sh runs the harness under set -e\nok    AC5 an injected failing case exits 1 and stops a set -e gate\n\n50 passed, 0 failed\nok    AC1 walk classifies link/temp/dotfile/extension and keeps 3 candidates\nok    AC4 symlink to an allowed file is skipped and counted under link\nok    AC1 argument prefix is prepended to the relative path\nok    AC1 zero-result block reports walked, per-reason skips, extensions, OneDrive\nok    edge empty folder reports zeros and 'Extensions seen: none'\nok    AC1 extension histogram is capped at 8, ties broken alphabetically\nok    edge ext_of matches .NET GetExtension for dotfiles and bare names\nok    AC3 root_state answers ok / is_file / missing\nok    AC3 a file path prints 'That path is a file, not a folder' and exits 1\nok    AC3 a folder passes and a missing path reports 'does not exist'\nok    AC2 an unreadable file logs READ_ERROR and never calls the endpoint\nok    AC2 control: a readable file does reach the stubbed endpoint\nok    AC2 sha256_of returns nothing for an unreadable or missing file\nok    AC1 under_onedrive answers yes / no / unknown\nok    AC5 scripts/loop-verify.sh runs this harness exactly once\nok    AC5 an injected failing case exits non-zero\nok    shape banhall-uploader.sh uses no bash 4 constructs\nok    shape every function is defined above the lib-only guard\n\n18 passed, 0 failed\n",
+        "capture_error": null,
+        "stdout_path": "verify/verify-dw-persisted-ped-native-followup-dev-1-1-0.stdout.log",
+        "stdout_bytes": 5274,
+        "stdout_captured_bytes": 5274,
+        "stdout_truncated": false,
+        "stderr_path": "verify/verify-dw-persisted-ped-native-followup-dev-1-1-0.stderr.log",
+        "stderr_bytes": 0,
+        "stderr_captured_bytes": 0,
+        "stderr_truncated": false,
+        "log_task": "dw-persisted-ped-native-followup-dev-1",
+        "log_pos": 3661174
+      }
+    },
+    {
+      "line": 129,
+      "entry": {
+        "ts": 1788570960.10718,
+        "kind": "dev-decision",
+        "story_key": "dw-persisted-ped-native-followup",
+        "attempt": 1,
+        "session_status": "completed",
+        "action": "proceed",
+        "reason": "",
+        "env_fault": false,
+        "session_vanished": false,
+        "log_task": "dw-persisted-ped-native-followup-dev-1",
+        "log_pos": 3661174
+      }
+    },
+    {
+      "line": 130,
+      "entry": {
+        "ts": 1788570960.12144,
+        "kind": "sweep-bundle-closed",
+        "story_key": "dw-persisted-ped-native-followup",
+        "dw_ids": [
+          "DW-93"
+        ],
+        "log_task": "dw-persisted-ped-native-followup-dev-1",
+        "log_pos": 3661174
+      }
+    },
+    {
+      "line": 131,
+      "entry": {
+        "ts": 1788570960.1247518,
+        "kind": "session-start",
+        "task_id": "dw-persisted-ped-native-followup-review-1",
+        "role": "review",
+        "adapter": "codex",
+        "model": "gpt-6-astra",
+        "story_key": "dw-persisted-ped-native-followup",
+        "prompt": "/bmad-build-auto /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-persisted-ped-native-followup/_bmad-output/implementation-artifacts/spec-dw-93-persisted-ped-native-followup.md \u2014 do NOT modify, re-open, or rewrite existing deferred-work ledger entries; the orchestrator owns their status and resolution. sprint-status.yaml is owned by the orchestrator: never write it, and never revert a change to it. A row at done or awaiting-operator is the orchestrator's own bookkeeping \u2014 not a defect to fix, and not proof that the work is verified. If the story cannot be finished without a human decision, finalize the spec to status: blocked and say why. That is the hand-back channel; the board is not.",
+        "log_task": "dw-persisted-ped-native-followup-review-1",
+        "log_pos": 0
+      }
+    },
+    {
+      "line": 132,
+      "entry": {
+        "ts": 1788571394.880394,
+        "kind": "session-end",
+        "task_id": "dw-persisted-ped-native-followup-review-1",
+        "status": "completed",
+        "tokens": 1631310,
+        "tokens_weighted": 225524,
+        "log_task": "dw-persisted-ped-native-followup-review-1",
+        "log_pos": 1697618
+      }
+    },
+    {
+      "line": 133,
+      "entry": {
+        "ts": 1788571394.885547,
+        "kind": "review-result",
+        "story_key": "dw-persisted-ped-native-followup",
+        "cycle": 1,
+        "status": "done",
+        "followup_review_recommended": true,
+        "followup_damped": false,
+        "log_task": "dw-persisted-ped-native-followup-review-1",
+        "log_pos": 1697618
+      }
+    },
+    {
+      "line": 134,
+      "entry": {
+        "ts": 1788571394.889229,
+        "kind": "session-start",
+        "task_id": "dw-persisted-ped-native-followup-review-2",
+        "role": "review",
+        "adapter": "codex",
+        "model": "gpt-6-astra",
+        "story_key": "dw-persisted-ped-native-followup",
+        "prompt": "/bmad-build-auto /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-persisted-ped-native-followup/_bmad-output/implementation-artifacts/spec-dw-93-persisted-ped-native-followup.md \u2014 do NOT modify, re-open, or rewrite existing deferred-work ledger entries; the orchestrator owns their status and resolution. sprint-status.yaml is owned by the orchestrator: never write it, and never revert a change to it. A row at done or awaiting-operator is the orchestrator's own bookkeeping \u2014 not a defect to fix, and not proof that the work is verified. If the story cannot be finished without a human decision, finalize the spec to status: blocked and say why. That is the hand-back channel; the board is not.",
+        "log_task": "dw-persisted-ped-native-followup-review-2",
+        "log_pos": 0
+      }
+    },
+    {
+      "line": 135,
+      "entry": {
+        "ts": 1788571767.7175539,
+        "kind": "session-end",
+        "task_id": "dw-persisted-ped-native-followup-review-2",
+        "status": "completed",
+        "tokens": 1308971,
+        "tokens_weighted": 191761,
+        "log_task": "dw-persisted-ped-native-followup-review-2",
+        "log_pos": 1492502
+      }
+    },
+    {
+      "line": 136,
+      "entry": {
+        "ts": 1788571767.726165,
+        "kind": "review-result",
+        "story_key": "dw-persisted-ped-native-followup",
+        "cycle": 2,
+        "status": "done",
+        "followup_review_recommended": true,
+        "followup_damped": true,
+        "log_task": "dw-persisted-ped-native-followup-review-2",
+        "log_pos": 1492502
+      }
+    },
+    {
+      "line": 137,
+      "entry": {
+        "ts": 1788571825.987365,
+        "kind": "review-followup-damped",
+        "story_key": "dw-persisted-ped-native-followup",
+        "cycle": 2,
+        "cap": 1,
+        "refiled": "DW-95",
+        "re_review_capped": false,
+        "log_task": "dw-persisted-ped-native-followup-review-2",
+        "log_pos": 1492502
+      }
+    },
+    {
+      "line": 138,
+      "entry": {
+        "ts": 1788571826.2007732,
+        "kind": "story-done",
+        "story_key": "dw-persisted-ped-native-followup",
+        "commit": "b984822a8aeb70b7eb48a5d617ed18846392b1d2",
+        "log_task": "dw-persisted-ped-native-followup-review-2",
+        "log_pos": 1492502
+      }
+    },
+    {
+      "line": 139,
+      "entry": {
+        "ts": 1788571826.3392022,
+        "kind": "unit-merge-started",
+        "story_key": "dw-persisted-ped-native-followup",
+        "branch": "bmad-loop/20260904-162523-6e72",
+        "target": "codex/bmad-completion",
+        "strategy": "merge",
+        "source": "b984822a8aeb70b7eb48a5d617ed18846392b1d2",
+        "log_task": "dw-persisted-ped-native-followup-review-2",
+        "log_pos": 1492502
+      }
+    },
+    {
+      "line": 140,
+      "entry": {
+        "ts": 1788571826.502219,
+        "kind": "unit-merged",
+        "story_key": "dw-persisted-ped-native-followup",
+        "branch": "bmad-loop/20260904-162523-6e72",
+        "target": "codex/bmad-completion",
+        "strategy": "merge",
+        "source": "b984822a8aeb70b7eb48a5d617ed18846392b1d2",
+        "log_task": "dw-persisted-ped-native-followup-review-2",
+        "log_pos": 1492502
+      }
+    },
+    {
+      "line": 141,
+      "entry": {
+        "ts": 1788571833.119574,
+        "kind": "review-followup-carried",
+        "story_key": "dw-persisted-ped-native-followup",
+        "dw_ids": [],
+        "log_task": "dw-persisted-ped-native-followup-review-2",
+        "log_pos": 1492502
+      }
+    },
+    {
+      "line": 142,
+      "entry": {
+        "ts": 1788571833.122423,
+        "kind": "sweep-bundle-close-carried",
+        "story_key": "dw-persisted-ped-native-followup",
+        "dw_ids": [],
+        "log_task": "dw-persisted-ped-native-followup-review-2",
+        "log_pos": 1492502
+      }
+    },
+    {
+      "line": 143,
+      "entry": {
+        "ts": 1788571833.123861,
+        "kind": "bundle-start",
+        "story_key": "dw-research-phone-redaction-boundary",
+        "dw_ids": [
+          "DW-88"
+        ],
+        "log_task": "dw-persisted-ped-native-followup-review-2",
+        "log_pos": 1492502
+      }
+    },
+    {
+      "line": 144,
+      "entry": {
+        "ts": 1788571834.354042,
+        "kind": "worktree-opened",
+        "story_key": "dw-research-phone-redaction-boundary",
+        "branch": "bmad-loop/20260904-162523-6e72",
+        "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-research-phone-redaction-boundary",
+        "log_task": "dw-persisted-ped-native-followup-review-2",
+        "log_pos": 1492502
+      }
+    },
+    {
+      "line": 145,
+      "entry": {
+        "ts": 1788571847.60944,
+        "kind": "plugin-hook",
+        "plugin": "npm-bootstrap",
+        "stage": "pre_worktree_setup",
+        "rc": 0,
+        "blocking": true,
+        "log_task": "dw-persisted-ped-native-followup-review-2",
+        "log_pos": 1492502
+      }
+    }
+  ],
+  "live_verifier_checks": {
+    "python3 .audit/DW-93/verify-preservation.py": {
+      "exit": 1,
+      "stdout": "PRESERVED current a9c07bbffcb85ff36ccb7089a9927942700814d3940f21383648d20339d4b310 _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md\nPRESERVED historical ledger a8deb3473406d7cf90f89922f31c0e38b475f5b39f1b226a72189d1f8b7a0161 _bmad-output/implementation-artifacts/deferred-work.md\nPRESERVED current 87e2ae6d05dac3a7e518581cb2cd412b5f525f0854466bda838fa42fa5b6e520 convex/_generated/api.d.ts\nPRESERVED current f37431ceed31b0754fb2dbbf915b9117427478bd9f02d9f58d2610bd27e67d88 .audit/CAP-2-story-3/codegen.log\nPRESERVED current e10884f2dc21fc77daefe3c60ddf543de9ed6a04105800f0b1fb660a49c6a14c .audit/CAP-2-story-3/evidence.md\n",
+      "stderr": "FAIL Invocation SHA-256 mismatch: _bmad-output/implementation-artifacts/deferred-work.md\n"
+    },
+    "python3 .audit/DW-93/verify-preservation.py --staged": {
+      "exit": 1,
+      "stdout": "PRESERVED current a9c07bbffcb85ff36ccb7089a9927942700814d3940f21383648d20339d4b310 _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md\nPRESERVED historical ledger a8deb3473406d7cf90f89922f31c0e38b475f5b39f1b226a72189d1f8b7a0161 _bmad-output/implementation-artifacts/deferred-work.md\nPRESERVED current 87e2ae6d05dac3a7e518581cb2cd412b5f525f0854466bda838fa42fa5b6e520 convex/_generated/api.d.ts\nPRESERVED current f37431ceed31b0754fb2dbbf915b9117427478bd9f02d9f58d2610bd27e67d88 .audit/CAP-2-story-3/codegen.log\nPRESERVED current e10884f2dc21fc77daefe3c60ddf543de9ed6a04105800f0b1fb660a49c6a14c .audit/CAP-2-story-3/evidence.md\n",
+      "stderr": "FAIL Invocation SHA-256 mismatch: _bmad-output/implementation-artifacts/deferred-work.md\n"
+    },
+    "python3 .audit/DW-93/verify-preservation.py --stage": {
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: verify-preservation.py [-h] [--staged]\nverify-preservation.py: error: unrecognized arguments: --stage\n"
+    },
+    "python3 .audit/DW-93/verify-preservation.py --unknown": {
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: verify-preservation.py [-h] [--staged]\nverify-preservation.py: error: unrecognized arguments: --unknown\n"
+    },
+    "python3 -O .audit/DW-93/verify-preservation.py": {
+      "exit": 1,
+      "stdout": "PRESERVED current a9c07bbffcb85ff36ccb7089a9927942700814d3940f21383648d20339d4b310 _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md\nPRESERVED historical ledger a8deb3473406d7cf90f89922f31c0e38b475f5b39f1b226a72189d1f8b7a0161 _bmad-output/implementation-artifacts/deferred-work.md\nPRESERVED current 87e2ae6d05dac3a7e518581cb2cd412b5f525f0854466bda838fa42fa5b6e520 convex/_generated/api.d.ts\nPRESERVED current f37431ceed31b0754fb2dbbf915b9117427478bd9f02d9f58d2610bd27e67d88 .audit/CAP-2-story-3/codegen.log\nPRESERVED current e10884f2dc21fc77daefe3c60ddf543de9ed6a04105800f0b1fb660a49c6a14c .audit/CAP-2-story-3/evidence.md\n",
+      "stderr": "FAIL Invocation SHA-256 mismatch: _bmad-output/implementation-artifacts/deferred-work.md\n"
+    },
+    "python3 -O .audit/DW-93/verify-preservation.py --staged": {
+      "exit": 1,
+      "stdout": "PRESERVED current a9c07bbffcb85ff36ccb7089a9927942700814d3940f21383648d20339d4b310 _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md\nPRESERVED historical ledger a8deb3473406d7cf90f89922f31c0e38b475f5b39f1b226a72189d1f8b7a0161 _bmad-output/implementation-artifacts/deferred-work.md\nPRESERVED current 87e2ae6d05dac3a7e518581cb2cd412b5f525f0854466bda838fa42fa5b6e520 convex/_generated/api.d.ts\nPRESERVED current f37431ceed31b0754fb2dbbf915b9117427478bd9f02d9f58d2610bd27e67d88 .audit/CAP-2-story-3/codegen.log\nPRESERVED current e10884f2dc21fc77daefe3c60ddf543de9ed6a04105800f0b1fb660a49c6a14c .audit/CAP-2-story-3/evidence.md\n",
+      "stderr": "FAIL Invocation SHA-256 mismatch: _bmad-output/implementation-artifacts/deferred-work.md\n"
+    },
+    "python3 -O .audit/DW-93/verify-preservation.py --stage": {
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: verify-preservation.py [-h] [--staged]\nverify-preservation.py: error: unrecognized arguments: --stage\n"
+    },
+    "python3 -O .audit/DW-93/verify-preservation.py --unknown": {
+      "exit": 2,
+      "stdout": "",
+      "stderr": "usage: verify-preservation.py [-h] [--staged]\nverify-preservation.py: error: unrecognized arguments: --unknown\n"
+    }
+  },
+  "native_verify_outputs": {
+    "verify-dw-persisted-ped-native-followup-dev-1-1-0.stdout.log": {
+      "sha256": "da4cddbdff946945d2c39949c5ffebb754e47f94c4623c17543aba3b5f256019",
+      "bytes": 5274,
+      "tail": "\n> banhall-app@0.1.0 check\n> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json\n\nLoading svelte-check in workspace: /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-persisted-ped-native-followup\nGetting Svelte diagnostics...\n\nsvelte-check found 0 errors and 0 warnings\n\n> banhall-app@0.1.0 test\n> vitest run\n\n\n RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-persisted-ped-native-followup\n\n\n Test Files  148 passed (148)\n      Tests  1772 passed (1772)\n   Start at  18:15:35\n   Duration  18.90s (transform 4.34s, setup 0ms, import 8.68s, tests 10.53s, environment 3.34s)\n\nok    AC1 cloud placeholder (ReparsePoint attribute, empty LinkType) is a candidate\nok    AC2 symlink is skipped as link\nok    AC2 junction is skipped as link\nok    AC2 Test-RealLink is false for a placeholder and true for a symlink\nok    AC3 Word temp file is skipped as temp\nok    AC3 dotfile is skipped as dotfile\nok    AC3 disallowed extension is skipped as extension\nok    AC3 allowed plain file is a candidate\nok    AC3 extension match is case-insensitive\nok    edge link is checked before temp\nok    edge object without a LinkType property is not a link\nok    edge empty allowed list skips everything as extension\nok    edge missing or unset Attributes does not throw\nok    zero-diag AC3 Offline attribute is cloud-only\nok    zero-diag AC3 RecallOnDataAccess bit is cloud-only\nok    zero-diag AC3 a hydrated local file is not cloud-only\nok    zero-diag edge Test-CloudOnly tolerates a missing or unset Attributes\nok    zero-diag AC1 histogram counts by extension, most frequent first\nok    zero-diag edge histogram caps at top N and labels extensionless files\nok    zero-diag edge histogram of nothing is empty\nok    zero-diag AC1/AC5 formatter renders every required line for a zero-candidate scan\nok    zero-diag edge formatter prints an all-zero block for an empty folder\nok    zero-diag AC1 formatter never prints a file name\nok    zero-diag AC1 root under a sync root reports yes, case- and separator-insensitively\nok    zero-diag AC1 root outside every sync root reports no\nok    zero-diag AC1 no OneDrive env var at all reports unknown\nSKIP  AC4 dotfile sub-case - this platform hides dotfiles from Get-ChildItem without -Force\nok    AC4 exactly one candidate, the real .docx\nok    AC4 temp and extension skips are tallied\nok    AC4 the symlink is skipped as link\nok    AC4 walk reports counts and no errors\nok    AC4 a missing root yields zero candidates and a recorded error\nok    zero-diag AC1 the scan records an extension histogram of every file it walked\nok    zero-diag AC4 Test-RootUsable separates a folder, a file and a missing path\nok    review-fix a bracket-named root is usable and yields its candidate\nok    review-fix a wildcard read of that root is what loses it\nok    AC6 banhall-uploader.ps1 parses and stays Windows PowerShell 5.1 compatible\nok    AC6 uploader-lib.ps1 parses and stays Windows PowerShell 5.1 compatible\nok    AC6 run-tests.ps1 parses and stays Windows PowerShell 5.1 compatible\nok    AC6 one Get-UploadCandidates call site, inside the foreach over roots\nok    AC6 all three input modes converge on roots\nok    review-fix every path the uploader reads is a literal path\nok    review-fix the upload body path is wildcard-escaped\nok    regression banhall-uploader.ps1 never mentions ReparsePoint again\nok    zero-diag AC4 every root-is-a-file message stops the run from a Test-RootUsable state\nok    review-fix the uploader only claims a log was saved when a write succeeded\nok    zero-diag AC2 the log is truncated before the scan and the SCAN lines beat the zero exit\nok    zero-diag AC3 the cloud-only line is printed only when the count is above zero\nok    zero-diag AC1 the zero-found branch prints the formatter's lines and never a file name\nok    AC5 loop-verify.sh runs the harness under set -e\nok    AC5 an injected failing case exits 1 and stops a set -e gate\n\n50 passed, 0 failed\nok    AC1 walk classifies link/temp/dotfile/extension and keeps 3 candidates\nok    AC4 symlink to an allowed file is skipped and counted under link\nok    AC1 argument prefix is prepended to the relative path\nok    AC1 zero-result block reports walked, per-reason skips, extensions, OneDrive\nok    edge empty folder reports zeros and 'Extensions seen: none'\nok    AC1 extension histogram is capped at 8, ties broken alphabetically\nok    edge ext_of matches .NET GetExtension for dotfiles and bare names\nok    AC3 root_state answers ok / is_file / missing\nok    AC3 a file path prints 'That path is a file, not a folder' and exits 1\nok    AC3 a folder passes and a missing path reports 'does not exist'\nok    AC2 an unreadable file logs READ_ERROR and never calls the endpoint\nok    AC2 control: a readable file does reach the stubbed endpoint\nok    AC2 sha256_of returns nothing for an unreadable or missing file\nok    AC1 under_onedrive answers yes / no / unknown\nok    AC5 scripts/loop-verify.sh runs this harness exactly once\nok    AC5 an injected failing case exits non-zero\nok    shape banhall-uploader.sh uses no bash 4 constructs\nok    shape every function is defined above the lib-only guard\n\n18 passed, 0 failed\n"
+    },
+    "verify-dw-persisted-ped-native-followup-dev-1-1-0.stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "tail": ""
+    }
+  },
+  "historical_ledger_overlay_checks": {
+    "[]": {
+      "exit": 0,
+      "stdout": "PRESERVED current a9c07bbffcb85ff36ccb7089a9927942700814d3940f21383648d20339d4b310 _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md\nPRESERVED historical ledger a8deb3473406d7cf90f89922f31c0e38b475f5b39f1b226a72189d1f8b7a0161 _bmad-output/implementation-artifacts/deferred-work.md\nPRESERVED current 87e2ae6d05dac3a7e518581cb2cd412b5f525f0854466bda838fa42fa5b6e520 convex/_generated/api.d.ts\nPRESERVED current f37431ceed31b0754fb2dbbf915b9117427478bd9f02d9f58d2610bd27e67d88 .audit/CAP-2-story-3/codegen.log\nPRESERVED current e10884f2dc21fc77daefe3c60ddf543de9ed6a04105800f0b1fb660a49c6a14c .audit/CAP-2-story-3/evidence.md\nINVOCATION PRESERVED 2ec09928e0a2c2fcf3c8cf26cd9ed4230560bed7f3265432211fa8dfca2de387 _bmad-output/implementation-artifacts/deferred-work.md\nINVOCATION PRESERVED a9c07bbffcb85ff36ccb7089a9927942700814d3940f21383648d20339d4b310 _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md\nPASS staged equality for all five protected artifacts\nANCESTOR 3e575b7c68a80ef560b746be78e1b016e1dda750 -> bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d\nANCESTOR 5de0e9a389022afc4ee21f740fe6fdd0755fa9b8 -> bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d\nANCESTOR 740008e1369faaf6eab001f95efeb10a9e52d1e5 -> bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d\nAPI EXACT supported-codegen artifact 3e575b7c68a80ef560b746be78e1b016e1dda750; receipt 5de0e9a389022afc4ee21f740fe6fdd0755fa9b8\nFORMULA original helper text present; calculation statements and query arguments/auth/baseline unchanged; runtime parity is covered by PED tests\nPASS all preservation and provenance comparisons\n",
+      "stderr": "",
+      "method": "In-memory ledger read/hash/index overlay from a338f6a; all other artifacts and Git checks remain live. No disk writes."
+    },
+    "['-O']": {
+      "exit": 0,
+      "stdout": "PRESERVED current a9c07bbffcb85ff36ccb7089a9927942700814d3940f21383648d20339d4b310 _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md\nPRESERVED historical ledger a8deb3473406d7cf90f89922f31c0e38b475f5b39f1b226a72189d1f8b7a0161 _bmad-output/implementation-artifacts/deferred-work.md\nPRESERVED current 87e2ae6d05dac3a7e518581cb2cd412b5f525f0854466bda838fa42fa5b6e520 convex/_generated/api.d.ts\nPRESERVED current f37431ceed31b0754fb2dbbf915b9117427478bd9f02d9f58d2610bd27e67d88 .audit/CAP-2-story-3/codegen.log\nPRESERVED current e10884f2dc21fc77daefe3c60ddf543de9ed6a04105800f0b1fb660a49c6a14c .audit/CAP-2-story-3/evidence.md\nINVOCATION PRESERVED 2ec09928e0a2c2fcf3c8cf26cd9ed4230560bed7f3265432211fa8dfca2de387 _bmad-output/implementation-artifacts/deferred-work.md\nINVOCATION PRESERVED a9c07bbffcb85ff36ccb7089a9927942700814d3940f21383648d20339d4b310 _bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/3-persist-post-edit-distance-at-milestones.md\nPASS staged equality for all five protected artifacts\nANCESTOR 3e575b7c68a80ef560b746be78e1b016e1dda750 -> bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d\nANCESTOR 5de0e9a389022afc4ee21f740fe6fdd0755fa9b8 -> bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d\nANCESTOR 740008e1369faaf6eab001f95efeb10a9e52d1e5 -> bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d\nAPI EXACT supported-codegen artifact 3e575b7c68a80ef560b746be78e1b016e1dda750; receipt 5de0e9a389022afc4ee21f740fe6fdd0755fa9b8\nFORMULA original helper text present; calculation statements and query arguments/auth/baseline unchanged; runtime parity is covered by PED tests\nPASS all preservation and provenance comparisons\n",
+      "stderr": "",
+      "method": "In-memory ledger read/hash/index overlay from a338f6a; all other artifacts and Git checks remain live. No disk writes."
+    }
+  }
+}

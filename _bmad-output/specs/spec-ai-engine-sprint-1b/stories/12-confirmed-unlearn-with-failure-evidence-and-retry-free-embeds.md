@@ -105,7 +105,7 @@ deferred:
 - Erasure confirmation is a positive read, never an absence of throw: `brain.getEntry` returns `null` before deleting (already absent) or after `brain.delete` (confirmed). Anything else is a failure.
 - `unlearn_confirmed` is written exactly once per erased entry and only after confirmation or already-absent.
 - On failure: `ragEntryId` holds the un-erased remote id as evidence, the source stays non-approved, an `unlearn_failed` audit row is written, deletion-only remediation is scheduled (bounded), and the failure is rethrown from the action.
-- No path re-approves a revoked source, writes `ragEntryId` for a non-approved source, or schedules an embed as remediation.
+- No path re-approves a revoked source or schedules an embed as remediation. Writing `ragEntryId` for a non-approved source is allowed only as the specified unconfirmed-erasure failure evidence; a stale failure after confirmation must not restore it.
 - `api.brain.revokeSource` stays a `mutation` with unchanged args (`src/lib/components/admin/SourceRow.svelte:50` uses `useMutation`). No frontend file is edited.
 - Schema changes are additive only: `brainAuditLog.action` gains `unlearn_confirmed` and `unlearn_failed`. Nothing else.
 - Convex edits follow `convex/_generated/ai/guidelines.md`.
@@ -168,12 +168,14 @@ deferred:
 
 **Acceptance Criteria:**
 - Given the two new audit literals, when `npm run check` runs, then the `brainAuditLog` union is the only schema change and no other table or field is touched.
-- Given any erasure failure anywhere in the story, when the run settles, then no `unlearn_confirmed` row exists for that entry id and exactly one `unlearn_failed` row does.
+- Given an unconfirmed erasure attempt fails, when its bookkeeping settles against a still-existing non-approved source, then one `unlearn_failed` row records that failed attempt and no confirmation is written for that failure. If remediation later confirms erasure, exactly one `unlearn_confirmed` row exists per source and erased entry, with prior failure evidence retained; stale failure delivery after confirmation adds no failure evidence or retry.
 - Given remediation is scheduled after a failure, when the scheduled job runs, then it is `unlearnSource` (deletion only) and never `embedSource`, and the number of remediation attempts is bounded by the named cap.
 - Given `requeueAllApprovedEmbeds` or `removeSourcePermanently` calls `unlearnSource` without a `sourceId`, when erasure confirms, then no audit row is written and no `brainSources` row is patched.
 - Given a search hit whose `metadata.sourceId` points at a `revoked` (or deleted) source row, when the served results are assembled, then that hit is absent while approved and legacy (no `sourceId`) hits are unaffected; verified with the RAG search seam mocked to return the hit.
 
 ## Spec Change Log
+
+- 2026-09-04 retained-review clarification: failure evidence is per failed attempt before confirmation; eventual successful remediation records exactly one confirmation per source/entry. The non-approved id-write prohibition retains its already specified failure-evidence exception. No new policy or schema change.
 
 - 2026-09-02 plan checkpoint (Claude Fable 5.1, reviewer): approved with one widening amendment. The plan deferred the fact that an un-erased entry stays searchable until deletion succeeds; CAP-10 (c) and (f) require the source to be non-servable, and `retrieve.ts:219-228` already resolves `metadata.sourceId`, so the served-result status join is pulled into scope as matrix row (g). Deferred item removed accordingly. Erase seam, audit literals, idempotent revoke, no-throw `embedSource`, and the unified compensation path approved as planned. `brainAuditLog.reason` carries the failure error text; no new field.
 
@@ -263,3 +265,9 @@ Status: done
 - `eraseBrainEntry` is now unit-tested against a stubbed `brain` component, but never against the live `@convex-dev/rag` deployment; if the component tombstones a deleted entry rather than removing it, `getEntry` would keep returning non-null and every erasure would enter a permanently failing 5-attempt ladder.
 - The remediation ladder exhausts in about 15 minutes; a provider outage longer than that abandons the erasure until an admin re-revokes. The retained `ragEntryId` plus `unlearn_failed` rows are the only standing evidence, and nothing proactively surfaces a stuck erasure to an operator.
 - The two new audit actions render as raw slugs in the admin table (deferred — the intent forbids frontend changes).
+
+### 2026-09-04 retained independent-review repair
+
+The later independent review at `.audit/sprint1b-12-review/review.md` supersedes the historical stalled-review statement above. Its retained bookkeeping finding and two regression gaps are repaired: confirmation is deduplicated transactionally per source and exact erased entry using existing audit evidence, stale failure cannot restore an erased handle or schedule remediation, pending hits are covered before ranking, and failure after reapproval cannot write an id or audit row. Existing late compensation and historical confirmation compatibility remain covered. Failure acceptance prose now matches the already specified per-attempt evidence and eventual exactly-one confirmation.
+
+Actual baseline reproduction failed two regressions (four confirmations instead of one; stale failure restored the entry). Final focused tests: 27/27. Full native gate: 1,364/1,364 tests in 127 files, zero Svelte errors/warnings, 68 uploader checks, and Convex tsc green. Three fresh BMAD build patch-review layers completed; detailed decisions and command logs are in `.audit/sprint1b-12-repair/`. No schema/frontend change or deferred-ledger status mutation.

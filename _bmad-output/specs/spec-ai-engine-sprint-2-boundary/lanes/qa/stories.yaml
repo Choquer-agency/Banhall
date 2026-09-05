@@ -1,0 +1,7 @@
+- id: '8'
+  title: Blocking QA policy
+  description: CAP-8. Persist deterministic QA findings as rows; because_clause and CRA methodology blocking;
+    QA_BLOCKING in getFilingReadiness and publishForReview.
+  spec_checkpoint: false
+  invoke_dev_with: Read touchpoints.md row CAP-8. Open question in SPEC.md resolved as absolute (no waiver).
+    Do not restyle the QA rail; read-side may show the blocking flag.

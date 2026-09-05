@@ -1,0 +1,12 @@
+{
+  "verified": 55,
+  "restored": [
+    ".audit/story-7/followup-overflow-after.png",
+    ".audit/story-7/optimistic-after.png",
+    ".audit/story-7/optimistic-scrolled-after.png",
+    ".audit/story-7/retry-highlight-only.png",
+    ".audit/story-7/retry-text-and-highlight.png",
+    ".audit/story-7/second-overflow-after.png"
+  ],
+  "all_match": true
+}

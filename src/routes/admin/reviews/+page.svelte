@@ -2,12 +2,43 @@
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import { resolve } from "$app/paths";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import { goto } from "$app/navigation";
   import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
-  import BuildStamp from "$lib/components/BuildStamp.svelte";
+  import type { FunctionReturnType } from "convex/server";
+
+  type DigestHistory = FunctionReturnType<typeof api.learning.getDigestHistory>;
+  type Admission = DigestHistory["digests"][number]["admission"];
+  type LatestAttempt = DigestHistory["latestAttempt"];
+
+  function streamLabel(stream: string) {
+    switch (stream) {
+      case "qaItemFeedback": return "QA feedback";
+      case "candidateScores": return "Draft comments";
+      case "sectionEditEvents": return "Section edits";
+      case "proposalWordingEditEvents": return "Proposal wording edits";
+      case "brainFeedbackQueue": return "Approved writer feedback";
+      default: return stream;
+    }
+  }
+
+  function attemptOutcome(outcome: NonNullable<LatestAttempt>["outcome"]) {
+    switch (outcome) {
+      case "insufficient_inputs": return "Skipped: fewer than five admitted signals.";
+      case "unchanged_inputs": return "Skipped: no admitted feedback is newer than the last candidate cutoff.";
+      case "unsupported_rules": return "No candidate: no supported rules were produced.";
+      case "failed": return "Generation failed. No candidate was saved; published guidance is unchanged.";
+      case "saved": return "Candidate saved for administrator review.";
+      case "deduplicated": return "No new candidate: this input cutoff was already saved.";
+      default: {
+        const exhaustive: never = outcome;
+        return exhaustive;
+      }
+    }
+  }
 
   function scoreColor(n: number) {
     if (n >= 80) return "text-green-700";
@@ -32,6 +63,13 @@
   let showStyleHistory = $state(false);
   let changingDigest = $state<string | null>(null);
   let digestError = $state<string | null>(null);
+  // CAP-1: publishing a digest firm-wide needs an explicit human confirmation
+  // that it carries no client identifier. Per digest kind; never gates
+  // "Disable guidance", which must always stay reachable.
+  let privacyReviewed = $state<{ qa_calibration: boolean; draft_style: boolean }>({
+    qa_calibration: false,
+    draft_style: false,
+  });
 
   function digestDate(ms: number) {
     return new Date(ms).toLocaleString("en-CA", {
@@ -68,7 +106,15 @@
     changingDigest = `${kind}:${digestId ?? "disabled"}`;
     digestError = null;
     try {
-      await selectDigest({ kind, digestId, expectedSelectionId, reason });
+      await selectDigest({
+        kind,
+        digestId,
+        expectedSelectionId,
+        reason,
+        ...(digestId ? { privacyReviewed: privacyReviewed[kind] } : {}),
+      });
+      // Confirmation is per publish, never sticky across versions.
+      if (digestId) privacyReviewed[kind] = false;
     } catch (error) {
       digestError = error instanceof Error ? error.message : "Learning guidance could not be updated.";
     } finally {
@@ -76,6 +122,84 @@
     }
   }
 </script>
+
+
+{#snippet admissionDetails(admission: Admission)}
+  <div class="mt-4 border-t border-line pt-4 text-sm text-ink-muted">
+    <p class="text-label">Signal provenance and admission</p>
+    {#if admission}
+      <p class="mt-2 text-data">{admission.admittedCount} admitted · {admission.excludedCount} excluded</p>
+      <p class="mt-1 text-data">Admitted feedback cutoff: {admission.feedbackCutoff === null ? "None" : digestDate(admission.feedbackCutoff)}</p>
+      <p class="mt-2">Counts cover recent windows of up to 500 records per stream, with meaningful-signal filters applied before admission. They do not cover all feedback history.</p>
+      {#if admission.producers.length > 0}
+        <details class="group mt-3">
+          <summary class="flex min-h-11 items-center justify-between gap-3 rounded-lg px-2 text-primary hover:bg-primary-wash [&::-webkit-details-marker]:hidden">
+            <span>Admitted producer contributions ({admission.producers.length})</span>
+            <span aria-hidden="true" class="group-open:rotate-180">⌄</span>
+          </summary>
+          <ul class="mt-1 space-y-1">
+            {#each admission.producers as producer (producer.producerId)}
+              <li class="break-all text-data">{producer.producerId}: {producer.count} signal(s)</li>
+            {/each}
+          </ul>
+        </details>
+      {:else}
+        <p class="mt-1">No admitted producers.</p>
+      {/if}
+      <p class="mt-3">Each stream needs at least two producers and two projects. Missing-attribution reasons can overlap; excluded totals count each record once.</p>
+      <div class="mt-3 space-y-4">
+        {#each admission.streams as stream (stream.stream)}
+          <div class="border-t border-line pt-3">
+            <p class="break-all font-medium text-ink">{streamLabel(stream.stream)}</p>
+            <p class="mt-1 text-data">{stream.admittedCount} admitted · {stream.excludedCount} excluded · {stream.writerCount} attributed producer(s) · {stream.projectCount} attributed project(s)</p>
+            <p class="mt-1 text-data">Missing writer: {stream.missingWriterCount} · Missing project: {stream.missingProjectCount} · Insufficient stream diversity: {stream.insufficientDiversityCount}</p>
+            {#if stream.signalIds.length > 0}
+              <details class="group mt-2">
+                <summary class="flex min-h-11 items-center justify-between gap-3 rounded-lg px-2 text-primary hover:bg-primary-wash [&::-webkit-details-marker]:hidden">
+                  <span>Admitted signal IDs ({stream.signalIds.length})</span>
+                  <span aria-hidden="true" class="group-open:rotate-180">⌄</span>
+                </summary>
+                <ul class="mt-1 space-y-1">
+                  {#each stream.signalIds as signalId (signalId)}
+                    <li class="break-all text-data">{signalId}</li>
+                  {/each}
+                </ul>
+              </details>
+            {:else}
+              <p class="mt-1">No admitted signals in this stream.</p>
+            {/if}
+            {#if stream.producers.length > 0}
+              <details class="group mt-2">
+                <summary class="flex min-h-11 items-center justify-between gap-3 rounded-lg px-2 text-primary hover:bg-primary-wash [&::-webkit-details-marker]:hidden">
+                  <span>Stream producer contributions ({stream.producers.length})</span>
+                  <span aria-hidden="true" class="group-open:rotate-180">⌄</span>
+                </summary>
+                <ul class="mt-1 space-y-1">
+                  {#each stream.producers as producer (producer.producerId)}
+                    <li class="break-all text-data">{producer.producerId}: {producer.count} signal(s)</li>
+                  {/each}
+                </ul>
+              </details>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {:else}
+      <p class="mt-2">Signal provenance and exclusion details are unavailable for this historical version.</p>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet latestAttemptDetails(attempt: LatestAttempt)}
+  {#if attempt}
+    <section class="card mt-4 p-5" aria-label="Latest generation attempt">
+      <h3 class="text-label">Latest generation attempt</h3>
+      <p class="mt-1 text-data text-ink-muted">{digestDate(attempt.attemptedAt)}</p>
+      <p class="mt-2 text-sm text-ink">{attemptOutcome(attempt.outcome)}</p>
+      {@render admissionDetails(attempt.admission)}
+    </section>
+  {/if}
+{/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}
   <div class="flex flex-1 items-center justify-center bg-canvas">
@@ -93,7 +217,7 @@
         </div>
       {:else if data === null}
         <p class="mt-8 text-sm text-gray-400">Sign in to view consultant reviews.</p>
-      {:else if data.rows.length === 0 && data.itemRows.length === 0 && calibration !== undefined && style !== undefined && calibration.digests.length === 0 && style.digests.length === 0}
+      {:else if data.rows.length === 0 && data.itemRows.length === 0 && calibration !== undefined && style !== undefined && calibration.digests.length === 0 && style.digests.length === 0 && !calibration.latestAttempt && !style.latestAttempt}
         <p class="mt-8 text-sm text-gray-400">No consultant reviews, QA feedback, or learning candidates yet.</p>
       {:else}
         <!-- Summary -->
@@ -160,7 +284,7 @@
         {/if}
 
         <!-- Learning loop: what the QA reviewer currently applies -->
-        <div class="mt-10">
+        <section class="mt-10" aria-label="Learned QA calibration">
           <h2 class="text-xl font-semibold text-navy">Learned QA calibration</h2>
           <p class="mt-1 text-sm text-gray-500">
             Automatic distillation creates candidates only. An administrator must explicitly
@@ -204,6 +328,8 @@
               {/if}
             </div>
 
+            {@render latestAttemptDetails(calibration.latestAttempt)}
+
             {#if digestHistory.length > 0}
               <button
                 onclick={() => (showCalibrationHistory = !showCalibrationHistory)}
@@ -213,6 +339,12 @@
                 {showCalibrationHistory ? "Hide" : "Show"} previous versions ({digestHistory.length})
               </button>
               {#if showCalibrationHistory}
+                <div class="mt-3 rounded-xl border border-line bg-surface p-4">
+                  <Checkbox
+                    bind:checked={privacyReviewed.qa_calibration}
+                    labelText="I reviewed this version and it contains no client names, project titles, emails, or phone numbers."
+                  />
+                </div>
                 <div class="mt-3 space-y-3">
                   {#each digestHistory as digest (digest._id)}
                     <div class={`card p-5 ${digest._id === calibration.publishedDigestId ? "border-primary" : ""}`}>
@@ -228,22 +360,24 @@
                         {#if digest._id !== calibration.publishedDigestId && !digest.isPersonal}
                           <button
                             onclick={() => changePublishedDigest("qa_calibration", digest._id, calibration.selectionId, "Published after administrator review")}
-                            disabled={changingDigest !== null}
+                            disabled={changingDigest !== null || !privacyReviewed.qa_calibration}
+                            title={privacyReviewed.qa_calibration ? undefined : "Confirm the privacy review above first"}
                             class="min-h-11 rounded-lg bg-primary-selected px-3 text-xs font-semibold text-white hover:bg-primary-dark disabled:opacity-50"
                           >Publish this version</button>
                         {/if}
                       </div>
                       <pre class="mt-3 text-sm whitespace-pre-wrap text-gray-600">{digest.content}</pre>
+                      {@render admissionDetails(digest.admission)}
                     </div>
                   {/each}
                 </div>
               {/if}
             {/if}
           {/if}
-        </div>
+        </section>
 
         <!-- Learning loop: drafting style learned from candidate scoring -->
-        <div class="mt-10">
+        <section class="mt-10" aria-label="Learned drafting style">
           <h2 class="text-xl font-semibold text-navy">Learned drafting style</h2>
           <p class="mt-1 text-sm text-gray-500">
             Recurring critiques become review candidates. Only an administrator-published
@@ -287,6 +421,8 @@
               {/if}
             </div>
 
+            {@render latestAttemptDetails(style.latestAttempt)}
+
             {#if styleHistory.length > 0}
               <button
                 onclick={() => (showStyleHistory = !showStyleHistory)}
@@ -296,6 +432,12 @@
                 {showStyleHistory ? "Hide" : "Show"} previous versions ({styleHistory.length})
               </button>
               {#if showStyleHistory}
+                <div class="mt-3 rounded-xl border border-line bg-surface p-4">
+                  <Checkbox
+                    bind:checked={privacyReviewed.draft_style}
+                    labelText="I reviewed this version and it contains no client names, project titles, emails, or phone numbers."
+                  />
+                </div>
                 <div class="mt-3 space-y-3">
                   {#each styleHistory as digest (digest._id)}
                     <div class={`card p-5 ${digest._id === style.publishedDigestId ? "border-primary" : ""}`}>
@@ -311,19 +453,21 @@
                         {#if digest._id !== style.publishedDigestId && !digest.isPersonal}
                           <button
                             onclick={() => changePublishedDigest("draft_style", digest._id, style.selectionId, "Published after administrator review")}
-                            disabled={changingDigest !== null}
+                            disabled={changingDigest !== null || !privacyReviewed.draft_style}
+                            title={privacyReviewed.draft_style ? undefined : "Confirm the privacy review above first"}
                             class="min-h-11 rounded-lg bg-primary-selected px-3 text-xs font-semibold text-white hover:bg-primary-dark disabled:opacity-50"
                           >Publish this version</button>
                         {/if}
                       </div>
                       <pre class="mt-3 text-sm whitespace-pre-wrap text-gray-600">{digest.content}</pre>
+                      {@render admissionDetails(digest.admission)}
                     </div>
                   {/each}
                 </div>
               {/if}
             {/if}
           {/if}
-        </div>
+        </section>
 
         <!-- Per-item QA feedback for prompt tuning -->
         <div class="mt-10 flex items-end justify-between gap-4">

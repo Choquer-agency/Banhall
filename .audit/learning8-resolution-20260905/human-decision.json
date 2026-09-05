@@ -1,0 +1,15 @@
+{
+  "recorded_at": "2026-09-05T09:50:43.310480+00:00",
+  "user_reply": "yes",
+  "approved_question": "Should I use the recommended definition and resume?",
+  "approved_core": [
+    "failed rerank attempts divided by all rerank attempts",
+    "exclude deliberate skips",
+    "add tracking now",
+    "older unmeasured history unavailable"
+  ],
+  "user_authorized_resume": true,
+  "spec_status_unchanged": true,
+  "baseline_unchanged": true,
+  "canonical_companion": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/decisions/rerank-fallback-measurement-2026-09-05.md"
+}

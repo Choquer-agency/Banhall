@@ -1,0 +1,5 @@
+ts	phase	decision	why	evidence	result
+2026-09-05T08:27:13.081431+00:00	reproduce	Flush visible active publication before displacement	Exercise the discarded-identity path	src/lib/components/chat/RegenerateLimits.component.test.ts:81	baseline red reproduced
+2026-09-05T08:27:13.081647+00:00	test	Remove total details-subscription count assertion	ResearchFeed independently subscribes to listed research	src/lib/components/research/ResearchFeed.svelte:60	normal recovery tested with undefined direct metadata
+2026-09-05T08:27:13.081651+00:00	build	Retain locally submitted identity through active list presence	Preserve observation after newest20 displacement	src/lib/components/chat/AgentChatPanel.svelte:415	terminal-only release
+2026-09-05T08:27:13.081654+00:00	test	Supply empty research detail collections	Real ResearchFeed consumes runs sources and claims	focused-fixture-error.log	fixture corrected

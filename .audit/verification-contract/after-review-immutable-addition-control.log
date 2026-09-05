@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-verification-contract/.audit/verification-contract/verify-immutable.py", line 40, in <module>
+    assert new==authorized_new, f'unexpected/missing new files: {new ^ authorized_new}'
+           ^^^^^^^^^^^^^^^^^^^
+AssertionError: unexpected/missing new files: {'verification-contract-unexpected.txt'}

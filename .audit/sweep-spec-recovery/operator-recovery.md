@@ -1,0 +1,7 @@
+# Native sweep spec recovery
+
+Old run20260904-145336-4d56 crashed after a successful dev gate; its worker-only DW-92 close was never merged and does not establish acceptance. Native stop was used after preserving state/journal/ATTENTION/triage, workerHEAD/diff, and durable refcodex/preserve-qa-sweep-spec-crash-20260904. Backup: .bmad-loop/backups/sweep-spec-recovery-20260904. Worker commit a62e1760a9931c9451c34baa2df8af29fa1e9538 includes three QA extraction repairs, four red-to-green regressions, four review layers and ordinary1730-test gates. Its uncommitted ledger close remains only in the backup.
+
+The source audit proves first sweep dev discovery cannot find an adopted nested spec; rootfallback picked the concurrently merged browser spec. The poisoned absolute binding survives native resume, while resolve is only for genuine escalation. Fresh sweep is the supported recovery. Native control state and installed engine were never hand-edited.
+
+DW-92 and DW-93 retain original history and gain explicit recovery-note fields: new flat follow-up resultspecs in implementation-artifacts, original nested contracts and historical baselines retained as review context, new runtime baselines captured by normal build-auto, fresh reviews/gates/evidence required. QA and PED remain open. Integration mutations must remain frozen until the replacement sweep ends; readonly or ignored audit reports do not introduce competing specs.

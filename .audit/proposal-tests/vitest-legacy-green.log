@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests
+
+
+ Test Files  15 passed (15)
+      Tests  131 passed (131)
+   Start at  13:49:20
+   Duration  39.66s (transform 25.75s, setup 0ms, import 37.73s, tests 7.19s, environment 3.82s)
+

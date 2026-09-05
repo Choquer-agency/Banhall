@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-162523-6e72/worktrees/dw-blocking-qa-native-followup
+
+
+ Test Files  2 passed (2)
+      Tests  74 passed (74)
+   Start at  17:46:23
+   Duration  919ms (transform 443ms, setup 0ms, import 274ms, tests 606ms, environment 79ms)
+

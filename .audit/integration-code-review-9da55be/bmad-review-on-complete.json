@@ -1,0 +1,16 @@
+{
+  "command": [
+    "uv",
+    "run",
+    "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/_bmad/scripts/resolve_customization.py",
+    "--skill",
+    "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.agents/skills/bmad-code-review",
+    "--key",
+    "workflow.on_complete"
+  ],
+  "exit_code": 0,
+  "resolved": {
+    "workflow.on_complete": ""
+  },
+  "note": "No terminal customization. Initial6patches integrated;2preexistingdefers retained;6dismissed. SPEC kernels have noTasks/Status and combinedreview hasno storykey, so no native status/board rewrite."
+}

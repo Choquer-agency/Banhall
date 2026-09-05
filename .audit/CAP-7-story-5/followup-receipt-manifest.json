@@ -1,0 +1,20 @@
+{
+  "cap7-baseline-component.log": "b894cb274985f2fb68d57b4a1d48b900c1fead5145ca8e52dbb63fb370504389",
+  "cap7-final-check.log": "a9132cc77d613a0e911c9d93bb52671f7d14cd03f5627e40a00ecdbfbafde7f2",
+  "cap7-final-component.log": "5ae6f1ea7211431a4fa3a7993463461983dbb65e3ffc257471d67c63688dccee",
+  "cap7-final-focused.log": "46877199409da7b37b0f9af8f697e8a94541d83535b460444e18de4c6b7fa7be",
+  "cap7-final-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "cap7-final-unit.log": "56b08873c20e6d2eb9dfa71ce77d2d49d7f722428d660aea81af7471be3b4802",
+  "cap7-fresh-check.log": "a9132cc77d613a0e911c9d93bb52671f7d14cd03f5627e40a00ecdbfbafde7f2",
+  "cap7-fresh-component.log": "a4d6acad091b999b21ba407eaf2690e33ddf4d1c93efe2211aeb75543fdd5883",
+  "cap7-fresh-focused.log": "1ac066da4c10ec7a8973747769199be390d10ad125e07868822c04d07b64129a",
+  "cap7-fresh-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "cap7-fresh-unit.log": "20a49015b089ef4da32739841b565c584a9a6e3c75b60183cc7dae6d267be8f7",
+  "cap7-implementation-baseline-component.log": "a0b1019a56f1b32d79afcc8851e74b7757413b67fc5aeb1766e99eeb43b53e5c",
+  "cap7-subscription-after.log": "acbe5fec8e01e8d19ffd2625dd7a1521a4c2718f7766cc5d06d87a94c43d74fe",
+  "cap7-subscription-before.log": "eb0b1a22c9fcb7127d1439d2484cf5a081f31ca577e8367bacf5fe0a4a351a85",
+  "cap7-subscription-types.log": "a9132cc77d613a0e911c9d93bb52671f7d14cd03f5627e40a00ecdbfbafde7f2",
+  "cap7-unicode-after.log": "bc1430b542c385ccfe8dcad27c04d20eb42e556e46bddad7d605170eecfc8d3b",
+  "cap7-unicode-before.log": "12798a0b7a6750488adfe94ad736bbd197059d878ae3cb8b472022b2018b369c",
+  "fresh-chat-feedback-sources.png": "169100089befa49ab68d23e88c466cd850f090259e5859a063e408e9a1dfe85d"
+}

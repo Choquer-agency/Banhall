@@ -1,0 +1,49 @@
+{
+  "utc": "2026-09-05T00:54:57.897969+00:00",
+  "head_before": "54a898d44878bf911eec5fb70777982eae43efde",
+  "files": {
+    "convex/lib/tiptapReport.ts": {
+      "sha256": "798806db4384e9bb5957ff45bd280f02c9b946ad51e9e1f7d5bbd23efd6287a3",
+      "bytes": 9654,
+      "captured_head_blob_sha256": "36b0a82ce403300ee1af2ce048de6cb5e1a0080478a7e056e16796a0f0a748c8",
+      "working_snapshot_matches_captured_head": false
+    },
+    "convex/lib/tiptapReport.test.ts": {
+      "sha256": "c5ad8f5fc8a3890e813bfb2bc4ad388f51879b8282c5d5fef3b8b5df5c960557",
+      "bytes": 5415,
+      "captured_head_blob_sha256": "c5ad8f5fc8a3890e813bfb2bc4ad388f51879b8282c5d5fef3b8b5df5c960557",
+      "working_snapshot_matches_captured_head": true
+    },
+    "convex/ai/qaChecks.ts": {
+      "sha256": "de5dce8681e7afedc7766942d3c51f865b6ad7f3c294ee18c33c68b18c723768",
+      "bytes": 13145,
+      "captured_head_blob_sha256": "de5dce8681e7afedc7766942d3c51f865b6ad7f3c294ee18c33c68b18c723768",
+      "working_snapshot_matches_captured_head": true
+    },
+    "convex/ai/qaChecks.test.ts": {
+      "sha256": "14037caf89e2740510631d7ffd6c90f2609a8dfdbfb700161dd52b3bccdb0c39",
+      "bytes": 16061,
+      "captured_head_blob_sha256": "14037caf89e2740510631d7ffd6c90f2609a8dfdbfb700161dd52b3bccdb0c39",
+      "working_snapshot_matches_captured_head": true
+    },
+    "convex/qaBlocking.test.ts": {
+      "sha256": "b7928f1e2f7f698e25b4404a1f9bd020dde06f549d1689ced7374e64696fea6b",
+      "bytes": 36508,
+      "captured_head_blob_sha256": "927b9386d2840ca1ab72dd5f0c4ef3e20c12db3e1868ea2dc23fc89b5dd49444",
+      "working_snapshot_matches_captured_head": false
+    },
+    "_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/qa/stories/8-blocking-qa-policy.md": {
+      "sha256": "ce0426d5316bfd8ce713d0345573f2c172b9ecb71ddc41a867eb93759051c55b",
+      "bytes": 28233,
+      "captured_head_blob_sha256": "ce0426d5316bfd8ce713d0345573f2c172b9ecb71ddc41a867eb93759051c55b",
+      "working_snapshot_matches_captured_head": true
+    },
+    "_bmad-output/implementation-artifacts/spec-dw-92-blocking-qa-native-followup.md": {
+      "sha256": "862402d700ed2b44410bdb9ab044b8cc2612474a010268eb77e0afb5854f07ff",
+      "bytes": 15716,
+      "captured_head_blob_sha256": "9867f7e64eba02128f67d3f37f8b3dc283d10a0d9b85cde2f2eb1645752784e8",
+      "working_snapshot_matches_captured_head": false
+    }
+  },
+  "head_after": "54a898d44878bf911eec5fb70777982eae43efde"
+}

@@ -1,0 +1,10 @@
+{
+  "convex/ai/chatAgentV2.ts": "78ac113a0ec1c16295364e0f1d0478114fbff0601e36f48cb25fe74551072e30",
+  "convex/chatV2.ts": "59b9db036d6e181414ff9a0553e710bf4419fe7287709fdc3d717b427b6e0fe5",
+  "convex/ai/analyzerAgent.ts": "90196de036e99e6d09262045e6985fec1d4673a143ff5c9acc11c334f0aef5c6",
+  "convex/ai/pipeline.ts": "f7afd875025ade7d94a19a73339ba8b1eb1aa49e6f674cd6eb527393c0d24c99",
+  "convex/lib/auth.ts": "02893a5da10e7ee79c15299f5f4e0d773b7705d758ba8f019abf2c62e7fd9197",
+  "convex/projectWorkflow.ts": "6c15437435a21045021855fe9ef2a4680295c1a903f54ccefd3e5800cf360e73",
+  "convex/ai/qaChecks.ts": "de5dce8681e7afedc7766942d3c51f865b6ad7f3c294ee18c33c68b18c723768",
+  "convex/reports.ts": "e06a9b4b6d17264da64f193e191ada897ed53f4be68ee520fd1acbd7a7fc2174"
+}

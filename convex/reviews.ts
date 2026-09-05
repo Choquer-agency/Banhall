@@ -7,7 +7,7 @@ import {
   requireInternalProjectAccess,
   requireRole,
 } from "./lib/auth";
-import { domainError } from "./lib/contracts";
+import { domainError, sha256 } from "./lib/contracts";
 import { canOverrideQaSeverity } from "../shared/roles";
 import { resolveLiveUserLabel, userDisplayLabel } from "./lib/teamRoster";
 
@@ -63,9 +63,14 @@ export const submitWriterReview = mutation({
       )
       .first();
 
+    const provenance = {
+      revisionNumber: report.revisionNumber ?? 0,
+      contentHash: report.contentHash || (await sha256(report.content)),
+    };
     let reviewId: Id<"writerReviews">;
     if (existing) {
       await ctx.db.patch(existing._id, {
+        ...provenance,
         score,
         comment,
         aiScore: args.aiScore,
@@ -80,6 +85,7 @@ export const submitWriterReview = mutation({
         reportVersion: report.version,
         userId: user._id,
         writerName,
+        ...provenance,
         score,
         comment,
         aiScore: args.aiScore,
@@ -141,6 +147,9 @@ async function resolveQaTarget(
     const targetKey = await getReportCandidateTargetKey(ctx, target.reportId);
     return {
       targetKey,
+      reviewedContent: report.content,
+      revisionNumber: report.revisionNumber ?? 0,
+      contentHash: report.contentHash,
       projectId: report.projectId,
       reportId: report._id,
       generationId: report.generationId,
@@ -152,6 +161,9 @@ async function resolveQaTarget(
   const access = await requireInternalProjectAccess(ctx, candidate.projectId);
   return {
     targetKey: `candidate:${target.candidateId}`,
+    reviewedContent: candidate.content,
+    revisionNumber: 0,
+    contentHash: undefined,
     projectId: candidate.projectId,
     candidateId: candidate._id,
     generationId: candidate.generationId,
@@ -206,6 +218,8 @@ export const saveQaItemFeedback = mutation({
       domainError("NOT_AUTHORIZED", "Only managers can reclassify QA severity");
     }
     const value = {
+      revisionNumber: target.revisionNumber,
+      contentHash: target.contentHash || (await sha256(target.reviewedContent)),
       itemKind: args.itemKind,
       section: args.section,
       itemText: args.itemText,

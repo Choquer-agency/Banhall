@@ -1,0 +1,74 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/routes/workspaceRoutes.component.test.ts src/lib/components/ui/Button.component.test.ts src/lib/components/workspace/WorkspaceChrome.component.test.ts src/lib/components/workspace/WorkspaceHeader.component.test.ts src/lib/components/workspace/WorkspaceRail.component.test.ts
+
+2:46:41 PM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix
+
+2:46:41 PM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix - using default configuration.
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:52 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:53 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:54 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:54 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:54 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:54 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:54 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:54 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:54 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:54 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:54 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:54 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:54 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:54 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:54 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+2:46:54 PM [vite] (client) [console.warn] https://svelte.dev/e/derived_inert
+
+ Test Files  5 passed (5)
+      Tests  53 passed (53)
+   Start at  14:46:41
+   Duration  16.71s (transform 0ms, setup 672ms, import 10.75s, tests 3.34s, environment 0ms)
+

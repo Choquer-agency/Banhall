@@ -10,11 +10,21 @@
  * subscribed query; collapsed client lanes holding zero subscriptions).
  */
 import { getFunctionName, type FunctionReference } from "convex/server";
+// Bypass the component config's package alias for opt-in lifecycle tests.
+import { useQuery as realUseQuery } from "../../../node_modules/convex-svelte/dist/client.svelte.js";
+
+const realQueryNames = new Set<string>();
+export function __useRealQuery(name: string) {
+  realQueryNames.add(name);
+}
 
 const registry = $state<{
   queries: Record<string, unknown>;
+  errors: Record<string, unknown>;
+  stale: Record<string, boolean>;
   pages: Record<string, unknown[]>;
-}>({ queries: {}, pages: {} });
+  queryVariants: Record<string, Record<string, unknown>>;
+}>({ queries: {}, errors: {}, stale: {}, pages: {}, queryVariants: {} });
 
 // Mutation/action calls a suite can assert on, plus the value each one
 // resolves with — a wizard that destructures its mutation result needs one.
@@ -23,6 +33,7 @@ const calls: Array<{ name: string; args: unknown }> = [];
 // on click is not a live subscription and must not count against a budget.
 const clientQueries: Array<{ name: string; args: unknown }> = [];
 const results: Record<string, unknown> = {};
+const mutationErrors = new Map<string, unknown>();
 
 // Args getters per function name (one per mounted hook instance) — lets
 // tests observe which subscriptions are live (args !== "skip") and HOW MANY
@@ -37,6 +48,28 @@ function registerGetter(name: string, getArgs: (() => unknown) | undefined) {
 
 export function __setQueryData(name: string, data: unknown) {
   registry.queries[name] = data;
+  delete registry.errors[name];
+}
+
+export function __setQueryError(name: string, error: unknown) {
+  registry.errors[name] = error;
+}
+
+export function __setQueryStale(name: string, stale: boolean) {
+  registry.stale[name] = stale;
+}
+
+/** Seed an exact argument variant; unseeded variants retain the name-only fallback. */
+export function __setQueryDataForArgs(name: string, args: unknown, data: unknown) {
+  registry.queryVariants[name] ??= {};
+  registry.queryVariants[name][JSON.stringify(args) ?? ""] = data;
+}
+
+function queryData(name: string, args: unknown) {
+  const variants = registry.queryVariants[name];
+  if (!variants) return registry.queries[name];
+  const key = JSON.stringify(args) ?? "";
+  return Object.hasOwn(variants, key) ? variants[key] : registry.queries[name];
 }
 
 export function __setPaginatedRows(name: string, rows: unknown[]) {
@@ -44,7 +77,12 @@ export function __setPaginatedRows(name: string, rows: unknown[]) {
 }
 
 export function __setMutationResult(name: string, value: unknown) {
+  mutationErrors.delete(name);
   results[name] = value;
+}
+
+export function __setMutationError(name: string, error: unknown) {
+  mutationErrors.set(name, error);
 }
 
 /** Args of every call to `name`, in call order. */
@@ -58,10 +96,15 @@ export function __clientQueryCalls(name: string) {
 }
 
 export function __resetConvexStub() {
+  realQueryNames.clear();
   registry.queries = {};
+  registry.errors = {};
+  registry.stale = {};
+  registry.queryVariants = {};
   registry.pages = {};
   argsGetters.clear();
   calls.length = 0;
+  mutationErrors.clear();
   clientQueries.length = 0;
   for (const key of Object.keys(results)) delete results[key];
 }
@@ -102,7 +145,7 @@ export function useConvexClient() {
     async query(query: FunctionReference<"query">, args?: unknown) {
       const name = getFunctionName(query);
       clientQueries.push({ name, args });
-      return registry.queries[name];
+      return queryData(name, args);
     },
   };
 }
@@ -111,20 +154,27 @@ export function useQuery(query: FunctionReference<"query">, ...rest: unknown[]) 
   const name = getFunctionName(query);
   const getArgs = typeof rest[0] === "function" ? (rest[0] as () => unknown) : undefined;
   registerGetter(name, getArgs);
+  if (realQueryNames.has(name)) {
+    return realUseQuery(query, () => {
+      const args = getArgs?.();
+      if (args === "skip") return "skip";
+      return typeof args === "object" && args !== null && !Array.isArray(args) ? args : {};
+    });
+  }
   return {
     get data() {
       if (skipped(getArgs)) return undefined;
-      return registry.queries[name];
+      return queryData(name, getArgs?.());
     },
     get error() {
-      return undefined;
+      return skipped(getArgs) ? undefined : registry.errors[name];
     },
     get isLoading() {
       if (skipped(getArgs)) return true;
-      return registry.queries[name] === undefined;
+      return queryData(name, getArgs?.()) === undefined;
     },
     get isStale() {
-      return false;
+      return !skipped(getArgs) && (registry.stale[name] ?? false);
     },
   };
 }
@@ -157,6 +207,7 @@ function recordingCall(fn: unknown) {
   const name = getFunctionName(fn as FunctionReference<"mutation">);
   return async (args?: unknown) => {
     calls.push({ name, args });
+    if (mutationErrors.has(name)) throw mutationErrors.get(name);
     return results[name];
   };
 }

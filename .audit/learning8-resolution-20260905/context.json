@@ -1,0 +1,23 @@
+{
+  "story_key": "8",
+  "run_id": "20260904-133944-0158",
+  "spec_file": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/worktrees/8/_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/8-admin-learning-health-page.md",
+  "baseline_commit": "1b0511611f0766f90b61bb01afea011085fcc4cf",
+  "paused_reason": "CRITICAL escalation from dev session: Status: blocked\nBlocking condition: intent gap\n\nThe requested rerank fallback rate cannot be calculated from current aiUsage data. The producer stores only some successful reranks, does not store failed attempts, and legitimately skips reranking for short slates. Neither billing ratios nor absent provenance scores distinguish these states.\n\nUnanswered measurement questions:\n1. Is fallback rate failed attempted reranks divided by all attempted reranks, or vector-order retrievals divided by all Brain retrievals (including intentional skips)? These produce observably different values; the contract does not choose the population.\n2. Should this story introduce outcome telemetry and show a prospective rate with historical coverage marked unavailable, or should the requested panel explicitly report the rate unavailable until a separate telemetry change lands? Existing historical billing rows cannot reconstruct either rate accurately.\n\nRecommended resolution for human/orchestrator consideration: record success/failure outcomes for attempted reranks independently of billed token availability, keep intentional skips outside the denominator, preserve cost reporting, and label pre-instrumentation history unavailable. This recommendation has not been adopted as an approved contract or implemented.\n\nThe rendered workflow's step-02 instruction 5 requires HALT on unresolved intent gaps. No implementation/review dispatch occurred. The native deferred-work ledger remains untouched. Evidence and the exact inspected revision are retained in `.audit/story-8/evidence.md`.",
+  "escalations": [],
+  "resolution_path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat/.bmad-loop/runs/20260904-133944-0158/resolve/8/resolution.json",
+  "restore_supported": false,
+  "spec_reaches_the_redrive": false,
+  "redrive_base_ref": "sprint2-learn-chat",
+  "stories": {
+    "spec_folder": "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat",
+    "story": {
+      "id": "8",
+      "title": "Admin learning-health page",
+      "description": "CAP-3. /admin/learning with PED trend, exemplar usage by Brain source, rerank fallback rate; queries in new convex/learningHealth.ts with tests.",
+      "spec_checkpoint": false,
+      "done_checkpoint": false,
+      "invoke_dev_with": "Read touchpoints.md row CAP-3. Follow existing admin pages for layout (AdminWorkspacePage nav, PageBar). Charts: keep to simple SVG sparklines in the design system palette."
+    }
+  }
+}

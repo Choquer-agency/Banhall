@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { canUseIndustry, industrySlug } from "../shared/industries";
 
 describe("industry creation authorization", () => {

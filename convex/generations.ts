@@ -1,3 +1,5 @@
+import { extractReportSections } from "./lib/tiptapReport";
+import { persistDeterministicFindings, persistMethodologyFindings, reportQaRef } from "./lib/qaFindings";
 import {
   query,
   mutation,
@@ -32,9 +34,11 @@ import {
 } from "../shared/generationModels";
 import { randomComparePair, resolveCompareModels } from "./ai/model";
 import { findActiveGeneration } from "./lib/activeGeneration";
-import { defaultModelId } from "./appSettings";
+import { analyzerContextBudget, defaultModelId } from "./appSettings";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { sectionMetrics } from "./lib/lineLimits";
+import { deidentify } from "./lib/deidentify";
+import { recordReportEditDistance } from "./lib/editDistance";
 import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
 import {
   buildTranscriptPromptText,
@@ -498,6 +502,9 @@ async function reserveGeneration(
       contentHash: await sha256(content),
       truncated: content.length !== document.content.length,
       originalLength: document.content.length,
+      // CAP-3: trust is pinned to the reservation, never re-read live.
+      // Absent (legacy document rows) means client trust downstream.
+      ...(document.uploaderRole ? { uploaderRole: document.uploaderRole } : {}),
       capturedAt: now,
     });
   }
@@ -867,12 +874,58 @@ export const getGenerationInput = internalQuery({
           const separator = source.label.indexOf(":");
           const category = separator >= 0 ? source.label.slice(0, separator) : "other";
           return {
+            sourceId: source._id,
             category,
             fileName: separator >= 0 ? source.label.slice(separator + 1) : source.label,
             content: source.content,
+            // CAP-3: frozen at reservation. Absent = client trust.
+            ...(source.uploaderRole ? { uploaderRole: source.uploaderRole } : {}),
           };
         }),
+      // Analyzer context budget as configured right now. Each candidate
+      // re-reads this query, so an admin retune mid-generation does reach
+      // later candidates and can disagree with the budget already recorded on
+      // the source rows — the recorded report describes the run that wrote it.
+      contextBudget: await analyzerContextBudget(ctx),
     };
+  },
+});
+
+/**
+ * Record what the analyzer's context budget did with each frozen source row
+ * (convex/ai/trustedContext.ts). Additive: capture-time facts (`content`,
+ * `contentHash`, `truncated`, `originalLength`) are never rewritten.
+ */
+export const recordContextBudget = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    budgetTokens: v.number(),
+    applied: v.array(
+      v.object({
+        sourceId: v.id("generationSources"),
+        included: v.boolean(),
+        includedLength: v.number(),
+        truncated: v.boolean(),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    for (const entry of args.applied) {
+      const row = await ctx.db.get(entry.sourceId);
+      // A row deleted mid-generation, or an id from another generation, is
+      // skipped rather than thrown: the budget report is telemetry, and
+      // failing here would kill an otherwise-good generation.
+      if (!row || row.generationId !== args.generationId) continue;
+      await ctx.db.patch(entry.sourceId, {
+        contextBudget: {
+          budgetTokens: args.budgetTokens,
+          included: entry.included,
+          includedLength: entry.includedLength,
+          truncated: entry.truncated,
+        },
+      });
+    }
+    return null;
   },
 });
 
@@ -985,6 +1038,16 @@ async function createGeneratedReportArtifacts(
     generatedAt: now,
     updatedAt: now,
   });
+  await persistDeterministicFindings(ctx, reportId, candidate.agentOutputs);
+  const createdReport = await ctx.db.get(reportId);
+  if (createdReport) {
+    let outputs: unknown;
+    try { outputs = JSON.parse(candidate.agentOutputs ?? "{}"); }
+    catch { /* Malformed initial QA is not compliance evidence. */ }
+    if (outputs && typeof outputs === "object" && "qa" in outputs) {
+      await persistMethodologyFindings(ctx, createdReport, outputs.qa);
+    }
+  }
   await ctx.db.insert("reportSnapshots", {
     projectId: candidate.projectId,
     reportId,
@@ -1000,6 +1063,11 @@ async function createGeneratedReportArtifacts(
     createdByRole: "system",
     createdAt: now,
   });
+  // BNH-10 / CAP-2: freeze the (zero) post-edit distance at candidate
+  // selection. This is the single choke point for every "generated" baseline
+  // that belongs to a report, so all three candidate paths are covered here.
+  const report = await ctx.db.get(reportId);
+  if (report) await recordReportEditDistance(ctx, report, "candidate_selection");
   return reportId;
 }
 
@@ -1550,12 +1618,29 @@ export const getIterativeSectionInput = internalQuery({
   },
 });
 
-/** Input bundle for the post-assembly QA pass (iterative reports). */
+/** Capture the active attempt even when there is no report prose to evaluate. */
+export const getPostQaAttempt = internalQuery({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    return generation?.postQaStatus === "running"
+      ? { startedAt: generation.postQaStartedAt ?? null }
+      : null;
+  },
+});
+
+/** Input bundle for the post-assembly QA pass over the current report. */
 export const getPostQaInput = internalQuery({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return null;
+    const report = await ctx.db.query("reports")
+      .withIndex("by_generationId", q => q.eq("generationId", generation._id)).first();
+    if (!report) return null;
+    const capturedRef = await reportQaRef(report);
+    const currentSections = extractReportSections(report.content);
+    if (!Object.values(currentSections).some(text => text.trim())) return null;
     if ((generation.candidateMode ?? "compare") === "iterative") {
       const [analysisRow, brainRow] = await Promise.all([
         ctx.db
@@ -1604,16 +1689,17 @@ export const getPostQaInput = internalQuery({
           model: run?.model ?? "",
         };
       }
-      if (!sections.s242.text && !sections.s244.text && !sections.s246.text) {
+      if (!currentSections.s242.trim() && !currentSections.s244.trim() && !currentSections.s246.trim()) {
         return null;
       }
       return {
         projectId: generation.projectId,
         requestedBy: generation.requestedBy,
         analysis: analysisRow.content,
-        section242: sections.s242.text,
-        section244: sections.s244.text,
-        section246: sections.s246.text,
+        section242: currentSections.s242,
+        capturedRef,
+        section244: currentSections.s244,
+        section246: currentSections.s246,
         model: sections.s242.model || undefined,
         styleOverrides,
       };
@@ -1631,8 +1717,7 @@ export const getPostQaInput = internalQuery({
         styleOverrides?: Record<string, boolean>;
       };
       if (
-        !outputs.analyzer ||
-        (!outputs.section242 && !outputs.section244 && !outputs.section246)
+        !outputs.analyzer
       ) {
         return null;
       }
@@ -1646,9 +1731,10 @@ export const getPostQaInput = internalQuery({
         projectId: generation.projectId,
         requestedBy: generation.requestedBy,
         analysis: JSON.stringify(outputs.analyzer),
-        section242: outputs.section242 ?? "",
-        section244: outputs.section244 ?? "",
-        section246: outputs.section246 ?? "",
+        section242: currentSections.s242,
+        capturedRef,
+        section244: currentSections.s244,
+        section246: currentSections.s246,
         model: selection?.model ?? undefined,
         // PSOS-50: waivers frozen into agentOutputs at generation time.
         // Absent only on legacy generations, where postQa falls back to the
@@ -1668,6 +1754,8 @@ export const getPostQaInput = internalQuery({
 export const saveReportQa = internalMutation({
   args: {
     generationId: v.id("generations"),
+    attemptStartedAt: v.optional(v.union(v.number(), v.null())),
+    capturedRef: v.optional(v.object({ reportId: v.id("reports"), revisionNumber: v.number(), contentHash: v.string() })),
     qa: v.optional(v.string()),
     chronology: v.optional(v.string()),
     qaScore: v.optional(v.number()),
@@ -1676,6 +1764,34 @@ export const saveReportQa = internalMutation({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return;
+    // A delayed completion must not settle a replacement attempt or overwrite
+    // results that have already completed, even when the report is unchanged.
+    if (args.attemptStartedAt !== undefined &&
+      (generation.postQaStatus !== "running" ||
+        (generation.postQaStartedAt ?? null) !== args.attemptStartedAt)) return;
+    const report = await ctx.db.query("reports")
+      .withIndex("by_generationId", q => q.eq("generationId", generation._id)).first();
+    if (args.capturedRef) {
+      const current = report ? await reportQaRef(report) : null;
+      if (!current || current.reportId !== args.capturedRef.reportId || current.revisionNumber !== args.capturedRef.revisionNumber || current.contentHash !== args.capturedRef.contentHash) {
+        // Only an identified active attempt may release the retry lock. Its
+        // stale scorecard and chronology never become current evidence.
+        if (args.attemptStartedAt !== undefined) {
+          await ctx.db.patch(generation._id, { postQaStatus: "failed" });
+        }
+        return;
+      }
+    }
+    if (report) {
+      await persistDeterministicFindings(ctx, report._id);
+      // Legacy calls have no proof of what content the model evaluated.
+      if (args.capturedRef && args.qa) {
+        let qa: unknown;
+        try { qa = JSON.parse(args.qa); }
+        catch { /* Malformed QA cannot establish a methodology failure. */ }
+        await persistMethodologyFindings(ctx, report, qa);
+      }
+    }
     let outputs: Record<string, unknown> = {};
     try {
       const parsed: unknown = JSON.parse(generation.agentOutputs ?? "{}");
@@ -1749,12 +1865,14 @@ export const requestReportQa = mutation({
     // Idempotent: a pass already in flight keeps running across panel
     // close/reopen — never double-spend the API call.
     if (generation.postQaStatus === "running") return null;
+    const attemptStartedAt = Math.max(Date.now(), (generation.postQaStartedAt ?? 0) + 1);
     await ctx.db.patch(generation._id, {
       postQaStatus: "running",
-      postQaStartedAt: Date.now(),
+      postQaStartedAt: attemptStartedAt,
     });
     await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
       generationId: generation._id,
+      attemptStartedAt,
     });
     return null;
   },
@@ -1974,12 +2092,15 @@ export const approveSectionDraft = mutation({
           ? 0
           : Math.min(1, Math.max(0, 1 - kept / draftWords.length));
       const caller = await getCurrentUserOrNull(ctx);
+      // CAP-1: these rows feed the firm-wide draft-style distiller, so the
+      // stored prose is de-identified. editRatio above is deliberately
+      // computed on the raw text — scrubbing must not move the number.
       await ctx.db.insert("sectionEditEvents", {
         projectId: generation.projectId,
         generationId: generation._id,
         section: args.section,
-        draftText: cap(run.draftText),
-        approvedText: cap(text),
+        draftText: cap(deidentify(run.draftText, project)),
+        approvedText: cap(deidentify(text, project)),
         editRatio,
         ...(caller ? { userId: caller._id } : {}),
         createdAt: now,
@@ -2102,7 +2223,10 @@ export const approveSectionDraft = mutation({
             for (const event of events) {
               const ghostText = ghostSections[event.section];
               if (typeof ghostText === "string" && ghostText.trim()) {
-                await ctx.db.patch(event._id, { ghostText: ghostText.slice(0, 6000) });
+                // CAP-1: same firm-wide digest input as draftText/approvedText.
+                await ctx.db.patch(event._id, {
+                  ghostText: deidentify(ghostText, project).slice(0, 6000),
+                });
               }
             }
           }
@@ -2146,6 +2270,7 @@ export const approveSectionDraft = mutation({
     });
     await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
       generationId: generation._id,
+      attemptStartedAt: doneAt,
     });
     return reportId;
   },

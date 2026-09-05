@@ -1,0 +1,118 @@
+{
+  "source": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion",
+  "destination": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-pointer",
+  "files": [
+    {
+      "path": "_bmad/config.user.toml",
+      "sha256": "14828073ec544f588f7aa613e31d9179d234b6d92afde8d3fb5345b12a41ee6d"
+    },
+    {
+      "path": "_bmad/config.toml.bak",
+      "sha256": "e442f1b120f99a6eb38575d534aba117579eca24a77e3e4ee8cf85482813abbb"
+    },
+    {
+      "path": "_bmad/config.user.toml.bak",
+      "sha256": "258f472929b9ddfa85c314ad3881f0d95161d604e02bd91cd4aeebd96f480db7"
+    },
+    {
+      "path": "_bmad/config.toml",
+      "sha256": "a8a288664baff99ae36f9bd054aee1f03282a8255383ef973c31925e7b52c962"
+    },
+    {
+      "path": "_bmad/bmad-loop/config.yaml",
+      "sha256": "62b600286e2a0636708c98af8a57287a75f420c3082efbc28ff7579f363382b1"
+    },
+    {
+      "path": "_bmad/bmad-loop/module-help.csv",
+      "sha256": "7052d30125407ba930b15eefb12d05a55f6768b0a31ee14863844a685ee4c61a"
+    },
+    {
+      "path": "_bmad/core/config.yaml",
+      "sha256": "c96d9e613ac1fb30e85a48d52f2df3a1cf3ac9b6ee6394047379dae3ed8817aa"
+    },
+    {
+      "path": "_bmad/core/module-help.csv",
+      "sha256": "3d5feb19c1750d35676530c746a5c71e8959616f3c32fb161847971611d81b6b"
+    },
+    {
+      "path": "_bmad/tea/config.yaml",
+      "sha256": "800c612fbbc542369e4fc9a1887919d1a40dd18f6bfdfa8a9bc953e0980877c1"
+    },
+    {
+      "path": "_bmad/tea/module-help.csv",
+      "sha256": "7014131eba852fd2017e0f55199abce0b450635738bc4359b41578c92cdda63f"
+    },
+    {
+      "path": "_bmad/scripts/render_skill.py",
+      "sha256": "8496d0d8b449d64c21b42a9aab3b13fc8a813a430c0695ffd84ad75bb1da7942"
+    },
+    {
+      "path": "_bmad/scripts/resolve_customization.py",
+      "sha256": "9b5124e0b781823a015a19d6cf5db52bbc34b6bab41c036fd1b3d464c2a137cd"
+    },
+    {
+      "path": "_bmad/scripts/resolve_config.py",
+      "sha256": "fc78866fd42862d486d4346d2b35705f916a19e6c07bb474f8add25c71734a8e"
+    },
+    {
+      "path": "_bmad/scripts/memlog.py",
+      "sha256": "3b00f82ca33dc4227f715123b939514ee35c4f9c71150c894c3d8185df1b48df"
+    },
+    {
+      "path": "_bmad/scripts/config_utils.py",
+      "sha256": "48afe2bc18a29201e343cce3703be1e70df9c83ee74eeb68e57ef8ef42e8c651"
+    },
+    {
+      "path": "_bmad/bmm/config.yaml",
+      "sha256": "6c27cab5bc0324035cbe18056e995d83ae821af53775bd88aad09cbbae219168"
+    },
+    {
+      "path": "_bmad/bmm/module-help.csv",
+      "sha256": "fe1f3c778d5d909d5858e0d13f2a7d4d18f40180de05a3c4fa7a5470dabeb945"
+    },
+    {
+      "path": "_bmad/bmb/config.yaml",
+      "sha256": "1fd8d090a85294fa1d3f87c67545731b84e78f389cda9aeffcb23a1fdf976442"
+    },
+    {
+      "path": "_bmad/bmb/module-help.csv",
+      "sha256": "fe5c030134a6019d6a8c9e609ca6c196cd5f469aac8b9711145257a966f14b7e"
+    },
+    {
+      "path": "_bmad/custom/config.user.toml",
+      "sha256": "92af88b1942ddfd6e9954f2591e160618bb3e74ca55c292b35ab4c411f79f0e0"
+    },
+    {
+      "path": "_bmad/custom/.gitignore",
+      "sha256": "973b03a33f142c22cf9b65be285bebadd85790b6b55be04637d2f8c716f58fab"
+    },
+    {
+      "path": "_bmad/custom/config.toml",
+      "sha256": "d00d0bb7e0e03a7e32a9c7c935f2509e17107bb9949162450e408adef01878df"
+    },
+    {
+      "path": "_bmad/_config/skill-manifest.csv",
+      "sha256": "54ccdb809661427e02e6550a77eeb6235cbb06aa590bfa73ac934f5ca869e9b9"
+    },
+    {
+      "path": "_bmad/_config/manifest.yaml",
+      "sha256": "8a247a3b7b7f40cfd34c856e98af7ea922ab421c163fdcc39c40f635b9b3847c"
+    },
+    {
+      "path": "_bmad/_config/files-manifest.csv",
+      "sha256": "7ce62464e75f705bc9368aaab5c0569e0621259ca3829fe890fd4b92de2ea9d5"
+    },
+    {
+      "path": "_bmad/_config/bmad-help.csv",
+      "sha256": "ae3accd94c36cb89086c576d2b2862996a8d6f9e138b3265d54e34dd352cc66e"
+    },
+    {
+      "path": "_bmad/bmm/v6-shims/README.md",
+      "sha256": "05315a8e369f5ebb9e615c1a33fd2b3f85eb92a9455c974cdc7ec7d3ea0d10bf"
+    },
+    {
+      "path": "_bmad/core/v6-shims/README.md",
+      "sha256": "017900bb03baeddc0262041a6aa85bce744e8c45991dcde32ef042f9bc2a32b2"
+    }
+  ]
+}

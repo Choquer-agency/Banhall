@@ -231,6 +231,8 @@ export const finalizePort = internalMutation({
       processingStatus: derived.status,
       processingDetail: derived.detail,
       uploadedBy: userDisplayLabel(user),
+      // CAP-3: the porting admin is the internal author of this row.
+      ...(user.role ? { uploaderRole: user.role } : {}),
       createdAt: now,
     });
 

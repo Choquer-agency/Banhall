@@ -9,17 +9,24 @@ import type {
   GenerationResponse,
 } from "./ai/openrouterCore";
 import { runPipelineForModel } from "./ai/pipeline";
+import { buildTrustedContext, DEFAULT_CONTEXT_BUDGET } from "./ai/trustedContext";
+import { CONTEXT_INPUTS_GUIDANCE } from "./ai/prompts";
+import { CONDENSE_VERSION } from "./lib/transcripts";
 import {
   currentPromptVersion,
   generationPromptProgram,
   hashPromptProgram,
 } from "./ai/promptProgram";
 import schema from "./schema";
+import { sha256 } from "./lib/contracts";
+import { buildTiptapDocument } from "./lib/tiptapReport";
 import { NO_STYLE_OVERRIDES } from "../shared/styleOverrides";
 
 const modules = import.meta.glob("./**/*.ts");
 const AUTH_ID = "generation-attribution-writer";
 const PROMPT_VERSION = `sha256:${"a".repeat(64)}`;
+const CANDIDATE_DOCUMENT_BODY = "Frozen writer notes for the candidate run.";
+const LEGACY_DOCUMENT_BODY = "Unattributed direction frozen before CAP-3.";
 const RETRY_PROMPT_VERSION = `sha256:${"b".repeat(64)}`;
 
 beforeEach(() => {
@@ -123,17 +130,25 @@ function observingPipelineClientFactory(calls: ObservedPipelineCall[]) {
 
 type OpenRouterRequest = {
   messages?: Array<{ role?: string; content?: string }>;
-  tool_choice?: { function?: { name?: string } };
+  tool_choice?: { function?: { name?: string }; name?: string };
 };
 
-function successfulOpenRouterFetch(requests: OpenRouterRequest[]) {
+function successfulOpenRouterFetch(requests: OpenRouterRequest[], compliance: Record<string, boolean> = {}) {
   return vi.fn(async (_input: unknown, init?: { body?: unknown }) => {
     if (typeof init?.body !== "string") {
       throw new Error("OpenRouter test request had no JSON body");
     }
     const request = JSON.parse(init.body) as OpenRouterRequest;
     requests.push(request);
-    const toolName = request.tool_choice?.function?.name;
+    const toolName = request.tool_choice?.function?.name ?? request.tool_choice?.name;
+    // Entry analysis can use the direct Anthropic model. Return its real
+    // response envelope so analyzer validation succeeds for both gateways.
+    if (request.tool_choice?.name) {
+      return new Response(JSON.stringify({
+        ...generationResponseFor(toolName),
+        usage: { input_tokens: 0, output_tokens: 0 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     const response = generationResponseFor(toolName);
     const tool = response.content.find((block) => block.type === "tool_use");
     return new Response(
@@ -148,7 +163,7 @@ function successfulOpenRouterFetch(requests: OpenRouterRequest[]) {
                       id: tool.id,
                       function: {
                         name: tool.name,
-                        arguments: JSON.stringify(tool.input),
+                        arguments: JSON.stringify(toolName === "submit_qa_scorecard" ? { ...TEST_QA_SCORECARD, cra_compliance: compliance } : tool.input),
                       },
                     },
                   ],
@@ -193,6 +208,16 @@ async function insertProjectFixture(t: ReturnType<typeof convexTest>) {
     });
     return { now, userId, projectId, transcriptId };
   });
+}
+
+/**
+ * The analyzer user message the production path builds — delimited, guided
+ * and budgeted — so the fixture cannot drift from the real shape.
+ */
+function analyzerMessageFor(transcript: string): string {
+  return buildTrustedContext({
+    transcriptParts: [{ label: "Interview transcript", content: transcript }],
+  }).userMessage;
 }
 
 async function insertDigest(
@@ -736,7 +761,7 @@ describe("generation payload provenance", () => {
       observingPipelineClientFactory(blankCalls),
       "claude-sonnet-5",
       "A runtime transcript",
-      [],
+      analyzerMessageFor("A runtime transcript"),
       "Runtime title",
       { analyzer: "", s242: "", s244: "", s246: "" },
       "standard",
@@ -766,7 +791,7 @@ describe("generation payload provenance", () => {
       observingPipelineClientFactory(pairedCalls),
       "claude-sonnet-5",
       "A different runtime transcript",
-      [],
+      analyzerMessageFor("A different runtime transcript"),
       "A different runtime title",
       { analyzer: "", s242: "", s244: "", s246: "" },
       "standard",
@@ -803,6 +828,124 @@ describe("generation payload provenance", () => {
     expect(JSON.stringify(qaRequest?.params)).toContain(
       "Do not flag supported technical detail as excessive.",
     );
+  });
+
+  it("settles stale QA without attribution and permits a fenced retry", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
+      await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
+      const input = await t.query(internal.generations.getPostQaInput, { generationId: fixture.generationId });
+      if (!input) throw new Error("Missing QA input");
+      const response = successfulOpenRouterFetch([], { why_how_why_intact: false });
+      let edited = false;
+      vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: { body?: unknown }) => {
+        if (!edited) {
+          edited = true;
+          await t.withIdentity({ subject: AUTH_ID }).mutation(api.reports.updateReportContent, {
+            reportId: input.capturedRef.reportId,
+            content: "Human corrected content",
+            expectedRevisionNumber: 0,
+          });
+        }
+        return response(url, init);
+      }));
+      await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId, attemptStartedAt: fixture.now });
+      expect((await t.run(ctx => ctx.db.get(fixture.generationId)))?.postQaStatus).toBe("failed");
+      expect(await t.run(ctx => ctx.db.query("qaFindings").collect())).not.toEqual(expect.arrayContaining([expect.objectContaining({ check: "cra_methodology" })]));
+      const beforeRetry = await t.run(ctx => ctx.db.get(fixture.generationId));
+      expect(JSON.parse(beforeRetry?.agentOutputs ?? "{}").qa).toBeUndefined();
+      vi.stubGlobal("fetch", successfulOpenRouterFetch([], { why_how_why_intact: true }));
+      await t.withIdentity({ subject: AUTH_ID }).mutation(api.generations.requestReportQa, { generationId: fixture.generationId });
+      const retry = await t.run(ctx => ctx.db.get(fixture.generationId));
+      expect(retry?.postQaStatus).toBe("running");
+      expect(retry?.postQaStartedAt).toBeGreaterThan(fixture.now);
+      // A late failure from the old attempt cannot release the new retry lock.
+      await t.mutation(internal.generations.saveReportQa, {
+        generationId: fixture.generationId, attemptStartedAt: fixture.now,
+        capturedRef: input.capturedRef, failed: true,
+      });
+      expect(await t.run(ctx => ctx.db.get(fixture.generationId))).toEqual(retry);
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      const completed = await t.run(ctx => ctx.db.get(fixture.generationId));
+      expect(completed?.postQaStatus).toBe("done");
+      // Neither a duplicate old action nor its completion may overwrite success.
+      await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId, attemptStartedAt: fixture.now });
+      await t.mutation(internal.generations.saveReportQa, {
+        generationId: fixture.generationId, attemptStartedAt: fixture.now,
+        capturedRef: input.capturedRef, qa: JSON.stringify({ ...TEST_QA_SCORECARD, cra_compliance: { why_how_why_intact: false } }),
+      });
+      expect(await t.run(ctx => ctx.db.get(fixture.generationId))).toEqual(completed);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("settles empty QA input and recovers after content is restored", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
+      await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
+      const report = await t.run(ctx => ctx.db.query("reports").unique());
+      if (!report) throw new Error("Missing report");
+      await t.run(ctx => ctx.db.patch(report._id, { content: JSON.stringify({ type: "doc", content: [] }) }));
+      const fetch = successfulOpenRouterFetch([]);
+      vi.stubGlobal("fetch", fetch);
+      await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId, attemptStartedAt: fixture.now });
+      expect(fetch).not.toHaveBeenCalled();
+      expect((await t.run(ctx => ctx.db.get(fixture.generationId)))?.postQaStatus).toBe("failed");
+      await t.withIdentity({ subject: AUTH_ID }).mutation(api.reports.updateReportContent, {
+        reportId: report._id, content: "Restored prose", expectedRevisionNumber: 0,
+      });
+      await t.withIdentity({ subject: AUTH_ID }).mutation(api.generations.requestReportQa, { generationId: fixture.generationId });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      expect((await t.run(ctx => ctx.db.get(fixture.generationId)))?.postQaStatus).toBe("done");
+      expect(fetch).toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("iterative QA captures all current sections instead of frozen approved runs", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
+    const content = JSON.stringify(buildTiptapDocument("Current report", "Current uncertainty", "Current investigation", "Current advancement"));
+    const reportId = await t.run(async ctx => {
+      await ctx.db.patch(fixture.generationId, { candidateMode: "iterative" });
+      for (const kind of ["analysis", "brain_blocks"] as const) {
+        await ctx.db.insert("generationArtifacts", { generationId: fixture.generationId, kind, content: JSON.stringify(kind === "analysis" ? TEST_ANALYSIS : { styleOverrides: NO_STYLE_OVERRIDES }) });
+      }
+      for (const section of ["s242", "s244", "s246"] as const) {
+        await ctx.db.insert("generationSectionRuns", {
+          generationId: fixture.generationId, projectId: fixture.projectId, section,
+          status: "approved", approvedText: `Frozen approved ${section}`,
+          model: "openai/gpt-5.6-luna", label: "Luna", attempt: 1, queuedAt: fixture.now,
+        });
+      }
+      const report = await ctx.db.query("reports").unique();
+      if (!report) throw new Error("Missing report");
+      await ctx.db.patch(report._id, { content, revisionNumber: 3 });
+      return report._id;
+    });
+    const input = await t.query(internal.generations.getPostQaInput, { generationId: fixture.generationId });
+    expect(input?.section242.trim()).toBe("Current uncertainty");
+    expect(input?.section244.trim()).toBe("Current investigation");
+    expect(input?.section246.trim()).toBe("Current advancement");
+    expect(input?.capturedRef).toEqual({ reportId, revisionNumber: 3, contentHash: await sha256(content) });
+  });
+
+  it("post-QA provider methodology failures persist and block current readiness and publishing", async () => {
+    const t = convexTest(schema, modules);
+    const fixture = await insertCompletedPostQaFixture(t, { promptVersion: PROMPT_VERSION, calibrationContent: "" });
+    await t.run(ctx => ctx.db.patch(fixture.projectId, { ownerId: fixture.userId }));
+    vi.stubGlobal("fetch", successfulOpenRouterFetch([], { why_how_why_intact: false }));
+    await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId });
+    const report = await t.run(ctx => ctx.db.query("reports").unique());
+    if (!report) throw new Error("Missing report");
+    const findings = await t.run(ctx => ctx.db.query("qaFindings").collect());
+    expect(findings).toEqual(expect.arrayContaining([expect.objectContaining({ reportId: report._id, revisionNumber: 0, contentHash: await sha256(report.content), check: "cra_methodology", blocking: true })]));
+    const actor = t.withIdentity({ subject: AUTH_ID });
+    const readiness = await actor.query(api.projects.getProjectReadiness, { projectId: fixture.projectId, reportId: report._id });
+    expect(readiness?.blockers.map(row => row.code)).toContain("QA_BLOCKING");
+    await expect(actor.mutation(api.projects.publishForReview, { projectId: fixture.projectId, reportId: report._id })).rejects.toMatchObject({ data: { code: "QA_BLOCKING" } });
   });
 
   it("fetches but omits a selected blank post-QA digest through the real provider path", async () => {
@@ -1182,6 +1325,35 @@ describe("generation entry handoffs through the real actions", () => {
         originalLength: 30,
         capturedAt: fixture.now,
       });
+      await ctx.db.insert("generationSources", {
+        generationId,
+        projectId: fixture.projectId,
+        kind: "project_document",
+        label: "writer_notes:notes.md",
+        content: CANDIDATE_DOCUMENT_BODY,
+        contentHash: "candidate-document-hash",
+        truncated: false,
+        originalLength: CANDIDATE_DOCUMENT_BODY.length,
+        // CAP-3: writer's-notes trust now comes from the uploader's role, so
+        // this fixture carries an internal one to keep the WRITER'S NOTES
+        // label the assertions below expect.
+        uploaderRole: "writer",
+        capturedAt: fixture.now,
+      });
+      // CAP-3: a legacy frozen writer_notes row with no uploaderRole, run
+      // through the real entry action, must reach the analyzer as client
+      // evidence — the whole seam in one traversal, not two tested halves.
+      await ctx.db.insert("generationSources", {
+        generationId,
+        projectId: fixture.projectId,
+        kind: "project_document",
+        label: "writer_notes:legacy.md",
+        content: LEGACY_DOCUMENT_BODY,
+        contentHash: "legacy-document-hash",
+        truncated: false,
+        originalLength: LEGACY_DOCUMENT_BODY.length,
+        capturedAt: fixture.now,
+      });
       const candidateRunId = await ctx.db.insert("generationCandidateRuns", {
         generationId,
         projectId: fixture.projectId,
@@ -1237,6 +1409,37 @@ describe("generation entry handoffs through the real actions", () => {
     expect(analyzerBody).toBeDefined();
     expect(analyzerBody).not.toContain(styleText);
     expect(analyzerBody).not.toContain(qaText);
+    // The trusted-context module is actually wired into the request: the
+    // guidance ships on every analyzer call and every frozen source — the
+    // transcript included — travels between BEGIN/END markers.
+    const analyzerUser = JSON.parse(analyzerBody!) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const userText = analyzerUser.messages
+      .filter((message) => message.role === "user")
+      .map((message) => message.content)
+      .join("\n");
+    expect(userText).toContain(CONTEXT_INPUTS_GUIDANCE);
+    expect(userText).toContain("--- BEGIN [INTERVIEW TRANSCRIPT] ---");
+    expect(userText).toContain("--- END [INTERVIEW TRANSCRIPT] ---");
+    expect(userText).toContain(
+      "--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---",
+    );
+    expect(userText).toContain(
+      "--- END [WRITER'S NOTES (unreliable narrator)] notes.md ---",
+    );
+    expect(userText).toContain(CANDIDATE_DOCUMENT_BODY);
+    // The roleless legacy row is demoted end to end: OTHER SUPPORTING MATERIAL
+    // label, never the WRITER'S NOTES header, and after the attributed notes.
+    expect(userText).toContain(
+      `--- BEGIN [OTHER SUPPORTING MATERIAL] legacy.md ---\n${LEGACY_DOCUMENT_BODY}\n--- END [OTHER SUPPORTING MATERIAL] legacy.md ---`,
+    );
+    expect(userText).not.toContain("[WRITER'S NOTES (unreliable narrator)] legacy.md");
+    expect(
+      userText.indexOf("--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---"),
+    ).toBeLessThan(
+      userText.indexOf("--- BEGIN [OTHER SUPPORTING MATERIAL] legacy.md ---"),
+    );
 
     // Usage rows are scheduled at the transport boundary; flush them and read
     // through the Story 11 index. Every candidate-owned call carries the run
@@ -1840,6 +2043,11 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
         status: "awaiting_input",
       });
     await t.run(async (ctx) => {
+      await ctx.db.insert("generationArtifacts", {
+        generationId,
+        kind: "brain_blocks",
+        content: JSON.stringify({ styleOverrides: { bannedWords: true } }),
+      });
       for (const [index, section] of (["s242", "s244", "s246"] as const).entries()) {
         await ctx.db.insert("generationSectionRuns", {
           generationId,
@@ -1848,7 +2056,7 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
           status: section === "s246" ? "awaiting_review" : "approved",
           ...(section === "s246"
             ? { draftText: "Drafted 246" }
-            : { approvedText: `Approved ${section}` }),
+            : { approvedText: section === "s242" ? "The robust solution. It was uncertain whether this scales." : `Approved ${section}` }),
           model: "claude-sonnet-5",
           label: "Sonnet 5",
           attempt: 1,
@@ -1893,6 +2101,10 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
       sourceTranscriptId: transcriptIds[0],
       sourceTranscriptIds: transcriptIds,
     });
+    if (!written.report) throw new Error("Missing iterative report");
+    const findings = await t.run(ctx => ctx.db.query("qaFindings").collect());
+    expect(findings).toEqual(expect.arrayContaining([expect.objectContaining({ reportId: written.report._id, revisionNumber: 0, contentHash: await sha256(written.report.content), section: "s242", check: "because_clause", blocking: true })]));
+    expect(findings.filter(row => row.reportId === written.report?._id && row.check === "banned_word")).toEqual([]);
     expect(written.snapshots).toHaveLength(2);
     for (const snapshot of written.snapshots) {
       expect(snapshot).toMatchObject({
@@ -1906,4 +2118,397 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
       "One-shot ghost draft (comparison — Gemini 3.1 Pro)",
     ]);
   });
+});
+
+
+/**
+ * Story 2: the budget outcome must actually be recorded by the production
+ * entry actions — deleting the `recordContextBudget` call in either pipeline
+ * has to fail here, not merely go unnoticed because the mutation is exercised
+ * directly elsewhere.
+ */
+describe("the analyzer context budget is recorded by the entry actions", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Digest mode: the frozen full text is over budget by declaration
+   * (`inputMode: "digest"`), and a stored digest for exactly its bytes lets
+   * `ensureCondensedInputs` reuse it without a condense call — so the entry
+   * action freezes a `transcript_digest` row and re-reads before analyzing.
+   */
+  const DIGEST_FULL_TEXT = `${"F".repeat(200)} FULL-TEXT SENTINEL`;
+  const DIGEST_TEXT = "DIGEST SENTINEL";
+
+  async function reservedGenerationWithSources(
+    t: ReturnType<typeof convexTest>,
+    candidateMode: "single" | "iterative",
+    inputMode: "full" | "digest" = "full",
+  ) {
+    return await t.run(async (ctx) => {
+      const now = Date.now();
+      const transcriptText =
+        inputMode === "digest" ? DIGEST_FULL_TEXT : "A usable interview transcript.";
+      const userId = await ctx.db.insert("users", {
+        authId: `budget-record-${candidateMode}`,
+        role: "writer",
+      });
+      const projectId = await ctx.db.insert("projects", {
+        title: "Budget recording project",
+        clientName: "Test client",
+        status: "draft",
+        createdBy: userId,
+        shareToken: `budget-record-${candidateMode}`,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const transcriptId = await ctx.db.insert("transcripts", {
+        projectId,
+        content: transcriptText,
+        createdAt: now,
+      });
+      const generationId = await ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        transcriptIds: [transcriptId],
+        ...(inputMode === "digest" ? { inputMode } : {}),
+        status: "reserved",
+        requestedAt: now,
+        requestedBy: userId,
+        candidateMode,
+        ...(candidateMode === "single"
+          ? { singleModelId: "claude-sonnet-5" }
+          : {}),
+        previousProjectStatus: "draft",
+        learningDigestIds: [],
+        startedAt: now,
+      });
+      await ctx.db.patch(projectId, {
+        activeGenerationId: generationId,
+        status: "generating",
+      });
+      await ctx.db.insert("generationSources", {
+        generationId,
+        projectId,
+        kind: "transcript",
+        transcriptId,
+        label: "Interview transcript",
+        content: transcriptText,
+        contentHash: "budget-record-transcript-hash",
+        truncated: false,
+        originalLength: transcriptText.length,
+        capturedAt: now,
+      });
+      if (inputMode === "digest") {
+        await ctx.db.insert("transcriptDigests", {
+          transcriptId,
+          projectId,
+          sourceContentHash: "budget-record-transcript-hash",
+          condenseVersion: CONDENSE_VERSION,
+          content: DIGEST_TEXT,
+          structured: "[]",
+          model: "claude-sonnet-5",
+          promptVersion: PROMPT_VERSION,
+          charCount: DIGEST_TEXT.length,
+          originalLength: transcriptText.length,
+          createdAt: now,
+        });
+      }
+      await ctx.db.insert("generationSources", {
+        generationId,
+        projectId,
+        kind: "project_document",
+        label: "writer_notes:notes.md",
+        content: CANDIDATE_DOCUMENT_BODY,
+        contentHash: "budget-record-document-hash",
+        truncated: false,
+        originalLength: CANDIDATE_DOCUMENT_BODY.length,
+        // CAP-3: an internal role is what earns the notes label; this fixture
+        // carries one so its expected label is unchanged.
+        uploaderRole: "writer",
+        capturedAt: now,
+      });
+      return { generationId };
+    });
+  }
+
+  /** The analyzer request's user text, whichever transport shape carried it. */
+  function analyzerUserTextOf(requests: OpenRouterRequest[]): string {
+    const bodies = requests.map((request) => JSON.stringify(request));
+    const index = bodies.findIndex((body) =>
+      body.includes("submit_transcript_analysis"),
+    );
+    expect(index).toBeGreaterThan(-1);
+    const request = requests[index] as unknown as {
+      messages: Array<{
+        role: string;
+        content: string | Array<{ type: string; text?: string }>;
+      }>;
+    };
+    return request.messages
+      .filter((message) => message.role === "user")
+      .map((message) =>
+        typeof message.content === "string"
+          ? message.content
+          : message.content.map((block) => block.text ?? "").join("\n"),
+      )
+      .join("\n");
+  }
+
+  async function writeBudgetSettings(
+    t: ReturnType<typeof convexTest>,
+    values: Record<string, string>,
+  ) {
+    await t.run(async (ctx) => {
+      const adminId = await ctx.db.insert("users", {
+        authId: `budget-admin-${Object.keys(values).join("-")}`,
+        role: "admin",
+      });
+      for (const [key, value] of Object.entries(values)) {
+        await ctx.db.insert("appSettings", {
+          key,
+          value,
+          updatedBy: adminId,
+          updatedAt: Date.now(),
+        });
+      }
+    });
+  }
+
+  it.each([
+    ["one-shot", internal.ai.pipeline.generateReport, "single"] as const,
+    [
+      "iterative",
+      internal.ai.iterative.startIterativeGeneration,
+      "iterative",
+    ] as const,
+  ])(
+    "the %s entry action applies the admin-tuned budget and tells the writer what it cut",
+    async (_label, action, candidateMode) => {
+      const t = convexTest(schema, modules);
+      const { generationId } = await reservedGenerationWithSources(
+        t,
+        candidateMode,
+      );
+      // 100 tokens total; a 1-token (4-char) document cap cuts the notes.
+      await writeBudgetSettings(t, {
+        "ai.analyzerContextBudgetTokens": "100",
+        "ai.analyzerDocumentBudgetTokens": "1",
+      });
+      const requests: OpenRouterRequest[] = [];
+      vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
+
+      await t.action(action, { generationId });
+
+      const rows = await t.run((ctx) =>
+        ctx.db
+          .query("generationSources")
+          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+          .collect(),
+      );
+      const transcriptRow = rows.find((row) => row.kind === "transcript")!;
+      const documentRow = rows.find((row) => row.kind === "project_document")!;
+      expect(transcriptRow.contextBudget).toEqual({
+        budgetTokens: 100,
+        included: true,
+        includedLength: transcriptRow.content.length,
+        truncated: false,
+      });
+      expect(documentRow.contextBudget).toEqual({
+        budgetTokens: 100,
+        included: true,
+        includedLength: 4,
+        truncated: true,
+      });
+      // The frozen capture facts are untouched by the recording.
+      expect(documentRow.content).toBe(CANDIDATE_DOCUMENT_BODY);
+      expect(documentRow.truncated).toBe(false);
+
+      const generation = await t.run((ctx) => ctx.db.get(generationId));
+      expect(generation?.progressLog).toContain(
+        "Using 1 frozen contextual document(s), weighted by SR&ED priority.",
+      );
+      expect(generation?.progressLog).toContain(
+        "Context budget (100 tokens) shortened notes.md.",
+      );
+
+      {
+        const userText = analyzerUserTextOf(requests);
+        expect(userText).toContain(
+          `--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\n${CANDIDATE_DOCUMENT_BODY.slice(0, 4)}\n[TRUNCATED: 38 of 42 characters omitted to fit the context budget.]\n--- END`,
+        );
+        expect(userText).not.toContain(CANDIDATE_DOCUMENT_BODY);
+      }
+    },
+  );
+
+  it("a candidate sends the budget it was scheduled with, not a later retune", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId } = await reservedGenerationWithSources(t, "single");
+    const candidateRunId = await t.run(async (ctx) => {
+      const generation = (await ctx.db.get(generationId))!;
+      // claimCandidateRun only hands out runs of a running generation.
+      await ctx.db.patch(generationId, { status: "running" });
+      return await ctx.db.insert("generationCandidateRuns", {
+        generationId,
+        projectId: generation.projectId,
+        model: "openai/gpt-5.6-luna",
+        label: "GPT-5.6 Luna",
+        status: "queued",
+        queuedAt: Date.now(),
+      });
+    });
+    // Settings now say "documents are fine"; the scheduled payload says the
+    // report was recorded with no documents at all. The payload wins.
+    const requests: OpenRouterRequest[] = [];
+    vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
+    await t.action(internal.ai.pipeline.generateCandidate, {
+      candidateRunId,
+      generationId,
+      brainExemplars: { analyzer: "", s242: "", s244: "", s246: "" },
+      contextBudget: { ...DEFAULT_CONTEXT_BUDGET, maxDocuments: 0 },
+    });
+    const userText = analyzerUserTextOf(requests);
+    expect(userText).toContain("--- BEGIN [INTERVIEW TRANSCRIPT] ---");
+    expect(userText).not.toContain("notes.md");
+    expect(userText).not.toContain(CANDIDATE_DOCUMENT_BODY);
+  });
+
+  it("a candidate scheduled without a budget falls back to the frozen input's admin-tuned one", async () => {
+    // The transition window: a candidate queued before `contextBudget` was in
+    // the scheduler payload must still honour the settings, not the defaults.
+    const t = convexTest(schema, modules);
+    const { generationId } = await reservedGenerationWithSources(t, "single");
+    const candidateRunId = await t.run(async (ctx) => {
+      const generation = (await ctx.db.get(generationId))!;
+      await ctx.db.patch(generationId, { status: "running" });
+      return await ctx.db.insert("generationCandidateRuns", {
+        generationId,
+        projectId: generation.projectId,
+        model: "openai/gpt-5.6-luna",
+        label: "GPT-5.6 Luna",
+        status: "queued",
+        queuedAt: Date.now(),
+      });
+    });
+    await writeBudgetSettings(t, { "ai.analyzerDocumentBudgetTokens": "1" });
+    const requests: OpenRouterRequest[] = [];
+    vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
+    await t.action(internal.ai.pipeline.generateCandidate, {
+      candidateRunId,
+      generationId,
+      brainExemplars: { analyzer: "", s242: "", s244: "", s246: "" },
+    });
+    const userText = analyzerUserTextOf(requests);
+    expect(userText).toContain(
+      `--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---\n${CANDIDATE_DOCUMENT_BODY.slice(0, 4)}\n[TRUNCATED: 38 of 42 characters omitted to fit the context budget.]\n--- END`,
+    );
+    expect(userText).not.toContain(CANDIDATE_DOCUMENT_BODY);
+  });
+
+  it.each([
+    ["one-shot", internal.ai.pipeline.generateReport, "single"] as const,
+    [
+      "iterative",
+      internal.ai.iterative.startIterativeGeneration,
+      "iterative",
+    ] as const,
+  ])(
+    "the %s entry action analyzes and records the digest rows in digest mode, not the full text",
+    async (_label, action, candidateMode) => {
+      const t = convexTest(schema, modules);
+      const { generationId } = await reservedGenerationWithSources(
+        t,
+        candidateMode,
+        "digest",
+      );
+      const requests: OpenRouterRequest[] = [];
+      vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
+
+      await t.action(action, { generationId });
+
+      const rows = await t.run((ctx) =>
+        ctx.db
+          .query("generationSources")
+          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+          .collect(),
+      );
+      const fullTextRow = rows.find((row) => row.kind === "transcript")!;
+      const digestRow = rows.find((row) => row.kind === "transcript_digest")!;
+      const documentRow = rows.find((row) => row.kind === "project_document")!;
+      expect(digestRow.content).toBe(DIGEST_TEXT);
+      // Only the rows the analyzer read carry the budget outcome: the digest
+      // it was built from and the documents, never the superseded full text.
+      expect(fullTextRow.contextBudget).toBeUndefined();
+      expect(digestRow.contextBudget).toEqual({
+        budgetTokens: DEFAULT_CONTEXT_BUDGET.totalTokens,
+        included: true,
+        includedLength: DIGEST_TEXT.length,
+        truncated: false,
+      });
+      expect(documentRow.contextBudget?.included).toBe(true);
+
+      {
+        const userText = analyzerUserTextOf(requests);
+        expect(userText).toContain(
+          `--- BEGIN [INTERVIEW TRANSCRIPT] ---\n${DIGEST_TEXT}\n--- END [INTERVIEW TRANSCRIPT] ---`,
+        );
+        expect(userText).not.toContain("FULL-TEXT SENTINEL");
+      }
+    },
+  );
+
+  it.each([
+    ["one-shot", internal.ai.pipeline.generateReport, "single"] as const,
+    [
+      "iterative",
+      internal.ai.iterative.startIterativeGeneration,
+      "iterative",
+    ] as const,
+  ])(
+    "the %s entry action patches contextBudget onto every frozen source",
+    async (_label, action, candidateMode) => {
+      const t = convexTest(schema, modules);
+      const { generationId } = await reservedGenerationWithSources(
+        t,
+        candidateMode,
+      );
+      const requests: OpenRouterRequest[] = [];
+      vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
+
+      // Whatever happens downstream, the recording is a committed mutation
+      // that must have landed by the time the action returns.
+      await t.action(action, { generationId });
+
+      {
+        // Both entry flows analyze once using the trusted frozen context.
+        const userText = analyzerUserTextOf(requests);
+        expect(userText).toContain(CONTEXT_INPUTS_GUIDANCE);
+        expect(userText).toContain("--- BEGIN [INTERVIEW TRANSCRIPT] ---");
+        expect(userText).toContain("--- END [INTERVIEW TRANSCRIPT] ---");
+        expect(userText).toContain(
+          "--- BEGIN [WRITER'S NOTES (unreliable narrator)] notes.md ---",
+        );
+        expect(userText).toContain(CANDIDATE_DOCUMENT_BODY);
+      }
+
+      const rows = await t.run((ctx) =>
+        ctx.db
+          .query("generationSources")
+          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+          .collect(),
+      );
+      expect(rows).toHaveLength(2);
+      for (const row of rows) {
+        expect(row.contextBudget).toBeDefined();
+        expect(row.contextBudget?.budgetTokens).toBe(
+          DEFAULT_CONTEXT_BUDGET.totalTokens,
+        );
+        expect(row.contextBudget?.included).toBe(true);
+        expect(row.contextBudget?.includedLength).toBe(row.content.length);
+        expect(row.contextBudget?.truncated).toBe(false);
+      }
+    },
+  );
 });

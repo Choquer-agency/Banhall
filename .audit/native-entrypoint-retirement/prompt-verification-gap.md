@@ -1,0 +1,893 @@
+Read `/Users/johnnynguyen/Documents/Repos/Banhall-bmad-native-entrypoint-fix/_bmad/render/bmad-build/banhall-bmad-native-entrypoint-fix-8a2e9fd93949/320834823aad1ab39a91/review-prompts/verification-gap.md` completely and follow it as your review instructions.
+
+Review content:
+
+diff --git a/docs/bmad-loop.md b/docs/bmad-loop.md
+index e27b0a4..d303991 100644
+--- a/docs/bmad-loop.md
++++ b/docs/bmad-loop.md
+@@ -9,7 +9,11 @@ Implementation, independent review, and deferred-work triage use Codex
+ `gpt-6-astra` with `model_reasoning_effort="medium"`. The policy has
+ `[review].trigger = "always"` and `[scm].max_parallel = 1`. Later stories in a
+ queue inherit the completed changes from earlier stories. The custom
+-`loop-parallel.py` launcher has been retired.
++`scripts/loop-parallel.py` launcher and `scripts/loop.sh` retry/push wrapper have
++been removed. Use the native commands below for run creation and recovery.
++Provider failures require the same status and preservation checks as other
++interruptions; no repository wrapper automatically re-arms a run or pushes its
++branch.
+ 
+ ## Configure a checkout
+ 
+diff --git a/scripts/loop-parallel.py b/scripts/loop-parallel.py
+deleted file mode 100755
+index 84c90d9..0000000
+--- a/scripts/loop-parallel.py
++++ /dev/null
+@@ -1,213 +0,0 @@
+-#!/usr/bin/env -S /Users/johnnynguyen/.local/share/uv/tools/bmad-loop/bin/python
+-"""Run one epic's stories as several concurrent bmad-loop lanes.
+-
+-bmad-loop clamps scm.max_parallel to 1 (fan-out is unbuilt upstream), so
+-parallelism here means several bmad-loop processes, each with:
+-
+-  * its own git worktree      -> its own .git index, so no index.lock races
+-  * its own lane branch       -> merges never collide mid-run
+-  * its own lane spec folder  -> a subset of stories.yaml, in declared order
+-  * its own run + tmux session
+-
+-A lane is declared per story with a `lane:` key in stories.yaml (unknown keys
+-are ignored by bmad-loop's parser, so the file stays valid upstream):
+-
+-    - id: "2"
+-      lane: ctx          # stories sharing a lane run serially, in file order
+-      title: ...
+-
+-Stories with no `lane` land in lane "main". Put dependent stories in the SAME
+-lane, and split lanes by the files they touch: two lanes editing one file will
+-conflict when their branches merge.
+-
+-Usage:
+-  scripts/loop-parallel.py <spec-folder> [--base main] [--plan] [--merge-into BRANCH]
+-
+-  --plan          print the lane partition and exit (no worktrees, no runs)
+-  --base          branch the lanes fork from (default: current branch)
+-  --merge-into    branch that collects the lanes (default: parallel/<epic>)
+-"""
+-
+-from __future__ import annotations
+-
+-import argparse
+-import os
+-import shutil
+-import subprocess
+-import sys
+-import time
+-from pathlib import Path
+-
+-import yaml
+-
+-REPO = Path(__file__).resolve().parent.parent
+-LANE_ROOT = REPO / ".bmad-loop" / "lanes"
+-
+-
+-def git(*args, cwd=REPO, check=True):
+-    r = subprocess.run(["git", "--no-optional-locks", *args], cwd=cwd,
+-                       capture_output=True, text=True)
+-    if check and r.returncode != 0:
+-        raise SystemExit(f"git {' '.join(args)} failed:\n{r.stderr.strip()}")
+-    return r.stdout.strip()
+-
+-
+-def partition(spec: Path):
+-    stories = yaml.safe_load((spec / "stories.yaml").read_text())
+-    lanes: dict[str, list] = {}
+-    for s in stories:
+-        lanes.setdefault(str(s.get("lane") or "main"), []).append(s)
+-    return lanes
+-
+-
+-def build_lane_spec(spec: Path, lane: str, stories: list) -> Path:
+-    """A lane's spec folder: a copy of the epic with a subset stories.yaml.
+-    Lives inside the repo so every worktree sees it after one commit."""
+-    out = spec / "lanes" / lane
+-    if out.exists():
+-        shutil.rmtree(out)
+-    out.mkdir(parents=True)
+-    for name in ("SPEC.md", "touchpoints.md"):
+-        if (spec / name).exists():
+-            shutil.copy2(spec / name, out / name)
+-    if (spec / "stories").is_dir():
+-        shutil.copytree(spec / "stories", out / "stories")
+-    subset = [{k: v for k, v in s.items() if k != "lane"} for s in stories]
+-    (out / "stories.yaml").write_text(
+-        yaml.safe_dump(subset, sort_keys=False, allow_unicode=True, width=100)
+-    )
+-    return out
+-
+-
+-# Gitignored paths a fresh worktree still needs: bmad-loop refuses to start
+-# without _bmad/bmm/config.yaml, and the verify gate runs npm.
+-SEED = ("_bmad", "node_modules", ".env.local")
+-
+-
+-def seed_worktree(worktree: Path):
+-    """Symlink the gitignored essentials into a lane worktree.
+-
+-    .gitignore lists `_bmad/` with a trailing slash, which matches directories
+-    only, so a *symlink* named `_bmad` reads as untracked and bmad-loop refuses
+-    to start on a dirty worktree. Exclude the seeds through this worktree's own
+-    info/exclude, which never touches the main checkout."""
+-    for name in SEED:
+-        src, dst = REPO / name, worktree / name
+-        if src.exists() and not dst.exists():
+-            dst.symlink_to(src)
+-    # A linked worktree reads $GIT_COMMON_DIR/info/exclude, not its own gitdir's,
+-    # so the rules go in the shared file. Harmless in the main checkout, where
+-    # these paths are real directories already covered by .gitignore.
+-    common = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir",
+-                      cwd=worktree))
+-    info = common / "info"
+-    info.mkdir(parents=True, exist_ok=True)
+-    exclude = info / "exclude"
+-    have = exclude.read_text() if exclude.exists() else ""
+-    add = [f"/{n}" for n in SEED if f"/{n}" not in have.split()]
+-    if add:
+-        with exclude.open("a") as fh:
+-            fh.write(("" if have.endswith("\n") or not have else "\n")
+-                     + "# bmad-loop lane worktree seeds\n" + "\n".join(add) + "\n")
+-
+-
+-def lane_policy(worktree: Path, spec_rel: str):
+-    """Each worktree needs its own policy: same knobs, lane's spec folder.
+-    policy.toml is gitignored, so it is copied rather than inherited."""
+-    src = REPO / ".bmad-loop" / "policy.toml"
+-    dst = worktree / ".bmad-loop" / "policy.toml"
+-    dst.parent.mkdir(parents=True, exist_ok=True)
+-    out = []
+-    for line in src.read_text().splitlines():
+-        if line.startswith("spec_folder ="):
+-            line = f'spec_folder = "{spec_rel}"'
+-        elif line.startswith("target_branch ="):
+-            line = 'target_branch = ""'
+-        out.append(line)
+-    dst.write_text("\n".join(out) + "\n")
+-
+-
+-def main():
+-    ap = argparse.ArgumentParser()
+-    ap.add_argument("spec")
+-    ap.add_argument("--base", default=None)
+-    ap.add_argument("--plan", action="store_true")
+-    ap.add_argument("--merge-into", default=None)
+-    a = ap.parse_args()
+-
+-    spec = (REPO / a.spec).resolve()
+-    if not (spec / "stories.yaml").exists():
+-        raise SystemExit(f"no stories.yaml in {spec}")
+-    epic = spec.name
+-    base = a.base or git("rev-parse", "--abbrev-ref", "HEAD")
+-    collect = a.merge_into or f"parallel/{epic}"
+-    lanes = partition(spec)
+-
+-    print(f"epic {epic}   base {base}   lanes {len(lanes)}")
+-    for lane, stories in lanes.items():
+-        ids = ", ".join(str(s["id"]) for s in stories)
+-        print(f"  {lane:10s} {len(stories):2d} stories: {ids}")
+-    if a.plan:
+-        return
+-    if len(lanes) == 1:
+-        raise SystemExit("only one lane; use scripts/loop.sh instead")
+-    if git("status", "--porcelain", "--untracked-files=no"):
+-        raise SystemExit("working tree dirty; commit first")
+-
+-    # 1. materialize every lane spec and commit once, so all worktrees see them
+-    specs = {lane: build_lane_spec(spec, lane, st) for lane, st in lanes.items()}
+-    git("add", "-A", str(spec / "lanes"))
+-    if git("diff", "--cached", "--name-only"):
+-        git("commit", "-q", "-m", f"chore(loop): lane specs for {epic}")
+-
+-    # 2. one worktree + branch + process per lane
+-    LANE_ROOT.mkdir(parents=True, exist_ok=True)
+-    procs = {}
+-    for lane, lane_spec in specs.items():
+-        branch = f"lane/{epic}/{lane}"
+-        wt = LANE_ROOT / f"{epic}-{lane}"
+-        if wt.exists():
+-            git("worktree", "remove", "--force", str(wt), check=False)
+-        git("branch", "-f", branch, "HEAD")
+-        git("worktree", "add", "--quiet", str(wt), branch)
+-        rel = str(lane_spec.relative_to(REPO))
+-        seed_worktree(wt)
+-        lane_policy(wt, rel)
+-        log = LANE_ROOT / f"{epic}-{lane}.log"
+-        env = {k: v for k, v in os.environ.items()
+-               if not k.startswith(("CLAUDECODE", "CLAUDE_CODE", "CLAUDE_PID", "CLAUDE_EFFORT"))}
+-        env.setdefault("PUBLIC_CONVEX_URL", "https://placeholder.convex.cloud")
+-        procs[lane] = (subprocess.Popen(
+-            ["bmad-loop", "run", "--project", str(wt), "--spec", rel],
+-            cwd=wt, env=env, stdin=subprocess.DEVNULL,
+-            stdout=open(log, "w"), stderr=subprocess.STDOUT), branch, wt, log)
+-        print(f"  started lane {lane} -> {branch}  (log {log})")
+-        time.sleep(5)  # stagger the initial worktree adds
+-
+-    # 3. wait
+-    for lane, (p, branch, wt, log) in procs.items():
+-        rc = p.wait()
+-        print(f"  lane {lane} exited rc={rc}  ({log})")
+-
+-    # 4. collect. When collect == base that branch is already checked out here,
+-    # so `branch -f` would fail; merge the lanes into it in place instead.
+-    if collect != base:
+-        git("checkout", "-q", base)
+-        git("branch", "-f", collect, base)
+-    git("checkout", "-q", collect)
+-    conflicts = []
+-    for lane, (_p, branch, _wt, _log) in procs.items():
+-        r = subprocess.run(["git", "merge", "--no-edit", branch],
+-                           cwd=REPO, capture_output=True, text=True)
+-        if r.returncode != 0:
+-            conflicts.append(lane)
+-            subprocess.run(["git", "merge", "--abort"], cwd=REPO)
+-            print(f"  MERGE CONFLICT from lane {lane}; left for a human")
+-        else:
+-            print(f"  merged lane {lane}")
+-    print(f"\ncollected on {collect}" + (f"; unmerged lanes: {', '.join(conflicts)}" if conflicts else ""))
+-    print("worktrees kept under .bmad-loop/lanes for inspection")
+-
+-
+-if __name__ == "__main__":
+-    sys.exit(main())
+diff --git a/scripts/loop.sh b/scripts/loop.sh
+deleted file mode 100755
+index c94c180..0000000
+--- a/scripts/loop.sh
++++ /dev/null
+@@ -1,81 +0,0 @@
+-#!/usr/bin/env bash
+-# Run a bmad-loop spec end to end, riding out provider usage limits.
+-#
+-# bmad-loop pauses the run at an escalation when a session dies on a captured
+-# usage-limit line (.bmad-loop/profiles/claude.toml, env_fault_patterns). It has no
+-# model fallback and no timer, so this wrapper supplies the wait: sleep for the
+-# window to reset, re-arm the paused story with a fresh budget, resume. Any other
+-# pause (blocked story, contradiction, checkpoint) is left for a human.
+-#
+-# Usage:
+-#   scripts/loop.sh <spec-folder> [<target-branch>] [--push]
+-#   scripts/loop.sh _bmad-output/specs/spec-ai-engine-sprint-2-boundary sprint2-boundary --push
+-#
+-# Env: LOOP_WAIT_S (default 1800), LOOP_MAX_RESUMES (default 6)
+-set -uo pipefail
+-cd "$(dirname "$0")/.."
+-POLICY=".bmad-loop/policy.toml"
+-WAIT="${LOOP_WAIT_S:-1800}"
+-MAX="${LOOP_MAX_RESUMES:-6}"
+-
+-SPEC="${1:-}"; BRANCH="${2:-}"; PUSH=0
+-[ -z "$SPEC" ] && { echo "usage: scripts/loop.sh <spec-folder> [<target-branch>] [--push]" >&2; exit 2; }
+-[ "$BRANCH" = "--push" ] && { BRANCH=""; PUSH=1; }
+-[ "${3:-}" = "--push" ] && PUSH=1
+-[ -f "$SPEC/stories.yaml" ] || { echo "no stories.yaml in $SPEC" >&2; exit 2; }
+-export PUBLIC_CONVEX_URL="${PUBLIC_CONVEX_URL:-https://placeholder.convex.cloud}"
+-
+-log() { printf '%s  %s\n' "$(date '+%H:%M:%S')" "$*"; }
+-state() {  # <status> <paused_stage> <paused_reason>
+-  bmad-loop status --json "$1" 2>/dev/null | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('status') or '', d.get('paused_stage') or '', (d.get('paused_reason') or '').replace(chr(10),' ')[:200])" 2>/dev/null || echo unknown
+-}
+-
+-# bmad-loop names run branches bmad-loop/<run-id>; a plain branch called `bmad-loop`
+-# makes every worktree open fail ("'refs/heads/bmad-loop' exists") and the run
+-# defers every story in seconds. Refuse to start on that footgun.
+-if git rev-parse --verify -q refs/heads/bmad-loop >/dev/null; then
+-  echo "a branch named 'bmad-loop' exists and shadows bmad-loop/<run-id>; rename it first: git branch -m bmad-loop archive/bmad-loop" >&2; exit 2
+-fi
+-
+-if [ -n "$BRANCH" ]; then
+-  git rev-parse --verify -q "$BRANCH" >/dev/null || git branch "$BRANCH"
+-  sed -i '' "s|^target_branch = .*|target_branch = \"$BRANCH\"|" "$POLICY"
+-  trap 'sed -i "" "s|^target_branch = .*|target_branch = \"\"           # \"\" = the branch checked out at run start|" "$POLICY"' EXIT
+-fi
+-
+-log "bmad-loop run --spec $SPEC${BRANCH:+ on $BRANCH}"
+-bmad-loop run --spec "$SPEC"; rc=$?
+-id="$(bmad-loop list 2>/dev/null | awk 'NR==2{print $4}')"
+-st="$(state "$id")"
+-n=0
+-while [ "$n" -lt "$MAX" ]; do
+-  case "$st" in
+-    *"environment fault"*|*"limit"*|*"rate"*|*"quota"*|*"transport"*) ;;
+-    *) break ;;
+-  esac
+-  n=$((n+1))
+-  log "run $id paused on a provider fault ($n/$MAX): $st"
+-  log "waiting ${WAIT}s for the usage window"
+-  sleep "$WAIT"
+-  bmad-loop resolve "$id" --no-interactive --resume || bmad-loop resume "$id"
+-  rc=$?
+-  st="$(state "$id")"
+-done
+-
+-# A run that ends in seconds with every story deferred is an environment problem, not a verdict.
+-if ! rg -q '"kind": "session-start"' ".bmad-loop/runs/$id/journal.jsonl" 2>/dev/null; then
+-  log "run $id never started a session; first failure:"
+-  rg -m1 -o '"error": "[^"]{0,300}' ".bmad-loop/runs/$id/journal.jsonl" 2>/dev/null | head -1
+-  exit 1
+-fi
+-
+-log "run $id: $st (rc $rc)"
+-if [ -n "$BRANCH" ] && [ "$PUSH" = 1 ]; then
+-  cur="$(git rev-parse --abbrev-ref HEAD)"
+-  if git push -u origin "$BRANCH"; then log "pushed $BRANCH"; else log "push failed for $BRANCH"; fi
+-  [ "$cur" != "$BRANCH" ] && git checkout -q "$cur"
+-fi
+-case "$st" in
+-  finished*) exit 0 ;;
+-  *) log "not finished; inspect with: bmad-loop status $id"; exit 1 ;;
+-esac
+diff --git a/_bmad-output/implementation-artifacts/spec-native-entrypoint-retirement-repair.md b/_bmad-output/implementation-artifacts/spec-native-entrypoint-retirement-repair.md
+new file mode 100644
+index 0000000..4c44c20
+--- /dev/null
++++ b/_bmad-output/implementation-artifacts/spec-native-entrypoint-retirement-repair.md
+@@ -0,0 +1,58 @@
++---
++title: 'Preserve native-only BMAD lifecycle entry points after integration'
++type: 'bugfix'
++created: '2026-09-04'
++status: 'in-review'
++baseline_commit: 9da55bece5948da12129720dd2330a3032c985bf
++review_loop_iteration: 0
++context:
++  - '{project-root}/docs/bmad-loop.md'
++---
++
++<frozen-after-approval reason="user-authorized repair of failed loops while retaining native BMAD skills">
++
++## Intent
++
++**Problem:** The combined branch has resurrected `scripts/loop-parallel.py`, even though an accepted earlier repair deleted it and the current guide says it is retired. The remaining `scripts/loop.sh` wrapper can also re-arm a run from loose text matching, change local policy, and push a branch before establishing native completion. Operators can therefore accidentally bypass the native recovery and final verification contract.
++
++**Approach:** Remove both unused legacy lifecycle wrappers and document their native replacements. Preserve the native engine, its dependency provisioning hook, all active and historical runs, and the required verification gate. Record a repeatable source-level check so final integration can detect another resurrection before shipping.
++
++## Boundaries & Constraints
++
++**Always:** Use native `bmad-loop` for run creation, status, preservation-aware recovery, review, verification and local merge-back. Retain Astra 6 medium for implementation, review and triage. Keep this repair isolated until the active sweep finishes, then verify the actual merged files again. Preserve useful work before recovery and require native task, commit and verification evidence before any main promotion.
++
++**Ask First:** A new product-policy choice, deleting an active run or a user's uncommitted work, or changing an external operator's intended workflow beyond these superseded wrappers.
++
++**Never:** Add a substitute controller, automatic re-arm loop, collector, fake completion receipt or implicit push. Change native state, installed engine code, local policy, credentials or active worker dependencies. Change application behavior or historical spec intent to make the review pass.
++
++</frozen-after-approval>
++
++## Code Map
++
++- `scripts/loop-parallel.py`: 213-line executable currently present at baseline. It force-removes old lane worktrees, force-resets branches, shares dependencies through symlinks and collects every lane after waiting regardless of its exit status. Commit `7a164054c5e9fe85ee1ab41bf105d9e286bb81fb` deleted it; a later integration retained an older parent version. A scan of non-merge deletions from main to the current baseline found no other resurrected non-artifact source file.
++- `scripts/loop.sh`: unused legacy lifecycle wrapper. Lines 44–46 rewrite policy; lines 56–66 infer provider faults using broad text and re-arm; lines 79–83 push before the final completion check. No tracked runtime or package entry point calls either wrapper. Their only nonhistorical references are self-documentation and the current guide's retirement statement.
++- `docs/bmad-loop.md`: authoritative native guide. Already documents run/status/resolve/resume, paused-state checks, final review and CI. Update its retirement statement to name both files and explain that provider failures require preservation-aware native recovery.
++- `scripts/loop-verify.sh` and `.bmad-loop/plugins/npm-bootstrap/plugin.toml`: preserved native verification and dependency hooks; no lifecycle orchestration is introduced here.
++- `_bmad-output/implementation-artifacts/spec-bmad-native-operation.md`: prior completed retirement contract and historical verification. Retain its history; this new spec records the integration regression rather than rewriting earlier evidence.
++
++## Tasks & Acceptance
++
++**Execution:**
++- [x] `scripts/loop-parallel.py`, `scripts/loop.sh`: delete the obsolete launchers and remove their executable lifecycle paths.
++- [x] `docs/bmad-loop.md`: identify both retirements and direct run/recovery/push actions to the existing native and reviewed shipping procedure.
++- [x] `.audit/native-entrypoint-retirement/`: preserve baseline source and history evidence, a source-level verifier and its actual before/after output, and the replay command required for the final merged revision.
++
++**Acceptance Criteria:**
++- Given a checkout of this repair, when inspecting tracked lifecycle entry points, then neither retired wrapper exists and no active tracked caller still invokes either file.
++- Given an operator encountering a provider failure, when following the guide, then native status and preserved work determine recovery; an elapsed wait or loose error-word match cannot re-arm a run through a repository wrapper.
++- Given a paused run that exits zero, when following the shipping instructions, then the operator still requires every intended task's done phase, its commit and passing verification, plus final review and remote CI before main promotion.
++- Given an active native sweep, when preparing this repair, then its integration checkout, worker state and dependencies remain untouched; only a separate repair checkout changes.
++- Given the final integration revision, when rerunning the source verifier, then both retired files remain absent and native run and verification entry points remain documented and available.
++
++## Spec Change Log
++
++## Verification
++
++- Run a small source verifier against the real baseline and repaired checkout: baseline must reproduce the two retired executable paths, repaired checkout must reject their existence and active callers while retaining the documented native commands and existing hook/gate.
++- Compare `bmad-loop run --help`, `status --help`, `resolve --help` and `resume --help` with the guide. These are read-only probes; do not launch or recover a run as a test.
++- Run `git diff --check` and inspect the complete repair diff. Product tests do not execute deleted operator scripts; the required combined product gates remain due on the final integration revision.
+diff --git a/.audit/native-entrypoint-retirement/after.json b/.audit/native-entrypoint-retirement/after.json
+new file mode 100644
+index 0000000..d8af35c
+--- /dev/null
++++ b/.audit/native-entrypoint-retirement/after.json
+@@ -0,0 +1,7 @@
++{
++  "head": "9da55bece5948da12129720dd2330a3032c985bf",
++  "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-native-entrypoint-fix",
++  "issues": [],
++  "active_callers": [],
++  "passed": true
++}
+diff --git a/.audit/native-entrypoint-retirement/baseline-loop-parallel.py.txt b/.audit/native-entrypoint-retirement/baseline-loop-parallel.py.txt
+new file mode 100644
+index 0000000..84c90d9
+--- /dev/null
++++ b/.audit/native-entrypoint-retirement/baseline-loop-parallel.py.txt
+@@ -0,0 +1,213 @@
++#!/usr/bin/env -S /Users/johnnynguyen/.local/share/uv/tools/bmad-loop/bin/python
++"""Run one epic's stories as several concurrent bmad-loop lanes.
++
++bmad-loop clamps scm.max_parallel to 1 (fan-out is unbuilt upstream), so
++parallelism here means several bmad-loop processes, each with:
++
++  * its own git worktree      -> its own .git index, so no index.lock races
++  * its own lane branch       -> merges never collide mid-run
++  * its own lane spec folder  -> a subset of stories.yaml, in declared order
++  * its own run + tmux session
++
++A lane is declared per story with a `lane:` key in stories.yaml (unknown keys
++are ignored by bmad-loop's parser, so the file stays valid upstream):
++
++    - id: "2"
++      lane: ctx          # stories sharing a lane run serially, in file order
++      title: ...
++
++Stories with no `lane` land in lane "main". Put dependent stories in the SAME
++lane, and split lanes by the files they touch: two lanes editing one file will
++conflict when their branches merge.
++
++Usage:
++  scripts/loop-parallel.py <spec-folder> [--base main] [--plan] [--merge-into BRANCH]
++
++  --plan          print the lane partition and exit (no worktrees, no runs)
++  --base          branch the lanes fork from (default: current branch)
++  --merge-into    branch that collects the lanes (default: parallel/<epic>)
++"""
++
++from __future__ import annotations
++
++import argparse
++import os
++import shutil
++import subprocess
++import sys
++import time
++from pathlib import Path
++
++import yaml
++
++REPO = Path(__file__).resolve().parent.parent
++LANE_ROOT = REPO / ".bmad-loop" / "lanes"
++
++
++def git(*args, cwd=REPO, check=True):
++    r = subprocess.run(["git", "--no-optional-locks", *args], cwd=cwd,
++                       capture_output=True, text=True)
++    if check and r.returncode != 0:
++        raise SystemExit(f"git {' '.join(args)} failed:\n{r.stderr.strip()}")
++    return r.stdout.strip()
++
++
++def partition(spec: Path):
++    stories = yaml.safe_load((spec / "stories.yaml").read_text())
++    lanes: dict[str, list] = {}
++    for s in stories:
++        lanes.setdefault(str(s.get("lane") or "main"), []).append(s)
++    return lanes
++
++
++def build_lane_spec(spec: Path, lane: str, stories: list) -> Path:
++    """A lane's spec folder: a copy of the epic with a subset stories.yaml.
++    Lives inside the repo so every worktree sees it after one commit."""
++    out = spec / "lanes" / lane
++    if out.exists():
++        shutil.rmtree(out)
++    out.mkdir(parents=True)
++    for name in ("SPEC.md", "touchpoints.md"):
++        if (spec / name).exists():
++            shutil.copy2(spec / name, out / name)
++    if (spec / "stories").is_dir():
++        shutil.copytree(spec / "stories", out / "stories")
++    subset = [{k: v for k, v in s.items() if k != "lane"} for s in stories]
++    (out / "stories.yaml").write_text(
++        yaml.safe_dump(subset, sort_keys=False, allow_unicode=True, width=100)
++    )
++    return out
++
++
++# Gitignored paths a fresh worktree still needs: bmad-loop refuses to start
++# without _bmad/bmm/config.yaml, and the verify gate runs npm.
++SEED = ("_bmad", "node_modules", ".env.local")
++
++
++def seed_worktree(worktree: Path):
++    """Symlink the gitignored essentials into a lane worktree.
++
++    .gitignore lists `_bmad/` with a trailing slash, which matches directories
++    only, so a *symlink* named `_bmad` reads as untracked and bmad-loop refuses
++    to start on a dirty worktree. Exclude the seeds through this worktree's own
++    info/exclude, which never touches the main checkout."""
++    for name in SEED:
++        src, dst = REPO / name, worktree / name
++        if src.exists() and not dst.exists():
++            dst.symlink_to(src)
++    # A linked worktree reads $GIT_COMMON_DIR/info/exclude, not its own gitdir's,
++    # so the rules go in the shared file. Harmless in the main checkout, where
++    # these paths are real directories already covered by .gitignore.
++    common = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir",
++                      cwd=worktree))
++    info = common / "info"
++    info.mkdir(parents=True, exist_ok=True)
++    exclude = info / "exclude"
++    have = exclude.read_text() if exclude.exists() else ""
++    add = [f"/{n}" for n in SEED if f"/{n}" not in have.split()]
++    if add:
++        with exclude.open("a") as fh:
++            fh.write(("" if have.endswith("\n") or not have else "\n")
++                     + "# bmad-loop lane worktree seeds\n" + "\n".join(add) + "\n")
++
++
++def lane_policy(worktree: Path, spec_rel: str):
++    """Each worktree needs its own policy: same knobs, lane's spec folder.
++    policy.toml is gitignored, so it is copied rather than inherited."""
++    src = REPO / ".bmad-loop" / "policy.toml"
++    dst = worktree / ".bmad-loop" / "policy.toml"
++    dst.parent.mkdir(parents=True, exist_ok=True)
++    out = []
++    for line in src.read_text().splitlines():
++        if line.startswith("spec_folder ="):
++            line = f'spec_folder = "{spec_rel}"'
++        elif line.startswith("target_branch ="):
++            line = 'target_branch = ""'
++        out.append(line)
++    dst.write_text("\n".join(out) + "\n")
++
++
++def main():
++    ap = argparse.ArgumentParser()
++    ap.add_argument("spec")
++    ap.add_argument("--base", default=None)
++    ap.add_argument("--plan", action="store_true")
++    ap.add_argument("--merge-into", default=None)
++    a = ap.parse_args()
++
++    spec = (REPO / a.spec).resolve()
++    if not (spec / "stories.yaml").exists():
++        raise SystemExit(f"no stories.yaml in {spec}")
++    epic = spec.name
++    base = a.base or git("rev-parse", "--abbrev-ref", "HEAD")
++    collect = a.merge_into or f"parallel/{epic}"
++    lanes = partition(spec)
++
++    print(f"epic {epic}   base {base}   lanes {len(lanes)}")
++    for lane, stories in lanes.items():
++        ids = ", ".join(str(s["id"]) for s in stories)
++        print(f"  {lane:10s} {len(stories):2d} stories: {ids}")
++    if a.plan:
++        return
++    if len(lanes) == 1:
++        raise SystemExit("only one lane; use scripts/loop.sh instead")
++    if git("status", "--porcelain", "--untracked-files=no"):
++        raise SystemExit("working tree dirty; commit first")
++
++    # 1. materialize every lane spec and commit once, so all worktrees see them
++    specs = {lane: build_lane_spec(spec, lane, st) for lane, st in lanes.items()}
++    git("add", "-A", str(spec / "lanes"))
++    if git("diff", "--cached", "--name-only"):
++        git("commit", "-q", "-m", f"chore(loop): lane specs for {epic}")
++
++    # 2. one worktree + branch + process per lane
++    LANE_ROOT.mkdir(parents=True, exist_ok=True)
++    procs = {}
++    for lane, lane_spec in specs.items():
++        branch = f"lane/{epic}/{lane}"
++        wt = LANE_ROOT / f"{epic}-{lane}"
++        if wt.exists():
++            git("worktree", "remove", "--force", str(wt), check=False)
++        git("branch", "-f", branch, "HEAD")
++        git("worktree", "add", "--quiet", str(wt), branch)
++        rel = str(lane_spec.relative_to(REPO))
++        seed_worktree(wt)
++        lane_policy(wt, rel)
++        log = LANE_ROOT / f"{epic}-{lane}.log"
++        env = {k: v for k, v in os.environ.items()
++               if not k.startswith(("CLAUDECODE", "CLAUDE_CODE", "CLAUDE_PID", "CLAUDE_EFFORT"))}
++        env.setdefault("PUBLIC_CONVEX_URL", "https://placeholder.convex.cloud")
++        procs[lane] = (subprocess.Popen(
++            ["bmad-loop", "run", "--project", str(wt), "--spec", rel],
++            cwd=wt, env=env, stdin=subprocess.DEVNULL,
++            stdout=open(log, "w"), stderr=subprocess.STDOUT), branch, wt, log)
++        print(f"  started lane {lane} -> {branch}  (log {log})")
++        time.sleep(5)  # stagger the initial worktree adds
++
++    # 3. wait
++    for lane, (p, branch, wt, log) in procs.items():
++        rc = p.wait()
++        print(f"  lane {lane} exited rc={rc}  ({log})")
++
++    # 4. collect. When collect == base that branch is already checked out here,
++    # so `branch -f` would fail; merge the lanes into it in place instead.
++    if collect != base:
++        git("checkout", "-q", base)
++        git("branch", "-f", collect, base)
++    git("checkout", "-q", collect)
++    conflicts = []
++    for lane, (_p, branch, _wt, _log) in procs.items():
++        r = subprocess.run(["git", "merge", "--no-edit", branch],
++                           cwd=REPO, capture_output=True, text=True)
++        if r.returncode != 0:
++            conflicts.append(lane)
++            subprocess.run(["git", "merge", "--abort"], cwd=REPO)
++            print(f"  MERGE CONFLICT from lane {lane}; left for a human")
++        else:
++            print(f"  merged lane {lane}")
++    print(f"\ncollected on {collect}" + (f"; unmerged lanes: {', '.join(conflicts)}" if conflicts else ""))
++    print("worktrees kept under .bmad-loop/lanes for inspection")
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/.audit/native-entrypoint-retirement/baseline-loop.sh.txt b/.audit/native-entrypoint-retirement/baseline-loop.sh.txt
+new file mode 100644
+index 0000000..c94c180
+--- /dev/null
++++ b/.audit/native-entrypoint-retirement/baseline-loop.sh.txt
+@@ -0,0 +1,81 @@
++#!/usr/bin/env bash
++# Run a bmad-loop spec end to end, riding out provider usage limits.
++#
++# bmad-loop pauses the run at an escalation when a session dies on a captured
++# usage-limit line (.bmad-loop/profiles/claude.toml, env_fault_patterns). It has no
++# model fallback and no timer, so this wrapper supplies the wait: sleep for the
++# window to reset, re-arm the paused story with a fresh budget, resume. Any other
++# pause (blocked story, contradiction, checkpoint) is left for a human.
++#
++# Usage:
++#   scripts/loop.sh <spec-folder> [<target-branch>] [--push]
++#   scripts/loop.sh _bmad-output/specs/spec-ai-engine-sprint-2-boundary sprint2-boundary --push
++#
++# Env: LOOP_WAIT_S (default 1800), LOOP_MAX_RESUMES (default 6)
++set -uo pipefail
++cd "$(dirname "$0")/.."
++POLICY=".bmad-loop/policy.toml"
++WAIT="${LOOP_WAIT_S:-1800}"
++MAX="${LOOP_MAX_RESUMES:-6}"
++
++SPEC="${1:-}"; BRANCH="${2:-}"; PUSH=0
++[ -z "$SPEC" ] && { echo "usage: scripts/loop.sh <spec-folder> [<target-branch>] [--push]" >&2; exit 2; }
++[ "$BRANCH" = "--push" ] && { BRANCH=""; PUSH=1; }
++[ "${3:-}" = "--push" ] && PUSH=1
++[ -f "$SPEC/stories.yaml" ] || { echo "no stories.yaml in $SPEC" >&2; exit 2; }
++export PUBLIC_CONVEX_URL="${PUBLIC_CONVEX_URL:-https://placeholder.convex.cloud}"
++
++log() { printf '%s  %s\n' "$(date '+%H:%M:%S')" "$*"; }
++state() {  # <status> <paused_stage> <paused_reason>
++  bmad-loop status --json "$1" 2>/dev/null | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('status') or '', d.get('paused_stage') or '', (d.get('paused_reason') or '').replace(chr(10),' ')[:200])" 2>/dev/null || echo unknown
++}
++
++# bmad-loop names run branches bmad-loop/<run-id>; a plain branch called `bmad-loop`
++# makes every worktree open fail ("'refs/heads/bmad-loop' exists") and the run
++# defers every story in seconds. Refuse to start on that footgun.
++if git rev-parse --verify -q refs/heads/bmad-loop >/dev/null; then
++  echo "a branch named 'bmad-loop' exists and shadows bmad-loop/<run-id>; rename it first: git branch -m bmad-loop archive/bmad-loop" >&2; exit 2
++fi
++
++if [ -n "$BRANCH" ]; then
++  git rev-parse --verify -q "$BRANCH" >/dev/null || git branch "$BRANCH"
++  sed -i '' "s|^target_branch = .*|target_branch = \"$BRANCH\"|" "$POLICY"
++  trap 'sed -i "" "s|^target_branch = .*|target_branch = \"\"           # \"\" = the branch checked out at run start|" "$POLICY"' EXIT
++fi
++
++log "bmad-loop run --spec $SPEC${BRANCH:+ on $BRANCH}"
++bmad-loop run --spec "$SPEC"; rc=$?
++id="$(bmad-loop list 2>/dev/null | awk 'NR==2{print $4}')"
++st="$(state "$id")"
++n=0
++while [ "$n" -lt "$MAX" ]; do
++  case "$st" in
++    *"environment fault"*|*"limit"*|*"rate"*|*"quota"*|*"transport"*) ;;
++    *) break ;;
++  esac
++  n=$((n+1))
++  log "run $id paused on a provider fault ($n/$MAX): $st"
++  log "waiting ${WAIT}s for the usage window"
++  sleep "$WAIT"
++  bmad-loop resolve "$id" --no-interactive --resume || bmad-loop resume "$id"
++  rc=$?
++  st="$(state "$id")"
++done
++
++# A run that ends in seconds with every story deferred is an environment problem, not a verdict.
++if ! rg -q '"kind": "session-start"' ".bmad-loop/runs/$id/journal.jsonl" 2>/dev/null; then
++  log "run $id never started a session; first failure:"
++  rg -m1 -o '"error": "[^"]{0,300}' ".bmad-loop/runs/$id/journal.jsonl" 2>/dev/null | head -1
++  exit 1
++fi
++
++log "run $id: $st (rc $rc)"
++if [ -n "$BRANCH" ] && [ "$PUSH" = 1 ]; then
++  cur="$(git rev-parse --abbrev-ref HEAD)"
++  if git push -u origin "$BRANCH"; then log "pushed $BRANCH"; else log "push failed for $BRANCH"; fi
++  [ "$cur" != "$BRANCH" ] && git checkout -q "$cur"
++fi
++case "$st" in
++  finished*) exit 0 ;;
++  *) log "not finished; inspect with: bmad-loop status $id"; exit 1 ;;
++esac
+diff --git a/.audit/native-entrypoint-retirement/baseline.json b/.audit/native-entrypoint-retirement/baseline.json
+new file mode 100644
+index 0000000..fdafe57
+--- /dev/null
++++ b/.audit/native-entrypoint-retirement/baseline.json
+@@ -0,0 +1,8 @@
++{
++  "head": "9da55bece5948da12129720dd2330a3032c985bf",
++  "prior_retirement": "7a164054c5e9fe85ee1ab41bf105d9e286bb81fb",
++  "wrappers_present": [
++    "scripts/loop-parallel.py",
++    "scripts/loop.sh"
++  ]
++}
+diff --git a/.audit/native-entrypoint-retirement/before.json b/.audit/native-entrypoint-retirement/before.json
+new file mode 100644
+index 0000000..f28735f
+--- /dev/null
++++ b/.audit/native-entrypoint-retirement/before.json
+@@ -0,0 +1,10 @@
++{
++  "head": "9da55bece5948da12129720dd2330a3032c985bf",
++  "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-native-entrypoint-fix",
++  "issues": [
++    "retired entry point exists: scripts/loop-parallel.py",
++    "retired entry point exists: scripts/loop.sh"
++  ],
++  "active_callers": [],
++  "passed": false
++}
+diff --git a/.audit/native-entrypoint-retirement/evidence.md b/.audit/native-entrypoint-retirement/evidence.md
+new file mode 100644
+index 0000000..3e3ae3b
+--- /dev/null
++++ b/.audit/native-entrypoint-retirement/evidence.md
+@@ -0,0 +1,9 @@
++# Native entrypoint retirement repair
++
++Baseline 9da55bece5948da12129720dd2330a3032c985bf contained both retired wrappers. `before.json` records their actual existence and no active tracked callers. Historical deletion 7a164054c5e9fe85ee1ab41bf105d9e286bb81fb was present in ancestry; the current combined tree had restored the obsolete parallel launcher. A scan of non-merge deletions from origin/main to the baseline found this was the only revived source file outside audit and BMAD artifacts.
++
++Removed both unused repository lifecycle wrappers. `after.json` records that neither exists, no active tracked callers remain, and native commands plus the bootstrap/verification hook remain available. Four local native CLI help commands succeeded. No native run, policy, state or integration source was modified by these read-only probes.
++
++Reproduce after final integration: `python3 .audit/native-entrypoint-retirement/verify.py`. A newly merged revision must pass again; the helper worktree result alone does not establish that a later merge preserved the deletions.
++
++No product behavior changed and product tests cannot exercise absent scripts. Required product, component and build gates remain due on the final integration revision. Independent review of this repair is the next BMAD workflow step. No push or main promotion has occurred.
+diff --git a/.audit/native-entrypoint-retirement/native-resolve-help.txt b/.audit/native-entrypoint-retirement/native-resolve-help.txt
+new file mode 100644
+index 0000000..e799ba1
+--- /dev/null
++++ b/.audit/native-entrypoint-retirement/native-resolve-help.txt
+@@ -0,0 +1,25 @@
++usage: bmad-loop resolve [-h] [--project PROJECT] [--story STORY]
++                         [--no-interactive] [--restore-patch PATH]
++                         [--resume | --no-resume] [--force]
++                         run_id
++
++positional arguments:
++  run_id
++
++options:
++  -h, --help            show this help message and exit
++  --project PROJECT     target project root (default: cwd)
++  --story STORY         story key to resolve (default: the paused one)
++  --no-interactive      skip the resolve agent (spec already fixed by hand);
++                        just re-arm + resume
++  --restore-patch PATH  intent-gap patch-restore (#2564): re-arm the spec to
++                        `in-review` and re-apply this saved patch before the
++                        re-drive, resuming review on the attempted change
++                        instead of re-implementing (hand-driven; the
++                        interactive agent supplies it via resolution.json)
++  --resume, --no-resume
++                        --resume: re-arm + resume without prompting; --no-
++                        resume: re-arm only (default: prompt to confirm, then
++                        resume)
++  --force               proceed when engine liveness is unverifiable
++                        (unknown); a provably-live engine still blocks
+diff --git a/.audit/native-entrypoint-retirement/native-resume-help.txt b/.audit/native-entrypoint-retirement/native-resume-help.txt
+new file mode 100644
+index 0000000..4060c02
+--- /dev/null
++++ b/.audit/native-entrypoint-retirement/native-resume-help.txt
+@@ -0,0 +1,8 @@
++usage: bmad-loop resume [-h] [--project PROJECT] run_id
++
++positional arguments:
++  run_id
++
++options:
++  -h, --help         show this help message and exit
++  --project PROJECT  target project root (default: cwd)
+diff --git a/.audit/native-entrypoint-retirement/native-run-help.txt b/.audit/native-entrypoint-retirement/native-run-help.txt
+new file mode 100644
+index 0000000..41c18ae
+--- /dev/null
++++ b/.audit/native-entrypoint-retirement/native-run-help.txt
+@@ -0,0 +1,15 @@
++usage: bmad-loop run [-h] [--project PROJECT] [--spec FOLDER] [--epic EPIC]
++                     [--story STORY] [--max-stories MAX_STORIES] [--dry-run]
++
++options:
++  -h, --help            show this help message and exit
++  --project PROJECT     target project root (default: cwd)
++  --spec FOLDER         force stories mode: dispatch the epic spec folder's
++                        stories.yaml by folder+id (overrides [stories].source)
++  --epic EPIC           only stories from this epic (sprint mode)
++  --story STORY         story: E-S / E.S (split suffix ok, e.g. 2-6a), a slug
++                        fragment, or full key (sprint mode); a story id
++                        (stories mode)
++  --max-stories MAX_STORIES
++                        stop after N stories
++  --dry-run             print the plan, spawn nothing
+diff --git a/.audit/native-entrypoint-retirement/native-status-help.txt b/.audit/native-entrypoint-retirement/native-status-help.txt
+new file mode 100644
+index 0000000..0c3a4d0
+--- /dev/null
++++ b/.audit/native-entrypoint-retirement/native-status-help.txt
+@@ -0,0 +1,10 @@
++usage: bmad-loop status [-h] [--project PROJECT] [--json] [run_id]
++
++positional arguments:
++  run_id
++
++options:
++  -h, --help         show this help message and exit
++  --project PROJECT  target project root (default: cwd)
++  --json             emit a stable machine-readable JSON document (run state)
++                     instead of text
+diff --git a/.audit/native-entrypoint-retirement/resurrection-history.json b/.audit/native-entrypoint-retirement/resurrection-history.json
+new file mode 100644
+index 0000000..aa44949
+--- /dev/null
++++ b/.audit/native-entrypoint-retirement/resurrection-history.json
+@@ -0,0 +1,17 @@
++[
++  {
++    "commit": "021f0b4cb9b58e310c9acbbaa60f6fa9227b418e",
++    "parents": [
++      "34feaeb58948ef01d729917e8da689dea58bb5a6",
++      "b99f1eeef78348df5c14f68031f7f0276527ff3f"
++    ],
++    "subject": "merge: integrate preserved learning stories for final verification"
++  },
++  {
++    "commit": "d7c65751d27085776be147e405e919d78410e781",
++    "parents": [
++      "39ef82cab767286053fc5f719299475425158e85"
++    ],
++    "subject": "feat(loop): run an epic as concurrent bmad-loop lanes, one worktree and branch each"
++  }
++]
+diff --git a/.audit/native-entrypoint-retirement/verify.py b/.audit/native-entrypoint-retirement/verify.py
+new file mode 100644
+index 0000000..87bda90
+--- /dev/null
++++ b/.audit/native-entrypoint-retirement/verify.py
+@@ -0,0 +1,25 @@
++from pathlib import Path
++import json, subprocess, sys
++root=Path(__file__).resolve().parents[2]
++retired=["scripts/loop-parallel.py", "scripts/loop.sh"]
++issues=[]
++for relative in retired:
++    path=root/relative
++    if path.exists() or path.is_symlink(): issues.append(f"retired entry point exists: {relative}")
++tracked=subprocess.check_output(["git","ls-files","-z"],cwd=root).decode().split("\0")
++callers=[]
++for relative in tracked:
++    if not relative or relative.startswith((".audit/","_bmad-output/","docs/",".agents/",".codex/",".factory/")) or relative in retired: continue
++    path=root/relative
++    if not path.is_file(): continue
++    try: content=path.read_text()
++    except (UnicodeError,OSError): continue
++    if any(name in content for name in retired): callers.append(relative)
++if callers: issues.append("active references: "+", ".join(callers))
++guide=(root/"docs/bmad-loop.md").read_text()
++for command in ["bmad-loop run", "bmad-loop status", "bmad-loop resolve", "bmad-loop resume"]:
++    if command not in guide: issues.append("missing native guide command: "+command)
++for relative in ["scripts/loop-verify.sh", ".bmad-loop/plugins/npm-bootstrap/plugin.toml"]:
++    if not (root/relative).is_file(): issues.append("missing native gate: "+relative)
++print(json.dumps({"head":subprocess.check_output(["git","rev-parse","HEAD"],cwd=root,text=True).strip(),"worktree":str(root),"issues":issues,"active_callers":callers,"passed":not issues},indent=2))
++sys.exit(bool(issues))
+
+Do not invoke any skill. If the instruction file is unreadable, report that exact failure and stop. Return only the review result.

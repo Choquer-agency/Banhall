@@ -1,0 +1,110 @@
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:44:14.3221533Z env:
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:44:14.3324419Z [1/9] preflight
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:44:14.8144275Z ok 0s
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:44:14.8144528Z [2/9] convex typecheck
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:44:28.9378229Z ok 14s
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:44:28.9378583Z [3/9] svelte-check
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:44:52.4248183Z svelte-check found 0 errors and 0 warnings
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:44:52.5567325Z ok 24s
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:44:52.5569776Z [4/9] unit tests
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:44:55.0121514Z   Symbol(vercel.ai.error.AI_LoadAPIKeyError): true
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:45:02.9421511Z
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:45:04.4215951Z     at postToApi (file:///home/runner/work/Banhall/Banhall/node_modules/@ai-sdk/provider-utils/dist/index.mjs:2500:28)
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:45:06.9852153Z OpenRouter returned 429 (attempt 1/2), retrying in 0ms
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:45:29.5398645Z  Test Files  154 passed (154)
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:45:29.5409698Z       Tests  1970 passed (1970)
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:45:29.6268976Z ok 37s
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:45:29.6269486Z [5/9] test discovery guard
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:45:31.4803861Z discovered 215 executable test files; accounted for 3 historical archives
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:45:31.4849636Z ok 2s
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:45:31.4850147Z [6/9] production build
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:07.5215661Z .svelte-kit/output/client/_app/immutable/assets/geist-mono-cyrillic-ext-wght-normal.X_5orZeX.woff2    6.17 kB
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:14.0093140Z ok 43s
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:14.0093657Z [7/9] uploader harness (pwsh)
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.5684161Z ok    AC1 cloud placeholder (ReparsePoint attribute, empty LinkType) is a candidate
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.5714494Z ok    AC2 symlink is skipped as link
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.5729236Z ok    AC2 junction is skipped as link
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.5895947Z ok    AC2 Test-RealLink is false for a placeholder and true for a symlink
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.5908011Z ok    AC3 Word temp file is skipped as temp
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.5919147Z ok    AC3 dotfile is skipped as dotfile
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.5930024Z ok    AC3 disallowed extension is skipped as extension
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.5943900Z ok    AC3 allowed plain file is a candidate
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.5954874Z ok    AC3 extension match is case-insensitive
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.5965431Z ok    edge link is checked before temp
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.5990200Z ok    edge object without a LinkType property is not a link
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.6001599Z ok    edge empty allowed list skips everything as extension
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.6031687Z ok    edge missing or unset Attributes does not throw
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.6140717Z ok    zero-diag AC3 Offline attribute is cloud-only
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.6166890Z ok    zero-diag AC3 RecallOnDataAccess bit is cloud-only
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.6194701Z ok    zero-diag AC3 a hydrated local file is not cloud-only
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.6226625Z ok    zero-diag edge Test-CloudOnly tolerates a missing or unset Attributes
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.6582564Z ok    zero-diag AC1 histogram counts by extension, most frequent first
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.6992633Z ok    zero-diag edge histogram caps at top N and labels extensionless files
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.7007798Z ok    zero-diag edge histogram of nothing is empty
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.7215648Z ok    zero-diag AC1/AC5 formatter renders every required line for a zero-candidate scan
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.7245847Z ok    zero-diag edge formatter prints an all-zero block for an empty folder
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.7348762Z ok    zero-diag AC1 formatter never prints a file name
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.7740221Z ok    zero-diag AC1 root under a sync root reports yes, case- and separator-insensitively
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.7768750Z ok    zero-diag AC1 root outside every sync root reports no
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.7786058Z ok    zero-diag AC1 no OneDrive env var at all reports unknown
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.8321877Z ok    AC4 exactly one candidate, the real .docx
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.8343746Z ok    AC4 temp and extension skips are tallied
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.8349474Z ok    AC4 the symlink is skipped as link
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.8361825Z ok    AC4 walk reports counts and no errors
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.8398438Z ok    AC4 a missing root yields zero candidates and a recorded error
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.8437403Z ok    zero-diag AC1 the scan records an extension histogram of every file it walked
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.8507374Z ok    zero-diag AC4 Test-RootUsable separates a folder, a file and a missing path
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.8612801Z ok    review-fix a bracket-named root is usable and yields its candidate
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:19.8683937Z ok    review-fix a wildcard read of that root is what loses it
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:20.1246934Z ok    AC6 banhall-uploader.ps1 parses and stays Windows PowerShell 5.1 compatible
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:20.1521679Z ok    AC6 uploader-lib.ps1 parses and stays Windows PowerShell 5.1 compatible
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:20.3173966Z ok    AC6 run-tests.ps1 parses and stays Windows PowerShell 5.1 compatible
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:20.3486494Z ok    AC6 one Get-UploadCandidates call site, inside the foreach over roots
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:20.3709735Z ok    AC6 all three input modes converge on roots
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:20.3986312Z ok    review-fix every path the uploader reads is a literal path
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:20.4287875Z ok    review-fix the upload body path is wildcard-escaped
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:20.4577843Z ok    regression banhall-uploader.ps1 never mentions ReparsePoint again
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:20.5697526Z ok    zero-diag AC4 every root-is-a-file message stops the run from a Test-RootUsable state
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:20.6030521Z ok    review-fix the uploader only claims a log was saved when a write succeeded
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:20.6787605Z ok    zero-diag AC2 the log is truncated before the scan and the SCAN lines beat the zero exit
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:20.7238739Z ok    zero-diag AC3 the cloud-only line is printed only when the count is above zero
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:20.7466152Z ok    zero-diag AC1 the zero-found branch prints the formatter's lines and never a file name
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:20.7588608Z ok    AC5 loop-verify.sh runs the harness under set -e
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.0461385Z ok    AC5 an injected failing case exits 1 and stops a set -e gate
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.0462540Z 50 passed, 0 failed
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.0960555Z ok 9s
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.0960947Z [8/9] uploader harness (bash)
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.1483441Z ok    AC1 walk classifies link/temp/dotfile/extension and keeps 3 candidates
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.1748351Z ok    AC4 symlink to an allowed file is skipped and counted under link
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.2011933Z ok    AC1 argument prefix is prepended to the relative path
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.2454587Z ok    AC1 zero-result block reports walked, per-reason skips, extensions, OneDrive
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.2612876Z ok    edge empty folder reports zeros and 'Extensions seen: none'
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.3224032Z ok    AC1 extension histogram is capped at 8, ties broken alphabetically
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.3298176Z ok    edge ext_of matches .NET GetExtension for dotfiles and bare names
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.3329861Z ok    AC3 root_state answers ok / is_file / missing
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.3376847Z ok    AC3 a file path prints 'That path is a file, not a folder' and exits 1
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.3436547Z ok    AC3 a folder passes and a missing path reports 'does not exist'
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.4065062Z ok    AC2 an unreadable file logs READ_ERROR and never calls the endpoint
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.4456315Z ok    AC2 control: a readable file does reach the stubbed endpoint
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.5106747Z ok    AC2 sha256_of returns nothing for an unreadable or missing file
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.5174154Z ok    AC1 under_onedrive answers yes / no / unknown
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.5200228Z ok    AC5 scripts/loop-verify.sh runs this harness exactly once
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.9276036Z ok    AC5 an injected failing case exits non-zero
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.9302198Z ok    shape banhall-uploader.sh uses no bash 4 constructs
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.9373570Z ok    shape every function is defined above the lib-only guard
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.9374030Z 18 passed, 0 failed
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.9413382Z ok 0s
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:46:23.9413787Z [9/9] component suite
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:47:38.2152421Z https://svelte.dev/e/derived_inert
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:47:38.2154636Z stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > layers sign-out confirmation above the drawer and restores focus on cancel
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:47:38.2156467Z https://svelte.dev/e/derived_inert
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:47:38.2158503Z stderr | src/lib/components/workspace/WorkspaceChrome.component.test.ts > WorkspaceChrome > layers sign-out confirmation above the drawer and restores focus on cancel
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:47:41.2752153Z https://svelte.dev/e/derived_inert
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:47:45.6621545Z stderr | src/lib/components/project/StageChangeDialog.component.test.ts > StageChangeDialog > requires an audit note for reason-required transitions
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:47:45.7152151Z stderr | src/lib/components/project/StageChangeDialog.component.test.ts > StageChangeDialog > requires an audit note for reason-required transitions
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:47:45.7422153Z stderr | src/lib/components/project/StageChangeDialog.component.test.ts > StageChangeDialog > supports arrow-key radiogroup navigation
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:47:45.7962150Z https://svelte.dev/e/derived_inert
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:47:59.6215210Z  ✓  component (chromium)  src/lib/components/ui/SelectInput.component.test.ts (2 tests) 10ms
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:47:59.8339570Z  Test Files  62 passed (62)
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:47:59.8344267Z       Tests  463 passed (463)
+pointer	Full gate on candidate pointer contexts	2026-09-05T19:48:00.1710254Z ok 97s

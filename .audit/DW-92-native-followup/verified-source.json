@@ -1,0 +1,15 @@
+{
+  "baseline": "9da55bece5948da12129720dd2330a3032c985bf",
+  "paths": [
+    "convex/generationAttribution.test.ts",
+    "convex/lib/tiptapReport.ts",
+    "convex/qaBlocking.test.ts"
+  ],
+  "diff_sha256": "3ca898303f94866fa545263d6a09a6fd5a2a3f8648de1788e2bb5adaf5a4152f",
+  "matches_all_final_command_diffs": true,
+  "file_sha256": {
+    "convex/generationAttribution.test.ts": "986b9d65f45574ee07a7cc4f6963acc078e79caffefb8905e03c5760ff593a76",
+    "convex/lib/tiptapReport.ts": "814ae4a22e85d8a706a42922e2d0a5e2bf960920bf18918207732732a4dad1a1",
+    "convex/qaBlocking.test.ts": "a47b7188f66d711cf49b746ed241ab07cb8420ce48091c201eadf9b15eebb41e"
+  }
+}

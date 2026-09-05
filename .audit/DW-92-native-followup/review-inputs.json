@@ -1,0 +1,42 @@
+{
+  "followup_baseline": "9da55bece5948da12129720dd2330a3032c985bf",
+  "captured_at": "2026-09-04T23:43:13.691317+00:00",
+  "review_inputs": {
+    "review-input.diff": "5be29b40023a82ea351e390c3402c9684c54ad51cbe1132e1a5eb1a92646f37e",
+    "qa-history.diff": "eb3823aff486bdee5ee18506389a067e1f760687c0b7a1bcb2a8e024a6afa07d"
+  },
+  "history_command": "git diff f122b086d745acc40b4decca26b9aaafc7257f6a HEAD -- QA-related paths (see implementation-review.md and qa-history.diff)",
+  "scope": "Review source history includes unrelated integrated changes; original QA commit sequence is enumerated in implementation-provenance.json.",
+  "history_command_argv": [
+    "git",
+    "diff",
+    "f122b086d745acc40b4decca26b9aaafc7257f6a",
+    "9da55bece5948da12129720dd2330a3032c985bf",
+    "--",
+    "convex/ai/postQa.ts",
+    "convex/ai/prompts.test.ts",
+    "convex/ai/prompts.ts",
+    "convex/ai/qaChecks.test.ts",
+    "convex/ai/qaChecks.ts",
+    "convex/chatV2.ts",
+    "convex/comments.ts",
+    "convex/generationAttribution.test.ts",
+    "convex/generations.ts",
+    "convex/lib/auth.ts",
+    "convex/lib/contracts.ts",
+    "convex/lib/qaFindings.ts",
+    "convex/lib/tiptapReport.test.ts",
+    "convex/lib/tiptapReport.ts",
+    "convex/projects.ts",
+    "convex/qaBlocking.test.ts",
+    "convex/qaFindingsCleanup.test.ts",
+    "convex/reports.ts",
+    "convex/schema.ts",
+    "convex/snapshots.ts",
+    "docs/product-domain.md",
+    "tsconfig.json",
+    "vitest.config.ts"
+  ],
+  "history_artifact": "qa-history.diff is an ignored reproducible scratch input; regenerate with history_command_argv and verify its sha256.",
+  "snapshot_artifact": "review-input.diff.gz contains exact reviewed initial artifact diff bytes; decompress and verify the recorded review-input.diff sha256."
+}

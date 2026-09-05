@@ -1,0 +1,2725 @@
+diff --git a/convex/lib/tiptapReport.test.ts b/convex/lib/tiptapReport.test.ts
+index 3730620..19870c6 100644
+--- a/convex/lib/tiptapReport.test.ts
++++ b/convex/lib/tiptapReport.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, test } from "vitest";
+-import { buildTiptapDocument, textToParagraphs } from "./tiptapReport";
++import { buildTiptapDocument, textToParagraphs, extractReportSections } from "./tiptapReport";
+ 
+ describe("textToParagraphs", () => {
+   test("splits on blank lines and drops empty paragraphs", () => {
+@@ -56,3 +56,59 @@ describe("buildTiptapDocument", () => {
+     ]);
+   });
+ });
++
++
++describe("extractReportSections", () => {
++  test("joins marked inline text and preserves separate paragraphs", () => {
++    const content = JSON.stringify({ type: "doc", content: [
++      { type: "heading", content: [{ type: "text", text: "Line 242 — Uncertainty" }] },
++      { type: "paragraph", content: [
++        { type: "text", text: "It was " },
++        { type: "text", text: "uncertain", marks: [{ type: "bold" }] },
++        { type: "text", text: " whether the method scales." },
++      ] },
++      { type: "paragraph", content: [{ type: "text", text: "Separate paragraph because this is unrelated." }] },
++      { type: "heading", content: [{ type: "text", text: "Line 244 — Work" }] },
++      { type: "paragraph", content: [{ type: "text", text: "Work performed." }] },
++    ] });
++    const sections = extractReportSections(content);
++    expect(sections.s242.trim()).toBe("It was uncertain whether the method scales.\n\nSeparate paragraph because this is unrelated.");
++    expect(sections.s244.trim()).toBe("Work performed.");
++  });
++
++  test("preserves CRLF legacy paragraphs and section boundaries", () => {
++    const sections = extractReportSections("Line 242 — Uncertainty\r\n\r\nIt remained uncertain whether this scales.\r\n\r\nAnother paragraph because of context.\r\n\r\nLine 244 — Work\r\n\r\nExperimented.");
++    expect(sections.s242.trim()).toBe("It remained uncertain whether this scales.\n\nAnother paragraph because of context.");
++    expect(sections.s244.trim()).toBe("Experimented.");
++  });
++});
++
++describe("section extraction boundary regressions", () => {
++  test("retains heading-like body prose and excludes generated title preamble", () => {
++    const sections = extractReportSections(JSON.stringify(buildTiptapDocument("It was uncertain whether title text applies.", "Line 244 — It was uncertain whether this scales.", "Work.", "Knowledge.")));
++    expect(sections.s242.trim()).toBe("Line 244 — It was uncertain whether this scales.");
++    expect(sections.s244.trim()).toBe("Work.");
++  });
++  test("parses standalone legacy headings separated by single newlines", () => {
++    const sections = extractReportSections("Title\nLine 242 — Uncertainty\nIt was uncertain whether this scales.\nLine 244 — Work\nWork performed.\nLine 246 — Advancement\nKnowledge.");
++    expect(sections.s242.trim()).toBe("It was uncertain whether this scales.");
++    expect(sections.s244.trim()).toBe("Work performed.");
++    expect(sections.s246.trim()).toBe("Knowledge.");
++  });
++  test("empty valid Tiptap documents produce empty sections", () => {
++    expect(extractReportSections('{"type":"doc","content":[]}')).toEqual({ s242: "", s244: "", s246: "" });
++  });
++});
++
++
++test("preserves soft line wraps in legacy uncertainty explanations", () => {
++  const sections = extractReportSections("Line 242 — Uncertainty\nIt was uncertain whether\nthe alloy holds because its response was unknown.\n\nNext paragraph.");
++  expect(sections.s242.trim()).toBe("It was uncertain whether\nthe alloy holds because its response was unknown.\n\nNext paragraph.");
++});
++
++
++test("nested rich-text containers preserve actual section boundaries", () => {
++  const doc = buildTiptapDocument("Title", "Uncertainty.", "Work.", "Knowledge.");
++  const sections = extractReportSections(JSON.stringify({ type: "doc", content: [{ type: "blockquote", content: doc.content }] }));
++  expect(sections).toEqual({ s242: "Uncertainty.\n\n", s244: "Work.\n\n", s246: "Knowledge.\n\n" });
++});
+diff --git a/convex/lib/tiptapReport.ts b/convex/lib/tiptapReport.ts
+index 7d96427..628c91f 100644
+--- a/convex/lib/tiptapReport.ts
++++ b/convex/lib/tiptapReport.ts
+@@ -1,3 +1,5 @@
++import { checkBecauseClauses } from "../ai/qaChecks";
++
+ // Framework-free Tiptap report-document construction, shared by the node
+ // generation pipeline (convex/ai/pipeline.ts) and the default-runtime
+ // iterative-assembly mutations (convex/generations.ts). No "use node", no
+@@ -99,3 +101,83 @@ export function buildTiptapDocument(
+ 
+   return { type: "doc", content };
+ }
++
++/** Recover current section prose while preserving the distinction between headings and body text. */
++export function extractReportSections(content: string): { s242: string; s244: string; s246: string } {
++  const sections = { s242: "", s244: "", s246: "" };
++  type Section = keyof typeof sections;
++  type Block = { text: string; heading: boolean; richText?: boolean };
++  function nodeText(node: unknown): string {
++    if (!node || typeof node !== "object") return "";
++    if ("text" in node && typeof node.text === "string") return node.text;
++    if ("type" in node && node.type === "hardBreak") return "\n";
++    if (!("content" in node) || !Array.isArray(node.content)) return "";
++    const inline = "type" in node && ["paragraph", "heading", "codeBlock"].includes(String(node.type));
++    return node.content.map(nodeText).join(inline ? "" : "\n\n");
++  }
++  function sectionHeading(text: string, richText = false): Section | undefined {
++    // A section label must never consume a statement recognized by the QA
++    // detector, including labels with no terminal punctuation.
++    if (checkBecauseClauses(text).uncertaintyCount > 0) return undefined;
++    const pattern = /^(?:#{1,6}\s*)?(?:Line|Section)\s+(242|244|246)(?:\s*[-—–:]\s*([^\n]*))?$/i;
++    const match = text.trim().match(pattern);
++    if (!match) return undefined;
++    // Plaintext has no node kind to distinguish a heading from a sentence.
++    // Only established labels can disambiguate plaintext cross-references,
++    // whether or not the sentence has terminal punctuation.
++    const label = match[2] ?? "";
++    if (!richText && label &&
++      !/^(?:(?:Scientific\/)?Technological Uncertainty|Uncertainty|Work(?: Performed)?|(?:Scientific\/)?Technological Advancement|Advancement)[.!?]?$/i.test(label)) return undefined;
++    return match[1] === "244" ? "s244" : match[1] === "246" ? "s246" : "s242";
++  }
++  let blocks: Block[] | undefined;
++  try {
++    const parsed: unknown = JSON.parse(content);
++    if (parsed && typeof parsed === "object" && "type" in parsed && parsed.type === "doc") {
++      blocks = [];
++      if ("content" in parsed && Array.isArray(parsed.content)) {
++        const extracted: Block[] = [];
++        function visit(node: unknown): void {
++          if (!node || typeof node !== "object") return;
++          if ("type" in node && (node.type === "paragraph" || node.type === "heading" || node.type === "codeBlock")) {
++            extracted.push({ text: nodeText(node), heading: node.type === "heading", richText: true });
++          } else if ("content" in node && Array.isArray(node.content)) {
++            node.content.forEach(visit);
++          } else {
++            const text = nodeText(node);
++            if (text) extracted.push({ text, heading: false });
++          }
++        }
++        parsed.content.forEach(visit);
++        blocks = extracted;
++      }
++    }
++  } catch { /* Plaintext is a supported legacy format. */ }
++  if (!blocks) {
++    blocks = [];
++    let body: string[] = [];
++    for (const line of content.replace(/\r\n?/g, "\n").replace(/\n[^\S\n]+(?=\n)/g, "\n").split("\n")) {
++      if (sectionHeading(line)) {
++        if (body.length) blocks.push({ text: body.join("\n"), heading: false });
++        body = [];
++        blocks.push({ text: line, heading: true });
++      } else body.push(line);
++    }
++    if (body.length) blocks.push({ text: body.join("\n"), heading: false });
++  }
++  // Only an initial uncertainty section proves where its preamble ends.
++  // A later appendix cannot hide prose before the first work/advancement section.
++  const firstSection = blocks.find(block => block.heading && sectionHeading(block.text, block.richText));
++  const startsWithUncertainty = firstSection && sectionHeading(firstSection.text, firstSection.richText) === "s242";
++  let section: Section | undefined = startsWithUncertainty ? undefined : "s242";
++  for (const block of blocks) {
++    const next = block.heading ? sectionHeading(block.text, block.richText) : undefined;
++    if (next) section = next;
++    else if (section && block.text.trim()) {
++      // Hard breaks in rich text can encode the same blank paragraphs as
++      // legacy text. Keep soft wraps, but normalize whitespace-only blank lines.
++      sections[section] += block.text.replace(/\r\n?/g, "\n").replace(/\n[^\S\n]+(?=\n)/g, "\n").trim() + "\n\n";
++    }
++  }
++  return sections;
++}
+diff --git a/convex/pdReviewProjection.test.ts b/convex/pdReviewProjection.test.ts
+index e27ff06..e32b001 100644
+--- a/convex/pdReviewProjection.test.ts
++++ b/convex/pdReviewProjection.test.ts
+@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
+ import { describe, expect, it, vi } from "vitest";
+ import { api, internal } from "./_generated/api";
+ import schema from "./schema";
++import { sha256 } from "./lib/contracts";
+ 
+ const modules = import.meta.glob("./**/*.ts");
+ const authId = "pd-review-projection-user";
+@@ -202,3 +203,82 @@ describe("failStalePdReviews", () => {
+     }
+   });
+ });
++
++describe("CAP-9 PD provenance", () => {
++  it("pins fresh starts and retries to document bytes and keeps provenance through completion", async () => {
++    vi.useFakeTimers();
++    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
++    try {
++      const { t, projectId } = await setup();
++      const actor = t.withIdentity({ subject: authId });
++      const legacy = await t.run((ctx) => ctx.db.query("pdReviews").first());
++      if (!legacy) throw new Error("Missing fixture");
++      expect(legacy).not.toHaveProperty("revisionNumber");
++      expect(legacy).not.toHaveProperty("contentHash");
++      const documentId = legacy.documentId;
++      const content = "  Source PD with UTF-8 café\n";
++      await t.run((ctx) => ctx.db.patch(documentId, { content }));
++      const startedId = await actor.mutation(api.pdReviews.startPdReview, {
++        projectId,
++        documentId,
++      });
++      const provenance = {
++        revisionNumber: 0,
++        contentHash: await sha256(content),
++      };
++      expect(await t.run((ctx) => ctx.db.get(startedId))).toMatchObject(
++        provenance
++      );
++      await t.mutation(internal.pdReviews.completePdReview, {
++        reviewId: startedId,
++        result: "{}",
++        model: "test",
++      });
++      expect(await t.run((ctx) => ctx.db.get(startedId))).toMatchObject({
++        ...provenance,
++        status: "completed",
++      });
++      const retryContent = "New source bytes before retry";
++      await t.run((ctx) => ctx.db.patch(documentId, { content: retryContent }));
++      const retryProvenance = {
++        revisionNumber: 0,
++        contentHash: await sha256(retryContent),
++      };
++      expect(retryProvenance.contentHash).not.toBe(provenance.contentHash);
++      // Legacy retries derive from the source, never from absent historical evidence.
++      const retriedId = await actor.mutation(api.pdReviews.retryPdReview, {
++        reviewId: legacy._id,
++      });
++      expect(retriedId).not.toBe(legacy._id);
++      expect(await t.run((ctx) => ctx.db.get(retriedId))).toMatchObject(
++        retryProvenance
++      );
++      await t.mutation(internal.pdReviews.failPdReview, {
++        reviewId: retriedId,
++        error: "test",
++      });
++      expect(await t.run((ctx) => ctx.db.get(retriedId))).toMatchObject({
++        ...retryProvenance,
++        status: "failed",
++      });
++      const retryCompletedId = await actor.mutation(
++        api.pdReviews.retryPdReview,
++        { reviewId: startedId }
++      );
++      expect(await t.run((ctx) => ctx.db.get(retryCompletedId))).toMatchObject(
++        retryProvenance
++      );
++      expect(retryCompletedId).not.toBe(startedId);
++      expect(await t.run((ctx) => ctx.db.get(startedId))).toMatchObject({
++        ...provenance,
++        status: "completed",
++      });
++      expect(await t.run((ctx) => ctx.db.get(legacy._id))).not.toHaveProperty(
++        "contentHash"
++      );
++    } finally {
++      vi.useRealTimers();
++      vi.unstubAllEnvs();
++    }
++  });
++});
+diff --git a/convex/pdReviews.ts b/convex/pdReviews.ts
+index bfe6f89..1777399 100644
+--- a/convex/pdReviews.ts
++++ b/convex/pdReviews.ts
+@@ -10,7 +10,7 @@ import {
+   getInternalProjectAccessOrNull,
+   requireInternalProjectAccess,
+ } from "./lib/auth";
+-import { domainError } from "./lib/contracts";
++import { domainError, sha256 } from "./lib/contracts";
+ import { requireAnthropicConfigured } from "./lib/providerConfig";
+ import { projectTranscriptPromptText } from "./lib/transcripts";
+ /**
+@@ -57,6 +57,8 @@ export const startPdReview = mutation({
+       documentId: args.documentId,
+       sourceFileName: doc.fileName,
+       status: "running",
++      revisionNumber: 0,
++      contentHash: await sha256(doc.content),
+       createdBy: user._id,
+       createdAt: now,
+     });
+@@ -111,6 +113,8 @@ export const retryPdReview = mutation({
+       documentId: failed.documentId,
+       sourceFileName: doc.fileName,
+       status: "running",
++      revisionNumber: 0,
++      contentHash: await sha256(doc.content),
+       createdBy: user._id,
+       createdAt: now,
+     });
+diff --git a/convex/preEditSnapshot.test.ts b/convex/preEditSnapshot.test.ts
+new file mode 100644
+index 0000000..e678f85
+--- /dev/null
++++ b/convex/preEditSnapshot.test.ts
+@@ -0,0 +1,261 @@
++/// <reference types="vite/client" />
++import { convexTest } from "convex-test";
++import { describe, expect, it } from "vitest";
++import { api } from "./_generated/api";
++import type { Id } from "./_generated/dataModel";
++import { sha256 } from "./lib/contracts";
++import schema from "./schema";
++
++const modules = import.meta.glob("./**/*.ts");
++const AUTH_ID = "pre-edit-owner";
++
++/**
++ * End-to-end fences for the pre-edit checkpoint written by
++ * `lib/snapshots.writePreEditSnapshot` on the `api.chatV2.applyProposal` path.
++ * The direct-writer cases live in `snapshots.test.ts`; these pin the wiring —
++ * that the mutation passes the reason, the threaded timestamp, and (only on a
++ * researched proposal) the session id and its label.
++ */
++
++const PARAGRAPH = "The team tested the alloy at low temperature.";
++const REPORT_DOC = JSON.stringify({
++  type: "doc",
++  content: [
++    {
++      type: "paragraph",
++      content: [{ type: "text", text: PARAGRAPH }],
++    },
++  ],
++});
++
++async function setup() {
++  const t = convexTest(schema, modules);
++  const ids = await t.run(async (ctx) => {
++    const now = Date.now();
++    const ownerId = await ctx.db.insert("users", {
++      authId: AUTH_ID,
++      role: "writer",
++      firstName: "Owen",
++    });
++    const projectId = await ctx.db.insert("projects", {
++      title: "Alloy fatigue PD",
++      clientName: "Acme Metals",
++      status: "review",
++      createdBy: ownerId,
++      ownerId,
++      shareToken: "pre-edit-token",
++      createdAt: now,
++      updatedAt: now,
++    });
++
++    async function report() {
++      return await ctx.db.insert("reports", {
++        projectId,
++        content: REPORT_DOC,
++        version: 1,
++        generatedAt: now,
++        updatedAt: now,
++        revisionNumber: 0,
++      });
++    }
++    async function proposal(
++      reportId: Id<"reports">,
++      researchSessionId?: Id<"researchSessions">
++    ) {
++      return await ctx.db.insert("chatProposals", {
++        agentThreadId: "pre-edit-thread",
++        projectId,
++        reportId,
++        kind: "edit",
++        targetText: "tested the alloy",
++        newText: "measured the alloy",
++        state: "pending",
++        createdAt: now,
++        ...(researchSessionId ? { researchSessionId } : {}),
++      });
++    }
++
++    // Separate reports so each apply leaves exactly one snapshot to inspect.
++    const plainReportId = await report();
++    const plainProposalId = await proposal(plainReportId);
++
++    const researchedReportId = await report();
++    const researchSessionId = await ctx.db.insert("researchSessions", {
++      projectId,
++      reportId: researchedReportId,
++      requestedBy: ownerId,
++      selectedText: "tested the alloy",
++      selectionFrom: 0,
++      selectionTo: 16,
++      surroundingContext: "The team tested the alloy at low temperature.",
++      instruction: "Back this with sources",
++      externalBrief: "Redacted brief",
++      reportRevisionNumber: 0,
++      status: "completed",
++      evidenceSourceCount: 4,
++      createdAt: now,
++      updatedAt: now,
++    });
++    const researchedProposalId = await proposal(
++      researchedReportId,
++      researchSessionId
++    );
++
++    // The stepped (`markProposalApplied`) path and the client-suggestion
++    // (`acceptEdit`) path each get their own report as well.
++    const steppedReportId = await report();
++    const steppedProposalId = await proposal(steppedReportId);
++
++    const clientReportId = await report();
++    const commenterId = await ctx.db.insert("commenters", {
++      projectId,
++      name: "Casey Client",
++      color: "#818CF8",
++      createdAt: now,
++    });
++    const highlightFrom = PARAGRAPH.indexOf("tested the alloy");
++    const clientCommentId = await ctx.db.insert("comments", {
++      projectId,
++      reportId: clientReportId,
++      commenterId,
++      commenterType: "client",
++      highlightFrom,
++      highlightTo: highlightFrom + "tested the alloy".length,
++      highlightText: "tested the alloy",
++      body: "We measured rather than tested here.",
++      suggestedEdit: "measured the alloy",
++      resolved: false,
++      createdAt: now,
++    });
++
++    return {
++      projectId,
++      plainReportId,
++      plainProposalId,
++      researchedReportId,
++      researchedProposalId,
++      researchSessionId,
++      steppedReportId,
++      steppedProposalId,
++      clientReportId,
++      clientCommentId,
++    };
++  });
++
++  return { t: t.withIdentity({ subject: AUTH_ID }), raw: t, ...ids };
++}
++
++/** The snapshot rows for one report, newest last. */
++async function snapshotsFor(
++  raw: Awaited<ReturnType<typeof setup>>["raw"],
++  reportId: Id<"reports">
++) {
++  return await raw.run((ctx) =>
++    ctx.db
++      .query("reportSnapshots")
++      .withIndex("by_reportId", (q) => q.eq("reportId", reportId))
++      .collect()
++  );
++}
++
++describe("applyProposal writes the pre-edit checkpoint", () => {
++  it("checkpoints a plain proposal with no research trail", async () => {
++    const { t, raw, plainReportId, plainProposalId } = await setup();
++
++    const result = await t.mutation(api.chatV2.applyProposal, {
++      proposalId: plainProposalId,
++    });
++    expect(result).toMatchObject({ applied: true, count: 1 });
++
++    const snapshots = await snapshotsFor(raw, plainReportId);
++    expect(snapshots).toHaveLength(1);
++    expect(snapshots[0]).toMatchObject({
++      reason: "pre_chat_edit",
++      label: "Before AI edit",
++      createdByRole: "system",
++      content: REPORT_DOC,
++      sourceRevisionNumber: 0,
++      contentHash: await sha256(REPORT_DOC),
++    });
++    expect(snapshots[0].researchSessionId).toBeUndefined();
++    expect(snapshots[0].researchSourceCount).toBeUndefined();
++
++    // The checkpoint and the report patch share one timestamp, so version
++    // history and the report agree on when the edit landed.
++    const report = await raw.run((ctx) => ctx.db.get(plainReportId));
++    expect(report?.revisionNumber).toBe(1);
++    expect(report?.content).toContain("measured the alloy");
++    expect(snapshots[0].createdAt).toBe(report?.updatedAt);
++  });
++
++  it("carries the session id, label and source count of a researched proposal", async () => {
++    const { t, raw, researchedReportId, researchedProposalId, researchSessionId } =
++      await setup();
++
++    const result = await t.mutation(api.chatV2.applyProposal, {
++      proposalId: researchedProposalId,
++    });
++    expect(result).toMatchObject({ applied: true, count: 1 });
++
++    const snapshots = await snapshotsFor(raw, researchedReportId);
++    expect(snapshots).toHaveLength(1);
++    expect(snapshots[0]).toMatchObject({
++      reason: "pre_chat_edit",
++      label: "Before researched edit",
++      createdByRole: "system",
++      content: REPORT_DOC,
++      sourceRevisionNumber: 0,
++      contentHash: await sha256(REPORT_DOC),
++      researchSessionId,
++      researchSourceCount: 4,
++    });
++
++    const report = await raw.run((ctx) => ctx.db.get(researchedReportId));
++    expect(snapshots[0].createdAt).toBe(report?.updatedAt);
++  });
++});
++
++describe("the other two pre-edit sites share the checkpoint's clock", () => {
++  // `chatProposals.test.ts` and `comments.test.ts` fence the stored row on
++  // these paths but never read `createdAt`, so a caller that reached for its
++  // own `Date.now()` instead of the patch's `now` would slip through there.
++  it("markProposalApplied stamps the checkpoint with the report's updatedAt", async () => {
++    const { t, raw, steppedReportId, steppedProposalId } = await setup();
++
++    const steppedDoc = REPORT_DOC.replace("tested the alloy", "measured the alloy");
++    const result = await t.mutation(api.chatV2.markProposalApplied, {
++      proposalId: steppedProposalId,
++      content: steppedDoc,
++      expectedRevisionNumber: 0,
++    });
++    expect(result).toMatchObject({ applied: true, revisionNumber: 1 });
++
++    const snapshots = await snapshotsFor(raw, steppedReportId);
++    expect(snapshots).toHaveLength(1);
++    expect(snapshots[0]).toMatchObject({
++      reason: "pre_chat_edit",
++      label: "Before AI edit",
++      content: REPORT_DOC,
++    });
++    const report = await raw.run((ctx) => ctx.db.get(steppedReportId));
++    expect(report?.content).toBe(steppedDoc);
++    expect(snapshots[0].createdAt).toBe(report?.updatedAt);
++  });
++
++  it("acceptEdit stamps the checkpoint with the report's updatedAt", async () => {
++    const { t, raw, clientReportId, clientCommentId } = await setup();
++
++    await t.mutation(api.comments.acceptEdit, { commentId: clientCommentId });
++
++    const snapshots = await snapshotsFor(raw, clientReportId);
++    expect(snapshots).toHaveLength(1);
++    expect(snapshots[0]).toMatchObject({
++      reason: "pre_client_edit",
++      label: "Before client edit",
++      content: REPORT_DOC,
++    });
++    const report = await raw.run((ctx) => ctx.db.get(clientReportId));
++    expect(report?.content).toContain("measured the alloy");
++    expect(snapshots[0].createdAt).toBe(report?.updatedAt);
++  });
++});
+diff --git a/convex/projectWorkflow.test.ts b/convex/projectWorkflow.test.ts
+index 0cfc96e..6a657cd 100644
+--- a/convex/projectWorkflow.test.ts
++++ b/convex/projectWorkflow.test.ts
+@@ -8,6 +8,7 @@ import { WORKFLOW_STAGES, type WorkflowStage } from "../shared/workflowStages";
+ import {
+   WORKFLOW_TRANSITIONS,
+   findWorkflowTransition,
++  reviewDecisionForStage,
+ } from "../shared/workflowTransitions";
+ 
+ const modules = import.meta.glob("./**/*.ts");
+@@ -95,6 +96,41 @@ async function insertProject(
+   });
+ }
+ 
++async function insertReport(
++  setup: Setup,
++  projectId: Id<"projects">,
++  options: { legacy?: boolean; content?: string; contentHash?: string } = {}
++) {
++  const content = options.content ?? "Reviewed report content";
++  return await setup.t.run(async (ctx) => {
++    const now = Date.now();
++    return await ctx.db.insert("reports", {
++      projectId,
++      content,
++      version: 1,
++      generatedAt: now - 100,
++      updatedAt: now - 50,
++      // A legacy row predates revisionNumber/contentHash; the decision row must
++      // still pin a revision (0) and a freshly computed hash. `contentHash` is
++      // overridable so the empty-string case can be driven explicitly.
++      ...(options.legacy
++        ? {}
++        : { revisionNumber: 3, contentHash: options.contentHash ?? "hash-of-revision-3" }),
++    });
++  });
++}
++
++async function reviewDecisions(setup: Setup, projectId: Id<"projects">) {
++  return await setup.t.run(async (ctx) =>
++    ctx.db
++      .query("reviewDecisions")
++      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
++      // collect, not take(n): a bug that writes extra rows must fail a length
++      // assertion rather than be silently truncated by the fence itself.
++      .collect()
++  );
++}
++
+ async function projectEvents(setup: Setup, projectId: Id<"projects">) {
+   return await setup.t.run(async (ctx) =>
+     ctx.db
+@@ -153,17 +189,34 @@ describe("workflow transition matrix", () => {
+     for (const from of WORKFLOW_STAGES) {
+       for (const to of WORKFLOW_STAGES) {
+         const projectId = await insertProject(setup, { stage: from });
++        // Every project carries a report so the review-decision edges can pin
++        // one; unrelated edges are unaffected by its presence.
++        await insertReport(setup, projectId);
+         const transition = findWorkflowTransition(from, to);
++        const decision = transition?.requirements?.includes("review_decision")
++          ? reviewDecisionForStage(to)
++          : undefined;
+         const before = Date.now();
+         const call = setup.admin.mutation(api.projectWorkflow.setWorkflowStage, {
+           projectId,
+           toStage: to,
+           note: "Matrix test reason",
++          ...(decision ? { reviewDecision: { decision } } : {}),
+           expectedVersion: 0,
+         });
+ 
+         if (from === to) {
+           await expect(call).resolves.toEqual({ status: "noop", version: 0 });
++        } else if (
++          transition?.requirements?.includes("review_decision") &&
++          transition.requirements.length === 1
++        ) {
++          // internal_review -> edits: the decision is supplied above, so the
++          // edge succeeds and records exactly one decision row.
++          await expect(call).resolves.toEqual({ status: "updated", version: 1 });
++          const stored = await setup.t.run(async (ctx) => ctx.db.get(projectId));
++          expect(stored).toMatchObject({ workflowStage: to, workflowVersion: 1 });
++          expect(await reviewDecisions(setup, projectId)).toHaveLength(1);
+         } else if (transition?.requirements?.includes("delivery_outcome")) {
+           await expect(call).rejects.toThrow(/OUTCOME_REQUIRED|exact delivered/i);
+         } else if (transition?.requirements?.includes("promoted_branch")) {
+@@ -180,9 +233,15 @@ describe("workflow transition matrix", () => {
+         }
+ 
+         const events = await projectEvents(setup, projectId);
+-        expect(events).toHaveLength(
+-          from !== to && transition && !transition.requirements?.length ? 1 : 0
+-        );
++        // An event is written exactly when the edge actually succeeded: no
++        // requirements at all, or only the review decision (which was supplied).
++        const succeeded =
++          from !== to &&
++          Boolean(transition) &&
++          !transition!.requirements?.some(
++            (requirement) => requirement !== "review_decision"
++          );
++        expect(events).toHaveLength(succeeded ? 1 : 0);
+         if (events.length) {
+           expect(events[0]).toMatchObject({
+             type: "stage_changed",
+@@ -306,13 +365,21 @@ describe("workflow authorization and validation", () => {
+         expectedVersion: afterCreate?.workflowVersion ?? -1,
+       })
+     ).rejects.toThrow(/NOT_AUTHORIZED|authority/i);
++    await insertReport(setup, reviewProject);
+     await expect(
+       setup.other.mutation(api.projectWorkflow.setWorkflowStage, {
+         projectId: reviewProject,
+         toStage: "edits",
++        reviewDecision: { decision: "return" },
+         expectedVersion: afterCreate?.workflowVersion ?? -1,
+       })
+     ).resolves.toMatchObject({ status: "updated" });
++    // Attribution follows the actual actor: the handoff assignee completed
++    // this review, not the project owner.
++    const decisions = await reviewDecisions(setup, reviewProject);
++    expect(decisions).toHaveLength(1);
++    expect(decisions[0].reviewerId).toBe(setup.otherWriterId);
++    expect(decisions[0].reviewerId).not.toBe(setup.ownerId);
+   });
+ 
+   it("treats a missing stage as intake and uses a monotonic shared OCC version", async () => {
+@@ -358,9 +425,11 @@ describe("work-item workflow authority", () => {
+       toStage: "internal_review",
+       expectedVersion: 1,
+     })).resolves.toEqual({ status: "updated", version: 2 });
++    await insertReport(setup, projectId);
+     await expect(setup.other.mutation(api.projectWorkflow.setWorkflowStage, {
+       projectId,
+       toStage: "edits",
++      reviewDecision: { decision: "return" },
+       expectedVersion: 2,
+     })).resolves.toEqual({ status: "updated", version: 3 });
+     await expect(setup.other.mutation(api.projectWorkflow.transferOwnership, {
+@@ -522,3 +591,174 @@ describe("ownership transfer", () => {
+     expect(event).not.toHaveProperty("from");
+   });
+ });
++
++describe("review decisions on internal-review completion", () => {
++  async function reviewProject(setup: Setup, options: { report?: boolean; legacy?: boolean } = {}) {
++    const projectId = await insertProject(setup, { stage: "internal_review" });
++    if (options.report !== false) {
++      await insertReport(setup, projectId, { legacy: options.legacy === true });
++    }
++    return projectId;
++  }
++
++  it("records the reviewer decision pinned to the report revision alongside one stage event", async () => {
++    const setup = await setupFixture();
++    const projectId = await reviewProject(setup);
++    await expect(
++      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
++        projectId,
++        toStage: "edits",
++        note: "  Needs tighter uncertainty  ",
++        reviewDecision: { decision: "return" },
++        expectedVersion: 0,
++      })
++    ).resolves.toEqual({ status: "updated", version: 1 });
++
++    const decisions = await reviewDecisions(setup, projectId);
++    expect(decisions).toHaveLength(1);
++    expect(decisions[0]).toMatchObject({
++      projectId,
++      reviewerId: setup.ownerId,
++      revisionNumber: 3,
++      contentHash: "hash-of-revision-3",
++      decision: "return",
++      toStage: "edits",
++      note: "Needs tighter uncertainty",
++    });
++    const report = await setup.t.run(async (ctx) => ctx.db.get(decisions[0].reportId));
++    expect(report?.projectId).toBe(projectId);
++
++    const events = await projectEvents(setup, projectId);
++    expect(events).toHaveLength(1);
++    expect(events[0]).toMatchObject({ type: "stage_changed", from: "internal_review", to: "edits" });
++  });
++
++  it("rejects the edits edge with REVIEW_DECISION_REQUIRED and writes nothing when the decision is missing", async () => {
++    const setup = await setupFixture();
++    const projectId = await reviewProject(setup);
++    await expect(
++      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
++        projectId,
++        toStage: "edits",
++        expectedVersion: 0,
++      })
++    ).rejects.toThrow(/REVIEW_DECISION_REQUIRED|approve or return/i);
++    const stored = await setup.t.run(async (ctx) => ctx.db.get(projectId));
++    expect(stored).toMatchObject({ workflowStage: "internal_review" });
++    expect(stored?.workflowVersion ?? 0).toBe(0);
++    expect(await projectEvents(setup, projectId)).toHaveLength(0);
++    expect(await reviewDecisions(setup, projectId)).toHaveLength(0);
++  });
++
++  it("rejects the ready_for_delivery edge for the missing decision before the promoted-branch check", async () => {
++    const setup = await setupFixture();
++    const projectId = await reviewProject(setup);
++    await expect(
++      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
++        projectId,
++        toStage: "ready_for_delivery",
++        expectedVersion: 0,
++      })
++    ).rejects.toThrow(/REVIEW_DECISION_REQUIRED|approve or return/i);
++    // With the decision supplied the edge reaches the pre-existing fail-closed
++    // promoted-branch requirement instead.
++    await expect(
++      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
++        projectId,
++        toStage: "ready_for_delivery",
++        reviewDecision: { decision: "approve" },
++        expectedVersion: 0,
++      })
++    ).rejects.toThrow(/INVALID_STATE|promoted report branch/i);
++    expect(await reviewDecisions(setup, projectId)).toHaveLength(0);
++  });
++
++  it("rejects a decision that contradicts the destination edge", async () => {
++    const setup = await setupFixture();
++    const projectId = await reviewProject(setup);
++    await expect(
++      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
++        projectId,
++        toStage: "edits",
++        reviewDecision: { decision: "approve" },
++        expectedVersion: 0,
++      })
++    ).rejects.toThrow(/INVALID_INPUT|does not match/i);
++    expect(await reviewDecisions(setup, projectId)).toHaveLength(0);
++    expect(await projectEvents(setup, projectId)).toHaveLength(0);
++  });
++
++  it("rejects a decision supplied on an unrelated edge rather than dropping it", async () => {
++    const setup = await setupFixture();
++    const projectId = await insertProject(setup, { stage: "drafting" });
++    await insertReport(setup, projectId);
++    await expect(
++      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
++        projectId,
++        toStage: "client_review",
++        reviewDecision: { decision: "approve" },
++        expectedVersion: 0,
++      })
++    ).rejects.toThrow(/INVALID_INPUT|only to internal-review/i);
++    const stored = await setup.t.run(async (ctx) => ctx.db.get(projectId));
++    expect(stored).toMatchObject({ workflowStage: "drafting" });
++    expect(await reviewDecisions(setup, projectId)).toHaveLength(0);
++  });
++
++  it("refuses to complete the review when the project has no report to pin the decision to", async () => {
++    const setup = await setupFixture();
++    const projectId = await reviewProject(setup, { report: false });
++    await expect(
++      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
++        projectId,
++        toStage: "edits",
++        reviewDecision: { decision: "return" },
++        expectedVersion: 0,
++      })
++    ).rejects.toThrow(/INVALID_STATE|no report revision/i);
++    const stored = await setup.t.run(async (ctx) => ctx.db.get(projectId));
++    expect(stored).toMatchObject({ workflowStage: "internal_review" });
++    expect(await reviewDecisions(setup, projectId)).toHaveLength(0);
++  });
++
++  it("pins revision 0 and a freshly computed hash for a legacy report row", async () => {
++    const setup = await setupFixture();
++    const projectId = await insertProject(setup, { stage: "internal_review" });
++    await insertReport(setup, projectId, { legacy: true, content: "legacy body" });
++    await expect(
++      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
++        projectId,
++        toStage: "edits",
++        reviewDecision: { decision: "return" },
++        expectedVersion: 0,
++      })
++    ).resolves.toEqual({ status: "updated", version: 1 });
++    const decisions = await reviewDecisions(setup, projectId);
++    expect(decisions).toHaveLength(1);
++    expect(decisions[0].revisionNumber).toBe(0);
++    expect(decisions[0].contentHash).toMatch(/^[0-9a-f]{64}$/);
++    expect(decisions[0].note).toBeUndefined();
++  });
++
++  it("recomputes the hash for a report whose stored contentHash is an empty string", async () => {
++    const setup = await setupFixture();
++    const projectId = await insertProject(setup, { stage: "internal_review" });
++    // A stored "" is as unusable as an absent hash. This pins the falsy check
++    // in the mutation: with a nullish (`??`) fallback the empty string would be
++    // copied straight into the audit row and no other test would notice.
++    await insertReport(setup, projectId, { contentHash: "", content: "hashless body" });
++    await expect(
++      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
++        projectId,
++        toStage: "edits",
++        reviewDecision: { decision: "return" },
++        expectedVersion: 0,
++      })
++    ).resolves.toEqual({ status: "updated", version: 1 });
++    const decisions = await reviewDecisions(setup, projectId);
++    expect(decisions).toHaveLength(1);
++    expect(decisions[0].contentHash).toMatch(/^[0-9a-f]{64}$/);
++    // The revision itself is still the stored one, not the legacy fallback.
++    expect(decisions[0].revisionNumber).toBe(3);
++  });
++});
+diff --git a/convex/projectWorkflow.ts b/convex/projectWorkflow.ts
+index 5557986..a32d527 100644
+--- a/convex/projectWorkflow.ts
++++ b/convex/projectWorkflow.ts
+@@ -6,6 +6,7 @@ import { getInternalProjectAccessOrNull } from "./lib/auth";
+ import { requireCapability } from "./lib/roleCapabilities";
+ import {
+   domainError,
++  sha256,
+   workflowStageValidator,
+ } from "./lib/contracts";
+ import {
+@@ -15,6 +16,7 @@ import {
+ } from "./lib/teamRoster";
+ import {
+   findWorkflowTransition,
++  reviewDecisionForStage,
+   type TransitionAuthority,
+ } from "../shared/workflowTransitions";
+ import { MAX_WORKFLOW_NOTE_CHARS } from "../shared/workflowLabels";
+@@ -318,6 +320,14 @@ export const setWorkflowStage = mutation({
+     projectId: v.id("projects"),
+     toStage: workflowStageValidator,
+     note: v.optional(v.string()),
++    // Optional in the validator so every non-review edge keeps its exact
++    // current argument shape; the requirement is enforced per-edge in the
++    // handler from the transition matrix's `review_decision` requirement.
++    reviewDecision: v.optional(
++      v.object({
++        decision: v.union(v.literal("approve"), v.literal("return")),
++      })
++    ),
+     expectedVersion: v.number(),
+   },
+   returns: v.object({
+@@ -355,6 +365,56 @@ export const setWorkflowStage = mutation({
+     if (transition.requiresNote && !note) {
+       domainError("INVALID_INPUT", "Add a reason for this workflow transition");
+     }
++    // Review decision (2026-09-04 amendment). Checked BEFORE the fail-closed
++    // requirements below so it stays observable on the `ready_for_delivery`
++    // edge, which `promoted_branch` otherwise rejects on every call.
++    const needsDecision = transition.requirements?.includes("review_decision") === true;
++    const expectedDecision = reviewDecisionForStage(args.toStage);
++    if (!needsDecision && args.reviewDecision) {
++      domainError(
++        "INVALID_INPUT",
++        "A reviewer decision applies only to internal-review completion"
++      );
++    }
++    let reviewedReport: Doc<"reports"> | null = null;
++    let reviewedStage: "edits" | "ready_for_delivery" | null = null;
++    if (needsDecision) {
++      if (!args.reviewDecision) {
++        domainError(
++          "REVIEW_DECISION_REQUIRED",
++          "Record an approve or return decision to complete this review"
++        );
++      }
++      // Derive the audited destination explicitly rather than by construction,
++      // and do it BEFORE comparing against `expectedDecision`: if a third edge
++      // ever gains `review_decision`, `reviewDecisionForStage` returns
++      // undefined, so the comparison below would always fire and mask the real
++      // problem behind an "does not match" INVALID_INPUT. Fail closed here
++      // instead of silently recording it as one of the two completion stages.
++      if (args.toStage !== "edits" && args.toStage !== "ready_for_delivery") {
++        domainError(
++          "INVALID_STATE",
++          "This transition requires a reviewer decision but is not an internal-review completion edge"
++        );
++      }
++      if (args.reviewDecision.decision !== expectedDecision) {
++        domainError("INVALID_INPUT", "The reviewer decision does not match this transition");
++      }
++      reviewedStage = args.toStage;
++      // The decision is pinned to the project's latest report revision; with
++      // no report there is nothing to pin it to.
++      reviewedReport = await ctx.db
++        .query("reports")
++        .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
++        .order("desc")
++        .first();
++      if (!reviewedReport) {
++        domainError(
++          "INVALID_STATE",
++          "This project has no report revision to record a review decision against"
++        );
++      }
++    }
+     if (transition.requirements?.includes("delivery_outcome")) {
+       domainError(
+         "OUTCOME_REQUIRED",
+@@ -406,6 +466,33 @@ export const setWorkflowStage = mutation({
+       ...(note ? { note } : {}),
+       at: now,
+     });
++    if (needsDecision) {
++      // Fail closed: the insert is keyed off the requirement, not off the
++      // resolved values, so a stage patch + stage_changed event can never
++      // commit without its decision row. The checks above should make this
++      // unreachable; if they ever do not, the whole transaction aborts.
++      if (!reviewedReport || !reviewedStage || !args.reviewDecision) {
++        domainError(
++          "INVALID_STATE",
++          "The reviewer decision could not be recorded for this transition"
++        );
++      }
++      // Same transaction as the stage patch and the stage_changed event: the
++      // decision and the stage move are one atomic audit fact.
++      await ctx.db.insert("reviewDecisions", {
++        projectId: project._id,
++        reportId: reviewedReport._id,
++        reviewerId: user._id,
++        revisionNumber: reviewedReport.revisionNumber ?? 0,
++        // Falsy, not nullish: a stored empty hash is as unusable as an absent
++        // one and must be recomputed rather than pinned as "".
++        contentHash: reviewedReport.contentHash || (await sha256(reviewedReport.content)),
++        decision: args.reviewDecision.decision,
++        toStage: reviewedStage,
++        ...(note ? { note } : {}),
++        createdAt: now,
++      });
++    }
+     return { status: "updated" as const, version: nextVersion };
+   },
+ });
+diff --git a/convex/projects.test.ts b/convex/projects.test.ts
+index 8d67428..0fa12d0 100644
+--- a/convex/projects.test.ts
++++ b/convex/projects.test.ts
+@@ -328,6 +328,32 @@ describe("project duplication", () => {
+         uploadedBy: "Owner",
+         createdAt: now,
+       });
++      // CAP-3: trust belongs to the content's origin, not to whoever pressed
++      // duplicate. The acting copier here is a `writer`, so a source role of
++      // `manager` proves the copy carried the source's role rather than being
++      // re-stamped, and the roleless row proves nothing is derived from the
++      // copier — that would launder a client file into internal direction.
++      await ctx.db.insert("projectDocuments", {
++        projectId,
++        fileName: "Attributed notes.md",
++        fileType: "txt",
++        content: "Internal direction.",
++        category: "writer_notes",
++        source: "context_input",
++        uploadedBy: "Manager",
++        uploaderRole: "manager",
++        createdAt: now,
++      });
++      await ctx.db.insert("projectDocuments", {
++        projectId,
++        fileName: "Unattributed notes.md",
++        fileType: "txt",
++        content: "Unattributed direction.",
++        category: "writer_notes",
++        source: "context_input",
++        uploadedBy: "Owner",
++        createdAt: now,
++      });
+       await ctx.db.insert("projectIdentityEvidence", {
+         projectId,
+         subjectName: "Client",
+@@ -349,6 +375,23 @@ describe("project duplication", () => {
+         createdAt: now,
+         completedAt: now,
+       });
++      for (const provenance of [
++        { revisionNumber: 7, contentHash: "historical-hash" },
++        { revisionNumber: 0, contentHash: "" },
++        { revisionNumber: 9 },
++        { contentHash: "hash-only-history" },
++      ]) {
++        await ctx.db.insert("pdReviews", {
++          projectId,
++          documentId: reviewDoc,
++          sourceFileName: "Existing PD.docx",
++          status: "completed",
++          result: "attributed review",
++          createdBy: "Owner",
++          createdAt: now,
++          ...provenance,
++        });
++      }
+       return {
+         destinationProjectId: destination,
+         destinationTranscriptId: transcriptId,
+@@ -364,9 +407,9 @@ describe("project duplication", () => {
+       }
+     );
+ 
+-    expect(result.documents).toHaveLength(3);
++    expect(result.documents).toHaveLength(5);
+     expect(result.evidenceCopied).toBe(1);
+-    expect(result.pdReviewsCopied).toBe(1);
++    expect(result.pdReviewsCopied).toBe(5);
+     expect(result.reportId).toBeTruthy();
+     const copied = await t.run(async (ctx) => ({
+       documents: await ctx.db
+@@ -386,7 +429,7 @@ describe("project duplication", () => {
+         .withIndex("by_projectId", (q) => q.eq("projectId", destinationProjectId))
+         .collect(),
+     }));
+-    expect(copied.documents).toHaveLength(3);
++    expect(copied.documents).toHaveLength(5);
+     expect(copied.documents.find((doc) => doc.fileName === "Support.pdf")).toMatchObject({
+       archived: true,
+       category: "background",
+@@ -397,11 +440,32 @@ describe("project duplication", () => {
+       processingStatus: "could_not_read",
+       processingDetail: "no_text_extracted",
+     });
++    expect(
++      copied.documents.find((doc) => doc.fileName === "Attributed notes.md")
++        ?.uploaderRole
++    ).toBe("manager");
++    // Absent, not re-stamped with the copier's `writer` role: assert the key
++    // is missing, since a written nullish value would also read as no role.
++    const copiedUnattributed = copied.documents.find(
++      (doc) => doc.fileName === "Unattributed notes.md"
++    );
++    expect(copiedUnattributed).toBeTruthy();
++    expect(copiedUnattributed && "uploaderRole" in copiedUnattributed).toBe(false);
+     expect(copied.evidence[0]?.projectDocumentId).toBeTruthy();
+     expect(copied.reviews[0]).toMatchObject({
+       sourceFileName: "Existing PD.docx",
+       result: "review output",
+     });
++    expect(copied.reviews[0]).not.toHaveProperty("revisionNumber");
++    expect(copied.reviews[0]).not.toHaveProperty("contentHash");
++    expect(copied.reviews.slice(1)).toEqual([
++      expect.objectContaining({ revisionNumber: 7, contentHash: "historical-hash" }),
++      expect.objectContaining({ revisionNumber: 0, contentHash: "" }),
++      expect.objectContaining({ revisionNumber: 9 }),
++      expect.objectContaining({ contentHash: "hash-only-history" }),
++    ]);
++    expect(copied.reviews[3]).not.toHaveProperty("contentHash");
++    expect(copied.reviews[4]).not.toHaveProperty("revisionNumber");
+     expect(copied.reports[0]).toMatchObject({
+       sourceTranscriptId: destinationTranscriptId,
+       sourceTranscriptIds: [destinationTranscriptId],
+diff --git a/convex/projects.ts b/convex/projects.ts
+index 7484e3e..9c0dc0e 100644
+--- a/convex/projects.ts
++++ b/convex/projects.ts
+@@ -1,3 +1,4 @@
++import { persistDeterministicFindings, hasBlockingQa } from "./lib/qaFindings";
+ import {
+   query,
+   mutation,
+@@ -6,6 +7,7 @@ import {
+   type MutationCtx,
+ } from "./_generated/server";
+ import { v } from "convex/values";
++import { internal } from "./_generated/api";
+ import type { Doc, Id } from "./_generated/dataModel";
+ import {
+   getInternalProjectAccessOrNull,
+@@ -865,6 +867,10 @@ async function copyProjectInputRows(
+       ...(processing.detail ? { processingDetail: processing.detail } : {}),
+       source: doc.source,
+       uploadedBy: userDisplayLabel(user),
++      // CAP-3: trust belongs to the content's origin, not to whoever pressed
++      // duplicate. Re-deriving from the copier would launder a client file
++      // into internal direction.
++      ...(doc.uploaderRole ? { uploaderRole: doc.uploaderRole } : {}),
+       createdAt: now,
+     });
+     docIdMap.set(doc._id, documentId);
+@@ -925,6 +931,7 @@ async function copyProjectInputRows(
+       revisionNumber: sourceReport.revisionNumber ?? 0,
+       contentHash,
+     });
++    await persistDeterministicFindings(ctx, reportId);
+     await ctx.db.patch(args.toProjectId, {
+       status: "review",
+       updatedAt: now,
+@@ -943,6 +950,12 @@ async function copyProjectInputRows(
+       projectId: args.toProjectId,
+       documentId,
+       sourceFileName: review.sourceFileName,
++      ...(review.revisionNumber !== undefined
++        ? { revisionNumber: review.revisionNumber }
++        : {}),
++      ...(review.contentHash !== undefined
++        ? { contentHash: review.contentHash }
++        : {}),
+       status: review.status,
+       ...(review.result ? { result: review.result } : {}),
+       ...(review.model ? { model: review.model } : {}),
+@@ -1031,11 +1044,18 @@ export const publishForReview = mutation({
+     if (!report || report.projectId !== args.projectId) {
+       domainError("NOT_AUTHORIZED", "Report does not belong to this project");
+     }
++    if (await hasBlockingQa(ctx, report)) {
++      domainError("QA_BLOCKING", "Current report has unresolved substantive QA findings");
++    }
+     await ctx.db.patch(args.projectId, {
+       sharedReportId: report._id,
+       status: "client_review",
+       updatedAt: Date.now(),
+     });
++    // BNH-10 / CAP-2: freeze the post-edit distance at client publish.
++    await ctx.scheduler.runAfter(0, internal.reportEditDistance.recordAtPublish, {
++      reportId: report._id,
++    });
+   },
+ });
+ 
+@@ -1103,6 +1123,24 @@ export const updateProjectTitle = mutation({
+   },
+ });
+ 
++// Reports are removed by the authorized parent transaction before cleanup runs.
++// Keep each cleanup transaction bounded regardless of the report's QA history.
++export const cleanupDeletedReportQaFindings = internalMutation({
++  args: { reportId: v.id("reports") },
++  handler: async (ctx, args) => {
++    if (await ctx.db.get(args.reportId)) return;
++    const batchSize = 128;
++    const findings = await ctx.db.query("qaFindings")
++      .withIndex("by_reportId_and_revisionNumber_and_contentHash_and_findingKey", q =>
++        q.eq("reportId", args.reportId))
++      .take(batchSize);
++    for (const finding of findings) await ctx.db.delete(finding._id);
++    if (findings.length === batchSize) {
++      await ctx.scheduler.runAfter(0, internal.projects.cleanupDeletedReportQaFindings, args);
++    }
++  },
++});
++
+ export const deleteProject = mutation({
+   args: { projectId: v.id("projects") },
+   handler: async (ctx, args) => {
+@@ -1143,7 +1181,10 @@ export const deleteProject = mutation({
+       .query("reports")
+       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+       .collect();
+-    for (const r of reports) await ctx.db.delete(r._id);
++    for (const r of reports) {
++      await ctx.db.delete(r._id);
++      await ctx.scheduler.runAfter(0, internal.projects.cleanupDeletedReportQaFindings, { reportId: r._id });
++    }
+ 
+     const comments = await ctx.db
+       .query("comments")
+diff --git a/convex/qaBlocking.test.ts b/convex/qaBlocking.test.ts
+new file mode 100644
+index 0000000..a790628
+--- /dev/null
++++ b/convex/qaBlocking.test.ts
+@@ -0,0 +1,393 @@
++/// <reference types="vite/client" />
++import { convexTest } from "convex-test";
++import { describe, expect, test } from "vitest";
++import { api, internal } from "./_generated/api";
++import schema from "./schema";
++import { sha256 } from "./lib/contracts";
++import { buildTiptapDocument } from "./lib/tiptapReport";
++
++const modules = import.meta.glob("./**/*.ts");
++const FAILURE = "It was uncertain whether the alloy would resist fatigue.";
++const FIXED = "It was uncertain whether the alloy would resist fatigue because the cyclic response was unknown.";
++const contentFor = (text: string) => JSON.stringify(buildTiptapDocument("Alloy", text, "The team tested the alloy.", "The team learned the response."));
++const scorecard = (compliance: Record<string, boolean>) => JSON.stringify({
++  overall_score: 90,
++  section_scores: {},
++  cra_compliance: compliance,
++});
++
++async function setup(content = contentFor(FIXED)) {
++  const t = convexTest(schema, modules);
++  const ids = await t.run(async (ctx) => {
++    const ownerId = await ctx.db.insert("users", { authId: "qa-owner", role: "writer" });
++    await ctx.db.insert("users", { authId: "qa-manager", role: "manager" });
++    await ctx.db.insert("users", { authId: "qa-admin", role: "admin" });
++    await ctx.db.insert("users", { authId: "qa-other", role: "writer" });
++    const projectId = await ctx.db.insert("projects", {
++      title: "Alloy", clientName: "Client", createdBy: ownerId, ownerId,
++      status: "review", shareToken: "qa-token", createdAt: 1, updatedAt: 1,
++    });
++    const transcriptId = await ctx.db.insert("transcripts", { projectId, content: "Interview", createdAt: 1 });
++    const generationId = await ctx.db.insert("generations", {
++      projectId, transcriptId, requestedBy: ownerId, status: "completed", candidateMode: "single", startedAt: 1,
++      agentOutputs: JSON.stringify({ analyzer: { subject: "Alloy" }, section242: "Frozen old text", section244: "Old work", section246: "Old advancement" }),
++    });
++    const reportId = await ctx.db.insert("reports", {
++      projectId, generationId, content, revisionNumber: 0, contentHash: await sha256(content),
++      version: 1, generatedAt: 1, updatedAt: 1,
++    });
++    return { ownerId, projectId, generationId, reportId };
++  });
++  return { t, actor: t.withIdentity({ subject: "qa-owner" }), ...ids };
++}
++
++type Fixture = Awaited<ReturnType<typeof setup>>;
++async function rows(f: Fixture) {
++  return f.t.run(async (ctx) => (await ctx.db.query("qaFindings").collect()).filter((r) => r.reportId === f.reportId));
++}
++async function ref(f: Fixture) {
++  return f.t.run(async (ctx) => {
++    const report = await ctx.db.get(f.reportId);
++    if (!report) throw new Error("fixture report missing");
++    return { reportId: report._id, revisionNumber: report.revisionNumber ?? 0, contentHash: await sha256(report.content) };
++  });
++}
++async function readiness(f: Fixture) {
++  const result = await f.actor.query(api.projects.getProjectReadiness, { projectId: f.projectId, reportId: f.reportId });
++  if (!result) throw new Error("fixture readiness missing");
++  return result;
++}
++async function expectBlocked(f: Fixture, subject = "qa-owner") {
++  expect((await readiness(f)).blockers.map((b) => b.code)).toContain("QA_BLOCKING");
++  const before = await f.t.run((ctx) => ctx.db.get(f.projectId));
++  await expect(f.t.withIdentity({ subject }).mutation(api.projects.publishForReview, {
++    projectId: f.projectId, reportId: f.reportId,
++  })).rejects.toMatchObject({ data: { code: "QA_BLOCKING" } });
++  expect(await f.t.run((ctx) => ctx.db.get(f.projectId))).toEqual(before);
++}
++async function saveQa(f: Fixture, compliance: Record<string, boolean>) {
++  await f.t.mutation(internal.generations.saveReportQa, { generationId: f.generationId, capturedRef: await ref(f), qa: scorecard(compliance) });
++}
++
++describe("CAP-8 absolute current-revision QA gate", () => {
++  test("human content save persists because findings and rejects publish atomically", async () => {
++    const f = await setup();
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content: contentFor(FAILURE), expectedRevisionNumber: 0 });
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({
++      check: "because_clause", blocking: true, revisionNumber: 1, contentHash: await sha256(contentFor(FAILURE)),
++    })]));
++    await expectBlocked(f);
++  });
++
++  test.each(["why_how_why_intact", "uncertainties_distinguished"])("explicit %s failure persists and blocks both boundaries", async (key) => {
++    const f = await setup();
++    await saveQa(f, { [key]: false });
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ check: "cra_methodology", blocking: true, ...(await ref(f)) })]));
++    await expectBlocked(f);
++  });
++
++  test("house-style findings and false verbiage do not block client review", async () => {
++    const f = await setup();
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content: contentFor("The robust solution was tested."), expectedRevisionNumber: 0 });
++    await saveQa(f, { verbiage_present: false, why_how_why_intact: true, uncertainties_distinguished: true });
++    expect((await rows(f)).some((r) => r.check === "banned_word" && !r.blocking)).toBe(true);
++    expect((await readiness(f)).blockers.map((b) => b.code)).not.toContain("QA_BLOCKING");
++    // Other filing prerequisites remain absent, but do not prevent client review.
++    expect((await readiness(f)).ready).toBe(false);
++    await f.actor.mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: f.reportId });
++    expect(await f.t.run((ctx) => ctx.db.get(f.projectId))).toMatchObject({ sharedReportId: f.reportId, status: "client_review" });
++  });
++
++  test.each(["qa-manager", "qa-admin"])("%s cannot waive findings by reclassifying QA feedback", async (subject) => {
++    const f = await setup();
++    await saveQa(f, { why_how_why_intact: false });
++    await f.t.withIdentity({ subject }).mutation(api.reviews.saveQaItemFeedback, {
++      target: { reportId: f.reportId }, itemKey: "methodology", itemKind: "issue", section: "242",
++      itemText: "Methodology failure", originalSeverity: "deduction", overrideSeverity: "warning", vote: -1,
++    });
++    await expectBlocked(f, subject);
++  });
++
++  test("human correction preserves history without carrying old failure to new content", async () => {
++    const f = await setup(contentFor(FAILURE));
++    await saveQa(f, { why_how_why_intact: false });
++    const oldRows = await rows(f);
++    expect(oldRows.some((r) => r.check === "because_clause")).toBe(true);
++    await expectBlocked(f);
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content: contentFor(FIXED), expectedRevisionNumber: 0 });
++    expect(await rows(f)).toEqual(expect.arrayContaining(oldRows));
++    expect((await readiness(f)).blockers.map((b) => b.code)).not.toContain("QA_BLOCKING");
++    await f.actor.mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: f.reportId });
++  });
++
++  test("QA input uses current content and late completion cannot relabel the old revision", async () => {
++    const f = await setup();
++    const input = await f.t.query(internal.generations.getPostQaInput, { generationId: f.generationId });
++    expect(input?.section242).toContain(FIXED);
++    expect(input?.section242).not.toContain("Frozen old text");
++    expect(input?.capturedRef).toEqual(await ref(f));
++    if (!input) throw new Error("QA input missing");
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content: contentFor("The corrected investigation is documented."), expectedRevisionNumber: 0 });
++    await f.t.mutation(internal.generations.saveReportQa, { generationId: f.generationId, capturedRef: input.capturedRef, qa: scorecard({ why_how_why_intact: false }) });
++    expect((await rows(f)).filter((r) => r.check === "cra_methodology" && r.revisionNumber === 1)).toEqual([]);
++    expect((await readiness(f)).blockers.map((b) => b.code)).not.toContain("QA_BLOCKING");
++  });
++
++  test("legacy rows without QA, revision or hash still get the deterministic gate", async () => {
++    const f = await setup(FAILURE);
++    await f.t.run((ctx) => ctx.db.patch(f.reportId, { revisionNumber: undefined, contentHash: undefined }));
++    expect(await rows(f)).toEqual([]);
++    await expectBlocked(f);
++  });
++
++  test("foreign report identity and stale content hash cannot affect current readiness", async () => {
++    const f = await setup();
++    await saveQa(f, { uncertainties_distinguished: false });
++    const otherReportId = await f.t.run(async (ctx) => {
++      return ctx.db.insert("reports", { projectId: f.projectId, content: contentFor(FIXED), revisionNumber: 0, version: 2, generatedAt: 2, updatedAt: 2 });
++    });
++    const other = await f.actor.query(api.projects.getProjectReadiness, { projectId: f.projectId, reportId: otherReportId });
++    expect(other?.blockers.map((b) => b.code)).not.toContain("QA_BLOCKING");
++    // Deliberately corrupt the stored hash/revision to prove actual bytes fence old findings.
++    await f.t.run((ctx) => ctx.db.patch(f.reportId, { content: contentFor("Different content at the same number.") }));
++    expect((await readiness(f)).blockers.map((b) => b.code)).not.toContain("QA_BLOCKING");
++  });
++
++  test("same-revision QA retries are deduplicated and a passing score is not a waiver", async () => {
++    const f = await setup();
++    await saveQa(f, { why_how_why_intact: false });
++    const first = await rows(f);
++    await saveQa(f, { why_how_why_intact: false });
++    expect(await rows(f)).toEqual(first);
++    await saveQa(f, { why_how_why_intact: true });
++    expect(await rows(f)).toEqual(first);
++    await expectBlocked(f);
++  });
++
++  test("frozen style waivers remove advisory rows but never the because blocker", async () => {
++    const f = await setup();
++    await f.t.run((ctx) => ctx.db.patch(f.generationId, {
++      agentOutputs: JSON.stringify({ styleOverrides: {
++        bannedWords: true, openingClauses: true, repetitionCaps: true, reportSkeleton: true,
++      } }),
++    }));
++    await f.actor.mutation(api.reports.updateReportContent, {
++      reportId: f.reportId, content: contentFor("The robust solution. " + FAILURE), expectedRevisionNumber: 0,
++    });
++    const findings = await rows(f);
++    expect(findings.some((r) => r.check === "banned_word")).toBe(false);
++    expect(findings.some((r) => r.check === "because_clause" && r.blocking)).toBe(true);
++    await expectBlocked(f, "qa-manager");
++  });
++
++  test("legacy unpinned QA cannot create current methodology findings", async () => {
++    const f = await setup();
++    await f.t.mutation(internal.generations.saveReportQa, { generationId: f.generationId, qa: scorecard({ why_how_why_intact: false }) });
++    expect((await rows(f)).filter((r) => r.check === "cra_methodology")).toEqual([]);
++  });
++
++  test("publish authorization still precedes QA validation", async () => {
++    const f = await setup(contentFor(FAILURE));
++    await expect(f.t.withIdentity({ subject: "qa-other" }).mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: f.reportId })).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
++  });
++
++  test("single-candidate completion persists both deterministic and methodology failures", async () => {
++    const f = await setup();
++    const runId = await f.t.run(async (ctx) => {
++      await ctx.db.delete(f.reportId);
++      await ctx.db.patch(f.generationId, { status: "running", totalCandidates: 1 });
++      await ctx.db.patch(f.projectId, { activeGenerationId: f.generationId });
++      return ctx.db.insert("generationCandidateRuns", { projectId: f.projectId, generationId: f.generationId, model: "test-model", label: "A", status: "running", queuedAt: 1 });
++    });
++    await f.t.mutation(internal.generations.completeCandidateRun, {
++      candidateRunId: runId, content: contentFor(FAILURE),
++      agentOutputs: JSON.stringify({ qa: JSON.parse(scorecard({ uncertainties_distinguished: false })) }), qaScore: 90,
++    });
++    const report = await f.actor.query(api.reports.getLatestReport, { projectId: f.projectId });
++    if (!report) throw new Error("candidate produced no canonical report");
++    const generated = { ...f, reportId: report._id };
++    expect((await rows(generated)).filter((r) => r.blocking).map((r) => r.check)).toEqual(expect.arrayContaining(["because_clause", "cra_methodology"]));
++    await expectBlocked(generated);
++  });
++});
++
++describe("CAP-8 review regressions", () => {
++  test("body prose resembling a section heading cannot hide a failure", async () => {
++    const f = await setup(contentFor("Line 244 — " + FAILURE));
++    await expectBlocked(f);
++  });
++  test("no-op save carries exact-content methodology to the new revision", async () => {
++    const f = await setup();
++    await saveQa(f, { why_how_why_intact: false });
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content: contentFor(FIXED), expectedRevisionNumber: 0 });
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(f)), check: "cra_methodology", blocking: true })]));
++    await expectBlocked(f);
++  });
++  test("restoring byte-identical historical content carries its methodology failure", async () => {
++    const f = await setup();
++    await saveQa(f, { uncertainties_distinguished: false });
++    const snapshotId = await f.t.run(ctx => ctx.db.insert("reportSnapshots", {
++      projectId: f.projectId, reportId: f.reportId, content: contentFor(FIXED), reason: "manual", createdByRole: "writer", createdAt: 1,
++    }));
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content: contentFor("Different content"), expectedRevisionNumber: 0 });
++    await f.actor.mutation(api.snapshots.restoreSnapshot, { snapshotId, targetReportId: f.reportId, expectedRevisionNumber: 1 });
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(f)), check: "cra_methodology", blocking: true })]));
++    await expectBlocked(f);
++  });
++  test("identical advisory messages in different sections retain distinct retry identities", async () => {
++    const f = await setup(JSON.stringify(buildTiptapDocument("Title", "The robust solution.", "The robust solution.", "The robust solution.")));
++    await saveQa(f, {});
++    const findings = (await rows(f)).filter(row => row.check === "banned_word");
++    expect(findings.map(row => row.section).sort()).toEqual(["s242", "s244", "s246"]);
++    await saveQa(f, {});
++    expect((await rows(f)).filter(row => row.check === "banned_word")).toEqual(findings);
++  });
++  test.each(["single", "iterative"] as const)("empty current %s report has no QA input", async candidateMode => {
++    const f = await setup(JSON.stringify({ type: "doc", content: [] }));
++    await f.t.run(ctx => ctx.db.patch(f.generationId, { candidateMode }));
++    expect(await f.t.query(internal.generations.getPostQaInput, { generationId: f.generationId })).toBeNull();
++  });
++  test.each(["applyProposal", "markProposalApplied", "acceptEdit", "restoreSnapshot"] as const)("%s persists findings on the exact resulting revision", async path => {
++    const f = await setup();
++    if (path === "applyProposal" || path === "markProposalApplied") {
++      const proposalId = await f.t.run(ctx => ctx.db.insert("chatProposals", {
++        agentThreadId: "qa-thread", projectId: f.projectId, reportId: f.reportId, kind: "edit",
++        targetText: FIXED, newText: FAILURE, state: "pending", createdAt: 1,
++      }));
++      if (path === "applyProposal") await f.actor.mutation(api.chatV2.applyProposal, { proposalId });
++      else await f.actor.mutation(api.chatV2.markProposalApplied, { proposalId, content: contentFor(FAILURE), expectedRevisionNumber: 0 });
++    } else if (path === "acceptEdit") {
++      const commentId = await f.t.run(async ctx => {
++        const commenterId = await ctx.db.insert("commenters", { projectId: f.projectId, name: "Client", color: "blue", createdAt: 1 });
++        return ctx.db.insert("comments", { projectId: f.projectId, reportId: f.reportId, commenterId, commenterType: "client", highlightFrom: 0, highlightTo: FIXED.length, highlightText: FIXED, body: "Suggested correction", suggestedEdit: FAILURE, resolved: false, createdAt: 1 });
++      });
++      await f.actor.mutation(api.comments.acceptEdit, { commentId });
++    } else {
++      const snapshotId = await f.t.run(ctx => ctx.db.insert("reportSnapshots", { projectId: f.projectId, reportId: f.reportId, content: contentFor(FAILURE), reason: "manual", createdByRole: "writer", createdAt: 1 }));
++      await f.actor.mutation(api.snapshots.restoreSnapshot, { snapshotId, targetReportId: f.reportId, expectedRevisionNumber: 0 });
++    }
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(f)), section: "s242", check: "because_clause", blocking: true })]));
++    expect((await ref(f)).revisionNumber).toBe(1);
++  });
++  test("project copy persists deterministic findings for the destination report", async () => {
++    const f = await setup(contentFor(FAILURE));
++    const toProjectId = await f.t.run(ctx => ctx.db.insert("projects", { title: "Copy", clientName: "Client", createdBy: f.ownerId, ownerId: f.ownerId, status: "draft", shareToken: "copy", createdAt: 1, updatedAt: 1 }));
++    const copy = await f.actor.mutation(api.projects.prepareProjectContentCopy, { fromProjectId: f.projectId, toProjectId });
++    if (!copy.reportId) throw new Error("No copied report");
++    const copied = { ...f, reportId: copy.reportId, projectId: toProjectId };
++    expect(await rows(copied)).toEqual(expect.arrayContaining([expect.objectContaining({ ...(await ref(copied)), check: "because_clause", blocking: true })]));
++  });
++});
++
++
++describe("CAP-8 extraction bypass regressions", () => {
++  test.each(["punctuated", "renamed", "removed", "nested"])("%s uncertainty headings retain blocking prose", async variant => {
++    const doc = buildTiptapDocument("Title", FAILURE, "Work.", "Knowledge.");
++    if (variant === "punctuated") doc.content[1] = { type: "heading", content: [{ type: "text", text: "Line 242 — Technological Uncertainty." }] };
++    if (variant === "renamed") doc.content[1] = { type: "heading", content: [{ type: "text", text: "Uncertainties" }] };
++    if (variant === "removed") doc.content.splice(1, 1);
++    const content = variant === "nested"
++      ? JSON.stringify({ type: "doc", content: [{ type: "blockquote", content: doc.content }] })
++      : JSON.stringify(doc);
++    const f = await setup(content);
++    await expectBlocked(f);
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
++    expect((await rows(f)).some(row => row.check === "because_clause" && row.blocking)).toBe(true);
++  });
++
++  test("legacy whitespace-only blank lines separate unrelated explanations", async () => {
++    const f = await setup("Line 242: Uncertainty\nIt was uncertain whether the alloy holds\n \t \nWe ran tests because evidence was needed.\nLine 244: Work\nTests.");
++    await expectBlocked(f);
++  });
++});
++
++
++test("legacy heading-like body sentences cannot hide uncertainty", async () => {
++  const f = await setup("Line 242: Uncertainty\nLine 244 — It was uncertain whether the alloy holds.\nLine 244: Work\nTests.");
++  await expectBlocked(f);
++});
++
++
++test.each(["legacy label", "rich heading", "split code block"])("%s retains substantive uncertainty at both gates", async variant => {
++  const doc = buildTiptapDocument("Title", "", "Work.", "Knowledge.");
++  doc.content.splice(2, 0, variant === "rich heading"
++    ? { type: "heading", content: [{ type: "text", text: "Line 244: " + FAILURE }] }
++    : { type: "codeBlock", content: [{ type: "text", text: "It was " }, { type: "text", text: "uncertain whether the alloy holds." }] });
++  const content = variant === "legacy label"
++    ? "Line 242: Uncertainty\nLine 244: It was uncertain whether the alloy holds\nLine 244: Work\nTests."
++    : JSON.stringify(doc);
++  const f = await setup(content);
++  await expectBlocked(f);
++  await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
++  expect((await rows(f)).some(row => row.check === "because_clause" && row.blocking)).toBe(true);
++});
++
++
++test("punctuated legacy work headings keep work prose outside the uncertainty gate", async () => {
++  const f = await setup("Line 242: Uncertainty\n" + FIXED + "\nLine 244: Work performed.\n" + FAILURE);
++  expect((await readiness(f)).blockers.map(b => b.code)).not.toContain("QA_BLOCKING");
++  await f.actor.mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: f.reportId });
++});
++
++test("selecting a candidate rejects invalid stored scorecards as blocking evidence", async () => {
++  const f = await setup();
++  const candidateId = await f.t.run(async ctx => {
++    await ctx.db.delete(f.reportId);
++    await ctx.db.patch(f.generationId, { status: "awaiting_selection", candidateMode: "compare" });
++    return ctx.db.insert("reportCandidates", {
++      generationId: f.generationId, projectId: f.projectId, model: "test-model", label: "A",
++      content: contentFor(FIXED), createdAt: 1,
++      agentOutputs: JSON.stringify({ qa: { overall_score: "high", cra_compliance: { why_how_why_intact: false } } }),
++    });
++  });
++  await f.actor.mutation(api.generations.selectReportCandidate, { generationId: f.generationId, candidateId });
++  const report = await f.actor.query(api.reports.getLatestReport, { projectId: f.projectId });
++  if (!report) throw new Error("candidate produced no report");
++  const generated = { ...f, reportId: report._id };
++  expect((await rows(generated)).filter(row => row.check === "cra_methodology")).toEqual([]);
++  expect((await readiness(generated)).blockers.map(b => b.code)).not.toContain("QA_BLOCKING");
++  await f.actor.mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: report._id });
++});
++
++test("legacy punctuated cross-references do not move following uncertainty into work", async () => {
++  const f = await setup("Line 242: Uncertainty\nContext.\nLine 244: This work is discussed below.\n" + FAILURE + "\nLine 244: Work\nTests.");
++  await expectBlocked(f);
++});
++
++
++describe("DW-92 native follow-up extraction regressions", () => {
++  test("unpunctuated legacy cross-references preserve uncertainty at both gates and on save", async () => {
++    const content = "Line 242: Uncertainty\nContext.\nLine 244: This work is discussed below\n" + FAILURE + "\nLine 244: Work\nTests.";
++    const f = await setup(content);
++    await expectBlocked(f);
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ check: "because_clause", blocking: true, ...(await ref(f)) })]));
++  });
++
++  test.each(["legacy", "rich text"])("late uncertainty heading cannot hide earlier renamed section in %s", async variant => {
++    const doc = buildTiptapDocument("Title", FAILURE, "Work.", "Knowledge.");
++    doc.content[1] = { type: "heading", content: [{ type: "text", text: "Uncertainties" }] };
++    doc.content.push({ type: "heading", content: [{ type: "text", text: "Line 242: Uncertainty" }] });
++    const content = variant === "legacy"
++      ? "Uncertainties\n" + FAILURE + "\nLine 244: Work\nTests.\nLine 242: Uncertainty\nAppendix."
++      : JSON.stringify(doc);
++    const f = await setup(content);
++    await expectBlocked(f);
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ check: "because_clause", blocking: true, ...(await ref(f)) })]));
++  });
++
++  test("rich-text whitespace-only blank lines cannot borrow an unrelated explanation", async () => {
++    const doc = buildTiptapDocument("Title", "", "Work.", "Knowledge.");
++    doc.content.splice(2, 0, { type: "paragraph", content: [
++      { type: "text", text: "It was uncertain whether the alloy holds" },
++      { type: "hardBreak" }, { type: "text", text: " \t " }, { type: "hardBreak" },
++      { type: "text", text: "We ran tests because evidence was needed." },
++    ] });
++    const content = JSON.stringify(doc);
++    const f = await setup(content);
++    await expectBlocked(f);
++    await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content, expectedRevisionNumber: 0 });
++    expect(await rows(f)).toEqual(expect.arrayContaining([expect.objectContaining({ check: "because_clause", blocking: true, ...(await ref(f)) })]));
++  });
++});
+diff --git a/convex/qaFindingsCleanup.test.ts b/convex/qaFindingsCleanup.test.ts
+new file mode 100644
+index 0000000..ee2c1df
+--- /dev/null
++++ b/convex/qaFindingsCleanup.test.ts
+@@ -0,0 +1,87 @@
++/// <reference types="vite/client" />
++import { convexTest } from "convex-test";
++import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
++import { api, internal } from "./_generated/api";
++import schema from "./schema";
++
++const modules = import.meta.glob("./**/*.ts");
++
++async function setup(findingCount = 3) {
++  const t = convexTest(schema, modules);
++  const ids = await t.run(async ctx => {
++    const creatorId = await ctx.db.insert("users", { authId: "cleanup-creator", role: "writer" });
++    await ctx.db.insert("users", { authId: "cleanup-other", role: "writer" });
++    await ctx.db.insert("users", { authId: "cleanup-admin", role: "admin" });
++    const projectId = await ctx.db.insert("projects", {
++      title: "QA cleanup", clientName: "Client", createdBy: creatorId, ownerId: creatorId,
++      status: "draft", shareToken: "cleanup", createdAt: 1, updatedAt: 1,
++    });
++    const reportId = await ctx.db.insert("reports", {
++      projectId, content: "Report", version: 1, generatedAt: 1, updatedAt: 1,
++    });
++    const otherProjectId = await ctx.db.insert("projects", {
++      title: "Retained", clientName: "Client", createdBy: creatorId,
++      status: "draft", shareToken: "retained", createdAt: 1, updatedAt: 1,
++    });
++    const otherReportId = await ctx.db.insert("reports", {
++      projectId: otherProjectId, content: "Other", version: 1, generatedAt: 1, updatedAt: 1,
++    });
++    for (let i = 0; i < findingCount; i++) {
++      await ctx.db.insert("qaFindings", {
++        reportId, revisionNumber: i, contentHash: `hash-${i}`,
++        check: "because_clause", message: "Missing because", blocking: true,
++      });
++    }
++    const retainedFindingId = await ctx.db.insert("qaFindings", {
++      reportId: otherReportId, revisionNumber: 0, contentHash: "retained",
++      check: "cra_methodology", message: "why_how_why_intact", blocking: true,
++    });
++    return { projectId, reportId, otherReportId, retainedFindingId };
++  });
++  const findings = () => t.run(ctx => ctx.db.query("qaFindings")
++    .withIndex("by_reportId_and_revisionNumber_and_contentHash_and_findingKey", q => q.eq("reportId", ids.reportId)).collect());
++  return { t, ...ids, findings };
++}
++
++describe("deleted report QA cleanup", () => {
++  beforeEach(() => vi.useFakeTimers());
++  afterEach(() => vi.useRealTimers());
++
++  test.each(["cleanup-creator", "cleanup-admin"])("%s deletion cleans history across continuation batches", async subject => {
++    const f = await setup(257);
++    await f.t.withIdentity({ subject }).mutation(api.projects.deleteProject, { projectId: f.projectId });
++    expect(await f.t.run(ctx => ctx.db.get(f.projectId))).toBeNull();
++    expect(await f.t.run(ctx => ctx.db.get(f.reportId))).toBeNull();
++    await f.t.finishAllScheduledFunctions(() => vi.runAllTimers());
++    expect(await f.findings()).toEqual([]);
++    expect(await f.t.run(ctx => ctx.db.get(f.retainedFindingId))).not.toBeNull();
++  });
++
++  test("each transaction deletes only one bounded batch and schedules its continuation", async () => {
++    const f = await setup(257);
++    await f.t.run(ctx => ctx.db.delete(f.reportId));
++    await f.t.mutation(internal.projects.cleanupDeletedReportQaFindings, { reportId: f.reportId });
++    expect(await f.findings()).toHaveLength(129);
++    await f.t.finishAllScheduledFunctions(() => vi.runAllTimers());
++    expect(await f.findings()).toEqual([]);
++    await f.t.mutation(internal.projects.cleanupDeletedReportQaFindings, { reportId: f.reportId });
++    expect(await f.findings()).toEqual([]);
++  });
++
++  test("unauthorized project deletion retains findings and schedules no cleanup", async () => {
++    const f = await setup();
++    await expect(f.t.withIdentity({ subject: "cleanup-other" }).mutation(api.projects.deleteProject, {
++      projectId: f.projectId,
++    })).rejects.toThrow();
++    await f.t.finishAllScheduledFunctions(() => vi.runAllTimers());
++    expect(await f.t.run(ctx => ctx.db.get(f.reportId))).not.toBeNull();
++    expect(await f.findings()).toHaveLength(3);
++  });
++
++  test("cleanup refuses to remove findings from a live report", async () => {
++    const f = await setup();
++    await f.t.mutation(internal.projects.cleanupDeletedReportQaFindings, { reportId: f.reportId });
++    await f.t.finishAllScheduledFunctions(() => vi.runAllTimers());
++    expect(await f.findings()).toHaveLength(3);
++  });
++});
+diff --git a/convex/reportEditDistance.test.ts b/convex/reportEditDistance.test.ts
+new file mode 100644
+index 0000000..fad8353
+--- /dev/null
++++ b/convex/reportEditDistance.test.ts
+@@ -0,0 +1,708 @@
++/// <reference types="vite/client" />
++import { convexTest } from "convex-test";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { api, internal } from "./_generated/api";
++import type { Id } from "./_generated/dataModel";
++import type { DomainErrorCode } from "./lib/contracts";
++import {
++  SERIES_FOR_REPORT_LIMIT,
++  SERIES_FOR_WRITER_LIMIT,
++} from "./reportEditDistance";
++import schema from "./schema";
++
++const modules = import.meta.glob("./**/*.ts");
++
++type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>;
++
++const doc = (...paragraphs: string[]) =>
++  JSON.stringify({
++    type: "doc",
++    content: paragraphs.map((text) => ({
++      type: "paragraph",
++      content: [{ type: "text", text }],
++    })),
++  });
++
++const DRAFT = doc("The team ran a controlled trial.", "Results were inconclusive.");
++const EDITED = doc(
++  "The team ran a controlled trial.",
++  "Every single word below this line is completely different now."
++);
++
++async function errorCode(promise: Promise<unknown>): Promise<DomainErrorCode> {
++  try {
++    await promise;
++  } catch (error) {
++    const data = (error as { data?: { code?: DomainErrorCode } }).data;
++    if (data?.code) return data.code;
++    const message = (error as Error).message ?? "";
++    const match = /"code":"([A-Z_]+)"/.exec(message);
++    if (match) return match[1] as DomainErrorCode;
++    throw error;
++  }
++  throw new Error("expected the call to throw");
++}
++
++type Options = {
++  /** Skip inserting the `generated` baseline snapshot. */
++  noBaseline?: boolean;
++  /** Insert a later ghost "generated" snapshot, as the compare paths do. */
++  ghostBaseline?: boolean;
++  /** Leave projects.ownerId unset (legacy project). */
++  ownerless?: boolean;
++};
++
++async function setup(options: Options = {}) {
++  const t = convexTest(schema, modules);
++  const ids = await t.run(async (ctx) => {
++    const now = Date.now();
++    const writerId = await ctx.db.insert("users", {
++      authId: "ped-writer",
++      role: "writer",
++      name: "PED Writer",
++    });
++    const otherWriterId = await ctx.db.insert("users", {
++      authId: "ped-other-writer",
++      role: "writer",
++      name: "Other Writer",
++    });
++    await ctx.db.insert("users", { authId: "ped-admin", role: "admin" });
++    await ctx.db.insert("users", { authId: "ped-manager", role: "manager" });
++    await ctx.db.insert("users", {
++      authId: "ped-anon-admin",
++      role: "admin",
++      isAnonymous: true,
++    });
++
++    const projectId = await ctx.db.insert("projects", {
++      title: "PED project",
++      clientName: "Test client",
++      status: "review",
++      createdBy: writerId,
++      ...(options.ownerless ? {} : { ownerId: writerId }),
++      shareToken: "ped-token",
++      createdAt: now,
++      updatedAt: now,
++    });
++    const generationId = await ctx.db.insert("generations", {
++      projectId,
++      status: "completed",
++      requestedBy: writerId,
++      candidateMode: "single",
++      startedAt: now,
++      completedAt: now,
++    });
++    const reportId = await ctx.db.insert("reports", {
++      projectId,
++      generationId,
++      content: DRAFT,
++      revisionNumber: 0,
++      version: 1,
++      generatedAt: now,
++      updatedAt: now,
++    });
++    if (!options.noBaseline) {
++      await ctx.db.insert("reportSnapshots", {
++        projectId,
++        reportId,
++        generationId,
++        content: DRAFT,
++        sourceRevisionNumber: 0,
++        reason: "generated",
++        label: "AI draft (single)",
++        createdByRole: "system",
++        createdAt: now,
++      });
++    }
++    if (options.ghostBaseline) {
++      // The compare paths insert a second "generated" row AFTER the real
++      // baseline; `.first()` on by_reportId must still pick the real one.
++      await ctx.db.insert("reportSnapshots", {
++        projectId,
++        reportId,
++        generationId,
++        content: doc("Ghost comparison draft with entirely unrelated words."),
++        sourceRevisionNumber: 0,
++        reason: "generated",
++        label: "AI draft (comparison)",
++        createdByRole: "system",
++        createdAt: now + 1,
++      });
++    }
++    return { writerId, otherWriterId, projectId, generationId, reportId };
++  });
++  return {
++    t,
++    writer: t.withIdentity({ subject: "ped-writer" }),
++    otherWriter: t.withIdentity({ subject: "ped-other-writer" }),
++    admin: t.withIdentity({ subject: "ped-admin" }),
++    manager: t.withIdentity({ subject: "ped-manager" }),
++    anonAdmin: t.withIdentity({ subject: "ped-anon-admin" }),
++    ...ids,
++  };
++}
++
++const rows = (t: TestConvex, reportId: Id<"reports">) =>
++  t.run(async (ctx) =>
++    ctx.db
++      .query("reportEditDistance")
++      .withIndex("by_reportId", (q) => q.eq("reportId", reportId))
++      .collect()
++  );
++
++async function editReport(
++  t: TestConvex,
++  reportId: Id<"reports">
++) {
++  await t.run(async (ctx) => {
++    await ctx.db.patch(reportId, { content: EDITED, revisionNumber: 1 });
++  });
++}
++
++describe("recording at the three milestones", () => {
++  it("records a real candidate-selection row through selectReportCandidate", async () => {
++    const t = convexTest(schema, modules);
++    const seeded = await t.run(async (ctx) => {
++      const now = Date.now();
++      const userId = await ctx.db.insert("users", {
++        authId: "ped-select-writer",
++        role: "writer",
++      });
++      const projectId = await ctx.db.insert("projects", {
++        title: "Select project",
++        clientName: "Client",
++        status: "review",
++        createdBy: userId,
++        ownerId: userId,
++        shareToken: "ped-select-token",
++        createdAt: now,
++        updatedAt: now,
++      });
++      const generationId = await ctx.db.insert("generations", {
++        projectId,
++        status: "awaiting_selection",
++        requestedBy: userId,
++        candidateMode: "compare",
++        startedAt: now,
++      });
++      const candidateId = await ctx.db.insert("reportCandidates", {
++        projectId,
++        generationId,
++        label: "A",
++        model: "model-a",
++        content: DRAFT,
++        agentOutputs: "{}",
++        createdAt: now,
++      });
++      return { projectId, generationId, candidateId };
++    });
++
++    const asWriter = t.withIdentity({ subject: "ped-select-writer" });
++    await asWriter.mutation(api.generations.selectReportCandidate, {
++      generationId: seeded.generationId,
++      candidateId: seeded.candidateId,
++    });
++
++    const recorded = await t.run(async (ctx) =>
++      ctx.db
++        .query("reportEditDistance")
++        .withIndex("by_projectId", (q) => q.eq("projectId", seeded.projectId))
++        .collect()
++    );
++    expect(recorded).toHaveLength(1);
++    expect(recorded[0].trigger).toBe("candidate_selection");
++    expect(recorded[0].ped).toBe(0);
++    expect(recorded[0].revisionNumber).toBe(0);
++
++    const series = await asWriter.query(
++      api.reportEditDistance.seriesForReport,
++      { reportId: recorded[0].reportId }
++    );
++    expect(series).toHaveLength(1);
++    expect(series![0].trigger).toBe("candidate_selection");
++    expect(series![0].ped).toBe(0);
++  });
++
++  it("records ped > 0 at a milestone snapshot on edited content", async () => {
++    const { t, writer, reportId } = await setup();
++    await editReport(t, reportId);
++
++    await writer.mutation(api.snapshots.createMilestoneSnapshot, {
++      reportId,
++      label: "R1 internal review",
++      expectedRevisionNumber: 1,
++    });
++
++    const recorded = await rows(t, reportId);
++    expect(recorded).toHaveLength(1);
++    expect(recorded[0].trigger).toBe("milestone");
++    expect(recorded[0].revisionNumber).toBe(1);
++    expect(recorded[0].ped).toBeGreaterThan(0);
++    expect(recorded[0].ped).toBeLessThan(1);
++  });
++
++  it("uses the real baseline, not a later ghost 'generated' snapshot", async () => {
++    const withGhost = await setup({ ghostBaseline: true });
++    await withGhost.writer.mutation(api.snapshots.createMilestoneSnapshot, {
++      reportId: withGhost.reportId,
++      label: "R1 internal review",
++      expectedRevisionNumber: 0,
++    });
++    const ghosted = await rows(withGhost.t, withGhost.reportId);
++    expect(ghosted).toHaveLength(1);
++    // Unedited report vs the REAL baseline => 0. Against the ghost it would be ~1.
++    expect(ghosted[0].ped).toBe(0);
++
++    // The baseline lookup is duplicated in reports.ts and lib/editDistance.ts;
++    // pin BOTH surfaces on the ghost fixture so one can't be switched to
++    // .order("desc") (which would pick the ghost) while the other stays put.
++    const read = await withGhost.writer.query(api.reports.postEditDistance, {
++      reportId: withGhost.reportId,
++    });
++    expect(read!.ped).toBe(0);
++    expect(read!.wordSimilarity).toBe(1);
++    expect(read!.draftLabel).toBe("AI draft (single)");
++    expect(read!.paragraphsTotal).toBe(2);
++    expect(read!.paragraphsUnchanged).toBe(2);
++  });
++
++  it("agrees with the read-time reports.postEditDistance query", async () => {
++    const { t, writer, reportId } = await setup();
++    await editReport(t, reportId);
++    await writer.mutation(api.snapshots.createMilestoneSnapshot, {
++      reportId,
++      label: "R1 internal review",
++      expectedRevisionNumber: 1,
++    });
++
++    const read = await writer.query(api.reports.postEditDistance, { reportId });
++    const recorded = await rows(t, reportId);
++    expect(read!.ped).toBe(recorded[0].ped);
++    expect(Object.keys(read!).sort()).toEqual(
++      [
++        "baselineAt",
++        "currentWords",
++        "draftLabel",
++        "draftWords",
++        "paragraphsTotal",
++        "paragraphsUnchanged",
++        "ped",
++        "wordSimilarity",
++      ].sort()
++    );
++  });
++});
++
++describe("client publish trigger", () => {
++  beforeEach(() => vi.useFakeTimers());
++  afterEach(() => vi.useRealTimers());
++
++  it("writes a row via the scheduled mutation with the project owner as writer", async () => {
++    const { t, writer, writerId, projectId, reportId } = await setup();
++    await editReport(t, reportId);
++
++    await writer.mutation(api.projects.publishForReview, {
++      projectId,
++      reportId,
++    });
++    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
++
++    const recorded = await rows(t, reportId);
++    expect(recorded).toHaveLength(1);
++    expect(recorded[0].trigger).toBe("client_publish");
++    expect(recorded[0].writerUserId).toBe(writerId);
++    expect(recorded[0].generationId).toBeTruthy();
++  });
++
++  it("does not duplicate a repeat publish with no edit in between", async () => {
++    const { t, writer, projectId, reportId } = await setup();
++    await editReport(t, reportId);
++
++    await writer.mutation(api.projects.publishForReview, { projectId, reportId });
++    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
++    await writer.mutation(api.projects.publishForReview, { projectId, reportId });
++    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
++
++    expect(await rows(t, reportId)).toHaveLength(1);
++  });
++
++  it("records a second publish once the report has been edited again", async () => {
++    const { t, writer, projectId, reportId } = await setup();
++
++    await writer.mutation(api.projects.publishForReview, { projectId, reportId });
++    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
++    await editReport(t, reportId);
++    await writer.mutation(api.projects.publishForReview, { projectId, reportId });
++    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
++
++    const recorded = await rows(t, reportId);
++    expect(recorded).toHaveLength(2);
++    expect(recorded.map((r) => r.trigger)).toEqual([
++      "client_publish",
++      "client_publish",
++    ]);
++    expect(recorded[0].ped).toBe(0);
++    expect(recorded[1].ped).toBeGreaterThan(0);
++    expect(recorded[0].ped).not.toBe(recorded[1].ped);
++  });
++
++  it("records both a milestone and a publish on the same revision", async () => {
++    const { t, writer, projectId, reportId } = await setup();
++    await editReport(t, reportId);
++
++    await writer.mutation(api.snapshots.createMilestoneSnapshot, {
++      reportId,
++      label: "R1 internal review",
++      expectedRevisionNumber: 1,
++    });
++    await writer.mutation(api.projects.publishForReview, { projectId, reportId });
++    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
++
++    const recorded = await rows(t, reportId);
++    expect(recorded.map((r) => r.trigger).sort()).toEqual([
++      "client_publish",
++      "milestone",
++    ]);
++  });
++
++  it("leaves writerUserId unset on an ownerless legacy project", async () => {
++    const { t, admin, projectId, reportId } = await setup({ ownerless: true });
++    await admin.mutation(api.projects.publishForReview, { projectId, reportId });
++    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
++
++    const recorded = await rows(t, reportId);
++    expect(recorded).toHaveLength(1);
++    expect(recorded[0].writerUserId).toBeUndefined();
++  });
++});
++
++describe("no baseline", () => {
++  beforeEach(() => vi.useFakeTimers());
++  afterEach(() => vi.useRealTimers());
++
++  it("writes nothing and still completes every trigger", async () => {
++    const { t, writer, projectId, reportId } = await setup({ noBaseline: true });
++
++    const snapshotId = await writer.mutation(
++      api.snapshots.createMilestoneSnapshot,
++      { reportId, label: "R1 internal review", expectedRevisionNumber: 0 }
++    );
++    expect(snapshotId).toBeTruthy();
++
++    await writer.mutation(api.projects.publishForReview, { projectId, reportId });
++    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
++    const project = await t.run(async (ctx) => ctx.db.get(projectId));
++    expect(project!.status).toBe("client_review");
++
++    expect(await rows(t, reportId)).toHaveLength(0);
++  });
++
++  it("recordAtPublish is a no-op when the report is gone", async () => {
++    const { t, reportId } = await setup();
++    await t.run(async (ctx) => {
++      await ctx.db.delete(reportId);
++    });
++    await expect(
++      t.mutation(internal.reportEditDistance.recordAtPublish, { reportId })
++    ).resolves.toBeNull();
++    expect(await rows(t, reportId)).toHaveLength(0);
++  });
++});
++
++describe("seriesForReport", () => {
++  it("denies authenticated callers without internal eligibility", async () => {
++    const { t, writer, anonAdmin, reportId } = await setup();
++    await writer.mutation(api.snapshots.createMilestoneSnapshot, {
++      reportId,
++      label: "R1 internal milestone",
++      expectedRevisionNumber: 0,
++    });
++    await t.run(async (ctx) => {
++      await ctx.db.insert("users", { authId: "ped-no-role" });
++    });
++
++    for (const caller of [
++      anonAdmin,
++      t.withIdentity({ subject: "ped-no-role" }),
++      t.withIdentity({ subject: "ped-unmapped" }),
++    ]) {
++      expect(
++        await caller.query(api.reportEditDistance.seriesForReport, { reportId })
++      ).toBeNull();
++    }
++    expect(
++      await writer.query(api.reportEditDistance.seriesForReport, { reportId })
++    ).toHaveLength(1);
++  });
++
++  it("excludes another project's readings from an authorized report series", async () => {
++    const { t, writer, reportId, projectId, otherWriterId } = await setup();
++    const expectedId = await t.run(async (ctx) => {
++      const otherProjectId = await ctx.db.insert("projects", {
++        title: "Other project", clientName: "Other client", status: "review",
++        createdBy: otherWriterId, ownerId: otherWriterId,
++        shareToken: "ped-other-project-token",
++        createdAt: 0, updatedAt: 0,
++      });
++      const otherReportId = await ctx.db.insert("reports", {
++        projectId: otherProjectId, content: DRAFT, version: 1,
++        generatedAt: 0, updatedAt: 0,
++      });
++      await ctx.db.insert("reportEditDistance", {
++        reportId: otherReportId, projectId: otherProjectId,
++        revisionNumber: 0, computedAt: 1, trigger: "milestone", ped: 1,
++      });
++      return await ctx.db.insert("reportEditDistance", {
++        reportId, projectId, revisionNumber: 0,
++        computedAt: 2, trigger: "milestone", ped: 0,
++      });
++    });
++    const series = await writer.query(api.reportEditDistance.seriesForReport, { reportId });
++    expect(series?.map((row) => row._id)).toEqual([expectedId]);
++  });
++
++  it("returns null without internal access and rows oldest-first with it", async () => {
++    const { t, admin, reportId, generationId } = await setup();
++    await t.run(async (ctx) => {
++      const report = (await ctx.db.get(reportId))!;
++      const base = {
++        reportId,
++        projectId: report.projectId,
++        generationId: report.generationId,
++        revisionNumber: 0,
++        computedAt: 0,
++        trigger: "milestone" as const,
++        ped: 0,
++      };
++      await ctx.db.insert("reportEditDistance", { ...base, computedAt: 300 });
++      await ctx.db.insert("reportEditDistance", { ...base, computedAt: 100 });
++      await ctx.db.insert("reportEditDistance", { ...base, computedAt: 200 });
++    });
++
++    expect(
++      await t.query(api.reportEditDistance.seriesForReport, { reportId })
++    ).toBeNull();
++
++    const series = await admin.query(api.reportEditDistance.seriesForReport, {
++      reportId,
++    });
++    expect(series!.map((r) => r.computedAt)).toEqual([100, 200, 300]);
++    // CAP-3 joins generations.brainProvenance through this column.
++    expect(series!.map((r) => r.generationId)).toEqual([
++      generationId,
++      generationId,
++      generationId,
++    ]);
++  });
++
++  it("breaks a computedAt tie on insertion order", async () => {
++    // A milestone and an immediately-drained publish can share a millisecond.
++    const { t, admin, reportId, projectId } = await setup();
++    await t.run(async (ctx) => {
++      const base = {
++        reportId,
++        projectId,
++        revisionNumber: 1,
++        computedAt: 500,
++        ped: 0,
++      };
++      await ctx.db.insert("reportEditDistance", {
++        ...base,
++        trigger: "milestone",
++      });
++      await ctx.db.insert("reportEditDistance", {
++        ...base,
++        trigger: "client_publish",
++      });
++    });
++
++    const series = await admin.query(api.reportEditDistance.seriesForReport, {
++      reportId,
++    });
++    expect(series!.map((r) => r.trigger)).toEqual([
++      "milestone",
++      "client_publish",
++    ]);
++  });
++
++  it("returns null for a missing report", async () => {
++    const { t, admin, reportId } = await setup();
++    await t.run(async (ctx) => {
++      await ctx.db.delete(reportId);
++    });
++    expect(
++      await admin.query(api.reportEditDistance.seriesForReport, { reportId })
++    ).toBeNull();
++  });
++
++  it("caps at the newest readings, dropping the oldest", async () => {
++    const { t, admin, reportId, projectId } = await setup();
++    const total = SERIES_FOR_REPORT_LIMIT + 3;
++    await t.run(async (ctx) => {
++      for (let i = 0; i < total; i += 1) {
++        await ctx.db.insert("reportEditDistance", {
++          reportId,
++          projectId,
++          revisionNumber: i,
++          ped: 0,
++          computedAt: 1000 + i,
++          trigger: "milestone",
++        });
++      }
++    });
++
++    const series = await admin.query(api.reportEditDistance.seriesForReport, {
++      reportId,
++    });
++    expect(series).toHaveLength(SERIES_FOR_REPORT_LIMIT);
++    expect(series![0].computedAt).toBe(1000 + 3);
++    expect(series![series!.length - 1].computedAt).toBe(1000 + total - 1);
++  });
++});
++
++describe("seriesForWriter", () => {
++  async function seed(
++    t: TestConvex,
++    reportId: Id<"reports">,
++    projectId: Id<"projects">,
++    writerUserId: Id<"users">,
++    stamps: number[]
++  ) {
++    await t.run(async (ctx) => {
++      for (const computedAt of stamps) {
++        await ctx.db.insert("reportEditDistance", {
++          reportId,
++          projectId,
++          generationId: (await ctx.db.get(reportId))!.generationId,
++          writerUserId,
++          revisionNumber: 0,
++          ped: 0.25,
++          computedAt,
++          trigger: "milestone",
++        });
++      }
++    });
++  }
++
++  it("is readable by an admin, a manager, and the writer themselves", async () => {
++    const f = await setup();
++    await seed(f.t, f.reportId, f.projectId, f.writerId, [100, 300, 200]);
++
++    for (const caller of [f.admin, f.manager, f.writer]) {
++      const series = await caller.query(api.reportEditDistance.seriesForWriter, {
++        writerUserId: f.writerId,
++      });
++      expect(series.map((r) => r.computedAt)).toEqual([100, 200, 300]);
++      // CAP-3 joins generations.brainProvenance through this column.
++      expect(series.map((r) => r.generationId)).toEqual([
++        f.generationId,
++        f.generationId,
++        f.generationId,
++      ]);
++    }
++  });
++
++  it("rejects another writer, an anonymous admin, and an unauthenticated caller", async () => {
++    const f = await setup();
++    await seed(f.t, f.reportId, f.projectId, f.writerId, [100]);
++
++    expect(
++      await errorCode(
++        f.otherWriter.query(api.reportEditDistance.seriesForWriter, {
++          writerUserId: f.writerId,
++        })
++      )
++    ).toBe("NOT_AUTHORIZED");
++    expect(
++      await errorCode(
++        f.anonAdmin.query(api.reportEditDistance.seriesForWriter, {
++          writerUserId: f.writerId,
++        })
++      )
++    ).toBe("NOT_AUTHORIZED");
++    expect(
++      await errorCode(
++        f.t.query(api.reportEditDistance.seriesForWriter, {
++          writerUserId: f.writerId,
++        })
++      )
++    ).toBe("NOT_AUTHENTICATED");
++  });
++
++  it("rejects an invalid sinceDays before reading anything", async () => {
++    const f = await setup();
++    for (const sinceDays of [0, -1, 0.5, 4000, Number.NaN]) {
++      expect(
++        await errorCode(
++          f.admin.query(api.reportEditDistance.seriesForWriter, {
++            writerUserId: f.writerId,
++            sinceDays,
++          })
++        )
++      ).toBe("INVALID_INPUT");
++    }
++  });
++
++  it("authenticates before it validates sinceDays", async () => {
++    const f = await setup();
++    expect(
++      await errorCode(
++        f.t.query(api.reportEditDistance.seriesForWriter, {
++          writerUserId: f.writerId,
++          sinceDays: -1,
++        })
++      )
++    ).toBe("NOT_AUTHENTICATED");
++  });
++
++  it("windows by sinceDays", async () => {
++    const f = await setup();
++    const now = Date.now();
++    const day = 24 * 60 * 60 * 1000;
++    await seed(f.t, f.reportId, f.projectId, f.writerId, [
++      now - 40 * day,
++      now - 2 * day,
++    ]);
++
++    const series = await f.admin.query(
++      api.reportEditDistance.seriesForWriter,
++      { writerUserId: f.writerId, sinceDays: 7 }
++    );
++    expect(series).toHaveLength(1);
++    expect(series[0].computedAt).toBe(now - 2 * day);
++  });
++
++  it("returns nothing for a writer whose project is ownerless", async () => {
++    const f = await setup({ ownerless: true });
++    await f.t.run(async (ctx) => {
++      await ctx.db.insert("reportEditDistance", {
++        reportId: f.reportId,
++        projectId: f.projectId,
++        revisionNumber: 0,
++        ped: 0.5,
++        computedAt: Date.now(),
++        trigger: "milestone",
++      });
++    });
++    const series = await f.admin.query(
++      api.reportEditDistance.seriesForWriter,
++      { writerUserId: f.writerId }
++    );
++    expect(series).toEqual([]);
++  });
++
++  it("caps at the newest readings, dropping the oldest", async () => {
++    const f = await setup();
++    const total = SERIES_FOR_WRITER_LIMIT + 3;
++    const stamps = Array.from({ length: total }, (_, i) => 1000 + i);
++    await seed(f.t, f.reportId, f.projectId, f.writerId, stamps);
++
++    const series = await f.admin.query(
++      api.reportEditDistance.seriesForWriter,
++      { writerUserId: f.writerId }
++    );
++    expect(series).toHaveLength(SERIES_FOR_WRITER_LIMIT);
++    expect(series[0].computedAt).toBe(1000 + 3);
++    expect(series[series.length - 1].computedAt).toBe(1000 + total - 1);
++  });
++});
+diff --git a/convex/reportEditDistance.ts b/convex/reportEditDistance.ts
+new file mode 100644
+index 0000000..2920764
+--- /dev/null
++++ b/convex/reportEditDistance.ts
+@@ -0,0 +1,125 @@
++import { query, internalMutation } from "./_generated/server";
++import { v } from "convex/values";
++import { getInternalProjectAccessOrNull, requireCurrentUser } from "./lib/auth";
++import { domainError } from "./lib/contracts";
++import { recordReportEditDistance } from "./lib/editDistance";
++
++// ─── BNH-10 flywheel (CAP-2): persisted post-edit distance ───────────────────
++// Read surface for the learning dashboard (CAP-3). Both series are bounded and
++// keep the NEWEST readings; the caps are exported so tests cannot drift.
++
++export const SERIES_FOR_REPORT_LIMIT = 200;
++export const SERIES_FOR_WRITER_LIMIT = 500;
++
++/**
++ * Every recorded reading for one report, oldest-first. Returns `null` — rather
++ * than throwing — for a missing report or a caller without internal access to
++ * the report's project, so the dashboard can render an empty state without an
++ * error boundary.
++ */
++export const seriesForReport = query({
++  args: { reportId: v.id("reports") },
++  handler: async (ctx, args) => {
++    const report = await ctx.db.get(args.reportId);
++    if (!report) return null;
++    const access = await getInternalProjectAccessOrNull(ctx, report.projectId);
++    if (!access) return null;
++
++    const rows = await ctx.db
++      .query("reportEditDistance")
++      .withIndex("by_reportId", (q) => q.eq("reportId", args.reportId))
++      .order("desc")
++      .take(SERIES_FOR_REPORT_LIMIT);
++
++    return rows
++      .slice()
++      .sort(
++        (a, b) =>
++          a.computedAt - b.computedAt || a._creationTime - b._creationTime
++      )
++      .map((row) => ({
++        _id: row._id,
++        reportId: row.reportId,
++        projectId: row.projectId,
++        generationId: row.generationId ?? null,
++        writerUserId: row.writerUserId ?? null,
++        revisionNumber: row.revisionNumber,
++        ped: row.ped,
++        computedAt: row.computedAt,
++        trigger: row.trigger,
++      }));
++  },
++});
++
++/**
++ * PED trend for one accountable writer (projects.ownerId), oldest-first.
++ * Readable by an admin/manager or by that writer themselves; never by an
++ * anonymous caller.
++ */
++export const seriesForWriter = query({
++  args: {
++    writerUserId: v.id("users"),
++    sinceDays: v.optional(v.number()),
++  },
++  handler: async (ctx, args) => {
++    // Authenticate first: an ineligible caller must not be able to probe this
++    // query's argument validation.
++    const user = await requireCurrentUser(ctx);
++    const elevated = user.role === "admin" || user.role === "manager";
++    const isSelf = user._id === args.writerUserId;
++    if (user.isAnonymous === true || !user.role || (!elevated && !isSelf)) {
++      domainError("NOT_AUTHORIZED", "Not allowed to read this writer's series");
++    }
++
++    if (args.sinceDays !== undefined) {
++      if (
++        !Number.isInteger(args.sinceDays) ||
++        args.sinceDays < 1 ||
++        args.sinceDays > 3650
++      ) {
++        domainError("INVALID_INPUT", "sinceDays must be between 1 and 3650");
++      }
++    }
++
++    const since =
++      args.sinceDays === undefined
++        ? undefined
++        : Date.now() - args.sinceDays * 24 * 60 * 60 * 1000;
++
++    const rows = await ctx.db
++      .query("reportEditDistance")
++      .withIndex("by_writerUserId_and_computedAt", (q) =>
++        since === undefined
++          ? q.eq("writerUserId", args.writerUserId)
++          : q.eq("writerUserId", args.writerUserId).gte("computedAt", since)
++      )
++      .order("desc")
++      .take(SERIES_FOR_WRITER_LIMIT);
++
++    return rows
++      .slice()
++      .reverse()
++      .map((row) => ({
++        _id: row._id,
++        reportId: row.reportId,
++        projectId: row.projectId,
++        generationId: row.generationId ?? null,
++        writerUserId: row.writerUserId ?? null,
++        revisionNumber: row.revisionNumber,
++        ped: row.ped,
++        computedAt: row.computedAt,
++        trigger: row.trigger,
++      }));
++  },
++});
++
++/** Scheduled from projects.publishForReview so publishing never waits on PED. */
++export const recordAtPublish = internalMutation({
++  args: { reportId: v.id("reports") },
++  handler: async (ctx, args) => {
++    const report = await ctx.db.get(args.reportId);
++    if (!report) return null;
++    await recordReportEditDistance(ctx, report, "client_publish");
++    return null;
++  },
++});
+diff --git a/convex/reports.ts b/convex/reports.ts
+index 5660221..61394fe 100644
+--- a/convex/reports.ts
++++ b/convex/reports.ts
+@@ -1,3 +1,4 @@
++import { persistDeterministicFindings } from "./lib/qaFindings";
+ import { query, mutation, internalMutation } from "./_generated/server";
+ import { v } from "convex/values";
+ import type { Doc, Id } from "./_generated/dataModel";
+@@ -16,6 +17,7 @@ import {
+   sha256,
+ } from "./lib/contracts";
+ import { extractPlainText } from "./lib/reportEdits";
++import { computeEditDistance } from "./lib/editDistance";
+ import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+ export const getLatestReport = query({
+   args: {
+@@ -67,6 +69,7 @@ export const updateReportContent = mutation({
+       provenanceId: undefined,
+       updatedAt: Date.now(),
+     });
++    await persistDeterministicFindings(ctx, args.reportId);
+     return revisionNumber + 1;
+   },
+ });
+@@ -402,31 +405,6 @@ export const failExport = mutation({
+ 
+ // ─── BNH-10 flywheel: post-edit distance ─────────────────────────────────────
+ 
+-/** Lowercased word multiset — cheap, order-insensitive edit signal. */
+-function wordBag(text: string): Map<string, number> {
+-  const bag = new Map<string, number>();
+-  for (const raw of text.toLowerCase().split(/\s+/)) {
+-    const w = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+-    if (!w) continue;
+-    bag.set(w, (bag.get(w) ?? 0) + 1);
+-  }
+-  return bag;
+-}
+-
+-function bagOverlap(a: Map<string, number>, b: Map<string, number>): number {
+-  let n = 0;
+-  for (const [w, ca] of a) n += Math.min(ca, b.get(w) ?? 0);
+-  return n;
+-}
+-
+-function bagSize(bag: Map<string, number>): number {
+-  let n = 0;
+-  for (const c of bag.values()) n += c;
+-  return n;
+-}
+-
+-const normalizePara = (p: string) => p.replace(/\s+/g, " ").trim().toLowerCase();
+-
+ /**
+  * Post-edit distance (PED): how much of the AI draft the writer changed before
+  * the report's current state — the north-star "is the system improving" metric
+@@ -463,40 +441,13 @@ export const postEditDistance = query({
+       .first();
+     if (!baseline) return null;
+ 
+-    const draftText = extractPlainText(baseline.content);
+-    const currentText = extractPlainText(report.content);
+-
+-    const draftBag = wordBag(draftText);
+-    const currentBag = wordBag(currentText);
+-    const draftWords = bagSize(draftBag);
+-    const currentWords = bagSize(currentBag);
+-    const similarity =
+-      draftWords + currentWords === 0
+-        ? 1
+-        : (2 * bagOverlap(draftBag, currentBag)) / (draftWords + currentWords);
+-
+-    const draftParas = draftText.split(/\n{2,}|\n/).map(normalizePara).filter(Boolean);
+-    const currentParas = new Map<string, number>();
+-    for (const p of currentText.split(/\n{2,}|\n/).map(normalizePara).filter(Boolean)) {
+-      currentParas.set(p, (currentParas.get(p) ?? 0) + 1);
+-    }
+-    let unchanged = 0;
+-    for (const p of draftParas) {
+-      const left = currentParas.get(p) ?? 0;
+-      if (left > 0) {
+-        unchanged += 1;
+-        currentParas.set(p, left - 1);
+-      }
+-    }
++    const result = computeEditDistance(
++      extractPlainText(baseline.content),
++      extractPlainText(report.content)
++    );
+ 
+     return {
+-      /** 0 = untouched draft, 1 = fully rewritten. */
+-      ped: 1 - similarity,
+-      wordSimilarity: similarity,
+-      draftWords,
+-      currentWords,
+-      paragraphsTotal: draftParas.length,
+-      paragraphsUnchanged: unchanged,
++      ...result,
+       draftLabel: baseline.label,
+       baselineAt: baseline.createdAt,
+     };
+diff --git a/convex/reviewFromProject.test.ts b/convex/reviewFromProject.test.ts
+index 26a2406..3b40095 100644
+--- a/convex/reviewFromProject.test.ts
++++ b/convex/reviewFromProject.test.ts
+@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+ import { api, internal } from "./_generated/api";
+ import type { Id } from "./_generated/dataModel";
+ import schema from "./schema";
++import { sha256 } from "./lib/contracts";
+ import { buildTiptapDocument } from "./lib/tiptapReport";
+ 
+ const modules = import.meta.glob("./**/*.ts");
+@@ -153,6 +154,8 @@ describe("createReviewFromProject", () => {
+       "Line 244 — Work Performed"
+     );
+     expect(reviewPd?.processingStatus).toBe("ready");
++    // CAP-3: the acting internal user authored this review PD.
++    expect(reviewPd?.uploaderRole).toBe("writer");
+ 
+     // The AI review is running against exactly that document.
+     expect(state.reviews).toHaveLength(1);
+@@ -163,6 +166,11 @@ describe("createReviewFromProject", () => {
+       createdBy: writerId,
+     });
+ 
++    if (!reviewPd || !state.report) throw new Error("Review artifacts missing");
++    expect(state.reviews[0].revisionNumber).toBe(0);
++    expect(state.reviews[0].contentHash).toBe(await sha256(reviewPd.content));
++    expect(state.reviews[0].contentHash).not.toBe(await sha256(state.report.content));
++
+     // Every transcript of the source is inherited, in order, byte-identical
+     // and with the source hash reused rather than recomputed.
+     const copied = await projectTranscripts(t, reviewProjectId);
+diff --git a/convex/reviewFromProject.ts b/convex/reviewFromProject.ts
+index a570976..337be81 100644
+--- a/convex/reviewFromProject.ts
++++ b/convex/reviewFromProject.ts
+@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
+ import type { Id } from "./_generated/dataModel";
+ import { v } from "convex/values";
+ import { requireInternalProjectAccess } from "./lib/auth";
+-import { domainError } from "./lib/contracts";
++import { domainError, sha256 } from "./lib/contracts";
+ import { requireCapability } from "./lib/roleCapabilities";
+ import { requireAnthropicConfigured } from "./lib/providerConfig";
+ import { extractPlainText } from "./lib/reportEdits";
+@@ -188,6 +188,8 @@ export const createReviewProjectRecord = internalMutation({
+       processingStatus: derived.status,
+       processingDetail: derived.detail,
+       uploadedBy: userDisplayLabel(user),
++      // CAP-3: the acting internal user authored this review PD.
++      ...(user.role ? { uploaderRole: user.role } : {}),
+       createdAt: now,
+     });
+ 
+@@ -207,6 +209,8 @@ export const createReviewProjectRecord = internalMutation({
+       documentId,
+       sourceFileName: fileName,
+       status: "running",
++      revisionNumber: 0,
++      contentHash: await sha256(pdText),
+       createdBy: user._id,
+       createdAt: now,
+     });

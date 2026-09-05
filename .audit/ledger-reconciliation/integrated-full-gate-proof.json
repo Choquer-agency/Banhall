@@ -1,0 +1,14 @@
+{
+  "revision": "717c75897cc04256c008a2ed42747df66f6fc6b5",
+  "command": "bash scripts/loop-verify.sh",
+  "exit_code": 0,
+  "typechecks": "Convex and Svelte passed",
+  "test_files": 148,
+  "tests": 1726,
+  "uploader_checks": [
+    50,
+    18
+  ],
+  "log_sha256": "4a5e1e9f7b25e15f4dddc968ae9e5c9efb35fb375e4652ffa8b41f11063f809b",
+  "component_verification": "separate, pending"
+}

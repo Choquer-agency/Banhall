@@ -1,0 +1,53 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-unlearn-fix
+
+ ❯ |convex| convex/brainUnlearn.test.ts (22 tests | 2 failed) 231ms
+     × repeated pre-drain revokes and confirmation deliveries confirm an entry once 19ms
+     × successful remediation fences a stale failure without losing earlier evidence 7ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/brainUnlearn.test.ts > confirmed unlearn (CAP-10) > repeated pre-drain revokes and confirmation deliveries confirm an entry once
+AssertionError: expected [ { …(7) }, { …(7) }, { …(7) }, …(1) ] to have a length of 1 but got 4
+
+- Expected
++ Received
+
+- 1
++ 4
+
+ ❯ convex/brainUnlearn.test.ts:311:62
+    309|     ]);
+    310|     expect(actions(await auditRows(t), "revoke")).toHaveLength(1);
+    311|     expect(actions(await auditRows(t), "unlearn_confirmed")).toHaveLen…
+       |                                                              ^
+    312|     expect((await sourceRow(t, sourceId))?.ragEntryId).toBeUndefined();
+    313|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |convex| convex/brainUnlearn.test.ts > confirmed unlearn (CAP-10) > successful remediation fences a stale failure without losing earlier evidence
+AssertionError: expected 'entry_fixture_1' to be undefined
+
+- Expected:
+undefined
+
++ Received:
+"entry_fixture_1"
+
+ ❯ convex/brainUnlearn.test.ts:328:56
+    326|       sourceId, ragEntryId: ENTRY_ID,
+    327|     })).rejects.toThrow("stale failure");
+    328|     expect((await sourceRow(t, sourceId))?.ragEntryId).toBeUndefined();
+       |                                                        ^
+    329|     expect(await scheduledUnlearns(t)).toEqual(jobs);
+    330|     const rows = await auditRows(t);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 23 passed (25)
+   Start at  13:23:34
+   Duration  1.19s (transform 561ms, setup 0ms, import 845ms, tests 240ms, environment 190ms)
+

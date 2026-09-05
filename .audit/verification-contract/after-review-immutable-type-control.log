@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-verification-contract/.audit/verification-contract/verify-immutable.py", line 41, in <module>
+    for path in new: assert actual_mode(root/path)==('100644','blob'), path
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: .nvmrc

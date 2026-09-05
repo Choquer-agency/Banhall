@@ -1,0 +1,6 @@
+f34bd79ccff35019c5cf5460d8845a0240c19978
+The conversation records production files as unchanged when red.log ran.
+The hashes below were recorded after the red run from the baseline commit;
+they are not a contemporaneous attestation of working-tree bytes.
+convex/lib/reportEdits.ts baseline SHA256 cefc925a133b37a03aee767d86c1a156caba8966cd54f7b65c3b1e5e58717229
+convex/lib/editDistance.ts baseline SHA256 191ca7df6507767254ab8ddbbfffd5b121f35a3e000931da824ef66e28fb9d1d

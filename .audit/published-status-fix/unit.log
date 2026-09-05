@@ -1,0 +1,13 @@
+
+> banhall-app@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix
+
+
+ Test Files  153 passed (153)
+      Tests  1964 passed (1964)
+   Start at  04:53:47
+   Duration  21.04s (transform 4.58s, setup 0ms, import 9.10s, tests 14.54s, environment 3.52s)
+

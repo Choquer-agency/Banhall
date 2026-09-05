@@ -1,0 +1,16 @@
+{
+  "head": "e13e6253d0440ec4b28ea9ca5605fe7dbdc77d05",
+  "command": [
+    "npm",
+    "run",
+    "test:component"
+  ],
+  "started_at": "2026-09-04T19:26:50.157393-07:00",
+  "finished_at": "2026-09-04T19:27:28.750550-07:00",
+  "elapsed_seconds": 38.593,
+  "exit_code": 0,
+  "public_env": {
+    "PUBLIC_CONVEX_URL": "https://placeholder.convex.cloud",
+    "PUBLIC_CONVEX_SITE_URL": "https://placeholder.convex.site"
+  }
+}

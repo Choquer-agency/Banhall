@@ -1,0 +1,8 @@
+{
+  "layer": "acceptance-auditor",
+  "agent": "/root/final_combined_acceptance",
+  "fresh_context": true,
+  "revision": "8c8080576d30c919f825e12f4b786f3f28b86b8f",
+  "findings": [],
+  "conclusion": "No actionable acceptance findings. Approved diversity, privacy, publication, measurement, regeneration and optimistic-send contracts preserved; no deployed live-provider proof claimed."
+}

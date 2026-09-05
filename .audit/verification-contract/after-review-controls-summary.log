@@ -1,0 +1,8 @@
+browser-install-locations 0
+regular-only-launch 1
+regular-only-gate 1
+headless-only-launch 0
+headless-only-gate 37
+path-listing 0
+path-guard 0
+real index unchanged; all fixtures removed

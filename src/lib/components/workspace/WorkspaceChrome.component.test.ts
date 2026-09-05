@@ -1,11 +1,14 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { page as browserPage } from "vitest/browser";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { page as browserPage, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { createRawSnippet } from "svelte";
+import { authClient } from "$lib/authClient";
 import WorkspaceChrome from "./WorkspaceChrome.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+
+vi.mock("$lib/authClient", () => ({ authClient: { signOut: vi.fn() } }));
 
 const tallContent = createRawSnippet(() => ({
   render: () => `<div data-testid="tall-content" style="height:1800px">Utility content</div>`,
@@ -13,6 +16,7 @@ const tallContent = createRawSnippet(() => ({
 
 describe("WorkspaceChrome", () => {
   beforeEach(() => {
+    vi.mocked(authClient.signOut).mockReset();
     __resetPage();
     __resetNavigation();
     __resetConvexStub();
@@ -66,7 +70,7 @@ describe("WorkspaceChrome", () => {
     ).not.toContain("/projects");
   });
 
-  it("autofocuses the modal drawer and layers its 44px account menu above the drawer", async () => {
+  it.each(["cancel", "Escape"])("layers sign-out confirmation above the drawer and restores focus on %s", async (dismiss) => {
     await browserPage.viewport(390, 844);
     __setQueryData("users:getCurrentUser", {
       _id: "admin-1",
@@ -83,18 +87,75 @@ describe("WorkspaceChrome", () => {
       .poll(() => document.activeElement?.getAttribute("aria-label"))
       .toBe("Close workspace navigation");
 
-    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
-    dialog.querySelector<HTMLButtonElement>('button[aria-label="Settings menu"]')!.click();
-    await expect.poll(() => document.querySelector('[data-menu-layer="drawer"]')).not.toBeNull();
-
-    const menu = document.querySelector<HTMLElement>('[data-menu-layer="drawer"]')!;
-    expect(Number.parseInt(getComputedStyle(menu).zIndex, 10)).toBeGreaterThan(110);
-    const rows = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'));
-    expect(rows.length).toBeGreaterThan(0);
-    // Measure after the sanctioned 300ms scale/fade settles; transformed
-    // in-flight bounds are intentionally smaller than the layout box.
-    await expect
-      .poll(() => rows.every((row) => row.getBoundingClientRect().height >= 44))
-      .toBe(true);
+    const drawer = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    const trigger = drawer.querySelector<HTMLButtonElement>('button[aria-label="Sign out"]')!;
+    const signOut = vi.mocked(authClient.signOut);
+    signOut.mockClear();
+    try {
+      trigger.focus();
+      await userEvent.keyboard("{Enter}");
+      await expect.element(browserPage.getByRole("dialog", { name: "Sign out?", exact: true })).toBeVisible();
+      const confirmation = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+        .find((element) => element !== drawer)!;
+      expect(drawer.contains(confirmation)).toBe(false);
+      expect(Number.parseInt(getComputedStyle(confirmation.parentElement!).zIndex, 10))
+        .toBeGreaterThan(Number.parseInt(getComputedStyle(drawer).zIndex, 10));
+      const rows = Array.from(confirmation.querySelectorAll<HTMLButtonElement>("button"));
+      expect(rows.map((row) => row.textContent?.trim())).toEqual(["Stay signed in", "Sign out"]);
+      await expect.poll(() => rows.every((row) => row.getBoundingClientRect().height >= 44)).toBe(true);
+      expect(trigger.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+      await expect.poll(() => confirmation.contains(document.activeElement)).toBe(true);
+      for (let step = 0; step < rows.length + 1; step += 1) {
+        await userEvent.keyboard("{Tab}");
+        expect(confirmation.contains(document.activeElement)).toBe(true);
+      }
+      for (let step = 0; step < rows.length + 1; step += 1) {
+        await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+        expect(confirmation.contains(document.activeElement)).toBe(true);
+      }
+      // Real hit tests account for ancestor stacking contexts, unlike z-index alone.
+      await expect.poll(() => rows.every((row) => {
+        const bounds = row.getBoundingClientRect();
+        return row.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+      })).toBe(true);
+      const drawerClose = drawer.querySelector<HTMLButtonElement>('button[aria-label="Close workspace navigation"]')!;
+      const closeBounds = drawerClose.getBoundingClientRect();
+      expect(drawer.contains(document.elementFromPoint(
+        closeBounds.x + closeBounds.width / 2, closeBounds.y + closeBounds.height / 2
+      ))).toBe(false);
+      if (dismiss === "cancel") {
+        await browserPage.getByRole("button", { name: "Stay signed in", exact: true }).click();
+      } else {
+        await userEvent.keyboard("{Escape}");
+      }
+      await expect.poll(() => document.activeElement).toBe(trigger);
+      await expect.poll(() => confirmation.isConnected).toBe(false);
+      expect(drawer.isConnected).toBe(true);
+      expect(signOut).not.toHaveBeenCalled();
+      expect(__navigationCalls.filter((call) => call.kind === "goto")).toEqual([]);
+      await browserPage.getByRole("button", { name: "Close workspace navigation", exact: true }).click();
+      await expect.poll(() => drawer.isConnected).toBe(false);
+    } finally {
+      signOut.mockClear();
+    }
   });
+
+  it("signs out once after confirmation and navigates to login", async () => {
+    await browserPage.viewport(390, 844);
+    const signOut = vi.mocked(authClient.signOut);
+    signOut.mockResolvedValueOnce({ data: { success: true }, error: null });
+    await render(WorkspaceChrome, { title: "Settings", children: tallContent });
+    await browserPage.getByRole("button", { name: "Open workspace navigation", exact: true }).click();
+    await expect.element(browserPage.getByRole("button", { name: "Close workspace navigation", exact: true })).toBeVisible();
+    await browserPage.getByRole("button", { name: "Sign out", exact: true }).click();
+    const confirmation = browserPage.getByRole("dialog", { name: "Sign out?", exact: true });
+    await expect.element(confirmation).toBeVisible();
+    expect(signOut).not.toHaveBeenCalled();
+    await confirmation.getByRole("button", { name: "Sign out", exact: true }).click();
+    await expect.poll(() => signOut.mock.calls.length).toBe(1);
+    await expect.poll(() => __navigationCalls.filter((call) => call.kind === "goto"))
+      .toEqual([{ kind: "goto", url: "/login" }]);
+    await expect.element(confirmation).not.toBeInTheDocument();
+  });
+
 });

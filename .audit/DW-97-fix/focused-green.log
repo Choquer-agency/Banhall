@@ -1,0 +1,30 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/chat/RegenerateLimits.component.test.ts src/lib/components/chat/RegenerateTurn.component.test.ts src/lib/components/chat/RegenerateQueryState.component.test.ts
+
+1:26:52 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix
+
+1:26:52 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix - using default configuration.
+Port 63315 is in use, trying another one...
+1:26:59 AM [vite] (client) [console.error] Failed to send message Error: Resend unavailable
+    at http://localhost:63316/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix/src/lib/components/chat/RegenerateTurn.component.test.ts?import&browserv=1788596818015:194:43
+    at async http://localhost:63316/node_modules/@vitest/runner/dist/chunk-artifact.js?v=fb19c9d1:1903:20
+1:26:59 AM [vite] (client) [console.error] Failed to send message Error: Please retry resend
+    at http://localhost:63316/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix/src/lib/components/chat/RegenerateTurn.component.test.ts?import&browserv=1788596818015:364:43
+    at async http://localhost:63316/node_modules/@vitest/runner/dist/chunk-artifact.js?v=fb19c9d1:1903:20
+1:27:04 AM [vite] (client) [console.error] Failed to send message Error: Delayed resend failure
+    at http://localhost:63316/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix/src/lib/components/chat/RegenerateTurn.component.test.ts?import&browserv=1788596818015:980:13
+    at async http://localhost:63316/node_modules/@vitest/runner/dist/chunk-artifact.js?v=fb19c9d1:1903:20
+1:27:04 AM [vite] (client) [console.error] Failed to send message Error: Try again
+    at http://localhost:63316/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix/src/lib/components/chat/RegenerateQueryState.component.test.ts?import&browserv=1788596824699:65:43
+    at async http://localhost:63316/node_modules/@vitest/runner/dist/chunk-artifact.js?v=fb19c9d1:1903:20
+1:27:04 AM [vite] (client) [console.error] Failed to send message Error: Try again
+    at http://localhost:63316/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix/src/lib/components/chat/RegenerateQueryState.component.test.ts?import&browserv=1788596824699:65:43
+    at async http://localhost:63316/node_modules/@vitest/runner/dist/chunk-artifact.js?v=fb19c9d1:1903:20
+
+ Test Files  3 passed (3)
+      Tests  59 passed (59)
+   Start at  01:26:52
+   Duration  12.67s (transform 0ms, setup 1.15s, import 1.65s, tests 7.68s, environment 0ms)

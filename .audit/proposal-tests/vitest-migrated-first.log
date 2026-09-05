@@ -1,0 +1,81 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests
+
+ ❯ |convex| tests/chatProposals.test.ts (24 tests | 24 failed) 187ms
+     × allows an internal manager to query proposals 65ms
+     × allows an internal admin to query proposals 5ms
+     × allows an unrelated authenticated writer to query proposals 6ms
+     × rejects an anonymous proposal reader 4ms
+     × rejects a target copied from an unapplied candidate 17ms
+     × stores tool association and enforces uniqueness for a valid edit 7ms
+     × refuses proposal creation after a completed turn 3ms
+     × refuses proposal creation after a aborted turn 4ms
+     × deduplicates repeated tool execution 2ms
+     × updates candidate wording without changing the canonical target 2ms
+     × refuses to change replacement targets 4ms
+     × apply updates the pinned report and complete audit tuple 3ms
+     × a researched V2 edit keeps its evidence session on the version checkpoint 4ms
+     × a single-target proposal (requireUniqueTarget flag) never replaces an ambiguous repeated passage 3ms
+     × a single-target proposal (legacy researchSessionId fallback) never replaces an ambiguous repeated passage 2ms
+     × a missing target becomes stale and cannot be retried 4ms
+     × applying an already-applied proposal is idempotent 3ms
+     × apply preserves deletion-only replacement behavior 4ms
+     × apply preserves ordered replacement-list behavior 9ms
+     × apply allows an unrelated authenticated writer and preserves revision audit integrity 4ms
+     × an anonymous caller cannot apply a proposal 3ms
+     × an internal manager can reject a proposal 6ms
+     × an unrelated authenticated writer can reject a proposal 7ms
+     × an anonymous caller cannot reject a proposal 8ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 24 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| tests/chatProposals.test.ts > proposal access > allows an internal manager to query proposals
+ FAIL  |convex| tests/chatProposals.test.ts > proposal access > allows an internal admin to query proposals
+ FAIL  |convex| tests/chatProposals.test.ts > proposal access > allows an unrelated authenticated writer to query proposals
+ FAIL  |convex| tests/chatProposals.test.ts > proposal access > rejects an anonymous proposal reader
+ FAIL  |convex| tests/chatProposals.test.ts > proposal creation integrity > rejects a target copied from an unapplied candidate
+ FAIL  |convex| tests/chatProposals.test.ts > proposal creation integrity > stores tool association and enforces uniqueness for a valid edit
+ FAIL  |convex| tests/chatProposals.test.ts > proposal creation integrity > refuses proposal creation after a completed turn
+ FAIL  |convex| tests/chatProposals.test.ts > proposal creation integrity > refuses proposal creation after a aborted turn
+ FAIL  |convex| tests/chatProposals.test.ts > proposal creation integrity > deduplicates repeated tool execution
+ FAIL  |convex| tests/chatProposals.test.ts > proposal wording edits > updates candidate wording without changing the canonical target
+ FAIL  |convex| tests/chatProposals.test.ts > proposal wording edits > refuses to change replacement targets
+ FAIL  |convex| tests/chatProposals.test.ts > proposal apply integrity > apply updates the pinned report and complete audit tuple
+ FAIL  |convex| tests/chatProposals.test.ts > proposal apply integrity > a researched V2 edit keeps its evidence session on the version checkpoint
+ FAIL  |convex| tests/chatProposals.test.ts > proposal apply integrity > a single-target proposal (requireUniqueTarget flag) never replaces an ambiguous repeated passage
+ FAIL  |convex| tests/chatProposals.test.ts > proposal apply integrity > a single-target proposal (legacy researchSessionId fallback) never replaces an ambiguous repeated passage
+ FAIL  |convex| tests/chatProposals.test.ts > proposal apply integrity > a missing target becomes stale and cannot be retried
+ FAIL  |convex| tests/chatProposals.test.ts > proposal apply integrity > applying an already-applied proposal is idempotent
+ FAIL  |convex| tests/chatProposals.test.ts > proposal apply integrity > apply preserves deletion-only replacement behavior
+ FAIL  |convex| tests/chatProposals.test.ts > proposal apply integrity > apply preserves ordered replacement-list behavior
+ FAIL  |convex| tests/chatProposals.test.ts > proposal apply integrity > apply allows an unrelated authenticated writer and preserves revision audit integrity
+ FAIL  |convex| tests/chatProposals.test.ts > proposal apply integrity > an anonymous caller cannot apply a proposal
+ FAIL  |convex| tests/chatProposals.test.ts > proposal rejection > an internal manager can reject a proposal
+ FAIL  |convex| tests/chatProposals.test.ts > proposal rejection > an unrelated authenticated writer can reject a proposal
+ FAIL  |convex| tests/chatProposals.test.ts > proposal rejection > an anonymous caller cannot reject a proposal
+Error: Validator error: Missing required field `startedAt` in object
+ ❯ performAsyncSyscall node_modules/convex/src/server/impl/syscall.ts:52:10
+ ❯ insert node_modules/convex/src/server/impl/database_impl.ts:102:22
+ ❯ Object.insert node_modules/convex/src/server/impl/database_impl.ts:147:13
+ ❯ tests/chatProposals.test.ts:26:26
+     24|     });
+     25|     const transcriptId = await ctx.db.insert("transcripts", { projectI…
+     26|     const generationId = await ctx.db.insert("generations", { projectI…
+       |                          ^
+     27|     const provenanceId = await ctx.db.insert("reportProvenance", {
+     28|       projectId, generationId, sourceTranscriptId: transcriptId,
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeMutation node_modules/convex/src/server/impl/registration_impl.ts:70:17
+ ❯ runMutationWithHandler node_modules/convex-test/dist/index.js:1562:31
+ ❯ handler node_modules/convex-test/dist/index.js:1753:24
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeAction node_modules/convex/src/server/impl/registration_impl.ts:513:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/24]⎯
+
+
+ Test Files  1 failed | 14 passed (15)
+      Tests  24 failed | 106 passed (130)
+   Start at  13:46:26
+   Duration  9.95s (transform 6.58s, setup 0ms, import 10.04s, tests 575ms, environment 1.39s)
+

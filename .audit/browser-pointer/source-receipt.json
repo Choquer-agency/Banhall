@@ -1,0 +1,9 @@
+{
+  "baseline_commit": "3d4fe2e8794fb562f4f1fa84415359b1e5f96a8f",
+  "branch": "codex/bmad-browser-pointer",
+  "path": "src/lib/components/workspace/WorkspaceChrome.component.test.ts",
+  "baseline_sha256": "6af5c777e42d6d16225a529fae25cbb672e1d02f7864c84208eaea6eba42c15e",
+  "repaired_sha256": "31cce53ef9ad73ac68d5abf3e700eacb87ae4b6a83eb60a5d17b8e5dadd02ca5",
+  "diagnostic_removed": true,
+  "hosted_log_sha256": "f3674c277739254c5c7766ec55bed6d5dc9343cc57697931ce6c2b18234c8a63"
+}

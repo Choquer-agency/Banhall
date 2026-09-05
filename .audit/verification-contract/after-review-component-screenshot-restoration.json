@@ -1,0 +1,47 @@
+[
+  {
+    "path": ".audit/DW-98-fix/implicit-A-retained.png",
+    "generated_sha256": "4042070762d0c54c8752140973c964e1379c15f5de16bc041b875b72f34a11f2",
+    "restored_sha256": "a6a58a360643f7c1add66c5b43e83d6ba92fb068ae62ef3228c6169a22f5e172"
+  },
+  {
+    "path": ".audit/published-status-fix/published-after.png",
+    "generated_sha256": "74dead1650b051fccf822b28af94850c0dc5797104e64106fdf2bb4654a4f5c2",
+    "restored_sha256": "ed66274242ebd9d1e66259c96241ea3f34e4cb498320e754959e4ac71d84ec01"
+  },
+  {
+    "path": ".audit/story-7/followup-overflow-after.png",
+    "generated_sha256": "80b0eb17c0dad3991dbf12f1d3f0f56e6779f10ab7cd98e0faa28f329bcc7686",
+    "restored_sha256": "6850d58ba0e21661f83b81a2c7eaebd4e60c5902a861e8de4fdaccce0e8f99a5"
+  },
+  {
+    "path": ".audit/story-7/optimistic-after.png",
+    "generated_sha256": "ad98191107d419e5fbada1bd4897130340692479344d35f9baaaa6797912cabb",
+    "restored_sha256": "e092b1bbd2de36ee6b51caf1d9f86fa8070c4150b75b2a5c86d0db60f1b84b05"
+  },
+  {
+    "path": ".audit/story-7/optimistic-scrolled-after.png",
+    "generated_sha256": "7be559870fec840c868b623994d84204c2d64544c0c7933c2a8dc41a69125290",
+    "restored_sha256": "25b92f3507a89356fbc330cccb712aaa041d6bbe8bd5592a3046da6892f0fbd5"
+  },
+  {
+    "path": ".audit/story-7/retry-highlight-only.png",
+    "generated_sha256": "d5214919e4f43a7f4bcb008325cc696099ee93cf855809e45fd39e520855bd72",
+    "restored_sha256": "7780e90f51f992a660c7c51375727cd3f04307272e70c4f1eac51d94eeaea165"
+  },
+  {
+    "path": ".audit/story-7/retry-text-and-highlight.png",
+    "generated_sha256": "f6911a20e2982351b5526cd988fbca598bafdbb61dacb6cdf58f00ce70cd9130",
+    "restored_sha256": "43800bfd2c3c97af43b4722599c04c9d67d0a1b20b8660100e1e2092f54742ad"
+  },
+  {
+    "path": ".audit/story-7/second-overflow-after.png",
+    "generated_sha256": "50e60390f95a205a997324646e986e39c3623816583dc4a3bc0f4e0efc3da2d7",
+    "restored_sha256": "72be6d34dc4a3d755268ff1f02d605d9bd1373592731b542fd99ae414448db7f"
+  },
+  {
+    "path": ".audit/story-8/learning-sources-mobile-after.png",
+    "generated_sha256": "141d7e17be2dba0bf8c92beb088dfe37687cb6ebef2ead13e71dd364997638c2",
+    "restored_sha256": "7dacaa5fef94fed7563c477f60dab6f9e2313be34d738bff2c6a2754cef4bf55"
+  }
+]

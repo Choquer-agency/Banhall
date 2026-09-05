@@ -1,0 +1,1 @@
+- No acceptance violations found in the implementation diff. It declares isolated fine/coarse contexts, preserves actual and opposite-mode media assertions, retains 28/44px sizing and drawer lifecycle checks, and excludes only the pointer suite from ordinary execution. Full acceptance still requires verification evidence tied to the final source.

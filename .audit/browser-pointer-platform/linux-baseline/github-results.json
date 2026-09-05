@@ -1,0 +1,722 @@
+[
+  {
+    "variant": "default-shell",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": false,
+    "stage": "fresh-context",
+    "frames": [
+      {
+        "coarse": false,
+        "fine": true,
+        "none": false,
+        "hover": true,
+        "maxTouchPoints": 0,
+        "rowHeight": null
+      },
+      {
+        "coarse": false,
+        "fine": true,
+        "none": false,
+        "hover": true,
+        "maxTouchPoints": 0,
+        "rowHeight": 28
+      }
+    ]
+  },
+  {
+    "variant": "default-shell",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": false,
+    "stage": "touch-true-immediate",
+    "frames": [
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": null
+      },
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": 44
+      }
+    ]
+  },
+  {
+    "variant": "default-shell",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": false,
+    "stage": "touch-true-after-250ms",
+    "frames": [
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": null
+      },
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": 44
+      }
+    ]
+  },
+  {
+    "variant": "default-shell",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": false,
+    "stage": "touch-false-immediate",
+    "frames": [
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": null
+      },
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": 28
+      }
+    ]
+  },
+  {
+    "variant": "default-shell",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": false,
+    "stage": "touch-false-after-250ms",
+    "frames": [
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": null
+      },
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": 28
+      }
+    ]
+  },
+  {
+    "variant": "default-shell",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": true,
+    "stage": "fresh-context",
+    "frames": [
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": null
+      },
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": 44
+      }
+    ]
+  },
+  {
+    "variant": "default-shell",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": true,
+    "stage": "touch-true-immediate",
+    "frames": [
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": null
+      },
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": 44
+      }
+    ]
+  },
+  {
+    "variant": "default-shell",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": true,
+    "stage": "touch-true-after-250ms",
+    "frames": [
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": null
+      },
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": 44
+      }
+    ]
+  },
+  {
+    "variant": "default-shell",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": true,
+    "stage": "touch-false-immediate",
+    "frames": [
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": null
+      },
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": 28
+      }
+    ]
+  },
+  {
+    "variant": "default-shell",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": true,
+    "stage": "touch-false-after-250ms",
+    "frames": [
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": null
+      },
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": 28
+      }
+    ]
+  },
+  {
+    "variant": "full-chromium",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": false,
+    "stage": "fresh-context",
+    "frames": [
+      {
+        "coarse": false,
+        "fine": true,
+        "none": false,
+        "hover": true,
+        "maxTouchPoints": 0,
+        "rowHeight": null
+      },
+      {
+        "coarse": false,
+        "fine": true,
+        "none": false,
+        "hover": true,
+        "maxTouchPoints": 0,
+        "rowHeight": 28
+      }
+    ]
+  },
+  {
+    "variant": "full-chromium",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": false,
+    "stage": "touch-true-immediate",
+    "frames": [
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": null
+      },
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": 44
+      }
+    ]
+  },
+  {
+    "variant": "full-chromium",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": false,
+    "stage": "touch-true-after-250ms",
+    "frames": [
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": null
+      },
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": 44
+      }
+    ]
+  },
+  {
+    "variant": "full-chromium",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": false,
+    "stage": "touch-false-immediate",
+    "frames": [
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": null
+      },
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": 28
+      }
+    ]
+  },
+  {
+    "variant": "full-chromium",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": false,
+    "stage": "touch-false-after-250ms",
+    "frames": [
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": null
+      },
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": 28
+      }
+    ]
+  },
+  {
+    "variant": "full-chromium",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": true,
+    "stage": "fresh-context",
+    "frames": [
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": null
+      },
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": 44
+      }
+    ]
+  },
+  {
+    "variant": "full-chromium",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": true,
+    "stage": "touch-true-immediate",
+    "frames": [
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": null
+      },
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": 44
+      }
+    ]
+  },
+  {
+    "variant": "full-chromium",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": true,
+    "stage": "touch-true-after-250ms",
+    "frames": [
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": null
+      },
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": 44
+      }
+    ]
+  },
+  {
+    "variant": "full-chromium",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": true,
+    "stage": "touch-false-immediate",
+    "frames": [
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": null
+      },
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": 28
+      }
+    ]
+  },
+  {
+    "variant": "full-chromium",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": true,
+    "stage": "touch-false-after-250ms",
+    "frames": [
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": null
+      },
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": 28
+      }
+    ]
+  },
+  {
+    "variant": "shell-blink-fine",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": false,
+    "stage": "fresh-context",
+    "frames": [
+      {
+        "coarse": false,
+        "fine": true,
+        "none": false,
+        "hover": true,
+        "maxTouchPoints": 0,
+        "rowHeight": null
+      },
+      {
+        "coarse": false,
+        "fine": true,
+        "none": false,
+        "hover": true,
+        "maxTouchPoints": 0,
+        "rowHeight": 28
+      }
+    ]
+  },
+  {
+    "variant": "shell-blink-fine",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": false,
+    "stage": "touch-true-immediate",
+    "frames": [
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": null
+      },
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": 44
+      }
+    ]
+  },
+  {
+    "variant": "shell-blink-fine",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": false,
+    "stage": "touch-true-after-250ms",
+    "frames": [
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": null
+      },
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": 44
+      }
+    ]
+  },
+  {
+    "variant": "shell-blink-fine",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": false,
+    "stage": "touch-false-immediate",
+    "frames": [
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": null
+      },
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": 28
+      }
+    ]
+  },
+  {
+    "variant": "shell-blink-fine",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": false,
+    "stage": "touch-false-after-250ms",
+    "frames": [
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": null
+      },
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": 28
+      }
+    ]
+  },
+  {
+    "variant": "shell-blink-fine",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": true,
+    "stage": "fresh-context",
+    "frames": [
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": null
+      },
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": 44
+      }
+    ]
+  },
+  {
+    "variant": "shell-blink-fine",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": true,
+    "stage": "touch-true-immediate",
+    "frames": [
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": null
+      },
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": 44
+      }
+    ]
+  },
+  {
+    "variant": "shell-blink-fine",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": true,
+    "stage": "touch-true-after-250ms",
+    "frames": [
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": null
+      },
+      {
+        "coarse": true,
+        "fine": false,
+        "none": false,
+        "hover": false,
+        "maxTouchPoints": 1,
+        "rowHeight": 44
+      }
+    ]
+  },
+  {
+    "variant": "shell-blink-fine",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": true,
+    "stage": "touch-false-immediate",
+    "frames": [
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": null
+      },
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": 28
+      }
+    ]
+  },
+  {
+    "variant": "shell-blink-fine",
+    "browserVersion": "151.0.7922.34",
+    "hasTouch": true,
+    "stage": "touch-false-after-250ms",
+    "frames": [
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": null
+      },
+      {
+        "coarse": false,
+        "fine": false,
+        "none": true,
+        "hover": false,
+        "maxTouchPoints": 0,
+        "rowHeight": 28
+      }
+    ]
+  }
+]

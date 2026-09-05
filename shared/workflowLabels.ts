@@ -33,9 +33,13 @@ export const WORKFLOW_STAGE_DESCRIPTIONS: Record<WorkflowStage, string> = {
   abandoned: "The project will not proceed in its current scope.",
 };
 
-export const TRANSITION_REQUIREMENT_BLOCKERS: Record<TransitionRequirement, string> = {
+// `null` marks a requirement the caller can satisfy in the same request, so it
+// never disables the option: `review_decision` is supplied with the stage
+// change itself. The others fail closed until their storage lands.
+export const TRANSITION_REQUIREMENT_BLOCKERS: Record<TransitionRequirement, string | null> = {
   promoted_branch: "Needs a promoted report branch before this stage is available.",
   delivery_outcome: "Needs a recorded delivery or filing outcome before this stage is available.",
+  review_decision: null,
 };
 
 export const MAX_WORKFLOW_NOTE_CHARS = 2_000;
@@ -62,16 +66,15 @@ export function workflowStageOptions(
       transition.from === from &&
       transition.authorities.some((authority) => authoritySet.has(authority))
   ).map((transition) => {
-    const requirements = transition.requirements ?? [];
+    const blockers = (transition.requirements ?? [])
+      .map((requirement) => TRANSITION_REQUIREMENT_BLOCKERS[requirement])
+      .filter((blocker): blocker is string => blocker !== null);
     return {
       to: transition.to,
       label: WORKFLOW_STAGE_LABELS[transition.to],
       description: WORKFLOW_STAGE_DESCRIPTIONS[transition.to],
       requiresNote: transition.requiresNote === true,
-      disabledReason:
-        requirements.length > 0
-          ? requirements.map((requirement) => TRANSITION_REQUIREMENT_BLOCKERS[requirement]).join(" ")
-          : null,
+      disabledReason: blockers.length > 0 ? blockers.join(" ") : null,
     };
   });
 }

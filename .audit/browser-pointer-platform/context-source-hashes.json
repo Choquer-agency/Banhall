@@ -1,0 +1,5 @@
+{
+  "vitest.component.config.ts": "5bef635e41707470cab1eb78de35dbad5a0d889917ad74f2ed7b6bdb0ef9eced",
+  "src/lib/components/workspace/WorkspaceChrome.component.test.ts": "5588dce6e0d5585774559e1bc96de388f12a5bc169d31358c69abae18c12d6f2",
+  "src/lib/components/workspace/WorkspaceChromePointer.component.test.ts": "e49bfe675558b77f78fb109a2e157e43007120ae62bf0652f67c798c3641b0bd"
+}

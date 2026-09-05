@@ -1,0 +1,9 @@
+$ git rev-parse HEAD
+9da55bece5948da12129720dd2330a3032c985bf
+exit=0
+$ node -p require.resolve("vitest/package.json")
+/Users/johnnynguyen/Documents/Repos/Banhall-bmad-analyzer-provenance-fix/node_modules/vitest/package.json
+exit=0
+$ npx vitest --version
+vitest/4.1.10 darwin-arm64 node-v24.19.0
+exit=0

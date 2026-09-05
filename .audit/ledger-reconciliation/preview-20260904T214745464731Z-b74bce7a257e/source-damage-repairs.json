@@ -1,0 +1,87 @@
+[
+  {
+    "kind": "restore-missing-status-from-exact-intact-source",
+    "original": {
+      "source_occurrence": 68,
+      "old_id": "DW-68",
+      "title": "Recovery review reconfirmed that bounded series responses do not include truncation metadata.",
+      "block": "### DW-68: Recovery review reconfirmed that bounded series responses do not include truncation metadata.\norigin: spec-deferred 176045d2b1ac\nlocation: convex/reportEditDistance.ts:30\nsource_spec: `3-persist-post-edit-distance-at-milestones.md`\nseverity: low\nreason: convex/reportEditDistance.ts uses take(SERIES_FOR_REPORT_LIMIT) and take(SERIES_FOR_WRITER_LIMIT) and returns arrays. The existing pagination deferral remains reserved for CAP-3.\n",
+      "normalized": "### DW-ID: Recovery review reconfirmed that bounded series responses do not include truncation metadata.\norigin: spec-deferred 176045d2b1ac\nlocation: convex/reportEditDistance.ts:30\nsource_spec: `3-persist-post-edit-distance-at-milestones.md`\nseverity: low\nreason: convex/reportEditDistance.ts uses take(SERIES_FOR_REPORT_LIMIT) and take(SERIES_FOR_WRITER_LIMIT) and returns arrays. The existing pagination deferral remains reserved for CAP-3.",
+      "fingerprint": "8a8bdb50ff3b53ce2f554a1af87095ba7543d6fff2d80600e5dea05764556cd6",
+      "fields": {
+        "origin": [
+          "spec-deferred 176045d2b1ac"
+        ],
+        "location": [
+          "convex/reportEditDistance.ts:30"
+        ],
+        "source_spec": [
+          "`3-persist-post-edit-distance-at-milestones.md`"
+        ],
+        "severity": [
+          "low"
+        ],
+        "reason": [
+          "convex/reportEditDistance.ts uses take(SERIES_FOR_REPORT_LIMIT) and take(SERIES_FOR_WRITER_LIMIT) and returns arrays. The existing pagination deferral remains reserved for CAP-3."
+        ],
+        "status": []
+      },
+      "branch": "sprint2-boundary",
+      "sha": "e04ab9a9f05717b7607efe1137eac97795a41ed0"
+    },
+    "restored_status": "open",
+    "witness": {
+      "branch": "sprint2-learn-chat",
+      "sha": "b99f1eeef78348df5c14f68031f7f0276527ff3f",
+      "old_id": "DW-65",
+      "source_occurrence": 65,
+      "fingerprint": "d1c203a76ed39fd7662f8a7e10f457fe776f3c7c879e0dc1ec78475eebc94269"
+    }
+  },
+  {
+    "kind": "restore-missing-status-from-exact-intact-source",
+    "original": {
+      "source_occurrence": 69,
+      "old_id": "DW-46",
+      "title": "A review records server state at submission, without proving that it is the content the reviewer previously viewed.",
+      "block": "### DW-46: A review records server state at submission, without proving that it is the content the reviewer previously viewed.\norigin: spec-deferred 49135c102a03\nlocation: convex/reviews.ts:40;convex/reviews.ts:200\nsource_spec: `9-review-artifacts-pinned-to-revision-and-content-hash.md`\nseverity: medium\nreason: submitWriterReview and saveQaItemFeedback accept target IDs without an expected revision or content hash. Existing callers may submit after another actor edits the report. CAP-9 preserves these public call shapes and records the current mutation-time target; caller observation fencing remains a separate existing workflow limitation.\n",
+      "normalized": "### DW-ID: A review records server state at submission, without proving that it is the content the reviewer previously viewed.\norigin: spec-deferred 49135c102a03\nlocation: convex/reviews.ts:40;convex/reviews.ts:200\nsource_spec: `9-review-artifacts-pinned-to-revision-and-content-hash.md`\nseverity: medium\nreason: submitWriterReview and saveQaItemFeedback accept target IDs without an expected revision or content hash. Existing callers may submit after another actor edits the report. CAP-9 preserves these public call shapes and records the current mutation-time target; caller observation fencing remains a separate existing workflow limitation.",
+      "fingerprint": "c8f69feeb162786c646ec47f2e2a2bfb235128d346e22039bcbc6fca831b5a10",
+      "fields": {
+        "origin": [
+          "spec-deferred 49135c102a03"
+        ],
+        "location": [
+          "convex/reviews.ts:40;convex/reviews.ts:200"
+        ],
+        "source_spec": [
+          "`9-review-artifacts-pinned-to-revision-and-content-hash.md`"
+        ],
+        "severity": [
+          "medium"
+        ],
+        "reason": [
+          "submitWriterReview and saveQaItemFeedback accept target IDs without an expected revision or content hash. Existing callers may submit after another actor edits the report. CAP-9 preserves these public call shapes and records the current mutation-time target; caller observation fencing remains a separate existing workflow limitation."
+        ],
+        "status": []
+      },
+      "branch": "sprint2-boundary",
+      "sha": "e04ab9a9f05717b7607efe1137eac97795a41ed0"
+    },
+    "restored_status": "open",
+    "witness": {
+      "branch": "lane/spec-ai-engine-sprint-2-boundary/schema",
+      "sha": "7dc7131d72bca734215d78dd38aeb732f4050842",
+      "old_id": "DW-46",
+      "source_occurrence": 46,
+      "fingerprint": "46edac2a814b4099afb52d31a227f14a238fa508dbafe5e3cc56e144d3d2dada"
+    }
+  },
+  {
+    "kind": "numeric-ID-collision-in-source",
+    "branch": "sprint2-boundary",
+    "sha": "e04ab9a9f05717b7607efe1137eac97795a41ed0",
+    "old_id": "DW-46",
+    "occurrences": 3
+  }
+]

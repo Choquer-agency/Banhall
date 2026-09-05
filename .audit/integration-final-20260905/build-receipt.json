@@ -1,0 +1,8 @@
+{
+  "command": "npm run build",
+  "started": "2026-09-05T11:19:30.739061+00:00",
+  "finished": "2026-09-05T11:19:59.995976+00:00",
+  "returncode": 0,
+  "head": "8c8080576d30c919f825e12f4b786f3f28b86b8f",
+  "environment": "Public Convex URL and site URL placeholders; compile/build proof, no deployment."
+}

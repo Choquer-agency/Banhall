@@ -1,0 +1,7 @@
+{
+  "head": "569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c",
+  "tracked_nonaudit_files": 3274,
+  "historical_images": 90,
+  "integrated_sources_match_private_reviews": true,
+  "snapshot_note": "First manifest attempt encountered directory symlink. Corrected by hashing link targets. Non-audit working bytes equal HEAD; historical image baseline bytes are from HEAD. No source mutation during gates."
+}

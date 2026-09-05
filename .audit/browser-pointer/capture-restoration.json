@@ -1,0 +1,66 @@
+[
+  {
+    "path": ".audit/DW-98-fix/implicit-A-retained.png",
+    "baseline_sha256": "a6a58a360643f7c1add66c5b43e83d6ba92fb068ae62ef3228c6169a22f5e172",
+    "before_gate_sha256": "a6a58a360643f7c1add66c5b43e83d6ba92fb068ae62ef3228c6169a22f5e172",
+    "generated_sha256": "9abe6ed63e547055106b24907026eb727705b621df4c25c69e455ab3cec862eb",
+    "retained_at": ".audit/browser-pointer/generated-historical-captures/.audit/DW-98-fix/implicit-A-retained.png",
+    "restored_sha256": "a6a58a360643f7c1add66c5b43e83d6ba92fb068ae62ef3228c6169a22f5e172"
+  },
+  {
+    "path": ".audit/published-status-fix/published-after.png",
+    "baseline_sha256": "ed66274242ebd9d1e66259c96241ea3f34e4cb498320e754959e4ac71d84ec01",
+    "before_gate_sha256": "ed66274242ebd9d1e66259c96241ea3f34e4cb498320e754959e4ac71d84ec01",
+    "generated_sha256": "89410fac496efdf895be9626c2d103f6d0ada7787ec63050547e99c4501bc45c",
+    "retained_at": ".audit/browser-pointer/generated-historical-captures/.audit/published-status-fix/published-after.png",
+    "restored_sha256": "ed66274242ebd9d1e66259c96241ea3f34e4cb498320e754959e4ac71d84ec01"
+  },
+  {
+    "path": ".audit/story-7/optimistic-after.png",
+    "baseline_sha256": "e092b1bbd2de36ee6b51caf1d9f86fa8070c4150b75b2a5c86d0db60f1b84b05",
+    "before_gate_sha256": "e092b1bbd2de36ee6b51caf1d9f86fa8070c4150b75b2a5c86d0db60f1b84b05",
+    "generated_sha256": "b421676547458ec5b79d36327b2c4deccb85a04669bee5f03b0354596095993b",
+    "retained_at": ".audit/browser-pointer/generated-historical-captures/.audit/story-7/optimistic-after.png",
+    "restored_sha256": "e092b1bbd2de36ee6b51caf1d9f86fa8070c4150b75b2a5c86d0db60f1b84b05"
+  },
+  {
+    "path": ".audit/story-7/optimistic-scrolled-after.png",
+    "baseline_sha256": "25b92f3507a89356fbc330cccb712aaa041d6bbe8bd5592a3046da6892f0fbd5",
+    "before_gate_sha256": "25b92f3507a89356fbc330cccb712aaa041d6bbe8bd5592a3046da6892f0fbd5",
+    "generated_sha256": "0d8b01118915d47986378db67bb6e23f23fd36f933b1be4257038d40b300d8c3",
+    "retained_at": ".audit/browser-pointer/generated-historical-captures/.audit/story-7/optimistic-scrolled-after.png",
+    "restored_sha256": "25b92f3507a89356fbc330cccb712aaa041d6bbe8bd5592a3046da6892f0fbd5"
+  },
+  {
+    "path": ".audit/story-7/retry-highlight-only.png",
+    "baseline_sha256": "7780e90f51f992a660c7c51375727cd3f04307272e70c4f1eac51d94eeaea165",
+    "before_gate_sha256": "7780e90f51f992a660c7c51375727cd3f04307272e70c4f1eac51d94eeaea165",
+    "generated_sha256": "d5214919e4f43a7f4bcb008325cc696099ee93cf855809e45fd39e520855bd72",
+    "retained_at": ".audit/browser-pointer/generated-historical-captures/.audit/story-7/retry-highlight-only.png",
+    "restored_sha256": "7780e90f51f992a660c7c51375727cd3f04307272e70c4f1eac51d94eeaea165"
+  },
+  {
+    "path": ".audit/story-7/retry-text-and-highlight.png",
+    "baseline_sha256": "43800bfd2c3c97af43b4722599c04c9d67d0a1b20b8660100e1e2092f54742ad",
+    "before_gate_sha256": "43800bfd2c3c97af43b4722599c04c9d67d0a1b20b8660100e1e2092f54742ad",
+    "generated_sha256": "f6911a20e2982351b5526cd988fbca598bafdbb61dacb6cdf58f00ce70cd9130",
+    "retained_at": ".audit/browser-pointer/generated-historical-captures/.audit/story-7/retry-text-and-highlight.png",
+    "restored_sha256": "43800bfd2c3c97af43b4722599c04c9d67d0a1b20b8660100e1e2092f54742ad"
+  },
+  {
+    "path": ".audit/story-7/second-overflow-after.png",
+    "baseline_sha256": "72be6d34dc4a3d755268ff1f02d605d9bd1373592731b542fd99ae414448db7f",
+    "before_gate_sha256": "72be6d34dc4a3d755268ff1f02d605d9bd1373592731b542fd99ae414448db7f",
+    "generated_sha256": "5b9b7e4af1e5959671303ccca18bb5abd97a4767f5937d70f831a156fe12af70",
+    "retained_at": ".audit/browser-pointer/generated-historical-captures/.audit/story-7/second-overflow-after.png",
+    "restored_sha256": "72be6d34dc4a3d755268ff1f02d605d9bd1373592731b542fd99ae414448db7f"
+  },
+  {
+    "path": ".audit/story-8/learning-sources-mobile-after.png",
+    "baseline_sha256": "7dacaa5fef94fed7563c477f60dab6f9e2313be34d738bff2c6a2754cef4bf55",
+    "before_gate_sha256": "7dacaa5fef94fed7563c477f60dab6f9e2313be34d738bff2c6a2754cef4bf55",
+    "generated_sha256": "141d7e17be2dba0bf8c92beb088dfe37687cb6ebef2ead13e71dd364997638c2",
+    "retained_at": ".audit/browser-pointer/generated-historical-captures/.audit/story-8/learning-sources-mobile-after.png",
+    "restored_sha256": "7dacaa5fef94fed7563c477f60dab6f9e2313be34d738bff2c6a2754cef4bf55"
+  }
+]

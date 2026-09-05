@@ -1,0 +1,32 @@
+[
+  {
+    "path": ".audit/story-7/followup-overflow-after.png",
+    "test_output_sha256": "80b0eb17c0dad3991dbf12f1d3f0f56e6779f10ab7cd98e0faa28f329bcc7686",
+    "entry_and_restored_sha256": "6850d58ba0e21661f83b81a2c7eaebd4e60c5902a861e8de4fdaccce0e8f99a5"
+  },
+  {
+    "path": ".audit/story-7/optimistic-after.png",
+    "test_output_sha256": "17af905a7431aacb8b0fe6891a28cfc322a762dfa270d9728d58034131a7b5df",
+    "entry_and_restored_sha256": "e092b1bbd2de36ee6b51caf1d9f86fa8070c4150b75b2a5c86d0db60f1b84b05"
+  },
+  {
+    "path": ".audit/story-7/optimistic-scrolled-after.png",
+    "test_output_sha256": "611414c40cc9fb5c82ab48738c862b81a7be3bbfc07288d32d8650b60166d0c0",
+    "entry_and_restored_sha256": "25b92f3507a89356fbc330cccb712aaa041d6bbe8bd5592a3046da6892f0fbd5"
+  },
+  {
+    "path": ".audit/story-7/retry-highlight-only.png",
+    "test_output_sha256": "d5214919e4f43a7f4bcb008325cc696099ee93cf855809e45fd39e520855bd72",
+    "entry_and_restored_sha256": "7780e90f51f992a660c7c51375727cd3f04307272e70c4f1eac51d94eeaea165"
+  },
+  {
+    "path": ".audit/story-7/retry-text-and-highlight.png",
+    "test_output_sha256": "f6911a20e2982351b5526cd988fbca598bafdbb61dacb6cdf58f00ce70cd9130",
+    "entry_and_restored_sha256": "43800bfd2c3c97af43b4722599c04c9d67d0a1b20b8660100e1e2092f54742ad"
+  },
+  {
+    "path": ".audit/story-7/second-overflow-after.png",
+    "test_output_sha256": "9c716375c1a0f5be6757b9fc735284987961ed6e05ee52b270ac787b3dcfe609",
+    "entry_and_restored_sha256": "72be6d34dc4a3d755268ff1f02d605d9bd1373592731b542fd99ae414448db7f"
+  }
+]

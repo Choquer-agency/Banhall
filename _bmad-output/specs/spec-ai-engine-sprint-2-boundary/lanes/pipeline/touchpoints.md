@@ -1,0 +1,17 @@
+# Touchpoints (epic 2A)
+
+Anchors from `docs/ai-engine-audit-2026-08-25.md` and the sprint-1 retrospective, as of `b39b434` on `bmad-loop`; reconciled against `main` 0ece1f0 on 2026-09-01 (line numbers not re-derived). Lines drift; grep the symbol.
+
+| CAP | Primary edit | Reference | Tests |
+|---|---|---|---|
+| CAP-1 | `convex/lib/snapshots.ts` (add writer); `convex/chatV2.ts` ~`:437`, ~`:538`; `convex/comments.ts` ~`:188` | `snapshotAuditFields`, `pruneSnapshots` already exported | existing `commentsAcceptEdit.test.ts`, `chatV2.markProposalApplied.test.ts`, `tests` for applyProposal |
+| CAP-2 | new `convex/ai/trustedContext.ts`; `convex/ai/analyzerAgent.ts:37-52,136` (`buildContextBlock`); `convex/generations.ts` `reserveGeneration` (~`:247-400`) and `getGenerationInput` (~`:619-663`); `convex/schema.ts` `generationSources` (~`:1302`) | `convex/ai/prompts.ts` `CONTEXT_INPUTS_GUIDANCE` (~`:560`); plan Phase 2 in `docs/ai-architecture-plan.md` | new `convex/ai/trustedContext.test.ts` |
+| CAP-3 | `convex/ai/trustedContext.ts`; `convex/documents.ts` (upload path: record uploader role); `convex/schema.ts` `projectDocuments` | `prompts.ts:565` writer_notes "HIGHEST TRUST" | `trustedContext.test.ts` |
+| CAP-4 | `convex/ai/chatAgentV2.ts` (~`:300-420`, `system:` at `:408`); `convex/chatV2.ts` `getChatContextV2` (~`:801-864`) | `buildChatSystemPromptV2`; cache read/write already logged in `usageHandler` | `convex/chatContext.test.ts` |
+| CAP-5 | new `convex/ai/contextBoundary.test.ts` with fixtures under `convex/ai/__fixtures__/injection/` | CAP-2 and CAP-4 builders | itself |
+| CAP-6 | `convex/lib/auth.ts` (add helper next to `requireInternalProjectAccess`); `convex/reports.ts` `updateReportContent`; `convex/chatV2.ts` `applyProposal`, `markProposalApplied`; `convex/comments.ts` `acceptEdit`; `convex/snapshots.ts` `restoreSnapshot`; `convex/generations.ts` `approveSectionDraft` | `shared/capabilities.ts:8,57,79,114` (`report.editProse`); `requireCapability` | `convex/reportAuthz.test.ts` (extend) |
+| CAP-7 | `convex/schema.ts` (new table); `convex/projectWorkflow.ts` `setWorkflowStage` (~`:316-411`); `shared/workflowTransitions.ts` | `projectEvents` write pattern at `projectWorkflow.ts:297-305,400-408`; `docs/product-domain.md` review completion | `convex/projectWorkflow.test.ts` |
+| CAP-8 | `convex/ai/qaChecks.ts` (~`:296-368`, header `:8-9`); `convex/generations.ts` QA storage (~`:1446-1470`); `convex/lib/auth.ts` `getFilingReadiness` (~`:154-214`); `convex/projects.ts` `publishForReview` | `QARailPanel.svelte`/`QAScorePanel` read side (do not restyle) | `convex/ai/qaChecks.test.ts`, `projects.test.ts` |
+| CAP-9 | `convex/schema.ts` `writerReviews` (~`:1393`), `qaItemFeedback` (~`:1410`), `pdReviews`; `convex/reviews.ts`, `convex/pdReviews.ts` | `reports.contentHash` (~`schema.ts:489-502`) | `writerReviews.test.ts`, `pdReviewProjection.test.ts` |
+| CAP-10 | `convex/ai/pipeline.ts` `generateReport` (~`:338-512`), `runPipelineForModel` (~`:231-335`); `convex/ai/iterative.ts:165-171` as precedent; `convex/ai/providers.ts` / `instrument.ts` for `cache_control` | `brain/ingest.ts:41` existing `cache_control` usage | new `convex/ai/pipeline.compare.test.ts` |
+| CAP-11 | `convex/chatV2.ts` `sendMessage` (~`:152-220`); `convex/aiUsage.ts` (rolling-window query with `by_projectId`); `convex/appSettings.ts` | `chatTurns` `by_status` index | `convex/chatTurns.test.ts` |

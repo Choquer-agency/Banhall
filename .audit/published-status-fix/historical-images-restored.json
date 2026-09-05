@@ -1,0 +1,30 @@
+[
+  {
+    "path": ".audit/DW-98-fix/implicit-A-retained.png",
+    "sha256": "a6a58a360643f7c1add66c5b43e83d6ba92fb068ae62ef3228c6169a22f5e172"
+  },
+  {
+    "path": ".audit/story-7/optimistic-after.png",
+    "sha256": "e092b1bbd2de36ee6b51caf1d9f86fa8070c4150b75b2a5c86d0db60f1b84b05"
+  },
+  {
+    "path": ".audit/story-7/optimistic-scrolled-after.png",
+    "sha256": "25b92f3507a89356fbc330cccb712aaa041d6bbe8bd5592a3046da6892f0fbd5"
+  },
+  {
+    "path": ".audit/story-7/retry-highlight-only.png",
+    "sha256": "7780e90f51f992a660c7c51375727cd3f04307272e70c4f1eac51d94eeaea165"
+  },
+  {
+    "path": ".audit/story-7/retry-text-and-highlight.png",
+    "sha256": "43800bfd2c3c97af43b4722599c04c9d67d0a1b20b8660100e1e2092f54742ad"
+  },
+  {
+    "path": ".audit/story-7/second-overflow-after.png",
+    "sha256": "72be6d34dc4a3d755268ff1f02d605d9bd1373592731b542fd99ae414448db7f"
+  },
+  {
+    "path": ".audit/story-8/learning-sources-mobile-after.png",
+    "sha256": "7dacaa5fef94fed7563c477f60dab6f9e2313be34d738bff2c6a2754cef4bf55"
+  }
+]

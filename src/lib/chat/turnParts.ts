@@ -43,6 +43,8 @@ export type ReasoningRenderNode = {
   state: "streaming" | "done";
 };
 
+export type BrainSourceLabel = { title?: string; scienceCode?: string };
+
 export type ToolRenderNode = {
   kind: "tool";
   key: string;
@@ -54,6 +56,7 @@ export type ToolRenderNode = {
   /** Absent when the payload is internals or is already shown as an artifact. */
   input?: ToolDetail;
   output?: ToolDetail;
+  sources?: BrainSourceLabel[];
 };
 
 export type ProposalRenderNode = {
@@ -261,6 +264,43 @@ function toolInputDetail(toolName: string, input: unknown): ToolDetail | undefin
 // recovers on a later step — so this states what happened, not an instruction.
 const SAFE_TOOL_ERROR = "This step didn’t finish. The assistant carried on.";
 
+/** Only the formatter's bounded first-line envelope can supply source labels. */
+function brainSourceEnvelope(output: unknown): BrainSourceLabel[] | undefined {
+  const prefix = "BRAIN_SOURCES_V1:";
+  if (typeof output !== "string" || !output.startsWith(prefix)) return undefined;
+  const end = output.indexOf("\n");
+  if (end < prefix.length || end > 50000) return undefined;
+  try {
+    const data: unknown = JSON.parse(output.slice(prefix.length, end));
+    if (!Array.isArray(data) || data.length > 20) return undefined;
+    const sources: BrainSourceLabel[] = [];
+    for (const row of data) {
+      if (typeof row !== "object" || row === null || Array.isArray(row)) return undefined;
+      if (Object.keys(row).some(key => key !== "title" && key !== "scienceCode")) return undefined;
+      const title: unknown = "title" in row ? row.title : undefined;
+      const scienceCode: unknown = "scienceCode" in row ? row.scienceCode : undefined;
+      if (title !== undefined && (typeof title !== "string" || !title.trim() || Array.from(title).length > 240)) return undefined;
+      if (scienceCode !== undefined && (typeof scienceCode !== "string" || !scienceCode.trim() || Array.from(scienceCode).length > 160)) return undefined;
+      sources.push({
+        ...(typeof title === "string" ? { title } : {}),
+        ...(typeof scienceCode === "string" ? { scienceCode } : {}),
+      });
+    }
+    return sources;
+  } catch { return undefined; }
+}
+
+export function brainSourceLabels(output: unknown): BrainSourceLabel[] {
+  const seen = new Set<string>();
+  return (brainSourceEnvelope(output) ?? []).filter(source => {
+    if (!source.title && !source.scienceCode) return false;
+    const key = JSON.stringify(source);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /**
  * Every tool result in this agent is written FOR THE MODEL, not the writer:
  * they address it in the second person, name UI controls that don't exist,
@@ -279,7 +319,15 @@ function toolOutputDetail(
   if (toolName !== "searchBrain") return undefined;
   if (typeof output !== "string" || !output.length) return undefined;
 
-  const patterns = (output.match(/--- REFERENCE PATTERN /g) ?? []).length;
+  if (output.startsWith("The Brain has no approved knowledge matching that")) {
+    return { kind: "text", text: output.startsWith("The Brain has no approved knowledge matching that in the ")
+      ? "The Brain has no approved knowledge matching that in this project’s industry yet."
+      : "The Brain has no approved knowledge matching that yet." };
+  }
+
+  const envelope = brainSourceEnvelope(output);
+  const patterns = envelope?.length ?? (output.startsWith("BRAIN_SOURCES_V1:")
+    ? 0 : (output.match(/--- REFERENCE PATTERN /g) ?? []).length);
   if (patterns) {
     return {
       kind: "text",
@@ -295,9 +343,7 @@ function toolOutputDetail(
       text: "The Brain couldn’t be reached just now. This is a temporary problem, not an empty library — try again shortly.",
     };
   }
-  // "The Brain has no approved knowledge matching that yet" already reads as a
-  // plain sentence to the writer.
-  return { kind: "text", text: output };
+  return { kind: "text", text: "The Brain search finished without source details." };
 }
 
 // ─── Part normalization ──────────────────────────────────────────────────────
@@ -384,6 +430,8 @@ function normalizeParts(message: UIMessage | undefined): {
       accessibleStatus: accessibleStatus(state),
       ...(input !== undefined ? { input } : {}),
       ...(output !== undefined ? { output } : {}),
+      ...(toolName === "searchBrain" && state === "output-available"
+        ? { sources: brainSourceLabels(outputSource) } : {}),
     };
 
     const existingIndex = toolIndexById.get(toolCallId);
@@ -632,4 +680,38 @@ export function formatTurnSummary(
   }
   if (duration) return `Worked for ${duration}${outcome}`;
   return steps > 0 ? `Worked${outcome}` : null;
+}
+
+/** Associate loaded rows from one selected thread by exact prompt order only.
+ * The final assistant row owns the action, including empty and tool-only rows.
+ */
+export function associateTurnPrompts(messages: readonly UIMessage[]) {
+  const promptByOrder = new Map<number, string>();
+  const finalAssistantByOrder = new Map<number, UIMessage>();
+  for (const message of messages) {
+    if (message.role === "user") {
+      const text = normalizeTurnParts(message).text;
+      if (text.trim()) promptByOrder.set(message.order, text);
+    } else if (message.role === "assistant") {
+      finalAssistantByOrder.set(message.order, message);
+    }
+  }
+  const promptByAssistantId = new Map<string, string>();
+  for (const [order, message] of finalAssistantByOrder) {
+    const prompt = promptByOrder.get(order);
+    if (prompt !== undefined) promptByAssistantId.set(message.id, prompt);
+  }
+  return { promptByOrder, promptByAssistantId, assistantOrders: new Set(finalAssistantByOrder.keys()) };
+}
+
+/** Explicit live or stopped state always wins over a terminal snapshot. */
+export function canRegenerateTurn(
+  status: UIMessage["status"] | undefined,
+  timing: TurnTiming | undefined,
+): boolean {
+  if (status === "streaming" || status === "pending" ||
+      timing?.status === "queued" || timing?.status === "running" ||
+      timing?.status === "aborted") return false;
+  return status === "success" || status === "failed" ||
+    timing?.status === "completed" || timing?.status === "failed";
 }

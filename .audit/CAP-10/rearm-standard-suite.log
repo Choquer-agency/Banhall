@@ -1,0 +1,45 @@
+
+> banhall-app@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10
+
+ ❯ |convex| convex/chatTurns.test.ts (30 tests | 1 failed) 38551ms
+     × keeps the newest 30 non-tool messages without a provider call 30755ms
+ ❯ |src| src/lib/components/ui/formControlContract.test.ts (3 tests | 1 failed) 19006ms
+     × routes every visible native data-entry field through the shared contract 18987ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/chatTurns.test.ts > bounded chat context > keeps the newest 30 non-tool messages without a provider call
+Error: Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ convex/chatTurns.test.ts:152:3
+    150|
+    151| describe("bounded chat context", () => {
+    152|   test("keeps the newest 30 non-tool messages without a provider call"…
+       |   ^
+    153|     const t = createTest();
+    154|     const userId = "context-window-user";
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |src| src/lib/components/ui/formControlContract.test.ts > borderless form-control source contract > routes every visible native data-entry field through the shared contract
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ src/lib/components/ui/formControlContract.test.ts:61:3
+     59|
+     60| describe("borderless form-control source contract", () => {
+     61|   it("routes every visible native data-entry field through the shared …
+       |   ^
+     62|     const violations: string[] = [];
+     63|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 126 passed (128)
+      Tests  2 failed | 1374 passed (1376)
+   Start at  13:27:29
+   Duration  126.65s (transform 421.44s, setup 0ms, import 495.11s, tests 305.07s, environment 42.26s)

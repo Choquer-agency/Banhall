@@ -1,0 +1,25 @@
+{
+  "at": "2026-09-05T11:16:04.247124+00:00",
+  "before_head": "e581d51ca47b0652e0df5221a07ece6f5806333d",
+  "accepted_learning_target": "c3bcddd475a924780cfaf2362b0217d1d58d428d",
+  "accepted_story8": "76d101671d109012438ed5fb282168872811103c",
+  "remaining_followup": "DW-99 independent review active before final acceptance",
+  "original_checkout_head": "95fe679ceef07958c8083b3387e131c625c4289e",
+  "untracked_paths": [
+    "_bmad-output/planning-artifacts/research/technical-mixed-feedback-stream-diversity-policy-2026-09-04/.memlog.md",
+    "_bmad-output/planning-artifacts/research/technical-mixed-feedback-stream-diversity-policy-2026-09-04/citation-check.json",
+    "_bmad-output/planning-artifacts/research/technical-mixed-feedback-stream-diversity-policy-2026-09-04/citation-review.md",
+    "_bmad-output/planning-artifacts/research/technical-mixed-feedback-stream-diversity-policy-2026-09-04/claim-tally.json",
+    "_bmad-output/planning-artifacts/research/technical-mixed-feedback-stream-diversity-policy-2026-09-04/claims.json",
+    "_bmad-output/planning-artifacts/research/technical-mixed-feedback-stream-diversity-policy-2026-09-04/digests/code-r1-1.md",
+    "_bmad-output/planning-artifacts/research/technical-mixed-feedback-stream-diversity-policy-2026-09-04/digests/external-r1-1.md",
+    "_bmad-output/planning-artifacts/research/technical-mixed-feedback-stream-diversity-policy-2026-09-04/digests/governance-r1-lead.md",
+    "_bmad-output/planning-artifacts/research/technical-mixed-feedback-stream-diversity-policy-2026-09-04/digests/independent-routing-check.md",
+    "_bmad-output/planning-artifacts/research/technical-mixed-feedback-stream-diversity-policy-2026-09-04/plan.md",
+    "_bmad-output/planning-artifacts/research/technical-mixed-feedback-stream-diversity-policy-2026-09-04/prose-review.md",
+    "_bmad-output/planning-artifacts/research/technical-mixed-feedback-stream-diversity-policy-2026-09-04/research.md",
+    "_bmad-output/planning-artifacts/research/technical-mixed-feedback-stream-diversity-policy-2026-09-04/staleness.json",
+    "_bmad-output/planning-artifacts/research/technical-mixed-feedback-stream-diversity-policy-2026-09-04/structure-review.md",
+    "_bmad-output/planning-artifacts/research/technical-mixed-feedback-stream-diversity-policy-2026-09-04/undated-claims.json"
+  ]
+}

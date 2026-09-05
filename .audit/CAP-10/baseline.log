@@ -1,0 +1,134 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-opus-4-8, claude-haiku-4-5-20251001)
+brain search failed; returning no exemplars LoadAPIKeyError [AI_LoadAPIKeyError]: Voyage API key is missing. Pass it using the 'apiKey' parameter or the VOYAGE_API_KEY environment variable.
+    at loadApiKey (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/provider-utils/dist/index.mjs:842:11)
+    at Object.getHeaders [as headers] (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:227:32)
+    at VoyageEmbeddingModel.doEmbed (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:80:43)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at fn (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:9698:37)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:2374:24 {
+  cause: undefined,
+  Symbol(vercel.ai.error): true,
+  Symbol(vercel.ai.error.AI_LoadAPIKeyError): true
+}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-opus-4-8, claude-haiku-4-5-20251001)
+brain search failed; returning no exemplars LoadAPIKeyError [AI_LoadAPIKeyError]: Voyage API key is missing. Pass it using the 'apiKey' parameter or the VOYAGE_API_KEY environment variable.
+    at loadApiKey (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/provider-utils/dist/index.mjs:842:11)
+    at Object.getHeaders [as headers] (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:227:32)
+    at VoyageEmbeddingModel.doEmbed (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:80:43)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at fn (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:9698:37)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:2374:24 {
+  cause: undefined,
+  Symbol(vercel.ai.error): true,
+  Symbol(vercel.ai.error.AI_LoadAPIKeyError): true
+}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-opus-4-8, claude-haiku-4-5-20251001)
+brain search failed; returning no exemplars LoadAPIKeyError [AI_LoadAPIKeyError]: Voyage API key is missing. Pass it using the 'apiKey' parameter or the VOYAGE_API_KEY environment variable.
+    at loadApiKey (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/provider-utils/dist/index.mjs:842:11)
+    at Object.getHeaders [as headers] (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:227:32)
+    at VoyageEmbeddingModel.doEmbed (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:80:43)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at fn (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:9698:37)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:2374:24 {
+  cause: undefined,
+  Symbol(vercel.ai.error): true,
+  Symbol(vercel.ai.error.AI_LoadAPIKeyError): true
+}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-opus-4-8, claude-haiku-4-5-20251001)
+brain search failed; returning no exemplars LoadAPIKeyError [AI_LoadAPIKeyError]: Voyage API key is missing. Pass it using the 'apiKey' parameter or the VOYAGE_API_KEY environment variable.
+    at loadApiKey (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/provider-utils/dist/index.mjs:842:11)
+    at Object.getHeaders [as headers] (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:227:32)
+    at VoyageEmbeddingModel.doEmbed (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:80:43)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at fn (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:9698:37)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:2374:24 {
+  cause: undefined,
+  Symbol(vercel.ai.error): true,
+  Symbol(vercel.ai.error.AI_LoadAPIKeyError): true
+}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-haiku-4-5-20251001, claude-opus-4-8)
+brain search failed; returning no exemplars LoadAPIKeyError [AI_LoadAPIKeyError]: Voyage API key is missing. Pass it using the 'apiKey' parameter or the VOYAGE_API_KEY environment variable.
+    at loadApiKey (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/provider-utils/dist/index.mjs:842:11)
+    at Object.getHeaders [as headers] (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:227:32)
+    at VoyageEmbeddingModel.doEmbed (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:80:43)
+    at fn (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:9698:37)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:2374:24 {
+  cause: undefined,
+  Symbol(vercel.ai.error): true,
+  Symbol(vercel.ai.error.AI_LoadAPIKeyError): true
+}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-haiku-4-5-20251001, claude-opus-4-8)
+brain search failed; returning no exemplars LoadAPIKeyError [AI_LoadAPIKeyError]: Voyage API key is missing. Pass it using the 'apiKey' parameter or the VOYAGE_API_KEY environment variable.
+    at loadApiKey (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/provider-utils/dist/index.mjs:842:11)
+    at Object.getHeaders [as headers] (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:227:32)
+    at VoyageEmbeddingModel.doEmbed (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:80:43)
+    at fn (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:9698:37)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:2374:24 {
+  cause: undefined,
+  Symbol(vercel.ai.error): true,
+  Symbol(vercel.ai.error.AI_LoadAPIKeyError): true
+}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-haiku-4-5-20251001, claude-opus-4-8)
+brain search failed; returning no exemplars LoadAPIKeyError [AI_LoadAPIKeyError]: Voyage API key is missing. Pass it using the 'apiKey' parameter or the VOYAGE_API_KEY environment variable.
+    at loadApiKey (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/provider-utils/dist/index.mjs:842:11)
+    at Object.getHeaders [as headers] (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:227:32)
+    at VoyageEmbeddingModel.doEmbed (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:80:43)
+    at fn (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:9698:37)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:2374:24 {
+  cause: undefined,
+  Symbol(vercel.ai.error): true,
+  Symbol(vercel.ai.error.AI_LoadAPIKeyError): true
+}
+
+stderr | convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-haiku-4-5-20251001, claude-opus-4-8)
+brain search failed; returning no exemplars LoadAPIKeyError [AI_LoadAPIKeyError]: Voyage API key is missing. Pass it using the 'apiKey' parameter or the VOYAGE_API_KEY environment variable.
+    at loadApiKey (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/provider-utils/dist/index.mjs:842:11)
+    at Object.getHeaders [as headers] (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:227:32)
+    at VoyageEmbeddingModel.doEmbed (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/@ai-sdk/voyage/dist/index.mjs:80:43)
+    at fn (file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:9698:37)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10/node_modules/ai/dist/index.mjs:2374:24 {
+  cause: undefined,
+  Symbol(vercel.ai.error): true,
+  Symbol(vercel.ai.error.AI_LoadAPIKeyError): true
+}
+
+ ❯ |convex| convex/ai/pipeline.compare.test.ts (2 tests | 2 failed) 11309ms
+     × analyzes once before fanout and shares persisted validated analysis (claude-opus-4-8, claude-haiku-4-5-20251001) 11143ms
+     × analyzes once before fanout and shares persisted validated analysis (claude-haiku-4-5-20251001, claude-opus-4-8) 158ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-opus-4-8, claude-haiku-4-5-20251001)
+ FAIL  |convex| convex/ai/pipeline.compare.test.ts > shared generation analysis > analyzes once before fanout and shares persisted validated analysis (claude-haiku-4-5-20251001, claude-opus-4-8)
+AssertionError: expected [ [ { …(6) } ], [ { …(6) } ] ] to have a length of 1 but got 2
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ convex/ai/pipeline.compare.test.ts:106:29
+    104|     await t.action(internal.ai.pipeline.generateReport, { generationId…
+    105|     await runCandidates(t);
+    106|     expect(analyzerCalls()).toHaveLength(1);
+       |                             ^
+    107|     expect(analyzerCalls()[0][0].model).toBe(MODEL);
+    108|     const artifacts = await t.run((ctx) => ctx.db.query("generationArt…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  12:26:50
+   Duration  19.09s (transform 12.01s, setup 0ms, import 5.89s, tests 11.31s, environment 229ms)

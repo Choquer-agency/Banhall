@@ -1,0 +1,4 @@
+npm ci --no-audit --no-fund
+exit 0
+node_modules is a worktree-owned directory, not a symlink
+/Users/johnnynguyen/Documents/Repos/Banhall-bmad-verification-contract/node_modules

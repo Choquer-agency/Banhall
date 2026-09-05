@@ -1,3 +1,4 @@
+import type Anthropic from "@anthropic-ai/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { Id, TableNames } from "../_generated/dataModel";
@@ -304,5 +305,111 @@ describe("instrumentedAnthropic generation attribution", () => {
 
     expect(providerCreate).not.toHaveBeenCalled();
     expect(runAfter).not.toHaveBeenCalled();
+  });
+});
+
+describe("generation prefix caching at the SDK boundary", () => {
+  function setup(generationOwned = true) {
+    const providerCreate = vi.fn(async (..._args: unknown[]) => textResponse({
+      input_tokens: 4,
+      output_tokens: 2,
+      cache_creation_input_tokens: 20,
+      cache_read_input_tokens: 80,
+    }));
+    providerMocks.createAnthropicClient.mockReturnValue({ messages: { create: providerCreate } });
+    const { ctx, runAfter } = fakeCtx();
+    const client = instrumentedAnthropic(ctx, {
+      callSite: generationOwned ? "generation:analyzer" : "chat:test",
+      ...(generationOwned ? {
+        attribution: { generationId: testId<"generations">("cached-generation") },
+      } : {}),
+    });
+    return { client, providerCreate, runAfter };
+  }
+
+  it("marks the exact system and transcript bytes while preserving options and usage", async () => {
+    const { client, providerCreate, runAfter } = setup();
+    const params = {
+      ...request,
+      system: "Stable policy\nSecond line",
+      messages: [
+        { role: "user" as const, content: "BEGIN TRANSCRIPT\nEvidence\nEND TRANSCRIPT" },
+        { role: "assistant" as const, content: "Prior response" },
+        { role: "user" as const, content: "Follow-up instruction" },
+      ],
+    };
+    const original = structuredClone(params);
+    const options = { timeout: 1234 };
+    await client.messages.create(params, options);
+    expect(providerCreate).toHaveBeenCalledExactlyOnceWith({
+      ...params,
+      system: [{ type: "text", text: params.system, cache_control: { type: "ephemeral" } }],
+      messages: [
+        { role: "user", content: [{
+          type: "text", text: params.messages[0].content, cache_control: { type: "ephemeral" },
+        }] },
+        ...params.messages.slice(1),
+      ],
+    }, options);
+    expect(params).toEqual(original);
+    expect(runAfter.mock.calls[0][2]).toMatchObject({
+      generationId: "cached-generation",
+      cacheCreationInputTokens: 20,
+      cacheReadInputTokens: 80,
+    });
+  });
+
+  it("leaves non-generation traffic unchanged", async () => {
+    const { client, providerCreate } = setup(false);
+    const params = { ...request, system: "Chat policy" };
+    await client.messages.create(params);
+    expect(providerCreate.mock.calls[0][0]).toBe(params);
+  });
+
+  it.each(["system", "message", "tool", "top-level", "later-message"] as const)(
+    "preserves explicit %s cache policy without adding breakpoints",
+    async (location) => {
+      const { client, providerCreate } = setup();
+      const textBlock = {
+        type: "text" as const,
+        text: "Existing prefix",
+        cache_control: { type: "ephemeral" as const, ttl: "1h" as const },
+      };
+      const params = {
+        ...request,
+        system: location === "system" ? [textBlock] : "Policy",
+        messages: [
+          { role: "user" as const, content: location === "message" ? [textBlock] : "Transcript" },
+          ...(location === "later-message" ? [
+            { role: "assistant" as const, content: "Prior response" },
+            { role: "user" as const, content: [textBlock] },
+          ] : []),
+        ],
+        ...(location === "top-level" ? { cache_control: { type: "ephemeral" as const } } : {}),
+        ...(location === "tool" ? {
+          tools: [{ name: "submit", input_schema: { type: "object" as const }, cache_control: { type: "ephemeral" as const } }],
+        } : {}),
+      };
+      const original = structuredClone(params);
+      await client.messages.create(params);
+      expect(providerCreate.mock.calls[0][0]).toBe(params);
+      expect(params).toEqual(original);
+    },
+  );
+
+  it("does not mark an empty prefix or replace multimodal blocks", async () => {
+    const { client, providerCreate } = setup();
+    const params = {
+      ...request,
+      system: "",
+      messages: [{ role: "user", content: [
+        { type: "text", text: "Multimodal input" },
+        { type: "image", source: { type: "base64", media_type: "image/png",
+          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGxQAAAAASUVORK5CYII=" } },
+        { type: "document", source: { type: "text", media_type: "text/plain", data: "Frozen evidence document" } },
+      ] }],
+    } satisfies Anthropic.MessageCreateParamsNonStreaming;
+    await client.messages.create(params);
+    expect(providerCreate.mock.calls[0][0]).toEqual(params);
   });
 });

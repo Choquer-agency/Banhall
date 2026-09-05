@@ -1,3 +1,4 @@
+import { persistDeterministicFindings, hasBlockingQa } from "./lib/qaFindings";
 import {
   query,
   mutation,
@@ -6,6 +7,7 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   getInternalProjectAccessOrNull,
@@ -865,6 +867,10 @@ async function copyProjectInputRows(
       ...(processing.detail ? { processingDetail: processing.detail } : {}),
       source: doc.source,
       uploadedBy: userDisplayLabel(user),
+      // CAP-3: trust belongs to the content's origin, not to whoever pressed
+      // duplicate. Re-deriving from the copier would launder a client file
+      // into internal direction.
+      ...(doc.uploaderRole ? { uploaderRole: doc.uploaderRole } : {}),
       createdAt: now,
     });
     docIdMap.set(doc._id, documentId);
@@ -925,6 +931,7 @@ async function copyProjectInputRows(
       revisionNumber: sourceReport.revisionNumber ?? 0,
       contentHash,
     });
+    await persistDeterministicFindings(ctx, reportId);
     await ctx.db.patch(args.toProjectId, {
       status: "review",
       updatedAt: now,
@@ -943,6 +950,12 @@ async function copyProjectInputRows(
       projectId: args.toProjectId,
       documentId,
       sourceFileName: review.sourceFileName,
+      ...(review.revisionNumber !== undefined
+        ? { revisionNumber: review.revisionNumber }
+        : {}),
+      ...(review.contentHash !== undefined
+        ? { contentHash: review.contentHash }
+        : {}),
       status: review.status,
       ...(review.result ? { result: review.result } : {}),
       ...(review.model ? { model: review.model } : {}),
@@ -1031,10 +1044,17 @@ export const publishForReview = mutation({
     if (!report || report.projectId !== args.projectId) {
       domainError("NOT_AUTHORIZED", "Report does not belong to this project");
     }
+    if (await hasBlockingQa(ctx, report)) {
+      domainError("QA_BLOCKING", "Current report has unresolved substantive QA findings");
+    }
     await ctx.db.patch(args.projectId, {
       sharedReportId: report._id,
       status: "client_review",
       updatedAt: Date.now(),
+    });
+    // BNH-10 / CAP-2: freeze the post-edit distance at client publish.
+    await ctx.scheduler.runAfter(0, internal.reportEditDistance.recordAtPublish, {
+      reportId: report._id,
     });
   },
 });
@@ -1103,6 +1123,24 @@ export const updateProjectTitle = mutation({
   },
 });
 
+// Reports are removed by the authorized parent transaction before cleanup runs.
+// Keep each cleanup transaction bounded regardless of the report's QA history.
+export const cleanupDeletedReportQaFindings = internalMutation({
+  args: { reportId: v.id("reports") },
+  handler: async (ctx, args) => {
+    if (await ctx.db.get(args.reportId)) return;
+    const batchSize = 128;
+    const findings = await ctx.db.query("qaFindings")
+      .withIndex("by_reportId_and_revisionNumber_and_contentHash_and_findingKey", q =>
+        q.eq("reportId", args.reportId))
+      .take(batchSize);
+    for (const finding of findings) await ctx.db.delete(finding._id);
+    if (findings.length === batchSize) {
+      await ctx.scheduler.runAfter(0, internal.projects.cleanupDeletedReportQaFindings, args);
+    }
+  },
+});
+
 export const deleteProject = mutation({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
@@ -1143,7 +1181,10 @@ export const deleteProject = mutation({
       .query("reports")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .collect();
-    for (const r of reports) await ctx.db.delete(r._id);
+    for (const r of reports) {
+      await ctx.db.delete(r._id);
+      await ctx.scheduler.runAfter(0, internal.projects.cleanupDeletedReportQaFindings, { reportId: r._id });
+    }
 
     const comments = await ctx.db
       .query("comments")

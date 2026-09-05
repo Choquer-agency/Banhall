@@ -1,0 +1,25 @@
+usage: bmad-loop resolve [-h] [--project PROJECT] [--story STORY]
+                         [--no-interactive] [--restore-patch PATH]
+                         [--resume | --no-resume] [--force]
+                         run_id
+
+positional arguments:
+  run_id
+
+options:
+  -h, --help            show this help message and exit
+  --project PROJECT     target project root (default: cwd)
+  --story STORY         story key to resolve (default: the paused one)
+  --no-interactive      skip the resolve agent (spec already fixed by hand);
+                        just re-arm + resume
+  --restore-patch PATH  intent-gap patch-restore (#2564): re-arm the spec to
+                        `in-review` and re-apply this saved patch before the
+                        re-drive, resuming review on the attempted change
+                        instead of re-implementing (hand-driven; the
+                        interactive agent supplies it via resolution.json)
+  --resume, --no-resume
+                        --resume: re-arm + resume without prompting; --no-
+                        resume: re-arm only (default: prompt to confirm, then
+                        resume)
+  --force               proceed when engine liveness is unverifiable
+                        (unknown); a provably-live engine still blocks

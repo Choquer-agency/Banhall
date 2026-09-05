@@ -1,0 +1,11 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "build"
+  ],
+  "head": "569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c",
+  "started": "2026-09-05T12:32:48.814646+00:00",
+  "finished": "2026-09-05T12:33:18.277831+00:00",
+  "returncode": 0
+}

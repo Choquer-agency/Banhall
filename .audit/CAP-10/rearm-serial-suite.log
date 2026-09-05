@@ -1,0 +1,12 @@
+
+> banhall-app@0.1.0 test
+> vitest run --maxWorkers=1 --testTimeout=30000
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline/.bmad-loop/runs/20260904-121631-a914/worktrees/10
+
+
+ Test Files  128 passed (128)
+      Tests  1376 passed (1376)
+   Start at  13:22:51
+   Duration  46.18s (transform 6.65s, setup 0ms, import 12.39s, tests 11.10s, environment 4.19s)

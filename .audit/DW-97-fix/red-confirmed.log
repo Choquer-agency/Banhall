@@ -1,0 +1,46 @@
+
+> banhall-app@0.1.0 test:component
+> vitest run --config vitest.component.config.ts src/lib/components/chat/RegenerateLimits.component.test.ts -t keeps previously visible research busy after displacement until completed
+
+1:25:00 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix
+
+1:25:00 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix - using default configuration.
+ ❯ |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts (17 tests | 1 failed | 16 skipped) 15048ms
+   × keeps previously visible research busy after displacement until completed 15047ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/lib/components/chat/RegenerateLimits.component.test.ts > keeps previously visible research busy after displacement until completed
+Error: [2mexpect([22m[31melement[39m[2m).toBeDisabled()[22m
+
+Received element is not disabled:
+  [31m<button
+  aria-busy="false"
+  aria-describedby="c5-regeneration-description"
+  class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none text-ink-secondary hover:bg-primary-wash hover:text-navy focus-visible:ring-primary min-h-9 px-2 pointer-coarse:min-h-11"
+  type="button"
+/>[39m
+
+Failure screenshot:
+  - src/lib/components/chat/__screenshots__/RegenerateLimits.component.test.ts/keeps-previously-visible-research-busy-after-displacement-until-completed-1.png
+
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:100:37
+     98|   __setQueryDataForArgs("research:getSessionDetails", { sessionId: "pe…
+     99|   displaceResearch();
+    100|   await expect.element(regenerate()).toBeDisabled();
+       |                                     ^
+    101|   await expect.poll(() => __activeQueryArgs("research:getSessionDetail…
+    102|   expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(0);
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/lib/components/chat/RegenerateLimits.component.test.ts:100:2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 16 skipped (17)
+   Start at  01:25:00
+   Duration  17.31s (transform 0ms, setup 531ms, import 829ms, tests 15.05s, environment 0ms)

@@ -1,3 +1,4 @@
+import { persistDeterministicFindings } from "./lib/qaFindings";
 import {
   query,
   mutation,
@@ -22,7 +23,7 @@ import {
   requireInternalProjectAccess,
 } from "./lib/auth";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
-import { pruneSnapshots, snapshotAuditFields } from "./lib/snapshots";
+import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import {
   applyReplacements,
@@ -33,6 +34,9 @@ import { getEffectiveWriterStyle } from "./writerProfiles";
 import { domainError, sha256 } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { proposalPairs } from "../shared/chatProposals";
+import { chatAdmissionLimits, chatEvidenceBudget } from "./appSettings";
+import { projectRollingCostUsdUnits, usdDecimalUnits } from "./aiUsage";
+import type { Id } from "./_generated/dataModel";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -232,6 +236,38 @@ export const listTurns = query({
 
 // ─── Mutations ───────────────────────────────────────────────────────────────
 
+async function assertChatAdmission(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  userId: Id<"users">
+): Promise<void> {
+  const limits = await chatAdmissionLimits(ctx);
+  if (await projectRollingCostUsdUnits(ctx, { projectId, now: Date.now() }) > usdDecimalUnits(limits.dailyBudgetUsd)) {
+    domainError("CHAT_SPEND_BUDGET_EXCEEDED", "Project AI spending budget exceeded; chat is unavailable");
+  }
+  let queued = 0;
+  const ownTurns = ctx.db.query("chatTurns")
+    .withIndex("by_userId_and_status", (q) => q.eq("userId", userId).eq("status", "queued"));
+  for await (const turn of ownTurns) {
+    queued += 1;
+    if (queued >= limits.maxQueuedTurns) {
+      domainError("CHAT_QUEUE_LIMIT_EXCEEDED", "Your queued chat turn limit has been reached");
+    }
+  }
+  // Legacy turns belong to their prompt sender, never the shared thread creator.
+  const legacyTurns = ctx.db.query("chatTurns")
+    .withIndex("by_userId_and_status", (q) => q.eq("userId", undefined).eq("status", "queued"));
+  for await (const turn of legacyTurns) {
+    const [prompt] = await ctx.runQuery(components.agent.messages.getMessagesByIds, {
+      messageIds: [turn.promptMessageId],
+    });
+    if (prompt?.userId === userId) queued += 1;
+    if (queued >= limits.maxQueuedTurns) {
+      domainError("CHAT_QUEUE_LIMIT_EXCEEDED", "Your queued chat turn limit has been reached");
+    }
+  }
+}
+
 export const sendMessage = mutation({
   args: {
     reportId: v.id("reports"),
@@ -284,22 +320,21 @@ export const sendMessage = mutation({
             .withIndex("by_reportId", (q) => q.eq("reportId", args.reportId))
             .order("desc")
             .first();
-      if (latest) {
-        agentThreadId = latest.agentThreadId;
-      } else {
-        const title = args.content.trim().slice(0, 60) || "New chat";
-        agentThreadId = await createThread(ctx, components.agent, {
-          userId,
-          title,
-        });
-        await ctx.db.insert("agentChatThreads", {
-          projectId: report.projectId,
-          reportId: args.reportId,
-          agentThreadId,
-          title,
-          createdAt: Date.now(),
-        });
-      }
+      agentThreadId = latest?.agentThreadId;
+    }
+
+    await assertChatAdmission(ctx, report.projectId, userId);
+
+    if (!agentThreadId) {
+      const title = args.content.trim().slice(0, 60) || "New chat";
+      agentThreadId = await createThread(ctx, components.agent, { userId, title });
+      await ctx.db.insert("agentChatThreads", {
+        projectId: report.projectId,
+        reportId: args.reportId,
+        agentThreadId,
+        title,
+        createdAt: Date.now(),
+      });
     }
 
     const excerpt = args.highlight
@@ -318,6 +353,7 @@ export const sendMessage = mutation({
     });
 
     await ctx.db.insert("chatTurns", {
+      userId,
       agentThreadId,
       promptMessageId: messageId,
       order: message.order,
@@ -466,27 +502,10 @@ export const applyProposal = mutation({
     const content = JSON.stringify(updated);
     const revisionNumber = report.revisionNumber ?? 0;
     const now = Date.now();
-    const auditFields = await snapshotAuditFields(ctx, report);
-    // Provenance for version history. The research layer owns the evidence
-    // policy (brain patterns never count) and stored the number at review time.
-    const researchSourceCount = proposal.researchSessionId
-      ? ((await ctx.db.get(proposal.researchSessionId))?.evidenceSourceCount ?? 0)
-      : 0;
-    await ctx.db.insert("reportSnapshots", {
-      projectId: report.projectId,
-      reportId: report._id,
-      content: report.content,
-      ...auditFields,
-      sourceRevisionNumber: revisionNumber,
-      reason: "pre_chat_edit",
-      label: proposal.researchSessionId ? "Before researched edit" : "Before AI edit",
-      createdByRole: "system",
+    await writePreEditSnapshot(ctx, report, "pre_chat_edit", {
       createdAt: now,
       ...(proposal.researchSessionId
-        ? {
-            researchSessionId: proposal.researchSessionId,
-            researchSourceCount,
-          }
+        ? { researchSessionId: proposal.researchSessionId }
         : {}),
     });
     await ctx.db.patch(report._id, {
@@ -496,6 +515,7 @@ export const applyProposal = mutation({
       provenanceId: undefined,
       updatedAt: now,
     });
+    await persistDeterministicFindings(ctx, report._id);
     await ctx.db.patch(args.proposalId, { state: "applied" });
     await pruneSnapshots(ctx, report._id);
 
@@ -583,18 +603,7 @@ export const markProposalApplied = mutation({
     }
 
     const now = Date.now();
-    const auditFields = await snapshotAuditFields(ctx, report);
-    await ctx.db.insert("reportSnapshots", {
-      projectId: report.projectId,
-      reportId: report._id,
-      content: report.content,
-      ...auditFields,
-      sourceRevisionNumber: revisionNumber,
-      reason: "pre_chat_edit",
-      label: "Before AI edit",
-      createdByRole: "system",
-      createdAt: now,
-    });
+    await writePreEditSnapshot(ctx, report, "pre_chat_edit", { createdAt: now });
     await ctx.db.patch(report._id, {
       content: args.content,
       contentHash: await sha256(args.content),
@@ -603,6 +612,7 @@ export const markProposalApplied = mutation({
       provenanceId: undefined,
       updatedAt: now,
     });
+    await persistDeterministicFindings(ctx, report._id);
     await ctx.db.patch(args.proposalId, { state: "applied" });
     await pruneSnapshots(ctx, report._id);
 
@@ -1038,8 +1048,19 @@ export const getChatContextV2 = internalQuery({
       agentOutputs: generation?.agentOutputs ?? null,
       documents: documents
         .filter((d) => !d.archived) // BNH-24: archived docs are out of AI context
-        .map((d) => ({ fileName: d.fileName, content: d.content })),
+        // CAP-3/CAP-4: provenance travels with the document. Trust and the
+        // marker label are derived from stored facts, so the action never
+        // invents them; absent fields fail closed in `chatEvidence`.
+        .map((d) => ({
+          fileName: d.fileName,
+          content: d.content,
+          ...(d.category ? { category: d.category } : {}),
+          ...(d.uploaderRole ? { uploaderRole: d.uploaderRole } : {}),
+        })),
       decisions,
+      // Resolved in the query, exactly as `getGenerationInput` resolves the
+      // analyzer's: the action sends context, it does not decide policy.
+      evidenceBudget: await chatEvidenceBudget(ctx),
     };
   },
 });

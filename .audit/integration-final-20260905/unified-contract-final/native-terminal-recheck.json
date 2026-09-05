@@ -1,0 +1,34 @@
+{
+  "run_id": "20260904-133944-0158",
+  "finished": true,
+  "paused_reason": null,
+  "crashed": false,
+  "model": "gpt-6-astra",
+  "model_args": [
+    "--dangerously-bypass-approvals-and-sandbox",
+    "-c",
+    "model_reasoning_effort=\"medium\""
+  ],
+  "stories": {
+    "4": {
+      "phase": "done",
+      "commit_sha": "36313c0ac79fbd408fe121958f0af759ab7e964c"
+    },
+    "5": {
+      "phase": "done",
+      "commit_sha": "1fd71dcfc63e9c7a7ba083ae646ff1ad8486c4c5"
+    },
+    "6": {
+      "phase": "done",
+      "commit_sha": "438edf107a85d443480a3027fe8d19e0f9195106"
+    },
+    "7": {
+      "phase": "done",
+      "commit_sha": "1b0511611f0766f90b61bb01afea011085fcc4cf"
+    },
+    "8": {
+      "phase": "done",
+      "commit_sha": "76d101671d109012438ed5fb282168872811103c"
+    }
+  }
+}

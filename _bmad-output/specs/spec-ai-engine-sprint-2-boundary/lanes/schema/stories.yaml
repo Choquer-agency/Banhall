@@ -1,0 +1,6 @@
+- id: '9'
+  title: Review artifacts pinned to revision and content hash
+  description: CAP-9. Add revisionNumber and contentHash to writerReviews, qaItemFeedback, pdReviews;
+    type writerReviews.userId as v.id("users").
+  spec_checkpoint: false
+  invoke_dev_with: Read touchpoints.md row CAP-9. Optional fields; old rows tolerate absence.

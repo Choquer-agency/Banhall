@@ -1,0 +1,10 @@
+{
+  "shared_cache_roots": [
+    "/Users/johnnynguyen/Library/Caches/ms-playwright/chromium-1234",
+    "/Users/johnnynguyen/Library/Caches/ms-playwright/ffmpeg-1011",
+    "/Users/johnnynguyen/Library/Caches/ms-playwright/chromium_headless_shell-1234"
+  ],
+  "files_checked": 363,
+  "before_after_equal": true,
+  "scope": "This repeated after-review partial-cache probe only; no pre-run hash exists for earlier full gate runs."
+}

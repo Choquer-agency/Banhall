@@ -1,5 +1,10 @@
-import { describe, expect, test } from "bun:test";
-import { applyReplacements, replaceAll } from "../convex/lib/reportEdits";
+import { describe, expect, test } from "vitest";
+import {
+  applyReplacements,
+  extractPlainText,
+  replaceAll,
+  tryExtractPlainText,
+} from "../convex/lib/reportEdits";
 
 describe("replaceAll case preservation", () => {
   test("capitalizes a lowercase replacement when the match was capitalized", () => {
@@ -54,5 +59,62 @@ describe("applyReplacements doc splice", () => {
     const text = (updated.content as Array<{ content: Array<{ text: string }> }>)[0]
       .content[0].text;
     expect(text).toBe("Acuity operates a situational judgment test platform.");
+  });
+});
+
+describe("plain text extraction outcomes", () => {
+  test.each([
+    '{"type":"doc"}',
+    '{"type":"doc","content":[]}',
+    '{"type":"doc","content":[{"type":"paragraph"}]}',
+    '{"type":"doc","content":[{"type":"paragraph","content":[]}]}',
+  ])("distinguishes successful empty text: %s", (content) => {
+    expect(tryExtractPlainText(content)).toBe("");
+    expect(extractPlainText(content)).toBe("");
+  });
+
+  test.each([
+    "{broken",
+    "null",
+    '{"type":"doc","content":{}}',
+    '{"type":"doc","content":[null]}',
+    '{"type":"doc","content":[{"type":"paragraph","content":{}}]}',
+  ])("preserves extraction failure and the legacy fallback: %s", (content) => {
+    expect(tryExtractPlainText(content)).toBeNull();
+    expect(extractPlainText(content)).toBe("");
+  });
+
+  test("retains inline joining, nested blocks, and horizontal rules", () => {
+    const content = JSON.stringify({
+      type: "doc",
+      content: [
+        { type: "heading", content: [{ type: "text", text: "Title" }] },
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "Hello " },
+            { type: "text", text: "world", marks: [{ type: "bold" }] },
+          ],
+        },
+        {
+          type: "bulletList",
+          content: [
+            {
+              type: "listItem",
+              content: [
+                {
+                  type: "paragraph",
+                  content: [{ type: "text", text: "Nested" }],
+                },
+              ],
+            },
+          ],
+        },
+        { type: "horizontalRule" },
+      ],
+    });
+    const expected = "Title\n\nHello world\n\nNested\n\n———";
+    expect(tryExtractPlainText(content)).toBe(expected);
+    expect(extractPlainText(content)).toBe(expected);
   });
 });

@@ -1,0 +1,18 @@
+{
+  "captured_at": "2026-09-04T19:34:34.431895-07:00",
+  "tested_head": "e13e6253d0440ec4b28ea9ca5605fe7dbdc77d05",
+  "command": [
+    "git",
+    "diff",
+    "--exit-code",
+    "e13e6253d0440ec4b28ea9ca5605fe7dbdc77d05",
+    "--",
+    ".",
+    ":(exclude).audit/**",
+    ":(exclude)_bmad-output/**"
+  ],
+  "exit_code": 0,
+  "non_artifact_git_tree_fingerprint": "bf7ccc8d23433d88371ff9de456cd6e00cf64fb12afe95d4b1bfb299fc0a6b01",
+  "tracked_non_artifact_paths": 3134,
+  "note": "Audit files and review/spec output excluded from executable-source identity; actual changed path allowlist checked separately before commit."
+}

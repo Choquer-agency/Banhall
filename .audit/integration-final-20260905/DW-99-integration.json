@@ -1,0 +1,6 @@
+{
+  "at": "2026-09-05T11:41:43.217789+00:00",
+  "source_commit": "9aa4c32d5407dd02e15bf0532587a099343bf70d",
+  "result_head": "e3f23432121b6d3145cff7040c485ac28739a25f",
+  "scope": "Test-only DW99 regression and evidence; no production file changes; follow-up combined tests still owed."
+}

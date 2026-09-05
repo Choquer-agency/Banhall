@@ -1,0 +1,15 @@
+{
+  "native_head": "434db602d48876af409778b344c153dd38c150fe",
+  "helpers": [
+    {
+      "helper": "bbaa9d20a9607d6463ee5298e1a5c9d8aebf19df",
+      "merge_base": "9da55bece5948da12129720dd2330a3032c985bf",
+      "overlaps_with_terminal_native_delta": []
+    },
+    {
+      "helper": "97e32b72891c6d50d45191ac272607936fba1628",
+      "merge_base": "9da55bece5948da12129720dd2330a3032c985bf",
+      "overlaps_with_terminal_native_delta": []
+    }
+  ]
+}

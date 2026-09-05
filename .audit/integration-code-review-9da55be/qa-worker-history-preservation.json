@@ -1,0 +1,6 @@
+{
+  "preserved_worker_review_tip": "81612bf7af8938cbe98f63bc3f452dc6bf3e5002",
+  "local_ref": "codex/preserve-qa-native-final-review-20260904",
+  "accepted_native_commit": "bdf5d0e34cdd23dd17f74baf5be5f6d2ca32096d",
+  "reason": "Native finalization squashed the unit into the accepted commit; keep the earlier worker commit objects referenced by review evidence locally reachable. This ref does not alter native state or the pinned target."
+}

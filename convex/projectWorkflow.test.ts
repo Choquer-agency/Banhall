@@ -8,6 +8,7 @@ import { WORKFLOW_STAGES, type WorkflowStage } from "../shared/workflowStages";
 import {
   WORKFLOW_TRANSITIONS,
   findWorkflowTransition,
+  reviewDecisionForStage,
 } from "../shared/workflowTransitions";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -95,6 +96,41 @@ async function insertProject(
   });
 }
 
+async function insertReport(
+  setup: Setup,
+  projectId: Id<"projects">,
+  options: { legacy?: boolean; content?: string; contentHash?: string } = {}
+) {
+  const content = options.content ?? "Reviewed report content";
+  return await setup.t.run(async (ctx) => {
+    const now = Date.now();
+    return await ctx.db.insert("reports", {
+      projectId,
+      content,
+      version: 1,
+      generatedAt: now - 100,
+      updatedAt: now - 50,
+      // A legacy row predates revisionNumber/contentHash; the decision row must
+      // still pin a revision (0) and a freshly computed hash. `contentHash` is
+      // overridable so the empty-string case can be driven explicitly.
+      ...(options.legacy
+        ? {}
+        : { revisionNumber: 3, contentHash: options.contentHash ?? "hash-of-revision-3" }),
+    });
+  });
+}
+
+async function reviewDecisions(setup: Setup, projectId: Id<"projects">) {
+  return await setup.t.run(async (ctx) =>
+    ctx.db
+      .query("reviewDecisions")
+      .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+      // collect, not take(n): a bug that writes extra rows must fail a length
+      // assertion rather than be silently truncated by the fence itself.
+      .collect()
+  );
+}
+
 async function projectEvents(setup: Setup, projectId: Id<"projects">) {
   return await setup.t.run(async (ctx) =>
     ctx.db
@@ -153,17 +189,34 @@ describe("workflow transition matrix", () => {
     for (const from of WORKFLOW_STAGES) {
       for (const to of WORKFLOW_STAGES) {
         const projectId = await insertProject(setup, { stage: from });
+        // Every project carries a report so the review-decision edges can pin
+        // one; unrelated edges are unaffected by its presence.
+        await insertReport(setup, projectId);
         const transition = findWorkflowTransition(from, to);
+        const decision = transition?.requirements?.includes("review_decision")
+          ? reviewDecisionForStage(to)
+          : undefined;
         const before = Date.now();
         const call = setup.admin.mutation(api.projectWorkflow.setWorkflowStage, {
           projectId,
           toStage: to,
           note: "Matrix test reason",
+          ...(decision ? { reviewDecision: { decision } } : {}),
           expectedVersion: 0,
         });
 
         if (from === to) {
           await expect(call).resolves.toEqual({ status: "noop", version: 0 });
+        } else if (
+          transition?.requirements?.includes("review_decision") &&
+          transition.requirements.length === 1
+        ) {
+          // internal_review -> edits: the decision is supplied above, so the
+          // edge succeeds and records exactly one decision row.
+          await expect(call).resolves.toEqual({ status: "updated", version: 1 });
+          const stored = await setup.t.run(async (ctx) => ctx.db.get(projectId));
+          expect(stored).toMatchObject({ workflowStage: to, workflowVersion: 1 });
+          expect(await reviewDecisions(setup, projectId)).toHaveLength(1);
         } else if (transition?.requirements?.includes("delivery_outcome")) {
           await expect(call).rejects.toThrow(/OUTCOME_REQUIRED|exact delivered/i);
         } else if (transition?.requirements?.includes("promoted_branch")) {
@@ -180,9 +233,15 @@ describe("workflow transition matrix", () => {
         }
 
         const events = await projectEvents(setup, projectId);
-        expect(events).toHaveLength(
-          from !== to && transition && !transition.requirements?.length ? 1 : 0
-        );
+        // An event is written exactly when the edge actually succeeded: no
+        // requirements at all, or only the review decision (which was supplied).
+        const succeeded =
+          from !== to &&
+          Boolean(transition) &&
+          !transition!.requirements?.some(
+            (requirement) => requirement !== "review_decision"
+          );
+        expect(events).toHaveLength(succeeded ? 1 : 0);
         if (events.length) {
           expect(events[0]).toMatchObject({
             type: "stage_changed",
@@ -306,13 +365,21 @@ describe("workflow authorization and validation", () => {
         expectedVersion: afterCreate?.workflowVersion ?? -1,
       })
     ).rejects.toThrow(/NOT_AUTHORIZED|authority/i);
+    await insertReport(setup, reviewProject);
     await expect(
       setup.other.mutation(api.projectWorkflow.setWorkflowStage, {
         projectId: reviewProject,
         toStage: "edits",
+        reviewDecision: { decision: "return" },
         expectedVersion: afterCreate?.workflowVersion ?? -1,
       })
     ).resolves.toMatchObject({ status: "updated" });
+    // Attribution follows the actual actor: the handoff assignee completed
+    // this review, not the project owner.
+    const decisions = await reviewDecisions(setup, reviewProject);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0].reviewerId).toBe(setup.otherWriterId);
+    expect(decisions[0].reviewerId).not.toBe(setup.ownerId);
   });
 
   it("treats a missing stage as intake and uses a monotonic shared OCC version", async () => {
@@ -358,9 +425,11 @@ describe("work-item workflow authority", () => {
       toStage: "internal_review",
       expectedVersion: 1,
     })).resolves.toEqual({ status: "updated", version: 2 });
+    await insertReport(setup, projectId);
     await expect(setup.other.mutation(api.projectWorkflow.setWorkflowStage, {
       projectId,
       toStage: "edits",
+      reviewDecision: { decision: "return" },
       expectedVersion: 2,
     })).resolves.toEqual({ status: "updated", version: 3 });
     await expect(setup.other.mutation(api.projectWorkflow.transferOwnership, {
@@ -520,5 +589,176 @@ describe("ownership transfer", () => {
     const [event] = await projectEvents(setup, projectId);
     expect(event).toMatchObject({ type: "ownership_transferred", to: setup.managerId });
     expect(event).not.toHaveProperty("from");
+  });
+});
+
+describe("review decisions on internal-review completion", () => {
+  async function reviewProject(setup: Setup, options: { report?: boolean; legacy?: boolean } = {}) {
+    const projectId = await insertProject(setup, { stage: "internal_review" });
+    if (options.report !== false) {
+      await insertReport(setup, projectId, { legacy: options.legacy === true });
+    }
+    return projectId;
+  }
+
+  it("records the reviewer decision pinned to the report revision alongside one stage event", async () => {
+    const setup = await setupFixture();
+    const projectId = await reviewProject(setup);
+    await expect(
+      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId,
+        toStage: "edits",
+        note: "  Needs tighter uncertainty  ",
+        reviewDecision: { decision: "return" },
+        expectedVersion: 0,
+      })
+    ).resolves.toEqual({ status: "updated", version: 1 });
+
+    const decisions = await reviewDecisions(setup, projectId);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({
+      projectId,
+      reviewerId: setup.ownerId,
+      revisionNumber: 3,
+      contentHash: "hash-of-revision-3",
+      decision: "return",
+      toStage: "edits",
+      note: "Needs tighter uncertainty",
+    });
+    const report = await setup.t.run(async (ctx) => ctx.db.get(decisions[0].reportId));
+    expect(report?.projectId).toBe(projectId);
+
+    const events = await projectEvents(setup, projectId);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: "stage_changed", from: "internal_review", to: "edits" });
+  });
+
+  it("rejects the edits edge with REVIEW_DECISION_REQUIRED and writes nothing when the decision is missing", async () => {
+    const setup = await setupFixture();
+    const projectId = await reviewProject(setup);
+    await expect(
+      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId,
+        toStage: "edits",
+        expectedVersion: 0,
+      })
+    ).rejects.toThrow(/REVIEW_DECISION_REQUIRED|approve or return/i);
+    const stored = await setup.t.run(async (ctx) => ctx.db.get(projectId));
+    expect(stored).toMatchObject({ workflowStage: "internal_review" });
+    expect(stored?.workflowVersion ?? 0).toBe(0);
+    expect(await projectEvents(setup, projectId)).toHaveLength(0);
+    expect(await reviewDecisions(setup, projectId)).toHaveLength(0);
+  });
+
+  it("rejects the ready_for_delivery edge for the missing decision before the promoted-branch check", async () => {
+    const setup = await setupFixture();
+    const projectId = await reviewProject(setup);
+    await expect(
+      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId,
+        toStage: "ready_for_delivery",
+        expectedVersion: 0,
+      })
+    ).rejects.toThrow(/REVIEW_DECISION_REQUIRED|approve or return/i);
+    // With the decision supplied the edge reaches the pre-existing fail-closed
+    // promoted-branch requirement instead.
+    await expect(
+      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId,
+        toStage: "ready_for_delivery",
+        reviewDecision: { decision: "approve" },
+        expectedVersion: 0,
+      })
+    ).rejects.toThrow(/INVALID_STATE|promoted report branch/i);
+    expect(await reviewDecisions(setup, projectId)).toHaveLength(0);
+  });
+
+  it("rejects a decision that contradicts the destination edge", async () => {
+    const setup = await setupFixture();
+    const projectId = await reviewProject(setup);
+    await expect(
+      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId,
+        toStage: "edits",
+        reviewDecision: { decision: "approve" },
+        expectedVersion: 0,
+      })
+    ).rejects.toThrow(/INVALID_INPUT|does not match/i);
+    expect(await reviewDecisions(setup, projectId)).toHaveLength(0);
+    expect(await projectEvents(setup, projectId)).toHaveLength(0);
+  });
+
+  it("rejects a decision supplied on an unrelated edge rather than dropping it", async () => {
+    const setup = await setupFixture();
+    const projectId = await insertProject(setup, { stage: "drafting" });
+    await insertReport(setup, projectId);
+    await expect(
+      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId,
+        toStage: "client_review",
+        reviewDecision: { decision: "approve" },
+        expectedVersion: 0,
+      })
+    ).rejects.toThrow(/INVALID_INPUT|only to internal-review/i);
+    const stored = await setup.t.run(async (ctx) => ctx.db.get(projectId));
+    expect(stored).toMatchObject({ workflowStage: "drafting" });
+    expect(await reviewDecisions(setup, projectId)).toHaveLength(0);
+  });
+
+  it("refuses to complete the review when the project has no report to pin the decision to", async () => {
+    const setup = await setupFixture();
+    const projectId = await reviewProject(setup, { report: false });
+    await expect(
+      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId,
+        toStage: "edits",
+        reviewDecision: { decision: "return" },
+        expectedVersion: 0,
+      })
+    ).rejects.toThrow(/INVALID_STATE|no report revision/i);
+    const stored = await setup.t.run(async (ctx) => ctx.db.get(projectId));
+    expect(stored).toMatchObject({ workflowStage: "internal_review" });
+    expect(await reviewDecisions(setup, projectId)).toHaveLength(0);
+  });
+
+  it("pins revision 0 and a freshly computed hash for a legacy report row", async () => {
+    const setup = await setupFixture();
+    const projectId = await insertProject(setup, { stage: "internal_review" });
+    await insertReport(setup, projectId, { legacy: true, content: "legacy body" });
+    await expect(
+      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId,
+        toStage: "edits",
+        reviewDecision: { decision: "return" },
+        expectedVersion: 0,
+      })
+    ).resolves.toEqual({ status: "updated", version: 1 });
+    const decisions = await reviewDecisions(setup, projectId);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0].revisionNumber).toBe(0);
+    expect(decisions[0].contentHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(decisions[0].note).toBeUndefined();
+  });
+
+  it("recomputes the hash for a report whose stored contentHash is an empty string", async () => {
+    const setup = await setupFixture();
+    const projectId = await insertProject(setup, { stage: "internal_review" });
+    // A stored "" is as unusable as an absent hash. This pins the falsy check
+    // in the mutation: with a nullish (`??`) fallback the empty string would be
+    // copied straight into the audit row and no other test would notice.
+    await insertReport(setup, projectId, { contentHash: "", content: "hashless body" });
+    await expect(
+      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId,
+        toStage: "edits",
+        reviewDecision: { decision: "return" },
+        expectedVersion: 0,
+      })
+    ).resolves.toEqual({ status: "updated", version: 1 });
+    const decisions = await reviewDecisions(setup, projectId);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0].contentHash).toMatch(/^[0-9a-f]{64}$/);
+    // The revision itself is still the stored one, not the legacy fallback.
+    expect(decisions[0].revisionNumber).toBe(3);
   });
 });

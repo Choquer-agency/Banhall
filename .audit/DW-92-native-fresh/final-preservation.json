@@ -1,0 +1,10 @@
+{
+  "baseline": "86a43d9d500ceab34245744d223d4453eba7b667",
+  "head": "86a43d9d500ceab34245744d223d4453eba7b667",
+  "source_unchanged": true,
+  "protected_paths_unchanged": true,
+  "ledger_matches_invocation": true,
+  "frozen_contract_preserved": true,
+  "raw_logs_match": true,
+  "terminal_result_valid": true
+}

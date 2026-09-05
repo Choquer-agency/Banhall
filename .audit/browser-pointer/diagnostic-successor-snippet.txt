@@ -1,0 +1,39 @@
+
+// Successor audit probe; removed before handoff, retained as audit text.
+describe("pointer readiness successor diagnostic", () => {
+  it("observes both real transitions with cleanup", async () => {
+    try {
+      for (const coarse of [true, false]) {
+        await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: coarse });
+        await expectPointerState({ coarse });
+      }
+    } finally {
+      await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: false });
+      await expectPointerState({ coarse: false });
+    }
+  });
+
+  it.each([true, false])("rejects the opposite of actual coarse=%s within the bounded budget", async (coarse) => {
+    try {
+      await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: coarse });
+      await expectPointerState({ coarse });
+      const start = performance.now();
+      let failure: unknown;
+      try {
+        await expectPointerState({ coarse: !coarse });
+      } catch (error) {
+        failure = error;
+      }
+      const elapsedMs = performance.now() - start;
+      expect(failure).toBeInstanceOf(Error);
+      expect(elapsedMs).toBeGreaterThanOrEqual(900);
+      // Permit scheduler overhead while staying below the existing 5s test budget.
+      expect(elapsedMs).toBeLessThan(3_000);
+      expect(window.matchMedia("(pointer: coarse)").matches).toBe(coarse);
+      expect(window.matchMedia("(pointer: fine)").matches).toBe(!coarse);
+    } finally {
+      await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: false });
+      await expectPointerState({ coarse: false });
+    }
+  });
+});

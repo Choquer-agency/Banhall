@@ -1,0 +1,18 @@
+[
+  "_bmad-output/specs/spec-ai-engine-sprint-2-learn-chat/stories/5-chat-answer-feedback-and-brain-source-chips.md",
+  "convex/_generated/api.d.ts",
+  "convex/ai/brain/retrieve.ts",
+  "convex/ai/learning.ts",
+  "convex/learning.test.ts",
+  "convex/schema.ts",
+  "src/lib/chat/turnParts.test.ts",
+  "src/lib/chat/turnParts.ts",
+  "src/lib/components/chat/AgentChatPanel.svelte",
+  "src/lib/components/chat/AssistantTurn.svelte",
+  "src/lib/components/chat/ToolTraceStep.svelte",
+  "src/lib/components/chat/primitives/Source.svelte",
+  "src/lib/test/convex-svelte-stub.svelte.ts",
+  "convex/chatFeedback.test.ts",
+  "convex/chatFeedback.ts",
+  "src/lib/components/chat/ChatFeedback.component.test.ts"
+]

@@ -1,0 +1,5 @@
+[1/9] preflight
+  node v24.19.0 ok
+  PUBLIC_CONVEX_URL from placeholder
+  PUBLIC_CONVEX_SITE_URL from placeholder
+loop-verify: Chromium not found at /var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/verification-contract-tatf5l2h/browser-cache/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing. Run: npx playwright install chromium
