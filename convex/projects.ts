@@ -946,7 +946,10 @@ async function copyProjectInputRows(
   for (const review of reviews) {
     const documentId = docIdMap.get(review.documentId);
     if (!documentId) continue;
-    await ctx.db.insert("pdReviews", {
+    const copiedRunningError = review.status === "running"
+      ? "The source review was still running when this project was duplicated. Run the review again in this project."
+      : undefined;
+    const reviewId = await ctx.db.insert("pdReviews", {
       projectId: args.toProjectId,
       documentId,
       sourceFileName: review.sourceFileName,
@@ -956,14 +959,28 @@ async function copyProjectInputRows(
       ...(review.contentHash !== undefined
         ? { contentHash: review.contentHash }
         : {}),
-      status: review.status,
+      status: review.status === "running" ? "failed" : review.status,
       ...(review.result ? { result: review.result } : {}),
       ...(review.model ? { model: review.model } : {}),
-      ...(review.error ? { error: review.error } : {}),
+      ...(copiedRunningError
+        ? { error: copiedRunningError }
+        : review.error ? { error: review.error } : {}),
       createdBy: review.createdBy,
       createdAt: now,
-      ...(review.completedAt ? { completedAt: review.completedAt } : {}),
+      ...(copiedRunningError
+        ? { completedAt: now }
+        : review.completedAt ? { completedAt: review.completedAt } : {}),
     });
+    if (copiedRunningError) {
+      await ctx.db.insert("pdReviewEvents", {
+        projectId: args.toProjectId,
+        reviewId,
+        actor: "system",
+        action: "review_failed",
+        detail: copiedRunningError,
+        at: now,
+      });
+    }
     pdReviewsCopied += 1;
   }
 

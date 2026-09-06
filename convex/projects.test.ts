@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { dashboardCompanyKey } from "../shared/dashboardProjection";
@@ -471,6 +471,215 @@ describe("project duplication", () => {
       sourceTranscriptIds: [destinationTranscriptId],
       revisionNumber: 4,
     });
+  });
+});
+
+describe("copied running PD reviews", () => {
+  const copyEntries = [
+    api.projects.prepareProjectContentCopy,
+    api.projects.copyProjectDocuments,
+  ];
+  const copyTime = 1_800_000_000_000;
+
+  async function fixture() {
+    const f = await setup();
+    const reviewIds = await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.projectId, { workflowStage: "internal_review" });
+      await ctx.db.patch(f.otherProjectId, { workflowStage: "intake" });
+      for (const projectId of [f.projectId, f.otherProjectId]) {
+        for (const position of [0, 1]) {
+          await ctx.db.insert("transcripts", {
+            projectId, position, label: `Interview ${position + 1}`,
+            content: `${projectId}: nonempty interview ${position + 1}`,
+            createdAt: 100,
+          });
+        }
+      }
+      const documents = [];
+      for (const label of ["First", "Second"]) {
+        const fileName = `${label} review PD.txt`;
+        const documentId = await ctx.db.insert("projectDocuments", {
+          projectId: f.projectId, fileName, fileType: "txt",
+          content: `${label} distinct active PD body`, source: "review_pd",
+          uploadedBy: "Original uploader", createdAt: 100,
+        });
+        documents.push({ documentId, fileName });
+      }
+      const ids = [];
+      for (const [index, status] of (["completed", "failed", "running", "running"] satisfies
+        Array<"completed" | "failed" | "running">).entries()) {
+        const document = documents[index % documents.length];
+        const realisticRunning = index === 3;
+        const reviewId = await ctx.db.insert("pdReviews", {
+          projectId: f.projectId,
+          documentId: document.documentId,
+          sourceFileName: document.fileName,
+          status,
+          ...(realisticRunning ? {} : {
+            result: "Historical result", model: "historical-model",
+            error: "Historical error", completedAt: 200,
+          }),
+          revisionNumber: 0, contentHash: "",
+          createdBy: `Original reviewer ${index}`, createdAt: 100,
+        });
+        ids.push(reviewId);
+        await ctx.db.insert("pdReviewEvents", {
+          projectId: f.projectId, reviewId, actor: `Original reviewer ${index}`,
+          action: "review_started", detail: "Original history", at: 100,
+        });
+      }
+      return ids;
+    });
+    return { ...f, reviewIds };
+  }
+
+  async function snapshot(t: Awaited<ReturnType<typeof setup>>["t"]) {
+    return await t.run(async (ctx) => ({
+      projects: await ctx.db.query("projects").collect(),
+      documents: await ctx.db.query("projectDocuments").collect(),
+      transcripts: await ctx.db.query("transcripts").collect(),
+      reviews: await ctx.db.query("pdReviews").collect(),
+      events: await ctx.db.query("pdReviewEvents").collect(),
+      reports: await ctx.db.query("reports").collect(),
+      jobs: await ctx.db.system.query("_scheduled_functions").collect(),
+    }));
+  }
+
+  test.each(copyEntries)("terminalizes only copied running rows through %s", async (entry) => {
+    const { t, projectId, otherProjectId, reviewIds } = await fixture();
+    const before = await snapshot(t);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(copyTime);
+    try {
+      const result = await asActor(t, "owner").mutation(entry, {
+        fromProjectId: projectId, toProjectId: otherProjectId,
+      });
+      expect(result.pdReviewsCopied).toBe(4);
+    } finally {
+      clock.mockRestore();
+    }
+    const after = await snapshot(t);
+    const copied = after.reviews.filter((row) => row.projectId === otherProjectId);
+    expect(copied).toHaveLength(reviewIds.length);
+    const events = after.events.filter((row) => row.projectId === otherProjectId);
+    expect(events).toHaveLength(2);
+    for (const sourceId of reviewIds) {
+      const source = before.reviews.find((row) => row._id === sourceId);
+      if (!source) throw new Error("Missing identified source review");
+      const matches = copied.filter((row) => row.createdBy === source.createdBy);
+      expect(matches).toHaveLength(1);
+      const row = matches[0];
+      expect(row._id).not.toBe(sourceId);
+      expect(row).toMatchObject({
+        sourceFileName: source.sourceFileName,
+        revisionNumber: 0, contentHash: "", createdBy: source.createdBy,
+        createdAt: copyTime,
+      });
+      expect(row.result).toBe(source.result);
+      expect(row.model).toBe(source.model);
+      const sourceDocument = before.documents.find((doc) => doc._id === source.documentId);
+      if (!sourceDocument) throw new Error("Missing identified source document");
+      expect(after.documents.find((doc) => doc._id === row.documentId)).toMatchObject({
+        projectId: otherProjectId, source: "review_pd",
+        fileName: sourceDocument.fileName, content: sourceDocument.content,
+      });
+      expect(row.documentId).not.toBe(source.documentId);
+      const rowEvents = events.filter((event) => event.reviewId === row._id);
+      if (source.status !== "running") {
+        expect(row).toMatchObject({
+          status: source.status, error: source.error, completedAt: source.completedAt,
+        });
+        expect(rowEvents).toHaveLength(0);
+      } else {
+        expect(row.status).toBe("failed");
+        expect(row.error).toMatch(/source.*still running.*duplicated/i);
+        expect(row.completedAt).toBe(copyTime);
+        expect(rowEvents).toEqual([expect.objectContaining({
+          projectId: otherProjectId, reviewId: row._id, actor: "system",
+          action: "review_failed", detail: row.error, at: copyTime,
+        })]);
+      }
+    }
+    for (const key of ["reviews", "events", "documents", "reports"] as const) {
+      expect(after[key].filter((row) => row.projectId === projectId)).toEqual(
+        before[key].filter((row) => row.projectId === projectId)
+      );
+    }
+    expect(before.transcripts.filter((row) => row.projectId === projectId)).toHaveLength(2);
+    expect(before.transcripts.filter((row) => row.projectId === otherProjectId)).toHaveLength(2);
+    expect(after.transcripts).toEqual(before.transcripts);
+    const sourceProject = before.projects.find((row) => row._id === projectId);
+    const destinationProject = before.projects.find((row) => row._id === otherProjectId);
+    if (!sourceProject || !destinationProject) throw new Error("Missing fixture project");
+    expect(sourceProject.createdBy).not.toBe(destinationProject.createdBy);
+    expect(after.projects.find((row) => row._id === projectId)).toEqual(sourceProject);
+    expect(after.projects.find((row) => row._id === otherProjectId)).toMatchObject({
+      workflowStage: "intake", createdBy: destinationProject.createdBy,
+    });
+    expect(after.jobs).toEqual(before.jobs);
+  });
+
+  test.each(copyEntries)("allows immediate real retry through %s", async (entry) => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+    vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
+    try {
+      const { t, projectId, otherProjectId } = await fixture();
+      const before = await snapshot(t);
+      const source = before.reviews.find((row) =>
+        row.projectId === projectId && row.status === "running" && row.result === undefined);
+      if (!source) throw new Error("Missing realistic running source review");
+      expect(source).not.toHaveProperty("error");
+      expect(source).not.toHaveProperty("completedAt");
+      const actor = asActor(t, "owner");
+      await actor.mutation(entry, { fromProjectId: projectId, toProjectId: otherProjectId });
+      const copied = (await snapshot(t)).reviews.find((row) =>
+        row.projectId === otherProjectId && row.createdBy === source.createdBy);
+      if (!copied) throw new Error("Missing copied review matched to running source");
+      expect(copied.status).toBe("failed");
+      expect(copied.error).toMatch(/source.*still running.*duplicated/i);
+      expect(copied.documentId).not.toBe(source.documentId);
+      const retryId = await actor.mutation(api.pdReviews.retryPdReview, { reviewId: copied._id });
+      expect(retryId).not.toBe(copied._id);
+      const after = await snapshot(t);
+      expect(after.reviews.find((row) => row._id === retryId)).toMatchObject({
+        status: "running", projectId: otherProjectId, documentId: copied.documentId,
+      });
+      const originalDocument = before.documents.find((doc) => doc._id === source.documentId);
+      if (!originalDocument) throw new Error("Missing source PD");
+      expect(after.documents.find((doc) => doc._id === copied.documentId)).toMatchObject({
+        projectId: otherProjectId, fileName: originalDocument.fileName,
+        content: originalDocument.content,
+      });
+      expect(after.reviews.find((row) => row._id === copied._id)).toEqual(copied);
+      expect(after.jobs).toEqual([expect.objectContaining({
+        name: "ai/reviewAgent:runPdReview",
+        args: [{ reviewId: retryId, projectId: otherProjectId }],
+      })]);
+      // Once this destination has a running retry, the normal guard still
+      // rejects a second retry of the copied failed row without side effects.
+      await expect(actor.mutation(api.pdReviews.retryPdReview, {
+        reviewId: copied._id,
+      })).rejects.toMatchObject({ data: {
+        code: "INVALID_INPUT", message: "A review is already running for this project",
+      } });
+      expect(await snapshot(t)).toEqual(after);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test.each(copyEntries)("denies restricted copies before writes through %s", async (entry) => {
+    const { t, projectId, otherProjectId } = await fixture();
+    const before = await snapshot(t);
+    // Internal access is firm-wide. Roleless users lack both projects;
+    // this proves pre-write rejection, not rollback after partial copying.
+    for (const [fromProjectId, toProjectId] of [
+      [projectId, otherProjectId], [otherProjectId, projectId],
+    ]) {
+      await expect(asActor(t, "roleless").mutation(entry, {
+        fromProjectId, toProjectId,
+      })).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+      expect(await snapshot(t)).toEqual(before);
+    }
   });
 });
 
