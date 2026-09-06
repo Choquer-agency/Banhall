@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { createExtractionScope } from "$lib/extractionScope.svelte";
+  import { isParseAbort } from "$lib/spreadsheetClient";
   import { tick, untrack } from "svelte";
   import { useQuery, useMutation } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -109,6 +111,7 @@
     reviewingId,
     onBeforeApply,
   }: Props = $props();
+  const extractionScope = createExtractionScope(() => `${projectId}:${reportId}`);
 
   /** The source passages a proposal references — for scroll-and-highlight. */
   function proposalRefs(p: Proposal): string[] {
@@ -782,7 +785,7 @@
   }
 
   /**
-   * Run one file all the way through: store the bytes, extract the text, and
+   * Run one file all the way through: extract the text, store the bytes, and
    * record the document. Returns whether the row ended up on the receipt as a
    * success, so the caller can decide about the rest of the batch.
    */
@@ -791,36 +794,46 @@
     attemptKey: string,
     category: ContextCategoryId
   ): Promise<boolean> {
-    let storageId: Id<"_storage"> | undefined;
-    try {
-      const url = await withUploadTimeout(generateUploadUrl({}));
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file,
-      });
-      const json = (await res.json()) as { storageId: Id<"_storage"> };
-      storageId = json.storageId;
-    } catch (e) {
-      // Losing the original bytes still leaves the extracted text worth having.
-      console.error("File storage upload failed", e);
-    }
-
+    const operation = extractionScope.capture();
+    const operationProjectId = projectId;
+    const operationReportId = reportId;
+    operation.throwIfAborted();
     let parsed;
     let extractionFailed = false;
     try {
-      parsed = await parseFileToText(file);
+      parsed = await parseFileToText(file, { signal: operation.signal });
     } catch (e) {
+      if (isParseAbort(e)) throw e;
       console.error("Parse failed", e);
       extractionFailed = true;
       parsed = { fileName: file.name, fileType: guessFileType(file.name), content: "" };
     }
 
+    operation.throwIfAborted();
+    let storageId: Id<"_storage"> | undefined;
+    try {
+      const url = await withUploadTimeout(generateUploadUrl({}));
+      operation.throwIfAborted();
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+        signal: operation.signal,
+      });
+      const json = (await res.json()) as { storageId: Id<"_storage"> };
+      storageId = json.storageId;
+    } catch (e) {
+      if (isParseAbort(e)) throw e;
+      // Losing the original bytes still leaves the extracted text worth having.
+      console.error("File storage upload failed", e);
+    }
+
+    operation.throwIfAborted();
     try {
       const documentId = await withUploadTimeout(
         uploadDocument({
-          projectId,
-          reportId,
+          projectId: operationProjectId,
+          reportId: operationReportId,
           fileName: file.name,
           fileType: parsed.fileType,
           content: parsed.content,
@@ -843,6 +856,7 @@
         content: parsed.content,
         extractionFailed,
       });
+      operation.throwIfAborted();
       patchReceipt(attemptKey, {
         status: derived.status,
         detail: derived.detail,
@@ -855,6 +869,7 @@
       return true;
     } catch (e) {
       console.error("Upload failed", e);
+      operation.throwIfAborted();
       patchReceipt(attemptKey, { status: "upload_failed", hasFile: true });
       await recordFailedChatAttempts(
         [{ attemptKey, fileName: file.name, fileSizeBytes: file.size }],
@@ -865,6 +880,8 @@
   }
 
   async function uploadFiles(files: File[], category: ContextCategoryId) {
+    const batchOperation = extractionScope.capture();
+    const batchProjectId = projectId;
     if (!files || files.length === 0) return;
     pendingFiles = null;
     uploading = true;
@@ -898,9 +915,10 @@
 
     try {
       for (let i = 0; i < batch.length; i += ATTEMPT_BATCH_LIMIT) {
+        batchOperation.throwIfAborted();
         await withUploadTimeout(
           recordUploadAttempts({
-            projectId,
+            projectId: batchProjectId,
             attempts: batch.slice(i, i + ATTEMPT_BATCH_LIMIT).map((b) => ({
               attemptKey: b.attemptKey,
               fileName: b.file.name,
@@ -909,6 +927,7 @@
             })),
           })
         );
+        batchOperation.throwIfAborted();
       }
     } catch (e) {
       // A lost begin is safe: the failure path upserts its own row, and
@@ -918,6 +937,7 @@
 
     try {
       for (const { file, attemptKey } of batch) {
+        batchOperation.throwIfAborted();
         const ok = await uploadOne(file, attemptKey, category);
         if (!ok) {
           // The batch stops at the first failure, so mark the files that never
@@ -939,6 +959,8 @@
           break;
         }
       }
+    } catch (error) {
+      if (!isParseAbort(error)) throw error;
     } finally {
       uploading = false;
       if (fileInputEl) fileInputEl.value = "";
@@ -946,6 +968,8 @@
   }
 
   async function retryUpload(row: ReceiptRow) {
+    const batchOperation = extractionScope.capture();
+    const batchProjectId = projectId;
     const key = row.attemptKey;
     if (!key || uploading || receiptBusy.has(row.key)) return;
     const held = retryableFiles.get(key);
@@ -958,7 +982,7 @@
       // in-progress, so a retry can never create a second record.
       await withUploadTimeout(
         recordUploadAttempts({
-          projectId,
+          projectId: batchProjectId,
           attempts: [
             {
               attemptKey: key,
@@ -973,7 +997,10 @@
       console.error("Failed to reopen upload attempt", e);
     }
     try {
+      batchOperation.throwIfAborted();
       await uploadOne(held.file, key, held.category);
+    } catch (error) {
+      if (!isParseAbort(error)) throw error;
     } finally {
       receiptBusy.delete(row.key);
     }

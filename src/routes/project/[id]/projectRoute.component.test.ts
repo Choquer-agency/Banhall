@@ -12,11 +12,13 @@ vi.mock("$app/navigation", { spy: true });
 
 /**
  * Route-shape test for the real /project/[id] page (not gate mark snippets):
- * the 18-line route must keep `currentWhileLoading={false}` and wire
+ * the route must keep `currentWhileLoading={false}` and wire
  * CurrentProjectPage into the `current` snippet and PreviewProjectPage into
  * `preview`. An edit that drops the prop or swaps the snippets passes every
  * other check — these cases fail it.
  *
+ * Dynamic imports can compile the full report graph on first use in the test
+ * dev server, so completion polls allow that cold compilation explicitly.
  * Both report pages are query-heavy; unseeded stub queries hold them in
  * their loading states, which is all this test needs. Assertions stay at the
  * boundary: `[data-dashboard-experience]` and the gate's neutral
@@ -53,7 +55,8 @@ describe("/project/[id] route shape", () => {
     expect(experience("current")).toBeNull();
     expect(experience("preview")).toBeNull();
     expect(previewCohortMark()).toBeNull();
-  });
+    expect(__activeQueryCount("projects:getProject")).toBe(0);
+  }, 60000);
 
   it("renders exactly the current report when the access query fails", async () => {
     __setPageUrl("/project/project-1");
@@ -61,18 +64,20 @@ describe("/project/[id] route shape", () => {
     __setQueryError("workspaceRollout:getAccess", new Error("Access denied"));
     await render(ProjectPage, {});
 
+    await expect.poll(() => __activeQueryCount("projects:getProject"), { timeout: 30000 }).toBe(1);
     await expect.poll(() => experience("current")).not.toBeNull();
     expect(experience("preview")).toBeNull();
     // The mounted component must be the rollback CurrentProjectPage, not a
     // swapped-in preview page under the current wrapper.
     expect(previewCohortMark()).toBeNull();
-  });
+  }, 60000);
 
   it("lets ?workspace=current win immediately for an authorized user, with no navigation", async () => {
     __setPageUrl("/project/project-1?workspace=current");
     __setQueryData("workspaceRollout:getAccess", { available: true });
     await render(ProjectPage, {});
 
+    await expect.poll(() => __activeQueryCount("projects:getProject"), { timeout: 30000 }).toBe(1);
     await expect.poll(() => experience("current")).not.toBeNull();
     expect(experience("preview")).toBeNull();
     expect(previewCohortMark()).toBeNull();
@@ -80,7 +85,7 @@ describe("/project/[id] route shape", () => {
     expect(__activeQueryArgs("workspaceRollout:getAccess")).toEqual([]);
     await tick();
     expect(gotoUrls()).toHaveLength(0);
-  });
+  }, 60000);
 
   it("renders exactly the preview workbench when access is available", async () => {
     __setPageUrl("/project/project-1");
@@ -90,6 +95,7 @@ describe("/project/[id] route shape", () => {
     await expect.poll(() => experience("preview")).not.toBeNull();
     expect(experience("current")).toBeNull();
     // And the component under the preview wrapper is really the preview page.
-    await expect.poll(() => previewCohortMark()).not.toBeNull();
-  });
+    await expect.poll(() => previewCohortMark(), { timeout: 30000 }).not.toBeNull();
+    expect(__activeQueryCount("projects:getProject")).toBe(1);
+  }, 60000);
 });

@@ -13,11 +13,14 @@ export async function uploadOriginal({
   file,
   generateUploadUrl,
   fetch: uploadFetch,
-}: OriginalUploadDependencies & { file: File }): Promise<Id<"_storage"> | undefined> {
+  signal,
+}: OriginalUploadDependencies & { file: File; signal?: AbortSignal }): Promise<Id<"_storage"> | undefined> {
   for (let attempt = 0; attempt < 2; attempt++) {
+    signal?.throwIfAborted();
     try {
       // Await the bounded wrapper: a late URL must never launch a late POST.
       const url = await withUploadTimeout(generateUploadUrl());
+      signal?.throwIfAborted();
       const controller = new AbortController();
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
@@ -32,7 +35,7 @@ export async function uploadOriginal({
             method: "POST",
             headers: { "Content-Type": file.type || "application/octet-stream" },
             body: file,
-            signal: controller.signal,
+            signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
           });
           if (!response.ok) throw new Error("Original upload HTTP failure");
           const body: unknown = await response.json();
@@ -43,6 +46,7 @@ export async function uploadOriginal({
           ) {
             throw new Error("Invalid original upload response");
           }
+          signal?.throwIfAborted();
           // Validate the wire shape here; Convex validates actual ID validity.
           return body.storageId as Id<"_storage">;
         };
@@ -52,6 +56,7 @@ export async function uploadOriginal({
         controller.abort();
       }
     } catch (error) {
+      signal?.throwIfAborted();
       if (attempt === 1) console.error("storage upload failed", error);
       // Each retry acquires a fresh URL. Never delete possibly orphaned bytes.
     }

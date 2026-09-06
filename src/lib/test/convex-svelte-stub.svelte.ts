@@ -61,8 +61,9 @@ export function __setQueryStale(name: string, stale: boolean) {
 
 /** Seed an exact argument variant; unseeded variants retain the name-only fallback. */
 export function __setQueryDataForArgs(name: string, args: unknown, data: unknown) {
-  registry.queryVariants[name] ??= {};
-  registry.queryVariants[name][JSON.stringify(args) ?? ""] = data;
+  // Replace the variant registry so a previously missing exact key also
+  // invalidates readers (Object.hasOwn on a missing key is not reactive).
+  registry.queryVariants[name] = { ...registry.queryVariants[name], [JSON.stringify(args) ?? ""]: data };
 }
 
 function queryData(name: string, args: unknown) {

@@ -224,3 +224,30 @@ it("reports only the final exhausted failure once", async () => {
   expect(await uploadOriginal(deps)).toBeUndefined();
   expect(console.error).toHaveBeenCalledExactlyOnceWith("storage upload failed", lastError);
 });
+
+it("does not retry or launch a POST after its owner cancels while obtaining a URL", async () => {
+  const deps = setup();
+  const url = deferred<string>();
+  deps.generateUploadUrl.mockReset().mockReturnValue(url.promise);
+  const controller = new AbortController();
+  const pending = uploadOriginal({ ...deps, signal: controller.signal });
+  controller.abort();
+  url.resolve("https://upload.test/late");
+  await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  expect(deps.fetch).not.toHaveBeenCalled();
+  expect(deps.generateUploadUrl).toHaveBeenCalledTimes(1);
+});
+
+it("aborts an in-flight original POST without retrying when its owner cancels", async () => {
+  const deps = setup();
+  const controller = new AbortController();
+  deps.fetch.mockImplementation((_url, init) => new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+  }));
+  const pending = uploadOriginal({ ...deps, signal: controller.signal });
+  await vi.advanceTimersByTimeAsync(0);
+  controller.abort();
+  await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  expect(deps.fetch).toHaveBeenCalledTimes(1);
+  expect(deps.generateUploadUrl).toHaveBeenCalledTimes(1);
+});

@@ -24,9 +24,7 @@
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import ChatIcon from "$lib/components/ui/ChatIcon.svelte";
   import GenerationProgress from "$lib/components/generation/GenerationProgress.svelte";
-  import CandidateSelection from "$lib/components/generation/CandidateSelection.svelte";
   import GenerationStatusChip from "$lib/components/generation/GenerationStatusChip.svelte";
-  import IterativeStepper from "$lib/components/generation/IterativeStepper.svelte";
   import Editor from "$lib/components/editor/Editor.svelte";
   import type {
     CommentRange,
@@ -34,7 +32,6 @@
     WriterEditorHandle,
   } from "$lib/components/editor/types";
   import QAScorePanel from "$lib/components/editor/QAScorePanel.svelte";
-  import QARailPanel from "$lib/components/qa/QARailPanel.svelte";
   import QALauncher from "$lib/components/qa/QALauncher.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import ChronologyTable from "$lib/components/editor/ChronologyTable.svelte";
@@ -48,8 +45,7 @@
   import FilingReadinessPanel from "$lib/components/evidence/FilingReadinessPanel.svelte";
   import LogsPanel from "$lib/components/editor/LogsPanel.svelte";
   import CommentOverlay from "$lib/components/comments/CommentOverlay.svelte";
-  import AgentChatPanel from "$lib/components/chat/AgentChatPanel.svelte";
-  import VersionHistory from "$lib/components/history/VersionHistory.svelte";
+  import LazyModule from "$lib/components/ui/LazyModule.svelte";
   import EditableText from "$lib/components/project/EditableText.svelte";
   import PdReviewReport from "$lib/components/review-pd/PdReviewReport.svelte";
   import PdReviewStart from "$lib/components/review-pd/PdReviewStart.svelte";
@@ -517,7 +513,10 @@
   }
 
   function handleAskAI(selection: { from: number; to: number; text: string }) {
-    chatOpen = true; // make sure the panel is visible before the pill lands
+    chatOpen = true;
+    qaOpen = false;
+    railView = "chat";
+    mobileWorkspaceView = "assistant";
     pendingChatHighlight = selection;
   }
 
@@ -527,6 +526,7 @@
     railView = "chat";
     pendingChatHighlight = null;
     pendingResearch = selection;
+    mobileWorkspaceView = "assistant";
   }
 
   // BNH-14: resizable, closable chat rail. Width + open state persist across
@@ -538,7 +538,16 @@
   const CHAT_MAX = 0.55;
   let chatRatio = $state(0.31);
   let chatOpen = $state(true);
+  let chatPreferencesReady = $state(false);
   let chatFocus = $state(false);
+  let desktopAssistant = $state(false);
+  $effect(() => {
+    const media = window.matchMedia("(min-width: 64rem)");
+    const update = () => (desktopAssistant = media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  });
   let mobileWorkspaceView = $state<"report" | "assistant">("report");
   let projectDetailsOpen = $state(false);
   const projectDetailsBodyId = "project-details-body";
@@ -617,6 +626,7 @@
     if (savedQa) railView = "qa";
     workspaceMaximized = localStorage.getItem("banhall_project_editor_maximized") === "1";
     candidateMaximized = localStorage.getItem("banhall_candidate_editor_maximized") === "1";
+    chatPreferencesReady = true;
   });
   $effect(() => {
     localStorage.setItem("banhall_chat_ratio", String(chatRatio));
@@ -1561,7 +1571,11 @@
     {#if generation && showIterativeStepper}
       <div class="min-h-0 flex-1 overflow-y-auto">
         <div class="mx-auto w-full max-w-[var(--container-shell)] px-6 py-8">
-          <IterativeStepper generationId={generation._id} />
+          <LazyModule load={() => import("$lib/components/generation/IterativeStepper.svelte")} label="section review">
+            {#snippet children(IterativeStepper)}
+              <IterativeStepper generationId={generation._id} />
+            {/snippet}
+          </LazyModule>
         </div>
       </div>
     {/if}
@@ -1569,7 +1583,11 @@
     <!-- BNH-15: choose between candidate drafts before they become the report -->
     {#if generation && awaitingSelection}
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <CandidateSelection generationId={generation._id} bind:maximized={candidateMaximized} />
+        <LazyModule load={() => import("$lib/components/generation/CandidateSelection.svelte")} label="candidate selection">
+          {#snippet children(CandidateSelection)}
+            <CandidateSelection generationId={generation._id} bind:maximized={candidateMaximized} />
+          {/snippet}
+        </LazyModule>
       </div>
     {/if}
     {#if generationError}
@@ -1701,24 +1719,28 @@
             <!-- BNH-47: QA review — shared rail card (in flow; exactly one
                  of chat/QA is in flow at a time via railView) -->
             {#if railView === "qa"}
-              <QARailPanel
-                open={qaOpen}
-                onClose={() => {
-                  qaOpen = false;
-                  mobileWorkspaceView = "report";
-                }}
-                modelName={generation?.selectedModelLabel ?? generation?.iterativeModelLabel ?? null}
-                agentOutputs={generation?.agentOutputs}
-                reportContent={report.content}
-                reportId={report._id}
-                onLocateGap={locateGap}
-                onRunQa={generation?.status === "completed"
-                  ? async () => {
-                      await requestReportQaMut({ generationId: generation._id });
-                    }
-                  : undefined}
-                postQaStatus={generation?.postQaStatus ?? null}
-              />
+              <LazyModule load={() => import("$lib/components/qa/QARailPanel.svelte")} label="QA review">
+                {#snippet children(QARailPanel)}
+                  <QARailPanel
+                    open={qaOpen}
+                    onClose={() => {
+                      qaOpen = false;
+                      mobileWorkspaceView = "report";
+                    }}
+                    modelName={generation?.selectedModelLabel ?? generation?.iterativeModelLabel ?? null}
+                    agentOutputs={generation?.agentOutputs}
+                    reportContent={report.content}
+                    reportId={report._id}
+                    onLocateGap={locateGap}
+                    onRunQa={generation?.status === "completed"
+                      ? async () => {
+                          await requestReportQaMut({ generationId: generation._id });
+                        }
+                      : undefined}
+                    postQaStatus={generation?.postQaStatus ?? null}
+                  />
+                {/snippet}
+              </LazyModule>
             {/if}
             <div
               class={`chat-rise relative flex h-full origin-bottom flex-col overflow-hidden bg-white ${chatOpen ? "" : "is-closed"} ${railView !== "chat" ? "hidden" : ""}`}
@@ -1740,30 +1762,34 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
-              <AgentChatPanel
-                  {projectId}
-                  reportId={report._id}
-                  pendingHighlight={pendingChatHighlight}
-                  onClearHighlight={() => (pendingChatHighlight = null)}
-                  {pendingResearch}
-                  onClearResearch={() => (pendingResearch = null)}
-                  onReferenceText={(texts, scrollTo) => editorRef?.highlightText(texts, scrollTo)}
-                  onReviewReplacements={startReplaceReview}
-                  onPreviewProposal={(pairs, on) => {
-                    if (on && pairs.length) editorRef?.previewProposal(pairs);
-                    else editorRef?.clearProposalPreview();
-                  }}
-                  reviewingId={replaceSession?.messageId ?? null}
-                  onBeforeApply={flushEditor}
-                  isFull={chatFocus}
-                  onToggleFull={() => {
-                    chatOpen = true;
-                    qaOpen = false;
-                    railView = "chat";
-                    chatFocus = !chatFocus;
-                    if (chatFocus) mobileWorkspaceView = "assistant";
-                  }}
-                />
+              <LazyModule load={() => import("$lib/components/chat/AgentChatPanel.svelte")} label="assistant" active={chatPreferencesReady && chatOpen && railView === "chat" && (desktopAssistant || mobileWorkspaceView === "assistant" || chatFocus)}>
+                {#snippet children(AgentChatPanel)}
+                  <AgentChatPanel
+                      {projectId}
+                      reportId={report._id}
+                      pendingHighlight={pendingChatHighlight}
+                      onClearHighlight={() => (pendingChatHighlight = null)}
+                      {pendingResearch}
+                      onClearResearch={() => (pendingResearch = null)}
+                      onReferenceText={(texts, scrollTo) => editorRef?.highlightText(texts, scrollTo)}
+                      onReviewReplacements={startReplaceReview}
+                      onPreviewProposal={(pairs, on) => {
+                        if (on && pairs.length) editorRef?.previewProposal(pairs);
+                        else editorRef?.clearProposalPreview();
+                      }}
+                      reviewingId={replaceSession?.messageId ?? null}
+                      onBeforeApply={flushEditor}
+                      isFull={chatFocus}
+                      onToggleFull={() => {
+                        chatOpen = true;
+                        qaOpen = false;
+                        railView = "chat";
+                        chatFocus = !chatFocus;
+                        if (chatFocus) mobileWorkspaceView = "assistant";
+                      }}
+                    />
+                {/snippet}
+              </LazyModule>
             </div>
           </aside>
         {/if}
@@ -1935,11 +1961,15 @@
 
     <!-- Version history modal -->
     {#if showHistory && report}
-      <VersionHistory
-        reportId={report._id}
-        beforeSnapshot={flushEditor}
-        onClose={() => (showHistory = false)}
-      />
+      <LazyModule load={() => import("$lib/components/history/VersionHistory.svelte")} label="version history">
+        {#snippet children(VersionHistory)}
+          <VersionHistory
+            reportId={report._id}
+            beforeSnapshot={flushEditor}
+            onClose={() => (showHistory = false)}
+          />
+        {/snippet}
+      </LazyModule>
     {/if}
 
     {#if shareLink}

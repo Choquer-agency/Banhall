@@ -69,6 +69,8 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
 </script>
 
 <script lang="ts">
+  import { createExtractionScope } from "$lib/extractionScope.svelte";
+  import { isParseAbort } from "$lib/spreadsheetClient";
   import { useQuery, useMutation, useConvexClient } from "convex-svelte";
   import { toast } from "svelte-sonner";
   import { api } from "../../../../convex/_generated/api";
@@ -105,6 +107,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
     /** Opened on surfaces that exist because something went wrong. */
     initiallyOpen?: boolean;
   } = $props();
+  const extractionScope = createExtractionScope(() => projectId);
 
   // Unique per instance so aria-controls stays valid when the panel renders
   // more than once (e.g. generation-failure card and workbench together).
@@ -234,11 +237,14 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
     source: string;
     category?: DocRow["category"];
   }) {
+    const operation = extractionScope.capture();
+    const operationProjectId = projectId;
+    operation.throwIfAborted();
     const { attemptKey, file } = opts;
     try {
       await withUploadTimeout(
         recordUploadAttempts({
-          projectId,
+          projectId: operationProjectId,
           attempts: [
             {
               attemptKey,
@@ -253,33 +259,40 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
       console.error("Failed to open replacement attempt", error);
     }
 
-    let storageId: Id<"_storage"> | undefined;
-    try {
-      const url = await withUploadTimeout(generateUploadUrl({}));
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file,
-      });
-      storageId = ((await response.json()) as { storageId: Id<"_storage"> }).storageId;
-    } catch (error) {
-      console.error("Replacement file storage upload failed", error);
-    }
-
+    operation.throwIfAborted();
     let parsed;
     let extractionFailed = false;
     try {
-      parsed = await parseFileToText(file);
+      parsed = await parseFileToText(file, { signal: operation.signal });
     } catch (error) {
+      if (isParseAbort(error)) throw error;
       console.error("Replacement parse failed", error);
       extractionFailed = true;
       parsed = { fileName: file.name, fileType: "other" as const, content: "" };
     }
 
+    operation.throwIfAborted();
+    let storageId: Id<"_storage"> | undefined;
     try {
-      return await withUploadTimeout(
+      const url = await withUploadTimeout(generateUploadUrl({}));
+      operation.throwIfAborted();
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+        signal: operation.signal,
+      });
+      storageId = ((await response.json()) as { storageId: Id<"_storage"> }).storageId;
+    } catch (error) {
+      if (isParseAbort(error)) throw error;
+      console.error("Replacement file storage upload failed", error);
+    }
+
+    operation.throwIfAborted();
+    try {
+      const documentId = await withUploadTimeout(
         uploadDoc({
-          projectId,
+          projectId: operationProjectId,
           fileName: file.name,
           fileType: parsed.fileType,
           content: parsed.content,
@@ -291,9 +304,12 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
           ...(file.type ? { mimeType: file.type } : {}),
         })
       );
+      operation.throwIfAborted();
+      return documentId;
     } catch (error) {
+      if (isParseAbort(error)) throw error;
       void withUploadTimeout(
-        failUploadAttempt({ projectId, attemptKey, failureCode: "upload_failed" })
+        failUploadAttempt({ projectId: operationProjectId, attemptKey, failureCode: "upload_failed" })
       ).catch(() => {});
       throw error;
     }
@@ -313,6 +329,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
         source: origin,
       });
     } catch (error) {
+      if (isParseAbort(error)) return;
       toast.error(
         userErrorMessage(error, "Couldn't upload the replacement. Please try again.")
       );
@@ -358,6 +375,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
       }
       pendingReplace = null;
     } catch (error) {
+      if (isParseAbort(error)) return;
       toast.error(
         userErrorMessage(
           error,

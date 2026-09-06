@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { isParseAbort } from "$lib/spreadsheetClient";
+  import { onDestroy } from "svelte";
   import { goto } from "$app/navigation";
   import { toast } from "svelte-sonner";
   import { useAction, useMutation, useQuery } from "convex-svelte";
@@ -48,6 +50,9 @@
   import { takeProjectStart } from "$lib/workspace/projectIntentHandoff";
   import { page } from "$app/state";
   import { createRequestId } from "$lib/requestId";
+
+  const extractionLifetime = new AbortController();
+  onDestroy(() => extractionLifetime.abort());
 
   // Jul 17 meeting: transcript + context inputs merged onto one page so
   // writers see every upload slot at once (no more drawings in the
@@ -313,7 +318,7 @@
     for (const file of accepted) {
       parsingTranscript = file.name;
       try {
-        const parsed = await parseFileToText(file);
+        const parsed = await parseFileToText(file, { signal: extractionLifetime.signal });
         const text = parsed.content.trim();
         if (!text) {
           transcriptFileError = `Couldn't extract any text from ${file.name}.`;
@@ -344,7 +349,7 @@
     pdFileError = "";
     parsingPd = file.name;
     try {
-      const parsed = await parseFileToText(file);
+      const parsed = await parseFileToText(file, { signal: extractionLifetime.signal });
       const text = parsed.content.trim();
       if (!text) {
         pdFileError = `Couldn't extract any text from ${file.name}.`;
@@ -485,6 +490,7 @@
       file,
       generateUploadUrl: () => generateUploadUrl({}),
       fetch,
+      signal: extractionLifetime.signal,
     });
   }
 
@@ -590,6 +596,7 @@
         mode,
         transcripts: transcriptArgs(),
       });
+      extractionLifetime.signal.throwIfAborted();
       createdProjectId = projectId;
 
       // Duplicate flow: clone the complete project input package — support
@@ -614,15 +621,16 @@
         category: ContextCategoryId,
         prefix = ""
       ): Promise<"stored_text" | "stored_empty" | "failed"> => {
+        extractionLifetime.signal.throwIfAborted();
         progress = `Uploading ${file.name}…`;
         const attemptKey = createRequestId();
         try {
-          const storageId = await uploadOriginal(file);
           let parsed;
           let extractionFailed = false;
           try {
-            parsed = await parseFileToText(file);
-          } catch {
+            parsed = await parseFileToText(file, { signal: extractionLifetime.signal });
+          } catch (error) {
+            if (isParseAbort(error)) throw error;
             extractionFailed = true;
             parsed = {
               fileName: file.name,
@@ -634,6 +642,9 @@
           // extraction would store boilerplate the server reads as real text,
           // and the file would report "Ready for AI" when nothing can be read
           // from it — a lie on exactly the file the receipt exists to flag.
+          extractionLifetime.signal.throwIfAborted();
+          const storageId = await uploadOriginal(file);
+          extractionLifetime.signal.throwIfAborted();
           const hasText = parsed.content.trim().length > 0;
           await withUploadTimeout(
             uploadDocument({
@@ -649,8 +660,11 @@
               ...(file.type ? { mimeType: file.type } : {}),
             })
           );
+          extractionLifetime.signal.throwIfAborted();
           return hasText ? "stored_text" : "stored_empty";
         } catch (e) {
+          extractionLifetime.signal.throwIfAborted();
+          if (isParseAbort(e)) throw e;
           console.error(`upload failed for ${file.name}`, e);
           skippedFiles.push(file.name);
           // The toast is transient; this is what survives the navigation.
@@ -683,6 +697,7 @@
         // files were all unreadable now keeps the note instead of losing it
         // silently along with the prefix.
         if (row.note.trim() && !noteCarried) {
+          extractionLifetime.signal.throwIfAborted();
           await uploadDocument({
             projectId,
             fileName: `Previous-year note (FY ${row.year})`,
@@ -703,6 +718,7 @@
           await uploadFile(file, cat.id);
         }
         if (s.text.trim()) {
+          extractionLifetime.signal.throwIfAborted();
           await uploadDocument({
             projectId,
             fileName: `${cat.label} (pasted)`,
@@ -715,6 +731,7 @@
         }
       }
 
+      extractionLifetime.signal.throwIfAborted();
       if (mode === "review" && pdDoc) {
         // Runs for duplicates too. This was `if (fromProjectId) ... else if`,
         // which silently discarded the staged PD on a duplicated review
@@ -725,6 +742,7 @@
         // generation as context; the review agent reads it directly).
         progress = `Uploading ${pdDoc.name}…`;
         const storageId = await uploadOriginal(pdDoc.file);
+        extractionLifetime.signal.throwIfAborted();
         const pdAttemptKey = createRequestId();
         let documentId: Id<"projectDocuments">;
         try {
@@ -741,6 +759,7 @@
             })
           );
         } catch (e) {
+          extractionLifetime.signal.throwIfAborted();
           await recordFailedWizardAttempt(projectId, {
             attemptKey: pdAttemptKey,
             fileName: pdDoc.name,
@@ -752,11 +771,13 @@
         if (!storageId) {
           toast.warning(`The PD text was saved, but the original file ‘${pdDoc.name}’ could not be uploaded.`);
         }
+        extractionLifetime.signal.throwIfAborted();
         progress = "Starting PD review…";
         await startPdReview({ projectId, documentId });
       } else if (fromProjectId) {
         progress = "Opening duplicate…";
       } else {
+        extractionLifetime.signal.throwIfAborted();
         progress = "Starting generation…";
         await generateReport({
           projectId,
@@ -777,8 +798,10 @@
           `${skippedFiles.length} document(s) could not be uploaded and were skipped: ${skippedFiles.join(", ")}`
         );
       }
+      extractionLifetime.signal.throwIfAborted();
       goto(`/project/${projectId}`);
     } catch (e) {
+      if (extractionLifetime.signal.aborted || isParseAbort(e)) return;
       console.error(e);
       // The project may already exist at this point (createProject succeeded,
       // a later step failed). Land the writer on it rather than stranding them
