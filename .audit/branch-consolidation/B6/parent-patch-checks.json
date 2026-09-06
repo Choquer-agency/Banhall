@@ -1,0 +1,145 @@
+{
+  "at": "2026-09-06T02:09:00.123172+00:00",
+  "node": "v24.19.0",
+  "commands": [
+    {
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "tests/chatProposals.test.ts",
+        "convex/chatProposals.test.ts",
+        "convex/reportAuthz.test.ts",
+        "convex/projectAccess.test.ts",
+        "convex/users.test.ts",
+        "tests/teamRoster.test.ts",
+        "--expect.requireAssertions"
+      ],
+      "exit": 0,
+      "log": ".audit/branch-consolidation/B6/parent-patch-check-0.log",
+      "sha256": "bdfbde75c590d3be2daaa51efa6c5a38c22421cee2654064e57d468fd91cee22"
+    },
+    {
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "convex/reportEditDistance.test.ts",
+        "convex/snapshots.test.ts",
+        "convex/qaBlocking.test.ts",
+        "--expect.requireAssertions"
+      ],
+      "exit": 0,
+      "log": ".audit/branch-consolidation/B6/parent-patch-check-1.log",
+      "sha256": "027825c972de53a7c5bb489c990eee4116bd6a350cf57b2daea60e730cd12229"
+    },
+    {
+      "argv": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "--noEmit",
+        "-p",
+        "convex/tsconfig.json"
+      ],
+      "exit": 0,
+      "log": ".audit/branch-consolidation/B6/parent-patch-check-2.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit": 0,
+      "log": ".audit/branch-consolidation/B6/parent-patch-check-3.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "preservation": [
+    {
+      "path": "convex/chatProposals.test.ts",
+      "equal": true,
+      "sha256": "5eab1305eb9c76fe262395c091d75fb332b84991381a68c5db8a18fa3210e386",
+      "baseline_read_argv": [
+        "git",
+        "show",
+        "309570c60c9ad96d02ad234bdc028c34ddf80390:convex/chatProposals.test.ts"
+      ]
+    },
+    {
+      "path": "convex/reportAuthz.test.ts",
+      "equal": true,
+      "sha256": "2fb2e31685acb835d97c8ad755f2e04f7d0e42bee46422df17cb680370c851cb",
+      "baseline_read_argv": [
+        "git",
+        "show",
+        "309570c60c9ad96d02ad234bdc028c34ddf80390:convex/reportAuthz.test.ts"
+      ]
+    },
+    {
+      "path": "convex/reportEditDistance.test.ts",
+      "equal": true,
+      "sha256": "f3f1f35a3b0478d7c635b1539041f889fe261952820816f47a271841ae2a1b64",
+      "baseline_read_argv": [
+        "git",
+        "show",
+        "309570c60c9ad96d02ad234bdc028c34ddf80390:convex/reportEditDistance.test.ts"
+      ]
+    },
+    {
+      "path": "convex/snapshots.test.ts",
+      "equal": true,
+      "sha256": "3f4055a4ea471b2c5fc5b2e3ce792ba4f37b34e6a5df17e5a96334f78ce2cc16",
+      "baseline_read_argv": [
+        "git",
+        "show",
+        "309570c60c9ad96d02ad234bdc028c34ddf80390:convex/snapshots.test.ts"
+      ]
+    },
+    {
+      "path": "convex/qaBlocking.test.ts",
+      "equal": true,
+      "sha256": "b7928f1e2f7f698e25b4404a1f9bd020dde06f549d1689ced7374e64696fea6b",
+      "baseline_read_argv": [
+        "git",
+        "show",
+        "309570c60c9ad96d02ad234bdc028c34ddf80390:convex/qaBlocking.test.ts"
+      ]
+    },
+    {
+      "path": "tests/reportEdits.test.ts",
+      "equal": true,
+      "sha256": "f7132db4e886bbd4bc9e7b09743ece219f5e9d233d2f710e7b2784feedbd70d7",
+      "baseline_read_argv": [
+        "git",
+        "show",
+        "309570c60c9ad96d02ad234bdc028c34ddf80390:tests/reportEdits.test.ts"
+      ]
+    },
+    {
+      "path": "tests/snapshots.test.ts",
+      "equal": true,
+      "sha256": "e993f1d4978c9029ac3e35e3c45a8dc758c6738e6758f98dfb1a1eec91e981ac",
+      "baseline_read_argv": [
+        "git",
+        "show",
+        "309570c60c9ad96d02ad234bdc028c34ddf80390:tests/snapshots.test.ts"
+      ]
+    },
+    {
+      "path": "vitest.config.ts",
+      "equal": true,
+      "sha256": "46f1a8f3856809d72340bcba349bb2712dc6591c1c73494ffe7db18b845ec951",
+      "baseline_read_argv": [
+        "git",
+        "show",
+        "309570c60c9ad96d02ad234bdc028c34ddf80390:vitest.config.ts"
+      ]
+    },
+    {
+      "roster_pure_fixture_and_cases_verbatim": true,
+      "comparison": "Baseline tests/teamRoster.test.ts substring from function user( to first removed excludes anonymous test, rstrip, is present verbatim in current file."
+    }
+  ]
+}

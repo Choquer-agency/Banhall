@@ -1,0 +1,80 @@
+[
+  {
+    "at": "2026-09-06T02:06:28.965754+00:00",
+    "argv": [
+      "codex",
+      "exec",
+      "--ephemeral",
+      "-m",
+      "gpt-6-astra",
+      "-c",
+      "model_reasoning_effort=\"medium\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "--sandbox",
+      "read-only",
+      "--color",
+      "never",
+      "--output-last-message",
+      "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/.audit/branch-consolidation/B6/review-blind-result.md",
+      "-"
+    ],
+    "prompt_sha256": "7dae914278b2a1a33985c192278fa19ad3a0f0ce7d2abd839c4551978a8e81ab",
+    "spec_sha256": "c7f6d8435d43cd1eb45dab3f581c1077639e6bbb2d9fe238f78c5a86ec06f9ab",
+    "exit_code": 0,
+    "completed_at": "2026-09-06T02:06:58.600688+00:00",
+    "result_exists": true
+  },
+  {
+    "at": "2026-09-06T02:06:28.966180+00:00",
+    "argv": [
+      "codex",
+      "exec",
+      "--ephemeral",
+      "-m",
+      "gpt-6-astra",
+      "-c",
+      "model_reasoning_effort=\"medium\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "--sandbox",
+      "read-only",
+      "--color",
+      "never",
+      "--output-last-message",
+      "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/.audit/branch-consolidation/B6/review-edge-result.md",
+      "-"
+    ],
+    "prompt_sha256": "789b3c3ed19d124795e87209852bb99a853dd9def6a6dcc68c8dd7aa1431d3b6",
+    "spec_sha256": "c7f6d8435d43cd1eb45dab3f581c1077639e6bbb2d9fe238f78c5a86ec06f9ab",
+    "exit_code": 0,
+    "completed_at": "2026-09-06T02:06:52.135154+00:00",
+    "result_exists": true
+  },
+  {
+    "at": "2026-09-06T02:06:28.966235+00:00",
+    "argv": [
+      "codex",
+      "exec",
+      "--ephemeral",
+      "-m",
+      "gpt-6-astra",
+      "-c",
+      "model_reasoning_effort=\"medium\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "--sandbox",
+      "read-only",
+      "--color",
+      "never",
+      "--output-last-message",
+      "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/.audit/branch-consolidation/B6/review-gap-result.md",
+      "-"
+    ],
+    "prompt_sha256": "df4339ab0e762eb52db0621189693fd42165c4ae7fe836b6afe2c57b3201ce8d",
+    "spec_sha256": "c7f6d8435d43cd1eb45dab3f581c1077639e6bbb2d9fe238f78c5a86ec06f9ab",
+    "exit_code": 0,
+    "completed_at": "2026-09-06T02:07:02.308522+00:00",
+    "result_exists": true
+  }
+]

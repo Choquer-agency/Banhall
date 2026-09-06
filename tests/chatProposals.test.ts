@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
+import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import schema from "../convex/schema";
 import { sha256 } from "../convex/lib/contracts";
@@ -50,7 +51,7 @@ async function createFixture(role: Role, authId = "reviewer") {
       kind: "edit", targetText: "exact target", newText: "approved replacement",
       state: "pending", createdAt: 30,
     });
-    return { userId, projectId, reportId, latestReportId, transcriptId, generationId, provenanceId, proposalId, turnId };
+    return { ownerId, userId, projectId, reportId, latestReportId, transcriptId, generationId, provenanceId, proposalId, turnId };
   });
   return { t, caller: t.withIdentity({ subject: authId }), originalHash, ...ids };
 }
@@ -58,6 +59,8 @@ type Fixture = Awaited<ReturnType<typeof createFixture>>;
 
 async function state(f: Fixture) {
   return f.t.run(async (ctx) => ({
+    project: await ctx.db.get(f.projectId),
+    workItems: await ctx.db.query("workItems").collect(),
     report: await ctx.db.get(f.reportId),
     latest: await ctx.db.get(f.latestReportId),
     proposal: await ctx.db.get(f.proposalId),
@@ -67,9 +70,16 @@ async function state(f: Fixture) {
   }));
 }
 
-async function applyAndAssert(role: Role = "manager", authId = "reviewer", ownsProject = false) {
-  const f = await createFixture(role, authId);
-  if (ownsProject) await f.t.run((ctx) => ctx.db.patch(f.projectId, { ownerId: f.userId }));
+async function assignRevision(f: Fixture) {
+  return f.t.run((ctx) => ctx.db.insert("workItems", {
+    projectId: f.projectId, kind: "revision", assigneeId: f.userId, assignerId: f.ownerId,
+    instructions: "Revise the report", blocking: false, status: "open", version: 1,
+    createRequestId: "revision-request", createRequestFingerprint: "revision-fingerprint",
+    createdAt: 1, updatedAt: 1,
+  }));
+}
+
+async function applyAndAssertFixture(f: Fixture) {
   const before = await state(f);
   const result = await f.caller.mutation(api.chatV2.applyProposal, { proposalId: f.proposalId });
   const after = await state(f);
@@ -90,6 +100,12 @@ async function applyAndAssert(role: Role = "manager", authId = "reviewer", ownsP
     sourceTranscriptId: f.transcriptId, sourceTranscriptIds: [f.transcriptId],
     sourceRevisionNumber: 7, reason: "pre_chat_edit", label: "Before AI edit", createdByRole: "system",
   });
+}
+
+async function applyAndAssert(role: Role = "manager", authId = "reviewer", ownsProject = false) {
+  const f = await createFixture(role, authId);
+  if (ownsProject) await f.t.run((ctx) => ctx.db.patch(f.projectId, { ownerId: f.userId }));
+  await applyAndAssertFixture(f);
 }
 
 describe("proposal access", () => {
@@ -154,6 +170,68 @@ describe("proposal creation integrity", () => {
     expect(result).toMatchObject({ ok: false, stopped: true });
     expect(await state(f)).toEqual(before);
   });
+  test("a queued sendMessage turn saves its association and rejects absent targets without writes", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("ANTHROPIC_API_KEY", "fixture-only-no-provider-execution");
+    try {
+      const f = await createFixture("manager", "queued-manager");
+      agentTest.register(f.t);
+      const sent = await f.caller.mutation(api.chatV2.sendMessage, {
+        reportId: f.reportId, content: "Help revise this report.", newThread: true,
+      });
+      const queuedState = () => f.t.run(async (ctx) => ({
+        threads: await ctx.db.query("agentChatThreads").collect(),
+        turns: await ctx.db.query("chatTurns").collect(),
+      }));
+      const queued = await queuedState();
+      expect(queued.threads.filter((row) => row.agentThreadId === sent.threadId)).toHaveLength(1);
+      expect(queued.turns.filter((row) => row.promptMessageId === sent.messageId)).toHaveLength(1);
+      expect(queued.threads.find((row) => row.agentThreadId === sent.threadId)).toMatchObject({
+        projectId: f.projectId, reportId: f.reportId,
+      });
+      expect(queued.turns.find((row) => row.promptMessageId === sent.messageId)).toMatchObject({
+        agentThreadId: sent.threadId, userId: f.userId, status: "queued", stepCount: 0,
+      });
+      const before = await state(f);
+      const args = {
+        agentThreadId: sent.threadId, promptMessageId: sent.messageId,
+        toolCallId: "queued-tool", kind: "edit" as const,
+        targetText: "exact target", newText: "queued replacement",
+      };
+      expect(await f.t.mutation(internal.chatV2.saveProposal, {
+        ...args, targetText: "wording absent from the current report",
+      })).toMatchObject({ ok: false, reason: expect.stringContaining("not in the CURRENT REPORT") });
+      expect(await state(f)).toEqual(before);
+      expect(await queuedState()).toEqual(queued);
+      const first = await f.t.mutation(internal.chatV2.saveProposal, args);
+      expect(first.ok).toBe(true);
+      if (!first.ok) throw new Error("Expected successful queued proposal save");
+      const saved = await state(f);
+      const rows = saved.proposals.filter((row) => row.agentThreadId === sent.threadId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        _id: first.proposalId, ...args, projectId: f.projectId, reportId: f.reportId,
+        requireUniqueTarget: true, state: "pending",
+      });
+      expect(saved.report).toEqual(before.report);
+      expect(saved.latest).toEqual(before.latest);
+      expect(saved.snapshots).toEqual(before.snapshots);
+      expect(saved.project).toEqual(before.project);
+      expect(saved.workItems).toEqual(before.workItems);
+      expect(saved.wordingEvents).toEqual(before.wordingEvents);
+      expect(await f.t.mutation(internal.chatV2.saveProposal, args)).toEqual(first);
+      expect(await f.t.mutation(internal.chatV2.saveProposal, {
+        ...args, newText: "different queued retry wording",
+      })).toEqual(first);
+      expect(await state(f)).toEqual(saved);
+      expect(await queuedState()).toEqual(queued);
+    } finally {
+      // Discard scheduled provider work without advancing or flushing it.
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
+  });
   test("deduplicates repeated tool execution", async () => {
     const f = await createFixture("manager");
     const args = { agentThreadId: "agent-thread", toolCallId: "tool-repeat", kind: "edit" as const,
@@ -162,23 +240,38 @@ describe("proposal creation integrity", () => {
     const second = await f.t.mutation(internal.chatV2.saveProposal, args);
     expect(first.ok).toBe(true);
     expect(second).toEqual(first);
-    expect((await state(f)).proposals.filter((row) => row.toolCallId === "tool-repeat")).toHaveLength(1);
+    const saved = await state(f);
+    expect(await f.t.mutation(internal.chatV2.saveProposal, {
+      ...args, newText: "different retry wording",
+    })).toEqual(first);
+    expect(await state(f)).toEqual(saved);
+    const rows = saved.proposals.filter((row) => row.toolCallId === "tool-repeat");
+    expect(rows).toHaveLength(1);
+    if (!first.ok) throw new Error("Expected successful proposal save");
+    expect(rows[0]).toMatchObject({ _id: first.proposalId, newText: args.newText });
   });
 });
 
 describe("proposal wording edits", () => {
   test("updates candidate wording without changing the canonical target", async () => {
     const f = await createFixture("manager");
+    const before = await state(f);
     await expect(f.caller.mutation(api.chatV2.updateProposalWording, {
       proposalId: f.proposalId, newText: "writer-polished replacement",
     })).resolves.toEqual({ updated: true });
     const after = await state(f);
     expect(after.proposal?.targetText).toBe("exact target");
     expect(after.proposal?.newText).toBe("writer-polished replacement");
+    expect(after.proposal?.wordingEditedBy).toBe(f.userId);
+    expect(after.proposal?.wordingEditCount).toBe(1);
     expect(after.wordingEvents).toHaveLength(1);
     expect(after.wordingEvents[0]).toMatchObject({ proposalId: f.proposalId,
+      projectId: f.projectId, reportId: f.reportId, userId: f.userId,
       originalText: "approved replacement", editedText: "writer-polished replacement" });
     expect(after.report?.content).toBe(originalContent);
+    expect(after.report).toEqual(before.report);
+    expect(after.latest).toEqual(before.latest);
+    expect(after.snapshots).toEqual(before.snapshots);
   });
   test("refuses to change replacement targets", async () => {
     const f = await createFixture("manager");
@@ -283,12 +376,45 @@ describe("proposal apply integrity", () => {
     const result = await f.caller.mutation(api.chatV2.applyProposal, { proposalId: f.proposalId });
     expect(result.count).toBe(2);
     const after = await state(f);
-    expect(after.report?.content).toContain("Update this approved replacement.");
+    expect(after.report?.content).toBe(JSON.stringify({
+      type: "doc", content: [{ type: "paragraph", content: [
+        { type: "text", text: "Update this approved replacement." },
+      ] }],
+    }));
     expect(after.report?.revisionNumber).toBe(8);
   });
   test("apply denies an unrelated authenticated writer without changing proposal or audit state", async () => {
     const f = await createFixture("writer", "unrelated-writer");
     const before = await state(f);
+    await expect(f.caller.mutation(api.chatV2.applyProposal, { proposalId: f.proposalId }))
+      .rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+    expect(await state(f)).toEqual(before);
+  });
+  test("an open revision assignment lets a non-owner writer apply with the complete audit tuple", async () => {
+    const f = await createFixture("writer", "assigned-writer");
+    expect(f.userId).not.toBe(f.ownerId);
+    const workItemId = await assignRevision(f);
+    expect(await f.t.run((ctx) => ctx.db.get(workItemId))).toMatchObject({ status: "open", assigneeId: f.userId });
+    await applyAndAssertFixture(f);
+  });
+  test("a completed revision assignment denies a fresh pending proposal without writes", async () => {
+    const f = await createFixture("writer", "closed-assignee");
+    const workItemId = await assignRevision(f);
+    await f.t.run((ctx) => ctx.db.patch(workItemId, { status: "completed" }));
+    const before = await state(f);
+    expect(before.proposal?.state).toBe("pending");
+    expect(before.workItems).toMatchObject([{ _id: workItemId, status: "completed" }]);
+    await expect(f.caller.mutation(api.chatV2.applyProposal, { proposalId: f.proposalId }))
+      .rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+    expect(await state(f)).toEqual(before);
+  });
+  test("creator attribution grants no prose entitlement without ownership or assignment", async () => {
+    const f = await createFixture("writer", "creator-only");
+    await f.t.run((ctx) => ctx.db.patch(f.projectId, { createdBy: f.userId }));
+    const before = await state(f);
+    expect(before.project).toMatchObject({ createdBy: f.userId, ownerId: f.ownerId });
+    expect(f.userId).not.toBe(f.ownerId);
+    expect(before.workItems).toEqual([]);
     await expect(f.caller.mutation(api.chatV2.applyProposal, { proposalId: f.proposalId }))
       .rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
     expect(await state(f)).toEqual(before);
@@ -320,10 +446,22 @@ describe("proposal rejection", () => {
     await f.caller.mutation(api.chatV2.rejectProposal, { proposalId: f.proposalId });
     expect((await state(f)).proposal?.state).toBe("rejected");
   });
+  test("a manager cannot reject an applied proposal or change its audit state", async () => {
+    const f = await createFixture("manager");
+    await expect(f.caller.mutation(api.chatV2.applyProposal, { proposalId: f.proposalId }))
+      .resolves.toEqual({ applied: true, count: 1 });
+    const before = await state(f);
+    expect(before.proposal?.state).toBe("applied");
+    await expect(f.caller.mutation(api.chatV2.rejectProposal, { proposalId: f.proposalId }))
+      .rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+    expect(await state(f)).toEqual(before);
+  });
   test("an anonymous caller cannot reject a proposal", async () => {
     const f = await createFixture("writer");
+    const before = await state(f);
     await expect(f.t.mutation(api.chatV2.rejectProposal, { proposalId: f.proposalId }))
       .rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
-    expect((await state(f)).proposal?.state).toBe("pending");
+    expect(await state(f)).toEqual(before);
+    expect(before.proposal?.state).toBe("pending");
   });
 });
