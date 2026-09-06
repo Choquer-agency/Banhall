@@ -1,0 +1,29 @@
+{
+  "verified_artifacts": [
+    {
+      "path": "src/lib/components/editor/ModelTestSummary.svelte",
+      "sha256": "68c7a74ff7225693f147469f28df8963ad3082e5c8517af93d583797f0c1fe24"
+    },
+    {
+      "path": "src/lib/components/editor/ModelTestSummary.component.test.ts",
+      "sha256": "ff28ca647f31d0becf376e7836888f3d7d0e9ffd184a770f05879b7ee68499cd"
+    },
+    {
+      "path": ".audit/quality-pass/Q5/collision-after.png",
+      "sha256": "ca8b46f4c6ae990ef81d2164743ef48449bd4b645c9fa7c3ec45e92abf497243"
+    },
+    {
+      "path": ".audit/quality-pass/Q5/collision-before.png",
+      "sha256": "7da2f358c5ea2e4f5ccaf69d011a37d89c03cf9251bc1a68ce5b803dc8196a8c"
+    },
+    {
+      "path": ".audit/quality-pass/Q5/unique-after.png",
+      "sha256": "ce0b2c906bae9b5fb8a6250899a16dd65bf757566095e1187e8e30a60a0253e7"
+    },
+    {
+      "path": ".audit/quality-pass/Q5/unique-before.png",
+      "sha256": "ce0b2c906bae9b5fb8a6250899a16dd65bf757566095e1187e8e30a60a0253e7"
+    }
+  ],
+  "ordinary_capture_identical": true
+}

@@ -32,7 +32,8 @@
           </tr>
         </thead>
         <tbody>
-          {#each summary.rows as row (row.optionPosition)}
+          <!-- Positions and models can repeat; these stateless rows use their index. -->
+          {#each summary.rows as row, index (index)}
             <tr class="border-b border-gray-50 last:border-0">
               <td class="py-2 pr-4 text-gray-700">
                 Option {row.optionPosition}

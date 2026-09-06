@@ -1,0 +1,11 @@
+- The final canonical verification gate remains outstanding. The seven focused tests and `npm run check` do not establish that the complete repository gate passes with this patch.
+- The spec still marks every execution task unchecked and its status as `in-progress`, while the evidence declares all implementation and focused verification tasks complete. Reconcile the tracking with the recorded results.
+- The mounted-update test does not isolate a true reorder of an unchanged set of rows. Add a `[first, second]` → `[second, first]` transition to directly verify the spec’s reorder guarantee.
+- Loading and null states are tested only on initial mount. Add populated → undefined/null → populated transitions to check that previously rendered scores disappear and return correctly.
+- No test changes `generationId` while the component remains mounted. Add coverage for switching generations so the table’s query subscription and displayed scores are checked together.
+- The cell assertions use `textContent`, which includes hidden content. Add browser visibility assertions to support the acceptance claim that every returned row is visible.
+- The fully identical-row fixture uses `[first, first]`, repeating one object reference. Also test two independently allocated, value-identical objects to represent distinct rows returned by the query.
+- The collision screenshots use different before and after fixtures. Capture the repaired distinct-label fixture as well so reviewers can compare the same reproduction across the change.
+- `artifact-sha256.txt` is described as binding implementation files and PNGs, but not the baseline/fixed logs or exit records. Include those verification artifacts in the manifest so the reported outcomes are bound to the retained evidence.
+- The reused baseline proof checks Q4’s recorded source subset, which does not by itself establish that all verification-relevant files stayed unchanged. Record the broader working-tree comparison, including configuration, dependencies, and the query stub, to substantiate baseline reuse.
+- The baseline failure record identifies the production-source hash but does not explicitly bind the test-file bytes used for that run. Record the baseline test hash and compare it with the repaired run to establish that the same regression failed before and passed after.
