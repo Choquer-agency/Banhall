@@ -140,6 +140,12 @@ describe("WorkspaceRail", () => {
     expect(group?.getAttribute("aria-expanded")).toBe("true");
     expect(group?.firstElementChild?.tagName).toBe("svg");
 
+    const links = Array.from(document.querySelectorAll<HTMLAnchorElement>("#workspace-admin-links a"));
+    expect(links.map((link) => [link.textContent?.trim(), link.getAttribute("href")])).toEqual(ADMIN_DESTINATIONS);
+    for (const link of links) {
+      expect(link.querySelectorAll("[data-admin-icon-tone] svg")).toHaveLength(1);
+    }
+
     const iconTiles = Array.from(document.querySelectorAll<HTMLElement>("[data-admin-icon-tone]"));
     expect(iconTiles).toHaveLength(ADMIN_DESTINATIONS.length);
     expect(new Set(iconTiles.map((tile) => getComputedStyle(tile).backgroundColor)).size).toBe(ADMIN_DESTINATIONS.length);
@@ -213,6 +219,15 @@ describe("WorkspaceRail", () => {
     __setQueryData("users:getCurrentUser", { role: "admin", name: "Admin Writer", isDeveloper: true });
     await render(WorkspaceRail, baseProps());
 
+    const home = navLink("Home");
+    const projects = navLink("Projects");
+    const admin = document.querySelector<HTMLElement>("[data-rail-admin]");
+    expect(home?.isConnected).toBe(true);
+    expect(projects?.isConnected).toBe(true);
+    expect(admin?.isConnected).toBe(true);
+    if (!home || !projects || !admin) throw new Error("Workspace navigation nodes are missing");
+    expect(home.compareDocumentPosition(projects) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(projects.compareDocumentPosition(admin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(document.querySelector("[data-rail-admin]")?.className).toContain("mt-5");
   });
 

@@ -1,0 +1,6 @@
+{
+  "src/lib/components/workspace/WorkspaceHeader.svelte": "3e0b5a0f83a4d07c10ab2f8fae33633dacc0f4a280be43ab9dd094fa08f3fe46",
+  "src/lib/components/workspace/WorkspaceHeader.component.test.ts": "f07736dc5551dc116784f1d82f34727ad4052ebc960f8c62b6887ff4df9d0b16",
+  "src/lib/components/workspace/WorkspaceRail.component.test.ts": "8a0bff8f967ff892d43eafa3559ab22dd3376ea018db804b15c163448ce81ba0",
+  "src/lib/components/ui/Button.component.test.ts": "ed831aabcb87a4fe16e1a47df0e91627a84f8a698e28383edda3a874497fd5bb"
+}

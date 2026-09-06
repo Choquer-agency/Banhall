@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "vitest.component.config.ts",
+    "src/lib/components/workspace/WorkspaceHeader.component.test.ts",
+    "src/lib/components/ui/Button.component.test.ts",
+    "src/lib/components/workspace/WorkspaceRail.component.test.ts"
+  ],
+  "exit": 0,
+  "log_sha256": "366d8dbf0e899626ed8676871519b78211369161fed5b5b563cfa46ee0798f0a"
+}

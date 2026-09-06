@@ -1,0 +1,12 @@
+- The responsive test covers only 390px and 1440px. Add cases immediately below and at `sm` to verify where the 44px minimum stops and desktop geometry resumes.
+- The mobile test does not cover a narrower viewport or crowded header content. Verify that the enlarged action remains fully visible without overlapping or displacing adjacent controls.
+- Measuring the anchor’s rectangle does not establish that the entire 44×44 area is clickable. Add hit-testing near its edges to detect clipping or interception by neighboring elements.
+- The mobile label uses `hidden sm:inline`, and the icon is `aria-hidden`. Verify that the rendered mobile link still has the accessible name “New project”; the supplied markup does not show an alternative name.
+- Desktop width preservation is not demonstrated. The evidence retains only the final desktop width, while the assertion checks height alone. Capture a baseline comparison or assert the intended compact layout constraints.
+- The larger mobile control has no accompanying check for header alignment, clipping, or focus-ring visibility. Existing class assertions cannot establish that these remain correct after the geometry change.
+- The rail’s `compareDocumentPosition` assertions prove DOM order, but CSS can visually reorder those same nodes. Add rendered-position checks if the intended guarantee is visible Home → Projects → Admin ordering.
+- Counting one SVG per admin link does not verify that each destination receives the correct icon. A repeated or incorrectly mapped icon would pass every new assertion.
+- Distinct computed icon-tile backgrounds do not establish that the colors match the intended semantic roles. Incorrect but mutually distinct colors would still pass; check the expected destination-to-tone mapping.
+- The permanent `console.info("B8 New project bounds", ...)` embeds batch-specific evidence logging in a recurring test. Move this output into an explicit diagnostic mode or assertion failure context.
+- The required final verification remains outstanding: the evidence explicitly defers `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` and separate pointer proof. The three passing suites establish bounded coverage, not completion of the stated acceptance gate.
+- The verification claims depend on ignored local artifacts that are absent from the supplied content. Preserve accessible review artifacts containing the logs, source hashes, protection comparison, and final diff so another reviewer can independently connect the reported results to the reviewed patch.

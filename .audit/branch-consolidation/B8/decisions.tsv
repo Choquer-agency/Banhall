@@ -1,0 +1,2 @@
+ts	phase	decision	why	evidence	result
+2026-09-06T02:29:51.647037+00:00	prove	Apply only local responsive minimum dimensions	Reproduced mobile anchor below approved target	.audit/branch-consolidation/B8/before.log;.audit/branch-consolidation/B8/bounds.log	41 tests pass; parent gate pending
