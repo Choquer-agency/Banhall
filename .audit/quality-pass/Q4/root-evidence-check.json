@@ -1,0 +1,75 @@
+{
+  "paths_compared": 6480,
+  "current_differences_after_test_only_review_patch_started": [
+    "src/lib/components/project/CurrentProjectReviewFeedback.component.test.ts"
+  ],
+  "index_equal": true,
+  "retained_pngs_hash_verified": 16,
+  "directory_symlinks_separately_compared_with_Q2_and_HEAD": [
+    {
+      "path": ".claude/skills/brandkit",
+      "target": "../../.agents/skills/brandkit",
+      "sha256": "8b52afe126766a880d6320e099d7c9f00bef751a258cd85f794a7539466109e5"
+    },
+    {
+      "path": ".claude/skills/design-taste-frontend",
+      "target": "../../.agents/skills/design-taste-frontend",
+      "sha256": "df3632bd1680dfcd306dc80d388d6bd76e4b4de8d52643f7de39a617c6d6d05a"
+    },
+    {
+      "path": ".claude/skills/design-taste-frontend-v1",
+      "target": "../../.agents/skills/design-taste-frontend-v1",
+      "sha256": "37fc26bccf8d55183c6a0ce259d1dc9a2491e3de4dcc5e22786e79c846286456"
+    },
+    {
+      "path": ".claude/skills/full-output-enforcement",
+      "target": "../../.agents/skills/full-output-enforcement",
+      "sha256": "a701331fb7fa83a2fdf16b67da1365729c88b53dfdb5b78eef4b7689d753a26b"
+    },
+    {
+      "path": ".claude/skills/gpt-taste",
+      "target": "../../.agents/skills/gpt-taste",
+      "sha256": "814c082f0d819fa51cc35d495c8019c73a83e575b2a39ac83c1e59fb6fd02804"
+    },
+    {
+      "path": ".claude/skills/high-end-visual-design",
+      "target": "../../.agents/skills/high-end-visual-design",
+      "sha256": "49a74b46849def54589b46eabf13ab8c86dd1063bd3b51b418752c1fc2c9d78b"
+    },
+    {
+      "path": ".claude/skills/image-to-code",
+      "target": "../../.agents/skills/image-to-code",
+      "sha256": "77ba63826c3eec3ff7177e8a08bfddc031df3c06914f2f97f5c425a7bfbfd000"
+    },
+    {
+      "path": ".claude/skills/imagegen-frontend-mobile",
+      "target": "../../.agents/skills/imagegen-frontend-mobile",
+      "sha256": "e5f33e20290b45056cbea8812384782407b3ecf7c166ebf561c9fb0c06e3a9fc"
+    },
+    {
+      "path": ".claude/skills/imagegen-frontend-web",
+      "target": "../../.agents/skills/imagegen-frontend-web",
+      "sha256": "30980a1699d30de9b4af7bd164d79d12394364d8aae32916f23f206664ab5ad2"
+    },
+    {
+      "path": ".claude/skills/industrial-brutalist-ui",
+      "target": "../../.agents/skills/industrial-brutalist-ui",
+      "sha256": "9aa4e7668745f14f2d05646fe24677e3055d427df75333dcb6a9228dbcdffb6b"
+    },
+    {
+      "path": ".claude/skills/minimalist-ui",
+      "target": "../../.agents/skills/minimalist-ui",
+      "sha256": "34682360c89b147cc9d44fd53b4752cad0e7e6587d26e618bf19458149986b7f"
+    },
+    {
+      "path": ".claude/skills/redesign-existing-projects",
+      "target": "../../.agents/skills/redesign-existing-projects",
+      "sha256": "416e310c4f67791547f6397e051aa0e0cd47b967fe3d57c097f0c9465468ae87"
+    },
+    {
+      "path": ".claude/skills/stitch-design-taste",
+      "target": "../../.agents/skills/stitch-design-taste",
+      "sha256": "d2737c3b24d2235c775c5dbd53f6fdfbe0a487060917fc6a8d0f4f1c387e11b8"
+    }
+  ]
+}

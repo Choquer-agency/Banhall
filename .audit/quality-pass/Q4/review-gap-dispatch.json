@@ -1,0 +1,23 @@
+{
+  "at": "2026-09-06T05:02:46.003809+00:00",
+  "argv": [
+    "codex",
+    "exec",
+    "--ephemeral",
+    "-m",
+    "gpt-6-astra",
+    "-c",
+    "model_reasoning_effort=\"medium\"",
+    "-c",
+    "approval_policy=\"never\"",
+    "--sandbox",
+    "read-only",
+    "--color",
+    "never",
+    "--output-last-message",
+    "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass/.audit/quality-pass/Q4/review-gap-result.md",
+    "-"
+  ],
+  "prompt_sha256": "9f1fbdde71bfc749ac6b732d6535736b61e24d35537b5e5b5406563753b9c921",
+  "spec_sha256": "46521717636504224fadf4626d7f28568da688199363df917b366f04d1ca9186"
+}

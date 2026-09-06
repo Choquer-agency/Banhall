@@ -1,0 +1,9 @@
+ts	phase	decision	why	evidence	result
+2026-09-06T04:57:05.548330+00:00	baseline	Reuse verified Q2 browser baseline	Spec permits baseline reuse; all checked browser sources match	.audit/quality-pass/Q4/baseline-browser-proof.json	confirmed
+2026-09-06T04:57:05.548788+00:00	implementation	Use existing supporting panel and callback	Spec limits change to feedback presence	_bmad-output/implementation-artifacts/spec-quality-Q4.md	regression fixture runs before source edit
+2026-09-06T05:01:37.126668+00:00	verification	Retain failing baseline before repair	Missing panel reproduced with real editor at both widths	.audit/quality-pass/Q4/baseline-tests.log	4 failed; 6 passed
+2026-09-06T05:01:37.126833+00:00	fixture	Target regeneration dialog by accessible name	Existing chat also has dialog semantics	.audit/quality-pass/Q4/fixture-refinement-tests.log	final targeted run 10 passed
+2026-09-06T05:01:37.126836+00:00	verification	Use documented public placeholders	Standalone svelte-check needs PUBLIC_CONVEX_URL	.audit/quality-pass/Q4/check.log	0 errors; 0 warnings
+2026-09-06T05:01:37.126838+00:00	review	Record unavailable independent review	Collaboration tool rejected spawn due missing thread	.audit/quality-pass/Q4/independent-review-unavailable.txt	independent three-lens review incomplete
+2026-09-06T05:01:37.126840+00:00	visual	Retain phone default and closed-chat reading states	Spec authorizes responsive validation without redesign	.audit/quality-pass/Q4/screenshots.json	16 captures retained
+2026-09-06T05:02:27.979148+00:00	verification	Accept deterministic gate result; retain review gap	All nine canonical steps passed with candidate bytes preserved	.audit/quality-pass/Q4/verification-result.json	gate passed; independent review incomplete

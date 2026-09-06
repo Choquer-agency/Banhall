@@ -1,0 +1,82 @@
+[
+  {
+    "path": ".audit/quality-pass/Q4/1440-default-after.png",
+    "sha256": "5b5bc585cd0a6c6b7491d8e1128f8a37968bfa1500185a8737e622e5d06c8cd5",
+    "bytes": 99766
+  },
+  {
+    "path": ".audit/quality-pass/Q4/1440-default-before.png",
+    "sha256": "bf3b945e54ddc440bcc1f9e6288e43713c3fe6c686e69990f4386d9511315d4e",
+    "bytes": 89861
+  },
+  {
+    "path": ".audit/quality-pass/Q4/1440-editor-after.png",
+    "sha256": "4e4e4f4cc1688d0aa6c27892f4babf78d405515b2194ec44e9147ddd52fc6099",
+    "bytes": 77193
+  },
+  {
+    "path": ".audit/quality-pass/Q4/1440-editor-before.png",
+    "sha256": "1685c7a2d0b5f4ed947108e0474dc35e1bc6a72e6d6475be41d7212f73a3158a",
+    "bytes": 63724
+  },
+  {
+    "path": ".audit/quality-pass/Q4/1440-suggestion-after.png",
+    "sha256": "b4ae10832521b27c07129768afce994ef2f6687dcee1f14827c6fe899e62db7c",
+    "bytes": 71412
+  },
+  {
+    "path": ".audit/quality-pass/Q4/1440-summary-after.png",
+    "sha256": "3cbc9af2363e867aac3b6e52877d1c977aa1a19bfe386e40a896529145170bfa",
+    "bytes": 72860
+  },
+  {
+    "path": ".audit/quality-pass/Q4/1440-supporting-after.png",
+    "sha256": "4d45cf503a750468bfe84f6f3e41251aa8172b83db84a369a442053255843b56",
+    "bytes": 71321
+  },
+  {
+    "path": ".audit/quality-pass/Q4/1440-supporting-before.png",
+    "sha256": "12deb1b1e15b3c24813d5fcff0673a56786a706e67ee1b092eebe52dcf69610e",
+    "bytes": 63970
+  },
+  {
+    "path": ".audit/quality-pass/Q4/390-default-after.png",
+    "sha256": "9b124069d277b4633e8692854bcfa894ec6ad2e026d6cb90e4c268cee6120c9d",
+    "bytes": 57612
+  },
+  {
+    "path": ".audit/quality-pass/Q4/390-default-before.png",
+    "sha256": "95cab9d06c4badb3900fe4851dc82b4c80dbe35fbebc0f4f6b946b2842d95fa1",
+    "bytes": 57713
+  },
+  {
+    "path": ".audit/quality-pass/Q4/390-editor-after.png",
+    "sha256": "ffc63c1ed0b9ce47939598994a68c143ff0283c60fded679e11c82392d8f076e",
+    "bytes": 44193
+  },
+  {
+    "path": ".audit/quality-pass/Q4/390-editor-before.png",
+    "sha256": "ad9772a32d9c45dc60f3d47b8dd22acdc69659826d92a7ad20ee0af8c3334d25",
+    "bytes": 40962
+  },
+  {
+    "path": ".audit/quality-pass/Q4/390-suggestion-after.png",
+    "sha256": "2c45c212ef11b8b25944914eefe9bbcbe2f0ccb47265dd165caa27ea97bdd465",
+    "bytes": 47569
+  },
+  {
+    "path": ".audit/quality-pass/Q4/390-summary-after.png",
+    "sha256": "d15f125ecd9d5ccd31a58a8d7644b698c9125877c6a657c0518b96c02abb5e8c",
+    "bytes": 50259
+  },
+  {
+    "path": ".audit/quality-pass/Q4/390-supporting-after.png",
+    "sha256": "df45935461b3d81c2b4472c700739c876d3359af7cb9a8cdb8068dbf62564561",
+    "bytes": 47364
+  },
+  {
+    "path": ".audit/quality-pass/Q4/390-supporting-before.png",
+    "sha256": "34cca9ab155bff0b1d6fed342db25b14bbd8a8dd4e7b83149870a67ad8613736",
+    "bytes": 38124
+  }
+]
