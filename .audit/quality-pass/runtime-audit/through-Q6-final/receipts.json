@@ -1,0 +1,78 @@
+{
+  "commit": "73b0b0fe75d16e248ea794b73289574c1530aedb",
+  "archive_records": 56,
+  "issues": [],
+  "committed_symlink_checks": [
+    {
+      "path": ".claude/skills/brandkit",
+      "committed_Q6_target_matches_prior_proof": true,
+      "sha256": "8b52afe126766a880d6320e099d7c9f00bef751a258cd85f794a7539466109e5"
+    },
+    {
+      "path": ".claude/skills/design-taste-frontend",
+      "committed_Q6_target_matches_prior_proof": true,
+      "sha256": "df3632bd1680dfcd306dc80d388d6bd76e4b4de8d52643f7de39a617c6d6d05a"
+    },
+    {
+      "path": ".claude/skills/design-taste-frontend-v1",
+      "committed_Q6_target_matches_prior_proof": true,
+      "sha256": "37fc26bccf8d55183c6a0ce259d1dc9a2491e3de4dcc5e22786e79c846286456"
+    },
+    {
+      "path": ".claude/skills/full-output-enforcement",
+      "committed_Q6_target_matches_prior_proof": true,
+      "sha256": "a701331fb7fa83a2fdf16b67da1365729c88b53dfdb5b78eef4b7689d753a26b"
+    },
+    {
+      "path": ".claude/skills/gpt-taste",
+      "committed_Q6_target_matches_prior_proof": true,
+      "sha256": "814c082f0d819fa51cc35d495c8019c73a83e575b2a39ac83c1e59fb6fd02804"
+    },
+    {
+      "path": ".claude/skills/high-end-visual-design",
+      "committed_Q6_target_matches_prior_proof": true,
+      "sha256": "49a74b46849def54589b46eabf13ab8c86dd1063bd3b51b418752c1fc2c9d78b"
+    },
+    {
+      "path": ".claude/skills/image-to-code",
+      "committed_Q6_target_matches_prior_proof": true,
+      "sha256": "77ba63826c3eec3ff7177e8a08bfddc031df3c06914f2f97f5c425a7bfbfd000"
+    },
+    {
+      "path": ".claude/skills/imagegen-frontend-mobile",
+      "committed_Q6_target_matches_prior_proof": true,
+      "sha256": "e5f33e20290b45056cbea8812384782407b3ecf7c166ebf561c9fb0c06e3a9fc"
+    },
+    {
+      "path": ".claude/skills/imagegen-frontend-web",
+      "committed_Q6_target_matches_prior_proof": true,
+      "sha256": "30980a1699d30de9b4af7bd164d79d12394364d8aae32916f23f206664ab5ad2"
+    },
+    {
+      "path": ".claude/skills/industrial-brutalist-ui",
+      "committed_Q6_target_matches_prior_proof": true,
+      "sha256": "9aa4e7668745f14f2d05646fe24677e3055d427df75333dcb6a9228dbcdffb6b"
+    },
+    {
+      "path": ".claude/skills/minimalist-ui",
+      "committed_Q6_target_matches_prior_proof": true,
+      "sha256": "34682360c89b147cc9d44fd53b4752cad0e7e6587d26e618bf19458149986b7f"
+    },
+    {
+      "path": ".claude/skills/redesign-existing-projects",
+      "committed_Q6_target_matches_prior_proof": true,
+      "sha256": "416e310c4f67791547f6397e051aa0e0cd47b967fe3d57c097f0c9465468ae87"
+    },
+    {
+      "path": ".claude/skills/stitch-design-taste",
+      "committed_Q6_target_matches_prior_proof": true,
+      "sha256": "d2737c3b24d2235c775c5dbd53f6fdfbe0a487060917fc6a8d0f4f1c387e11b8"
+    }
+  ],
+  "root_acceptance_source_checks": {
+    "src/lib/components/ui/UserMenu.svelte": true,
+    "src/lib/components/ui/UserMenu.component.test.ts": true
+  },
+  "runner_sha256": "1236a5d375bc00340f06e7a1ac4b69e5954c925b1879257ee7ed7bf5ef28d4f8",
+  "prior_runner_sha256": "ce8358efe353657bf295fe7c686e8820529c5cf7e43333a2742e8fbae75fa460"
+}

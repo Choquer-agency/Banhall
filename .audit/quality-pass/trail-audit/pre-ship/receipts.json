@@ -1,0 +1,102 @@
+{
+  "reviewer": {
+    "dispatch_configuration": {
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "medium",
+      "fork_turns": "none"
+    },
+    "served_model_runtime_metadata": "unavailable in this audit session"
+  },
+  "scope": {
+    "start_line": 16408,
+    "end_line": 19203,
+    "scope_receipt": {
+      "path": ".audit/quality-pass/trail-final-scope.json",
+      "sha256": "df7a0d2a0451a58cbd5a931e06b89ebfb535c38246fc58583e0703b99fc9cfbe"
+    },
+    "transcript": {
+      "path": "/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/banhall-quality-trail-final-49dag9l_/transcript.jsonl",
+      "sha256": "fa0a38e3f3c1458d656f3393b9ae4d68e0c08568a3508b4c4dc88cf5ea876c87"
+    },
+    "messages": {
+      "path": "/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/banhall-quality-trail-final-49dag9l_/messages.json",
+      "sha256": "46248e98410c93bc7876823959ae5903c6f9f7cfcb30f4c346e91c0544326874"
+    },
+    "pending_external_actions": ["push", "hosted checks", "PR review", "merge", "deployment status"]
+  },
+  "trail": {
+    "decisions": {"path": ".audit/quality-pass/decisions.tsv", "sha256": "ed72f683c33dc2ba4ec8a3a1d67c5c0d8de82d67405cfe2eff8ed59c93ce3092"},
+    "state": {"path": ".audit/quality-pass/state.json", "sha256": "c37eb94acc77666a09dab1dc74469a445ead5732dca3888f24a2f5cb0149cc19"},
+    "review_supersessions": {"path": ".audit/quality-pass/review-supersessions.json", "sha256": "be5942c4a4bf01007db35bc5ee88d4359e8bf76214ad4922f51287dc7a7612d9"}
+  },
+  "q7": {
+    "commit": "e2cfb873b32586d1a620a75e1de61cc49d323eb3",
+    "evidence_sha256": "0a845791dfdcdc5e41f673035bd2720dd0bcc2e38a827bdf26b5dfe3e59d77f7",
+    "post_review_evidence_sha256": "d63d756908f3d476c672c025cf7db847fd59d0e66899008f6dfdce1afc4d5e0a",
+    "review_triage_sha256": "d2cace7b1933277d3e3bb9dff400f3ca424d05af888a2a69cd557c09027f32ef",
+    "archive_records": 72,
+    "focused_result": "53 unit and 20 browser tests pass; unchanged backend suite has 17 passes"
+  },
+  "q8": {
+    "commit": "390eb452ab840f3e6a2a16711f61d3c6ddb90c38",
+    "evidence_sha256": "b71d0126a37203ed9cdcc4051310b4f8358bb79764714d5eee467397ba1b0acf",
+    "review_triage_sha256": "bc889475ab70cc882efa26ba83022a50b45c1d3c245bd3c18f8e1b7e5fd7734b",
+    "post_review_dependencies_sha256": "549436497f184bc50d8cd1063d7c1e2fee61caf42599159ee7355e895d80a6ff",
+    "post_review_sdk_sha256": "f68c22ef2b24c208d1be4bf10a27b5dfaa4118d0a1334ee076bd81a022d0ad59",
+    "post_review_runtime_sha256": "821fce1127d178a23bf8e1f13cbab06222ec02db05ff202e5fabccc049a76364",
+    "archive_records": 117,
+    "omit_dev_complete_tree_exit": 1,
+    "omit_dev_missing_svelte_peer_references": 11,
+    "qualification": "React and Better Auth targeted production subset passes; no whole omit-dev tree health claim."
+  },
+  "final_gate": {
+    "result_path": ".audit/quality-pass/final-gate/result.json",
+    "result_sha256": "6065fba26faf16a223523dd812b399e524c53f2e5c794f6953bd382e7ee8cb3f",
+    "log_sha256": "fe1e0b25759ece4eaceb07ad0ca8a70080563c9cdcf713dfe2c75951bc201c65",
+    "source_before_sha256": "9363ab2b09145db4d0fda0e138addf3e99f844589b731ce2546f3fa4ff9bb495",
+    "source_after_sha256": "9363ab2b09145db4d0fda0e138addf3e99f844589b731ce2546f3fa4ff9bb495",
+    "exit_code": 0,
+    "unit_tests": 2077,
+    "unit_files": 156,
+    "browser_tests": 522,
+    "browser_file_executions": 66,
+    "paths_verified": 6870,
+    "index_unchanged": true,
+    "restoration_count": 0,
+    "archive_records_verified": 529,
+    "archive_mismatches": 0
+  },
+  "native_closure": {
+    "invocation_sha256": "fb653315b0996e72ec45d02fa3bd139c7f723546926dbd1b06c834bcb15967bf",
+    "native_return_sha256": "b6965fac48070e86f1a08e579bfcd90ef9bd8face37ba2d809ea52dfa2c26751",
+    "closure_sha256": "62d460e556a7db207de6b4bbe27b251217b692e7ce23c0006807bded68a4de16",
+    "finalization_sha256": "6c2d99a6a83476ce1514ad2ffd13500dae2bb75b54ba21f1faf55f1e3a5c61d1",
+    "ledger_before_sha256": "8bbab6e2c480a197cea4585e9d2d678b80ffd1439013df604500cfd1a24f630f",
+    "ledger_after_sha256": "88bffe52a00b3948b99fd0f16762228dd29c608d0419d360a01a8645eea3fe04",
+    "current_staged_ledger_sha256": "88bffe52a00b3948b99fd0f16762228dd29c608d0419d360a01a8645eea3fe04",
+    "execute_commands_in_scoped_transcript": 1,
+    "closed_ids": ["DW-103", "DW-104", "DW-105"],
+    "preserved_other_entries": 102,
+    "done_entries": 25,
+    "open_entries": 80
+  },
+  "external_preservation": {
+    "path": ".audit/quality-pass/runtime-audit/external-pre-closeout.json",
+    "sha256": "abef7a393a7207f10ea2a92bfa4d0bc28e6a39447161dba6c3c59c56105c92c9",
+    "worktrees": 39,
+    "unchanged_worktrees": 39,
+    "dirty_files": 22,
+    "issues": []
+  },
+  "attention": [],
+  "limits": [
+    "No live backend, authentication, provider, Convex deployment, or production session proof.",
+    "Exact Q8 bundle observer writer was not proven; final evidence does not depend on attribution.",
+    "Hosted checks, PR review, merge, and deployment status remain pending.",
+    "Changes after this checkpoint require a proportionate final delta check."
+  ],
+  "mutations": [
+    ".audit/quality-pass/trail-audit/pre-ship/report.md",
+    ".audit/quality-pass/trail-audit/pre-ship/receipts.json"
+  ]
+}

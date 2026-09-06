@@ -1,0 +1,14 @@
+- The panel uses `pdReview` without checking its relationship to the displayed report. Add coverage for a newer uploaded PD or review arriving after draft generation, so writers can distinguish feedback on the original document from feedback on the comparison draft.
+- Running, failed, and unreadable reviews are tested only without a report. Exercise those states with an existing draft, where the new conditional also mounts `PdReviewReport`.
+- Every fixture uses a writer account. Verify the newly exposed generation action respects the existing permissions for other supported roles.
+- Every fixture sets the latest generation to `null`. Cover queued and running generations to verify the additional action cannot initiate conflicting work.
+- The tests mount fixed query states. Add a reactive transition from intake to an available comparison report to verify feedback persists, the editor appears, and only one review panel remains mounted.
+- Generation coverage stops at a successful mocked request. Exercise rejected requests and verify the existing error display, retry behavior, and draft preservation through the new action.
+- Cancellation checks generation requests but does not recheck `generate_from_review` events before reopening the dialog. Assert that cancellation produces neither side effect.
+- The responsive fixture contains one short paragraph and one suggestion. Validate a representative report with multiple sections and longer feedback to substantiate readability for normal document lengths.
+- Horizontal containment is checked globally and for the suggestions region, but individual feedback elements are checked only vertically. Add horizontal bounds checks for the filename, summary, and action controls, including a long filename.
+- The responsive test scrolls to the bottom and immediately expects the review heading to be visible. That depends on the short fixture and panels below it; locate and scroll the heading into view before asserting visibility.
+- Zero active transcript-content subscriptions at the end does not prove that transcript content was never fetched. Record query invocations during mounting and interaction to detect transient subscriptions.
+- Mounting the reused component logs `review_viewed`, but the tests exclude that event without checking its count or timing. Verify intake-to-report transitions and remounts do not introduce unintended duplicate audit events.
+- The implementation spec remains `in-progress` with every execution checkbox unchecked despite the reported completed implementation and verification. Update its mutable tracking sections to distinguish completed work from the outstanding independent review.
+- The required independent three-lens review remains explicitly incomplete. Complete it and retain its findings and disposition before treating the review requirements as satisfied.

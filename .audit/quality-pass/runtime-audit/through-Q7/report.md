@@ -1,0 +1,9 @@
+# Q7 immutable artifact checkpoint
+
+Commit e2cfb87: all72 archive records pass stored/original SHA-256 and decoded byte lengths. All root-final-source hashes match immutable Git blobs. Four distinct implementation/root-review sessions have actual Astra6 medium headers, correct checkout, matching dispatches and exit0. Failed fixture iterations remain separate from successful worker completion.
+
+Actual logs confirm baseline2failed/14passed, stream regression1failed/51passed, final53unit/20browser and existing17backend tests passed. The backend test file is byte-identical to pre-Q7. Expanded final coverage is not mislabeled as the original baseline. Retained final warning PNG hash matches its declared65cf8c92… value; the canonical capture writer targets ignored .vitest-attachments/Q7-warning-observed.png. Historical captures remain archive-bound rather than runtime destinations.
+
+Root triage enumerates all13 blind findings plus Edge1, and records the gap review's no-findings result. It qualifies rejected broader backoff/cancellation/progress requests, bounds persistence assertions to mocked component payloads plus separate real backend coverage, and preserves initial fixture failures. Warning captures have differing viewports and are not pixel-equivalent proof. Transport deadline, cancellation/orphan-storage and provider/network limits remain explicit. These dispositions are not claims of a final combined gate or deployed upload success.
+
+Current19 production/test paths changed by Q1–Q7 exactly match their latest accepted Q7-tree blobs. This comparison uses the latest accepted tree so deliberate later-unit supersessions are not falsely reported as drift. It excludes Q8 dependency edits and does not certify live Q8 work. No archive/source mismatch found. Final combined gate and shipment remain root-owned. No tests, installs, source/index/spec/native changes or extra agents occurred.

@@ -1,0 +1,22 @@
+{
+  ".audit/quality-pass/Q8/post-review-runtime/hostile-final.log": "0b3b889014d48ae2e6a1932c004ae0ab4a4a2e091686d2b3a9dee8f99d7de6f4",
+  ".audit/quality-pass/Q8/post-review-runtime/production-manifest.json": "d4ed5afb05324a93e2ccc819fb49404a4ae5bc5e8fc12fc2faa9306d30bd2d12",
+  ".audit/quality-pass/Q8/post-review-runtime/hostile-boundary.png": "3e0952003872d2c503fb41f25ae504d9c3188538c03cf23d29a2953174f645a7",
+  ".audit/quality-pass/Q8/post-review-runtime/hostile-final.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+  ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle.mjs": "c034fb5c9814532dd1b071f4ceea8bea61f9d5617a3b92b8040f06b8cf9b7da0",
+  ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle.exit": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+  ".audit/quality-pass/Q8/post-review-runtime/restore-map.json": "cd10ad6b270ebe36af03c6239f7a77ca435536f3f192861ee8e818bd7241e805",
+  ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle-final.log": "aa517f45e42c9b15966f432675943978181da104c0429dcd370cd1daa2d187f2",
+  ".audit/quality-pass/Q8/post-review-runtime/component.config.ts.txt": "89cbd66376d6f9ac5f7d79b9e3017ec4c57a50b2f989959c2e8cb4d5fb18af31",
+  ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle.json": "c47c802c5f73545c4dcf46499255d2fc234e1f9cf87a739bd6755a631f0e5176",
+  ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle.log": "3fb5c0bc0af0a4340291db5829cee3bcd54bbd0e744b6340843e289b5caad3f2",
+  ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle-final.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+  ".audit/quality-pass/Q8/post-review-runtime/hostile.log": "5894a5562d86ac135775ffcad5c8b362a4bc079af7a8ceb789eaa69654fd1c72",
+  ".audit/quality-pass/Q8/post-review-runtime/MarkdownFixture.svelte.txt": "83a46be7f88df76bcb8dd4d9750b27e43950ce5da26bb10985a9fd610aa95148",
+  ".audit/quality-pass/Q8/post-review-runtime/generated-project-node.txt": "7603a2329a46f7e5796451654998f1c141fb6ed9c23fa0f5d7de114424add258",
+  ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle-current.log": "6daa49b79061add359a7dbb35b1a06543ace7cd863994393aa3558c4bc3e8691",
+  ".audit/quality-pass/Q8/post-review-runtime/built-module-page.png": "3878570f4a62a0d65f57cf1754e0269e56ec797f4e36e26b44c172eb6e800401",
+  ".audit/quality-pass/Q8/post-review-runtime/hostile.component.test.ts.txt": "ca0cb521d9efab2207471a38940a97a09d82e13bb4d864044e1abdbf645645e1",
+  ".audit/quality-pass/Q8/post-review-runtime/hostile.exit": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+  ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle-current.exit": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+}

@@ -1,0 +1,100 @@
+{
+  ".vitest-attachments/story-7/optimistic-after.png": {
+    "mode": 420,
+    "type": "file",
+    "size": 15155,
+    "sha256": "cfacb6859d7dbd5ec10cdfa788144c9f03465c8f2c3ad7be78c29a4c90a244e1",
+    "mtime_ns": 1788668521577081121
+  },
+  ".vitest-attachments/story-7/retry-highlight-only.png": {
+    "mode": 420,
+    "type": "file",
+    "size": 16816,
+    "sha256": "d5214919e4f43a7f4bcb008325cc696099ee93cf855809e45fd39e520855bd72",
+    "mtime_ns": 1788668522115431706
+  },
+  ".vitest-attachments/story-7/retry-text-and-highlight.png": {
+    "mode": 420,
+    "type": "file",
+    "size": 19558,
+    "sha256": "f6911a20e2982351b5526cd988fbca598bafdbb61dacb6cdf58f00ce70cd9130",
+    "mtime_ns": 1788668522318326145
+  },
+  ".vitest-attachments/DW-98-fix/implicit-A-retained.png": {
+    "mode": 420,
+    "type": "file",
+    "size": 27349,
+    "sha256": "d24b867d86388808918944f8a201ac0f956167c140b1f55bb94c7fb5d1b760d1",
+    "mtime_ns": 1788668532660644462
+  },
+  ".vitest-attachments/story-7/optimistic-scrolled-after.png": {
+    "mode": 420,
+    "type": "file",
+    "size": 24740,
+    "sha256": "137658158a1e31265760b5534c05e719754c57ce67ea1bdae4ea313ab3ba6de2",
+    "mtime_ns": 1788668537283648417
+  },
+  ".vitest-attachments/story-7/followup-overflow-after.png": {
+    "mode": 420,
+    "type": "file",
+    "size": 23397,
+    "sha256": "6850d58ba0e21661f83b81a2c7eaebd4e60c5902a861e8de4fdaccce0e8f99a5",
+    "mtime_ns": 1788668548440492663
+  },
+  ".vitest-attachments/story-7/second-overflow-after.png": {
+    "mode": 420,
+    "type": "file",
+    "size": 27319,
+    "sha256": "ae09eb00e7f2408724685753530a888f99354cc4a41966659c0af604649f40b1",
+    "mtime_ns": 1788668549540266700
+  },
+  ".vitest-attachments/published-status-fix/published-after.png": {
+    "mode": 420,
+    "type": "file",
+    "size": 28575,
+    "sha256": "060c1987d5fec657ba52433b8a9d7b95cfc2df38650ed767f0959975bbf0eed9",
+    "mtime_ns": 1788668552107935637
+  },
+  ".vitest-attachments/story-8/learning-desktop-after.png": {
+    "mode": 420,
+    "type": "file",
+    "size": 136780,
+    "sha256": "8ca7588f4a42fe819b650c83fc75c98214c442c827226b5374eb355e7d816c9d",
+    "mtime_ns": 1788668569859481810
+  },
+  ".vitest-attachments/story-8/learning-sources-desktop-after.png": {
+    "mode": 420,
+    "type": "file",
+    "size": 120125,
+    "sha256": "96f49a75983ec73455ac1600363d96e7ccf6666bea38a1e35a8b83c9bbd45d7f",
+    "mtime_ns": 1788668569932300464
+  },
+  ".vitest-attachments/story-8/third-learning-long-title-after.png": {
+    "mode": 420,
+    "type": "file",
+    "size": 46729,
+    "sha256": "94852cfe25b6cefdf9bebfc6f247c7ec72b8163810e7e100202155811572ce9f",
+    "mtime_ns": 1788668570030025407
+  },
+  ".vitest-attachments/story-8/learning-mobile-after.png": {
+    "mode": 420,
+    "type": "file",
+    "size": 51956,
+    "sha256": "7c9030aaf5e9e54dfb6e0e5f1fc03d00fdac5f70ae0e1780bad9362afa03bb5b",
+    "mtime_ns": 1788668570707228415
+  },
+  ".vitest-attachments/story-8/learning-sources-mobile-after.png": {
+    "mode": 420,
+    "type": "file",
+    "size": 66390,
+    "sha256": "141d7e17be2dba0bf8c92beb088dfe37687cb6ebef2ead13e71dd364997638c2",
+    "mtime_ns": 1788668570749566606
+  },
+  ".vitest-attachments/story-8/learning-current-after.png": {
+    "mode": 420,
+    "type": "file",
+    "size": 49314,
+    "sha256": "77383bf4425f7d24490cfecab5e5b04947640f5e7311686f66c5862743d48cd0",
+    "mtime_ns": 1788668570806570611
+  }
+}

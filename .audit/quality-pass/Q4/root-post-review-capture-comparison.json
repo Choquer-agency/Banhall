@@ -1,0 +1,52 @@
+[
+  {
+    "path": ".audit/quality-pass/Q4/post-review-screenshots/1440-default-after.png",
+    "sha256": "5b5bc585cd0a6c6b7491d8e1128f8a37968bfa1500185a8737e622e5d06c8cd5",
+    "identical_to_pre_review_capture": true
+  },
+  {
+    "path": ".audit/quality-pass/Q4/post-review-screenshots/1440-editor-after.png",
+    "sha256": "11c35993b6a8369b40640bdb2f05caf6dbc65710cf231c074ebf83cfb5be1c31",
+    "identical_to_pre_review_capture": false
+  },
+  {
+    "path": ".audit/quality-pass/Q4/post-review-screenshots/1440-suggestion-after.png",
+    "sha256": "0e5f2e09c7c660adb611102e047a4f067994684150f6208317b041c71bbb8fb3",
+    "identical_to_pre_review_capture": false
+  },
+  {
+    "path": ".audit/quality-pass/Q4/post-review-screenshots/1440-summary-after.png",
+    "sha256": "fe28be72f679ec70705e934461e677073d7b974f095f7e963d22d4e6b0a86d65",
+    "identical_to_pre_review_capture": false
+  },
+  {
+    "path": ".audit/quality-pass/Q4/post-review-screenshots/1440-supporting-after.png",
+    "sha256": "dc7c55587a94f52218b99908b8f6450a786975ce00cdc75e169488541570b714",
+    "identical_to_pre_review_capture": false
+  },
+  {
+    "path": ".audit/quality-pass/Q4/post-review-screenshots/390-default-after.png",
+    "sha256": "cd36f37585f1d84d957a5c23e35b7b302a7062bcf2e3353900b1b512ada47460",
+    "identical_to_pre_review_capture": false
+  },
+  {
+    "path": ".audit/quality-pass/Q4/post-review-screenshots/390-editor-after.png",
+    "sha256": "ef21317b0382e9005d1f3a5f131818e425a4fe7b84e1221a25724ed2fff3075d",
+    "identical_to_pre_review_capture": false
+  },
+  {
+    "path": ".audit/quality-pass/Q4/post-review-screenshots/390-suggestion-after.png",
+    "sha256": "a5a9c9ae8e4dd078bd6491ed82c81d3f84b9736d1616f6a2aee3d06675562c2d",
+    "identical_to_pre_review_capture": false
+  },
+  {
+    "path": ".audit/quality-pass/Q4/post-review-screenshots/390-summary-after.png",
+    "sha256": "82df03dda5bac7c4d9c05ca7bade5cc14078df7852aaa87be2c228f8b7d52504",
+    "identical_to_pre_review_capture": false
+  },
+  {
+    "path": ".audit/quality-pass/Q4/post-review-screenshots/390-supporting-after.png",
+    "sha256": "0eb1d4da4697f24a4a8b1dd64f3bbceffdc8db708472d10467cc72d1dc091255",
+    "identical_to_pre_review_capture": false
+  }
+]

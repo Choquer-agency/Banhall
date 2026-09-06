@@ -1,0 +1,20 @@
+{
+  "runtime": {
+    "node": "v24.19.0",
+    "npm": "11.17.0",
+    "node_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/node",
+    "npm_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/npm"
+  },
+  "head": "390eb452ab840f3e6a2a16711f61d3c6ddb90c38",
+  "command": "VERIFY_COMPONENT=1 bash scripts/loop-verify.sh",
+  "exit_code": 0,
+  "elapsed_seconds": 186.62395596504211,
+  "tracked_and_nonignored_paths_verified": 6870,
+  "unexpected_changed_paths": [],
+  "index_unchanged": true,
+  "index_before_sha256": "adc95baa22e9f3a29f64b7da32106499bb895fde0182e9549e7e882c3ef9a8ed",
+  "index_after_sha256": "adc95baa22e9f3a29f64b7da32106499bb895fde0182e9549e7e882c3ef9a8ed",
+  "generated_captures_restored": [],
+  "log_sha256": "fe1e0b25759ece4eaceb07ad0ca8a70080563c9cdcf713dfe2c75951bc201c65",
+  "at": "2026-09-06T06:38:51.861502+00:00"
+}

@@ -1,0 +1,39 @@
+{
+  "at": "2026-09-06T06:20:30.293901+00:00",
+  "head": "e2cfb873b32586d1a620a75e1de61cc49d323eb3",
+  "scope": "Read-only static artifact inspection; no tests/builds/installs",
+  "changed_lock_paths": 45,
+  "reason_rows": 45,
+  "missing_reasons": [],
+  "extra_reasons": [],
+  "table_versions_match": true,
+  "current_manifest_matches_install_receipt": true,
+  "current_lock_matches_install_receipt": true,
+  "tiptap_entries": 30,
+  "tiptap_versions": [
+    "3.30.4"
+  ],
+  "audit_total": 0,
+  "client_chunks": 109,
+  "client_module_rows": 4439,
+  "rendered_rows": 1186,
+  "forbidden_rows": [],
+  "client_manifest_matches_receipt": true,
+  "archive_hash_matches": true,
+  "archive_chunk_hash_mismatches": [],
+  "source_hashes": {
+    ".npmrc": "4e0780cf3a39b42b0a19799b741c5501ed3a8eb199cef76b3184ae348c2f8d36",
+    "package.json": "4ecfc408dfb48e141b7d25c43201135a8707c671ee1491c780d00ec4b58a15e6",
+    "package-lock.json": "787b73fb54942d099fa96a6b93770c2a630a163b7f6dcee5b480bed911e91dc4",
+    "vitest.component.config.ts": "f4b3f7455404d02a591bfb4fe04e01fba57994f170974cb249f8a721aa557f1c"
+  },
+  "path_correction": {
+    "from": "runtime-audit/Q8-interim",
+    "to": ".audit/quality-pass/runtime-audit/Q8-interim",
+    "moved_files": [
+      "report.md",
+      "receipt.json"
+    ],
+    "original_owned_directories_absent": true
+  }
+}

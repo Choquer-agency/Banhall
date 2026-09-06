@@ -1,0 +1,687 @@
+{
+  "scope": "Static selected closeout candidates and committed unit archive records only; archive_closeout.py not executed",
+  "head": "390eb452ab840f3e6a2a16711f61d3c6ddb90c38",
+  "candidate_count_before_this_report": 122,
+  "candidate_bytes": 4547186,
+  "largest_candidates": [
+    {
+      "path": ".audit/quality-pass/final-gate/source-before.json",
+      "bytes": 1309208
+    },
+    {
+      "path": ".audit/quality-pass/final-gate/source-after.json",
+      "bytes": 1309208
+    },
+    {
+      "path": ".audit/quality-pass/native-closure-preflight/invocation.json",
+      "bytes": 464965
+    },
+    {
+      "path": ".audit/quality-pass/final-acceptance.json",
+      "bytes": 457477
+    },
+    {
+      "path": ".audit/quality-pass/final-gate/gate.log",
+      "bytes": 97108
+    },
+    {
+      "path": ".audit/quality-pass/native-closure-preflight/ledger-after.snapshot",
+      "bytes": 84187
+    },
+    {
+      "path": ".audit/quality-pass/native-closure-preflight/ledger-before.snapshot",
+      "bytes": 82849
+    },
+    {
+      "path": ".audit/quality-pass/baseline/gate.log",
+      "bytes": 81179
+    }
+  ],
+  "candidate_symlinks": [],
+  "private_named_candidates": [],
+  "cache_candidates": [
+    ".audit/quality-pass/baseline/captures/.audit/published-status-fix/published-after.png",
+    ".audit/quality-pass/baseline/captures/.audit/DW-98-fix/implicit-A-retained.png",
+    ".audit/quality-pass/baseline/captures/.audit/story-7/retry-highlight-only.png",
+    ".audit/quality-pass/baseline/captures/.audit/story-7/second-overflow-after.png",
+    ".audit/quality-pass/baseline/captures/.audit/story-7/optimistic-after.png",
+    ".audit/quality-pass/baseline/captures/.audit/story-7/retry-text-and-highlight.png",
+    ".audit/quality-pass/baseline/captures/.audit/story-7/optimistic-scrolled-after.png",
+    ".audit/quality-pass/baseline/captures/.audit/story-8/learning-sources-mobile-after.png"
+  ],
+  "unit_archive_records": {
+    "Q1": 45,
+    "Q2": 70,
+    "Q3": 38,
+    "Q4": 78,
+    "Q5": 53,
+    "Q6": 56,
+    "Q7": 72,
+    "Q8": 117
+  },
+  "unit_archive_hash_or_commit_issues": [],
+  "private_or_cache_unit_archive_paths": [],
+  "secret_pattern_flags": [],
+  "candidate_inventory": [
+    {
+      "path": ".audit/quality-pass/README.md",
+      "bytes": 3690,
+      "sha256": "96bea118942d1465df14e920d8b1dcaf146ad08c87e896c88d4e96060cda4f2f"
+    },
+    {
+      "path": ".audit/quality-pass/archive_closeout.py",
+      "bytes": 2023,
+      "sha256": "68c974df9808c1b36150f74ca6569952e8a4e965911d5f67d0861b357e2b9eba"
+    },
+    {
+      "path": ".audit/quality-pass/archive_unit.py",
+      "bytes": 1600,
+      "sha256": "6fb28817976dae209a46bf0afcc160c0d9f0b7f50a5c66096fdd7de42d66cebd"
+    },
+    {
+      "path": ".audit/quality-pass/baseline/captures/.audit/DW-98-fix/implicit-A-retained.png",
+      "bytes": 27356,
+      "sha256": "3afe2fce04d6da8d07c203b28def21e6a41dc45c630ac1c83e186f28bec78d0b"
+    },
+    {
+      "path": ".audit/quality-pass/baseline/captures/.audit/published-status-fix/published-after.png",
+      "bytes": 28157,
+      "sha256": "8ae8ecb822521c6b4cac2ae5b383ba9507edecc3a54c1af183a0618bcc0171f8"
+    },
+    {
+      "path": ".audit/quality-pass/baseline/captures/.audit/story-7/optimistic-after.png",
+      "bytes": 15029,
+      "sha256": "02b9efaf9ec9f98bb8bf911b0f21034bf629898d7a5944eafa486a702586a8c0"
+    },
+    {
+      "path": ".audit/quality-pass/baseline/captures/.audit/story-7/optimistic-scrolled-after.png",
+      "bytes": 24706,
+      "sha256": "c8b5aefb0283d6fd98041954341b3d327e6aaa23230e2d1a934bf32277ad703a"
+    },
+    {
+      "path": ".audit/quality-pass/baseline/captures/.audit/story-7/retry-highlight-only.png",
+      "bytes": 16824,
+      "sha256": "8bb3b6c93936c4756f05f212e7d08019b7604044ed302e629de490989c8c2b65"
+    },
+    {
+      "path": ".audit/quality-pass/baseline/captures/.audit/story-7/retry-text-and-highlight.png",
+      "bytes": 19558,
+      "sha256": "f6911a20e2982351b5526cd988fbca598bafdbb61dacb6cdf58f00ce70cd9130"
+    },
+    {
+      "path": ".audit/quality-pass/baseline/captures/.audit/story-7/second-overflow-after.png",
+      "bytes": 27473,
+      "sha256": "2a039181edf78bf9758793df94ca139ad479e5924bf1b989bcd3a3509a11fa94"
+    },
+    {
+      "path": ".audit/quality-pass/baseline/captures/.audit/story-8/learning-sources-mobile-after.png",
+      "bytes": 66390,
+      "sha256": "141d7e17be2dba0bf8c92beb088dfe37687cb6ebef2ead13e71dd364997638c2"
+    },
+    {
+      "path": ".audit/quality-pass/baseline/gate.log",
+      "bytes": 81179,
+      "sha256": "d42b08ff6afe1fb550a73dbd53e4bb9e790b05901f196666b2c12c7dabb12633"
+    },
+    {
+      "path": ".audit/quality-pass/baseline/result.json",
+      "bytes": 989,
+      "sha256": "5fcd186944d248189f4e5c019ad52735e07d47ec94cc62d9432f05eefc89f48d"
+    },
+    {
+      "path": ".audit/quality-pass/cownose-audit.md",
+      "bytes": 9134,
+      "sha256": "74baee1ef6c8426f2672a352336b96e40c08c00f2c8cf1a9e07273c73e912ceb"
+    },
+    {
+      "path": ".audit/quality-pass/decisions.tsv",
+      "bytes": 15234,
+      "sha256": "ed72f683c33dc2ba4ec8a3a1d67c5c0d8de82d67405cfe2eff8ed59c93ce3092"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/@anthropic-ai_sdk@0.91.1.json",
+      "bytes": 4166,
+      "sha256": "0ab87e4631e0646e7c404d5cdd85b547a752089fae592d06485604623ef6bde3"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/@convex-dev_better-auth@0.12.5.json",
+      "bytes": 2020,
+      "sha256": "e0f1b02efb221c62f42a8bf6d1c78ed069191109a3826ce37b224b87d3ec0fa8"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/@convex-dev_better-auth@latest.json",
+      "bytes": 2020,
+      "sha256": "e0f1b02efb221c62f42a8bf6d1c78ed069191109a3826ce37b224b87d3ec0fa8"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/@mmailaender_convex-better-auth-svelte@latest.json",
+      "bytes": 643,
+      "sha256": "cb8dcbe98752e3d83e9725483c2a9d695ae8b28d292af0c9b5ee26ed6d22ee6d"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/@tiptap_core@3.30.4.json",
+      "bytes": 783,
+      "sha256": "8b8cff98f2aecb3b5b4a1e78b8755c5d8b9160206913a751e998fea635c7cc77"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/@tiptap_starter-kit@3.30.4.json",
+      "bytes": 1285,
+      "sha256": "2ae4472d6bc11bceb23a38977ed47e3059f35b79bd808082761279ac9cc250a0"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/@xmldom_xmldom@0.8.15.json",
+      "bytes": 91,
+      "sha256": "810a8900217213b6d253f600598596614847363710ddb5ae20b7f135d0b77dae"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/audit.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/audit.json",
+      "bytes": 12055,
+      "sha256": "889643571712390ab11cd12ccb45f3c4f07bbaac8ca26e4b823b00b83ef4b429"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/audit.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/brace-expansion@5.0.9.json",
+      "bytes": 433,
+      "sha256": "be23e3cbe7075fd642340b4d521c5939af8bfe3213f1b105fabd2195e6803b80"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/candidate-advisories.json",
+      "bytes": 589,
+      "sha256": "dccb860f8a423357df50db4a0aeb44b77ba8342062f3ea7887e0d2590506f5b7"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/cookie@0.7.2.json",
+      "bytes": 66,
+      "sha256": "5444e9c086efcebcfbc542f87bd2a84f2c8d73630a742e91e4344a02630e260b"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/dompurify@3.4.13.json",
+      "bytes": 469,
+      "sha256": "b82b97a6272e192dcec381a129bfd0e8a636624469ee031a1773d1ecd188eb39"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/kit-latest.json",
+      "bytes": 699,
+      "sha256": "184a9e62690bcb86943ba3b002284595513f48578aaa7479cf06d18d0667af76"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/kit-versions.json",
+      "bytes": 16458,
+      "sha256": "665fd4a9de6584e47e9a5e36bb58be3287491949a8af7b4cf46857d212f96af5"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/mermaid@11.16.1.json",
+      "bytes": 857,
+      "sha256": "b3d6d7455300de8bb1fc22beefcb32f3279826142a106c626460e5c3c6e30de0"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/nanoid@3.3.18.json",
+      "bytes": 1526,
+      "sha256": "d5b18ca60b49f87f2c835022b3c72a08df2ef2ac50b1d9980b90e6645091327f"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/parents.json",
+      "bytes": 997,
+      "sha256": "6acefa552e0408be5449a7b19161cbde41b376ee8b63387dc7c9ad0b110bbf21"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/parser-usage.txt",
+      "bytes": 84,
+      "sha256": "a31a8d0f6c7baf9448f47318409641494708a5b7ad94097554ad90e2a37ddd5f"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/postcss@8.5.23.json",
+      "bytes": 1528,
+      "sha256": "5cd406b259af237266a3f01c51d28be7cf74d6265832f44312dd7609f605caad"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/react-advisories.json",
+      "bytes": 56,
+      "sha256": "b8acf73f45b3cf7b19654a103f68dc86f2931ce76247e4de4eb34a5e5456e161"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/react-imports.txt",
+      "bytes": 705,
+      "sha256": "e3bc4c09eb156115b7baa080eb695d5194a2abfc62ace46bc90160aa3d39a4b3"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/react-latest.json",
+      "bytes": 69,
+      "sha256": "a869a6124dec03a288934caa134f8b259c8ba6a484407b553ebb7e4e6a02235c"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/react@18.3.1.json",
+      "bytes": 80,
+      "sha256": "9697966a797e703f23a2748f91a5f9f6396cbfc2e12aedb910d96cdaf28f9cd9"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/receipt.json",
+      "bytes": 721,
+      "sha256": "0a1bf86105db77b978fcae96371d4a8f60d20dc1d5c7d16b4b462f4cc0e9be3c"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/report.md",
+      "bytes": 7201,
+      "sha256": "d1510fdbc1e4071bd40bd99f1ccde12a14cfecf2da16fe5388e1cf5834b0cd9d"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/tar@7.5.21.json",
+      "bytes": 5433,
+      "sha256": "52aed508d1ab786355c702fa58e6c149c33887d6548bc8f4f1151b40b2c9229b"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/tiptap-aligned.json",
+      "bytes": 3237,
+      "sha256": "46d3e00d9a4682e00eb4639e46ff5d2f25d43edb51065a466474d351b5c61c79"
+    },
+    {
+      "path": ".audit/quality-pass/dependencies/usage.txt",
+      "bytes": 5161,
+      "sha256": "0c6d08feb56588a38f68b5911bab8979e8fb70d952eddb9b51a06bba3ffa4c20"
+    },
+    {
+      "path": ".audit/quality-pass/deployment-boundary.md",
+      "bytes": 878,
+      "sha256": "909e82dfe858d9c93a21354cc76bf570bc6955cc81e86daee79c8b2b475747ea"
+    },
+    {
+      "path": ".audit/quality-pass/dispatch-before-env-defaults.py",
+      "bytes": 4523,
+      "sha256": "7333de9fcccdacc34d01347cd82f2d334b93ed580710bae4c3a57e5fa6c7a121"
+    },
+    {
+      "path": ".audit/quality-pass/dispatch.py",
+      "bytes": 4997,
+      "sha256": "6d9003aa5688678b909ca4855645b279dde5a7e08811286aea5942ac6aee2e38"
+    },
+    {
+      "path": ".audit/quality-pass/external-worktree-baseline.json",
+      "bytes": 10557,
+      "sha256": "56b01e3097cff7f99249d0b09fa15e0bc9a65fbac3a0eaf4843197e110514a4e"
+    },
+    {
+      "path": ".audit/quality-pass/final-acceptance.json",
+      "bytes": 457477,
+      "sha256": "112496b98d88be439495d1b5989c3bd35769596f4721917d6b60a33a6164b3c9"
+    },
+    {
+      "path": ".audit/quality-pass/final-cache-reset.json",
+      "bytes": 410,
+      "sha256": "57fde615106a46973054cc971dda8c8ba1cc257eb92908993d863eade9f99453"
+    },
+    {
+      "path": ".audit/quality-pass/final-gate/gate.log",
+      "bytes": 97108,
+      "sha256": "fe1e0b25759ece4eaceb07ad0ca8a70080563c9cdcf713dfe2c75951bc201c65"
+    },
+    {
+      "path": ".audit/quality-pass/final-gate/result.json",
+      "bytes": 868,
+      "sha256": "6065fba26faf16a223523dd812b399e524c53f2e5c794f6953bd382e7ee8cb3f"
+    },
+    {
+      "path": ".audit/quality-pass/final-gate/source-after.json",
+      "bytes": 1309208,
+      "sha256": "9363ab2b09145db4d0fda0e138addf3e99f844589b731ce2546f3fa4ff9bb495"
+    },
+    {
+      "path": ".audit/quality-pass/final-gate/source-before.json",
+      "bytes": 1309208,
+      "sha256": "9363ab2b09145db4d0fda0e138addf3e99f844589b731ce2546f3fa4ff9bb495"
+    },
+    {
+      "path": ".audit/quality-pass/ledger-scope.json",
+      "bytes": 2499,
+      "sha256": "c3d36a4f04f0d0977186f6933a7949d156f6d182405b31619b4b3e1f24968f34"
+    },
+    {
+      "path": ".audit/quality-pass/native-close.py",
+      "bytes": 11829,
+      "sha256": "2a869cc6d29b5fbb0ec9ad1184592e7601c7e2e6dd9617f6f909addcc66faf20"
+    },
+    {
+      "path": ".audit/quality-pass/native-closure-plan.md",
+      "bytes": 7660,
+      "sha256": "a37132463d6c8ebb1a17edf4e4072ddac0b460f7b53ce0afc1e0189e01dd056c"
+    },
+    {
+      "path": ".audit/quality-pass/native-closure-preflight/closure.json",
+      "bytes": 823,
+      "sha256": "62d460e556a7db207de6b4bbe27b251217b692e7ce23c0006807bded68a4de16"
+    },
+    {
+      "path": ".audit/quality-pass/native-closure-preflight/execute-start.json",
+      "bytes": 138,
+      "sha256": "d49b854d709b4638f482b4dabda419c7055ef7c2a66afe45f3a7677a27ff9a85"
+    },
+    {
+      "path": ".audit/quality-pass/native-closure-preflight/finalization.json",
+      "bytes": 324,
+      "sha256": "6c2d99a6a83476ce1514ad2ffd13500dae2bb75b54ba21f1faf55f1e3a5c61d1"
+    },
+    {
+      "path": ".audit/quality-pass/native-closure-preflight/invocation.json",
+      "bytes": 464965,
+      "sha256": "fb653315b0996e72ec45d02fa3bd139c7f723546926dbd1b06c834bcb15967bf"
+    },
+    {
+      "path": ".audit/quality-pass/native-closure-preflight/ledger-after.snapshot",
+      "bytes": 84187,
+      "sha256": "88bffe52a00b3948b99fd0f16762228dd29c608d0419d360a01a8645eea3fe04"
+    },
+    {
+      "path": ".audit/quality-pass/native-closure-preflight/ledger-before.snapshot",
+      "bytes": 82849,
+      "sha256": "8bbab6e2c480a197cea4585e9d2d678b80ffd1439013df604500cfd1a24f630f"
+    },
+    {
+      "path": ".audit/quality-pass/native-closure-preflight/native-return.json",
+      "bytes": 199,
+      "sha256": "b6965fac48070e86f1a08e579bfcd90ef9bd8face37ba2d809ea52dfa2c26751"
+    },
+    {
+      "path": ".audit/quality-pass/native-closure-preflight/synthetic-selfcheck.json",
+      "bytes": 232,
+      "sha256": "51bbac18c64a59b6a2a1998da988b3997d7db9e4e107b2b5200e9661a137dc5c"
+    },
+    {
+      "path": ".audit/quality-pass/native-closure-preflight/usage.md",
+      "bytes": 7311,
+      "sha256": "51cfa08fa3710ceae9c6b65f3aa7daca9c133bf27c9312056b0123d4dd5d6432"
+    },
+    {
+      "path": ".audit/quality-pass/npm-ci.log",
+      "bytes": 618,
+      "sha256": "24cd2e6384c7b189d41ada52ba8e27a932c6e30fb072aa84a0b1796b48b9f558"
+    },
+    {
+      "path": ".audit/quality-pass/plans/Q4-Q7-preflight.md",
+      "bytes": 8319,
+      "sha256": "30c0d5bea79abb71754fb40b1f272bee6b10e7a9b36824f48504386b94e827b1"
+    },
+    {
+      "path": ".audit/quality-pass/plans/Q8-runtime-preflight.md",
+      "bytes": 9066,
+      "sha256": "43a645189c11843b39fc550361fdfebaf0f5616e222dd5968b88f376668c9346"
+    },
+    {
+      "path": ".audit/quality-pass/plans/spec-quality-Q3.md",
+      "bytes": 5796,
+      "sha256": "ab00649072810636446c2d22e33406ee7f9b06175636309212c40be4f1d24089"
+    },
+    {
+      "path": ".audit/quality-pass/plans/spec-quality-Q4.md",
+      "bytes": 6206,
+      "sha256": "47dc29b6dfe6337c286d715df00f7c951416bac0b56f7b2bf0d674059f8eb3d7"
+    },
+    {
+      "path": ".audit/quality-pass/plans/spec-quality-Q5.md",
+      "bytes": 6039,
+      "sha256": "ac2a896bdc73c2bd94358eb77e82a182d5f4059daede229645dda4e1f5ed69d1"
+    },
+    {
+      "path": ".audit/quality-pass/plans/spec-quality-Q6.md",
+      "bytes": 5711,
+      "sha256": "b34423047348b52fec26f5d8a4975a5cce6440f4011436f364c292d9d6f6d750"
+    },
+    {
+      "path": ".audit/quality-pass/plans/spec-quality-Q7.md",
+      "bytes": 6573,
+      "sha256": "ca2f8b736ca93ba32dfad66bb7e02375958bd53b2b29cd4c4cc5b9b6cc89b045"
+    },
+    {
+      "path": ".audit/quality-pass/plans/spec-quality-dependency-health.md",
+      "bytes": 6304,
+      "sha256": "5b1cbb40ea8a489e4fa02d38a9fbf75f48267dbd1239be3759431d42d7fc8426"
+    },
+    {
+      "path": ".audit/quality-pass/plans/spec-quality-verification-artifacts.md",
+      "bytes": 6405,
+      "sha256": "4aad20cdf6fd992d034a42879f8342bd2c6ce34598b2a285ed97f443dc5f1400"
+    },
+    {
+      "path": ".audit/quality-pass/remote-checkpoint.json",
+      "bytes": 751,
+      "sha256": "a32b5457fe2c818d20548d8252586db1a8341bcde631c9b3006fda20db9f3895"
+    },
+    {
+      "path": ".audit/quality-pass/review-classifications.tsv",
+      "bytes": 7602,
+      "sha256": "506eb1d635e419004cef023fc49daaab37722041667c56aa5ccc52e99ad8f66e"
+    },
+    {
+      "path": ".audit/quality-pass/review-supersessions.json",
+      "bytes": 1322,
+      "sha256": "be5942c4a4bf01007db35bc5ee88d4359e8bf76214ad4922f51287dc7a7612d9"
+    },
+    {
+      "path": ".audit/quality-pass/run_gate-before-Q2.py",
+      "bytes": 2751,
+      "sha256": "6a5282cd1142d628acdd1b779e09c854ca8bde4778a9f10472d7f48bb8747653"
+    },
+    {
+      "path": ".audit/quality-pass/run_gate-before-final-strengthening.py",
+      "bytes": 2411,
+      "sha256": "ce8358efe353657bf295fe7c686e8820529c5cf7e43333a2742e8fbae75fa460"
+    },
+    {
+      "path": ".audit/quality-pass/run_gate.py",
+      "bytes": 2698,
+      "sha256": "1236a5d375bc00340f06e7a1ac4b69e5954c925b1879257ee7ed7bf5ef28d4f8"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/Q1-and-isolation.json",
+      "bytes": 19641,
+      "sha256": "d28af7f91acd8242023df80e4870c03af22115dd6ecdeb601a15c992831de417"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/Q1-and-isolation.md",
+      "bytes": 1739,
+      "sha256": "150b561ba652c70630a562a5122dce9bfa3a3ad24c6738993711c60508701898"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/Q8-cold-browser-diagnostic/report.md",
+      "bytes": 3566,
+      "sha256": "52522ddec47ed64b07a6d7ee0aeb5140624431995980dc21264d36ca82e57586"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/Q8-final/receipts.json",
+      "bytes": 10509,
+      "sha256": "24475d9bc80d75b2a87fc035522626871400b7c1c28bc1eb4119e75a985aef2b"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/Q8-final/report.md",
+      "bytes": 1727,
+      "sha256": "a4c1302d4dbd95a9538e1ba95ef65e2c76e15eb551dd76d15b05cd27f62361e1"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/Q8-interim/receipt.json",
+      "bytes": 1339,
+      "sha256": "6bebcf3dd75a1e8b39255197e185ca23c70dec67acdf5eb0cb379afbc7fddb48"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/Q8-interim/report.md",
+      "bytes": 3724,
+      "sha256": "b951a39c9ce2e82627fb61dc2913155a5f5fa01c51e5f1ce0b9d116eaf71828c"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/branch-before-ship.json",
+      "bytes": 14261,
+      "sha256": "0926b74a27b0d00b525229ef50a89a3c5f15709e19841315f222807eafef979a"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/branch-checkpoint.json",
+      "bytes": 16917,
+      "sha256": "db9cc89149acbc566bedcf9eba87a98d185bf9db858448c441eff67ff966da93"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/branch-checkpoint.md",
+      "bytes": 906,
+      "sha256": "6900b5e02b866fa476c598334594b21dd455b971856c3d94ed3827ba80afeeed"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/check-external-final.py",
+      "bytes": 2805,
+      "sha256": "c224fc8593fa18bf604ad909cf80a120e0282658d01d8d531465145452a0ac9a"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/closeout-preflight/report.md",
+      "bytes": 4433,
+      "sha256": "dd6d530b8b86db98e2c6b36d181880df217e109777e5e828cd888c27ca9688d4"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/external-full-supplement.json",
+      "bytes": 17047,
+      "sha256": "3503592ee75f515f9f4582c307491446ae81635e329ae58b940f404897a4d319"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/external-full-supplement.md",
+      "bytes": 1663,
+      "sha256": "78c8b463747f2a746504ef30d1c43ab5c106ff00e7d2e0489c265248661d6528"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/external-pre-closeout.json",
+      "bytes": 14674,
+      "sha256": "abef7a393a7207f10ea2a92bfa4d0bc28e6a39447161dba6c3c59c56105c92c9"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/external-through-Q6.json",
+      "bytes": 14674,
+      "sha256": "db5c80032863c184fedd7900f4981ef3f9d7d9cc1e975edbf7866e4766a52d92"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/final-gate-review/receipts.json",
+      "bytes": 1352,
+      "sha256": "6fdd4356e15a7d3a8c6e54ddd90393f47be81f4265bafecac38408b45958411f"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/final-gate-review/report.md",
+      "bytes": 2026,
+      "sha256": "e2f27ecc344512ece5f19d8ff67658dc8d670d067e197745b38b482685dbfe62"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/native-writer-preflight.json",
+      "bytes": 247,
+      "sha256": "6b5972cdd2e1e1a2c1b03e3473c0a2a2a5c2b4de280510812dfd54668bee12ae"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/through-Q2.json",
+      "bytes": 5244,
+      "sha256": "b4e2dd9d73207c2bd1338b7da44b1bb224320b0f0e8bbc7660c4da8c364498ff"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/through-Q2.md",
+      "bytes": 1615,
+      "sha256": "cd142fa8e6d6352b1eb8a093af4e9ddc04b6ebe97a6d5c585ee63b8654a03223"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/through-Q3-prepatch.md",
+      "bytes": 2180,
+      "sha256": "51a2152694c5ac449745681ed56bed94e795fe3fa34cd1bd5f44f1ddad067538"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/through-Q4.json",
+      "bytes": 8366,
+      "sha256": "663745d3a1f06be861fc7512f8326f7c5b516fea1b5d808f63939a3696f4d556"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/through-Q4.md",
+      "bytes": 1965,
+      "sha256": "24aa05a3bd7eeccc6a1fb32597e4a400c573beb786fb86965d597c723293c6fc"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/through-Q6/receipts.json",
+      "bytes": 15104,
+      "sha256": "5bec7772eed8430b887b65e3f18ce4e67993fe1b788330cfca9df85ff85c7578"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/through-Q6/report.md",
+      "bytes": 2940,
+      "sha256": "9140acd0c400020d7edb27d0cf30f12ca53637862da80ea5b01383fb62a9b44c"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/through-Q6-final/receipts.json",
+      "bytes": 3108,
+      "sha256": "1b6569c2af68612e40e912d5083d5fb90cda57dbf23affdd3d4ef4a9ea0f72c1"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/through-Q6-final/report.md",
+      "bytes": 2162,
+      "sha256": "82d91f954d717704fba37d874265da909f769a77c514510f2f306985293212e4"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/through-Q7/receipts.json",
+      "bytes": 3963,
+      "sha256": "2c961b36a17dc83752cfe794add511ca49eeab7508393d3d816305d8e0720800"
+    },
+    {
+      "path": ".audit/quality-pass/runtime-audit/through-Q7/report.md",
+      "bytes": 1916,
+      "sha256": "dcd7efc6bad4883bf353be102fadd448424da9ea0f48083383512e3deebe571c"
+    },
+    {
+      "path": ".audit/quality-pass/state.json",
+      "bytes": 1556,
+      "sha256": "c37eb94acc77666a09dab1dc74469a445ead5732dca3888f24a2f5cb0149cc19"
+    },
+    {
+      "path": ".audit/quality-pass/trail-audit/checkpoint/attribution-correction.md",
+      "bytes": 1161,
+      "sha256": "d61b28ea7064b2f552aadaaecf83853ecbc489ca68cfe9292b3edcf2e36cd148"
+    },
+    {
+      "path": ".audit/quality-pass/trail-audit/checkpoint/attribution-receipt.json",
+      "bytes": 1411,
+      "sha256": "39c238e36f0297f0d1a5da836f806ceb2d8e90e3849ed2f7fed5bed6c4af6238"
+    },
+    {
+      "path": ".audit/quality-pass/trail-audit/checkpoint/receipts.json",
+      "bytes": 3747,
+      "sha256": "c7770a4d497b561b63133994c32fbad99268477e22722575c005a453883ebb97"
+    },
+    {
+      "path": ".audit/quality-pass/trail-audit/checkpoint/report.md",
+      "bytes": 4645,
+      "sha256": "75b01e8cfd004bf3360f2dbebe11be75bd42e8ed5f9d10ba39af52c9037df39e"
+    },
+    {
+      "path": ".audit/quality-pass/trail-checkpoint-scope.json",
+      "bytes": 388,
+      "sha256": "62e6ca12bac07ab689d0b49c87cc42b7e88256598976f9e4c504732bf9ba79d8"
+    },
+    {
+      "path": ".audit/quality-pass/trail-final-scope.json",
+      "bytes": 511,
+      "sha256": "df7a0d2a0451a58cbd5a931e06b89ebfb535c38246fc58583e0703b99fc9cfbe"
+    },
+    {
+      "path": ".audit/quality-pass/transcript-scope-start.json",
+      "bytes": 206,
+      "sha256": "0db34ea705d01bcbaa34b6ca3a665d2357323f008a982f94f8754cf939b7c7cc"
+    },
+    {
+      "path": ".audit/quality-pass/verification-audit.md",
+      "bytes": 6150,
+      "sha256": "a6b3abb9f1de87305331b41121db8a4d34ef329402ecc3ae026e5ddad7a387ce"
+    }
+  ],
+  "final_observations": {
+    "baseline_capture_backups": 8,
+    "baseline_capture_bytes": 225493,
+    "baseline_capture_admission": "Root explicitly confirms intentional historical capture-redirection proof retention; backups differ from current original paths.",
+    "shipping_directory": "Excluded by closeout folder allowlist.",
+    "readme_sha256": "242bb1ef876010bc2c2e1133359ea505a738dffcb601c97475e4827074f5d7ee",
+    "cold_cache_receipt": "final-cache-reset.json records canonical cache absent before final gate; final-gate/result.json exit 0.",
+    "scan_limit": "Bounded signatures and targeted contents, not exhaustive secret or privacy certification.",
+    "mutation_scope": "Only these new pre-ship-curation report and receipt files; no archive execution, source/index/ledger edits, tests or builds."
+  }
+}

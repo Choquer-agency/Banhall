@@ -1,0 +1,46 @@
+path	before	after	reason	incoming
+node_modules/@anthropic-ai/sdk	0.82.0	0.91.1	Approved targeted security update	root dependencies 0.91.1
+node_modules/@sveltejs/kit	2.70.1	2.70.3	Approved targeted security update	root devDependencies 2.70.3; node_modules/@sveltejs/adapter-vercel peerDependencies ^2.4.0; node_modules/better-auth peerDependencies ^2.0.0; node_modules/convex-svelte/node_modules/runed peerDependencies ^2.21.0; node_modules/runed peerDependencies ^2.21.0
+node_modules/@tiptap/core	3.28.0	3.30.4	Approved full editor graph alignment	root dependencies 3.30.4; node_modules/@tiptap/extension-blockquote peerDependencies 3.30.4; node_modules/@tiptap/extension-bold peerDependencies 3.30.4; node_modules/@tiptap/extension-bubble-menu peerDependencies 3.30.4; node_modules/@tiptap/extension-code peerDependencies 3.30.4; node_modules/@tiptap/extension-code-block peerDependencies 3.30.4; node_modules/@tiptap/extension-document peerDependencies 3.30.4; node_modules/@tiptap/extension-floating-menu peerDependencies 3.30.4; node_modules/@tiptap/extension-hard-break peerDependencies 3.30.4; node_modules/@tiptap/extension-heading peerDependencies 3.30.4; node_modules/@tiptap/extension-highlight peerDependencies 3.30.4; node_modules/@tiptap/extension-horizontal-rule peerDependencies 3.30.4; node_modules/@tiptap/extension-italic peerDependencies 3.30.4; node_modules/@tiptap/extension-link peerDependencies 3.30.4; node_modules/@tiptap/extension-list peerDependencies 3.30.4; node_modules/@tiptap/extension-paragraph peerDependencies 3.30.4; node_modules/@tiptap/extension-strike peerDependencies 3.30.4; node_modules/@tiptap/extension-text peerDependencies 3.30.4; node_modules/@tiptap/extension-underline peerDependencies 3.30.4; node_modules/@tiptap/extensions peerDependencies 3.30.4; node_modules/@tiptap/starter-kit dependencies 3.30.4; node_modules/svelte-tiptap peerDependencies ^3.0.0
+node_modules/@tiptap/extension-blockquote	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-bold	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-bubble-menu	3.28.0	3.30.4	Approved full editor graph alignment	root dependencies 3.30.4; node_modules/svelte-tiptap peerDependencies ^3.0.0
+node_modules/@tiptap/extension-bullet-list	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-character-count	3.28.0	3.30.4	Approved full editor graph alignment	root dependencies 3.30.4
+node_modules/@tiptap/extension-code	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-code-block	3.28.0	3.30.4	Approved full editor graph alignment	root dependencies 3.30.4; node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-document	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-dropcursor	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-floating-menu	3.28.0	3.30.4	Approved full editor graph alignment	root dependencies 3.30.4; node_modules/svelte-tiptap peerDependencies ^3.0.0
+node_modules/@tiptap/extension-gapcursor	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-hard-break	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-heading	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-highlight	3.28.0	3.30.4	Approved full editor graph alignment	root dependencies 3.30.4
+node_modules/@tiptap/extension-horizontal-rule	3.28.0	3.30.4	Approved full editor graph alignment	root dependencies 3.30.4; node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-italic	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-link	3.28.0	3.30.4	Approved full editor graph alignment	root dependencies 3.30.4; node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-list	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/extension-bullet-list peerDependencies 3.30.4; node_modules/@tiptap/extension-list-item peerDependencies 3.30.4; node_modules/@tiptap/extension-list-keymap peerDependencies 3.30.4; node_modules/@tiptap/extension-ordered-list peerDependencies 3.30.4; node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-list-item	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-list-keymap	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-ordered-list	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-paragraph	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-placeholder	3.28.0	3.30.4	Approved full editor graph alignment	root dependencies 3.30.4
+node_modules/@tiptap/extension-strike	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-text	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extension-underline	3.28.0	3.30.4	Approved full editor graph alignment	root dependencies 3.30.4; node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/extensions	3.28.0	3.30.4	Approved full editor graph alignment	node_modules/@tiptap/extension-character-count peerDependencies 3.30.4; node_modules/@tiptap/extension-dropcursor peerDependencies 3.30.4; node_modules/@tiptap/extension-gapcursor peerDependencies 3.30.4; node_modules/@tiptap/extension-placeholder peerDependencies 3.30.4; node_modules/@tiptap/starter-kit dependencies 3.30.4
+node_modules/@tiptap/pm	3.28.0	3.30.4	Approved full editor graph alignment	root dependencies 3.30.4; node_modules/@tiptap/core peerDependencies 3.30.4; node_modules/@tiptap/extension-blockquote peerDependencies 3.30.4; node_modules/@tiptap/extension-bubble-menu peerDependencies 3.30.4; node_modules/@tiptap/extension-code-block peerDependencies 3.30.4; node_modules/@tiptap/extension-floating-menu peerDependencies 3.30.4; node_modules/@tiptap/extension-horizontal-rule peerDependencies 3.30.4; node_modules/@tiptap/extension-link peerDependencies 3.30.4; node_modules/@tiptap/extension-list peerDependencies 3.30.4; node_modules/@tiptap/extensions peerDependencies 3.30.4; node_modules/@tiptap/starter-kit dependencies 3.30.4; node_modules/svelte-tiptap peerDependencies ^3.0.0
+node_modules/@tiptap/starter-kit	3.28.0	3.30.4	Approved full editor graph alignment	root dependencies 3.30.4
+node_modules/@xmldom/xmldom	0.8.13	0.8.15	Approved targeted security update	node_modules/mammoth dependencies ^0.8.6
+node_modules/balanced-match	absent	4.0.4	Unchanged 4.0.4 hoisted with brace-expansion 5.0.9	node_modules/brace-expansion dependencies ^4.0.2
+node_modules/brace-expansion	absent	5.0.9	Approved targeted security update	node_modules/glob/node_modules/minimatch dependencies ^5.0.5
+node_modules/cookie	0.6.0	0.7.2	Approved targeted security update	node_modules/@sveltejs/kit dependencies ^0.6.0
+node_modules/dompurify	3.4.12	3.4.13	Approved targeted security update	node_modules/mermaid dependencies ^3.3.3
+node_modules/glob/node_modules/balanced-match	4.0.4	absent	Unchanged 4.0.4 hoisted with brace-expansion 5.0.9	node_modules/brace-expansion dependencies ^4.0.2
+node_modules/glob/node_modules/brace-expansion	5.0.7	absent	Vulnerable nested entry replaced by approved hoisted version	node_modules/glob/node_modules/minimatch dependencies ^5.0.5
+node_modules/mermaid	11.16.0	11.16.1	Approved targeted security update	node_modules/svelte-streamdown dependencies ^11.15.0
+node_modules/nanoid	absent	3.3.18	Approved targeted security update	node_modules/postcss dependencies ^3.3.16
+node_modules/postcss	8.5.20	8.5.23	Approved targeted security update	node_modules/vite dependencies ^8.5.17
+node_modules/postcss/node_modules/nanoid	3.3.16	absent	Vulnerable nested entry replaced by approved hoisted version	node_modules/postcss dependencies ^3.3.16
+node_modules/react	absent	19.2.8	Required production Better Auth peer	root dependencies 19.2.8; node_modules/@convex-dev/agent peerDependencies ^18.3.1 || ^19.0.0; node_modules/@convex-dev/better-auth peerDependencies ^18.3.1 || ^19.0.0; node_modules/better-auth peerDependencies ^18.0.0 || ^19.0.0; node_modules/convex peerDependencies ^18.0.0 || ^19.0.0-0 || ^19.0.0; node_modules/convex-helpers peerDependencies ^17.0.2 || ^18.0.0 || ^19.0.0
+node_modules/tar	7.5.20	7.5.21	Approved targeted security update	node_modules/@mapbox/node-pre-gyp dependencies ^7.4.0

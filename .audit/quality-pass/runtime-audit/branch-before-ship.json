@@ -1,0 +1,424 @@
+{
+  "at": "2026-09-06T06:37:12.766190+00:00",
+  "main": "ed79a296039109fe1a2bf5dd867f9e5af22f2967",
+  "owned_head": "390eb452ab840f3e6a2a16711f61d3c6ddb90c38",
+  "server_heads": "cd247698353a6a754c8cbb4b1b65a3572c1f4b10\trefs/heads/better-auth-migration\nc9256971e922daed89f8e252cc3982ff34aec5bb\trefs/heads/codex/bmad-completion\n84dab21fc3f2e635f0ead01a7c671dfc279fa644\trefs/heads/codex/bmad-linux-pointer-diagnostic\nedb422c527f40851692b976bef233ebe07a3b929\trefs/heads/codex/branch-consolidation\nbf22e88137ba361ae8999d84a94a0d432d598d4e\trefs/heads/legacy-nextjs-react\ned79a296039109fe1a2bf5dd867f9e5af22f2967\trefs/heads/main\n11bfe3ebcb79fd8be78e2e057b45ea69db0f88be\trefs/heads/sprint2-boundary\n80db3c255851842c26938657ee60c313780971fc\trefs/heads/sprint2-learn-chat\n3da60ccab54d5602b8129ab08d640f3d45a35a0a\trefs/heads/svelte-migration",
+  "other_branch_tips": [
+    {
+      "ref": "refs/heads/archive/bmad-loop-sprint1b",
+      "head": "842cdf5160cd405de19b8643ad9295bcd4049e95",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/better-auth-migration",
+      "head": "cd247698353a6a754c8cbb4b1b65a3572c1f4b10",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-030217-50fa",
+      "head": "0b6325cd85dbf1c01e9a1e5cff67e6eef02f7ef7",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-065146-9a65",
+      "head": "5de0e9a389022afc4ee21f740fe6fdd0755fa9b8",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121331-bb2f",
+      "head": "7265ad6a3e648d0c96f27d0359db36abc5f5ed99",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121341-8dea",
+      "head": "7265ad6a3e648d0c96f27d0359db36abc5f5ed99",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121348-da5b",
+      "head": "7265ad6a3e648d0c96f27d0359db36abc5f5ed99",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121356-972e",
+      "head": "7265ad6a3e648d0c96f27d0359db36abc5f5ed99",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121607-3217",
+      "head": "0dd0d6bd98c28e54107ae10fe06a90fd83c6dab2",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121620-6b94",
+      "head": "076b3041949b6acffcdb738a233d92583d46c893",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121631-a914",
+      "head": "f9389a46d26d1a45efe1645e4b965eb3cf40da8a",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121647-f30f",
+      "head": "c20934e0bb898a60d0ee298c577c708109a74f63",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-133944-0158",
+      "head": "76d101671d109012438ed5fb282168872811103c",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-145336-4d56",
+      "head": "a62e1760a9931c9451c34baa2df8af29fa1e9538",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-162523-6e72",
+      "head": "309382d88630fc54166b895f9cc4272bdc5b3872",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-analyzer-provenance-fix",
+      "head": "bbaa9d20a9607d6463ee5298e1a5c9d8aebf19df",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-browser-fix",
+      "head": "410fcbd27d8acdb519a07bffd1281d1810cd83d4",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-browser-gate-repair",
+      "head": "3b8a451e3738a8da1bd95ba5e7029dba6f970a4d",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-browser-pointer",
+      "head": "c9256971e922daed89f8e252cc3982ff34aec5bb",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-completion",
+      "head": "c9256971e922daed89f8e252cc3982ff34aec5bb",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-deidentify-linebreak-fix",
+      "head": "d868ad1d88436d2cfb803c1083d0f1ff8479d94f",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw96-fix",
+      "head": "091ec5a22f57ae3f566d6b70c56c3a61069763fc",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw97-fix",
+      "head": "5df0d2c4ae9677a891cd8ca19f2669da40fc4311",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw97-review",
+      "head": "74f8789d582c7b3ea4b66f2d70624811d269186f",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw98-fix",
+      "head": "4e0bdf5d45d7f5d555227783c69d01e29bfbec43",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw98-review",
+      "head": "e8abbc14523eff3e1aa490712e7efafe9cd86b24",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw99-fix",
+      "head": "9aa4c32d5407dd02e15bf0532587a099343bf70d",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw99-review",
+      "head": "c3bcddd475a924780cfaf2362b0217d1d58d428d",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-feedback-probe",
+      "head": "8c8080576d30c919f825e12f4b786f3f28b86b8f",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-feedback-read-fix",
+      "head": "f42c7f3322cf2d48a0bcd45597ddde14f084e888",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-integration-review",
+      "head": "9da55bece5948da12129720dd2330a3032c985bf",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-linux-pointer-diagnostic",
+      "head": "84dab21fc3f2e635f0ead01a7c671dfc279fa644",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-native-entrypoint-fix",
+      "head": "19b7505738f2477ab646b763f6ae3d659c74d96b",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-privacy-contract",
+      "head": "a84022d0fae24281b55f58d57f4b4193d69c9dee",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-proposal-tests",
+      "head": "176817b4230a7d0153d397134f846de2e9441bde",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-published-status-fix",
+      "head": "4555939ad846c638e291b06fd74e9ff3b637f881",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-review-menu-verification",
+      "head": "97e32b72891c6d50d45191ac272607936fba1628",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-unicode-fix",
+      "head": "2462c4cc6eb67501d4f412d15674435e8adfd43b",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-unlearn-fix",
+      "head": "b3338523c10085426a094bb8e5b13ccc55f9f7cf",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-verification-contract",
+      "head": "186029d408b418c4337ee0e772520629cdae937c",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-verification-fix",
+      "head": "4c26f2fb345247139963457ef7d770677b82fb45",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/branch-consolidation",
+      "head": "edb422c527f40851692b976bef233ebe07a3b929",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-chatspend-20260904",
+      "head": "8f9dd05f7c4592baede7542c1d3858a8992c6dbf",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-chatspend-retry2-20260904",
+      "head": "6dab1f63ea71cb9f22cd1c37cfb2c74249a38367",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-learnchat-20260904",
+      "head": "97622e4135ce3720455f8adea32464cabdfd3a27",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-learnchat-baseline-20260904",
+      "head": "5de0e9a389022afc4ee21f740fe6fdd0755fa9b8",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-learning4-approved-resolution-20260904",
+      "head": "784102690e5921cdf84bd2eb948711e2991cb53d",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-learning5-codegen-recovery-20260904",
+      "head": "44b702478781d278d8f7626285d55ec9dbb4a5cf",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-learning8-approved-resolution-20260905",
+      "head": "53a2dbd3176bb1d976fcc41de9c960ece49021f5",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-ped-malformed-review-20260904",
+      "head": "ff001c3371b9519af01cd25529d991f8762f3e01",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-ped-native-final-review-20260904",
+      "head": "2d393923482b2bfda4ab4b78219c535249bd4f98",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-pipeline-20260904",
+      "head": "ee0ff2b0f1b9a24e6f29e1fda1dc7d00fc42b1e5",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-pipeline-retry2-20260904",
+      "head": "bcc0b9fa3f53beffde73b7cf9badd192f1372382",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-deferred-20260904",
+      "head": "0dd0d6bd98c28e54107ae10fe06a90fd83c6dab2",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-followup-20260904",
+      "head": "6182a5de6947d3e8fcd72024f7a720b4af0639f5",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-ledger-escalation-20260904",
+      "head": "828cc5adf0a814be4930fae8953a9cb745ed5766",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-native-final-review-20260904",
+      "head": "81612bf7af8938cbe98f63bc3f452dc6bf3e5002",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-native-ledger-20260904",
+      "head": "5c2765316db129c93127551b78068d1a1a37e55b",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-rearmed-spec-20260904",
+      "head": "172a05eca5e177bf409bc3f2abec43118b899eee",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-sweep-spec-crash-20260904",
+      "head": "a62e1760a9931c9451c34baa2df8af29fa1e9538",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-research-phone-review-20260904",
+      "head": "625352b58c6d9e9dca61371329e2cdf28b112103",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-schema-20260904",
+      "head": "b3e0c2ad2740c827be17a7cd0d777d95d6ee6b35",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-snapshot-ownership-review-20260904",
+      "head": "ab65d107b2fec003021cd451fc0ebc0e1cc2d9cc",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/cownose",
+      "head": "c7167fb59d3eb46b7a21aafbad6a292ed25ea0df",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/factory/workspace-2-drop-dead-gate-branches",
+      "head": "c2211d0e198a78b65ffbb18bd441d17bfe79f4fc",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/lane/spec-ai-engine-sprint-2-boundary/chatspend",
+      "head": "8f2199688ce3bd34ead3293b8b606db22ceed378",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/lane/spec-ai-engine-sprint-2-boundary/pipeline",
+      "head": "c138fbebeccc01b25f38362c79c9b316119c3fff",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/lane/spec-ai-engine-sprint-2-boundary/qa",
+      "head": "7c27eeff15c583389462b5e3e68eb47bdb373cb5",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/lane/spec-ai-engine-sprint-2-boundary/schema",
+      "head": "7dc7131d72bca734215d78dd38aeb732f4050842",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/legacy-nextjs-react",
+      "head": "bf22e88137ba361ae8999d84a94a0d432d598d4e",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/main",
+      "head": "14d3d1795d9f861257ac122f7183449b248a369a",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/sprint2-boundary",
+      "head": "5ec93e594eda60c28da2cfdbf27fb668fd55eb3d",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/sprint2-learn-chat",
+      "head": "c3bcddd475a924780cfaf2362b0217d1d58d428d",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/heads/svelte-migration",
+      "head": "3da60ccab54d5602b8129ab08d640f3d45a35a0a",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/remotes/origin/better-auth-migration",
+      "head": "cd247698353a6a754c8cbb4b1b65a3572c1f4b10",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/remotes/origin/codex/bmad-completion",
+      "head": "c9256971e922daed89f8e252cc3982ff34aec5bb",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/remotes/origin/codex/bmad-linux-pointer-diagnostic",
+      "head": "84dab21fc3f2e635f0ead01a7c671dfc279fa644",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/remotes/origin/codex/branch-consolidation",
+      "head": "edb422c527f40851692b976bef233ebe07a3b929",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/remotes/origin/legacy-nextjs-react",
+      "head": "bf22e88137ba361ae8999d84a94a0d432d598d4e",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/remotes/origin/main",
+      "head": "ed79a296039109fe1a2bf5dd867f9e5af22f2967",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/remotes/origin/sprint2-boundary",
+      "head": "11bfe3ebcb79fd8be78e2e057b45ea69db0f88be",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/remotes/origin/sprint2-learn-chat",
+      "head": "80db3c255851842c26938657ee60c313780971fc",
+      "ancestor_of_main": true
+    },
+    {
+      "ref": "refs/remotes/origin/svelte-migration",
+      "head": "3da60ccab54d5602b8129ab08d640f3d45a35a0a",
+      "ancestor_of_main": true
+    }
+  ],
+  "open_prs": []
+}

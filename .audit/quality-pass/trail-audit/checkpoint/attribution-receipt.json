@@ -1,0 +1,32 @@
+{
+  "recorded_at": "2026-09-06T05:54:51.872123+00:00",
+  "correction": {
+    "unsupported_attribution": "Codex GPT-6",
+    "reason": "The label came from the inherited assistant persona and is not runtime evidence for the delegated audit model.",
+    "dispatch_configuration": {
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "medium",
+      "fork_turns": "none",
+      "evidence": "Explicit root-agent follow-up describing the spawn_agent arguments for this audit session."
+    },
+    "served_model_runtime_metadata": "unavailable in this audit session",
+    "supported_attribution": "Separately dispatched audit session configured for gpt-5.6-sol, medium reasoning, with no inherited conversation turns."
+  },
+  "preserved_originals": [
+    {
+      "path": ".audit/quality-pass/trail-audit/checkpoint/report.md",
+      "sha256": "75b01e8cfd004bf3360f2dbebe11be75bd42e8ed5f9d10ba39af52c9037df39e"
+    },
+    {
+      "path": ".audit/quality-pass/trail-audit/checkpoint/receipts.json",
+      "sha256": "c7770a4d497b561b63133994c32fbad99268477e22722575c005a453883ebb97"
+    }
+  ],
+  "q4_flag_resolution": {
+    "status": "resolved by superseding receipt",
+    "path": ".audit/quality-pass/review-supersessions.json",
+    "sha256": "bd0b5040ca4c8e8ca0bdcee5c61495bde66cf0b59626b5e1e824d35aafcf8f59",
+    "qualification": "The final combined gate remains pending after Q8."
+  },
+  "review_redone": false
+}

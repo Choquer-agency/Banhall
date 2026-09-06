@@ -1,0 +1,5 @@
+{
+  "at": "2026-09-06T04:53:45.149231+00:00",
+  "heads": "cd247698353a6a754c8cbb4b1b65a3572c1f4b10\trefs/heads/better-auth-migration\nc9256971e922daed89f8e252cc3982ff34aec5bb\trefs/heads/codex/bmad-completion\n84dab21fc3f2e635f0ead01a7c671dfc279fa644\trefs/heads/codex/bmad-linux-pointer-diagnostic\nedb422c527f40851692b976bef233ebe07a3b929\trefs/heads/codex/branch-consolidation\nbf22e88137ba361ae8999d84a94a0d432d598d4e\trefs/heads/legacy-nextjs-react\ned79a296039109fe1a2bf5dd867f9e5af22f2967\trefs/heads/main\n11bfe3ebcb79fd8be78e2e057b45ea69db0f88be\trefs/heads/sprint2-boundary\n80db3c255851842c26938657ee60c313780971fc\trefs/heads/sprint2-learn-chat\n3da60ccab54d5602b8129ab08d640f3d45a35a0a\trefs/heads/svelte-migration\n",
+  "open_prs": []
+}

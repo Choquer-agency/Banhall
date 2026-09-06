@@ -1,0 +1,45 @@
+{
+  "version": "8.5.23",
+  "dependencies": {
+    "nanoid": "^3.3.16",
+    "picocolors": "^1.1.1",
+    "source-map-js": "^1.2.1"
+  },
+  "exports": {
+    ".": {
+      "import": "./lib/postcss.mjs",
+      "require": "./lib/postcss.js"
+    },
+    "./lib/list": "./lib/list.js",
+    "./lib/node": "./lib/node.js",
+    "./lib/root": "./lib/root.js",
+    "./lib/rule": "./lib/rule.js",
+    "./lib/input": "./lib/input.js",
+    "./lib/parse": "./lib/parse.js",
+    "./lib/parser": "./lib/parser.js",
+    "./lib/result": "./lib/result.js",
+    "./lib/at-rule": "./lib/at-rule.js",
+    "./lib/comment": "./lib/comment.js",
+    "./lib/postcss": "./lib/postcss.js",
+    "./lib/symbols": "./lib/symbols.js",
+    "./lib/warning": "./lib/warning.js",
+    "./lib/fromJSON": "./lib/fromJSON.js",
+    "./lib/tokenize": "./lib/tokenize.js",
+    "./package.json": "./package.json",
+    "./lib/container": "./lib/container.js",
+    "./lib/processor": "./lib/processor.js",
+    "./lib/stringify": "./lib/stringify.js",
+    "./lib/warn-once": "./lib/warn-once.js",
+    "./lib/declaration": "./lib/declaration.js",
+    "./lib/lazy-result": "./lib/lazy-result.js",
+    "./lib/stringifier": "./lib/stringifier.js",
+    "./lib/previous-map": "./lib/previous-map.js",
+    "./lib/map-generator": "./lib/map-generator.js",
+    "./lib/no-work-result": "./lib/no-work-result.js",
+    "./lib/css-syntax-error": "./lib/css-syntax-error.js",
+    "./lib/terminal-highlight": "./lib/terminal-highlight.js"
+  },
+  "engines": {
+    "node": "^10 || ^12 || >=14"
+  }
+}

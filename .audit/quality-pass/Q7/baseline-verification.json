@@ -1,0 +1,13 @@
+{
+  "baseline_commit": "73b0b0fe75d16e248ea794b73289574c1530aedb",
+  "prior_full_gate_exit": "0",
+  "prior_full_gate_sha256": "cdc7e30e65cf24c2860921b5f3dc37e74cacadb283e3563f18806c61cc08591e",
+  "prior_full_browser_result": "64 files, 499 tests passed",
+  "prior_Q6_targeted_result": "2 files, 30 tests passed",
+  "baseline_production_page_matches_HEAD": true,
+  "baseline_regression_exit": 1,
+  "fixed_unit_exit": 0,
+  "final_component_exit": 0,
+  "check_exit": 0,
+  "diff_check_exit": 0
+}

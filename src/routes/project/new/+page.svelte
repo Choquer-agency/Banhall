@@ -22,6 +22,7 @@
     MAX_TRANSCRIPTS_PER_PROJECT,
   } from "../../../../convex/lib/transcripts";
   import { userErrorMessage } from "$lib/errors";
+  import { uploadOriginal as uploadOriginalTransport } from "$lib/uploads/originalUpload";
   import { appendOutbox } from "$lib/uploads/attemptOutbox";
   import { shouldDropOutboxEntry, withUploadTimeout } from "$lib/uploads/outboxFlush";
   import {
@@ -480,19 +481,11 @@
   }
 
   async function uploadOriginal(file: File): Promise<Id<"_storage"> | undefined> {
-    try {
-      const url = await generateUploadUrl({});
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file,
-      });
-      const json = (await res.json()) as { storageId: Id<"_storage"> };
-      return json.storageId;
-    } catch (e) {
-      console.error("storage upload failed", e);
-      return undefined;
-    }
+    return uploadOriginalTransport({
+      file,
+      generateUploadUrl: () => generateUploadUrl({}),
+      fetch,
+    });
   }
 
   /**
@@ -755,6 +748,9 @@
             origin: "review_pd",
           });
           throw e;
+        }
+        if (!storageId) {
+          toast.warning(`The PD text was saved, but the original file ‘${pdDoc.name}’ could not be uploaded.`);
         }
         progress = "Starting PD review…";
         await startPdReview({ projectId, documentId });

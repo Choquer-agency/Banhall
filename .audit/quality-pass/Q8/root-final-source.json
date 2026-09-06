@@ -1,0 +1,9 @@
+{
+  ".npmrc": "3cd5118eac59b5a5d20eb0a9a33d968009c7331de1d6587c7271d82c27b4c995",
+  "package.json": "4ecfc408dfb48e141b7d25c43201135a8707c671ee1491c780d00ec4b58a15e6",
+  "package-lock.json": "787b73fb54942d099fa96a6b93770c2a630a163b7f6dcee5b480bed911e91dc4",
+  "vitest.component.config.ts": "f4b3f7455404d02a591bfb4fe04e01fba57994f170974cb249f8a721aa557f1c",
+  "convex/ai/structured.sdk.test.ts": "481f84bca68ba56a59277aa2fe6b14d171c698cbd4f349ec35357ed59e51b803",
+  "AGENTS.md": "97963c40e73bbcc1ae028c7dc20e0af401cc5997104e5bc52a99ee5dec60f1e8",
+  "_bmad-output/implementation-artifacts/spec-quality-dependency-health.md": "93c9bc2fee753aa84f64263b32995ea749d014a0751afadcc8373539546d7500"
+}

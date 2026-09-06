@@ -1,0 +1,30 @@
+{
+  "at": "2026-09-06T06:22:13.598896+00:00",
+  "public_env_defaults_applied": [
+    "PUBLIC_CONVEX_URL",
+    "PUBLIC_CONVEX_SITE_URL"
+  ],
+  "argv": [
+    "codex",
+    "exec",
+    "--ephemeral",
+    "-m",
+    "gpt-6-astra",
+    "-c",
+    "model_reasoning_effort=\"medium\"",
+    "-c",
+    "approval_policy=\"never\"",
+    "--sandbox",
+    "read-only",
+    "--color",
+    "never",
+    "--output-last-message",
+    "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass/.audit/quality-pass/Q8/review-gap-result.md",
+    "-"
+  ],
+  "prompt_sha256": "f2305824155a11519835591d5bc6de3394c782ca7a1a808719bbb28859e3a4f0",
+  "spec_sha256": "57483fae9aa43260184dee5c5d1eb90f30d993f19b254934783c705082258405",
+  "exit_code": 0,
+  "completed_at": "2026-09-06T06:23:19.598769+00:00",
+  "result_exists": true
+}

@@ -1,0 +1,12 @@
+{
+  "source_sha256": {
+    "src/lib/components/ui/UserMenu.svelte": "966f54bb9b6359f61282ca77d9944a904bd80931f07ee28bfb22712b13371111",
+    "src/lib/components/ui/UserMenu.component.test.ts": "81bb62f0201797a01eb102c1e2767ae788b28ea6bdbdb94e13b3cc7c4620b597"
+  },
+  "index_unchanged": true,
+  "all_three_reviews_exit_zero": true,
+  "post_review_production_change": "inline Settings rejection catch only",
+  "focused_result": "32 passing browser tests; Svelte check zero errors/warnings",
+  "visual_inspection": "Root viewed raw Account Writer after capture: Settings above Sign out, readable layout. Before/after scale differs; not pixel-equivalent or a golden assertion.",
+  "combined_gate": "pending root final gate after Q8"
+}

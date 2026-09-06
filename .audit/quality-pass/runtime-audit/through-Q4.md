@@ -1,0 +1,9 @@
+# Committed checkpoint through Q4
+
+Exact Q3 commit `0a538c72b41123801198782e08c12d17de9d253f`:38 archive records verified. Exact Q4 commit `67e115c124320e7e3c446cb2538335f052b7c52c`:78 archive records verified. Stored hashes, gzip-decoded original hashes and original byte lengths all match committed manifest declarations. Every final-source-hashes entry matches its respective immutable commit.
+
+Eight distinct implementation/reviewer sessions across Q3/Q4 have actual gpt-6-astra medium headers, correct quality-pass cwd, matching dispatch arguments, exit0, completed timestamps and nonempty results. Together with previously verified Q1/Q2, this is16 completed CLI sessions. Q4 additionally attempted nested collaboration; its retained unavailable receipt reports “no thread with id”. That failed extra attempt is not counted as a completed review and does not negate the three successful root-dispatched review sessions. No global process-liveness claim is made.
+
+Q4's worker byte snapshot was weaker for13 directory symlinks because it recorded existence rather than link bytes. Root-evidence-check.json and root-visual-review.md explicitly acknowledge that limit and supplement it with priorQ2/HEAD target/hash comparisons. This audit independently verifies all13 listed targets and hashes against committed Q4 Git blobs. Root's6480-path comparison permits the then-active authorized component-test correction and reports equal index; it is qualified evidence, not a claim that worker-only snapshots established all bytes. Root retains16 PNG hash checks and10 post-review comparisons; visual notes explicitly distinguish scrollable phone sections from an all-content-in-one-viewport claim and retain the known cramped mobile presentation.
+
+No archive, source-hash or CLI-identity mismatch found. This is read-only immutable evidence verification; no tests or source changes. Q5 is active and not accepted by this report. Earlier audits remain unchanged.

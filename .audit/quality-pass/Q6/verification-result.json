@@ -1,0 +1,20 @@
+{
+  "changed_tracked_paths": [
+    "src/lib/components/ui/UserMenu.component.test.ts",
+    "src/lib/components/ui/UserMenu.svelte"
+  ],
+  "index_unchanged": true,
+  "rail_branch_unchanged": true,
+  "baseline_exit": 1,
+  "fixed_exit": 0,
+  "final_component_exit": 0,
+  "check_without_env_exit": 1,
+  "check_with_placeholder_env_exit": 0,
+  "diff_check_exit": 0,
+  "final_component_tests": 30,
+  "baseline_settings_failures": 6,
+  "baseline_other_tests_passed": 24,
+  "post_pass_test_change": "Screenshot-only wait changed to poll computed menu opacity; full focused suite rerun green.",
+  "independent_review": "Pending root-owned three-lens review per spec",
+  "full_gate": "Pending root-owned final full gate per spec"
+}

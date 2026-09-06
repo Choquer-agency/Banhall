@@ -1,0 +1,7 @@
+{
+  "src/lib/uploads/originalUpload.ts": "a2cca4ebaae3fed4ff8f95a945b7de5d44cc99a7b6c0a7a010fed44139e21247",
+  "src/lib/uploads/originalUpload.test.ts": "43ab7a0fdde4caf8a8f9636b25bffba6d01786079cbf54a5e9c67a6a622444f0",
+  "src/routes/project/new/newProjectOriginalUpload.component.test.ts": "67a46ebe311365e6f6e3e8533779647defb44d1d3838221633df78a00a038967",
+  "src/routes/project/new/+page.svelte": "e8a47aa88504af44357c2a31e961f0be588d84b36a135f9c893582708e72a18e",
+  "_bmad-output/implementation-artifacts/spec-quality-Q7.md": "654079b5f84282855c37def032f85780efdd6ba36f7b2a6f94df89d2502eca03"
+}

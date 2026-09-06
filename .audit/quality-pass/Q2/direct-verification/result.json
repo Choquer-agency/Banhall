@@ -1,0 +1,32 @@
+{
+  "head": "31ca9c3ba0b22e24da853ae763592d87bd71cc85",
+  "command": "VERIFY_COMPONENT=1 bash scripts/loop-verify.sh",
+  "exit_code": 0,
+  "elapsed_seconds": 162.173193,
+  "log_sha256": "e0119f6aae20d706b20b21477178493d42686dd45a3e028862af8304f9e3fca3",
+  "tracked_paths_verified": 6366,
+  "changed_tracked_paths": [],
+  "status_unchanged": true,
+  "inventory_unchanged": true,
+  "index_unchanged": true,
+  "spec_unchanged": true,
+  "historical_paths_verified": 3068,
+  "fresh_nonempty_ignored_pngs": 14,
+  "source_preservation": {
+    "src/lib/components/chat/OptimisticSend.component.test.ts": {
+      "only_destination_prefix_changed": true,
+      "capture_sites": 7
+    },
+    "src/routes/admin/learning/LearningHealth.component.test.ts": {
+      "only_destination_prefix_changed": true,
+      "capture_sites": 6
+    }
+  },
+  "diff_check_exit_code": 0,
+  "changed_source_files": [
+    "AGENTS.md",
+    "src/lib/components/chat/OptimisticSend.component.test.ts",
+    "src/routes/admin/learning/LearningHealth.component.test.ts"
+  ],
+  "restoration_performed": false
+}

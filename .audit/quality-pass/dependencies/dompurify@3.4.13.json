@@ -1,0 +1,19 @@
+{
+  "version": "3.4.13",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/purify.es.d.mts",
+        "default": "./dist/purify.es.mjs"
+      },
+      "default": {
+        "types": "./dist/purify.cjs.d.ts",
+        "default": "./dist/purify.cjs.js"
+      }
+    },
+    "./purify.js": "./dist/purify.js",
+    "./purify.min.js": "./dist/purify.min.js",
+    "./dist/purify.js": "./dist/purify.js",
+    "./dist/purify.min.js": "./dist/purify.min.js"
+  }
+}

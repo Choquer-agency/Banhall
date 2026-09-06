@@ -1,0 +1,50 @@
+[
+  {
+    "parent": "node_modules/@mapbox/node-pre-gyp",
+    "version": "2.0.3",
+    "name": "tar",
+    "range": "^7.4.0"
+  },
+  {
+    "parent": "node_modules/@sveltejs/kit",
+    "version": "2.70.1",
+    "name": "cookie",
+    "range": "^0.6.0"
+  },
+  {
+    "parent": "node_modules/glob/node_modules/minimatch",
+    "version": "10.2.5",
+    "name": "brace-expansion",
+    "range": "^5.0.5"
+  },
+  {
+    "parent": "node_modules/mammoth",
+    "version": "1.12.0",
+    "name": "@xmldom/xmldom",
+    "range": "^0.8.6"
+  },
+  {
+    "parent": "node_modules/mermaid",
+    "version": "11.16.0",
+    "name": "dompurify",
+    "range": "^3.3.3"
+  },
+  {
+    "parent": "node_modules/postcss",
+    "version": "8.5.20",
+    "name": "nanoid",
+    "range": "^3.3.16"
+  },
+  {
+    "parent": "node_modules/svelte-streamdown",
+    "version": "3.1.2",
+    "name": "mermaid",
+    "range": "^11.15.0"
+  },
+  {
+    "parent": "node_modules/vite",
+    "version": "8.1.5",
+    "name": "postcss",
+    "range": "^8.5.17"
+  }
+]

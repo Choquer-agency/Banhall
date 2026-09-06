@@ -1,0 +1,6 @@
+2026-09-06T05:28:08.114245+00:00	scope	Implement avatar-only navigation	Approved Q6 boundaries	_bmad-output/implementation-artifacts/spec-quality-Q6.md	Two-file implementation
+2026-09-06T05:28:08.114426+00:00	baseline	Reuse verified broad baseline	No prior source mismatch	baseline-proof.json	Valid
+2026-09-06T05:28:08.114431+00:00	test	Use real pointer for rail focus restoration	Synthetic click does not focus trigger	baseline-component.log	Refined baseline passes rail case
+2026-09-06T05:28:08.114433+00:00	build	Use bits-ui onSelect and existing resolve/goto	Shared accessible activation path	src/lib/components/ui/UserMenu.svelte	Six role/input cases green
+2026-09-06T05:28:08.114436+00:00	verify	Use documented public placeholders for check	Required public env is absent	check-with-env.log	0 errors and 0 warnings
+2026-09-06T05:28:08.114438+00:00	handoff	Leave independent review and full gate to root finalization	Explicit spec ownership	verification-result.json	Pending

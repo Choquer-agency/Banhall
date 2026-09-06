@@ -1,0 +1,59 @@
+{
+  "version": "3.3.18",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./index.d.ts",
+        "default": "./index.js"
+      },
+      "browser": "./index.browser.js",
+      "default": "./index.js",
+      "require": {
+        "types": "./index.d.cts",
+        "default": "./index.cjs"
+      },
+      "react-native": "./index.browser.js"
+    },
+    "./async": {
+      "import": {
+        "types": "./index.d.ts",
+        "default": "./async/index.js"
+      },
+      "browser": "./async/index.browser.js",
+      "default": "./async/index.js",
+      "require": {
+        "types": "./index.d.cts",
+        "default": "./async/index.cjs"
+      }
+    },
+    "./non-secure": {
+      "import": {
+        "types": "./index.d.ts",
+        "default": "./non-secure/index.js"
+      },
+      "default": "./non-secure/index.js",
+      "require": {
+        "types": "./index.d.cts",
+        "default": "./non-secure/index.cjs"
+      }
+    },
+    "./package.json": "./package.json",
+    "./url-alphabet": {
+      "import": {
+        "types": "./index.d.ts",
+        "default": "./url-alphabet/index.js"
+      },
+      "default": "./url-alphabet/index.js",
+      "require": {
+        "types": "./index.d.cts",
+        "default": "./url-alphabet/index.cjs"
+      }
+    },
+    "./async/package.json": "./async/package.json",
+    "./non-secure/package.json": "./non-secure/package.json",
+    "./url-alphabet/package.json": "./url-alphabet/package.json"
+  },
+  "engines": {
+    "node": "^10 || ^12 || ^13.7 || ^14 || >=15.0.1"
+  }
+}

@@ -1,0 +1,36 @@
+[
+  {
+    "at": "2026-09-06T05:53:20.869416+00:00",
+    "unit": "Q4",
+    "historical_report": ".audit/quality-pass/Q4/verification-result.json",
+    "historical_report_sha256": "4683fecb157e87e1cf870a324c8bae2cf79f09fef4b6a8a9f9b794214c9091bc",
+    "supersedes_fields": {
+      "independent_three_lens_review": "completed and triaged"
+    },
+    "evidence": [
+      "Q4/review-exits.json",
+      "Q4/review-triage.md",
+      "Q4/post-review-evidence.md"
+    ],
+    "accepted_commit": "67e115c124320e7e3c446cb2538335f052b7c52c",
+    "post_review_focused_result": "11 passing browser cases; production unchanged after earlier full gate",
+    "combined_final_gate": "pending after Q8; this receipt does not claim final combined acceptance"
+  },
+  {
+    "at": "2026-09-06T06:44:34.425279+00:00",
+    "units": [
+      "Q4",
+      "Q5",
+      "Q6",
+      "Q8"
+    ],
+    "condition": "final combined gate pending in historical unit evidence and initial Q4 supersession",
+    "result": "fulfilled at 390eb452ab840f3e6a2a16711f61d3c6ddb90c38; 2077 unit and 522 browser tests pass from empty canonical optimizer cache, no tracked/nonignored content or index changes",
+    "evidence": [
+      "final-gate/result.json",
+      "final-gate/gate.log",
+      "final-cache-reset.json"
+    ],
+    "historical_bytes_preserved": true
+  }
+]

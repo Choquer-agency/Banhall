@@ -1,0 +1,39 @@
+{
+  "at": "2026-09-06T06:30:16.524417+00:00",
+  "head": "e2cfb873b32586d1a620a75e1de61cc49d323eb3",
+  "sdk_version": "0.91.1",
+  "test_sha256": "481f84bca68ba56a59277aa2fe6b14d171c698cbd4f349ec35357ed59e51b803",
+  "production_and_manifest_hashes": {
+    "convex/ai/structured.ts": "e7e3503adfa8427125179edfb7eb8b449aaccf1a25826cefc7560eddd9f25535",
+    "convex/ai/instrument.ts": "99f9d88e10e61f764c8f82ecb06b0ece3e66eaedbfc6afc96f3764cd0da5b321",
+    "convex/ai/providers.ts": "bcbf7d431a8f3dd9fccf1940fdd210075cb2720d2cc99fe5840c126017d971e6",
+    "package.json": "4ecfc408dfb48e141b7d25c43201135a8707c671ee1491c780d00ec4b58a15e6",
+    "package-lock.json": "787b73fb54942d099fa96a6b93770c2a630a163b7f6dcee5b480bed911e91dc4"
+  },
+  "production_and_manifests_unchanged": true,
+  "commands": [
+    {
+      "command": "npm test -- convex/ai/structured.sdk.test.ts",
+      "exit_code": 1,
+      "log": "focused.log",
+      "result": "1passed/1failed; fixture expected request_id instead of actual SDK requestID"
+    },
+    {
+      "command": "npx vitest run tiptapConfig docSearch tiptapReport instrument providers pipeline.compare structured.sdk",
+      "exit_code": 0,
+      "log": "final-unit.log",
+      "result": "91passed/7files"
+    },
+    {
+      "command": "PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site npm run check",
+      "exit_code": 0,
+      "log": "check.log",
+      "result": "0errors/0warnings"
+    }
+  ],
+  "logs_sha256": {
+    "final-unit.log": "4891ea051c5bbcbf3fc9499e1705c04adbbd499e16fa1af76e0e8446345e2703",
+    "check.log": "ed78a482a7cf5d6bf9bb50a072ccca09e0f59d7eb33b3445b8addde524a1b1a2",
+    "focused.log": "f0bd5ea7b73325186fc31c913a08e0129e54be989f10fc465fff4a2250f539ef"
+  }
+}

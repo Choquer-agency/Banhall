@@ -1,0 +1,55 @@
+{
+  "at": "2026-09-06T06:27:18.895568+00:00",
+  "temporary_directory": "/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/banhall-Q8-production-61mrygg2",
+  "records": [
+    {
+      "command": [
+        "npm",
+        "ls",
+        "--all",
+        "--json"
+      ],
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+      "exit_code": 0,
+      "log_sha256": "ed3551cb12196dc0539f42d8cd68f48d007b66a84c235a02f552215cd1628e45"
+    },
+    {
+      "command": [
+        "npm",
+        "ci",
+        "--omit=dev",
+        "--ignore-scripts"
+      ],
+      "cwd": "/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/banhall-Q8-production-61mrygg2",
+      "exit_code": 0,
+      "log_sha256": "abaf2239d0ef707001329294346d732c0b075e3fab0a5abd280064f2c0104a6e"
+    },
+    {
+      "command": [
+        "npm",
+        "ls",
+        "react",
+        "@convex-dev/better-auth",
+        "--json"
+      ],
+      "cwd": "/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/banhall-Q8-production-61mrygg2",
+      "exit_code": 0,
+      "log_sha256": "288c4a663a6ce683a13e2c4b6047149447098201d07f36dddac86ddbe377e446"
+    },
+    {
+      "command": [
+        "npm",
+        "ls",
+        "--all",
+        "--omit=dev",
+        "--json"
+      ],
+      "cwd": "/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/banhall-Q8-production-61mrygg2",
+      "exit_code": 1,
+      "log_sha256": "c1c876710c014876f559863c991b3832f31a11daa16637c504e114cec1fad91e"
+    }
+  ],
+  "lock_unchanged": true,
+  "production_react": "19.2.8",
+  "scripts_ignored_scope": "Dependency installation/resolution proof only; not production build/runtime proof."
+}

@@ -1,0 +1,20 @@
+{
+  "at": "2026-09-06T06:44:42.558326+00:00",
+  "invocation_sha256": "fb653315b0996e72ec45d02fa3bd139c7f723546926dbd1b06c834bcb15967bf",
+  "api": "bmad_loop.deferredwork.mark_done_many",
+  "native": {
+    "path": "/Users/johnnynguyen/.local/share/uv/tools/bmad-loop/lib/python3.13/site-packages/bmad_loop/deferredwork.py",
+    "sha256": "170c14c0e2d874238d73ad060bf59b49050e73713a853ef7dc7fb7271cc9d872",
+    "version": "0.11.1"
+  },
+  "closed_ids": [
+    "DW-103",
+    "DW-104",
+    "DW-105"
+  ],
+  "before_sha256": "8bbab6e2c480a197cea4585e9d2d678b80ffd1439013df604500cfd1a24f630f",
+  "after_sha256": "88bffe52a00b3948b99fd0f16762228dd29c608d0419d360a01a8645eea3fe04",
+  "after_git_blob": "0d971a683b317a50d734bb5ad665af87af47ce52",
+  "preserved_other_entries": 102,
+  "only_native_status_and_resolution_changes": true
+}

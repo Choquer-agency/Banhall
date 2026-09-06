@@ -1,0 +1,7 @@
+ts	phase	decision	why	evidence	result
+2026-09-06T06:08:15.403591+00:00	intake	Use assigned checkout and exact spec targets	User designated spec as sole scope	_bmad-output/implementation-artifacts/spec-quality-dependency-health.md	baseline e2cfb873b32586d1a620a75e1de61cc49d323eb3
+2026-09-06T06:12:27.776776+00:00	resolution	Retain exact direct targets and only Kit cookie override	Temporary pins successfully retained by npm	resolve-final.log	45 lock entries changed, including hoists
+2026-09-06T06:12:27.776966+00:00	runtime	Fix missing await in audit fixture	Installed render API returns a Promise	markdown-runtime-attempt1.log	markdown-runtime.log passes
+2026-09-06T06:12:27.776970+00:00	bundle	Observe final generateBundle phase	Vite modifies chunk code after default observer	client-modules-attempt1.json	rerun pending
+2026-09-06T06:16:48.810894+00:00	compatibility	Prebundle real @vercel/oidc in component runner	Repeated chat import failure exposes unconverted CommonJS browser export	component-focused-retry.log	narrow test-only config fix
+2026-09-06T06:20:15.340083+00:00	verification	Accept implementation checks without claiming orchestrator acceptance	Canonical, component, runtime, resolution and hash checks passed	final-receipt.json	passed; independent orchestrator review remains external

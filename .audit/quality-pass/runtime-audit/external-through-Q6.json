@@ -1,0 +1,427 @@
+{
+  "started_at": "2026-09-06T05:50:44.777358+00:00",
+  "completed_at": "2026-09-06T05:50:49.096103+00:00",
+  "compared": 39,
+  "reference_capture": "2026-09-06T04:22:36.377317+00:00",
+  "historical_reference_at": "2026-09-06T03:47:19.909991+00:00",
+  "issues": [],
+  "worktrees": [
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "head": "5ec93e594eda60c28da2cfdbf27fb668fd55eb3d",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-analyzer-provenance-fix",
+      "head": "bbaa9d20a9607d6463ee5298e1a5c9d8aebf19df",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix",
+      "head": "410fcbd27d8acdb519a07bffd1281d1810cd83d4",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-gate-repair",
+      "head": "3b8a451e3738a8da1bd95ba5e7029dba6f970a4d",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-pointer",
+      "head": "c9256971e922daed89f8e252cc3982ff34aec5bb",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion",
+      "head": "c9256971e922daed89f8e252cc3982ff34aec5bb",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-145336-4d56/worktrees/dw-blocking-qa-native-followup",
+      "head": "a62e1760a9931c9451c34baa2df8af29fa1e9538",
+      "dirty": [
+        {
+          "status": " M",
+          "path": "_bmad-output/implementation-artifacts/deferred-work.md",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 66608,
+          "sha256": "2b854968ef4c052ab64bee518155cbe87260f3ce101270ecbf9ea11b2525456b"
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-deidentify-linebreak-fix",
+      "head": "d868ad1d88436d2cfb803c1083d0f1ff8479d94f",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw96-fix",
+      "head": "091ec5a22f57ae3f566d6b70c56c3a61069763fc",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix",
+      "head": "5df0d2c4ae9677a891cd8ca19f2669da40fc4311",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-review",
+      "head": "74f8789d582c7b3ea4b66f2d70624811d269186f",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw98-fix",
+      "head": "4e0bdf5d45d7f5d555227783c69d01e29bfbec43",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw98-review",
+      "head": "e8abbc14523eff3e1aa490712e7efafe9cd86b24",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw99-fix",
+      "head": "9aa4c32d5407dd02e15bf0532587a099343bf70d",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw99-review",
+      "head": "c3bcddd475a924780cfaf2362b0217d1d58d428d",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-feedback-probe",
+      "head": "8c8080576d30c919f825e12f4b786f3f28b86b8f",
+      "dirty": [
+        {
+          "status": "??",
+          "path": "convex/feedbackReadLimit.probe.test.ts",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 4001,
+          "sha256": "789765d7acdf981016eda0be5a21dc9215736a1649a6c7d6e996d467bc88dfa1"
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-feedback-read-fix",
+      "head": "f42c7f3322cf2d48a0bcd45597ddde14f084e888",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-integration-review",
+      "head": "9da55bece5948da12129720dd2330a3032c985bf",
+      "dirty": [
+        {
+          "status": " M",
+          "path": "_bmad-output/implementation-artifacts/deferred-work.md",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 69203,
+          "sha256": "fb43738685543c9c1d879e3a3fc307689621bea8ec005622874b9b34e6258fee"
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat",
+      "head": "c3bcddd475a924780cfaf2362b0217d1d58d428d",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-linux-pointer-diagnostic",
+      "head": "84dab21fc3f2e635f0ead01a7c671dfc279fa644",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-native-entrypoint-fix",
+      "head": "19b7505738f2477ab646b763f6ae3d659c74d96b",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-privacy-contract",
+      "head": "a84022d0fae24281b55f58d57f4b4193d69c9dee",
+      "dirty": [
+        {
+          "status": "??",
+          "path": "_bmad-output/implementation-artifacts/dw42-review-prompts/blind-hunter.md",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 19113,
+          "sha256": "89c7ab1e9c854e3fcccde1501829b43241d77fdc6277da9149c43fa86f62f4b1"
+        },
+        {
+          "status": "??",
+          "path": "_bmad-output/implementation-artifacts/dw42-review-prompts/edge-case-hunter.md",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 19117,
+          "sha256": "f75d9658ae9e18196fd550688ba77ee497974043c8fdc6b50fcbaa838db1e840"
+        },
+        {
+          "status": "??",
+          "path": "_bmad-output/implementation-artifacts/dw42-review-prompts/verification-gap.md",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 19117,
+          "sha256": "ae45afa3cc0ea99abd33a3f7d90dc94cab77d34d44e4da82ff4a72e3399fd9a0"
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests",
+      "head": "176817b4230a7d0153d397134f846de2e9441bde",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix",
+      "head": "4555939ad846c638e291b06fd74e9ff3b637f881",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-review-menu-verification",
+      "head": "97e32b72891c6d50d45191ac272607936fba1628",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-unicode-fix",
+      "head": "2462c4cc6eb67501d4f412d15674435e8adfd43b",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-unlearn-fix",
+      "head": "b3338523c10085426a094bb8e5b13ccc55f9f7cf",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-verification-contract",
+      "head": "186029d408b418c4337ee0e772520629cdae937c",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-verification-fix",
+      "head": "4c26f2fb345247139963457ef7d770677b82fb45",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "head": "edb422c527f40851692b976bef233ebe07a3b929",
+      "dirty": [
+        {
+          "status": " M",
+          "path": ".audit/branch-consolidation/decisions.tsv",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 18634,
+          "sha256": "e57a78b46655c7699987819af563db5cfa63786b8b3e786e91b1e1afd83d5f5f"
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall-cownose",
+      "head": "c7167fb59d3eb46b7a21aafbad6a292ed25ea0df",
+      "dirty": [
+        {
+          "status": " M",
+          "path": "convex/crons.ts",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 1140,
+          "sha256": "353ebf5239fdbaf890c70eb854b76e56c64800540c2c991a4f7979146f35a788"
+        },
+        {
+          "status": " M",
+          "path": "convex/pdReviews.ts",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 11841,
+          "sha256": "c93aa5783e4aa8b89408514b1d3e6722785ce77e743a94751b642e4ca221178f"
+        },
+        {
+          "status": " M",
+          "path": "convex/projects.ts",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 31269,
+          "sha256": "dba44234d8997c03c76dcc6ee836b89eefaa1cbfe805dc1a65ac1eddc94af509"
+        },
+        {
+          "status": " M",
+          "path": "convex/schema.ts",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 73440,
+          "sha256": "68aba1e6bd4de62615c92d119240937bb9f9445fd1c2a3bedc57a7a2e2cab19a"
+        },
+        {
+          "status": " M",
+          "path": "src/lib/components/editor/ModelTestSummary.svelte",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 2577,
+          "sha256": "6c3d440019040a2ddf5f29ece7a73d0c65a1e7aba7311ba611f577b69b07c2e8"
+        },
+        {
+          "status": " M",
+          "path": "src/lib/components/project/CurrentProjectPage.svelte",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 70829,
+          "sha256": "cf7738171290c64a5f37b2cd3ca76e82a8f070c041c9da737e32994577d3d781"
+        },
+        {
+          "status": " M",
+          "path": "src/lib/components/ui/UserMenu.component.test.ts",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 2554,
+          "sha256": "faf5ba946f7727f30c8be9b411292f13e1d60e8d4db5f67543ffd3c5c7c64420"
+        },
+        {
+          "status": " M",
+          "path": "src/lib/components/ui/UserMenu.svelte",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 6581,
+          "sha256": "7bec859f03b37529c5b2fb2de32564ac6fe9b42f9ae4bf315e32d35ef96efede"
+        },
+        {
+          "status": " M",
+          "path": "src/lib/components/workspace/WorkspaceHeader.component.test.ts",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 7486,
+          "sha256": "dfc3fbbf7ce7130b161a0304100a0363e2abc6e83cdd49aaa1c496cd25359180"
+        },
+        {
+          "status": " M",
+          "path": "src/lib/components/workspace/WorkspaceRail.component.test.ts",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 11968,
+          "sha256": "05bff8cc738b03f04f1875a88574f490cd0badb12c57a1831c9fc10dce5423aa"
+        },
+        {
+          "status": " M",
+          "path": "src/lib/components/workspace/WorkspaceRail.svelte",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 16070,
+          "sha256": "0ec1a6c2e87a01a2bb209a3e5b19af1a15d0f9e3ac261e66b218b989613051ab"
+        },
+        {
+          "status": " M",
+          "path": "src/routes/layout.css",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 30824,
+          "sha256": "acb6ddbddb7c89471eda69bd611688ef6557d6377867baafcfa132f448bdd2e2"
+        },
+        {
+          "status": " M",
+          "path": "src/routes/project/new/+page.svelte",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 58998,
+          "sha256": "d31e1353c9a2fd9cfc34c8acb2aae52a563402a1ad6ed4a865a9a9059e792d85"
+        },
+        {
+          "status": "??",
+          "path": "src/lib/components/project/CurrentProjectReviewFeedback.component.test.ts",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 3828,
+          "sha256": "a29498df47908986e63824bd4f14386070827d552e5a445d549180dd32a95d31"
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend",
+      "head": "8f2199688ce3bd34ead3293b8b606db22ceed378",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline",
+      "head": "c138fbebeccc01b25f38362c79c9b316119c3fff",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-qa",
+      "head": "7c27eeff15c583389462b5e3e68eb47bdb373cb5",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-qa/.bmad-loop/runs/20260904-121607-3217/worktrees/8",
+      "head": "6182a5de6947d3e8fcd72024f7a720b4af0639f5",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-schema",
+      "head": "7dc7131d72bca734215d78dd38aeb732f4050842",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260904-030217-50fa/worktrees/8",
+      "head": "0b6325cd85dbf1c01e9a1e5cff67e6eef02f7ef7",
+      "dirty": [
+        {
+          "status": "??",
+          "path": "_bmad-output/specs/spec-ai-engine-sprint-2-boundary/stories/8-blocking-qa-policy.md",
+          "original_path": null,
+          "kind": "file",
+          "bytes": 11510,
+          "sha256": "28483ccdcbc062387948c50a1a44e77c0047a9b89a1a567edc470998f01b64c7"
+        }
+      ],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260904-065146-9a65/worktrees/3",
+      "head": "8be33ce5327562c8f5852ea16c5c85ea6171b927",
+      "dirty": [],
+      "unchanged": true
+    },
+    {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/workspace-2-drop-dead-gate-branches",
+      "head": "c2211d0e198a78b65ffbb18bd441d17bfe79f4fc",
+      "dirty": [],
+      "unchanged": true
+    }
+  ]
+}

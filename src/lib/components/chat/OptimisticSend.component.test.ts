@@ -58,7 +58,7 @@ it.each(["new", "existing"])("immediately renders a %s conversation send without
   expect(__activeQueryArgs("chatV2:listTurns")).toEqual([]);
   expect(page.getByRole("button", { name: "Stop generating", exact: true }).elements()).toHaveLength(0);
   expect(page.getByRole("button", { name: "Regenerate", exact: true }).elements()).toHaveLength(0);
-  if (kind === "new") await page.screenshot({ path: "../../../../.audit/story-7/optimistic-after.png" });
+  if (kind === "new") await page.screenshot({ path: "../../../../.vitest-attachments/story-7/optimistic-after.png" });
   await composer().fill("A newer draft survives");
   pending.resolve({ threadId: "thread-1", messageId: "new-prompt" });
   await expect.poll(() => localRows()[0]?.dataset.sendState).toBe("published");
@@ -120,7 +120,7 @@ it.each(["highlight-only", "text-and-highlight"])("keyboard retry captures %s an
   expect(document.activeElement).toBe(retryButton);
   expect(retryButton.matches(":focus-visible")).toBe(true);
   expect(Number(getComputedStyle(retryButton).fontWeight)).toBeLessThanOrEqual(500);
-  await page.screenshot({ path: `../../../../.audit/story-7/retry-${kind}.png` });
+  await page.screenshot({ path: `../../../../.vitest-attachments/story-7/retry-${kind}.png` });
   await userEvent.keyboard("{Enter}");
   retryButton.click(); retryButton.click();
   const expected = { reportId, threadId: "thread-1", content: kind === "highlight-only" ? "" : prompt, highlight };
@@ -235,7 +235,7 @@ it("retries initial implicit A with creation intent after separate B succeeds", 
   await expect.element(retry()).toBeEnabled();
   expect(localRows()[0].dataset.localRequest).toBe(key);
   await view.rerender({ pendingHighlight: { from: 20, to: 30, text: "Replacement excerpt" } });
-  await page.screenshot({ path: "../../../../.audit/DW-98-fix/implicit-A-retained.png" });
+  await page.screenshot({ path: "../../../../.vitest-attachments/DW-98-fix/implicit-A-retained.png" });
   const clearsBeforeRetry = clear.mock.calls.length;
   const a = deferred();
   await retry().click();
@@ -407,7 +407,7 @@ it("immediately reveals a local send in a long bounded transcript while transpor
   }).toBe(true);
   expect(localRows()[0].dataset.sendState).toBe("sending");
   expect(log.scrollTop).toBeGreaterThan(0);
-  await page.screenshot({ path: "../../../../.audit/story-7/optimistic-scrolled-after.png" });
+  await page.screenshot({ path: "../../../../.vitest-attachments/story-7/optimistic-scrolled-after.png" });
 });
 
 it("keeps failed A before a later durable B prompt and answer without synthetic timing", async () => {
@@ -576,7 +576,7 @@ it("contains long failed-send text within a narrow transcript and describes its 
   await render(AgentChatPanel, { reportId, projectId });
   await writeAndSend("Prompt".repeat(150));
   await expect.element(retry()).toBeEnabled();
-  await page.screenshot({ path: "../../../../.audit/story-7/followup-overflow-after.png" });
+  await page.screenshot({ path: "../../../../.vitest-attachments/story-7/followup-overflow-after.png" });
   const log = page.getByRole("log").element();
   expect(log.scrollWidth).toBeLessThanOrEqual(log.clientWidth);
   const button = retry().element();
@@ -613,7 +613,7 @@ it("contains a displaced historical error and its actions in a narrow viewport",
   const returnButton = page.getByRole("button", { name: "Return to original conversation", exact: true });
   const dismissButton = page.getByRole("button", { name: "Dismiss send error", exact: true });
   await expect.element(returnButton).toBeVisible();
-  await page.screenshot({ path: "../../../../.audit/story-7/second-overflow-after.png" });
+  await page.screenshot({ path: "../../../../.vitest-attachments/story-7/second-overflow-after.png" });
   const alert = page.getByRole("alert").element();
   expect(alert.scrollWidth).toBeLessThanOrEqual(alert.clientWidth);
   for (const element of [alert, returnButton.element(), dismissButton.element()]) {
@@ -679,7 +679,7 @@ it("acknowledges an offscreen published send through bounded completion until ex
   expect(localRows()).toHaveLength(1);
   expect(page.getByText(prompt, { exact: true }).elements()).toHaveLength(1);
   await expect.element(composer()).toHaveValue("Preserved newer draft");
-  await page.screenshot({ path: "../../../../.audit/published-status-fix/published-after.png" });
+  await page.screenshot({ path: "../../../../.vitest-attachments/published-status-fix/published-after.png" });
   await expect.element(page.getByRole("status")).toHaveTextContent(/^Sent$/);
   // Identical content with a different ID still cannot acknowledge publication.
   __setPaginatedRows("chatV2:listMessages", [row("different-prompt", prompt, 2)]);

@@ -1,0 +1,14 @@
+{
+  "at": "2026-09-06T06:35:05.372882+00:00",
+  "scope": "Q8 per-unit review complete; root shipping gate pending",
+  "review_owner": "root; three joined fresh Astra6 medium reviews",
+  "implementation_verification_owner": "ephemeral Q8 implementation worker",
+  "final_gate_owner": "root",
+  "cold_combined_gate": "pending; must pass before native closure/push/merge",
+  "root_patch_evidence": [
+    "post-review-sdk/evidence.md",
+    "post-review-runtime/report.md",
+    "post-review-dependencies/evidence.md"
+  ],
+  "source_hashes": "root-final-source.json"
+}

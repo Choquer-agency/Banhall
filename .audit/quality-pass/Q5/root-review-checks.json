@@ -1,0 +1,16 @@
+{
+  "baseline_exit": 1,
+  "fixed_exit": 0,
+  "check_exit": 0,
+  "diff_exit": 0,
+  "test_sha256": "174e29d6cb2fce79602725603f47782ffa751fc491ab1dfdea6e2b19e0af83b8",
+  "baseline_source_sha256": "8a011dd029e5d210b1ae8e1d171ffe0fb738889b090da628e17d65daef73b079",
+  "fixed_source_sha256": "68c7a74ff7225693f147469f28df8963ad3082e5c8517af93d583797f0c1fe24",
+  "source_restored": true,
+  "log_hashes": {
+    "root-check.log": "ed78a482a7cf5d6bf9bb50a072ccca09e0f59d7eb33b3445b8addde524a1b1a2",
+    "root-baseline.log": "a2f75e04ca8e1119ea1dac5e5b04665b78b35de85e4ea2b14b2910acea023126",
+    "root-fixed.log": "e3119569ef9052626fcac97657615a492c6e1f03c1cd340331914d43e9624325",
+    "root-diff-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

@@ -1,0 +1,13 @@
+# Pre-ship evidence curation
+
+No material curation blocker found. Read-only review at application HEAD `390eb452ab840f3e6a2a16711f61d3c6ddb90c38`; archive scripts were inspected, never executed.
+
+The closeout selector included 122 files / 4,547,186 raw bytes before these report files. No candidate symlinks, environment files, known private transcript filenames, optimizer caches or executable cache artifacts were selected. Eight historical baseline capture backups are intentionally retained: root confirmed their capture-redirection proof purpose. They differ from the current original paths and are not redundant byte copies. Paths naming caches inside source-hash inventories are metadata, not archived cache payloads. `shipping/` is outside the selector.
+
+All 529 existing Q1–Q8 archive records matched original/stored SHA-256 hashes and the committed HEAD blobs, including gzip roundtrips. No unit archive paths admitted private transcript names or capture/cache directories. The closeout script explicitly rejects `transcript.jsonl` and `messages.json`, preserves live trail files through separate immutable closeout snapshots, and stages explicit manifest paths. That name guard is limited; the additional bounded content/signature inspection found no real-secret indicators. This is not an exhaustive privacy or secret certification. No possible secret values were printed.
+
+The refreshed README is suitable as the factual PR summary: it states the eight application/verification changes, final local gate outcome, three native closures and pending hosted shipping steps. It correctly separates 80 historical open items from this pass. Dependency language accurately limits production-only peer success to React/Better Auth, discloses existing Svelte peer gaps for the full omitted-dev source tree, and describes advisory zero as captured evidence. Actual SDK tests stub HTTP; cookie checks are local API checks; built-chat verification proves module loading. No live provider, authenticated session, production storage or Convex deployment claim is made.
+
+The cold-cache claim has corresponding `final-cache-reset.json` evidence (canonical cache absent before the run), the successful final gate receipt, and the independent final-gate review. Historical failed/pending receipts remain distinguishable through the final index and supersessions.
+
+`receipts.json` preserves the inspected candidate inventory, hashes, archive validation counts and bounded scan results. The selector will also include these newly created report files and any subsequent root metadata; root should use its final manifest as the authoritative staged set. No tests/builds were rerun and no source, index, ledger or archive was changed.

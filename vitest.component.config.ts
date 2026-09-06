@@ -56,6 +56,9 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: [
+      // AI SDK's gateway reaches this CommonJS browser export from chat.
+      // Prebundle it so Chromium receives real ESM named exports.
+      "@vercel/oidc",
       "bits-ui",
       "vaul-svelte",
       // The /project/[id] route suite mounts the full report pages, whose

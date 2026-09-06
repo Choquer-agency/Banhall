@@ -1,0 +1,10 @@
+{
+  "result": "passed",
+  "environment": "client",
+  "chunks": 109,
+  "modules": 4439,
+  "renderedModules": 1186,
+  "forbiddenModules": 0,
+  "allEmittedHashesMatch": true,
+  "manifestSha256": "0d28d477a07541f4a8b416bf82b79f6328e08c46c92ac401ff4abf0b37d40c3a"
+}

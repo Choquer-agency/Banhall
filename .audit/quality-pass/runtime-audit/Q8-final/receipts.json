@@ -1,0 +1,501 @@
+{
+  "commit": "390eb452ab840f3e6a2a16711f61d3c6ddb90c38",
+  "records": 117,
+  "issues": [],
+  "source_bindings": {
+    ".npmrc": true,
+    "package.json": true,
+    "package-lock.json": true,
+    "vitest.component.config.ts": true,
+    "convex/ai/structured.sdk.test.ts": true,
+    "AGENTS.md": true,
+    "_bmad-output/implementation-artifacts/spec-quality-dependency-health.md": true
+  },
+  "reviews": [
+    {
+      "role": "review-blind",
+      "headers": {
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "session id": "01a07561-b985-72b2-a4fa-915c6a4786a0"
+      },
+      "exit": 0
+    },
+    {
+      "role": "review-edge",
+      "headers": {
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "session id": "01a07561-b985-7901-8f08-b02aaadf0743"
+      },
+      "exit": 0
+    },
+    {
+      "role": "review-gap",
+      "headers": {
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "session id": "01a07561-b985-7280-88e9-ef071e6497ef"
+      },
+      "exit": 0
+    }
+  ],
+  "tar_files": [
+    {
+      "name": "_app/immutable/entry/app.BqJfSHvg.js",
+      "size": 11117
+    },
+    {
+      "name": "_app/immutable/entry/start.RQAZ0A8A.js",
+      "size": 82
+    },
+    {
+      "name": "_app/immutable/nodes/0.Bty9DYvP.js",
+      "size": 36271
+    },
+    {
+      "name": "_app/immutable/nodes/1.BQOJoq93.js",
+      "size": 380
+    },
+    {
+      "name": "_app/immutable/nodes/10.DsKx2NeR.js",
+      "size": 19700
+    },
+    {
+      "name": "_app/immutable/nodes/11.CqJy_im4.js",
+      "size": 10661
+    },
+    {
+      "name": "_app/immutable/nodes/12.CdzEHvJ9.js",
+      "size": 40584
+    },
+    {
+      "name": "_app/immutable/nodes/13.D69QvUEY.js",
+      "size": 27648
+    },
+    {
+      "name": "_app/immutable/nodes/14.CcurI4JC.js",
+      "size": 10936
+    },
+    {
+      "name": "_app/immutable/nodes/15.2VKyVddq.js",
+      "size": 6156
+    },
+    {
+      "name": "_app/immutable/nodes/16.DZYWc8Kt.js",
+      "size": 49379
+    },
+    {
+      "name": "_app/immutable/nodes/17.Bp4Jd_qu.js",
+      "size": 4494
+    },
+    {
+      "name": "_app/immutable/nodes/18.DT6-wpvC.js",
+      "size": 522
+    },
+    {
+      "name": "_app/immutable/nodes/19.CWSXiIjJ.js",
+      "size": 568333
+    },
+    {
+      "name": "_app/immutable/nodes/2.hZ6nzcTw.js",
+      "size": 3450
+    },
+    {
+      "name": "_app/immutable/nodes/20.DA1xBXWA.js",
+      "size": 17355
+    },
+    {
+      "name": "_app/immutable/nodes/21.DuSh28Sy.js",
+      "size": 53092
+    },
+    {
+      "name": "_app/immutable/nodes/22.CpLaSTFa.js",
+      "size": 10219
+    },
+    {
+      "name": "_app/immutable/nodes/23.DfY79gLe.js",
+      "size": 532
+    },
+    {
+      "name": "_app/immutable/nodes/24.CzqNnIu7.js",
+      "size": 4099
+    },
+    {
+      "name": "_app/immutable/nodes/25.Bt6qmqeB.js",
+      "size": 13179
+    },
+    {
+      "name": "_app/immutable/nodes/26.DKDeH_KT.js",
+      "size": 237
+    },
+    {
+      "name": "_app/immutable/nodes/27.CRleAGEs.js",
+      "size": 5363
+    },
+    {
+      "name": "_app/immutable/nodes/28.BrFrsxB8.js",
+      "size": 11550
+    },
+    {
+      "name": "_app/immutable/nodes/29.DPe6XY9I.js",
+      "size": 5441
+    },
+    {
+      "name": "_app/immutable/nodes/3.C2GPdfMk.js",
+      "size": 506
+    },
+    {
+      "name": "_app/immutable/nodes/30.sUdzKioA.js",
+      "size": 17502
+    },
+    {
+      "name": "_app/immutable/nodes/4.59pzwC3J.js",
+      "size": 10195
+    },
+    {
+      "name": "_app/immutable/nodes/5.CAygfr6J.js",
+      "size": 12741
+    },
+    {
+      "name": "_app/immutable/nodes/6.BWVX6jhw.js",
+      "size": 15737
+    },
+    {
+      "name": "_app/immutable/nodes/7.BpkdJ-nb.js",
+      "size": 38665
+    },
+    {
+      "name": "_app/immutable/nodes/8.CsEWY8vu.js",
+      "size": 17697
+    },
+    {
+      "name": "_app/immutable/nodes/9.CrF_ASox.js",
+      "size": 7836
+    },
+    {
+      "name": "_app/immutable/chunks/1A4FY99Q.js",
+      "size": 1360
+    },
+    {
+      "name": "_app/immutable/chunks/2Kbsn89A.js",
+      "size": 1921
+    },
+    {
+      "name": "_app/immutable/chunks/6lUaFoEV2.js",
+      "size": 402852
+    },
+    {
+      "name": "_app/immutable/chunks/B19nZ8QV.js",
+      "size": 96515
+    },
+    {
+      "name": "_app/immutable/chunks/B2nMKTy5.js",
+      "size": 5085
+    },
+    {
+      "name": "_app/immutable/chunks/B7YZ4_ry.js",
+      "size": 8330
+    },
+    {
+      "name": "_app/immutable/chunks/B8hATLlA.js",
+      "size": 4690
+    },
+    {
+      "name": "_app/immutable/chunks/B8hkHQXd.js",
+      "size": 34305
+    },
+    {
+      "name": "_app/immutable/chunks/BEJ9jFI52.js",
+      "size": 95860
+    },
+    {
+      "name": "_app/immutable/chunks/BFC51oDA.js",
+      "size": 1898
+    },
+    {
+      "name": "_app/immutable/chunks/BOYKFgMG.js",
+      "size": 12136
+    },
+    {
+      "name": "_app/immutable/chunks/BS_dNoIv.js",
+      "size": 404
+    },
+    {
+      "name": "_app/immutable/chunks/BT8UfqtZ.js",
+      "size": 419
+    },
+    {
+      "name": "_app/immutable/chunks/BTb7WcjG.js",
+      "size": 5275
+    },
+    {
+      "name": "_app/immutable/chunks/BaNI3PpS2.js",
+      "size": 4293
+    },
+    {
+      "name": "_app/immutable/chunks/Bh6dT-E8.js",
+      "size": 2670
+    },
+    {
+      "name": "_app/immutable/chunks/Bjl-T2Kf2.js",
+      "size": 4467
+    },
+    {
+      "name": "_app/immutable/chunks/Bjy-W4x22.js",
+      "size": 1365
+    },
+    {
+      "name": "_app/immutable/chunks/BowL_1p1.js",
+      "size": 1111
+    },
+    {
+      "name": "_app/immutable/chunks/BpNFkXCP.js",
+      "size": 1128
+    },
+    {
+      "name": "_app/immutable/chunks/Bq_AV-Hy.js",
+      "size": 22908
+    },
+    {
+      "name": "_app/immutable/chunks/BrC1Uski2.js",
+      "size": 331629
+    },
+    {
+      "name": "_app/immutable/chunks/BscZ40Oe.js",
+      "size": 7012
+    },
+    {
+      "name": "_app/immutable/chunks/BuFlayix.js",
+      "size": 644
+    },
+    {
+      "name": "_app/immutable/chunks/BvFEK2_g.js",
+      "size": 90594
+    },
+    {
+      "name": "_app/immutable/chunks/BzEEhWbD.js",
+      "size": 1182
+    },
+    {
+      "name": "_app/immutable/chunks/C4qq9oOe.js",
+      "size": 63215
+    },
+    {
+      "name": "_app/immutable/chunks/C65BpGqm.js",
+      "size": 49799
+    },
+    {
+      "name": "_app/immutable/chunks/C8anVXTh.js",
+      "size": 160565
+    },
+    {
+      "name": "_app/immutable/chunks/CGzTIARr.js",
+      "size": 3108
+    },
+    {
+      "name": "_app/immutable/chunks/CKZfc-p22.js",
+      "size": 330034
+    },
+    {
+      "name": "_app/immutable/chunks/CKra1_cJ.js",
+      "size": 869
+    },
+    {
+      "name": "_app/immutable/chunks/COGvio4b2.js",
+      "size": 2681
+    },
+    {
+      "name": "_app/immutable/chunks/COrYrBn6.js",
+      "size": 13477
+    },
+    {
+      "name": "_app/immutable/chunks/CYEpZWA4.js",
+      "size": 1837
+    },
+    {
+      "name": "_app/immutable/chunks/CZ9noTUY.js",
+      "size": 120554
+    },
+    {
+      "name": "_app/immutable/chunks/Cej2s4Pl.js",
+      "size": 3019
+    },
+    {
+      "name": "_app/immutable/chunks/Cf0kDY4N.js",
+      "size": 75085
+    },
+    {
+      "name": "_app/immutable/chunks/Cg090Tfv.js",
+      "size": 60365
+    },
+    {
+      "name": "_app/immutable/chunks/CiSsr9lS.js",
+      "size": 1952
+    },
+    {
+      "name": "_app/immutable/chunks/Cj6wIQpH.js",
+      "size": 387630
+    },
+    {
+      "name": "_app/immutable/chunks/CjHSJI3U.js",
+      "size": 562
+    },
+    {
+      "name": "_app/immutable/chunks/CjmBuyrG.js",
+      "size": 5529
+    },
+    {
+      "name": "_app/immutable/chunks/Cl_0CZaL2.js",
+      "size": 493221
+    },
+    {
+      "name": "_app/immutable/chunks/CnCh0A24.js",
+      "size": 120516
+    },
+    {
+      "name": "_app/immutable/chunks/Cv7Ggj8e.js",
+      "size": 1972
+    },
+    {
+      "name": "_app/immutable/chunks/CytBsL0r2.js",
+      "size": 26730
+    },
+    {
+      "name": "_app/immutable/chunks/CzYYuhWW.js",
+      "size": 2216
+    },
+    {
+      "name": "_app/immutable/chunks/D6du_y78.js",
+      "size": 27797
+    },
+    {
+      "name": "_app/immutable/chunks/DAO2TumU.js",
+      "size": 809
+    },
+    {
+      "name": "_app/immutable/chunks/DAXXjFlN.js",
+      "size": 1269
+    },
+    {
+      "name": "_app/immutable/chunks/DILLHomL.js",
+      "size": 2622
+    },
+    {
+      "name": "_app/immutable/chunks/DKeI0nyR.js",
+      "size": 241
+    },
+    {
+      "name": "_app/immutable/chunks/DNkrYNmW.js",
+      "size": 712
+    },
+    {
+      "name": "_app/immutable/chunks/DOzzi-n_.js",
+      "size": 1761
+    },
+    {
+      "name": "_app/immutable/chunks/DQITkrlu.js",
+      "size": 18372
+    },
+    {
+      "name": "_app/immutable/chunks/DX3iCLb62.js",
+      "size": 699
+    },
+    {
+      "name": "_app/immutable/chunks/DXJbUl9v.js",
+      "size": 315
+    },
+    {
+      "name": "_app/immutable/chunks/D_7iTdNS.js",
+      "size": 962
+    },
+    {
+      "name": "_app/immutable/chunks/Dg4oblaZ.js",
+      "size": 402
+    },
+    {
+      "name": "_app/immutable/chunks/DlBeZ4JU.js",
+      "size": 39
+    },
+    {
+      "name": "_app/immutable/chunks/Dm6r0r9s.js",
+      "size": 1884
+    },
+    {
+      "name": "_app/immutable/chunks/DmL9ahCc.js",
+      "size": 392
+    },
+    {
+      "name": "_app/immutable/chunks/DnCeKysi.js",
+      "size": 5253
+    },
+    {
+      "name": "_app/immutable/chunks/DrUVNUyz2.js",
+      "size": 63917
+    },
+    {
+      "name": "_app/immutable/chunks/DrhzcDt2.js",
+      "size": 10521
+    },
+    {
+      "name": "_app/immutable/chunks/HclGiUj8.js",
+      "size": 1211
+    },
+    {
+      "name": "_app/immutable/chunks/jh3_XEwv.js",
+      "size": 771
+    },
+    {
+      "name": "_app/immutable/chunks/jlI5B3qQ.js",
+      "size": 372
+    },
+    {
+      "name": "_app/immutable/chunks/kU56cJU8.js",
+      "size": 58897
+    },
+    {
+      "name": "_app/immutable/chunks/nTlPX-6c.js",
+      "size": 30188
+    },
+    {
+      "name": "_app/immutable/chunks/npVYKXsf.js",
+      "size": 2183
+    },
+    {
+      "name": "_app/immutable/chunks/ogo9Ph6x.js",
+      "size": 4625
+    },
+    {
+      "name": "_app/immutable/chunks/qG2rsyn7.js",
+      "size": 26
+    },
+    {
+      "name": "_app/immutable/chunks/rnpQvz5r.js",
+      "size": 1411
+    },
+    {
+      "name": "_app/immutable/chunks/xihTtKlq.js",
+      "size": 65
+    }
+  ],
+  "cache_records": [],
+  "blind_dispositions": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10",
+    "11",
+    "12"
+  ],
+  "gap_dispositions": [
+    "1"
+  ],
+  "observed_chunks_manifest_matches": true,
+  "observed_chunks_mismatches": []
+}

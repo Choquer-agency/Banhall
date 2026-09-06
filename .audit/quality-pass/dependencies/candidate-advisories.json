@@ -1,0 +1,43 @@
+{
+  "at": "2026-09-06T04:02:00.317Z",
+  "status": 200,
+  "request": {
+    "@anthropic-ai/sdk": [
+      "0.91.1"
+    ],
+    "@sveltejs/kit": [
+      "2.70.3"
+    ],
+    "cookie": [
+      "0.7.2"
+    ],
+    "@tiptap/core": [
+      "3.30.4"
+    ],
+    "@xmldom/xmldom": [
+      "0.8.15"
+    ],
+    "brace-expansion": [
+      "5.0.9"
+    ],
+    "dompurify": [
+      "3.4.13"
+    ],
+    "mermaid": [
+      "11.16.1"
+    ],
+    "nanoid": [
+      "3.3.18"
+    ],
+    "postcss": [
+      "8.5.23"
+    ],
+    "tar": [
+      "7.5.21"
+    ],
+    "react": [
+      "19.2.8"
+    ]
+  },
+  "response": {}
+}

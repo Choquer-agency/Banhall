@@ -1,0 +1,9 @@
+### The upgraded Anthropic SDK is bypassed by message-call verification
+
+- **Changed surface:** `package.json:21` upgrades `@anthropic-ai/sdk` from 0.82.0 to 0.91.1.
+- **Impacted consumer or site:** `convex/ai/instrument.ts:204` invokes the SDK’s real `messages.create`; `convex/ai/structured.ts:137` consumes its decoded `tool_use` response for structured generation.
+- **Existing test evidence:** `Regression gap`: `convex/ai/providers.test.ts:82` constructs the real client but only asserts timeout and retry properties. `convex/ai/instrument.test.ts:222` replaces the client with canned message responses. `convex/ai/pipeline.compare.test.ts:16` replaces the entire SDK. Repository searches for SDK imports, `createAnthropicClient`, `instrumentedAnthropic`, and `api.anthropic.com`, plus inspection of the admitted Q8 runtime checks, found no real SDK message roundtrip verification.
+- **Missing verification:** A deterministic request through the installed SDK that asserts the structured response reaches the application intact.
+- **Demonstration:** If the upgraded SDK’s response handling dropped `tool_use` blocks, `generateStructured` would retry and then reject valid provider output. The checked tests would still pass because their mocks supply decoded blocks directly; constructor assertions never execute response handling.
+- **Consequence:** Structured report generation could fail despite all cited focused SDK checks passing.
+- **Suggested test shape:** Exercise `generateStructured` through the real instrumented client with only HTTP transport stubbed. Return a fixed Anthropic response and assert the resulting structured value, while checking the serialized tool request.

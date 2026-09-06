@@ -1,0 +1,462 @@
+[
+  {
+    "path": "node_modules/@anthropic-ai/sdk",
+    "before": "0.82.0",
+    "after": "0.91.1",
+    "reason": "Approved targeted security update",
+    "incoming": [
+      "root dependencies 0.91.1"
+    ]
+  },
+  {
+    "path": "node_modules/@sveltejs/kit",
+    "before": "2.70.1",
+    "after": "2.70.3",
+    "reason": "Approved targeted security update",
+    "incoming": [
+      "root devDependencies 2.70.3",
+      "node_modules/@sveltejs/adapter-vercel peerDependencies ^2.4.0",
+      "node_modules/better-auth peerDependencies ^2.0.0",
+      "node_modules/convex-svelte/node_modules/runed peerDependencies ^2.21.0",
+      "node_modules/runed peerDependencies ^2.21.0"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/core",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "root dependencies 3.30.4",
+      "node_modules/@tiptap/extension-blockquote peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-bold peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-bubble-menu peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-code peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-code-block peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-document peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-floating-menu peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-hard-break peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-heading peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-highlight peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-horizontal-rule peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-italic peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-link peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-list peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-paragraph peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-strike peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-text peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-underline peerDependencies 3.30.4",
+      "node_modules/@tiptap/extensions peerDependencies 3.30.4",
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4",
+      "node_modules/svelte-tiptap peerDependencies ^3.0.0"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-blockquote",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-bold",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-bubble-menu",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "root dependencies 3.30.4",
+      "node_modules/svelte-tiptap peerDependencies ^3.0.0"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-bullet-list",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-character-count",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "root dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-code",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-code-block",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "root dependencies 3.30.4",
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-document",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-dropcursor",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-floating-menu",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "root dependencies 3.30.4",
+      "node_modules/svelte-tiptap peerDependencies ^3.0.0"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-gapcursor",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-hard-break",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-heading",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-highlight",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "root dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-horizontal-rule",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "root dependencies 3.30.4",
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-italic",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-link",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "root dependencies 3.30.4",
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-list",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/extension-bullet-list peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-list-item peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-list-keymap peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-ordered-list peerDependencies 3.30.4",
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-list-item",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-list-keymap",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-ordered-list",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-paragraph",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-placeholder",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "root dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-strike",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-text",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extension-underline",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "root dependencies 3.30.4",
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/extensions",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "node_modules/@tiptap/extension-character-count peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-dropcursor peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-gapcursor peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-placeholder peerDependencies 3.30.4",
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/pm",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "root dependencies 3.30.4",
+      "node_modules/@tiptap/core peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-blockquote peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-bubble-menu peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-code-block peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-floating-menu peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-horizontal-rule peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-link peerDependencies 3.30.4",
+      "node_modules/@tiptap/extension-list peerDependencies 3.30.4",
+      "node_modules/@tiptap/extensions peerDependencies 3.30.4",
+      "node_modules/@tiptap/starter-kit dependencies 3.30.4",
+      "node_modules/svelte-tiptap peerDependencies ^3.0.0"
+    ]
+  },
+  {
+    "path": "node_modules/@tiptap/starter-kit",
+    "before": "3.28.0",
+    "after": "3.30.4",
+    "reason": "Approved full editor graph alignment",
+    "incoming": [
+      "root dependencies 3.30.4"
+    ]
+  },
+  {
+    "path": "node_modules/@xmldom/xmldom",
+    "before": "0.8.13",
+    "after": "0.8.15",
+    "reason": "Approved targeted security update",
+    "incoming": [
+      "node_modules/mammoth dependencies ^0.8.6"
+    ]
+  },
+  {
+    "path": "node_modules/balanced-match",
+    "before": null,
+    "after": "4.0.4",
+    "reason": "Unchanged 4.0.4 hoisted with brace-expansion 5.0.9",
+    "incoming": [
+      "node_modules/brace-expansion dependencies ^4.0.2"
+    ]
+  },
+  {
+    "path": "node_modules/brace-expansion",
+    "before": null,
+    "after": "5.0.9",
+    "reason": "Approved targeted security update",
+    "incoming": [
+      "node_modules/glob/node_modules/minimatch dependencies ^5.0.5"
+    ]
+  },
+  {
+    "path": "node_modules/cookie",
+    "before": "0.6.0",
+    "after": "0.7.2",
+    "reason": "Approved targeted security update",
+    "incoming": [
+      "node_modules/@sveltejs/kit dependencies ^0.6.0"
+    ]
+  },
+  {
+    "path": "node_modules/dompurify",
+    "before": "3.4.12",
+    "after": "3.4.13",
+    "reason": "Approved targeted security update",
+    "incoming": [
+      "node_modules/mermaid dependencies ^3.3.3"
+    ]
+  },
+  {
+    "path": "node_modules/glob/node_modules/balanced-match",
+    "before": "4.0.4",
+    "after": null,
+    "reason": "Unchanged 4.0.4 hoisted with brace-expansion 5.0.9",
+    "incoming": [
+      "node_modules/brace-expansion dependencies ^4.0.2"
+    ]
+  },
+  {
+    "path": "node_modules/glob/node_modules/brace-expansion",
+    "before": "5.0.7",
+    "after": null,
+    "reason": "Vulnerable nested entry replaced by approved hoisted version",
+    "incoming": [
+      "node_modules/glob/node_modules/minimatch dependencies ^5.0.5"
+    ]
+  },
+  {
+    "path": "node_modules/mermaid",
+    "before": "11.16.0",
+    "after": "11.16.1",
+    "reason": "Approved targeted security update",
+    "incoming": [
+      "node_modules/svelte-streamdown dependencies ^11.15.0"
+    ]
+  },
+  {
+    "path": "node_modules/nanoid",
+    "before": null,
+    "after": "3.3.18",
+    "reason": "Approved targeted security update",
+    "incoming": [
+      "node_modules/postcss dependencies ^3.3.16"
+    ]
+  },
+  {
+    "path": "node_modules/postcss",
+    "before": "8.5.20",
+    "after": "8.5.23",
+    "reason": "Approved targeted security update",
+    "incoming": [
+      "node_modules/vite dependencies ^8.5.17"
+    ]
+  },
+  {
+    "path": "node_modules/postcss/node_modules/nanoid",
+    "before": "3.3.16",
+    "after": null,
+    "reason": "Vulnerable nested entry replaced by approved hoisted version",
+    "incoming": [
+      "node_modules/postcss dependencies ^3.3.16"
+    ]
+  },
+  {
+    "path": "node_modules/react",
+    "before": null,
+    "after": "19.2.8",
+    "reason": "Required production Better Auth peer",
+    "incoming": [
+      "root dependencies 19.2.8",
+      "node_modules/@convex-dev/agent peerDependencies ^18.3.1 || ^19.0.0",
+      "node_modules/@convex-dev/better-auth peerDependencies ^18.3.1 || ^19.0.0",
+      "node_modules/better-auth peerDependencies ^18.0.0 || ^19.0.0",
+      "node_modules/convex peerDependencies ^18.0.0 || ^19.0.0-0 || ^19.0.0",
+      "node_modules/convex-helpers peerDependencies ^17.0.2 || ^18.0.0 || ^19.0.0"
+    ]
+  },
+  {
+    "path": "node_modules/tar",
+    "before": "7.5.20",
+    "after": "7.5.21",
+    "reason": "Approved targeted security update",
+    "incoming": [
+      "node_modules/@mapbox/node-pre-gyp dependencies ^7.4.0"
+    ]
+  }
+]

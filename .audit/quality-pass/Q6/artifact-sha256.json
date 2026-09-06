@@ -1,0 +1,23 @@
+{
+  ".audit/quality-pass/Q6/avatar-after.png": "32ae9cf58799ea39636691f7e848cb0d644a7776e74adb4dd8d4e90a2f0b2ac8",
+  ".audit/quality-pass/Q6/avatar-before.png": "3104e06fc21778739fbeadb4e0b0cadc052c3704c55fd292248ccb99f7a55533",
+  ".audit/quality-pass/Q6/baseline-component.log": "0eae92d4031347ab13e05b0e4f97af9daf3777d632e8c28507617a7934eeadbd",
+  ".audit/quality-pass/Q6/baseline-exit.txt": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+  ".audit/quality-pass/Q6/baseline-proof.json": "33fdce8a3bcbb6ff29ea4bb076ad9fddc6f5bac18a140d468ff797d49e2827b5",
+  ".audit/quality-pass/Q6/baseline-refined.log": "1982cf81114a01d4cae6a66992f0e9821960c0fed55300dc478d907bb906c6d4",
+  ".audit/quality-pass/Q6/baseline-source.sha256": "3dc8c99552b005a8c3ab59b4d199edb26657bd133d96065b9444fc5e9090973e",
+  ".audit/quality-pass/Q6/check-with-env.log": "ed78a482a7cf5d6bf9bb50a072ccca09e0f59d7eb33b3445b8addde524a1b1a2",
+  ".audit/quality-pass/Q6/check.log": "9f1089209d664eb6e49d633101597f4db5922e172bcbe6d5d22165d1ad98224a",
+  ".audit/quality-pass/Q6/decisions.tsv": "6974868841bdb44c0e6b3df2872853c64735c11a8948e43d1466581283050654",
+  ".audit/quality-pass/Q6/diff-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  ".audit/quality-pass/Q6/evidence.md": "e9563549fe6596791523e5ebbd39c4d8bb4f95c0ad40a97ac344895b8f0315e2",
+  ".audit/quality-pass/Q6/final-component.log": "2a3c079c95ff51c982ae3953b128c3d05ea74ac2354652a0dabcf70ec2842485",
+  ".audit/quality-pass/Q6/fixed-component.log": "1b7632ac8bc01366f8933309b772fc948498d71bd61b6900707b4f7ae17ef037",
+  ".audit/quality-pass/Q6/implementation-dispatch.json": "947e97f2fefafca52e5cf6d3331ea37f4a2ddb699536b33f1074f2a0ecdfca67",
+  ".audit/quality-pass/Q6/implementation-prompt.txt": "230bc30091734574fe50c7481c86aa9ddb6fb833800a794c4648e481495b99ed",
+  ".audit/quality-pass/Q6/implementation.log": "5548482df19138c57e2d108fe82f4d53927aab122799c25f9dadd00a9975c2f0",
+  ".audit/quality-pass/Q6/initial-bytes.json": "a759ad3da7f80950b8b6d8b4aa1eaf453fd67570076ce660d676d80f5c3c9313",
+  ".audit/quality-pass/Q6/initial-index.txt": "adb14d659fcf3c8f544e4eb41a26245ac1845ce68847625655190f00f096cd77",
+  ".audit/quality-pass/Q6/regression-test.sha256": "4e291b00aaf8f0d190ebf47f2fbac50acb70f4c1c889a4c366a4c4001a15c25b",
+  ".audit/quality-pass/Q6/verification-result.json": "3ecc7c1904a166f65cbd260ca364ab7f4abd5f3b09a2afe09ef855f57a6de75f"
+}

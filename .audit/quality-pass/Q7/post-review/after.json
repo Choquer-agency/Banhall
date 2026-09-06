@@ -1,0 +1,36 @@
+{
+  "at": "2026-09-06T06:04:47.134843+00:00",
+  "head": "73b0b0fe75d16e248ea794b73289574c1530aedb",
+  "source": {
+    "src/lib/uploads/originalUpload.ts": "a2cca4ebaae3fed4ff8f95a945b7de5d44cc99a7b6c0a7a010fed44139e21247",
+    "src/lib/uploads/originalUpload.test.ts": "43ab7a0fdde4caf8a8f9636b25bffba6d01786079cbf54a5e9c67a6a622444f0",
+    "src/routes/project/new/newProjectOriginalUpload.component.test.ts": "67a46ebe311365e6f6e3e8533779647defb44d1d3838221633df78a00a038967",
+    "src/routes/project/new/+page.svelte": "e8a47aa88504af44357c2a31e961f0be588d84b36a135f9c893582708e72a18e"
+  },
+  "changed_source_paths": [
+    "src/lib/uploads/originalUpload.ts",
+    "src/lib/uploads/originalUpload.test.ts",
+    "src/routes/project/new/newProjectOriginalUpload.component.test.ts"
+  ],
+  "preexisting_q7_audit_preserved": 35,
+  "changed_preexisting_audit": [],
+  "page_production_unchanged": true,
+  "screenshot": {
+    "fresh": ".vitest-attachments/Q7-warning-observed.png",
+    "copied_once": ".audit/quality-pass/Q7/post-review/warning-final.png",
+    "sha256": "65cf8c92b4463ca86fe7b1ff21eb6e3f4002c4c3ea540aa8c5eed05a443cc8ca"
+  },
+  "exits": {
+    "unit-final": 0,
+    "component-settled": 0,
+    "check-final": 0,
+    "baseline-unit": 1,
+    "component": 1,
+    "check": 0,
+    "backend-existing": 0,
+    "browser-final": 0,
+    "fixed-unit": 0,
+    "component-final": 1,
+    "diff-check": 0
+  }
+}

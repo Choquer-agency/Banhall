@@ -1,5 +1,6 @@
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import { deleteStorageIfUnreferenced } from "./lib/storage";
 import { insertTranscriptRow } from "./lib/transcripts";
 
 /**
@@ -28,8 +29,9 @@ export const tagAndDedupeDoc = internalMutation({
     const keep = matches[0];
     let deleted = 0;
     for (let i = 1; i < matches.length; i++) {
-      if (matches[i].storageId) await ctx.storage.delete(matches[i].storageId!);
-      await ctx.db.delete(matches[i]._id);
+      const discarded = matches[i];
+      await ctx.db.delete(discarded._id);
+      if (discarded.storageId) await deleteStorageIfUnreferenced(ctx, discarded.storageId);
       deleted++;
     }
     await ctx.db.patch(keep._id, { category: args.category });

@@ -1,0 +1,110 @@
+{
+  "commit": "e2cfb873b32586d1a620a75e1de61cc49d323eb3",
+  "archive_records": 72,
+  "source_hash_binding": {
+    "src/lib/uploads/originalUpload.ts": true,
+    "src/lib/uploads/originalUpload.test.ts": true,
+    "src/routes/project/new/newProjectOriginalUpload.component.test.ts": true,
+    "src/routes/project/new/+page.svelte": true,
+    "_bmad-output/implementation-artifacts/spec-quality-Q7.md": true
+  },
+  "workers": [
+    {
+      "role": "implementation",
+      "header": {
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "session id": "01a07542-21bb-7cb0-880c-298d4c701fb2"
+      },
+      "exit": 0,
+      "verified": true
+    },
+    {
+      "role": "review-blind",
+      "header": {
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "session id": "01a07549-937a-72e3-a662-eabb0b813c89"
+      },
+      "exit": 0,
+      "verified": true
+    },
+    {
+      "role": "review-edge",
+      "header": {
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "session id": "01a07549-937a-7d80-9a0b-218704ff91fa"
+      },
+      "exit": 0,
+      "verified": true
+    },
+    {
+      "role": "review-gap",
+      "header": {
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "session id": "01a07549-937a-7d02-8a4f-a913897cf65c"
+      },
+      "exit": 0,
+      "verified": true
+    }
+  ],
+  "distinct_sessions": 4,
+  "actual_log_counts": {
+    ".audit/quality-pass/Q7/baseline-component.log": [
+      "Tests 2 \u23af\u23af\u23af\u23af\u23af\u23af\u23af",
+      "Test Files  1 failed | 2 passed (3)",
+      "Tests  2 failed | 14 passed (16)"
+    ],
+    ".audit/quality-pass/Q7/post-review/backend-existing.log": [
+      "Test Files  1 passed (1)",
+      "Tests  17 passed (17)"
+    ],
+    ".audit/quality-pass/Q7/post-review/baseline-unit.log": [
+      "Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af",
+      "Test Files  1 failed | 1 passed (2)",
+      "Tests  1 failed | 51 passed (52)"
+    ],
+    ".audit/quality-pass/Q7/post-review/browser-final.log": [
+      "Test Files  3 passed (3)",
+      "Tests  20 passed (20)"
+    ],
+    ".audit/quality-pass/Q7/post-review/unit-final.log": [
+      "Test Files  2 passed (2)",
+      "Tests  53 passed (53)"
+    ]
+  },
+  "retained_warning_sha256": "65cf8c92b4463ca86fe7b1ff21eb6e3f4002c4c3ea540aa8c5eed05a443cc8ca",
+  "backend_suite_unchanged": true,
+  "current_Q1_Q7_source_matches_latest_accepted": {
+    "convex/documents.ts": true,
+    "convex/lib/storage.ts": true,
+    "convex/projects.test.ts": true,
+    "convex/projects.ts": true,
+    "convex/schema.ts": true,
+    "convex/seed.ts": true,
+    "convex/storageCleanup.test.ts": true,
+    "src/lib/components/chat/OptimisticSend.component.test.ts": true,
+    "src/lib/components/editor/ModelTestSummary.component.test.ts": true,
+    "src/lib/components/editor/ModelTestSummary.svelte": true,
+    "src/lib/components/project/CurrentProjectPage.svelte": true,
+    "src/lib/components/project/CurrentProjectReviewFeedback.component.test.ts": true,
+    "src/lib/components/ui/UserMenu.component.test.ts": true,
+    "src/lib/components/ui/UserMenu.svelte": true,
+    "src/lib/uploads/originalUpload.test.ts": true,
+    "src/lib/uploads/originalUpload.ts": true,
+    "src/routes/admin/learning/LearningHealth.component.test.ts": true,
+    "src/routes/project/new/+page.svelte": true,
+    "src/routes/project/new/newProjectOriginalUpload.component.test.ts": true
+  },
+  "issues": [],
+  "capture_sites": [
+    "await page.screenshot({ path: \"../../../../.vitest-attachments/Q7-warning-observed.png\" });"
+  ],
+  "warning_matches_declared": true
+}

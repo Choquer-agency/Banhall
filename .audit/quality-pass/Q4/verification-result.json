@@ -1,0 +1,12 @@
+{
+  "baseline_head": "0a538c72b41123801198782e08c12d17de9d253f",
+  "full_gate_exit": 0,
+  "unit_tests": 2044,
+  "component_files": 64,
+  "component_tests": 499,
+  "preserved_paths": 6480,
+  "changed_during_gate": [],
+  "index_unchanged": true,
+  "full_gate_sha256": "cdc7e30e65cf24c2860921b5f3dc37e74cacadb283e3563f18806c61cc08591e",
+  "independent_three_lens_review": "incomplete: collaboration spawn unavailable"
+}

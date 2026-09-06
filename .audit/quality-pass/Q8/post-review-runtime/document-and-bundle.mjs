@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import {readFileSync,writeFileSync,readdirSync} from 'node:fs';
+import {resolve,extname,sep} from 'node:path';
+import {createHash} from 'node:crypto';
+import {createServer} from 'node:http';
+import {createRequire} from 'node:module';
+import {chromium} from 'playwright';
+const require=createRequire(import.meta.url),out=resolve('.audit/quality-pass/Q8/post-review-runtime');
+const mammoth=require('mammoth'),JSZip=require('jszip');
+const pack=async(xml)=>{const z=new JSZip();z.file('[Content_Types].xml','<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');z.file('word/document.xml',xml);return z.generateAsync({type:'nodebuffer'});};
+const good=await pack('<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Actual DOCX &amp; XML text</w:t></w:r></w:p></w:body></w:document>');
+const result=await mammoth.extractRawText({buffer:good});assert.equal(result.value.trim(),'Actual DOCX & XML text');
+let malformed;try{await mammoth.extractRawText({buffer:await pack('<w:document><broken attr="unterminated></w:document>')});}catch(e){malformed=String(e);}assert.ok(malformed,'malformed document rejected');
+const sha=b=>createHash('sha256').update(b).digest('hex');
+const manifestPath='.svelte-kit/output/client/.vite/manifest.json';
+const manifest=JSON.parse(readFileSync(manifestPath,'utf8'));
+const nodePath='.svelte-kit/generated/client-optimized/nodes/19.js';
+assert.ok(readFileSync(nodePath,'utf8').includes('src/routes/project/[id]/+page.svelte'));
+const row={chunk:manifest[nodePath].file};
+assert.ok(readFileSync('src/lib/components/project/CurrentProjectPage.svelte','utf8').includes('import AgentChatPanel'));
+const build=resolve('.svelte-kit/output/client');
+const server=createServer((req,res)=>{let p=resolve(build,'.'+decodeURIComponent(new URL(req.url,'http://localhost').pathname));if(req.url==='/'){res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Built module load only</title>');return;}if(!p.startsWith(build+sep)){res.statusCode=403;res.end();return;}try{res.setHeader('Content-Type',extname(p)==='.js'?'text/javascript':extname(p)==='.css'?'text/css':'application/octet-stream');res.end(readFileSync(p));}catch{res.statusCode=404;res.end();}});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+const origin='http://127.0.0.1:'+server.address().port;let browser;
+try{browser=await chromium.launch({headless:true});const ctx=await browser.newContext();const blocked=[];await ctx.route('**/*',route=>{const url=route.request().url();if(url.startsWith(origin+'/'))return route.continue();blocked.push(url);return route.abort();});const page=await ctx.newPage(),errors=[];page.on('pageerror',e=>errors.push(String(e)));await page.goto(origin);const kitGlobals=[...new Set(readdirSync(build+'/_app/immutable/chunks').filter(x=>x.endsWith('.js')).flatMap(x=>readFileSync(build+'/_app/immutable/chunks/'+x,'utf8').match(/__sveltekit_[a-z0-9]+/g)||[]))];await page.evaluate(names=>{for(const n of names)globalThis[n]={env:{PUBLIC_CONVEX_URL:'https://placeholder.convex.cloud',PUBLIC_CONVEX_SITE_URL:'https://placeholder.convex.site'}};},kitGlobals);const exports=await page.evaluate(async path=>Object.keys(await import(path)),'/'+row.chunk);assert.ok(exports.length);assert.deepEqual(errors,[]);assert.deepEqual(blocked,[]);await page.screenshot({path:out+'/built-module-page.png'});const receipt={document:{consumer:'mammoth.extractRawText -> mammoth/lib/xml/xmldom -> @xmldom/xmldom',mammoth:require('mammoth/package.json').version,xmldom:require('@xmldom/xmldom/package.json').version,validText:result.value,malformedError:malformed},bundle:{chunk:row.chunk,chunkSha256:sha(readFileSync(resolve(build,row.chunk))),manifestSha256:sha(readFileSync(manifestPath)),exports,pageErrors:errors,externalRequests:blocked,currentProductionManifestAndGeneratedRouteBound:true,kitBootstrapGlobals:kitGlobals,scope:'module evaluation only; not mounted/authenticated/chat interaction'}};writeFileSync(out+'/document-and-bundle.json',JSON.stringify(receipt,null,2)+'\n');console.log(JSON.stringify(receipt));}finally{await browser?.close();server.close();}

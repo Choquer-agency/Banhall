@@ -1274,6 +1274,13 @@
 
               <!-- Supporting panels (QA moved to the right rail — BNH-47) -->
               <div class="mt-8 mb-12">
+                {#if project.mode === "review" && pdReview}
+                  <PdReviewReport
+                    review={pdReview}
+                    hasTranscript={transcripts.length > 0}
+                    onGenerate={handleGenerateFromReview}
+                  />
+                {/if}
                 <!-- BNH-48: revealed model test scores, once selection happened -->
                 {#if generation}
                   <ModelTestSummary generationId={generation._id} />

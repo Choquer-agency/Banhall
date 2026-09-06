@@ -1,0 +1,12 @@
+{
+  "at": "2026-09-06T04:00:32.064Z",
+  "head": "ed79a296039109fe1a2bf5dd867f9e5af22f2967",
+  "node": "v24.19.0",
+  "npm": "11.17.0",
+  "auditCommand": "npm audit --json",
+  "auditExit": "1",
+  "manifestSha": "a8498465ae520899f577f515785bc1c39170fe86faf43e9be006a0688b57889c  package.json\nd31482119f86dae5aae70a05ffcb19b1ed9cab43bb460b738f1aa0686906cda3  package-lock.json\n",
+  "registryCommand": "npm view <package>@<version> version peerDependencies peerDependenciesMeta dependencies exports engines --json",
+  "sourceUsageCommand": "rg -n patterns src convex scripts and selected node_modules paths",
+  "writes": "Only .audit/quality-pass/dependencies/; no install, package edit, override, source or ledger change"
+}
