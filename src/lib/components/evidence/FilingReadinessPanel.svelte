@@ -27,10 +27,12 @@
     userRole?: UserRole;
   } = $props();
 
-  const evidenceQ = useQuery(api.projectEvidence.listEvidence, () => ({ projectId }));
+  let detailsActivated = $state(false);
+
+  const evidenceQ = useQuery(api.projectEvidence.listEvidence, () => detailsActivated ? { projectId } : "skip");
   const readinessQ = useQuery(api.projectEvidence.getReadiness, () => ({ projectId, reportId }));
-  const provenanceQ = useQuery(api.reports.getProvenance, () => ({ reportId }));
-  const documentsQ = useQuery(api.documents.listDocuments, () => ({ projectId }));
+  const provenanceQ = useQuery(api.reports.getProvenance, () => detailsActivated ? { reportId } : "skip");
+  const documentsQ = useQuery(api.documents.listDocuments, () => detailsActivated ? { projectId } : "skip");
 
   const attachEvidence = useMutation(api.projectEvidence.attachEvidence);
   const verifyEvidence = useMutation(api.projectEvidence.verifyEvidence);
@@ -52,6 +54,7 @@
   );
 
   let open = $state(false);
+  $effect(() => { if (open) detailsActivated = true; });
   let showEvidenceForm = $state(false);
   let subjectName = $state("");
   let initializedSubject = false;
@@ -215,6 +218,11 @@
         </div>
       {/if}
 
+      {#if evidenceQ.error || provenanceQ.error || documentsQ.error}
+        <p role="alert" class="mt-4 text-sm text-ink-muted">Could not load filing evidence.</p>
+      {:else if evidenceQ.data === undefined || provenanceQ.data === undefined || documentsQ.data === undefined}
+        <p role="status" class="mt-4 text-sm text-ink-muted">Loading filing evidence…</p>
+      {:else}
       <div class="mt-5 grid gap-5 xl:grid-cols-2">
         <div>
           <div class="flex items-center justify-between gap-3">
@@ -424,6 +432,7 @@
         <p class="mt-5 rounded-lg bg-canvas px-4 py-3 text-xs text-gray-500">
           A manager or administrator must verify evidence, review material claim sources, and approve this exact revision.
         </p>
+      {/if}
       {/if}
     </div>
   {/if}

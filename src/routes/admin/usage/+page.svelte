@@ -12,6 +12,8 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
 
+  import { calendarDaysAgo } from "$lib/usageDateRange";
+
   // BNH-16: admin-only AI token & cost usage report.
 
   const auth = useAuth();
@@ -20,13 +22,13 @@
   );
 
   // Date-range filter (yyyy-mm-dd strings; null bound = open). Defaults to
-  // all time.
+  // the last 30 local calendar days, including today.
   const iso = (d: Date) => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   };
-  const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
-  let startDate = $state<string | null>(null);
-  let endDate = $state<string | null>(null);
+  const daysAgo = calendarDaysAgo;
+  let startDate = $state<string | null>(iso(daysAgo(29)));
+  let endDate = $state<string | null>(iso(new Date()));
 
   const PRESETS: { label: string; days: number | null }[] = [
     { label: "All time", days: null },

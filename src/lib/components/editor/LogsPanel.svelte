@@ -28,7 +28,9 @@
 
   let isOpen = $state(false);
 
-  const logQ = useQuery(api.chat.listProjectLog, () => ({ projectId }));
+  let activated = $state(false);
+  $effect(() => { if (isOpen) activated = true; });
+  const logQ = useQuery(api.chat.listProjectLog, () => activated ? { projectId } : "skip");
   const log = $derived(logQ.data);
   const count = $derived(log?.length ?? 0);
 </script>
@@ -49,13 +51,19 @@
       <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
     </svg>
     Logs
-    <span class="text-gray-300">·</span>
-    <span class="text-gray-300">{count} entr{count === 1 ? "y" : "ies"}</span>
+    {#if log !== undefined}
+      <span class="text-gray-300">·</span>
+      <span class="text-gray-300">{count} entr{count === 1 ? "y" : "ies"}</span>
+    {/if}
   </button>
 
   {#if isOpen}
     <div class="mt-3 space-y-3 border-l border-gray-100 pl-4">
-      {#if count === 0}
+      {#if logQ.error}
+        <p role="alert" class="text-xs text-gray-400">Could not load logs.</p>
+      {:else if log === undefined}
+        <p role="status" class="text-xs text-gray-400">Loading logs…</p>
+      {:else if count === 0}
         <p class="text-xs text-gray-400">
           No chat activity yet. Every question and answer in the assistant is
           recorded here.

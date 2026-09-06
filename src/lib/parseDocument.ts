@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  CAP_TRUNCATION_MARKER,
   mboxOverflowMarker,
   pdfPageStopMarker,
 } from "../../shared/documentStatus";
@@ -23,7 +22,7 @@ export {
   isImageFile,
   normalizeExtractedText,
 } from "../../shared/documentStatus";
-import { isImageFile, normalizeExtractedText } from "../../shared/documentStatus";
+import { isImageFile } from "../../shared/documentStatus";
 
 export type ParsedFileType =
   | "txt"
@@ -42,13 +41,9 @@ export interface ParsedDocument {
   content: string;
 }
 
-/**
- * Hard ceiling on extracted text per document. Convex documents max out at
- * 1 MiB; CAD-exported drawing PDFs can emit megabytes of coordinate-label
- * junk that would make uploadDocument throw. ~400k chars stays safely under
- * the limit and is far more text than any real supporting doc carries.
- */
-const MAX_CONTENT_CHARS = 400_000;
+import { capContent, MAX_CONTENT_CHARS } from "./documentContent";
+import { parseSpreadsheet, type SpreadsheetParseOptions } from "./spreadsheetClient";
+export { capContent } from "./documentContent";
 
 /** Whole-file budget for PDF text extraction — engineering-drawing PDFs
  * (huge vector pages) can stall pdf.js indefinitely; partial text beats a
@@ -79,16 +74,6 @@ function withDeadline<T>(promise: Promise<T>, deadline: number): Promise<T> {
       timer = setTimeout(() => reject(new ParseTimeout()), ms);
     }),
   ]).finally(() => clearTimeout(timer));
-}
-
-export function capContent(content: string): string {
-  // Every ingestion path (all parsers, wizard paste, Home transcript handoff)
-  // flows through here, so whitespace normalization lives with the cap:
-  // Word-exported forms carry page-layout newline runs that read as noise
-  // once flattened to text.
-  const normalized = normalizeExtractedText(content);
-  if (normalized.length <= MAX_CONTENT_CHARS) return normalized;
-  return normalized.slice(0, MAX_CONTENT_CHARS) + CAP_TRUNCATION_MARKER;
 }
 
 // ─── Email helpers (shared by .msg, .eml, .mbox) ────────────────────────────
@@ -162,7 +147,7 @@ async function emlToText(raw: string): Promise<string> {
  * Supports .txt / .md (read directly), .docx (mammoth), and .pdf (pdf.js).
  * Anything else is read as text on a best-effort basis.
  */
-export async function parseFileToText(file: File): Promise<ParsedDocument> {
+export async function parseFileToText(file: File, options: SpreadsheetParseOptions = {}): Promise<ParsedDocument> {
   const name = file.name;
   const lower = name.toLowerCase();
 
@@ -225,24 +210,10 @@ export async function parseFileToText(file: File): Promise<ParsedDocument> {
   }
 
   if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
-    // Spreadsheets flatten to CSV per sheet — keeps rows/columns readable for
-    // the model without carrying formatting. Client cost/data workbooks are
-    // the common case (e.g. hours breakdowns when there's no interview).
-    const XLSX = await import("xlsx");
-    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
-    const parts: string[] = [];
-    for (const sheetName of workbook.SheetNames) {
-      const csv = XLSX.utils
-        .sheet_to_csv(workbook.Sheets[sheetName], { blankrows: false })
-        .trim();
-      if (!csv) continue;
-      parts.push(`## Sheet: ${sheetName}\n${csv}`);
-      if (parts.join("\n\n").length > MAX_CONTENT_CHARS) break;
-    }
     return {
       fileName: name,
       fileType: "xlsx",
-      content: capContent(parts.join("\n\n")),
+      content: await parseSpreadsheet(file, options),
     };
   }
 

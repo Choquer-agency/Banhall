@@ -7,6 +7,8 @@
   rules apply: max font-weight 500.
 -->
 <script lang="ts">
+  import { createExtractionScope } from "$lib/extractionScope.svelte";
+  import { isParseAbort } from "$lib/spreadsheetClient";
   import { useMutation, useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
@@ -17,6 +19,7 @@
   import { guessFileType } from "$lib/components/project-new/shared";
 
   let { projectId }: { projectId: Id<"projects"> } = $props();
+  const extractionScope = createExtractionScope(() => projectId);
 
   const sourceDocQ = useQuery(api.pdReviews.getReviewSourceDocument, () => ({ projectId }));
   const startReview = useMutation(api.pdReviews.startPdReview);
@@ -50,6 +53,8 @@
 
   async function handleFile(file: File) {
     if (busy) return;
+    const operation = extractionScope.capture();
+    const operationProjectId = projectId;
     if (!isSupportedFile(file.name)) {
       inlineError = `Can't read ${file.name} — unsupported type. Supported: ${SUPPORTED_LABEL}.`;
       return;
@@ -57,7 +62,8 @@
     busy = true;
     inlineError = "";
     try {
-      const parsed = await parseFileToText(file);
+      const parsed = await parseFileToText(file, { signal: operation.signal });
+      operation.throwIfAborted();
       if (!parsed.content.trim()) {
         inlineError = `Couldn't extract any text from ${file.name}. Try another file.`;
         return;
@@ -67,17 +73,20 @@
       let storageId: Id<"_storage"> | undefined;
       try {
         const url = await generateUploadUrl({});
+        operation.throwIfAborted();
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": file.type || "application/octet-stream" },
           body: file,
+          signal: operation.signal,
         });
         storageId = ((await res.json()) as { storageId: Id<"_storage"> }).storageId;
       } catch {
         storageId = undefined;
       }
+      operation.throwIfAborted();
       const documentId = await uploadDocument({
-        projectId,
+        projectId: operationProjectId,
         fileName: file.name,
         fileType: guessFileType(file.name),
         content: parsed.content,
@@ -85,9 +94,12 @@
         ...(storageId ? { storageId } : {}),
         ...(file.type ? { mimeType: file.type } : {}),
       });
-      await start(documentId);
+      operation.throwIfAborted();
+      await startReview({ projectId: operationProjectId, documentId });
+      operation.throwIfAborted();
+      toast.success("PD review started.");
     } catch (e) {
-      inlineError = userErrorMessage(e, "Couldn't upload the PD.");
+      if (!isParseAbort(e)) inlineError = userErrorMessage(e, "Couldn't upload the PD.");
     } finally {
       busy = false;
       if (fileInput) fileInput.value = "";

@@ -1,0 +1,419 @@
+{
+  "baseline_commit": "201e46bd72c89ac2d59ad41022102b88b3f8433f",
+  "source_sha256": {
+    "scripts/performance/report-bundles.mjs": "8de9f80c1445b96ac99e38c0cb4b66080f471f2a4acfefc8f86c3cd8fe54859e",
+    "scripts/performance/spreadsheet-probe.mjs": "df90d2a0546cda5045a3fd116a046d4392404f34c1a4637ed0904c0f773adeff",
+    "scripts/performance/streaming-probe.mjs": "b1c3ee0e61cac98a5c61e5f63d851717ba90d7fedf33ae02877e0c8bca9e19bd",
+    "src/lib/chat/agentInternal.ts": "7c3ad6590cb198cf49c9cb17a271e786e4710604ac9d65c2f7114673e4f532fa",
+    "src/lib/chat/persistentProjection.test.ts": "8960fa1580b2ee29c1089d6e609b2f3da855e2e24d737cab74f699b9786e9329",
+    "src/lib/chat/persistentProjection.ts": "3fcf56b89251e32af35208d9246aba78db7022a0281184f0c9a45fbc090a8fe4",
+    "src/lib/chat/uiMessages.component.test.ts": "5074669213fa506695f88de271546568983a5ffd393f9fb31b6273d7c4b4d9c3",
+    "src/lib/chat/uiMessages.svelte.ts": "7bbc60dbe87ede363d7f93515090d45e077cd8b248d4bd017e1e3dd549fd652f",
+    "src/lib/components/chat/AgentChatPanel.svelte": "652a02f3b7f3e39e8df4c96d4d7f8c185054a9a47ca2147bb1b18be2a5663003",
+    "src/lib/components/chat/UploadOwnership.component.test.ts": "190d2999f47712e50988ec0ae2df30dd3b50e5997b2e164c988ec56b66cca201",
+    "src/lib/components/editor/FilesPanel.svelte": "fa90a7bf003a8b645ae35053001bfcd3d7096331444f0e92d61212b4b386c2a3",
+    "src/lib/components/editor/LogsPanel.svelte": "ffbba02381ee5da2e1b3fc6e82c5a1714a6d30d3b43859234d5512e139845a2a",
+    "src/lib/components/editor/OptionalReportDetails.component.test.ts": "eb819913bd2dca58eb4415f91c474991c63760c32f6f840329e8fef3f5e496ee",
+    "src/lib/components/evidence/FilingReadinessPanel.svelte": "d15080ddb4cb8213eeec6942a53d52c95ab7b79ae02f22e19dc9e94ea74d7d50",
+    "src/lib/components/project/CurrentProjectPage.svelte": "ebd1632b40c8f353fb08f8839206e5ac3f38e173544b9cb9d7904cb026f367a4",
+    "src/lib/components/project/PreviewProjectPage.svelte": "038c026588a2dd8ec7f1cf7bd300fbc3a486e3586885f68fecf37371abab2863",
+    "src/lib/components/project/ReportLoading.component.test.ts": "580d997d28fd57a30491017c16801e9e76f00a72d4c0a06d14337cee584a9213",
+    "src/lib/components/review-pd/PdReviewExtraction.component.test.ts": "24e2c3b3458ac3e35f3546c0b61255bcda96ce1567680a0030156a63fc259fb9",
+    "src/lib/components/review-pd/PdReviewStart.svelte": "60e676a777f2ce586d8ff7eb0c68710ca0b5aed30214c4716057a8f274bf9a7e",
+    "src/lib/components/ui/LazyModule.component.test.ts": "df39088fd06000ccf4882b7aeb3b958705dacf94c72fd556fd5e1c795495d863",
+    "src/lib/components/ui/LazyModule.svelte": "0d8f2fbb04a5a088dfa2f427c4bdd65698b1b652df6b49498f1c75bed1e9de46",
+    "src/lib/documentContent.ts": "d5c71ff89cfe58e263ca5896cf6ec55edea60b03ff1c3ca2db23a68ce6f7b7e6",
+    "src/lib/extractionScope.svelte.ts": "3fbc02f06f51e0a446053351f9f0b719f3f7d6c79f56bc8f3c63d6b8ff8fbef0",
+    "src/lib/parseDocument.ts": "708a84c77e741938418e7414e2743e31befe467aa3cf64df1bb42a806f4206a3",
+    "src/lib/spreadsheet.component.test.ts": "14638169c0136d7146a8fc53924abae7364fad2165867739fbfe92ec25276341",
+    "src/lib/spreadsheet.worker.ts": "d932bba332b47a49c759bb47e517ac8a85a70c7e9c7383a1bb7f90f2d10c9a35",
+    "src/lib/spreadsheetClient.ts": "6fabbce9f70bf4455ac6bf60f4ee24df3a5f0293ef5ebffebdc2971fd24f51e0",
+    "src/lib/spreadsheetProtocol.ts": "7edca2d77d240182755c0d3344c5ca2e0a37955131367ed3167457af0da6775b",
+    "src/lib/spreadsheetText.ts": "5ca58db604c632defa3ab03bada2ab2210e546caebcab22437a020651ac6c992",
+    "src/lib/test/LazyAssistantHarness.svelte": "a471ac8591a4302f3dc6ebb18fcbddb1a46b6c46ca6c35bf5c87080fc95fc9ce",
+    "src/lib/test/UIMessagesHarness.svelte": "13f5fb3b9b18a92b0494f1ba6bd04a4aa32465f6139b4e0b588eacf4426b6702",
+    "src/lib/test/convex-svelte-stub.svelte.ts": "12d791807742db8d85527a0789dca3e31dabb31d9290d2008d71cf986f9566e2",
+    "src/lib/test/spreadsheetFixtures.ts": "62c0c2c6a3b64dc59b4c8b85922be1f25b28ee86a15766a20125b30f254facf6",
+    "src/lib/uploads/originalUpload.test.ts": "6d8f845da9abd24059dd7687c67b6c43e8457fc2898ffce1cb0ec44548e490f8",
+    "src/lib/uploads/originalUpload.ts": "53b87f6b294bfec5075e1ff6e9b8e2987700b4ded6e21a13d3fb446ff5fed873",
+    "src/lib/usageDateRange.test.ts": "201c4c15253cb58e14697cfcd0af47556d8f521d605dd660a69288502c5db70f",
+    "src/lib/usageDateRange.ts": "7443392b754bd4f11ddfc648f41d3769c39582a4ee372cad8a67ef4ef4849a9e",
+    "src/routes/admin/usage/+page.svelte": "fc5ecf28035a64bbd88124ff4e85f8b41a656e61db383ae4d669e06b2a38ae3e",
+    "src/routes/admin/usage/usageRange.component.test.ts": "d2f970fef6d09314ba8bc1a6350fef91cb2f80768700a5446a116b8c3fbbc629",
+    "src/routes/project/[id]/+page.svelte": "a94965abd82a8695df8b16bd5547c5dbb8cf88a9e298ad70685e46699eb35d1a",
+    "src/routes/project/[id]/projectRoute.component.test.ts": "bc4dcf9a6b0d75f9091672ea11218fa7bbe2c31792e75ce7a4bddd7572b5c499",
+    "src/routes/project/new/+page.svelte": "36835d014475ad8193d10c63e51cc364f0aaa4f90a287b799bb3d9f0bdef7255",
+    "src/routes/project/new/uploadCancellation.component.test.ts": "4d77ddfb91830e1644b9bcadbbad35c7433ced5f7e63c22e41b0ff99d21fa022"
+  },
+  "verification": {
+    "command": "VERIFY_COMPONENT=1 bash scripts/loop-verify.sh",
+    "steps_passed": 9,
+    "unit_files": 158,
+    "unit_tests": 2090,
+    "browser_files": 75,
+    "browser_tests": 562,
+    "typecheck_errors": 0,
+    "typecheck_warnings": 0,
+    "powershell_checks": 50,
+    "bash_checks": 18,
+    "local_log_sha256": "8e2b1115145e6cef0392bff9442a7cbcd4f6e718dbb4ec5646911ffc7eb7080e",
+    "post_gate_change": "Removed one redundant blank line at EOF in documentContent.ts; no executable change."
+  },
+  "spreadsheet": {
+    "recordedAt": "2026-09-06T19:47:30.265Z",
+    "browser": "151.0.7922.34",
+    "results": [
+      {
+        "cpu": 1,
+        "rows": 5000,
+        "sample": 1,
+        "baseline": {
+          "elapsedMs": 244,
+          "maxLongTask": 244
+        },
+        "elapsedMs": 319.60000002384186,
+        "frames": 38,
+        "maxFrameGap": 10.199999999999818,
+        "outputChars": 400053,
+        "parity": true,
+        "tasks": [],
+        "inputDuringParse": true,
+        "maxLongTask": 0
+      },
+      {
+        "cpu": 1,
+        "rows": 5000,
+        "sample": 2,
+        "baseline": {
+          "elapsedMs": 265.10000002384186,
+          "maxLongTask": 266
+        },
+        "elapsedMs": 317,
+        "frames": 38,
+        "maxFrameGap": 10.099999999999909,
+        "outputChars": 400053,
+        "parity": true,
+        "tasks": [],
+        "inputDuringParse": true,
+        "maxLongTask": 0
+      },
+      {
+        "cpu": 1,
+        "rows": 20000,
+        "sample": 1,
+        "baseline": {
+          "elapsedMs": 1095.7999999523163,
+          "maxLongTask": 1096
+        },
+        "elapsedMs": 1243.5999999642372,
+        "frames": 149,
+        "maxFrameGap": 10.299999999999272,
+        "outputChars": 400053,
+        "parity": true,
+        "tasks": [],
+        "inputDuringParse": true,
+        "maxLongTask": 0
+      },
+      {
+        "cpu": 1,
+        "rows": 20000,
+        "sample": 2,
+        "baseline": {
+          "elapsedMs": 1007.3999999761581,
+          "maxLongTask": 1008
+        },
+        "elapsedMs": 1208.4000000357628,
+        "frames": 145,
+        "maxFrameGap": 10.199999999999818,
+        "outputChars": 400053,
+        "parity": true,
+        "tasks": [],
+        "inputDuringParse": true,
+        "maxLongTask": 0
+      },
+      {
+        "cpu": 4,
+        "rows": 5000,
+        "sample": 1,
+        "baseline": {
+          "elapsedMs": 1014.1000000238419,
+          "maxLongTask": 1015
+        },
+        "elapsedMs": 311.5,
+        "frames": 37,
+        "maxFrameGap": 10.300000000000182,
+        "outputChars": 400053,
+        "parity": true,
+        "tasks": [],
+        "inputDuringParse": true,
+        "maxLongTask": 0
+      },
+      {
+        "cpu": 4,
+        "rows": 5000,
+        "sample": 2,
+        "baseline": {
+          "elapsedMs": 1098.8999999761581,
+          "maxLongTask": 1101
+        },
+        "elapsedMs": 317,
+        "frames": 38,
+        "maxFrameGap": 10.399999999999636,
+        "outputChars": 400053,
+        "parity": true,
+        "tasks": [],
+        "inputDuringParse": true,
+        "maxLongTask": 0
+      },
+      {
+        "cpu": 4,
+        "rows": 20000,
+        "sample": 1,
+        "baseline": {
+          "elapsedMs": 4805.300000011921,
+          "maxLongTask": 4808
+        },
+        "elapsedMs": 1183.5,
+        "frames": 142,
+        "maxFrameGap": 10.299999999999272,
+        "outputChars": 400053,
+        "parity": true,
+        "tasks": [],
+        "inputDuringParse": true,
+        "maxLongTask": 0
+      },
+      {
+        "cpu": 4,
+        "rows": 20000,
+        "sample": 2,
+        "baseline": {
+          "elapsedMs": 4486.400000035763,
+          "maxLongTask": 4490
+        },
+        "elapsedMs": 1182.5,
+        "frames": 142,
+        "maxFrameGap": 10.400000000001455,
+        "outputChars": 400053,
+        "parity": true,
+        "tasks": [],
+        "inputDuringParse": true,
+        "maxLongTask": 0
+      }
+    ]
+  },
+  "streaming": {
+    "recordedAt": "2026-09-06T19:47:53.057Z",
+    "runtime": "v24.19.0",
+    "method": "Actual app persistent SDK projection versus installed authoritative replay; standard start/step/text/end framing, 50-chunk batches, one 1000-chunk warmup, three measured samples per size. Node desktop; no network, browser rendering or field INP claims. Run without concurrent tests/builds.",
+    "results": [
+      {
+        "count": 100,
+        "sample": 1,
+        "batchSize": 50,
+        "batches": 3,
+        "baselineTotalMs": 2.055749999999989,
+        "baselineLargestBatchMs": 0.8222500000000537,
+        "persistentTotalMs": 0.8214160000002266,
+        "persistentLargestBatchMs": 0.4075830000000451,
+        "everyBatchEqual": true,
+        "characters": 3500
+      },
+      {
+        "count": 100,
+        "sample": 2,
+        "batchSize": 50,
+        "batches": 3,
+        "baselineTotalMs": 1.7795409999999947,
+        "baselineLargestBatchMs": 0.7271250000000009,
+        "persistentTotalMs": 0.7940409999999929,
+        "persistentLargestBatchMs": 0.3924580000000333,
+        "everyBatchEqual": true,
+        "characters": 3500
+      },
+      {
+        "count": 100,
+        "sample": 3,
+        "batchSize": 50,
+        "batches": 3,
+        "baselineTotalMs": 1.8975410000001602,
+        "baselineLargestBatchMs": 0.868041000000062,
+        "persistentTotalMs": 0.806833000000097,
+        "persistentLargestBatchMs": 0.3908330000000433,
+        "everyBatchEqual": true,
+        "characters": 3500
+      },
+      {
+        "count": 1000,
+        "sample": 1,
+        "batchSize": 50,
+        "batches": 21,
+        "baselineTotalMs": 103.06945800000005,
+        "baselineLargestBatchMs": 10.206500000000005,
+        "persistentTotalMs": 10.505082999999559,
+        "persistentLargestBatchMs": 0.6940829999999778,
+        "everyBatchEqual": true,
+        "characters": 35000
+      },
+      {
+        "count": 1000,
+        "sample": 2,
+        "batchSize": 50,
+        "batches": 21,
+        "baselineTotalMs": 104.11020799999972,
+        "baselineLargestBatchMs": 9.962916000000064,
+        "persistentTotalMs": 9.71858300000008,
+        "persistentLargestBatchMs": 0.6733750000000782,
+        "everyBatchEqual": true,
+        "characters": 35000
+      },
+      {
+        "count": 1000,
+        "sample": 3,
+        "batchSize": 50,
+        "batches": 21,
+        "baselineTotalMs": 100.36787400000003,
+        "baselineLargestBatchMs": 10.252541999999949,
+        "persistentTotalMs": 9.696583999999916,
+        "persistentLargestBatchMs": 0.7617500000000064,
+        "everyBatchEqual": true,
+        "characters": 35000
+      },
+      {
+        "count": 5000,
+        "sample": 1,
+        "batchSize": 50,
+        "batches": 101,
+        "baselineTotalMs": 4909.928665000001,
+        "baselineLargestBatchMs": 181.56954200000018,
+        "persistentTotalMs": 180.48166400000082,
+        "persistentLargestBatchMs": 8.66020799999933,
+        "everyBatchEqual": true,
+        "characters": 175000
+      },
+      {
+        "count": 5000,
+        "sample": 2,
+        "batchSize": 50,
+        "batches": 101,
+        "baselineTotalMs": 5050.763586999996,
+        "baselineLargestBatchMs": 200.5310410000002,
+        "persistentTotalMs": 184.41079200000422,
+        "persistentLargestBatchMs": 11.356499999999869,
+        "everyBatchEqual": true,
+        "characters": 175000
+      },
+      {
+        "count": 5000,
+        "sample": 3,
+        "batchSize": 50,
+        "batches": 101,
+        "baselineTotalMs": 4889.254703000011,
+        "baselineLargestBatchMs": 178.7809589999997,
+        "persistentTotalMs": 173.38457999999082,
+        "persistentLargestBatchMs": 8.218791999999667,
+        "everyBatchEqual": true,
+        "characters": 175000
+      }
+    ]
+  },
+  "report_bundles": {
+    "method": "Production manifest static transitive closures. Cold shell includes shared app/layout. Each selected cohort includes shell; default desktop additionally includes assistant. Optional tools shown as cold union with selected cohort. Gzip is offline per-file estimate, not network transfer or a measured route speedup.",
+    "baseline": {
+      "cold": {
+        "modules": 58,
+        "bytes": 2047531,
+        "gzip": 597544
+      },
+      "incremental_over_root": {
+        "modules": 37,
+        "bytes": 1639809,
+        "gzip": 461497
+      }
+    },
+    "shell": {
+      "modules": 30,
+      "bytes": 417992,
+      "gzip": 141891
+    },
+    "cohorts": {
+      "CurrentProjectPage": {
+        "closedAssistant": {
+          "modules": 74,
+          "bytes": 1509848,
+          "gzip": 458839
+        },
+        "defaultDesktopAssistant": {
+          "modules": 79,
+          "bytes": 1865240,
+          "gzip": 556912
+        },
+        "optionalTools": {
+          "AgentChatPanel": {
+            "modules": 79,
+            "bytes": 1865240,
+            "gzip": 556912
+          },
+          "QARailPanel": {
+            "modules": 75,
+            "bytes": 1512460,
+            "gzip": 460137
+          },
+          "VersionHistory": {
+            "modules": 75,
+            "bytes": 1520373,
+            "gzip": 463020
+          },
+          "CandidateSelection": {
+            "modules": 76,
+            "bytes": 1528055,
+            "gzip": 466238
+          },
+          "IterativeStepper": {
+            "modules": 75,
+            "bytes": 1525610,
+            "gzip": 463982
+          }
+        }
+      },
+      "PreviewProjectPage": {
+        "closedAssistant": {
+          "modules": 75,
+          "bytes": 1618820,
+          "gzip": 487026
+        },
+        "defaultDesktopAssistant": {
+          "modules": 79,
+          "bytes": 1968937,
+          "gzip": 583540
+        },
+        "optionalTools": {
+          "AgentChatPanel": {
+            "modules": 79,
+            "bytes": 1968937,
+            "gzip": 583540
+          },
+          "QARailPanel": {
+            "modules": 76,
+            "bytes": 1621432,
+            "gzip": 488324
+          },
+          "VersionHistory": {
+            "modules": 76,
+            "bytes": 1629345,
+            "gzip": 491207
+          },
+          "CandidateSelection": {
+            "modules": 77,
+            "bytes": 1637027,
+            "gzip": 494425
+          },
+          "IterativeStepper": {
+            "modules": 76,
+            "bytes": 1634582,
+            "gzip": 492169
+          }
+        }
+      }
+    }
+  }
+}

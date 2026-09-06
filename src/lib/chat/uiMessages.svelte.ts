@@ -9,23 +9,22 @@
  *  2. active-streams subscription: same query with
  *     streamArgs { kind: "list", startOrder } → streams.messages.
  *  3. deltas subscription: streamArgs { kind: "deltas", cursors } →
- *     streams.deltas; deltas accumulate per stream, cursors advance (which
- *     re-subscribes), and accumulated UIMessageChunks materialize into
- *     UIMessages via the agent package's own derive helper (AI SDK
- *     readUIMessageStream under the hood).
+ *     streams.deltas; contiguous accepted chunks enter each stream's pending
+ *     queue and cursors advance (which re-subscribes). One persistent official
+ *     readUIMessageStream consumes the queue; processed chunk history is freed.
  *
- * Unlike the React hook we materialize non-incrementally (full re-derive per
- * delta batch) — chat-sized messages make that a non-issue and it avoids
- * vendoring the incremental state machine.
+ * Each active stream owns one persistent AI SDK parser. Accepted chunks are
+ * consumed once and published at most once per browser animation frame.
  */
 import { useQuery, usePaginatedQuery } from "convex-svelte";
 import type { StreamDelta, StreamMessage } from "@convex-dev/agent/validators";
 import {
   combineUIMessages,
-  deriveUIMessagesFromDeltas,
   sorted,
   type UIMessage,
 } from "./agentInternal";
+
+import { createPersistentProjection } from "./persistentProjection";
 
 // Any query shaped like chatV2.listMessages (see convex/chatV2.ts).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -68,37 +67,38 @@ export function createUIMessages(
     return sorted($state.snapshot(streams.messages)) as StreamMessage[];
   });
 
-  // ── 3. Delta accumulation ──────────────────────────────────────────────────
-  // $state.raw: deltas/messages are replaced wholesale, never mutated in
-  // place, and their contents flow into the AI SDK's readUIMessageStream,
+  // ── 3. Accepted deltas and persistent projection ────────────────────────────
+  // $state.raw: cursors/messages are replaced wholesale, never mutated in
+  // place. Plain snapshots flow into the AI SDK's readUIMessageStream,
   // which structuredClone()s the assembled message. Deep $state proxies are
   // not cloneable — with plain $state every streaming update threw
   // DataCloneError ("#<Object> could not be cloned") and chat streaming died.
   let currentThreadId: string | undefined = $state(undefined);
   let cursors: Record<string, number> = $state.raw({});
-  let deltasByStream: Record<string, StreamDelta[]> = $state.raw({});
   let streaming: UIMessage[] = $state.raw([]);
+  const projections = new Map<string, ReturnType<typeof createPersistentProjection>>();
+  let version = 0;
+  let frame: number | undefined;
 
-  // Reset accumulated state when the thread changes.
-  $effect(() => {
-    const args = getArgs();
-    const threadId = args === "skip" ? undefined : args.threadId;
-    if (threadId !== currentThreadId) {
-      currentThreadId = threadId;
-      cursors = {};
-      deltasByStream = {};
-      streaming = [];
-    }
-  });
-
-  // When no active streams remain, drop stale streaming messages.
-  $effect(() => {
-    if (streamListQ.data && streamMessages.length === 0 && streaming.length) {
-      streaming = [];
-      deltasByStream = {};
-      cursors = {};
-    }
-  });
+  function clear() {
+    version++;
+    if (frame !== undefined) cancelAnimationFrame(frame);
+    frame = undefined;
+    for (const projection of projections.values()) void projection.dispose();
+    projections.clear();
+    cursors = {};
+    streaming = [];
+  }
+  function publish(expectedVersion: number) {
+    if (expectedVersion !== version || frame !== undefined) return;
+    frame = requestAnimationFrame(() => {
+      frame = undefined;
+      if (expectedVersion === version) {
+        streaming = sorted([...projections.values()].map(projection => projection.snapshot()));
+      }
+    });
+  }
+  $effect(() => () => clear());
 
   const deltasQ = useQuery(query, () => {
     const args = getArgs();
@@ -116,48 +116,63 @@ export function createUIMessages(
     };
   });
 
+  const deltaResponse = $derived(deltasQ.data);
+
   $effect(() => {
-    const streams = deltasQ.data?.streams;
-    const threadId = currentThreadId;
+    const args = getArgs();
+    const threadId = args === "skip" ? undefined : args.threadId;
+    if (threadId !== currentThreadId) {
+      clear();
+      currentThreadId = threadId;
+    }
     if (!threadId) return;
-    if (streams && streams.kind === "deltas" && streams.deltas.length) {
-      // Snapshot: convex-svelte hands us deep $state proxies; the AI SDK
-      // structuredClone()s these parts downstream, and proxies don't clone.
-      const deltas = $state.snapshot(streams.deltas) as StreamDelta[];
-      let changed = false;
-      const nextBuckets = { ...deltasByStream };
-      const nextCursors = { ...cursors };
-      for (const delta of [...deltas].sort((a, b) => a.start - b.start)) {
-        const have = nextCursors[delta.streamId] ?? 0;
-        if (delta.start < have) continue; // already applied
-        if (delta.start > have) continue; // gap — wait for resend
-        nextBuckets[delta.streamId] = [
-          ...(nextBuckets[delta.streamId] ?? []),
-          delta,
-        ];
-        nextCursors[delta.streamId] = delta.end;
+    // An absent response is loading, not an authoritative empty list.
+    const confirmedList = streamListQ.data?.streams?.kind === "list";
+    const messages = streamMessages;
+    const active = new Set(messages.map(message => message.streamId));
+    const nextCursors = { ...cursors };
+    let changed = false;
+    for (const [id, projection] of projections) {
+      if (confirmedList && !active.has(id)) {
+        void projection.dispose();
+        projections.delete(id);
+        delete nextCursors[id];
         changed = true;
       }
-      if (changed) {
-        deltasByStream = nextBuckets;
-        cursors = nextCursors; // advancing cursors re-subscribes deltasQ
+    }
+    for (const message of messages) {
+      const existing = projections.get(message.streamId);
+      if (existing) existing.updateStream(message);
+      else {
+        try { projections.set(message.streamId, createPersistentProjection(threadId, message)); }
+        catch (error) { console.error("Error in stream", error); }
       }
     }
 
-    // Re-derive streaming UIMessages from everything accumulated so far.
-    // (Also runs on stream status flips with no new deltas — cheap.)
-    const messages = streamMessages;
-    const allDeltas = Object.values(deltasByStream).flat();
-    if (messages.length === 0) return;
-    let cancelled = false;
-    void deriveUIMessagesFromDeltas(threadId, messages, allDeltas).then(
-      (derived: UIMessage[]) => {
-        if (!cancelled) streaming = derived;
+    const streams = deltaResponse?.streams;
+    if (streams?.kind === "deltas") {
+      // Convex subscriptions expose deep proxies; the SDK clones its input.
+      const deltas = $state.snapshot(streams.deltas) as StreamDelta[];
+      for (const delta of [...deltas].sort((a, b) => a.start - b.start)) {
+        const projection = projections.get(delta.streamId);
+        if (!projection) continue;
+        const have = nextCursors[delta.streamId] ?? 0;
+        if (delta.start !== have) continue; // duplicate or gap: wait for resend
+        nextCursors[delta.streamId] = delta.end;
+        changed = true;
+        const expectedVersion = version;
+        void projection.append(delta.parts).then(() => {
+          if (projections.get(delta.streamId) === projection) publish(expectedVersion);
+        }, error => {
+          if (expectedVersion === version && projections.get(delta.streamId) === projection) {
+            console.error("Error in stream", error);
+          }
+        });
       }
-    );
-    return () => {
-      cancelled = true;
-    };
+    }
+    if (changed) cursors = nextCursors;
+    // Also publish status-only updates and removal of one stream among many.
+    publish(version);
   });
 
   // ── Merge: persisted + streaming, deduped by (order, stepOrder) ───────────

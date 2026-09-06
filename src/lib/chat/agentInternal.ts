@@ -15,5 +15,5 @@ export {
   statusFromStreamStatus,
 } from "../../../node_modules/@convex-dev/agent/dist/deltas.js";
 export { combineUIMessages } from "../../../node_modules/@convex-dev/agent/dist/UIMessages.js";
-export { sorted } from "../../../node_modules/@convex-dev/agent/dist/shared.js";
+export { sorted, joinText } from "../../../node_modules/@convex-dev/agent/dist/shared.js";
 export type { UIMessage } from "@convex-dev/agent";
