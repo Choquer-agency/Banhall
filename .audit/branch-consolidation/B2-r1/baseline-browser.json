@@ -1,0 +1,1 @@
+{"command": "node node_modules/vitest/vitest.mjs run --config vitest.component.config.ts src/lib/components/editor/Editor.component.test.ts --expect.requireAssertions", "exit": 0}

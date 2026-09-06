@@ -1,0 +1,41 @@
+src/lib/parseDocument.ts:139:  const { default: PostalMime } = await import("postal-mime");
+src/lib/parseDocument.ts:177:    const mammoth = await import("mammoth");
+src/lib/parseDocument.ts:184:    const pdfjs = await import("pdfjs-dist");
+src/lib/parseDocument.ts:231:    const XLSX = await import("xlsx");
+src/lib/parseDocument.ts:266:    const { default: MsgReader } = await import("@kenjiuno/msgreader");
+src/lib/test/convex-auth-stub.ts:1:export { __setAuthState, __resetAuthState, useAuth, createSvelteAuthClient } from "./convex-auth-state-stub.svelte";
+src/lib/components/project/CurrentProjectPage.svelte:767:        import("$lib/exportTemplateDocx"),
+src/lib/components/project/CurrentProjectPage.svelte:768:        import("file-saver"),
+src/lib/components/editor/Editor.svelte:917:  export function scrollToPosition(from: number, to: number, text?: string) {
+src/lib/components/editor/Editor.svelte:1047:  export function replaceRange(from: number, to: number, newText: string) {
+src/lib/components/editor/Editor.svelte:1052:  export function highlightRange(from: number, to: number, text: string) {
+src/lib/chat/agentInternal.ts:17:export { combineUIMessages } from "../../../node_modules/@convex-dev/agent/dist/UIMessages.js";
+src/lib/chat/agentInternal.ts:18:export { sorted } from "../../../node_modules/@convex-dev/agent/dist/shared.js";
+src/lib/chat/agentInternal.ts:19:export type { UIMessage } from "@convex-dev/agent";
+src/lib/components/editor/docSearch.ts:3:export type Range = { from: number; to: number; text: string };
+src/lib/components/editor/docSearch.ts:63:export function extractMatchedText(doc: PMNode, from: number, to: number): string {
+src/lib/components/project/PreviewProjectPage.svelte:922:        import("$lib/exportTemplateDocx"),
+src/lib/components/project/PreviewProjectPage.svelte:923:        import("file-saver"),
+src/lib/components/review/ReadOnlyEditor.svelte:330:  export function scrollToPosition(from: number, to: number, text?: string) {
+src/lib/components/chat/primitives/index.ts:5:export { default as ChatContainer } from "./ChatContainer.svelte";
+src/lib/components/chat/primitives/index.ts:6:export { default as ScrollButton } from "./ScrollButton.svelte";
+src/lib/components/chat/primitives/index.ts:7:export { default as Message } from "./Message.svelte";
+src/lib/components/chat/primitives/index.ts:8:export { default as MessageContent } from "./MessageContent.svelte";
+src/lib/components/chat/primitives/index.ts:9:export { default as MessageAvatar } from "./MessageAvatar.svelte";
+src/lib/components/chat/primitives/index.ts:10:export { default as MessageActions } from "./MessageActions.svelte";
+src/lib/components/chat/primitives/index.ts:11:export { default as ActionButton } from "./ActionButton.svelte";
+src/lib/components/chat/primitives/index.ts:12:export { default as PromptInput } from "./PromptInput.svelte";
+src/lib/components/chat/primitives/index.ts:13:export { default as PromptInputTextarea } from "./PromptInputTextarea.svelte";
+src/lib/components/chat/primitives/index.ts:14:export { default as PromptInputActions } from "./PromptInputActions.svelte";
+src/lib/components/chat/primitives/index.ts:15:export { default as Loader } from "./Loader.svelte";
+src/lib/components/chat/primitives/index.ts:16:export { default as Suggestion } from "./Suggestion.svelte";
+src/lib/components/chat/primitives/index.ts:17:export { default as ChainOfThought } from "./ChainOfThought.svelte";
+src/lib/components/chat/primitives/index.ts:18:export { default as ChainOfThoughtStep } from "./ChainOfThoughtStep.svelte";
+src/lib/components/chat/primitives/index.ts:19:export { default as ChainOfThoughtTrigger } from "./ChainOfThoughtTrigger.svelte";
+src/lib/components/chat/primitives/index.ts:20:export { default as ChainOfThoughtContent } from "./ChainOfThoughtContent.svelte";
+src/lib/components/chat/primitives/index.ts:21:export { default as ChainOfThoughtItem } from "./ChainOfThoughtItem.svelte";
+src/lib/components/chat/primitives/index.ts:22:export { default as FeedbackBar } from "./FeedbackBar.svelte";
+src/lib/components/chat/primitives/index.ts:23:export { default as Source } from "./Source.svelte";
+src/lib/components/chat/primitives/index.ts:24:export { default as SourceTrigger } from "./SourceTrigger.svelte";
+src/lib/components/chat/primitives/index.ts:25:export { default as SourceContent } from "./SourceContent.svelte";
+src/lib/components/chat/primitives/index.ts:26:export type { ChatContainerContext, PromptInputContext, MessageRole } from "./context";

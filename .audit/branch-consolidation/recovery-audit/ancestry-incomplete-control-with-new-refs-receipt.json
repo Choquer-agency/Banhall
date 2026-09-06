@@ -1,0 +1,37 @@
+{
+  "command": [
+    "python3",
+    ".audit/branch-consolidation/recovery-audit/verify-final-ancestry.py",
+    "d22e1fa0880512212865d7d60aeb8cfe600dbaa2",
+    "d22e1fa0880512212865d7d60aeb8cfe600dbaa2",
+    "--output",
+    ".audit/branch-consolidation/recovery-audit/ancestry-incomplete-control-with-new-refs.json"
+  ],
+  "exit": 1,
+  "stderr": "",
+  "expected": "Incomplete captured ancestry; new refs separately inventoried, prior control preserved",
+  "observed": {
+    "capturedMissing": 23,
+    "plannedParentsMissing": 20,
+    "refDrift": [],
+    "newlyObservedRefs": [
+      {
+        "ref": "refs/heads/codex/branch-consolidation",
+        "sha": "d22e1fa0880512212865d7d60aeb8cfe600dbaa2",
+        "ancestor": true
+      }
+    ],
+    "excludedSymbolicRefs": [
+      {
+        "ref": "refs/remotes/origin/HEAD",
+        "sha": "cc6b706c3b43f971d944cb703a4174eabf3134d9",
+        "symbolicTarget": "refs/remotes/origin/main"
+      }
+    ],
+    "errors": [],
+    "baselineAncestor": true,
+    "requiredIntegrationAncestor": true
+  },
+  "scriptSha256": "65bdcac556f0f6bca958be5743e8fca40f423b84207ab126e65e69de408174df",
+  "resultSha256": "e31eb1f60f417364cdde38fec9e10a2b016e480206cb71a69adaebda06de2a6f"
+}

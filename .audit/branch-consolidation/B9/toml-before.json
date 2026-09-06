@@ -1,0 +1,82 @@
+{
+  "project": "Banhall",
+  "verify": {
+    "commands": [
+      "bash scripts/loop-verify.sh"
+    ],
+    "timeout_min": 20
+  },
+  "plan": {
+    "confirm": "auto",
+    "validate": true,
+    "arena": 1
+  },
+  "run": {
+    "max_dev_attempts": 2,
+    "max_fix_loops": 4,
+    "stall_min": 10,
+    "session_timeout_min": 120,
+    "quota_wait_min": 30,
+    "quota_rounds": 6,
+    "merge_strategy": "merge",
+    "keep_branches": false,
+    "min_verdict": "test-verified"
+  },
+  "qa": {
+    "smoke": [],
+    "operator_only": [],
+    "evidence": ".audit/{ticket}/evidence.md",
+    "timeout_min": 30
+  },
+  "tickets": {
+    "dir": ".factory/tickets"
+  },
+  "sizing": {
+    "max_packages": 2,
+    "max_criteria": 6,
+    "max_files_hint": 12
+  },
+  "risky_domains": {
+    "domains": [
+      "auth",
+      "security",
+      "tenancy",
+      "billing",
+      "payments",
+      "schema",
+      "migration",
+      "deploy",
+      "secrets",
+      "rights",
+      "provenance"
+    ]
+  },
+  "git": {
+    "integration_branch": "",
+    "base_branch": "main"
+  },
+  "external_review": {
+    "provider": "none",
+    "max_fix_loops": 3
+  },
+  "loop": {
+    "gate_mode": "per-epic",
+    "max_review_cycles": 3,
+    "max_dev_attempts": 2,
+    "max_followup_reviews": 2,
+    "session_timeout_min": 120,
+    "sweep": "run-end",
+    "merge_strategy": "merge"
+  },
+  "planning": {
+    "epics": "_bmad-output/planning-artifacts/epics.md",
+    "sprint_status": "_bmad-output/implementation-artifacts/sprint-status.yaml",
+    "specs": "_bmad-output/implementation-artifacts",
+    "deferred": "_bmad-output/implementation-artifacts/deferred-work.md",
+    "context_docs": [
+      "PRODUCT.md",
+      "CONTEXT.md",
+      "docs/context"
+    ]
+  }
+}

@@ -1,0 +1,270 @@
+{
+  "method": "Frozen reviewed B13-r1 sources; actual AST-extracted locateSectionParagraph and buildDecorationSet; installed real schemas and DecorationSet; no browser/test runner",
+  "node": "v24.19.0",
+  "hashes": {
+    "src/lib/components/editor/docSearch.ts": {
+      "snapshot": "docSearch.ts.snapshot.txt",
+      "sha256": "367f7b4cc9adcea61af99cacc8bff53c7d153f53f49b66fa02e2dc8370617b18"
+    },
+    "src/lib/components/editor/docSearch.test.ts": {
+      "snapshot": "docSearch.test.ts.snapshot.txt",
+      "sha256": "7648a7ec0bda195e48582a9e9c4b57b52dd7f0b92d7fa9bd6492db4413bf4169"
+    },
+    "src/lib/components/editor/Editor.svelte": {
+      "snapshot": "Editor.svelte.snapshot.txt",
+      "sha256": "d18a0f6cbe0d7aeaa65a63e9dfeea26ec61c945d43a827f3ae5e716525d6944c"
+    },
+    "src/lib/components/editor/Editor.component.test.ts": {
+      "snapshot": "Editor.component.test.ts.snapshot.txt",
+      "sha256": "b428511f1991feb96f3310dfad1ce71051141fcb5df7f06216ed8fce5edd3b9d"
+    },
+    "src/lib/tiptapConfig.ts": {
+      "snapshot": "tiptapConfig.ts.snapshot.txt",
+      "sha256": "aeda054d505e409986b73b9e3bf0e965b5050e656c8e50a84459eb0ddd6ad104"
+    }
+  },
+  "output": [
+    {
+      "editable": true,
+      "unicode": {
+        "document": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "İİİİİİ"
+                }
+              ]
+            }
+          ]
+        },
+        "needle": "̇i̇i",
+        "folded": "i̇i̇i̇i̇i̇i̇",
+        "candidateIndices": [
+          1,
+          3,
+          5,
+          7
+        ],
+        "returned": [
+          {
+            "from": 1,
+            "to": 4,
+            "text": "İİİ"
+          }
+        ],
+        "expected": [
+          {
+            "from": 1,
+            "to": 4,
+            "text": "İİİ"
+          },
+          {
+            "from": 4,
+            "to": 7,
+            "text": "İİİ"
+          }
+        ],
+        "missingExpectedSecond": true
+      },
+      "paragraph": {
+        "document": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "heading",
+              "attrs": {
+                "level": 1
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "242"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "alphabeta"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "alpha"
+                },
+                {
+                  "type": "hardBreak"
+                },
+                {
+                  "type": "text",
+                  "text": "beta"
+                }
+              ]
+            }
+          ]
+        },
+        "section": "242",
+        "requestedParagraph": 2,
+        "actualLocateInvocation": {
+          "aiHighlights": [
+            {
+              "from": 17,
+              "to": 27,
+              "text": "alphabeta"
+            }
+          ],
+          "scrolls": [
+            [
+              17,
+              120
+            ]
+          ]
+        },
+        "validationText": "alpha beta",
+        "validationPasses": false,
+        "fallback": {
+          "from": 6,
+          "to": 15
+        },
+        "actualDecorations": [
+          {
+            "from": 6,
+            "to": 15,
+            "class": "ai-ref-highlight"
+          }
+        ]
+      }
+    },
+    {
+      "editable": false,
+      "unicode": {
+        "document": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "İİİİİİ"
+                }
+              ]
+            }
+          ]
+        },
+        "needle": "̇i̇i",
+        "folded": "i̇i̇i̇i̇i̇i̇",
+        "candidateIndices": [
+          1,
+          3,
+          5,
+          7
+        ],
+        "returned": [
+          {
+            "from": 1,
+            "to": 4,
+            "text": "İİİ"
+          }
+        ],
+        "expected": [
+          {
+            "from": 1,
+            "to": 4,
+            "text": "İİİ"
+          },
+          {
+            "from": 4,
+            "to": 7,
+            "text": "İİİ"
+          }
+        ],
+        "missingExpectedSecond": true
+      },
+      "paragraph": {
+        "document": {
+          "type": "doc",
+          "content": [
+            {
+              "type": "heading",
+              "attrs": {
+                "level": 1
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "242"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "alphabeta"
+                }
+              ]
+            },
+            {
+              "type": "paragraph",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "alpha"
+                },
+                {
+                  "type": "hardBreak"
+                },
+                {
+                  "type": "text",
+                  "text": "beta"
+                }
+              ]
+            }
+          ]
+        },
+        "section": "242",
+        "requestedParagraph": 2,
+        "actualLocateInvocation": {
+          "aiHighlights": [
+            {
+              "from": 17,
+              "to": 27,
+              "text": "alphabeta"
+            }
+          ],
+          "scrolls": [
+            [
+              17,
+              120
+            ]
+          ]
+        },
+        "validationText": "alpha beta",
+        "validationPasses": false,
+        "fallback": {
+          "from": 6,
+          "to": 15
+        },
+        "actualDecorations": [
+          {
+            "from": 6,
+            "to": 15,
+            "class": "ai-ref-highlight"
+          }
+        ]
+      }
+    }
+  ]
+}

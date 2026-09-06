@@ -1,0 +1,4 @@
+216a4d301ace3eca603689917972df9a7d28713f047fb1d2303db99176243c30  src/lib/components/editor/docSearch.ts
+01b9aea3d1af126040690275dc3474e38fbf3bdba1d37ad22e000ab4e0964bce  src/lib/components/editor/Editor.svelte
+3ccd76c24c2512a7a95f71cbcf5c0cce155dbfbec0d9622ba8a7ee137963fd7e  src/lib/components/editor/docSearch.test.ts
+96db6de8d6208fadb830992fef452d9519906e927e63fe75a69086c68c28869e  src/lib/components/editor/Editor.component.test.ts

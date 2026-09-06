@@ -1,0 +1,19 @@
+{
+  "actual_blob_and_preservation_checks": {
+    "src/lib/dashboard/stageFilter.test.ts": true,
+    "src/lib/dashboard/stageFilter.ts": true,
+    "src/lib/reportSections.ts": true,
+    "src/lib/tiptapConfig.ts": true,
+    "src/lib/workspace/projectIntentHandoff.test.ts": true,
+    "src/lib/workspace/projectIntentHandoff.ts": true,
+    "src/lib/workspace/stageRankGroups.test.ts": true,
+    "src/lib/workspace/stageRankGroups.ts": true,
+    "src/routes/project/new/newProjectPrefill.component.test.ts": true,
+    "src/lib/components/editor/docSearch.ts": true,
+    "src/lib/components/editor/Editor.svelte": true,
+    "src/lib/components/editor/docSearch.test.ts": true,
+    "src/lib/components/editor/Editor.component.test.ts": true
+  },
+  "checked_before_gate": true,
+  "source_patches_by_parent": []
+}

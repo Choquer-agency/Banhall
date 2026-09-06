@@ -2,6 +2,43 @@
 
 Banhall generates SR&ED reports for a consulting firm. It uses SvelteKit 2, Svelte 5, Tailwind CSS and Convex. The domain contract is in [docs/product-domain.md](docs/product-domain.md); repository conventions are in [AGENTS.md](AGENTS.md).
 
+## Run the app
+
+Use Node 24 from `.nvmrc` and install this checkout's dependencies with `npm ci`.
+For initial setup, copy the example before provisioning Convex:
+
+```bash
+if [ ! -e .env.local ]; then
+  cp env.example .env.local
+fi
+npx convex dev
+```
+
+The copy preserves an existing `.env.local`; add only missing entries from the
+example when updating an already configured checkout. Follow the Convex prompts
+to select or create the intended development deployment.
+The CLI populates `CONVEX_DEPLOYMENT`, `PUBLIC_CONVEX_URL` and
+`PUBLIC_CONVEX_SITE_URL` in `.env.local` for SvelteKit. Keep those generated
+values; do not copy the blank example over them afterward. Both public URLs
+are consumed by the app's auth integration. The backend auth `SITE_URL` is a
+separate setting, not `PUBLIC_CONVEX_SITE_URL`.
+
+Configure backend provider, auth and ingest settings on the Convex deployment
+as needed for the features you use. `env.example` lists the declared optional
+app names separately from direct environment reads and the installed auth
+library's secret. These backend settings are not frontend assignments.
+
+With `npx convex dev` running, start the app in another terminal:
+
+```bash
+npm run dev
+```
+
+The app runs at `http://localhost:3001`. For a frontend deployment, supply the
+matching `PUBLIC_CONVEX_URL` and `PUBLIC_CONVEX_SITE_URL` settings.
+`PUBLIC_BUILD_TIME` is an optional timestamp you supply at build/deploy time;
+blank or invalid values hide the stamp.
+
 ## Verification
 
 Install Node 24 (pinned in `.nvmrc`, with npm), PowerShell 7 (`pwsh`), and Git. Install this checkout's lockfile dependencies, then run:

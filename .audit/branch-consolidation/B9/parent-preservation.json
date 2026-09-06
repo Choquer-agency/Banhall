@@ -1,0 +1,14 @@
+{
+  "baseline": "9d83ffd3091c1e801285149622c879abe0087556",
+  "parser": "Python standard-library tomllib",
+  "factory_only_semantic_change": "qa.smoke",
+  "factory_only_changed_line": 25,
+  "readme_verification_identical": true,
+  "env_assignments": [
+    "CONVEX_DEPLOYMENT",
+    "PUBLIC_CONVEX_URL",
+    "PUBLIC_CONVEX_SITE_URL",
+    "PUBLIC_BUILD_TIME"
+  ],
+  "actual_runtime_tests": "None; documentation/configuration proof only; prior component gate and subsequent combined gates provide runtime evidence."
+}

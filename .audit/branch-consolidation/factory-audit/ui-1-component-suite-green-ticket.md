@@ -1,0 +1,62 @@
+---
+key: ui-1-component-suite-green
+status: done
+kind: bug
+deps: []
+touches: [src]
+risky: []
+verify: [npx vitest run --config vitest.component.config.ts src/lib/components/ui/Button.component.test.ts src/lib/components/workspace/WorkspaceChrome.component.test.ts src/lib/components/workspace/WorkspaceHeader.component.test.ts src/lib/components/workspace/WorkspaceRail.component.test.ts src/routes/workspaceRoutes.component.test.ts, "npm run test:component"]
+done_when: [npx vitest run --config vitest.component.config.ts src/lib/components/ui/Button.component.test.ts src/lib/components/workspace/WorkspaceChrome.component.test.ts src/lib/components/workspace/WorkspaceHeader.component.test.ts src/lib/components/workspace/WorkspaceRail.component.test.ts src/routes/workspaceRoutes.component.test.ts, "rg -q 'getBoundingClientRect' src/lib/components/workspace/WorkspaceHeader.component.test.ts", "rg -q 'isOwner: true' src/lib/components/workspace/WorkspaceRail.component.test.ts", "npm run test:component"]
+title: "The browser component suite passes: seven stale fixtures and class contracts are re-pinned to the shipped behaviour, and the header action is measured against the 44px mobile contract and fixed if short"
+plan: 20260904-code-quality-sweep
+ui: true
+updated: "2026-09-05T09:54:11.054Z"
+run: 20260905-085105-4-tickets
+branch: factory/ui-1-component-suite-green
+merged: acf55d9
+verdict: test-verified
+evidence: .audit/ui-1-component-suite-green/evidence.md
+deferred: ["Button's reduced-motion behaviour is left unasserted: @vitest/browser 4.1.10 exposes no per-test prefers-reduced-motion emulation, only a run-wide Playwright context option", "The header's 44px floor is measured at 390px and 1280px only; 320px and 428px are not covered", "Nonblocking review0 hardening: WorkspaceChrome component test locates Settings and reads its href but does not activate it or prove that path closes the drawer; Home activation is covered separately.", "Nonblocking review0 hardening: sign-out controls are measured for height only; a future assertion can include width >=44. The current full-width mobile layout satisfies width by inspection.", "Nonblocking review0 hardening: WorkspaceHeader geometry test leaves viewport at1280x800 rather than restoring the incoming size; the existing suite has no general viewport reset."]
+---
+## Intent
+For every agent that must "run browser component tests for touched components" (`AGENTS.md`): the suite can be trusted again. At `11bfe3e`, `npm run test:component` reports 8 failed of 289 tests in 5 files (`component-baseline.log:384-535`). The DX audit traced each to its mechanism and commit (`dx-audit.md:51-66`): seven are stale fixtures or class-token contracts (the Projects link now carries `group=client`, `WorkspaceDashboard.svelte:153`; `Button.svelte:54` broadened its transition in `113ef7c`; the drawer's settings menu became a Settings link plus a Sign out confirmation dialog in `66f131b`, `WorkspaceRail.svelte:351`, `UserMenu.svelte:81`; the Admin group renders only for `role === "admin" && (isOwner || isDeveloper)`, `WorkspaceRail.svelte:228`, and gained a House rules link, `:124`; rail transitions went 300 → 150 ms in `c7167fb`). The eighth, `WorkspaceHeader.component.test.ts:164`, expects `py-2.5` where the header now uses `size="xs"` (`h-8`) at every width (`WorkspaceHeader.svelte:179`, `Button.svelte:35`), and the failure screenshot at mobile width shows a target that looks under the 44px contract (`docs/product-domain.md:233`). Nobody noticed because the suite is in no gate (dx-1 depends on this ticket). Principle: [16 prove it works]: a red suite proves nothing and a re-pin to `h-8` would hide a candidate regression; [3 redesign from first principles]: pin the contract the shipped design has, by role, attribute and geometry, not by class inventory.
+
+## Acceptance
+- AC1: `workspaceRoutes.component.test.ts:52-55` parses the Projects anchor's href and asserts path `/projects`, `layout=board` preserved, `group=client` present, and no navigation (`gotoUrls()` empty). Only lines 52-55 change; workspace-2's ranges (`:58-64`, `:100-110`) are untouched and the overlap is recorded in `decisions.tsv`.
+- AC2: `Button.component.test.ts` drops the historical class inventory (`CORE_TOKENS`, `:21-`) and keeps: `<a>` vs `<button>` choice and href passthrough, identical class string on both branches, the `min-h-11` passthrough, `disabled` behaviour, `onclick` firing, and the variant role tokens (`bg-action-primary`, `text-action-primary-foreground`). If reduced-motion behaviour is a contract, it is asserted through computed style under `prefers-reduced-motion`, not through a class name.
+- AC3: `WorkspaceChrome.component.test.ts:86-88` keeps the drawer autofocus proof, follows the Settings link by role and accessible name, opens the Sign out dialog with real user input, asserts the nested dialog is visible and layered above the drawer, its controls are at least 44px, Cancel closes it and focus returns to the trigger. Sign-out is never confirmed. The removed menu's layering is not a criterion.
+- AC4: `WorkspaceRail.component.test.ts:104-107,113-117,171-174,181-185`: the four failing cases seed no current user at all (`baseProps()` only), while the passing cases at `:132-136,151-155` already seed `users:getCurrentUser` with `isDeveloper`; the fixed cases seed `role: "admin"` plus `isOwner: true` through `__setQueryData` (an owner/admin, the audit's recommended fixture); the Admin group starts collapsed (`aria-expanded="false"`, `#workspace-admin-links` absent) and expands on click; its links are the sanctioned destinations including House rules (`/admin/house-rules`) and the developer-only entries only when `isDeveloper`; a plain `role: "admin"` user without either flag sees no Admin group; placement is asserted by nav order (Admin group after the primary links), not by a margin token; the touch-row case keeps `workspace-rail-row` and `min-h-11` and drops `duration-300`; the icon colour-count assertion is removed.
+- AC5: `WorkspaceHeader.component.test.ts` first measures the "New project" anchor at a 390px viewport with `getBoundingClientRect()`. If either dimension is under 44px at baseline, `WorkspaceHeader.svelte` (the caller, not the shared `xs` size) gains a mobile-only minimum height and width with the compact desktop size kept, and the test asserts both: width and height at least 44 at 390px, compact height at 1280px. If both dimensions are already at least 44px, the test pins that measurement and the compact desktop size, and `decisions.tsv` records the measured values. Either way the `py-2.5` token check is gone and `bg-action-primary` / not `bg-fir` stays.
+- AC6: `decisions.tsv` has one row per row of `dx-audit.md:55-64` with the classification (`stale-fixture`, `stale-class`, `stale-interaction`, `measured-regression` or `measured-pass`), the commit cited, and the edit made. `npm run test:component` exits 0 for every discovered file (51 at baseline, 52 once perf-1 has merged) and its summary is in evidence next to the baseline `8 failed`. For AC5, `*before*.png` and `*after*.png` at 390px and at desktop width sit under `.audit/ui-1-component-suite-green/` with the app chrome visible.
+
+## Verification
+- AC1-AC5 → the `verify` command for the five files; per case the baseline failure line from `component-baseline.log` next to the passing run.
+- AC5 → the measured numbers printed by the test (`console.log` of the rect, kept out of the assertion) at baseline and after; screenshots via the suite's `page.screenshot` or the `__screenshots__` output of a deliberately failing probe, copied and named.
+- AC6 → `decisions.tsv`; `npm run test:component` tail.
+Bug reproduction at baseline: `npm run test:component` at `11bfe3e` → `Test Files 5 failed | 46 passed`, `Tests 8 failed | 281 passed` (`component-baseline.log:534-535`; rerun once and paste).
+
+## Implementation notes
+- Read `dx-audit.md:51-66` first; it is the per-row spec. Then `git log -p -3` for `WorkspaceRail.svelte`, `Button.svelte`, `WorkspaceHeader.svelte`, `WorkspaceChrome.svelte`, `UserMenu.svelte` (`66f131b`, `113ef7c`, `0b094ed`, `c7167fb`, `d0f659e`).
+- Fixture: `WorkspaceRail.svelte:65-68` reads `userQ.data?.isDeveloper` / `isOwner`; the convex-svelte stub's `__setQueryData` (`src/lib/test/convex-svelte-stub.svelte.ts`) is how the existing tests seed queries; `UserMenu.component.test.ts:12` already drives the Sign out confirmation.
+- Viewport: `vitest-browser` exposes `page.viewport(390, 844)` (or the equivalent in `@vitest/browser` 4); reset it after the case.
+- Design rules for any component edit: existing tokens, font weight at most 500, bits-ui primitives (`AGENTS.md`). A mobile minimum on the header caller is `min-h-11 min-w-11 sm:min-h-0 sm:min-w-0` or the equivalent in the design tokens; do not change `Button.svelte`'s `xs` size for every caller unless the measurement shows every `xs` caller is a mobile target (record that decision if so).
+- Do not touch `WorkspaceGate.svelte`, `workspaceExperience.ts`, their tests, `projectRoute.component.test.ts:54`, `workspaceRoutes.component.test.ts` outside `:52-55`, or `docs/product-domain.md`. If the engine's PR-overlap check blocks the routes file, record `blocked: workspace-2 overlap` in `deferred` for AC1 only and finish the rest.
+- Chromium: `npx playwright install chromium` once; the suite runs serially (`fileParallelism: false`).
+
+## Edge cases
+- A case that passes on rerun without changes (flake): rerun three times; if it never fails again, record `flake:<n runs>` and leave it; if intermittent, fix the wait (`expect.poll`) rather than loosen the assertion.
+- Reduced motion under headless Chromium: if `prefers-reduced-motion` cannot be emulated in this harness, do not assert it; record why.
+- The header at 390px is at least 44px tall but under 44px wide: both dimensions are the contract; fix width too.
+- Two cases disagree about the same element: resolve against the shipped component, not either test.
+
+## QA output for this run
+
+The configured QA tool allowlist permits the verification commands but denies Edit/Write to audit files. The factory engine itself persists the QA structured summary and checks as `.audit/<ticket>/qa-<loop>.md` (engine.mjs, QA stage). Return the complete truthful QA report through those structured fields; the engine-written file is the canonical QA output for this run. The orchestrator links it from root evidence after merge. Do not spend retries attempting manual evidence writes or require a human merely to append this report. This changes no runtime verification requirement or tool permission. Actual failures, missing evidence and unverified behavior must still be reported accurately.
+
+Run each verification command exactly as listed before trying shell additions. Pipes, redirects, an appended echo, or a redundant rm command can make an otherwise allowed command fail the QA tool check. Use the tool result or engine gates file for the exit status. Bare npm ci already replaces an existing node_modules directory. Run dependency installation before, and never concurrently with, tests or builds in that worktree.
+
+Discovery count clarification: perf-1 added one component file and slop-3 later deleted one retired component file. The expected pre-ui inventory is back to 51 files (290 cases), but the actual final listing and suite output are authoritative. Do not restore the deleted MyWorkRow suite to hit a historical count.
+
+## Root closeout
+
+Source85efbce integrated at acf55d9, done1336bef. Review0 approved; QA0 done/test-verified; full51files/292browser cases,140files/1516unit cases and uploader50+18 pass. Root visual review confirms41x32 to44x44 mobile target and identical desktop screenshots. AC5 evidence is component-harness ladder4, superseding the original ladder5 label. Historical post-edit workspaceRoutes ranges are66-72 and108-118; content is untouched. Three low review test-hardening considerations are retained above. The temporary UI review hook was removed after SHA verification.

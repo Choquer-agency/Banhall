@@ -1,0 +1,5 @@
+{
+  "_bmad-output/implementation-artifacts/spec-branch-b11-brain-erasure-labels.md": "5bacf60cfe097fdabb7714dadafd9aa3b1336379d28ddbcd87c6c6951ca865ac",
+  "src/routes/admin/brain/+page.svelte": "3e8bbe2c0a3f918c0d54e79af738af5144c2f228db6cbdd2eee6ac66f6b859d2",
+  "src/routes/admin/brain/BrainAudit.component.test.ts": "ed3b417e611cb0bd5530dd7ce464ad0975345c73e767a5a9221f3ffd441ae20e"
+}

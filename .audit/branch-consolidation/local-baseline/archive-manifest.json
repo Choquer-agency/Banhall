@@ -1,0 +1,82 @@
+{
+  "instructions": "Paths in historical evidence resolve through this manifest. gzip files preserve exact original bytes; decompress with gzip -dc. Original hashes permit independent verification.",
+  "files": [
+    {
+      "original_path": ".audit/branch-consolidation/local-baseline/captures/DW-98-fix/implicit-A-retained.png",
+      "stored_path": ".audit/branch-consolidation/local-baseline/captures/DW-98-fix/implicit-A-retained.png",
+      "original_sha256": "8bc4e5453a33b6d886e92b0b78b0505a449d4d21765c8d5d8cad5b9b0a272cf0",
+      "stored_sha256": "8bc4e5453a33b6d886e92b0b78b0505a449d4d21765c8d5d8cad5b9b0a272cf0",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/local-baseline/captures/published-status-fix/published-after.png",
+      "stored_path": ".audit/branch-consolidation/local-baseline/captures/published-status-fix/published-after.png",
+      "original_sha256": "9c644389678273ae1b3594f5a7b0f9c91db4e15ed8696e3dfae818336115b3e6",
+      "stored_sha256": "9c644389678273ae1b3594f5a7b0f9c91db4e15ed8696e3dfae818336115b3e6",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/local-baseline/captures/story-7/optimistic-after.png",
+      "stored_path": ".audit/branch-consolidation/local-baseline/captures/story-7/optimistic-after.png",
+      "original_sha256": "ebb1f6cfa4f673a544d6924b67e7c76cbb9f79e0761838f6ae6be727e2fb3f07",
+      "stored_sha256": "ebb1f6cfa4f673a544d6924b67e7c76cbb9f79e0761838f6ae6be727e2fb3f07",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/local-baseline/captures/story-7/optimistic-scrolled-after.png",
+      "stored_path": ".audit/branch-consolidation/local-baseline/captures/story-7/optimistic-scrolled-after.png",
+      "original_sha256": "bef49d6e99d84c4068c482c292a844dfd83f3253b9bd69c7081ce0f05494314c",
+      "stored_sha256": "bef49d6e99d84c4068c482c292a844dfd83f3253b9bd69c7081ce0f05494314c",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/local-baseline/captures/story-7/retry-highlight-only.png",
+      "stored_path": ".audit/branch-consolidation/local-baseline/captures/story-7/retry-highlight-only.png",
+      "original_sha256": "d5214919e4f43a7f4bcb008325cc696099ee93cf855809e45fd39e520855bd72",
+      "stored_sha256": "d5214919e4f43a7f4bcb008325cc696099ee93cf855809e45fd39e520855bd72",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/local-baseline/captures/story-7/retry-text-and-highlight.png",
+      "stored_path": ".audit/branch-consolidation/local-baseline/captures/story-7/retry-text-and-highlight.png",
+      "original_sha256": "f6911a20e2982351b5526cd988fbca598bafdbb61dacb6cdf58f00ce70cd9130",
+      "stored_sha256": "f6911a20e2982351b5526cd988fbca598bafdbb61dacb6cdf58f00ce70cd9130",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/local-baseline/captures/story-7/second-overflow-after.png",
+      "stored_path": ".audit/branch-consolidation/local-baseline/captures/story-7/second-overflow-after.png",
+      "original_sha256": "5b9b7e4af1e5959671303ccca18bb5abd97a4767f5937d70f831a156fe12af70",
+      "stored_sha256": "5b9b7e4af1e5959671303ccca18bb5abd97a4767f5937d70f831a156fe12af70",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/local-baseline/captures/story-8/learning-sources-mobile-after.png",
+      "stored_path": ".audit/branch-consolidation/local-baseline/captures/story-8/learning-sources-mobile-after.png",
+      "original_sha256": "141d7e17be2dba0bf8c92beb088dfe37687cb6ebef2ead13e71dd364997638c2",
+      "stored_sha256": "141d7e17be2dba0bf8c92beb088dfe37687cb6ebef2ead13e71dd364997638c2",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/local-baseline/gate.log",
+      "stored_path": ".audit/branch-consolidation/local-baseline/gate.log.gz",
+      "original_sha256": "69111d1ce40f421b982e0de865a80c69b755ac3b3c0607f973d733751fb5af57",
+      "stored_sha256": "0926f8dc0d2309a3bd7d18a00420e1f73352ba45cbeec99f10d30a56c6b46624",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/local-baseline/result.json",
+      "stored_path": ".audit/branch-consolidation/local-baseline/result.json",
+      "original_sha256": "06aeb1159f9e3020ec86940ef569c2b1425bed78342fb944466d1ada8f78647b",
+      "stored_sha256": "06aeb1159f9e3020ec86940ef569c2b1425bed78342fb944466d1ada8f78647b",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/local-baseline/tracked-before.json",
+      "stored_path": ".audit/branch-consolidation/local-baseline/tracked-before.json",
+      "original_sha256": "44a032f3ddd13786067ba7d69d558fcdbc4cecb559e89205128da93aee097606",
+      "stored_sha256": "44a032f3ddd13786067ba7d69d558fcdbc4cecb559e89205128da93aee097606",
+      "encoding": "identity"
+    }
+  ]
+}

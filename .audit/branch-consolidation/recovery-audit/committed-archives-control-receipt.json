@@ -1,0 +1,20 @@
+{
+  "command": [
+    "python3",
+    ".audit/branch-consolidation/recovery-audit/verify-committed-archives.py",
+    "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d",
+    "--output",
+    ".audit/branch-consolidation/recovery-audit/committed-archives-control.json"
+  ],
+  "exit": 0,
+  "stderr": "",
+  "scriptSha256": "048a25ab9140124f6a32fbb70771642862eac636ab044dc829f7768a009431cc",
+  "resultSha256": "2db42e192c76bc781dd7720141485b4a07ba43d2768b855e8d6e5fd712fbd75f",
+  "summary": {
+    "status": "valid_committed_archives",
+    "manifestCount": 14,
+    "recordsChecked": 890,
+    "issues": []
+  },
+  "identicalDuplicateRecordCount": 0
+}

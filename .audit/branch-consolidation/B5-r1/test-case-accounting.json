@@ -1,0 +1,254 @@
+{
+  "src/lib/dashboard/stageFilter.test.ts": {
+    "before": [
+      "uses canonical stage even when legacy status disagrees",
+      "isolates stage-less compatibility rows in a labelled legacy bucket",
+      "returns only populated stage options and totals every project once"
+    ],
+    "after": [
+      "formats populated buckets in pipeline order and preserves the supplied total",
+      "labels supplied legacy counts and omits absent or explicit zero buckets",
+      "qualifies every supplied count while facets are truncated"
+    ],
+    "removed_or_renamed": [
+      "uses canonical stage even when legacy status disagrees",
+      "isolates stage-less compatibility rows in a labelled legacy bucket",
+      "returns only populated stage options and totals every project once"
+    ],
+    "added_or_renamed": [
+      "formats populated buckets in pipeline order and preserves the supplied total",
+      "labels supplied legacy counts and omits absent or explicit zero buckets",
+      "qualifies every supplied count while facets are truncated"
+    ]
+  },
+  "src/lib/workspace/projectIntentHandoff.test.ts": {
+    "before": [
+      "normalizes the title and carries transcript intake once",
+      "bounds titles and preserves the title-only compatibility wrappers",
+      "discards stale and empty values"
+    ],
+    "after": [
+      "normalizes the title and carries transcript intake once",
+      "bounds titles and round-trips a title-only handoff",
+      "admits the full handoff at exactly the TTL boundary",
+      "discards stale and empty values"
+    ],
+    "removed_or_renamed": [
+      "bounds titles and preserves the title-only compatibility wrappers"
+    ],
+    "added_or_renamed": [
+      "bounds titles and round-trips a title-only handoff",
+      "admits the full handoff at exactly the TTL boundary"
+    ]
+  },
+  "src/lib/workspace/stageRankGroups.test.ts": {
+    "before": [
+      "re-maps frozen-rank server order (on_hold before delivered) into pipeline order losslessly",
+      "marks only the deepest loaded run and unreached runs incomplete while pagination is unexhausted",
+      "fails EVERY group honest while any loaded row is missing its persisted rank (H2)",
+      "passes through an internally consistent record",
+      "rejects an empty record on a row that still counts projects, and any sum mismatch (H3)",
+      "hides only exact-zero stages when stageCounts exist and hide-empty is on",
+      "fails honest before backfill: stageCounts absent disables hiding and qualifies counts",
+      "never renders 0+: zero-loaded incomplete groups carry the explicit unverified marker instead",
+      "never hides a stage with a loaded row even when the exact count disagrees",
+      "keeps legacy conditional: rendered only while rows or counts exist"
+    ],
+    "after": [
+      "passes through an internally consistent record",
+      "rejects an empty record on a row that still counts projects, and any sum mismatch (H3)"
+    ],
+    "removed_or_renamed": [
+      "re-maps frozen-rank server order (on_hold before delivered) into pipeline order losslessly",
+      "marks only the deepest loaded run and unreached runs incomplete while pagination is unexhausted",
+      "fails EVERY group honest while any loaded row is missing its persisted rank (H2)",
+      "hides only exact-zero stages when stageCounts exist and hide-empty is on",
+      "fails honest before backfill: stageCounts absent disables hiding and qualifies counts",
+      "never renders 0+: zero-loaded incomplete groups carry the explicit unverified marker instead",
+      "never hides a stage with a loaded row even when the exact count disagrees",
+      "keeps legacy conditional: rendered only while rows or counts exist"
+    ],
+    "added_or_renamed": []
+  },
+  "src/routes/project/new/newProjectPrefill.component.test.ts": {
+    "before": [
+      "prefills the editable client-name field from ?client=",
+      "leaves the field empty without the param and ignores blank values",
+      "consumes the one-use Home handoff into the editable internal title",
+      "carries the Home transcript into the wizard without creating anything",
+      "keeps duplicate-project prefill authoritative over Home intent"
+    ],
+    "after": [
+      "prefills the editable client-name field from ?client=",
+      "leaves the field empty without the param and ignores blank values",
+      "consumes the one-use Home handoff into the editable internal title",
+      "carries the Home transcript into the wizard without creating anything",
+      "keeps duplicate-project prefill authoritative over Home intent"
+    ],
+    "removed_or_renamed": [],
+    "added_or_renamed": []
+  },
+  "convex/dashboard.test.ts": {
+    "before": [
+      "backfills UTC ordering fields and paginates company summaries",
+      "keeps active generation activity denormalized through failure and retry",
+      "keeps the old company label when one project moves to a new company",
+      "uses one bounded raw page for selective filters",
+      "denormalizes the latest report view instead of using a dashboard N+1",
+      "denies unauthenticated callers and preserves the pre-existing signed-in read visibility (D1)",
+      "preserves decision D1 firm-wide visibility for writer, manager, and admin roles",
+      "includes the canonical owner label in every bounded result page",
+      "projects the open blocking handoff with its assignee label on bounded pages",
+      "projects nothing for absent, non-open, or cross-project handoff pointers"
+    ],
+    "after": [
+      "backfills UTC ordering fields and paginates company summaries",
+      "keeps active generation activity denormalized through failure and retry",
+      "keeps the old company label when one project moves to a new company",
+      "uses one bounded raw page for selective filters",
+      "denormalizes the latest report view instead of using a dashboard N+1",
+      "denies unauthenticated callers and preserves the pre-existing signed-in read visibility (D1)",
+      "preserves decision D1 firm-wide visibility for writer, manager, and admin roles",
+      "includes the canonical owner label in every bounded result page",
+      "projects the open blocking handoff with its assignee label on bounded pages",
+      "projects nothing for absent, non-open, or cross-project handoff pointers",
+      "getFacets classifies canonical stages independently of legacy status"
+    ],
+    "removed_or_renamed": [],
+    "added_or_renamed": [
+      "getFacets classifies canonical stages independently of legacy status"
+    ]
+  },
+  "convex/dashboardStageCounts.test.ts": {
+    "before": [
+      "createProject initializes a new company row with an exact intake bucket",
+      "setWorkflowStage moves the bucket on a backfilled company row and keeps the sum invariant",
+      "a legacy row entering the workflow moves out of the legacy bucket",
+      "an idempotent same-stage no-op leaves the company row untouched",
+      "never fabricates stageCounts on a not-yet-backfilled company row (fail honest)",
+      "deleteProject decrements the exact occupied bucket",
+      "workItems.create with a confirmed Stage change moves the exact bucket in the same transaction (B1)",
+      "client-name reassignment moves the stage bucket between both company rows",
+      "returns a true server stage order: missing rank first, frozen ranks ascending, legacy last",
+      "filters one client by Stage and Owner through compound indexes",
+      "keeps owner labels and the pre-existing read visibility (any signed-in user, same as listCompanies)",
+      "exposes stageCounts additively on listCompanies pages",
+      "dry run computes stats without writing stageCounts",
+      "live run writes exact counts, verifies the sum invariant, and is idempotent",
+      "fences concurrent runs by runKey and requires an admin",
+      "a stuck running fence can be taken over with force (and stays blocked without it)",
+      "a LIVE run is hard-gated by Pass 0: missing ranks mark it failed with remediation and write nothing",
+      "Pass 1 refuses to write when the scan sum diverges from projectCount (never persists {} on a counted row)",
+      "verifyStageCounts reports per-bucket drift that a sum-only check cannot see",
+      "repairs a drifted stageCounts record (recompute-overwrite) and reports it"
+    ],
+    "after": [
+      "createProject initializes a new company row with an exact intake bucket",
+      "setWorkflowStage moves the bucket on a backfilled company row and keeps the sum invariant",
+      "a legacy row entering the workflow moves out of the legacy bucket",
+      "an idempotent same-stage no-op leaves the company row untouched",
+      "never fabricates stageCounts on a not-yet-backfilled company row (fail honest)",
+      "deleteProject decrements the exact occupied bucket",
+      "workItems.create with a confirmed Stage change moves the exact bucket in the same transaction (B1)",
+      "client-name reassignment moves the stage bucket between both company rows",
+      "returns a true server stage order: missing rank first, frozen ranks ascending, legacy last",
+      "filters one client by Stage and Owner through compound indexes",
+      "keeps owner labels and the pre-existing read visibility (any signed-in user, same as listCompanies)",
+      "exposes stageCounts additively on listCompanies pages",
+      "dry run computes stats without writing stageCounts",
+      "live run writes exact counts, verifies the sum invariant, and is idempotent",
+      "fences concurrent runs by runKey and requires an admin",
+      "a stuck running fence can be taken over with force (and stays blocked without it)",
+      "a LIVE run is hard-gated by Pass 0: missing ranks mark it failed with remediation and write nothing",
+      "Pass 1 refuses to write when the scan sum diverges from projectCount (never persists {} on a counted row)",
+      "verifyStageCounts reports per-bucket drift that a sum-only check cannot see",
+      "repairs a drifted stageCounts record (recompute-overwrite) and reports it"
+    ],
+    "removed_or_renamed": [],
+    "added_or_renamed": []
+  },
+  "src/lib/components/editor/Editor.component.test.ts": {
+    "before": [
+      "renders merged strikes per occurrence and insertion widgets per replacement pair",
+      "returns find/replace matches sorted by position with smart-case replacements",
+      "batches actual preview construction into one walk plus the scroll lookup",
+      "batches actual findReplaceMatches and preserves duplicate replacement identities",
+      "replaceRange edits the serialized document at exactly that range",
+      "highlights the expected paragraph for exact, fragment and paraphrase references",
+      "passes cross-break matches into visible AI highlights and preview without changing prose",
+      "previews combined Unicode and hard-break spans and replaces only on explicit apply",
+      "targets paragraph two across a hard break instead of the concatenated decoy",
+      "previews actual heading, list and blockquote hard breaks without joining words"
+    ],
+    "after": [
+      "renders merged strikes per occurrence and insertion widgets per replacement pair",
+      "returns find/replace matches sorted by position with smart-case replacements",
+      "batches actual preview construction into one walk plus the scroll lookup",
+      "batches actual findReplaceMatches and preserves duplicate replacement identities",
+      "replaceRange edits the serialized document at exactly that range",
+      "highlights the expected paragraph for exact, fragment and paraphrase references",
+      "passes cross-break matches into visible AI highlights and preview without changing prose",
+      "previews combined Unicode and hard-break spans and replaces only on explicit apply",
+      "targets paragraph two across a hard break instead of the concatenated decoy",
+      "previews actual heading, list and blockquote hard breaks without joining words"
+    ],
+    "removed_or_renamed": [],
+    "added_or_renamed": []
+  },
+  "src/lib/components/editor/docSearch.test.ts": {
+    "before": [
+      "findAllOccurrencesCI returns the pre-move ranges for every corpus needle",
+      "every findOccurrencesBatch slot equals the pre-move ranges",
+      "two identical needles in one batch return equal arrays",
+      "normalizeForMatch and buildSearchIndex keep normalized offsets aligned",
+      "preserves blank and duplicate slots among ordinary needles",
+      "keeps non-overlapping ranges and positions across empty paragraphs",
+      "retains the trimmed needle if reading the matched text fails",
+      "does not walk the document for an empty batch",
+      "does not walk the document when every needle normalises to empty",
+      "walks the document once for a 20-needle batch",
+      "walks the document once for 19 real needles plus a whitespace needle",
+      "case-folds the whole haystack once for a 20-needle batch",
+      "keeps the first non-overlapping original span after repeated expansion",
+      "continues one folded unit after rejected overlap to keep later valid spans",
+      "retains hard-break boundaries in headings, list items and blockquotes",
+      "never splits supplementary characters for malformed surrogate needles",
+      "retains contextual sigma across hard breaks and paragraphs",
+      "maps expanded units and supplementary letters to complete original spans",
+      "retains whole-string final sigma context across marks",
+      "separates hard breaks and returns their whitespace representation",
+      "collapses repeated boundaries without leading or trailing spans",
+      "preserves horizontal-rule extraction and ordinary casing",
+      "folds a single expanding code point only once for the haystack",
+      "walks once for mixed boundary batches and never for blank batches"
+    ],
+    "after": [
+      "findAllOccurrencesCI returns the pre-move ranges for every corpus needle",
+      "every findOccurrencesBatch slot equals the pre-move ranges",
+      "two identical needles in one batch return equal arrays",
+      "normalizeForMatch and buildSearchIndex keep normalized offsets aligned",
+      "preserves blank and duplicate slots among ordinary needles",
+      "keeps non-overlapping ranges and positions across empty paragraphs",
+      "retains the trimmed needle if reading the matched text fails",
+      "does not walk the document for an empty batch",
+      "does not walk the document when every needle normalises to empty",
+      "walks the document once for a 20-needle batch",
+      "walks the document once for 19 real needles plus a whitespace needle",
+      "case-folds the whole haystack once for a 20-needle batch",
+      "keeps the first non-overlapping original span after repeated expansion",
+      "continues one folded unit after rejected overlap to keep later valid spans",
+      "retains hard-break boundaries in headings, list items and blockquotes",
+      "never splits supplementary characters for malformed surrogate needles",
+      "retains contextual sigma across hard breaks and paragraphs",
+      "maps expanded units and supplementary letters to complete original spans",
+      "retains whole-string final sigma context across marks",
+      "separates hard breaks and returns their whitespace representation",
+      "collapses repeated boundaries without leading or trailing spans",
+      "preserves horizontal-rule extraction and ordinary casing",
+      "folds a single expanding code point only once for the haystack",
+      "walks once for mixed boundary batches and never for blank batches"
+    ],
+    "removed_or_renamed": [],
+    "added_or_renamed": []
+  }
+}

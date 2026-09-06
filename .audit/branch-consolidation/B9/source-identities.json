@@ -1,0 +1,23 @@
+{
+  "convex/convex.config.ts": "9fda6fb7ffd763f92f1549f083581c532afed1b0f87540848058c43ceb78e6c2",
+  "convex/auth.ts": "0ad86f30f0099ff5355e09b3f8c520d90971a85c6786dc3bbd0928511defaef9",
+  "convex/ai/brain/ingest.ts": "e6226b85d38ff270c97875aac68823f887b8f84b58d35445e4b73257cad4f9fd",
+  "convex/ai/brain/embeddings.ts": "fea0ebe20b512ec3fbb09bf7d570ecf39ae5d183715116ec94921e4c888d8b83",
+  "convex/learningHealth.ts": "0f23cdc8b8f0f5ed86f58523d43cc1e81a999a2505ee9a818ee7281246fa4c9c",
+  "src/routes/admin/learning/+page.svelte": "7a491d90560f75ac6afae176fc93506412878a5cb6934bf1956f8176cb9ecff4",
+  "src/routes/+layout.svelte": "778fdf8c1b781eaecc825169ff48cb8ad845cd29ca3a522ba13a8d29d3182648",
+  "src/lib/components/BuildStamp.svelte": "75cc4363f8033da09fb54f1806208c895c53b99721f4f346668264f93df8c5aa",
+  "scripts/client-uploader/setup.sh": "8d4f45e25b7381425fd66cf2f2a0d6e32114c921f83b3493abc408b89d76b447",
+  "node_modules/@mmailaender/convex-better-auth-svelte/dist/sveltekit/index.js": "46caccf53c0e9b54afe3470f6d3569cc2be637fa1675e82de9729e6be6de834c",
+  "node_modules/convex/src/cli/lib/envvars.ts": "e262ae31bb9569533c05478a179d6914e4d8f9ebbd2872f73401cd3964afad15",
+  "node_modules/better-auth/dist/context/create-context.mjs": "579065017c5601dedac6ad95666835307b279e8f8ae45311d74d4e336f032d7c",
+  "/opt/homebrew/lib/node_modules/@conquerthecrowns/factory/src/v2/config.mjs": "bc276d1a1a67ca2659c85dcc20ea56bf6b934fd1087a940b08ccbc90edfbb9f7",
+  "/opt/homebrew/lib/node_modules/@conquerthecrowns/factory/src/v2/engine.mjs": "9b6fe9e123eb21b2a870734d3d6b062075dc2005bb4310100659ce1f31033cd4",
+  "/opt/homebrew/lib/node_modules/@conquerthecrowns/factory/src/lib/util.mjs": "469bd7f381680f06a6b39def5e729797efae821812b1bb3c030e1e4ce586bffc",
+  ".factory/roles.toml": "a6831fa73c206a91dae6c44a85f2515e97e38265bacaad03ddd5a9a7ad0fc7ab",
+  ".github/workflows/ci.yml": "c57242059b66b492bb844b3ee7263bba14829c8299de85d6a4f327295d0c4693",
+  ".nvmrc": "68ca3fba3b7e864770cb61aeb306d4bd4354b68ab4dd38450860c5d823e42a53",
+  "package.json": "a8498465ae520899f577f515785bc1c39170fe86faf43e9be006a0688b57889c",
+  "vitest.component.config.ts": "5bef635e41707470cab1eb78de35dbad5a0d889917ad74f2ed7b6bdb0ef9eced",
+  "scripts/check-test-discovery.mjs": "dbd1ddfe3bf89d7ff84d45e8b0c80225423a5a35a2a667fa31820ab7248e3441"
+}

@@ -1,0 +1,19 @@
+[
+  "src/lib/components/comments/CommentHighlight.ts",
+  "src/lib/components/comments/CommentSidebar.svelte",
+  "src/lib/components/comments/CommentThread.svelte",
+  "src/lib/components/editor/GapCallout.svelte",
+  "src/lib/components/editor/SectionDivider.svelte",
+  "src/lib/components/generation/ReportViewer.svelte",
+  "src/lib/components/mywork/MyWorkGroup.svelte",
+  "src/lib/components/mywork/MyWorkRow.component.test.ts",
+  "src/lib/components/mywork/MyWorkRow.svelte",
+  "src/lib/components/mywork/MyWorkRowFixture.svelte",
+  "src/lib/components/ui/Header.svelte",
+  "src/lib/components/ui/InsightTile.svelte",
+  "src/lib/components/ui/MenuToggleIcon.svelte",
+  "src/lib/mywork/laneSort.test.ts",
+  "src/lib/mywork/laneSort.ts",
+  "src/lib/mywork/myWorkPreferences.test.ts",
+  "src/lib/mywork/myWorkPreferences.ts"
+]

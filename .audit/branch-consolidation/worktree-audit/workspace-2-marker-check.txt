@@ -1,0 +1,9 @@
+Command: rg -n localDevelopment|resolveWorkspaceExperience src/lib/dashboard/workspaceExperience.ts src/lib/workspace/WorkspaceGate.svelte
+exit=0
+src/lib/dashboard/workspaceExperience.ts:22:export function resolveWorkspaceExperience(args: {
+src/lib/dashboard/workspaceExperience.ts:25:  localDevelopment?: boolean;
+src/lib/dashboard/workspaceExperience.ts:28:  if (args.localDevelopment) return "preview";
+src/lib/dashboard/workspaceExperience.ts:39: * - Local development forces the preview (same as resolveWorkspaceExperience).
+src/lib/dashboard/workspaceExperience.ts:49:  localDevelopment?: boolean;
+src/lib/dashboard/workspaceExperience.ts:52:  if (args.localDevelopment) return "preview";
+src/lib/workspace/WorkspaceGate.svelte:80:    resolveWorkspaceRouteState({ workspaceParam, access: accessState, localDevelopment: false })

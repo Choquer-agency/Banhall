@@ -1,0 +1,276 @@
+[
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+    "HEAD": "5ec93e594eda60c28da2cfdbf27fb668fd55eb3d",
+    "branch": "refs/heads/sprint2-boundary",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-analyzer-provenance-fix",
+    "HEAD": "bbaa9d20a9607d6463ee5298e1a5c9d8aebf19df",
+    "branch": "refs/heads/codex/bmad-analyzer-provenance-fix",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-fix",
+    "HEAD": "410fcbd27d8acdb519a07bffd1281d1810cd83d4",
+    "branch": "refs/heads/codex/bmad-browser-fix",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-gate-repair",
+    "HEAD": "3b8a451e3738a8da1bd95ba5e7029dba6f970a4d",
+    "branch": "refs/heads/codex/bmad-browser-gate-repair",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-browser-pointer",
+    "HEAD": "c9256971e922daed89f8e252cc3982ff34aec5bb",
+    "branch": "refs/heads/codex/bmad-browser-pointer",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion",
+    "HEAD": "c9256971e922daed89f8e252cc3982ff34aec5bb",
+    "branch": "refs/heads/codex/bmad-completion",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/.bmad-loop/runs/20260904-145336-4d56/worktrees/dw-blocking-qa-native-followup",
+    "HEAD": "a62e1760a9931c9451c34baa2df8af29fa1e9538",
+    "branch": "refs/heads/bmad-loop/20260904-145336-4d56",
+    "status": [
+      " M _bmad-output/implementation-artifacts/deferred-work.md"
+    ]
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-deidentify-linebreak-fix",
+    "HEAD": "d868ad1d88436d2cfb803c1083d0f1ff8479d94f",
+    "branch": "refs/heads/codex/bmad-deidentify-linebreak-fix",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw96-fix",
+    "HEAD": "091ec5a22f57ae3f566d6b70c56c3a61069763fc",
+    "branch": "refs/heads/codex/bmad-dw96-fix",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-fix",
+    "HEAD": "5df0d2c4ae9677a891cd8ca19f2669da40fc4311",
+    "branch": "refs/heads/codex/bmad-dw97-fix",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw97-review",
+    "HEAD": "74f8789d582c7b3ea4b66f2d70624811d269186f",
+    "branch": "refs/heads/codex/bmad-dw97-review",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw98-fix",
+    "HEAD": "4e0bdf5d45d7f5d555227783c69d01e29bfbec43",
+    "branch": "refs/heads/codex/bmad-dw98-fix",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw98-review",
+    "HEAD": "e8abbc14523eff3e1aa490712e7efafe9cd86b24",
+    "branch": "refs/heads/codex/bmad-dw98-review",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw99-fix",
+    "HEAD": "9aa4c32d5407dd02e15bf0532587a099343bf70d",
+    "branch": "refs/heads/codex/bmad-dw99-fix",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-dw99-review",
+    "HEAD": "c3bcddd475a924780cfaf2362b0217d1d58d428d",
+    "branch": "refs/heads/codex/bmad-dw99-review",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-feedback-probe",
+    "HEAD": "8c8080576d30c919f825e12f4b786f3f28b86b8f",
+    "branch": "refs/heads/codex/bmad-feedback-probe",
+    "status": [
+      "?? convex/feedbackReadLimit.probe.test.ts"
+    ]
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-feedback-read-fix",
+    "HEAD": "f42c7f3322cf2d48a0bcd45597ddde14f084e888",
+    "branch": "refs/heads/codex/bmad-feedback-read-fix",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-integration-review",
+    "HEAD": "9da55bece5948da12129720dd2330a3032c985bf",
+    "branch": "refs/heads/codex/bmad-integration-review",
+    "status": [
+      " M _bmad-output/implementation-artifacts/deferred-work.md"
+    ]
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-learn-chat",
+    "HEAD": "c3bcddd475a924780cfaf2362b0217d1d58d428d",
+    "branch": "refs/heads/sprint2-learn-chat",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-linux-pointer-diagnostic",
+    "HEAD": "84dab21fc3f2e635f0ead01a7c671dfc279fa644",
+    "branch": "refs/heads/codex/bmad-linux-pointer-diagnostic",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-native-entrypoint-fix",
+    "HEAD": "19b7505738f2477ab646b763f6ae3d659c74d96b",
+    "branch": "refs/heads/codex/bmad-native-entrypoint-fix",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-privacy-contract",
+    "HEAD": "a84022d0fae24281b55f58d57f4b4193d69c9dee",
+    "branch": "refs/heads/codex/bmad-privacy-contract",
+    "status": [
+      "?? _bmad-output/implementation-artifacts/dw42-review-prompts/blind-hunter.md",
+      "?? _bmad-output/implementation-artifacts/dw42-review-prompts/edge-case-hunter.md",
+      "?? _bmad-output/implementation-artifacts/dw42-review-prompts/verification-gap.md"
+    ]
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-proposal-tests",
+    "HEAD": "176817b4230a7d0153d397134f846de2e9441bde",
+    "branch": "refs/heads/codex/bmad-proposal-tests",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-published-status-fix",
+    "HEAD": "4555939ad846c638e291b06fd74e9ff3b637f881",
+    "branch": "refs/heads/codex/bmad-published-status-fix",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-review-menu-verification",
+    "HEAD": "97e32b72891c6d50d45191ac272607936fba1628",
+    "branch": "refs/heads/codex/bmad-review-menu-verification",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-unicode-fix",
+    "HEAD": "2462c4cc6eb67501d4f412d15674435e8adfd43b",
+    "branch": "refs/heads/codex/bmad-unicode-fix",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-unlearn-fix",
+    "HEAD": "b3338523c10085426a094bb8e5b13ccc55f9f7cf",
+    "branch": "refs/heads/codex/bmad-unlearn-fix",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-verification-contract",
+    "HEAD": "186029d408b418c4337ee0e772520629cdae937c",
+    "branch": "refs/heads/codex/bmad-verification-contract",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-verification-fix",
+    "HEAD": "4c26f2fb345247139963457ef7d770677b82fb45",
+    "branch": "refs/heads/codex/bmad-verification-fix",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+    "HEAD": "8511662cb8fd9748d02f413c633bf21b5cdec9ee",
+    "branch": "refs/heads/codex/branch-consolidation",
+    "status": [
+      "A  _bmad-output/implementation-artifacts/spec-branch-b10-workspace-branches.md",
+      "M  docs/product-domain.md",
+      "M  src/lib/dashboard/workspaceExperience.test.ts",
+      "M  src/lib/dashboard/workspaceExperience.ts",
+      "M  src/lib/test/app-environment-stub.ts",
+      "M  src/lib/workspace/WorkspaceGate.component.test.ts",
+      "M  src/lib/workspace/WorkspaceGate.svelte",
+      "M  src/routes/dashboard/+page.svelte",
+      "M  src/routes/my-work/+page.svelte",
+      "M  src/routes/project/[id]/projectRoute.component.test.ts",
+      "M  src/routes/projects/+page.svelte",
+      "M  src/routes/workspaceRoutes.component.test.ts"
+    ]
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-cownose",
+    "HEAD": "c7167fb59d3eb46b7a21aafbad6a292ed25ea0df",
+    "branch": "refs/heads/cownose",
+    "status": [
+      " M convex/crons.ts",
+      " M convex/pdReviews.ts",
+      " M convex/projects.ts",
+      " M convex/schema.ts",
+      " M src/lib/components/editor/ModelTestSummary.svelte",
+      " M src/lib/components/project/CurrentProjectPage.svelte",
+      " M src/lib/components/ui/UserMenu.component.test.ts",
+      " M src/lib/components/ui/UserMenu.svelte",
+      " M src/lib/components/workspace/WorkspaceHeader.component.test.ts",
+      " M src/lib/components/workspace/WorkspaceRail.component.test.ts",
+      " M src/lib/components/workspace/WorkspaceRail.svelte",
+      " M src/routes/layout.css",
+      " M src/routes/project/new/+page.svelte",
+      "?? src/lib/components/project/CurrentProjectReviewFeedback.component.test.ts"
+    ]
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-chatspend",
+    "HEAD": "8f2199688ce3bd34ead3293b8b606db22ceed378",
+    "branch": "refs/heads/lane/spec-ai-engine-sprint-2-boundary/chatspend",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-pipeline",
+    "HEAD": "c138fbebeccc01b25f38362c79c9b316119c3fff",
+    "branch": "refs/heads/lane/spec-ai-engine-sprint-2-boundary/pipeline",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-qa",
+    "HEAD": "7c27eeff15c583389462b5e3e68eb47bdb373cb5",
+    "branch": "refs/heads/lane/spec-ai-engine-sprint-2-boundary/qa",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-qa/.bmad-loop/runs/20260904-121607-3217/worktrees/8",
+    "HEAD": "6182a5de6947d3e8fcd72024f7a720b4af0639f5",
+    "detached": true,
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/lanes/spec-ai-engine-sprint-2-boundary-schema",
+    "HEAD": "7dc7131d72bca734215d78dd38aeb732f4050842",
+    "branch": "refs/heads/lane/spec-ai-engine-sprint-2-boundary/schema",
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260904-030217-50fa/worktrees/8",
+    "HEAD": "0b6325cd85dbf1c01e9a1e5cff67e6eef02f7ef7",
+    "branch": "refs/heads/bmad-loop/20260904-030217-50fa",
+    "status": [
+      "?? _bmad-output/specs/spec-ai-engine-sprint-2-boundary/stories/8-blocking-qa-policy.md"
+    ]
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260904-065146-9a65/worktrees/3",
+    "HEAD": "8be33ce5327562c8f5852ea16c5c85ea6171b927",
+    "detached": true,
+    "status": []
+  },
+  {
+    "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/workspace-2-drop-dead-gate-branches",
+    "HEAD": "c2211d0e198a78b65ffbb18bd441d17bfe79f4fc",
+    "branch": "refs/heads/factory/workspace-2-drop-dead-gate-branches",
+    "status": []
+  }
+]

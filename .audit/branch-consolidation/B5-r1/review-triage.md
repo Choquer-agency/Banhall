@@ -1,0 +1,24 @@
+# B5 revision1 review triage
+
+All three fresh GPT-6 Astra medium layers completed with exit0. Edge returned []; verification-gap returned No verification gaps found. Root read the new maintained test, strict audit script and updated formatter/facet/handoff diffs. Original duplicate construction now fails both maintained cases with four count/warning assertions, and identical tests pass after repair. No intent_gap, bad_spec or product patch remains.
+
+| Blind finding | Severity | Route | Disposition |
+| --- | --- | --- | --- |
+| 1 mounted ReadOnlyEditor | low | reject | Explicit evidence scope is real headless Editor construction in both modes; no mounted-read-only rendering claim. Both actual components share getEditorExtensions; no component or rendering configuration changed. |
+| 2 HTML roundtrip | low | reject | No HTML parsing/rendering rule changed; one duplicate provider was removed while the same installed Underline extension remains. JSON/command/registration assertions prove the scoped contract. Extra input-format matrix is not a demonstrated gap. |
+| 3 toolbar/keyboard assertion | low | reject | Toolbar/keyboard code is unchanged; actual command toggles and existing real Editor component suite pass. No user interaction API was migrated by deleting this duplicate. |
+| 4 warnings during destroy | low | reject | Guarantee is registration/construction warnings; Tiptap duplicate check occurs during extension resolution, not destruction. Finally blocks safely destroy/restore spies even on failure; no full lifecycle warning claim. |
+| 5 all canonical stage labels | low | reject | Shared stage metadata and formatter implementation are unchanged. Reverse-key delivered/on_hold case protects the order distinction and actual empty/zero/legacy/truncated boundaries are now asserted. Exhaustive unchanged label duplication is unnecessary. |
+| 6 incomplete facets missing buckets | low | reject | Adds a product selection policy beyond unchanged supplied-count formatter behavior. No new truncation behavior was introduced or promised. |
+| 7 all canonical/legacy classification rows | low | reject | Registered fixture restores the actual lost canonical-versus-conflicting-legacy and stage-less boundary. Backend uses workflowStage or legacy uniformly, never branches on old status; no backend code changed. |
+| 8 duplicate pending transcript | low | reject | Existing duplicate precedence case and transcript case are preserved; migrating wrappers invokes the same unchanged full start handoff API. New transcript-copy policy/behavior is outside this cleanup and no defect is demonstrated. |
+| 9 full title-only payload/consume | low | reject | Full transcript and second-consume behavior are asserted in the normal and TTL cases; browser title-only and duplicate cases assert full empty payload after consumption. No removed assertion or altered handoff storage logic. |
+| 10 mapping eight retired contracts | low | patch | Explicit contract retirement list appended below. They belong to removed callerless APIs; retained verifiedStageCounts and workspace tests are complementary, not falsely presented as equivalent algorithm coverage. |
+| 11 full gate | high if omitted | reject | Explicit parent-owned next step, now running on Node24 with the new ordinary src test staged for discovery. Acceptance requires its result. |
+| 12 durable receipts | medium | patch | Both B5 attempts and all raw source/proof/review/command receipts are deliberately admitted with lossless gzip/hash manifests. No reliance on a temporary-only final package. |
+
+Retired contracts: groupRowsByStageRank's pipeline remapping, loaded-run completeness and missing-rank handling; visibleStageGroups' exact-zero hiding, absent-count qualification, zero/unverified distinction, loaded-row precedence and conditional legacy. Source reference inventories show no live consumer for either removed API. Current count trust defense remains verifiedStageCounts, with both existing exact/inconsistent/undefined/empty cases unchanged. No one-to-one current algorithm replacement is claimed.
+
+Root applies only these evidence clarifications because the implementation context was ephemeral. Full gate is the next actual verification; no native deferral or policy question was introduced.
+
+Final Node24.19.0 gate:2011 unit/478 browser tests and all other canonical steps passed. The wrapper flagged one extra maintained historical screenshot; root traced its actual test, visually inspected both images and decoded every pixel. The911 shared rows match exactly; baseline has19 extra white rows. Both preserved and original restored. gate/result.json retains the original guard finding; gate/acceptance.json records its disposition. Source matches the staged reviewed candidate. No test rerun warranted for restored historical white canvas metadata.

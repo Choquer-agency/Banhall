@@ -1,0 +1,12 @@
+COMMAND: ['node', 'node_modules/vitest/vitest.mjs', 'run', 'convex/documents.test.ts', '--testNamePattern', '^uploadDocument processing status empty and whitespace uploads keep document reads constant$', '--expect.requireAssertions']
+EXIT: 1
+COMMAND: ['node', 'node_modules/vitest/vitest.mjs', 'run', 'convex/documents.test.ts', 'convex/uploadAttempts.test.ts', '--expect.requireAssertions']
+EXIT: 0
+COMMAND: ['node', 'node_modules/vitest/vitest.mjs', 'run', 'convex/documents.test.ts', '--testNamePattern', '^uploadDocument processing status empty and whitespace uploads keep document reads constant$', '--expect.requireAssertions', '--silent=false']
+EXIT: 0
+COMMAND: ['node', 'node_modules/typescript/bin/tsc', '-p', 'convex/tsconfig.json', '--noEmit']
+EXIT: 0
+COMMAND: ['node', 'node_modules/vitest/vitest.mjs', 'run', 'convex/documents.test.ts', '--testNamePattern', '^uploadDocument processing status empty and whitespace uploads keep document reads constant$', '--expect.requireAssertions', '--disableConsoleIntercept']
+EXIT: 0
+COMMAND: git diff --check
+EXIT: 0

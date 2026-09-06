@@ -1,0 +1,47 @@
+{
+  "digestAndTraversalChecksPassed": true,
+  "before": [
+    {
+      "kind": "synthetic_editor_cpu",
+      "chars": 22790,
+      "proposalPairs": 20,
+      "iterations": 30,
+      "descendantTraversals": 30,
+      "medianMs": 3.35,
+      "p95Ms": 3.92,
+      "matchPositionsSha256": "97e33b1b41e05229838b63cdc1f9bde97b8d265c7e4138f0dfee37303cf85397"
+    },
+    {
+      "kind": "synthetic_editor_cpu",
+      "chars": 91490,
+      "proposalPairs": 20,
+      "iterations": 30,
+      "descendantTraversals": 30,
+      "medianMs": 13.27,
+      "p95Ms": 14.19,
+      "matchPositionsSha256": "97e33b1b41e05229838b63cdc1f9bde97b8d265c7e4138f0dfee37303cf85397"
+    }
+  ],
+  "after": [
+    {
+      "kind": "synthetic_editor_cpu",
+      "chars": 22790,
+      "proposalPairs": 20,
+      "iterations": 30,
+      "descendantTraversals": 30,
+      "medianMs": 3.95,
+      "p95Ms": 4.62,
+      "matchPositionsSha256": "97e33b1b41e05229838b63cdc1f9bde97b8d265c7e4138f0dfee37303cf85397"
+    },
+    {
+      "kind": "synthetic_editor_cpu",
+      "chars": 91490,
+      "proposalPairs": 20,
+      "iterations": 30,
+      "descendantTraversals": 30,
+      "medianMs": 15.91,
+      "p95Ms": 17.22,
+      "matchPositionsSha256": "97e33b1b41e05229838b63cdc1f9bde97b8d265c7e4138f0dfee37303cf85397"
+    }
+  ]
+}

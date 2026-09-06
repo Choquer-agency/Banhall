@@ -1,0 +1,9 @@
+### Editor callers can lose batching without failing verification
+
+- **Changed surface:** Preview construction at `src/lib/components/editor/Editor.svelte:421` and `findReplaceMatches` at `Editor.svelte:1029` now share one search index per batch.
+- **Impacted consumer or site:** Proposal previews and writer find/replace operations in those two Editor methods.
+- **Existing test evidence:** `Regression gap`: Repository symbol/import searches found helper cost assertions in `docSearch.test.ts:238` and Editor behavior assertions in `Editor.component.test.ts:109` and `:127`. The helper tests invoke `findOccurrencesBatch` directly; component tests check decorations and returned matches, which also pass before batching. `scripts/bench/editor-search.mjs:92` prints traversal measurements without asserting them, and `scripts/loop-verify.sh` does not run that benchmark. The admitted comparison receipts establish the current improvement but provide no recurring caller-level guard.
+- **Missing verification:** An executable assertion that the actual Editor consumers retain batch-level document traversal cost.
+- **Demonstration:** Restore either consumer’s per-pair `findAllOccurrencesCI` loop while leaving `docSearch.ts` intact. Helper cost assertions still pass, and component results remain identical. Reverting find/replace also leaves the preview-only benchmark measurements unchanged.
+- **Consequence:** Repeated full-document indexing can return during preview updates or writer searches without failing the checked verification paths.
+- **Suggested test shape:** Exercise both actual consumers with multiple needles and assert document traversal counts, with a caller-level per-needle mutation proving the checks fail.

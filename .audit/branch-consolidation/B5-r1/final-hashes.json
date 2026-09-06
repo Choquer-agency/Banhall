@@ -1,0 +1,86 @@
+{
+  "src/lib/dashboard/stageFilter.test.ts": {
+    "sha256": "20ec03d936d271309af67317447aab211ead9c468d5ec3b0484ffa3a278af4d4",
+    "git_blob": "02be9d253ce874d1ae382d974065baba525b5afe",
+    "unchanged_from_baseline": false
+  },
+  "src/lib/dashboard/stageFilter.ts": {
+    "sha256": "2f17b8db750282155dea184f99e950506f83e90b16d99bcfe1b05e5aee44d2e6",
+    "git_blob": "633a9884a33fdf89e288fe2feaa993fadd10d2c3",
+    "unchanged_from_baseline": false
+  },
+  "src/lib/reportSections.ts": {
+    "sha256": "47093c299d931caf1dc9e1fef741d351a97b2645bbc11c89f1ae43972cff02cb",
+    "git_blob": "4773fccb58fa93dcca5c52cb38dd4304917bb69a",
+    "unchanged_from_baseline": false
+  },
+  "src/lib/tiptapConfig.ts": {
+    "sha256": "f0739d78e76bb085e8d09ed30e8f0d11fba70e7064ae686605397e7feac4571d",
+    "git_blob": "81e4165e77828212a46581a64434d896ee7e0a2a",
+    "unchanged_from_baseline": false
+  },
+  "src/lib/workspace/projectIntentHandoff.test.ts": {
+    "sha256": "5247bad9a4c3f06ee88981319c450c7af6a9de90050d283f3b02a1a75d106c94",
+    "git_blob": "9c538aebc90c4757242475b0178388c1aecf26b8",
+    "unchanged_from_baseline": false
+  },
+  "src/lib/workspace/projectIntentHandoff.ts": {
+    "sha256": "b59f46a7009ca697e9178f45f5af53c8ea9361a66ad84a99344494fb6f4aad82",
+    "git_blob": "496107bff451ea9e1e6e6d62788e9f894fa48e8c",
+    "unchanged_from_baseline": false
+  },
+  "src/lib/workspace/stageRankGroups.test.ts": {
+    "sha256": "ce5e604502872622deaff62cbac9732cc09b14f09880df5f9091fd0763753b73",
+    "git_blob": "3d6dd814135ffb99fd760709643ac606b6981e97",
+    "unchanged_from_baseline": false
+  },
+  "src/lib/workspace/stageRankGroups.ts": {
+    "sha256": "f041b23c42333a61edc6d76f8416291dda9b952cef5e43f964b76fa77a5df625",
+    "git_blob": "bcd7976b17d7e1f8734bdb0ba0c53d6bd5be6722",
+    "unchanged_from_baseline": false
+  },
+  "src/routes/project/new/newProjectPrefill.component.test.ts": {
+    "sha256": "adb5d7756aa947c8bef42398c9650860151bdcf212960d6498735fc8f9b9d00d",
+    "git_blob": "5034de185a151bac8cf6f9762b2fd92f163c03e0",
+    "unchanged_from_baseline": false
+  },
+  "convex/dashboard.test.ts": {
+    "sha256": "01084d09329c43531e3df6b57be5ca4d3fc5d2b2a8d39fa200dc2ce234b9095c",
+    "git_blob": "596deaa254ce5c54b166139549d08238f46d50fd",
+    "unchanged_from_baseline": false
+  },
+  "convex/dashboard.ts": {
+    "sha256": "b525cb6413b108b7a7a229351e3c99385e9941438ee9bdf315bde57730153b2b",
+    "git_blob": "80797938642d503a9637787243c3e2da1d559cce",
+    "unchanged_from_baseline": true
+  },
+  "convex/dashboardStageCounts.test.ts": {
+    "sha256": "fb317a368bc040d85fb213db31180b76976b0c8e6b005acab4a51f732b60570a",
+    "git_blob": "7e3fab267bb792fe9f8675a648ced0c7a439ef45",
+    "unchanged_from_baseline": true
+  },
+  "src/lib/components/editor/Editor.svelte": {
+    "sha256": "0b6d8a87232849623e2d3d2ff0ac83a06666956a07a85d406266b5743acfea83",
+    "git_blob": "7feeb9c867e978ec7a1ddea1391c38712a3d374a",
+    "unchanged_from_baseline": true
+  },
+  "src/lib/components/editor/Editor.component.test.ts": {
+    "sha256": "c60d0d67a7ef3ce6aecb7910f8c523f57435a3825df39aff5fb0a7f4d1b7692e",
+    "git_blob": "4ddf92b3d83d028031654967c1e23a50ee29d523",
+    "unchanged_from_baseline": true
+  },
+  "src/lib/components/editor/docSearch.ts": {
+    "sha256": "a6956e4329df390dbcde1e9d5ad375df2df11f75553c32b1a0178b6b1abe51ca",
+    "git_blob": "0a7fce63b643a2c37440c18fdfcfcb7dc394da42",
+    "unchanged_from_baseline": true
+  },
+  "src/lib/components/editor/docSearch.test.ts": {
+    "sha256": "524156421221c51d7f34817894a3c465b6c1765b0b382308a63a86b2ac94adfa",
+    "git_blob": "bfd9c9f44a0e7185c2b103b69f6021f085909f59",
+    "unchanged_from_baseline": true
+  },
+  "src/lib/tiptapConfig.test.ts": {
+    "sha256": "7ba7b0f7bb4889401759614bced27738d02518d2f12ca4a7e37813746c862bb4",
+    "git_blob": "2eb3874180063a298dfa503cbbcf893977ecffd3"
+  }
+}

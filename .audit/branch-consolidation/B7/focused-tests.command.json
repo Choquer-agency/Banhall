@@ -1,0 +1,11 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "tests"
+  ],
+  "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+  "started": "2026-09-06T02:16:12.306944+00:00",
+  "exit": 0
+}

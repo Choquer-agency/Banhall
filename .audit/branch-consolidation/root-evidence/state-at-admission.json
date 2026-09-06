@@ -1,0 +1,132 @@
+{
+  "phase": "Audited source and all captured ancestry ready for PR",
+  "baseline": "cc6b706c3b43f971d944cb703a4174eabf3134d9",
+  "branch": "codex/branch-consolidation",
+  "scope": "All captured local/remote branch tips and registered worktree state; integrate outstanding valid changes with BMAD review and per-batch gates before normal PR/main merge; preserve reviewed current policies.",
+  "auditors": {
+    "recovery": "/root/browser_gate_diagnostic/dw98_fix_verify",
+    "factory": "/root/browser_gate_diagnostic",
+    "worktrees": "/root/browser_gate_diagnostic/pointer_context_implement"
+  },
+  "mutations": "Root owns integration; auditors read-only except own audit artifacts.",
+  "pending": [
+    "Push final candidate PR and require both actual-head GitHub CI jobs",
+    "Normal merge, verify main checks and ancestry, final Sol trail review"
+  ],
+  "active_batch": null,
+  "implementation_owner": "Fresh GPT-6 Astra medium worker",
+  "spec": "_bmad-output/implementation-artifacts/spec-branch-b11-brain-erasure-labels.md",
+  "cownose_ownership": "awaiting user reply; audit complete, no dependent integration",
+  "baseline_gate": ".audit/branch-consolidation/local-baseline/result.json",
+  "additional_batch": {
+    "id": "B11",
+    "intent": "Port archived Brain unlearn audit labels missing from main while preserving current backend/status semantics",
+    "source_commit_prefix": "186dc570",
+    "status": "B11 scoped and drafted; pending sequential implementation"
+  },
+  "b1_commit": "38fd254c359cf9589063098f06c7f0356d5882cc",
+  "b12_commit": "b2d5db5b63c0a70bce20d86df56e11ffbe89fad9",
+  "additional_search_batch": {
+    "id": "B13",
+    "status": "accepted and committed; native DW-101/DW-102 closed",
+    "proof": ".audit/branch-consolidation/search-boundary-audit/summary.md",
+    "intent": "Fix inherited Unicode index expansion and hardBreak search boundaries",
+    "native_ids": [
+      "DW-101",
+      "DW-102"
+    ]
+  },
+  "b2_commit": "1d6053388326fe4fde43a86177955157f11ce588",
+  "accepted_batches": [
+    {
+      "id": "B1",
+      "commit": "38fd254c359cf9589063098f06c7f0356d5882cc"
+    },
+    {
+      "id": "B12",
+      "commit": "b2d5db5b63c0a70bce20d86df56e11ffbe89fad9"
+    },
+    {
+      "id": "B2",
+      "commit": "1d6053388326fe4fde43a86177955157f11ce588"
+    },
+    {
+      "id": "B13",
+      "commit": "0d481e2b76390e0eff3208d91f1f47d83b173474"
+    },
+    {
+      "id": "B3",
+      "commit": "d11195e5fdf6fb40baf27cacff86eaad6bf69ef6"
+    },
+    {
+      "id": "B4",
+      "commit": "d22e1fa0880512212865d7d60aeb8cfe600dbaa2"
+    },
+    {
+      "id": "B5",
+      "commit": "309570c60c9ad96d02ad234bdc028c34ddf80390"
+    },
+    {
+      "id": "B6",
+      "commit": "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d"
+    },
+    {
+      "id": "B7",
+      "commit": "d28cfc0bc0a34e78683152553143179fac2682c7"
+    },
+    {
+      "id": "B8",
+      "commit": "9d83ffd3091c1e801285149622c879abe0087556"
+    },
+    {
+      "id": "B9",
+      "commit": "8511662cb8fd9748d02f413c633bf21b5cdec9ee"
+    },
+    {
+      "id": "B10",
+      "commit": "7c6a0099901a580d4c231df747d358faff064eaf"
+    },
+    {
+      "id": "B11",
+      "commit": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235"
+    }
+  ],
+  "history_audit": {
+    "recovery": "complete:63 commits and589 path blobs verified",
+    "factory": "complete:124 commits and519 changed-path records verified",
+    "coverage": ".audit/branch-consolidation/ancestry-plan.json"
+  },
+  "preflight_reports": {
+    "B3": ".audit/branch-consolidation/planning/B3-preflight.md",
+    "B4": ".audit/branch-consolidation/planning/B4-preflight.md",
+    "B5": ".audit/branch-consolidation/planning/B5-preflight.md",
+    "B6": ".audit/branch-consolidation/planning/B6-preflight.md",
+    "B7": ".audit/branch-consolidation/planning/B7-preflight.md",
+    "B8": ".audit/branch-consolidation/planning/B8-preflight.md",
+    "B9": ".audit/branch-consolidation/planning/B9-preflight.md",
+    "B10": ".audit/branch-consolidation/planning/B10-preflight.md"
+  },
+  "b13_commit": "0d481e2b76390e0eff3208d91f1f47d83b173474",
+  "b3_commit": "d11195e5fdf6fb40baf27cacff86eaad6bf69ef6",
+  "new_deferred": {
+    "id": "DW-103",
+    "status": "open",
+    "scope": "pre-existing shared storage cleanup; separate focused follow-up"
+  },
+  "b4_commit": "d22e1fa0880512212865d7d60aeb8cfe600dbaa2",
+  "gate_runtime": "Repository Node24 enforced; ten maintained historical captures explicitly saved/restored",
+  "b5_commit": "309570c60c9ad96d02ad234bdc028c34ddf80390",
+  "b6_commit": "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d",
+  "b7_commit": "d28cfc0bc0a34e78683152553143179fac2682c7",
+  "open_followups": [
+    "DW-103",
+    "DW-104",
+    "DW-105"
+  ],
+  "b8_commit": "9d83ffd3091c1e801285149622c879abe0087556",
+  "b9_commit": "8511662cb8fd9748d02f413c633bf21b5cdec9ee",
+  "b10_commit": "7c6a0099901a580d4c231df747d358faff064eaf",
+  "b11_commit": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235",
+  "ancestry_commit": "21f0fc34c9b39aa1be7109fd24f52555af20bc54",
+  "accepted_source_commit": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235"
+}

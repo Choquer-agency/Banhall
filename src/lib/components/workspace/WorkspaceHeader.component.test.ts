@@ -162,7 +162,17 @@ describe("WorkspaceHeader", () => {
     expect(newProject?.className).toContain("bg-action-primary");
     expect(newProject?.className).toContain("text-action-primary-foreground");
     expect(newProject?.className).not.toContain("bg-fir");
-    expect(newProject?.getBoundingClientRect().height).toBe(32);
+    expect(newProject).not.toBeNull();
+    if (!newProject) throw new Error("New project link is missing");
+    const bounds = newProject.getBoundingClientRect();
+    if (width === 390) {
+      expect(bounds.height).toBeGreaterThanOrEqual(44);
+      expect(bounds.width).toBeGreaterThanOrEqual(44);
+    } else {
+      expect(bounds.height).toBe(32);
+      expect(getComputedStyle(newProject).minWidth).toBe("0px");
+      expect(getComputedStyle(newProject).minHeight).toBe("0px");
+    }
     await expect.element(browserPage.getByRole("link", { name: "New project", exact: true })).toHaveAttribute("href", "/project/new");
     expect(newProject?.className).not.toContain("sm:h-7");
     expect(newProject?.parentElement?.className).toContain("ml-auto");

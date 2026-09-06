@@ -1,0 +1,8 @@
+{
+  "baseline": "b2d5db5b63c0a70bce20d86df56e11ffbe89fad9",
+  "trackedPathsChecked": 4951,
+  "changedTrackedPaths": [
+    "src/lib/components/editor/Editor.svelte"
+  ],
+  "protectedPathsUnchanged": true
+}

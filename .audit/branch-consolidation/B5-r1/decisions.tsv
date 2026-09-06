@@ -1,0 +1,6 @@
+ts	phase	decision	why	evidence	result
+2026-09-06T01:44:25.075918+00:00	scope	Use spec worker scope	User names spec sole source of truth	source-manifest.json	No installs, stage, commits or shipping
+2026-09-06T01:44:25.076143+00:00	baseline	Add real facet and editor guards before deletion	Prove preservation and reproduce defect	baseline-helpers.log;baseline-underline.log;baseline-proof.log	Facet passes; duplicate guards fail
+2026-09-06T01:44:25.076148+00:00	build	Apply historical cleanup and strengthen assertions	No live callers; retain current contracts	callers-before.txt;final.diff;test-case-accounting.json	Eleven allowed source paths
+2026-09-06T01:44:25.076150+00:00	prove	Run unchanged editor suite and current-source proof	Require actual one-registration zero-warning outcome	after-underline.log;after-proof.log	Both modes pass
+2026-09-06T01:44:25.076153+00:00	preservation	Keep B2/B13 and backend sources unchanged	Preserve prior integrations	final-hashes.json;preserved-b13-helper.log;after-components.log	Hashes and tests pass

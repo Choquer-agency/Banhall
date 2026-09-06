@@ -1,0 +1,96 @@
+{
+  "at": "2026-09-06T03:15:04.326216+00:00",
+  "phase": "B11 pending; no merge admission",
+  "accepted": [
+    {
+      "id": "B1",
+      "commit": "38fd254c359cf9589063098f06c7f0356d5882cc",
+      "evidence": ".audit/branch-consolidation/B1/evidence.md",
+      "accepted_ancestor": true,
+      "gate": ".audit/branch-consolidation/B1/gate/result.json"
+    },
+    {
+      "id": "B12",
+      "commit": "b2d5db5b63c0a70bce20d86df56e11ffbe89fad9",
+      "evidence": ".audit/branch-consolidation/B12/evidence.md",
+      "accepted_ancestor": true,
+      "gate": ".audit/branch-consolidation/B12/gate/result.json"
+    },
+    {
+      "id": "B2",
+      "commit": "1d6053388326fe4fde43a86177955157f11ce588",
+      "evidence": ".audit/branch-consolidation/B2/evidence.md",
+      "accepted_ancestor": true
+    },
+    {
+      "id": "B13",
+      "commit": "0d481e2b76390e0eff3208d91f1f47d83b173474",
+      "evidence": ".audit/branch-consolidation/B13/evidence.md",
+      "accepted_ancestor": true
+    },
+    {
+      "id": "B3",
+      "commit": "d11195e5fdf6fb40baf27cacff86eaad6bf69ef6",
+      "evidence": ".audit/branch-consolidation/B3/evidence.md",
+      "accepted_ancestor": true,
+      "gate": ".audit/branch-consolidation/B3/gate/result.json"
+    },
+    {
+      "id": "B4",
+      "commit": "d22e1fa0880512212865d7d60aeb8cfe600dbaa2",
+      "evidence": ".audit/branch-consolidation/B4/evidence.md",
+      "accepted_ancestor": true,
+      "gate": ".audit/branch-consolidation/B4/gate/result.json"
+    },
+    {
+      "id": "B5",
+      "commit": "309570c60c9ad96d02ad234bdc028c34ddf80390",
+      "evidence": ".audit/branch-consolidation/B5/evidence.md",
+      "accepted_ancestor": true,
+      "gate": ".audit/branch-consolidation/B5-r1/gate/result.json"
+    },
+    {
+      "id": "B6",
+      "commit": "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d",
+      "evidence": ".audit/branch-consolidation/B6/evidence.md",
+      "accepted_ancestor": true,
+      "gate": ".audit/branch-consolidation/B6/gate/result.json"
+    },
+    {
+      "id": "B7",
+      "commit": "d28cfc0bc0a34e78683152553143179fac2682c7",
+      "evidence": ".audit/branch-consolidation/B7/evidence.md",
+      "accepted_ancestor": true,
+      "gate": ".audit/branch-consolidation/B7/gate/result.json"
+    },
+    {
+      "id": "B8",
+      "commit": "9d83ffd3091c1e801285149622c879abe0087556",
+      "evidence": ".audit/branch-consolidation/B8/evidence.md",
+      "accepted_ancestor": true,
+      "gate": ".audit/branch-consolidation/B8/gate/result.json"
+    },
+    {
+      "id": "B9",
+      "commit": "8511662cb8fd9748d02f413c633bf21b5cdec9ee",
+      "evidence": ".audit/branch-consolidation/B9/evidence.md",
+      "accepted_ancestor": true
+    },
+    {
+      "id": "B10",
+      "commit": "7c6a0099901a580d4c231df747d358faff064eaf",
+      "evidence": ".audit/branch-consolidation/B10/evidence.md",
+      "accepted_ancestor": true,
+      "gate": ".audit/branch-consolidation/B10/gate/result.json"
+    }
+  ],
+  "pending": [
+    "B11"
+  ],
+  "open_followups": [
+    "DW-103",
+    "DW-104",
+    "DW-105"
+  ],
+  "uncommitted_work": "Cownose14 paths excluded pending ownership reply; other worktrees preserved"
+}

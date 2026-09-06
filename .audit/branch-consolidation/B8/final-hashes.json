@@ -1,0 +1,10 @@
+{
+  "src/lib/components/workspace/WorkspaceHeader.svelte": "3e0b5a0f83a4d07c10ab2f8fae33633dacc0f4a280be43ab9dd094fa08f3fe46",
+  "src/lib/components/workspace/WorkspaceHeader.component.test.ts": "161ca1a835ab1f9f75a8a6af0670568c8f2e3ad38560cc1de1a05ddf951976df",
+  "src/lib/components/ui/Button.component.test.ts": "ed831aabcb87a4fe16e1a47df0e91627a84f8a698e28383edda3a874497fd5bb",
+  "src/lib/components/workspace/WorkspaceRail.component.test.ts": "8a0bff8f967ff892d43eafa3559ab22dd3376ea018db804b15c163448ce81ba0",
+  "src/lib/components/ui/Button.svelte": "bb7641c00197560a5a83bcbe27d218186621d224bb5e739c2d6dd1d6d31af839",
+  "src/routes/layout.css": "cc91388d04e2a5e539f6aa1165a5099a4745e97207748cc5c887e7c586e7c78c",
+  "vitest.component.config.ts": "5bef635e41707470cab1eb78de35dbad5a0d889917ad74f2ed7b6bdb0ef9eced",
+  "src/lib/components/workspace/WorkspaceChromePointer.component.test.ts": "e49bfe675558b77f78fb109a2e157e43007120ae62bf0652f67c798c3641b0bd"
+}

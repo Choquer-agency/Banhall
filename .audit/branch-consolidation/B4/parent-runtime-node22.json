@@ -1,0 +1,15 @@
+{
+  "node": "v22.22.3",
+  "npm": "10.9.8",
+  "browser": "Google Chrome for Testing 151.0.7922.34",
+  "browserPath": "/Users/johnnynguyen/Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+  "packages": {
+    "vitest": "4.1.10",
+    "playwright": "1.62.0",
+    "svelte": "5.56.6",
+    "typescript": "5.9.3"
+  },
+  "lockSha256": "d4213ef7b50aa850ea095dbe6c65b35306ae7589a90073c0e377147421a33dac",
+  "nodeModulesIsSymlink": false,
+  "installProvenance": ".audit/branch-consolidation/B1/root-installation-provenance.json"
+}

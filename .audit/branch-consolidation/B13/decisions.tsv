@@ -1,0 +1,5 @@
+ts	phase	decision	why	evidence	result
+2026-09-06T00:26:57.438054+00:00	baseline	Use assigned current checkout	HEAD equals spec baseline	baseline-sha256.txt	matched
+2026-09-06T00:26:57.438054+00:00	test	Correct repeated-boundary fixture before source repair	Direct PM positions show beta17..21	helper-before-corrected-fixture.log	baseline still fails
+2026-09-06T00:26:57.438054+00:00	build	Map lengths after whole-string lowercase	Preserve contextual casing and UTF-16 spans	../../../src/lib/components/editor/docSearch.ts	linear pass per batch
+2026-09-06T00:26:57.438054+00:00	verify	Retain parent integration ownership	Spec reserves review and final gate	evidence.md	focused helper and mounted proof complete

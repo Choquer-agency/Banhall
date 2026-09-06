@@ -1,0 +1,667 @@
+{
+  "snapshotHead": "8511662cb8fd9748d02f413c633bf21b5cdec9ee",
+  "statePhase": "B10 independent review",
+  "inputSha256": {
+    "state.json": "c37ebedb79968f039cd804df7400177024b67420c753c0a7fda1db6a428c6833",
+    "recovery-audit/recovery-ledger.json": "abd25847dcfe1e7d949d7bd5d2d30b6bb1aa8c01e281a07ddb01f7d02f16604c",
+    "factory-audit/full-history-disposition.json": "1ae5f2a45d2a1d5ef214e1d2ce4ddcdbe4ec0f9b9ab0a1771384e417cb968734",
+    "ancestry-plan.json": "45198d1b4ade525560c7f56df6b95a6878002c975968dbc458810553daf04543"
+  },
+  "ledgerCounts": {
+    "recovery": 63,
+    "factory": 124,
+    "integrationSourceDispositions": 26
+  },
+  "sourceDispositionMappings": [
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "d0669fec95d4145b3be34a6f6b2b5e76db276cc7",
+      "subject": "workspace-2-drop-dead-gate-branches: delete the dead gate branches and record the amendment",
+      "requiredBatches": [
+        "B10"
+      ],
+      "acceptedMappings": {},
+      "pendingBatches": [
+        "B10"
+      ]
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "76f9aca3c973a805a32cc5466cacd11d61ca080e",
+      "subject": "workspace-2-drop-dead-gate-branches: pin the Projects rail anchor to the client-grouped List default",
+      "requiredBatches": [
+        "B10"
+      ],
+      "acceptedMappings": {},
+      "pendingBatches": [
+        "B10"
+      ]
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "9ee49b2bb94fb4c87c3e570bd11a7ed74c6916d5",
+      "subject": "perf-1-parser-timers-editor-index: add maintained editor-search benchmark",
+      "requiredBatches": [
+        "B2"
+      ],
+      "acceptedMappings": {
+        "B2": "1d6053388326fe4fde43a86177955157f11ce588"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "1e84c27339676ad19a034d95bee92144e81b57d5",
+      "subject": "perf-1-parser-timers-editor-index: pin the editor search surface in a browser suite",
+      "requiredBatches": [
+        "B2"
+      ],
+      "acceptedMappings": {
+        "B2": "1d6053388326fe4fde43a86177955157f11ce588"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "e4495a50c183507e8661422c4281785c7cffd3a1",
+      "subject": "perf-1-parser-timers-editor-index: build the editor search index once per batch",
+      "requiredBatches": [
+        "B2"
+      ],
+      "acceptedMappings": {
+        "B2": "1d6053388326fe4fde43a86177955157f11ce588"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "f82f2b0a9c44b9f5475d6d5c31418ab368bd3c4c",
+      "subject": "perf-1-parser-timers-editor-index: release the PDF deadline timer when the race settles",
+      "requiredBatches": [
+        "B1"
+      ],
+      "acceptedMappings": {
+        "B1": "38fd254c359cf9589063098f06c7f0356d5882cc"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "18f383c079ba24bf8781e5c5eca3b2b3af0b0a3f",
+      "subject": "perf-2-empty-upload-reads: skip the project document read for blank uploads",
+      "requiredBatches": [
+        "B3"
+      ],
+      "acceptedMappings": {
+        "B3": "d11195e5fdf6fb40baf27cacff86eaad6bf69ef6"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+      "subject": "slop-1-dead-components: delete nine abandoned React-port components",
+      "requiredBatches": [
+        "B4"
+      ],
+      "acceptedMappings": {
+        "B4": "d22e1fa0880512212865d7d60aeb8cfe600dbaa2"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "d381a689e74f0d30cd712134735eb58207835f00",
+      "subject": "proof-1-parser-budget-sequence: prove the PDF load and page text consume sequential parts of the shared deadline",
+      "requiredBatches": [
+        "B1",
+        "B2"
+      ],
+      "acceptedMappings": {
+        "B1": "38fd254c359cf9589063098f06c7f0356d5882cc",
+        "B2": "1d6053388326fe4fde43a86177955157f11ce588"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "fb6c6b5d68e761cdab0b02975d9670c230f5e060",
+      "subject": "slop-2-dead-helpers-and-deps: delete test-only helper exports and the duplicate underline registration",
+      "requiredBatches": [
+        "B5"
+      ],
+      "acceptedMappings": {
+        "B5": "309570c60c9ad96d02ad234bdc028c34ddf80390"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "8649315de144a7e424c12ff461046d5ec8e58ddd",
+      "subject": "slop-2-dead-helpers-and-deps: drop four unused dependencies",
+      "requiredBatches": [
+        "B7"
+      ],
+      "acceptedMappings": {
+        "B7": "d28cfc0bc0a34e78683152553143179fac2682c7"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "0017ee6259fa2bdc4a23c3c13305273a2eee06de",
+      "subject": "slop-2-dead-helpers-and-deps: name the legacy-bucket case for what it asserts",
+      "requiredBatches": [
+        "B5"
+      ],
+      "acceptedMappings": {
+        "B5": "309570c60c9ad96d02ad234bdc028c34ddf80390"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "28c0c0cca253b57f1171b632046f58d0a5c825a0",
+      "subject": "slop-3-mywork-island: delete the retired My Work lane presentation island",
+      "requiredBatches": [
+        "B4"
+      ],
+      "acceptedMappings": {
+        "B4": "d22e1fa0880512212865d7d60aeb8cfe600dbaa2"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "0fdcacf3f0cbaf434c2024a7fb609be88c453567",
+      "subject": "tests-2-real-proposal-access-roster-tests: prove the proposal, access and roster scenarios against real Convex endpoints",
+      "requiredBatches": [
+        "B6"
+      ],
+      "acceptedMappings": {
+        "B6": "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "d9ee06235a1be9997eaf62331d98dbc7db78eb35",
+      "subject": "tests-2-real-proposal-access-roster-tests: drop the unused admin actor from the apply fixture",
+      "requiredBatches": [
+        "B6"
+      ],
+      "acceptedMappings": {
+        "B6": "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "c755e003c7027135c9adf5ac3e67c617ddc7cce5",
+      "subject": "tests-2-real-proposal-access-roster-tests: restore reader parity and isolate queued proposal fixtures",
+      "requiredBatches": [
+        "B6"
+      ],
+      "acceptedMappings": {
+        "B6": "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "ad9952ff1ba107bfbf97955863d4dfcdf774a530",
+      "subject": "tests-3-runner-cleanup-and-guard: drop bun runner leftovers, add test-discovery guard",
+      "requiredBatches": [
+        "B7"
+      ],
+      "acceptedMappings": {
+        "B7": "d28cfc0bc0a34e78683152553143179fac2682c7"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "4cc4a85fa06cfedcc460dc5527e815ca539b708e",
+      "subject": "ui-1-component-suite-green: drop Button's historical class inventory",
+      "requiredBatches": [
+        "B8"
+      ],
+      "acceptedMappings": {
+        "B8": "9d83ffd3091c1e801285149622c879abe0087556"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "e581436f28c104b3159ab03be3418be228b188cd",
+      "subject": "ui-1-component-suite-green: seed an eligible admin for the rail's Admin group",
+      "requiredBatches": [
+        "B8"
+      ],
+      "acceptedMappings": {
+        "B8": "9d83ffd3091c1e801285149622c879abe0087556"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "d7036f7551f1438c64fea5330dc77327ab7c99eb",
+      "subject": "ui-1-component-suite-green: give the header's New project action a 44px mobile floor",
+      "requiredBatches": [
+        "B8"
+      ],
+      "acceptedMappings": {
+        "B8": "9d83ffd3091c1e801285149622c879abe0087556"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "b9e09bc407d835c004b6dcf2ebaa3dc51261892e",
+      "subject": "dx-1-one-verify-entry: one stepped verification gate, CI that calls it, and docs that describe this app",
+      "requiredBatches": [
+        "B9"
+      ],
+      "acceptedMappings": {
+        "B9": "8511662cb8fd9748d02f413c633bf21b5cdec9ee"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "890ca1ab53c31af2dac60f81d3bf65dc4c6b8929",
+      "subject": "dx-1-one-verify-entry: lowercase the historical markers so the done_when rg matches",
+      "requiredBatches": [
+        "B9"
+      ],
+      "acceptedMappings": {
+        "B9": "8511662cb8fd9748d02f413c633bf21b5cdec9ee"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "db6568b038a1b1169092091710bb9e5122668a31",
+      "subject": "dx-1-one-verify-entry: check tools before installing, and copy env.example before convex dev",
+      "requiredBatches": [
+        "B9"
+      ],
+      "acceptedMappings": {
+        "B9": "8511662cb8fd9748d02f413c633bf21b5cdec9ee"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "619f554d902210e1dd46a3c7e90253e247e481a3",
+      "subject": "dx-1-one-verify-entry: say the tool check precedes the dependency install too",
+      "requiredBatches": [
+        "B9"
+      ],
+      "acceptedMappings": {
+        "B9": "8511662cb8fd9748d02f413c633bf21b5cdec9ee"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "125c6cd47e8b1068f39889855d2029a502e5a856",
+      "subject": "dx-1-one-verify-entry: correct the BRAIN_CONTEXTUAL deferred note and list it in env.example",
+      "requiredBatches": [
+        "B9"
+      ],
+      "acceptedMappings": {
+        "B9": "8511662cb8fd9748d02f413c633bf21b5cdec9ee"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "recovery-audit/recovery-ledger.json",
+      "sourceSha": "186dc570967a0eaa388c72595376d41ba8a9b5d8",
+      "subject": "feat(brain): confirmed Brain unlearn and retry-free embeds on revoked sources",
+      "requiredBatches": [
+        "B11"
+      ],
+      "acceptedMappings": {},
+      "pendingBatches": [
+        "B11"
+      ],
+      "requirement": {
+        "batch": "B11",
+        "status": "pending_root_integration_review_and_proof",
+        "backend": "superseded; retain accepted current backend",
+        "frontend": {
+          "path": "src/routes/admin/brain/+page.svelte",
+          "archivedUsefulHunks": [
+            {
+              "action": "revoke",
+              "currentMainLabel": "Revoked (unlearned)",
+              "requiredLabel": "Revoked (unlearn requested)"
+            },
+            {
+              "action": "unlearn_confirmed",
+              "currentMainLabel": null,
+              "requiredLabel": "Erasure confirmed"
+            }
+          ],
+          "currentBackendCompanionLabel": {
+            "action": "unlearn_failed",
+            "requiredLabel": "Erasure attempt failed",
+            "reason": "A failed attempt is not terminal erasure failure; retry or later confirmation may follow."
+          }
+        },
+        "acceptance": "Render audit rows distinguishing requested, confirmed and failed-attempt events, including failure followed by confirmation. Do not infer erasure from status=revoked; preserve backend and source exposure semantics."
+      }
+    }
+  ],
+  "acceptedBatchProofInventory": [
+    {
+      "batch": "B1",
+      "acceptedCommit": "38fd254c359cf9589063098f06c7f0356d5882cc",
+      "ancestorOfSnapshot": true,
+      "committedEvidenceAndManifestPaths": [
+        ".audit/branch-consolidation/B1/archive-manifest.json",
+        ".audit/branch-consolidation/B1/evidence.md"
+      ],
+      "limit": "Presence and ancestry only; acceptance comes from state and parent review, not filenames."
+    },
+    {
+      "batch": "B12",
+      "acceptedCommit": "b2d5db5b63c0a70bce20d86df56e11ffbe89fad9",
+      "ancestorOfSnapshot": true,
+      "committedEvidenceAndManifestPaths": [
+        ".audit/branch-consolidation/B12/archive-manifest.json",
+        ".audit/branch-consolidation/B12/evidence.md"
+      ],
+      "limit": "Presence and ancestry only; acceptance comes from state and parent review, not filenames."
+    },
+    {
+      "batch": "B2",
+      "acceptedCommit": "1d6053388326fe4fde43a86177955157f11ce588",
+      "ancestorOfSnapshot": true,
+      "committedEvidenceAndManifestPaths": [
+        ".audit/branch-consolidation/B2-r1/archive-manifest.json",
+        ".audit/branch-consolidation/B2-r1/evidence.md",
+        ".audit/branch-consolidation/B2/archive-manifest.json",
+        ".audit/branch-consolidation/B2/evidence.md"
+      ],
+      "limit": "Presence and ancestry only; acceptance comes from state and parent review, not filenames."
+    },
+    {
+      "batch": "B13",
+      "acceptedCommit": "0d481e2b76390e0eff3208d91f1f47d83b173474",
+      "ancestorOfSnapshot": true,
+      "committedEvidenceAndManifestPaths": [
+        ".audit/branch-consolidation/B13-r1/archive-manifest.json",
+        ".audit/branch-consolidation/B13-r1/evidence.md",
+        ".audit/branch-consolidation/B13-r2/archive-manifest.json",
+        ".audit/branch-consolidation/B13-r2/evidence.md",
+        ".audit/branch-consolidation/B13/archive-manifest.json",
+        ".audit/branch-consolidation/B13/evidence.md"
+      ],
+      "limit": "Presence and ancestry only; acceptance comes from state and parent review, not filenames."
+    },
+    {
+      "batch": "B3",
+      "acceptedCommit": "d11195e5fdf6fb40baf27cacff86eaad6bf69ef6",
+      "ancestorOfSnapshot": true,
+      "committedEvidenceAndManifestPaths": [
+        ".audit/branch-consolidation/B3/archive-manifest.json",
+        ".audit/branch-consolidation/B3/evidence.md"
+      ],
+      "limit": "Presence and ancestry only; acceptance comes from state and parent review, not filenames."
+    },
+    {
+      "batch": "B4",
+      "acceptedCommit": "d22e1fa0880512212865d7d60aeb8cfe600dbaa2",
+      "ancestorOfSnapshot": true,
+      "committedEvidenceAndManifestPaths": [
+        ".audit/branch-consolidation/B4/archive-manifest.json",
+        ".audit/branch-consolidation/B4/evidence.md"
+      ],
+      "limit": "Presence and ancestry only; acceptance comes from state and parent review, not filenames."
+    },
+    {
+      "batch": "B5",
+      "acceptedCommit": "309570c60c9ad96d02ad234bdc028c34ddf80390",
+      "ancestorOfSnapshot": true,
+      "committedEvidenceAndManifestPaths": [
+        ".audit/branch-consolidation/B5-r1/archive-manifest.json",
+        ".audit/branch-consolidation/B5-r1/evidence.md",
+        ".audit/branch-consolidation/B5/archive-manifest.json",
+        ".audit/branch-consolidation/B5/evidence.md"
+      ],
+      "limit": "Presence and ancestry only; acceptance comes from state and parent review, not filenames."
+    },
+    {
+      "batch": "B6",
+      "acceptedCommit": "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d",
+      "ancestorOfSnapshot": true,
+      "committedEvidenceAndManifestPaths": [
+        ".audit/branch-consolidation/B6/archive-manifest.json",
+        ".audit/branch-consolidation/B6/evidence.md"
+      ],
+      "limit": "Presence and ancestry only; acceptance comes from state and parent review, not filenames."
+    },
+    {
+      "batch": "B7",
+      "acceptedCommit": "d28cfc0bc0a34e78683152553143179fac2682c7",
+      "ancestorOfSnapshot": true,
+      "committedEvidenceAndManifestPaths": [
+        ".audit/branch-consolidation/B7/archive-manifest.json",
+        ".audit/branch-consolidation/B7/evidence.md"
+      ],
+      "limit": "Presence and ancestry only; acceptance comes from state and parent review, not filenames."
+    },
+    {
+      "batch": "B8",
+      "acceptedCommit": "9d83ffd3091c1e801285149622c879abe0087556",
+      "ancestorOfSnapshot": true,
+      "committedEvidenceAndManifestPaths": [
+        ".audit/branch-consolidation/B8/archive-manifest.json",
+        ".audit/branch-consolidation/B8/evidence.md"
+      ],
+      "limit": "Presence and ancestry only; acceptance comes from state and parent review, not filenames."
+    },
+    {
+      "batch": "B9",
+      "acceptedCommit": "8511662cb8fd9748d02f413c633bf21b5cdec9ee",
+      "ancestorOfSnapshot": true,
+      "committedEvidenceAndManifestPaths": [
+        ".audit/branch-consolidation/B9/archive-manifest.json",
+        ".audit/branch-consolidation/B9/evidence.md"
+      ],
+      "limit": "Presence and ancestry only; acceptance comes from state and parent review, not filenames."
+    }
+  ],
+  "pendingSourceDispositions": [
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "d0669fec95d4145b3be34a6f6b2b5e76db276cc7",
+      "subject": "workspace-2-drop-dead-gate-branches: delete the dead gate branches and record the amendment",
+      "requiredBatches": [
+        "B10"
+      ],
+      "acceptedMappings": {},
+      "pendingBatches": [
+        "B10"
+      ]
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "76f9aca3c973a805a32cc5466cacd11d61ca080e",
+      "subject": "workspace-2-drop-dead-gate-branches: pin the Projects rail anchor to the client-grouped List default",
+      "requiredBatches": [
+        "B10"
+      ],
+      "acceptedMappings": {},
+      "pendingBatches": [
+        "B10"
+      ]
+    },
+    {
+      "ledger": "recovery-audit/recovery-ledger.json",
+      "sourceSha": "186dc570967a0eaa388c72595376d41ba8a9b5d8",
+      "subject": "feat(brain): confirmed Brain unlearn and retry-free embeds on revoked sources",
+      "requiredBatches": [
+        "B11"
+      ],
+      "acceptedMappings": {},
+      "pendingBatches": [
+        "B11"
+      ],
+      "requirement": {
+        "batch": "B11",
+        "status": "pending_root_integration_review_and_proof",
+        "backend": "superseded; retain accepted current backend",
+        "frontend": {
+          "path": "src/routes/admin/brain/+page.svelte",
+          "archivedUsefulHunks": [
+            {
+              "action": "revoke",
+              "currentMainLabel": "Revoked (unlearned)",
+              "requiredLabel": "Revoked (unlearn requested)"
+            },
+            {
+              "action": "unlearn_confirmed",
+              "currentMainLabel": null,
+              "requiredLabel": "Erasure confirmed"
+            }
+          ],
+          "currentBackendCompanionLabel": {
+            "action": "unlearn_failed",
+            "requiredLabel": "Erasure attempt failed",
+            "reason": "A failed attempt is not terminal erasure failure; retry or later confirmation may follow."
+          }
+        },
+        "acceptance": "Render audit rows distinguishing requested, confirmed and failed-attempt events, including failure followed by confirmation. Do not infer erasure from status=revoked; preserve backend and source exposure semantics."
+      }
+    }
+  ],
+  "requiredAdditionalAcceptedBatches": [
+    "B12",
+    "B13"
+  ],
+  "ancestryPlanParents": [
+    {
+      "id": "A01",
+      "tip": "842cdf5160cd405de19b8643ad9295bcd4049e95",
+      "contentPrerequisites": [
+        "B11"
+      ]
+    },
+    {
+      "id": "A02",
+      "tip": "091ec5a22f57ae3f566d6b70c56c3a61069763fc",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A03",
+      "tip": "5df0d2c4ae9677a891cd8ca19f2669da40fc4311",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A04",
+      "tip": "4e0bdf5d45d7f5d555227783c69d01e29bfbec43",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A05",
+      "tip": "9aa4c32d5407dd02e15bf0532587a099343bf70d",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A06",
+      "tip": "f42c7f3322cf2d48a0bcd45597ddde14f084e888",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A07",
+      "tip": "84dab21fc3f2e635f0ead01a7c671dfc279fa644",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A08",
+      "tip": "4555939ad846c638e291b06fd74e9ff3b637f881",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A09",
+      "tip": "4c26f2fb345247139963457ef7d770677b82fb45",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A10",
+      "tip": "784102690e5921cdf84bd2eb948711e2991cb53d",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A11",
+      "tip": "44b702478781d278d8f7626285d55ec9dbb4a5cf",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A12",
+      "tip": "53a2dbd3176bb1d976fcc41de9c960ece49021f5",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A13",
+      "tip": "ff001c3371b9519af01cd25529d991f8762f3e01",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A14",
+      "tip": "2d393923482b2bfda4ab4b78219c535249bd4f98",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A15",
+      "tip": "81612bf7af8938cbe98f63bc3f452dc6bf3e5002",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A16",
+      "tip": "172a05eca5e177bf409bc3f2abec43118b899eee",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A17",
+      "tip": "625352b58c6d9e9dca61371329e2cdf28b112103",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A18",
+      "tip": "ab65d107b2fec003021cd451fc0ebc0e1cc2d9cc",
+      "contentPrerequisites": []
+    },
+    {
+      "id": "A19",
+      "tip": "c2211d0e198a78b65ffbb18bd441d17bfe79f4fc",
+      "contentPrerequisites": [
+        "B10"
+      ]
+    },
+    {
+      "id": "A20",
+      "tip": "5ec93e594eda60c28da2cfdbf27fb668fd55eb3d",
+      "contentPrerequisites": [
+        "B1",
+        "B12",
+        "B2",
+        "B3",
+        "B4",
+        "B5",
+        "B6",
+        "B7",
+        "B8",
+        "B9"
+      ]
+    }
+  ],
+  "limits": [
+    "Immutable historical classifications remain unchanged. Accepted mappings are current state references, not a new semantic review.",
+    "B10 remains uncommitted and B11 pending in this snapshot; no ancestry admission yet.",
+    "Cownose uncommitted work is excluded, preserved and not represented by captured branch ancestry."
+  ]
+}

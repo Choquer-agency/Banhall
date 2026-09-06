@@ -1,0 +1,6 @@
+ts	phase	decision	why	evidence	result
+2026-09-06T01:19:27.958469+00:00	preflight	Use dispatched checkout and worker scope	Spec matches HEAD and reserves shipping for parent	baseline.txt	baseline matched
+2026-09-06T01:19:27.958469+00:00	isolation	Delete only closed allowlist	All seven resolved references stay inside islands	resolved-reference-inventory.json	no live caller
+2026-09-06T01:19:27.958469+00:00	implementation	Remove 17 files after baseline pass	Exact authorized deletion set	deletion.diff	1316 lines deleted
+2026-09-06T01:19:27.958469+00:00	verification	Compare retained runtime identities and source bytes	Preserve current behavior and untouched neighbors	comparison.json	66 identical passes; 5416 unchanged files
+2026-09-06T01:19:27.958469+00:00	handoff	Reserve combined gate and docs cleanup	Spec assigns parent gate and B9 documentation	evidence.md	worker complete

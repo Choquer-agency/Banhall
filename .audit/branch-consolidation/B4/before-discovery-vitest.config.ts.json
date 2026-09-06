@@ -1,0 +1,622 @@
+[
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/tests/brainScienceRouting.test.ts",
+    "projectName": "legacy-unit"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/tests/craScienceCodes.test.ts",
+    "projectName": "legacy-unit"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/tests/diff.test.ts",
+    "projectName": "legacy-unit"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/tests/exportValidation.test.ts",
+    "projectName": "legacy-unit"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/tests/generationMode.test.ts",
+    "projectName": "legacy-unit"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/tests/industries.test.ts",
+    "projectName": "legacy-unit"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/tests/lineLimits.test.ts",
+    "projectName": "legacy-unit"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/tests/projectReviewAccess.test.ts",
+    "projectName": "legacy-unit"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/tests/qaScoring.test.ts",
+    "projectName": "legacy-unit"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/tests/reportEdits.test.ts",
+    "projectName": "legacy-unit"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/tests/reportSections.test.ts",
+    "projectName": "legacy-unit"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/tests/snapshots.test.ts",
+    "projectName": "legacy-unit"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/tests/teamRoster.test.ts",
+    "projectName": "legacy-unit"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/shared/bannedWords.test.ts",
+    "projectName": "shared"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/shared/firmTime.test.ts",
+    "projectName": "shared"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/shared/humanProse.test.ts",
+    "projectName": "shared"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/shared/styleOverrides.test.ts",
+    "projectName": "shared"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/shared/workflowStages.test.ts",
+    "projectName": "shared"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/formControlContract.test.ts",
+    "projectName": "source-audit"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/tests/aiUsage.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/tests/chatProposals.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/appSettings.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/brainErase.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/brainFeedback.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/brainUnlearn.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/chatContext.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/chatContextLinkedFallback.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/chatEvidenceBoundary.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/chatFeedback.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/chatFeedbackReadLimits.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/chatProposals.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/chatTurns.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/comments.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/dashboard.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/dashboardStageCounts.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/documents.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/emailMigration.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/generationAttribution.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/generationEntryFailure.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/generationInput.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/generationLifecycle.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/generationReaper.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/generationRecovery.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/houseStyle.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ingestion.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ingestionPort.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/invites.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/learning.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/learningFailure.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/learningHealth.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/learningHealthBytes.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/liveWriterLabels.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/myWork.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ownerBackfill.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/pdReviewProjection.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/preEditSnapshot.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/projectAccess.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/projectActivity.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/projectCreation.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/projectEvents.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/projectWorkflow.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/projectWorkflowHeader.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/projects.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/qaBlocking.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/qaFindingsCleanup.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/reaperIntegration.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/reportAuthz.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/reportEditAccess.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/reportEditDistance.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/reports.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/researchProjection.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/researchReviewMode.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/reviewFromProject.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/reviews.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/roleCapabilities.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/sanitizationBoundary.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/snapshots.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/transcriptDigests.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/transcripts.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/uploadAttempts.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/users.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/workItems.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/workspaceRollout.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/writerProfiles.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/chatEvidence.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/chronologyAgent.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/condenseAgent.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/contextBoundary.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/instrument.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/openrouterCore.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/openrouterRetryLoop.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/pipeline.compare.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/promptScaffolds.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/prompts.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/providers.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/qaChecks.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/reasoningSignature.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/scrubPipeline.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/sectionAgents.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/structured.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/styleAnalysis.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/trustedContext.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/lib/deidentify.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/lib/editDistance.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/lib/email.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/lib/lineLimits.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/lib/snapshots.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/lib/tiptapReport.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/brain/retrieve.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/brain/retrieveFloorEdges.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/brain/retrieveOutcomes.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/convex/ai/research/core.test.ts",
+    "projectName": "convex"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/exportValidation.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/parseDocument.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/requestId.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/chat/turnParts.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/dashboard/generationActivity.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/dashboard/ownerDisplay.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/dashboard/projectCardMetadata.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/dashboard/projectsTablePreferences.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/dashboard/selection.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/dashboard/stageFilter.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/dashboard/viewMode.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/dashboard/viewPresets.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/dashboard/workspaceExperience.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/mywork/homeGreeting.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/mywork/laneSort.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/mywork/myWorkPreferences.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/mywork/relativeTime.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/qa/pdReview.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/qa/qaScorecard.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/roles/capabilityMatrix.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/roles/roleDescriptions.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/generation/recovery.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/uploads/attemptOutbox.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/uploads/documentStatus.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/uploads/outboxFlush.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/uploads/processingStatus.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/uploads/receiptRows.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/workspace/fiscalYearGroups.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/workspace/projectIntentHandoff.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/workspace/projectPagingContext.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/workspace/projectRowMapping.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/workspace/railPreferences.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/workspace/recentProjects.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/workspace/searchContinuity.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/workspace/stageRankGroups.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/routes/admin/adminWorkspaceRoutes.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/workflow/activityPresentation.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/workflow/assignmentDefaults.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/workflow/due.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/workflow/stagePresentation.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/workflow/workflowLabels.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/docSearch.test.ts",
+    "projectName": "src"
+  },
+  {
+    "file": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/project/projectPageBoundary.test.ts",
+    "projectName": "src"
+  }
+]

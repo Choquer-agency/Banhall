@@ -1,0 +1,7 @@
+{
+  "path": ".audit/story-7/followup-overflow-after.png",
+  "baseline_sha256": "6850d58ba0e21661f83b81a2c7eaebd4e60c5902a861e8de4fdaccce0e8f99a5",
+  "generated_sha256": "80b0eb17c0dad3991dbf12f1d3f0f56e6779f10ab7cd98e0faa28f329bcc7686",
+  "baseline_bytes": 23397,
+  "generated_bytes": 23314
+}

@@ -1,0 +1,74 @@
+[
+  {
+    "path": ".audit/DW-98-fix/implicit-A-retained.png",
+    "originalBytes": 27350,
+    "generatedBytes": 27369,
+    "originalSha256": "a6a58a360643f7c1add66c5b43e83d6ba92fb068ae62ef3228c6169a22f5e172",
+    "generatedSha256": "2173a51ed31e65cd6b1a7865c61b39f473693edb4b959c07196769dfcf9d5a1a",
+    "restored": true
+  },
+  {
+    "path": ".audit/published-status-fix/published-after.png",
+    "originalBytes": 28519,
+    "generatedBytes": 28415,
+    "originalSha256": "ed66274242ebd9d1e66259c96241ea3f34e4cb498320e754959e4ac71d84ec01",
+    "generatedSha256": "49bea04bdcf0de5a22cd600e5d2cc54367724aac8053128ff5dac955e2c7db8d",
+    "restored": true
+  },
+  {
+    "path": ".audit/story-7/optimistic-after.png",
+    "originalBytes": 14790,
+    "generatedBytes": 15119,
+    "originalSha256": "e092b1bbd2de36ee6b51caf1d9f86fa8070c4150b75b2a5c86d0db60f1b84b05",
+    "generatedSha256": "92e7754e393f6f42ffc2bbbd60f233a46019240e7481be0fc0ef054a608e7a00",
+    "restored": true
+  },
+  {
+    "path": ".audit/story-7/optimistic-scrolled-after.png",
+    "originalBytes": 24751,
+    "generatedBytes": 24745,
+    "originalSha256": "25b92f3507a89356fbc330cccb712aaa041d6bbe8bd5592a3046da6892f0fbd5",
+    "generatedSha256": "8e65922a7c1cd5a2f2fc494655f4ea941d43f47447b663a2665b27d2ca8eec40",
+    "restored": true
+  },
+  {
+    "path": ".audit/story-7/retry-highlight-only.png",
+    "originalBytes": 16847,
+    "generatedBytes": 16816,
+    "originalSha256": "7780e90f51f992a660c7c51375727cd3f04307272e70c4f1eac51d94eeaea165",
+    "generatedSha256": "d5214919e4f43a7f4bcb008325cc696099ee93cf855809e45fd39e520855bd72",
+    "restored": true
+  },
+  {
+    "path": ".audit/story-7/retry-text-and-highlight.png",
+    "originalBytes": 19636,
+    "generatedBytes": 19558,
+    "originalSha256": "43800bfd2c3c97af43b4722599c04c9d67d0a1b20b8660100e1e2092f54742ad",
+    "generatedSha256": "f6911a20e2982351b5526cd988fbca598bafdbb61dacb6cdf58f00ce70cd9130",
+    "restored": true
+  },
+  {
+    "path": ".audit/story-7/second-overflow-after.png",
+    "originalBytes": 27507,
+    "generatedBytes": 27328,
+    "originalSha256": "72be6d34dc4a3d755268ff1f02d605d9bd1373592731b542fd99ae414448db7f",
+    "generatedSha256": "74dae8bdf585b7325a0a13085dad1a69d4cfafc5929b0c15f515ae1b9e4deb6e",
+    "restored": true
+  },
+  {
+    "path": ".audit/story-8/learning-desktop-after.png",
+    "originalBytes": 136631,
+    "generatedBytes": 136772,
+    "originalSha256": "4b72a1e9feb21a9e082139c39f7140de203842e20f361d3e6963e6757e57140a",
+    "generatedSha256": "035db7560c466f10d1fdd8a44739e1e999814c9e43c6e50867ae90677af2cd5f",
+    "restored": true
+  },
+  {
+    "path": ".audit/story-8/learning-sources-mobile-after.png",
+    "originalBytes": 66322,
+    "generatedBytes": 66390,
+    "originalSha256": "7dacaa5fef94fed7563c477f60dab6f9e2313be34d738bff2c6a2754cef4bf55",
+    "generatedSha256": "141d7e17be2dba0bf8c92beb088dfe37687cb6ebef2ead13e71dd364997638c2",
+    "restored": true
+  }
+]

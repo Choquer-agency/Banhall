@@ -1,0 +1,22 @@
+{"phase": "baseline", "command": "node node_modules/vitest/vitest.mjs run --config vitest.component.config.ts src/lib/components/editor/Editor.component.test.ts --expect.requireAssertions", "exit": 0}
+{"phase": "baseline", "command": "node node_modules/vitest/vitest.mjs run src/lib/components/editor/docSearch.test.ts --expect.requireAssertions", "exit": 1}
+{"phase": "baseline", "command": "node node_modules/vitest/vitest.mjs run --config vitest.component.config.ts src/lib/components/editor/Editor.component.test.ts --expect.requireAssertions", "exit": 1}
+{"phase": "baseline", "command": "node scripts/bench/editor-search.mjs", "exit": 0}
+{"phase": "preserved", "command": "node node_modules/vitest/vitest.mjs run src/lib/components/editor/docSearch.test.ts --expect.requireAssertions", "exit": 0}
+{"phase": "preserved", "command": "node node_modules/vitest/vitest.mjs run --config vitest.component.config.ts src/lib/components/editor/Editor.component.test.ts --expect.requireAssertions", "exit": 0}
+{"phase": "r2-before", "command": "node node_modules/vitest/vitest.mjs run src/lib/components/editor/docSearch.test.ts --expect.requireAssertions", "exit": 1}
+{"phase": "r2-before", "command": "node node_modules/vitest/vitest.mjs run --config vitest.component.config.ts src/lib/components/editor/Editor.component.test.ts --expect.requireAssertions", "exit": 1}
+{"phase": "r2-decoy-before", "command": "node node_modules/vitest/vitest.mjs run --config vitest.component.config.ts src/lib/components/editor/Editor.component.test.ts --expect.requireAssertions", "exit": 1}
+{"phase": "final", "command": "node node_modules/vitest/vitest.mjs run src/lib/components/editor/docSearch.test.ts --expect.requireAssertions", "exit": 0}
+{"phase": "final", "command": "node node_modules/vitest/vitest.mjs run --config vitest.component.config.ts src/lib/components/editor/Editor.component.test.ts --expect.requireAssertions", "exit": 0}
+{"phase": "final", "command": "node scripts/bench/editor-search.mjs", "exit": 0}
+{"phase": "final", "command": "npm run check", "exit": 1}
+{"phase": "final", "command": "git diff --check", "exit": 0}
+{"phase": "verified", "command": "node node_modules/vitest/vitest.mjs run src/lib/components/editor/docSearch.test.ts --expect.requireAssertions", "exit": 0}
+{"phase": "verified", "command": "node node_modules/vitest/vitest.mjs run --config vitest.component.config.ts src/lib/components/editor/Editor.component.test.ts --expect.requireAssertions", "exit": 0}
+{"phase": "verified", "command": "node scripts/bench/editor-search.mjs", "exit": 0}
+{"phase": "verified", "command": "PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site npm run check", "exit": 0}
+{"phase": "verified", "command": "git diff --check", "exit": 0}
+{"phase": "verified", "command": "npm run test:component", "exit": 0}
+{"phase": "final-tests", "command": "node node_modules/vitest/vitest.mjs run --config vitest.component.config.ts src/lib/components/editor/Editor.component.test.ts --expect.requireAssertions", "exit": 0}
+{"phase": "final-tests", "command": "git diff --check", "exit": 0}

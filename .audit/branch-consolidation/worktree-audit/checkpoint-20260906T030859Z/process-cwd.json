@@ -1,0 +1,628 @@
+{
+  "lsof_exit": 0,
+  "processes": [
+    {
+      "pid": 940,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "879 04-09:23:57 S    -/bin/zsh"
+    },
+    {
+      "pid": 971,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "98960 01-17:06:39 Ss+  -zsh"
+    },
+    {
+      "pid": 1009,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "98960 01-17:06:39 Ss+  -zsh"
+    },
+    {
+      "pid": 1046,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "98960 01-17:06:39 Ss+  -zsh"
+    },
+    {
+      "pid": 1094,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "98960 01-17:06:39 Ss+  -zsh"
+    },
+    {
+      "pid": 15249,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "32183 14:22:26 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 15250,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "32183 14:22:26 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 15251,
+      "command": "codex",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "32183 14:22:26 S    /Applications/ChatGPT.app/Contents/Resources/codex"
+    },
+    {
+      "pid": 21310,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 10:55:53 S    npm exec shadcn@latest mcp"
+    },
+    {
+      "pid": 21342,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "21310 10:55:52 S    node"
+    },
+    {
+      "pid": 27252,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "41937 21:53:08 SN   -/bin/zsh"
+    },
+    {
+      "pid": 31975,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 23:29:31 S    npm exec convex@latest mcp start"
+    },
+    {
+      "pid": 31976,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 23:29:31 S    npm exec exa-mcp-server"
+    },
+    {
+      "pid": 31977,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 23:29:31 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 31978,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 23:29:31 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 31979,
+      "command": "mcp-server-darwin-arm64",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 23:29:31 S    /Users/johnnynguyen/.pencil/mcp/cursor/out/mcp-server-darwin-arm64"
+    },
+    {
+      "pid": 31980,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 23:29:31 S    npm exec ref-tools-mcp@latest"
+    },
+    {
+      "pid": 31981,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 23:29:31 S    npm exec shadcn@latest mcp"
+    },
+    {
+      "pid": 31982,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 23:29:31 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 32183,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "31977 23:29:30 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 32867,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "31975 23:29:29 S    node"
+    },
+    {
+      "pid": 32898,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "31976 23:29:29 S    node"
+    },
+    {
+      "pid": 32933,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "31980 23:29:29 S    node"
+    },
+    {
+      "pid": 32958,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "31981 23:29:29 S    node"
+    },
+    {
+      "pid": 34056,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 07:29:56 S    npm exec exa-mcp-server"
+    },
+    {
+      "pid": 34059,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 07:29:56 S    npm exec shadcn@latest mcp"
+    },
+    {
+      "pid": 34060,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 07:29:56 S    npm exec ref-tools-mcp@latest"
+    },
+    {
+      "pid": 34062,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 07:29:56 S    npm exec convex@latest mcp start"
+    },
+    {
+      "pid": 34063,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 07:29:56 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 34064,
+      "command": "mcp-server-darwin-arm64",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 07:29:56 S    /Users/johnnynguyen/.pencil/mcp/cursor/out/mcp-server-darwin-arm64"
+    },
+    {
+      "pid": 34065,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 07:29:56 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 34066,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 07:29:56 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 34132,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "34063 07:29:56 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 34302,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "34062 07:29:55 S    node"
+    },
+    {
+      "pid": 34333,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "34056 07:29:55 S    node"
+    },
+    {
+      "pid": 34358,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "34060 07:29:55 S    node"
+    },
+    {
+      "pid": 34383,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "34059 07:29:55 S    node"
+    },
+    {
+      "pid": 39584,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "39580 23:10:22 S    -/bin/zsh"
+    },
+    {
+      "pid": 40847,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "39584 23:10:19 SN   -/bin/zsh"
+    },
+    {
+      "pid": 40849,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "39584 23:10:19 S+   pi"
+    },
+    {
+      "pid": 41937,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "41931 02-03:10:29 S+   -/bin/zsh"
+    },
+    {
+      "pid": 47137,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 10:26:09 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 47138,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 10:26:09 S    npm exec convex@latest mcp start"
+    },
+    {
+      "pid": 47139,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 10:26:09 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 47140,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 10:26:09 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 47141,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 10:26:09 S    npm exec ref-tools-mcp@latest"
+    },
+    {
+      "pid": 47142,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 10:26:09 S    npm exec exa-mcp-server"
+    },
+    {
+      "pid": 47143,
+      "command": "mcp-server-darwin-arm64",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 10:26:09 S    /Users/johnnynguyen/.pencil/mcp/cursor/out/mcp-server-darwin-arm64"
+    },
+    {
+      "pid": 47145,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "47139 10:26:09 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 47255,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "47138 10:26:08 S    node"
+    },
+    {
+      "pid": 47280,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "47142 10:26:08 S    node"
+    },
+    {
+      "pid": 47305,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "47141 10:26:08 S    node"
+    },
+    {
+      "pid": 63199,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "940 01-06:36:24 SN   -/bin/zsh"
+    },
+    {
+      "pid": 63201,
+      "command": "bun",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "940 01-06:36:24 S+   bun"
+    },
+    {
+      "pid": 63213,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "63201 01-06:36:24 S+   node"
+    },
+    {
+      "pid": 67978,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 06:32:01 S    npm exec shadcn@latest mcp"
+    },
+    {
+      "pid": 68142,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "67978 06:32:00 S    node"
+    },
+    {
+      "pid": 73023,
+      "command": "mcp-server-darwin-arm64",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 04:21:54 S    /Users/johnnynguyen/.pencil/mcp/cursor/out/mcp-server-darwin-arm64"
+    },
+    {
+      "pid": 73024,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 04:21:54 S    npm exec convex@latest mcp start"
+    },
+    {
+      "pid": 73026,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 04:21:54 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 73043,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 04:21:54 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 73044,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 04:21:54 S    npm exec exa-mcp-server"
+    },
+    {
+      "pid": 73045,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 04:21:54 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 73046,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 04:21:54 S    npm exec ref-tools-mcp@latest"
+    },
+    {
+      "pid": 73049,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "73045 04:21:54 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 73097,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "73024 04:21:53 S    node"
+    },
+    {
+      "pid": 73122,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "73044 04:21:53 S    node"
+    },
+    {
+      "pid": 73147,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "73046 04:21:53 S    node"
+    },
+    {
+      "pid": 79006,
+      "command": "Python",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "metadata_no_args": "12702 01:05 Ss   /opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+    },
+    {
+      "pid": 79115,
+      "command": "bash",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "metadata_no_args": "79006 01:04 S    bash"
+    },
+    {
+      "pid": 80875,
+      "command": "sleep",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "27252 00:39 SN   sleep"
+    },
+    {
+      "pid": 82973,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "metadata_no_args": "79115 00:10 S    npm run build"
+    },
+    {
+      "pid": 82991,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "metadata_no_args": "82973 00:10 R    node"
+    },
+    {
+      "pid": 83512,
+      "command": "Python",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "metadata_no_args": "12702 00:02 Ss   /opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+    },
+    {
+      "pid": 83646,
+      "command": "sleep",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "63199 00:01 SN   sleep"
+    },
+    {
+      "pid": 83656,
+      "command": "sleep",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "40847 00:01 SN   sleep"
+    },
+    {
+      "pid": 83659,
+      "command": "lsof",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "metadata_no_args": ""
+    },
+    {
+      "pid": 92591,
+      "command": "mcp-server-darwin-arm64",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 16:46:04 S    /Users/johnnynguyen/.pencil/mcp/cursor/out/mcp-server-darwin-arm64"
+    },
+    {
+      "pid": 92592,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 16:46:04 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 92593,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 16:46:04 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 92594,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 16:46:04 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 92595,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 16:46:04 S    npm exec ref-tools-mcp@latest"
+    },
+    {
+      "pid": 92641,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 16:46:04 S    npm exec convex@latest mcp start"
+    },
+    {
+      "pid": 92642,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "12702 16:46:04 S    npm exec exa-mcp-server"
+    },
+    {
+      "pid": 92644,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "92592 16:46:04 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 92681,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "92641 16:46:03 S    node"
+    },
+    {
+      "pid": 92706,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "92642 16:46:03 S    node"
+    },
+    {
+      "pid": 92731,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "92595 16:46:03 S    node"
+    },
+    {
+      "pid": 98960,
+      "command": "tmux",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "registered_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "metadata_no_args": "1 01-17:06:42 Ss   tmux"
+    }
+  ]
+}

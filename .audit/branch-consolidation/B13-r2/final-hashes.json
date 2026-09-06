@@ -1,0 +1,6 @@
+{
+  "src/lib/components/editor/docSearch.ts": "a6956e4329df390dbcde1e9d5ad375df2df11f75553c32b1a0178b6b1abe51ca",
+  "src/lib/components/editor/Editor.svelte": "0b6d8a87232849623e2d3d2ff0ac83a06666956a07a85d406266b5743acfea83",
+  "src/lib/components/editor/docSearch.test.ts": "36ee83776b2a29b5b12b03216a3bc0a05a347bea938d51af8bab86e5d80afec3",
+  "src/lib/components/editor/Editor.component.test.ts": "3dcc0cdfd4763bf31c98cf5d7784ab1d9d7c606e9d88ad3adfa7981723e24ae8"
+}

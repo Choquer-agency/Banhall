@@ -1,0 +1,11 @@
+{
+  "api": "bmad_loop.deferredwork.append_entries",
+  "ids": [
+    "DW-104",
+    "DW-105"
+  ],
+  "before_sha256": "6c4e0324113841ddc9c512ca5cee758b7771381db2d7d2403980ceb8ff481909",
+  "after_sha256": "8bbab6e2c480a197cea4585e9d2d678b80ffd1439013df604500cfd1a24f630f",
+  "existing_entries_preserved": 103,
+  "scope": "Existing required-peer contract and unchanged-package advisories, separate focused follow-ups"
+}

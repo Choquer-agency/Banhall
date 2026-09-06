@@ -22,7 +22,7 @@ keep_branches = false
 min_verdict = "test-verified" # unproven | typecheck-only | test-verified | live-verified. QA's verdict must reach this or the fix loop continues
 
 [qa]
-smoke = []                    # agent-safe proofs QA may run itself (hermetic: no servers, no shared deployments)
+smoke = ["npm run test:component"] # local browser tests require installed Chromium and start a local server; no shared deployments
 operator_only = []            # proofs that touch a shared deployment or need credentials; QA records them as needs_operator, never runs them
 evidence = ".audit/{ticket}/evidence.md"
 timeout_min = 30

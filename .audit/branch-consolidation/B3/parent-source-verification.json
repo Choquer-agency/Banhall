@@ -1,0 +1,9 @@
+{
+  "source_sha256": {
+    "convex/documents.ts": "a2efac59f3d8644b6778e3323112babd921ed35e19c34ef68d1eb0c7bb755753",
+    "convex/documents.test.ts": "5a107f0ab57c0aff74a510381229a01f2280e012ba65ec83f0f670853d94eead",
+    "convex/uploadAttempts.test.ts": "ea4e50bdec7322926f26efa6d724136eca2968aa26c2c0c267726c8993647a96"
+  },
+  "review": "Parent inspected exact source diff and retained receipt tests; no source changes after worker handoff",
+  "timestamp_cost_source": "node_modules/convex/src/values/size.ts:54; float64 costs9 bytes, independent of wall-clock value"
+}

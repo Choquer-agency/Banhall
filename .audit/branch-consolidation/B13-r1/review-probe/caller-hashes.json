@@ -1,0 +1,6 @@
+{
+  "src/lib/components/project/CurrentProjectPage.svelte": "0d568f555b57dc00e17c8e73cce11c5bd56558ecc797097fd630a8a387dd897f",
+  "src/lib/components/project/PreviewProjectPage.svelte": "8d4e05167fab8c9392b7fb52399591b635ee8c52e4e51a54997529ca5544f260",
+  "src/lib/components/generation/CandidateSelection.svelte": "c53a8ffd50693792cf81ef4a1bb1f0241fc70587bcf7fe2226ac62a1fee95589",
+  "src/lib/components/review/ReadOnlyEditor.svelte": "87d27029dbf7a7624a0f2c486756656713fa3842b57275114c5cf80311c88291"
+}

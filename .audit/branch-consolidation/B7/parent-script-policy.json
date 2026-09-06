@@ -1,0 +1,39 @@
+{
+  "at": "2026-09-06T02:20:25.413206+00:00",
+  "commands": [
+    {
+      "argv": [
+        "npm",
+        "config",
+        "get",
+        "ignore-scripts"
+      ],
+      "exit": 0,
+      "stdout": "false\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "npm",
+        "config",
+        "get",
+        "allow-scripts"
+      ],
+      "exit": 0,
+      "stdout": "\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "npm",
+        "config",
+        "get",
+        "legacy-peer-deps"
+      ],
+      "exit": 0,
+      "stdout": "true\n",
+      "stderr": ""
+    }
+  ],
+  "limit": "Values read after npm ci; notices retained. No approval/script policy mutation. Build proof is the canonical gate, not an assertion that every optional postinstall ran."
+}

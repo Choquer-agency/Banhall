@@ -1,0 +1,55 @@
+[
+  {
+    "argv": [
+      "git",
+      "ls-remote",
+      "--heads",
+      "origin"
+    ],
+    "exit": 0,
+    "path": ".audit/branch-consolidation/finalization/preflight-0.log",
+    "sha256": "07be74582a8862de214328a7d10aec9bfeefe4741da42b4829275765795645eb",
+    "at": "2026-09-06T03:12:57.684111+00:00"
+  },
+  {
+    "argv": [
+      "gh",
+      "pr",
+      "list",
+      "--repo",
+      "Choquer-agency/Banhall",
+      "--state",
+      "open",
+      "--json",
+      "number,title,headRefName,baseRefName,url"
+    ],
+    "exit": 0,
+    "path": ".audit/branch-consolidation/finalization/preflight-1.log",
+    "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "at": "2026-09-06T03:12:58.153461+00:00"
+  },
+  {
+    "argv": [
+      "gh",
+      "api",
+      "repos/Choquer-agency/Banhall",
+      "--jq",
+      "{default_branch,allow_merge_commit,allow_squash_merge,allow_rebase_merge}"
+    ],
+    "exit": 0,
+    "path": ".audit/branch-consolidation/finalization/preflight-2.log",
+    "sha256": "1524ee4f7768a74a57e6d14d99bccdac08880bde502135b90a12a4873e5deb2b",
+    "at": "2026-09-06T03:12:58.592843+00:00"
+  },
+  {
+    "argv": [
+      "gh",
+      "api",
+      "repos/Choquer-agency/Banhall/branches/main/protection"
+    ],
+    "exit": 1,
+    "path": ".audit/branch-consolidation/finalization/preflight-3.log",
+    "sha256": "422e613103f4d644a295e372749b8800ca872e8349658d0194be6fb0a0a4b29c",
+    "at": "2026-09-06T03:12:58.980610+00:00"
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "acceptedSourceCommit": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235",
+  "preMetadataHead": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235",
+  "stagedMetadataFiles": 244,
+  "allStagedPathsUnderOwnedAudit": true,
+  "sourceConfigDocsLedgerPathHashesVerified": 69,
+  "discoveryExit": 0,
+  "discoveryLogSha256": "0f70e65455cd318f435b7c674e6b1f0b7812be082f6a863794a844c14120a206",
+  "limit": "Only audit metadata is added; no production, test, configuration, specification or native ledger bytes change from accepted source."
+}

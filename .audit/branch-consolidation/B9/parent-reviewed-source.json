@@ -1,0 +1,8 @@
+{
+  ".factory/factory.toml": "cc3fa24a956b5c666172477c1849891894129700ee74f6b3eeedbce5e189702d",
+  "README.md": "3d6502580c7bde67ce0bcdc3de99dc8e86eeed19163d0f788d6767f152fcf6b3",
+  "env.example": "b896886e25ea2260e1916a78538b881cdf8e8a7ae7c9fba8db5bbe641c8b7a28",
+  "docs/design-system.md": "bf8fcf27340c40d0b58f72c1331e397282de9eec1b9b3f373d14d60a68a962ec",
+  "docs/svelte-migration.md": "a448e326476391b964518e9d4f4de5a0f459b4d1d2cc7de7e62fc321fb5c286f",
+  "docs/system-map.md": "083d5b98179f487cdb99195c1e06082e6050da749687f8408d6ee0ca0e563c79"
+}

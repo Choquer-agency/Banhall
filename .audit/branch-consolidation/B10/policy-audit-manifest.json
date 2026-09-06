@@ -1,0 +1,321 @@
+{
+  "baseline_commit": "8511662cb8fd9748d02f413c633bf21b5cdec9ee",
+  "path": "docs/product-domain.md",
+  "baseline_sha256": "4f9597ef62e91f1ade0ad9700886cd7eb77412de925b1256276055d32d144fb8",
+  "historical_sources": [
+    {
+      "commit": "d0669fec95d4145b3be34a6f6b2b5e76db276cc7",
+      "document_sha256": "87ca12a39dc31c45fbc4c4052628ce4071e17503ab9e2bdeab8f7209e2fe07b9"
+    },
+    {
+      "commit": "76f9aca3c973a805a32cc5466cacd11d61ca080e",
+      "document_sha256": "87ca12a39dc31c45fbc4c4052628ce4071e17503ab9e2bdeab8f7209e2fe07b9"
+    }
+  ],
+  "amendment_sha256": "1b9d8c27bedca13faf1253d6f7265d6392f3ae902482f16757b8e25a9b6ae885",
+  "source_start_line": 1559,
+  "source_end_line": 1613,
+  "baseline_insert_before_line": 1721,
+  "protected_sections": [
+    {
+      "heading": "## Product thesis",
+      "start_line": 11,
+      "sha256": "aa1b00d207e67bd6f494806c067ef365e439ff7dbb256d5d060deb6663dd636c"
+    },
+    {
+      "heading": "## Canonical vocabulary and storage contract",
+      "start_line": 24,
+      "sha256": "d7f36177c816099b930a73b32e11fbe7232241b0980274a7ee3a3acfafa846a2"
+    },
+    {
+      "heading": "## State model boundaries",
+      "start_line": 45,
+      "sha256": "324cbd5c1ca38f70dddf6f987acba83181dd8dfe1f0cfc2e73f0078bb777bb44"
+    },
+    {
+      "heading": "## Workflow stages",
+      "start_line": 57,
+      "sha256": "34c6f25357eaf93675d3b32a30ab1c1b015bce63570ed37f271e2f85c7222d48"
+    },
+    {
+      "heading": "## Transition matrix",
+      "start_line": 73,
+      "sha256": "7dce25470e2488a417be37f0eba0b4f5e6dc7ae8cbf28df2048d34b42e8b6691"
+    },
+    {
+      "heading": "## Assignment lifecycle",
+      "start_line": 101,
+      "sha256": "f75c15dccd77847c351a0a831488ebd95037a29f2af9a1a88ba379d415b19828"
+    },
+    {
+      "heading": "## Report branch lifecycle",
+      "start_line": 122,
+      "sha256": "f5d8dc3be95244abb5600f7040fb7748da9392eedb35958fedbda71d43881dcb"
+    },
+    {
+      "heading": "## Production outcome lifecycle",
+      "start_line": 142,
+      "sha256": "fed2c8bb7187eb8009e18f99df6869ff703c857f7b3b1ac33b8dc5fdf574d6f5"
+    },
+    {
+      "heading": "### Governed behavioral learning amendment (2026-08-17)",
+      "start_line": 162,
+      "sha256": "8f1289e13266ae2fdde939c2bf69ea0e5ece79994558c3a40ae850d7faebeaa8"
+    },
+    {
+      "heading": "## Role and capability matrix",
+      "start_line": 173,
+      "sha256": "6a7ff88f16a1c83cb70040ae9788bf91661f5a14b6c06cb4acfe21f8957b075c"
+    },
+    {
+      "heading": "## Decision register",
+      "start_line": 209,
+      "sha256": "8b94c73f8ea321f0494a63b97b2f1a8e93f1441bcc0e824b9b36c15d5f681b40"
+    },
+    {
+      "heading": "## Cross-cutting engineering rules",
+      "start_line": 225,
+      "sha256": "ff8454e822d7149393ae6802318ff3393d07ad57f75d6e7a66e5bca5b94651a2"
+    },
+    {
+      "heading": "## Migration sequence",
+      "start_line": 237,
+      "sha256": "86d2b928371fb7501c0dd815675f56cd6bb471ca87a692283cd25eb5272eb245"
+    },
+    {
+      "heading": "## Approved amendments",
+      "start_line": 250,
+      "sha256": "c63f7dbd61c71143a1675133dab228b22a6daec0111077ea00c234f301de2c25"
+    },
+    {
+      "heading": "### 2026-08-17 \u2014 Open workflow transition matrix",
+      "start_line": 252,
+      "sha256": "d01633d5492586d03df1c201b006b566273a642d478b04ef46cceddaf7479b2e"
+    },
+    {
+      "heading": "### 2026-08-14 (third) \u2014 rail micro-geometry and Home atmosphere restoration",
+      "start_line": 281,
+      "sha256": "d2939118db2638acccebaf4b9176eeda1203d31f095d717b0b6639fad52d1b22"
+    },
+    {
+      "heading": "### 2026-08-14 (second) \u2014 authenticated rail calibration and List-first ordering",
+      "start_line": 301,
+      "sha256": "828a6dca3f8631f329c9b050d4d8dd8eef6e6cc0662aa41c786dac67340be520"
+    },
+    {
+      "heading": "### 2026-08-14 \u2014 Authenticated Attio/Obvious layout-density pass",
+      "start_line": 322,
+      "sha256": "56b15fa5ee6c39dd794c62e983db2b5645ba28a912c22eac6f2658d9ef0b8dd4"
+    },
+    {
+      "heading": "### 2026-08-12 \u2014 Client Focus drill-in removed; flat client card lanes; inline hidden-stages disclosure retired",
+      "start_line": 343,
+      "sha256": "64a40daa179fdaa8797cb0361809308108f91ffdf56ae201874895a88ca3a2f3"
+    },
+    {
+      "heading": "### 2026-08-11 (second) \u2014 Review projects created from an existing project",
+      "start_line": 401,
+      "sha256": "b6f56d563e03b0724bb4766cebbb5bf15c44a93f2d2e409b37d1906f7dc7b7d2"
+    },
+    {
+      "heading": "### 2026-08-11 \u2014 Per-company project numbering with draft-letter identity",
+      "start_line": 454,
+      "sha256": "afefd391f54adaede950e544c334539ac071070ed84eb4e41e6ecabf7faa57a1"
+    },
+    {
+      "heading": "### 2026-08-10 (third) \u2014 Chrome-less Home plane; persistent rail creation anchor",
+      "start_line": 491,
+      "sha256": "5b7164775feeecca1645271aa14831c4f277ae52f63fe35d87529069fd1197ab"
+    },
+    {
+      "heading": "### 2026-08-10 (fourth) \u2014 Rail utility IA; wash/radius presentation",
+      "start_line": 532,
+      "sha256": "c563ba04beefadc9591373d12fda4d66ce90558a821eb15635898ce4d14479d3"
+    },
+    {
+      "heading": "### 2026-08-10 (second) \u2014 Board-card current-handoff projection; card-preview and Home-feed rejections",
+      "start_line": 571,
+      "sha256": "f80255e89da1e4e02a2de8830d839c826b54a2ba5fefc5fa0e3ae54c18a0f67f"
+    },
+    {
+      "heading": "### 2026-08-10 \u2014 Home start-project prompt",
+      "start_line": 617,
+      "sha256": "a60ebc18597c44c05dfb5b9725c9dc648a8a4faa79d91657292c473379601665"
+    },
+    {
+      "heading": "### 2026-08-07 \u2014 Admin workspace-shell presentation expansion",
+      "start_line": 645,
+      "sha256": "a64c68d4278208e695cce34ec6e7a19f553c97441e996024ac5e9136ce9ff3a7"
+    },
+    {
+      "heading": "### 2026-08-08 (second) \u2014 Obvious-parity presentation: Home boundary/recents and Preview project intake workbench",
+      "start_line": 680,
+      "sha256": "d14e7b2336fdb141d7df6ed6ae9b2f2b20c9395383a9d33c36e07b98fe3ea2a4"
+    },
+    {
+      "heading": "### 2026-08-08 \u2014 Home presentation of /my-work, board-card metadata, workspace-rail ergonomics",
+      "start_line": 722,
+      "sha256": "992f3e3417ddec471e55b9e0d2a165b35c454e9ec17d877640cf5331b5d4d00e"
+    },
+    {
+      "heading": "### 2026-08-06 (second amendment) \u2014 Client \u2192 Status grouping, hide-empty display option, queue-first My Work, same-tone column anatomy, scoped creation affordances",
+      "start_line": 735,
+      "sha256": "1ffc90ff5b91fcb83b66693b9a4585cd4ab3d092391641b9e224e344fde8a94d"
+    },
+    {
+      "heading": "### 2026-08-06 \u2014 Canonical workspace URLs and always-visible canonical board columns",
+      "start_line": 751,
+      "sha256": "ec367dec504c98e89ba470a0d575b6e811d9c3eb69805338f057774ca6fd27b1"
+    },
+    {
+      "heading": "### 2026-08-05 \u2014 Personal board/list workspace projections",
+      "start_line": 827,
+      "sha256": "f24326f4c380cedcc69e64606996456a87db90f12c4a22f734717715795551d1"
+    },
+    {
+      "heading": "### 2026-07-30 \u2014 Project Creator is the initial Owner",
+      "start_line": 836,
+      "sha256": "5f76d88a0cdc8f805942b0fa5fe4fe0e49d664efff20ee6d89b38541ddf0a77e"
+    },
+    {
+      "heading": "### 2026-07-29 \u2014 Abandonment requires closing open work first",
+      "start_line": 844,
+      "sha256": "0788ef1b1769abce143d335f7fc3211b56a13dbf3b9936c37462c8788c7589ae"
+    },
+    {
+      "heading": "### 2026-08-14 \u2014 Attio-informed workspace rail is presentation-only",
+      "start_line": 852,
+      "sha256": "9e43effaf0d349378488be3953a72ae51c6b060c8a7be8953e829223e325528e"
+    },
+    {
+      "heading": "### 2026-08-14 \u2014 Home chrome and transcript-source selector are presentation-only",
+      "start_line": 877,
+      "sha256": "6e368612e37d50e82f978ddaa6ffacede01e8938d6be0e716fe65afb5a8c4fec"
+    },
+    {
+      "heading": "### 2026-08-14 \u2014 Developer tools exposure and Home creation paths",
+      "start_line": 895,
+      "sha256": "8eec90d6e1f14b4b9ba4ac376f546411c9409ddeb5c9f21c7adb311374ac6a4c"
+    },
+    {
+      "heading": "### 2026-08-14 (fourth) \u2014 direct rail utilities and card-based client repository",
+      "start_line": 922,
+      "sha256": "2efe64e10d860301ce2f375101b0388cd0d4b736c1ce6c5621cb52c6fe6b8800"
+    },
+    {
+      "heading": "### 2026-08-14 (fifth) \u2014 Stage and Owner filters in client grouping",
+      "start_line": 957,
+      "sha256": "5eb88501a03ade06a4dfc0511a099759ae14c0af41ae880584f57b1a6c9d19f0"
+    },
+    {
+      "heading": "### 2026-08-14 (sixth) \u2014 fiscal repository hierarchy, project types, and workflow language",
+      "start_line": 985,
+      "sha256": "321b3a724adfc2f80c5f65a79c683b66f510c16b7c59f4626fa966058572f260"
+    },
+    {
+      "heading": "### 2026-08-14 (seventh) \u2014 client and fiscal disclosure hierarchy",
+      "start_line": 1040,
+      "sha256": "fda02a22e6356b19d91346678c0d9e9561c8182bf27323cab5c76f058274556b"
+    },
+    {
+      "heading": "### 2026-08-15 \u2014 contained fiscal folders and stable loading geometry",
+      "start_line": 1064,
+      "sha256": "5b13ea91d9c5058974460396656f5aee733d13b31cb5ce317cd05c438be379ee"
+    },
+    {
+      "heading": "### 2026-08-15 (second) \u2014 disclosure emphasis and contextual fiscal labels",
+      "start_line": 1091,
+      "sha256": "accfcc537ec6ee4b32cb40d90d31b77e8a88c5f6520eb3fe9cc167a2734147dd"
+    },
+    {
+      "heading": "### 2026-08-16 \u2014 distinct fiscal-folder state and simplified client heading",
+      "start_line": 1109,
+      "sha256": "a7c3cb652e6613e0026e85487512495cb19262d7d24c46c0b64aaee4a25ea134"
+    },
+    {
+      "heading": "### 2026-08-16 (second) \u2014 page-level project creation action",
+      "start_line": 1125,
+      "sha256": "fe3e607a14841237da0cf3decc2803c06f67596d6bf2afc0d2ac6146c03f40d6"
+    },
+    {
+      "heading": "### 2026-08-16 (third) \u2014 compact project classification and header spacing",
+      "start_line": 1141,
+      "sha256": "709de5e4e1d5bb5f62d2787a55cd4d568b3eb33de6a65c9bba84508e47a8ab41"
+    },
+    {
+      "heading": "### 2026-08-16 (fourth) \u2014 stable project-card minimum height",
+      "start_line": 1157,
+      "sha256": "4f635e777d495f78e4798a3c0304631b0a995557d19f0b6f41f5b7d0fc006045"
+    },
+    {
+      "heading": "### 2026-08-16 (fifth) \u2014 stage-colored card identity and LAN-safe request IDs",
+      "start_line": 1172,
+      "sha256": "1e78ad188d5bbe6973fd03460b2ee86b5faae74f269e820fa9c80f397988c86c"
+    },
+    {
+      "heading": "### 2026-08-16 (sixth) \u2014 responsive card identity and project-number badge",
+      "start_line": 1191,
+      "sha256": "37ed2eec9ada6565c796cbae1daa4cb00687f719d9195337f325a4f4f661e8a0"
+    },
+    {
+      "heading": "### 2026-08-18 \u2014 historical projects ported from OneDrive ingestion",
+      "start_line": 1211,
+      "sha256": "303eb836c6899258c881e75fb680d7bf38d6ac77159efaae8abc25b24f54a5c8"
+    },
+    {
+      "heading": "### 2026-08-19 \u2014 automatic project-number lettering and workspace exposure flags",
+      "start_line": 1246,
+      "sha256": "d870304875e31900b0a702a7efd27f526035419161cdf56d6185778b8137c8d2"
+    },
+    {
+      "heading": "### 2026-08-24 \u2014 Per-writer house-style overrides (two-tier writing standard)",
+      "start_line": 1268,
+      "sha256": "cbeb6132ca080bc59600f759ec03f17f1dc80786f3af8081c43fd339010dbbdb"
+    },
+    {
+      "heading": "### 2026-08-24 \u2014 House-rule governance modes and instruction analysis (PSOS-50)",
+      "start_line": 1321,
+      "sha256": "63c3211bbf294da332f6e9e486f41abf97dc12d0b6fb9691e4d8b8debf5790d5"
+    },
+    {
+      "heading": "### 2026-09-01 \u2014 Writer-defined report skeleton (`reportSkeleton` waiver)",
+      "start_line": 1385,
+      "sha256": "5b767792566e76785d39a3aec195feed0b94302c8b186ff6f9816f1664e12b4e"
+    },
+    {
+      "heading": "### 2026-09-01 (second) \u2014 `superseded` generation state and capability enforcement at the mutation boundary",
+      "start_line": 1440,
+      "sha256": "7a535fa2308cd2d6e14ad997c42593ab523bc426a6addcd548e3002c1ebc37cc"
+    },
+    {
+      "heading": "### 2026-09-03 \u2014 Multiple transcripts per project",
+      "start_line": 1486,
+      "sha256": "f7f4cb6424f4af5573ad53396deb92df3f6ba5a9a653b780979b0d5e58fce18b"
+    },
+    {
+      "heading": "### 2026-09-04 \u2014 Recorded reviewer decision on internal-review completion",
+      "start_line": 1560,
+      "sha256": "23426798a272274b3a616b4313dafd0ec6a87937e5a1f2b0217b616b055e5895"
+    },
+    {
+      "heading": "### 2026-09-04: absolute blocking QA (CAP-8)",
+      "start_line": 1605,
+      "sha256": "8c440827c05f45e992ad9f2daa24ee7c8931ee87353113effd0e7f6aa92d0c3b"
+    },
+    {
+      "heading": "### 2026-09-04: Privacy at selected firm-wide knowledge boundaries (CAP-1)",
+      "start_line": 1615,
+      "sha256": "b8217f1b4d336a895d72860d41e96343e95a32cf2f58691d7a3c83cee2fd5a94"
+    },
+    {
+      "heading": "### 2026-09-04: Digest diversity and signal provenance (CAP-4)",
+      "start_line": 1677,
+      "sha256": "7d4f62fad8c8d463913ca1e7d8f975c63aa4437679d1f3c766a09fdc354407c4"
+    },
+    {
+      "heading": "## Amendment process",
+      "start_line": 1721,
+      "sha256": "46b6e6dc77ca56ef5b434e2a9d90ad678fd4d47914854ffb90f8df7d9a314e05"
+    }
+  ]
+}

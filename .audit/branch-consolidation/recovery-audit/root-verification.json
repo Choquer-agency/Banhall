@@ -1,0 +1,24 @@
+{
+  "ledger_sha256": "abd25847dcfe1e7d949d7bd5d2d30b6bb1aa8c01e281a07ddb01f7d02f16604c",
+  "baseline": "cc6b706c3b43f971d944cb703a4174eabf3134d9",
+  "branches_checked": 29,
+  "unique_commits_checked": 63,
+  "counts": {
+    "path_blob_checks": 589,
+    "superseded": 53,
+    "integration_required": 1,
+    "patch_equivalent": 9
+  },
+  "file_evidence_checked": 53,
+  "cherry_proofs": {
+    "git cherry cc6b706c3b43f971d944cb703a4174eabf3134d9 codex/bmad-dw96-fix": "- 091ec5a22f57ae3f566d6b70c56c3a61069763fc",
+    "git cherry cc6b706c3b43f971d944cb703a4174eabf3134d9 codex/bmad-dw97-fix": "- 5df0d2c4ae9677a891cd8ca19f2669da40fc4311",
+    "git cherry cc6b706c3b43f971d944cb703a4174eabf3134d9 codex/bmad-dw98-fix": "- 4e0bdf5d45d7f5d555227783c69d01e29bfbec43",
+    "git cherry cc6b706c3b43f971d944cb703a4174eabf3134d9 codex/bmad-dw99-fix": "- 9aa4c32d5407dd02e15bf0532587a099343bf70d",
+    "git cherry cc6b706c3b43f971d944cb703a4174eabf3134d9 codex/bmad-feedback-read-fix": "- f42c7f3322cf2d48a0bcd45597ddde14f084e888",
+    "git cherry cc6b706c3b43f971d944cb703a4174eabf3134d9 codex/bmad-published-status-fix": "- 4555939ad846c638e291b06fd74e9ff3b637f881",
+    "git cherry cc6b706c3b43f971d944cb703a4174eabf3134d9 codex/bmad-verification-fix": "- 8168e20a13d8ccd79903d4e0dc05a713ee3470f1\n- 4c26f2fb345247139963457ef7d770677b82fb45",
+    "git cherry cc6b706c3b43f971d944cb703a4174eabf3134d9 codex/preserve-qa-rearmed-spec-20260904": "+ 5c2765316db129c93127551b78068d1a1a37e55b\n- 172a05eca5e177bf409bc3f2abec43118b899eee"
+  },
+  "limitations": "Structural and source-identity verification complements independent semantic review. B11 integration is still required; this is not merge admission."
+}

@@ -1,0 +1,10 @@
+{
+  "command": "node node_modules/vitest/vitest.mjs run src/lib/components/editor/docSearch.test.ts --expect.requireAssertions",
+  "exit": 0,
+  "sources": {
+    "src/lib/components/editor/Editor.svelte": "01b9aea3d1af126040690275dc3474e38fbf3bdba1d37ad22e000ab4e0964bce",
+    "src/lib/components/editor/docSearch.ts": "216a4d301ace3eca603689917972df9a7d28713f047fb1d2303db99176243c30",
+    "src/lib/components/editor/Editor.component.test.ts": "0401e6ae3ddcc6b7441b1097df4417af50443bd79bd0b0127e150e4de04e86fe",
+    "src/lib/components/editor/docSearch.test.ts": "011b709e9a1e63f8ae49c90cd0014404e7bfc009ae782fa5080d75f8a7257b7a"
+  }
+}

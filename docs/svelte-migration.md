@@ -1,10 +1,14 @@
 # Svelte migration — conventions + status
 
-Branch: `svelte-migration`. Old React app (`src/app/`, `src/components/`) stays
-on disk as the porting reference until parity; SvelteKit app lives in
-`src/routes/` + `src/lib/`. Backend (`convex/`) unchanged.
+Historical migration record for branch `svelte-migration`: the old React app
+was the porting reference until cutover and has since been removed. The
+SvelteKit app lives in `src/routes/` + `src/lib/`; the backend was unchanged
+during that port. For current setup and verification, use [README.md](../README.md).
 
-## Stack
+## Stack (historical migration snapshot)
+
+The versions, Bun tooling and auth package below describe the original port.
+Current setup uses Node 24 and npm; see [README.md](../README.md).
 
 - SvelteKit 2.63 / Svelte 5 (runes, forced on) / Vite 8 / bun / TS
 - Kit config lives in `vite.config.ts` plugin options (no svelte.config.js)
@@ -74,14 +78,18 @@ on disk as the porting reference until parity; SvelteKit app lives in
 - Components: `src/lib/components/**/*.svelte` — PascalCase filenames, default import
   (`import Button from "$lib/components/ui/Button.svelte"`)
 - Already ported (use, don't recreate): ui/Button, ui/Badge, ui/Input, ui/ChatIcon,
-  ui/IconAction, ui/MenuToggleIcon, ui/Header, BuildStamp, dashboard/ProjectCard;
+  ui/IconAction, BuildStamp, dashboard/ProjectCard;
   routes: `/` `/login` `/dashboard`; layout with setupConvex + setupConvexAuth.
 - Pure TS libs stayed at `$lib`: parseDocument, contextCategories, exportTemplateDocx,
   tiptapConfig, utils(cn).
 - Global CSS: `src/routes/layout.css` (tokens: canvas/chrome/navy/primary/gap-*;
   tiptap + chat styles already ported).
 
-## Verify
+## Verify (historical migration recipe)
+
+These Bun commands, assumed existing server, backend-edit restriction and
+commit restriction applied to the migration session. For current verification
+and browser prerequisites, follow [README.md](../README.md#verification).
 
 - `bun run check` → must end `0 ERRORS` (a11y warnings: fix them, usually aria-label)
 - Dev server usually already running on :3001 (`curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/<route>`) — don't start/kill it; if down: `bun run dev`
@@ -102,8 +110,11 @@ on disk as the porting reference until parity; SvelteKit app lives in
 - `$lib/exportTemplateDocx` is NOT SSR-safe — always lazy `await import(...)` in handlers.
 - `$lib/chat/agentInternal.ts` deep-imports @convex-dev/agent dist internals —
   re-verify paths on any agent version bump.
-- Vercel dashboard (user action at deploy): framework preset → SvelteKit,
+- Historical cutover instructions for the Vercel dashboard: framework preset → SvelteKit,
   env var renames NEXT_PUBLIC_CONVEX_URL→PUBLIC_CONVEX_URL,
   NEXT_PUBLIC_CONVEX_SITE_URL→PUBLIC_CONVEX_SITE_URL,
   NEXT_PUBLIC_AGENT_CHAT→PUBLIC_AGENT_CHAT, NEXT_PUBLIC_BUILD_TIME→PUBLIC_BUILD_TIME.
-- Old NEXT_PUBLIC_* lines in .env.local are inert; PUBLIC_* variants added.
+- Those renames record the cutover, not current required setup. Production has
+  no consumer for `PUBLIC_AGENT_CHAT`; no agent-chat setting is required.
+  `PUBLIC_BUILD_TIME` is optional and supplied by the operator. Use the current
+  [README setup](../README.md#run-the-app) and `env.example` for environment names.

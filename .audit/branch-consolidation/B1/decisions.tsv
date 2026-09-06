@@ -1,0 +1,6 @@
+ts	phase	decision	why	evidence	result
+2026-09-05T23:01:30.061364+00:00	scope	Implement B1 in the designated checkout	User spec assigns review gates and commits to parent	_bmad-output/implementation-artifacts/spec-branch-b1-parser-lifetime.md	No remote operations or commits
+2026-09-05T23:01:30.061364+00:00	baseline	Run both parser-test patches before source fix	Reproduce actual resource leak	baseline.log;baseline.sha256;baseline.exit	4 intended timer-count failures;15 passes
+2026-09-05T23:01:30.061364+00:00	implementation	Apply only parser timer cleanup and parser tests	Preserve existing deadline and errors	final.patch;final.sha256	19 tests pass; unnecessary rejection cast removed
+2026-09-05T23:01:30.061364+00:00	proof	Temporarily create page text promise eagerly; restore exact bytes	Prove sequential phase assertion detects old fixture flaw	eager-control.log;eager-control.sha256;sequential-final.log	Expected phase failure; restored test passes
+2026-09-05T23:01:30.061364+00:00	handoff	Leave parent review and full gate pending	Spec assigns final admission to parent	scope.log;diff-check.exit	Only two tracked parser files changed

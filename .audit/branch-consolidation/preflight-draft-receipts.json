@@ -1,0 +1,47 @@
+[
+  {
+    "batch": "B3",
+    "report": ".audit/branch-consolidation/planning/B3-preflight.md",
+    "sha256": "efafc543ce954955e0cffdcc544a5ff5f69811beb5c115dbe5957dc65ad9f4bb"
+  },
+  {
+    "batch": "B4",
+    "report": ".audit/branch-consolidation/planning/B4-preflight.md",
+    "sha256": "94847c516f6ebdfb383c4449d83271db213090dab59bd8c7d1e1c058b9067ed8"
+  },
+  {
+    "batch": "B5",
+    "report": ".audit/branch-consolidation/planning/B5-preflight.md",
+    "sha256": "533361f78d6cdefbc7c0f50db45099b322338b44c3b2882e69d19afcdba25967"
+  },
+  {
+    "batch": "B6",
+    "report": ".audit/branch-consolidation/planning/B6-preflight.md",
+    "sha256": "afd342cd4235f0fa1bc77af9b62106dda6819a09300f1e9f205f6a4545edc08a"
+  },
+  {
+    "batch": "B7",
+    "report": ".audit/branch-consolidation/planning/B7-preflight.md",
+    "sha256": "0a38e0517832c1d3c8a4c82d67be8ed487ddc08fe02a0549751285fc19c020c0"
+  },
+  {
+    "batch": "B8",
+    "report": ".audit/branch-consolidation/planning/B8-preflight.md",
+    "sha256": "7f40981be57872bd59c94f565e9868663f15174cd22d5d2babb58a007f113981"
+  },
+  {
+    "batch": "B9",
+    "report": ".audit/branch-consolidation/planning/B9-preflight.md",
+    "sha256": "4094722e9f1d41ec05b60e23bb34419b6652e07b07ad7748a9943011347f2b0f"
+  },
+  {
+    "batch": "B10",
+    "report": ".audit/branch-consolidation/planning/B10-preflight.md",
+    "sha256": "b9b741a0bc74c7c0ce36c7d8aaabba746fffa3c92af239adf3fdc032c407ba5c"
+  },
+  {
+    "batch": "B11",
+    "report": ".audit/branch-consolidation/planning/B11-preflight.md",
+    "sha256": "ad2b5f4ed3f146b3ac2fc33916644b9481386d0d1babaa19cc2671ca686880d1"
+  }
+]

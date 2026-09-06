@@ -1,0 +1,98 @@
+{
+  "baseline": "d22e1fa0880512212865d7d60aeb8cfe600dbaa2",
+  "historicalSources": [
+    "fb6c6b5d68e761cdab0b02975d9670c230f5e060",
+    "0017ee6259fa2bdc4a23c3c13305273a2eee06de"
+  ],
+  "proofBlob": "a24d9b656f774417664c97f9d5d440df2e96da04",
+  "prerequisites": {
+    "B2": {
+      "commit": "1d6053388326fe4fde43a86177955157f11ce588",
+      "ancestorOfHEAD": true
+    },
+    "B13": {
+      "commit": "0d481e2b76390e0eff3208d91f1f47d83b173474",
+      "ancestorOfHEAD": true
+    }
+  },
+  "B13ReviewedSources": {
+    "src/lib/components/editor/docSearch.ts": {
+      "expected": "a6956e4329df390dbcde1e9d5ad375df2df11f75553c32b1a0178b6b1abe51ca",
+      "actual": "a6956e4329df390dbcde1e9d5ad375df2df11f75553c32b1a0178b6b1abe51ca",
+      "matches": true
+    },
+    "src/lib/components/editor/Editor.svelte": {
+      "expected": "0b6d8a87232849623e2d3d2ff0ac83a06666956a07a85d406266b5743acfea83",
+      "actual": "0b6d8a87232849623e2d3d2ff0ac83a06666956a07a85d406266b5743acfea83",
+      "matches": true
+    },
+    "src/lib/components/editor/docSearch.test.ts": {
+      "expected": "524156421221c51d7f34817894a3c465b6c1765b0b382308a63a86b2ac94adfa",
+      "actual": "524156421221c51d7f34817894a3c465b6c1765b0b382308a63a86b2ac94adfa",
+      "matches": true
+    },
+    "src/lib/components/editor/Editor.component.test.ts": {
+      "expected": "c60d0d67a7ef3ce6aecb7910f8c523f57435a3825df39aff5fb0a7f4d1b7692e",
+      "actual": "c60d0d67a7ef3ce6aecb7910f8c523f57435a3825df39aff5fb0a7f4d1b7692e",
+      "matches": true
+    }
+  },
+  "unchangedProtectedFiles": {
+    "convex/dashboardStageCounts.test.ts": true,
+    "src/lib/components/editor/Editor.component.test.ts": true,
+    "src/lib/components/editor/docSearch.test.ts": true,
+    "src/lib/components/editor/Editor.svelte": true,
+    "src/lib/components/editor/docSearch.ts": true,
+    "package.json": true,
+    "package-lock.json": true
+  },
+  "baselineFacetFixtureSHA256": "5d7bc7450234f9f3b119a58b87f08b7b417c38fdb000a8b43b5cda18e261445c",
+  "baselineFacetFixtureNote": "Added before the baseline unit run and unchanged through the after run.",
+  "historicalPathIdentities": {
+    "src/lib/dashboard/stageFilter.test.ts": {
+      "baselineBlob": "8693813d7e343fe8474e6939593c296522acf916",
+      "historicalParentBlob": "8693813d7e343fe8474e6939593c296522acf916",
+      "currentBlob": "3063f40f2885a5779a2a3dc76f74ff2f03ab39f4"
+    },
+    "src/lib/dashboard/stageFilter.ts": {
+      "baselineBlob": "44cf83932c70ee294adc8679bf42c2eff00b6c78",
+      "historicalParentBlob": "44cf83932c70ee294adc8679bf42c2eff00b6c78",
+      "currentBlob": "633a9884a33fdf89e288fe2feaa993fadd10d2c3"
+    },
+    "src/lib/reportSections.ts": {
+      "baselineBlob": "6a8ba1d8ea483fddc5394476cd5539e19c24bc15",
+      "historicalParentBlob": "6a8ba1d8ea483fddc5394476cd5539e19c24bc15",
+      "currentBlob": "4773fccb58fa93dcca5c52cb38dd4304917bb69a"
+    },
+    "src/lib/tiptapConfig.ts": {
+      "baselineBlob": "6a7b03a2fc65ea86eac63f31a303fc8c2a43277e",
+      "historicalParentBlob": "6a7b03a2fc65ea86eac63f31a303fc8c2a43277e",
+      "currentBlob": "81e4165e77828212a46581a64434d896ee7e0a2a"
+    },
+    "src/lib/workspace/projectIntentHandoff.test.ts": {
+      "baselineBlob": "9f11266260b1e2447b1ba82a21cd476bcbe15ddb",
+      "historicalParentBlob": "9f11266260b1e2447b1ba82a21cd476bcbe15ddb",
+      "currentBlob": "5f519a7c4c0b51abf0fc572094251537bb8efa7d"
+    },
+    "src/lib/workspace/projectIntentHandoff.ts": {
+      "baselineBlob": "7d3134b6895e2ed6f5577e72480681ad03385cb6",
+      "historicalParentBlob": "7d3134b6895e2ed6f5577e72480681ad03385cb6",
+      "currentBlob": "496107bff451ea9e1e6e6d62788e9f894fa48e8c"
+    },
+    "src/lib/workspace/stageRankGroups.test.ts": {
+      "baselineBlob": "b856f4082de9b5f668917e5eecf6cf78a5986edc",
+      "historicalParentBlob": "b856f4082de9b5f668917e5eecf6cf78a5986edc",
+      "currentBlob": "3d6dd814135ffb99fd760709643ac606b6981e97"
+    },
+    "src/lib/workspace/stageRankGroups.ts": {
+      "baselineBlob": "0a36931a88038b44026e49de656f8bfbdd0cd25f",
+      "historicalParentBlob": "0a36931a88038b44026e49de656f8bfbdd0cd25f",
+      "currentBlob": "bcd7976b17d7e1f8734bdb0ba0c53d6bd5be6722"
+    },
+    "src/routes/project/new/newProjectPrefill.component.test.ts": {
+      "baselineBlob": "2d92a0860746eab8579575e59e7751d37670ce98",
+      "historicalParentBlob": "2d92a0860746eab8579575e59e7751d37670ce98",
+      "currentBlob": "5034de185a151bac8cf6f9762b2fd92f163c03e0"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "api": "bmad_loop.deferredwork.append_entries",
+  "ids": [
+    "DW-103"
+  ],
+  "before_sha256": "f99467b6a85060999d4bcc21bb1841034c10879478267b87fd819608531d9ab0",
+  "after_sha256": "6c4e0324113841ddc9c512ca5cee758b7771381db2d7d2403980ceb8ff481909",
+  "existing_entries_preserved": 102,
+  "evidence": ".audit/branch-consolidation/B3/shared-storage-triage.md",
+  "scope": "pre-existing unchanged API cleanup; separate focused follow-up"
+}

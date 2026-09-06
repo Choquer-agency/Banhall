@@ -1,0 +1,152 @@
+[
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/components/comments/CommentHighlight.ts",
+    "parent_sha256": "5d471cc2686cab1c4eea79d7e4c9ac5ae93bd3cb7e16798e1baf1c545a63b93d",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/components/comments/CommentSidebar.svelte",
+    "parent_sha256": "15859e52b2647ceb4090807da6ad33975002da268d17e377e8bc021624c3acd4",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/components/comments/CommentThread.svelte",
+    "parent_sha256": "bc7686880bdafc4861fd855d50fad91d57bd464dc17a93cae327769f36353df7",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/components/editor/GapCallout.svelte",
+    "parent_sha256": "80dc0213036b554c05ee64def7e868f3d9c6093a764a79f4d404c0353de4d7bc",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/components/editor/SectionDivider.svelte",
+    "parent_sha256": "f48358ab38a656edbe6d66a7387392cf11e342ab75782756cbc5fcaf0defcabd",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/components/generation/ReportViewer.svelte",
+    "parent_sha256": "2a5c305e1c1a4acaa72d9441439a71c0b6510b94e8204dadfbd48d8d3cfaf31a",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/components/mywork/MyWorkGroup.svelte",
+    "parent_sha256": "8f99d1be2f777591f61246bafd4a7aae51a60bef36e8f4d2c974a7636ac85417",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/components/mywork/MyWorkRow.component.test.ts",
+    "parent_sha256": "f4a9e1c5d4c423eddaa568f813e2cb2bca7a4ecb4a7546bf9df68c1bd21c229b",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/components/mywork/MyWorkRow.svelte",
+    "parent_sha256": "4d86afdf3925f7ffb78823c2d1a259a9b52b38882598df6a6728daccc7464fe8",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/components/mywork/MyWorkRowFixture.svelte",
+    "parent_sha256": "2cd19dbad31728a0b2e7d2c794d8d94be468450b850b7663e6e26d2e1dd272c2",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/components/ui/Header.svelte",
+    "parent_sha256": "daec26901d755829eda9c8dfa1ab192a884c60e0c742dd47bef7914011d6529f",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/components/ui/InsightTile.svelte",
+    "parent_sha256": "01f2b0c1cb8dcae5c4282d74ccf92446104c2957cce990f1b81bd23f6283496d",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/components/ui/MenuToggleIcon.svelte",
+    "parent_sha256": "4bfd2693daa16cfed47b3ec65d737d58924c26e470a5953a10afe7835da0ea54",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/mywork/laneSort.test.ts",
+    "parent_sha256": "aabecdba8dccf683e108f5816027390655b5556aea9106acff9deffa262e4c3f",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/mywork/laneSort.ts",
+    "parent_sha256": "23af3c2692716af00ebf5d398455dedea124f0f6f7921f512708abcaea7b453d",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/mywork/myWorkPreferences.test.ts",
+    "parent_sha256": "d3b07f68c23e9c37e9cfc5e5258395c0409150595b2d76de408c652ce3384a87",
+    "matches_current": true
+  },
+  {
+    "commit": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "file": "src/lib/mywork/myWorkPreferences.ts",
+    "parent_sha256": "aa92cc87733d81d3cde7524d2686a91dec08ed8ca1653faeefa8d384b80a02a5",
+    "matches_current": true
+  },
+  {
+    "commit": "28c0c0cca253b57f1171b632046f58d0a5c825a0",
+    "file": "src/lib/components/mywork/MyWorkGroup.svelte",
+    "parent_sha256": "8f99d1be2f777591f61246bafd4a7aae51a60bef36e8f4d2c974a7636ac85417",
+    "matches_current": true
+  },
+  {
+    "commit": "28c0c0cca253b57f1171b632046f58d0a5c825a0",
+    "file": "src/lib/components/mywork/MyWorkRow.component.test.ts",
+    "parent_sha256": "f4a9e1c5d4c423eddaa568f813e2cb2bca7a4ecb4a7546bf9df68c1bd21c229b",
+    "matches_current": true
+  },
+  {
+    "commit": "28c0c0cca253b57f1171b632046f58d0a5c825a0",
+    "file": "src/lib/components/mywork/MyWorkRow.svelte",
+    "parent_sha256": "4d86afdf3925f7ffb78823c2d1a259a9b52b38882598df6a6728daccc7464fe8",
+    "matches_current": true
+  },
+  {
+    "commit": "28c0c0cca253b57f1171b632046f58d0a5c825a0",
+    "file": "src/lib/components/mywork/MyWorkRowFixture.svelte",
+    "parent_sha256": "2cd19dbad31728a0b2e7d2c794d8d94be468450b850b7663e6e26d2e1dd272c2",
+    "matches_current": true
+  },
+  {
+    "commit": "28c0c0cca253b57f1171b632046f58d0a5c825a0",
+    "file": "src/lib/mywork/laneSort.test.ts",
+    "parent_sha256": "aabecdba8dccf683e108f5816027390655b5556aea9106acff9deffa262e4c3f",
+    "matches_current": true
+  },
+  {
+    "commit": "28c0c0cca253b57f1171b632046f58d0a5c825a0",
+    "file": "src/lib/mywork/laneSort.ts",
+    "parent_sha256": "23af3c2692716af00ebf5d398455dedea124f0f6f7921f512708abcaea7b453d",
+    "matches_current": true
+  },
+  {
+    "commit": "28c0c0cca253b57f1171b632046f58d0a5c825a0",
+    "file": "src/lib/mywork/myWorkPreferences.test.ts",
+    "parent_sha256": "d3b07f68c23e9c37e9cfc5e5258395c0409150595b2d76de408c652ce3384a87",
+    "matches_current": true
+  },
+  {
+    "commit": "28c0c0cca253b57f1171b632046f58d0a5c825a0",
+    "file": "src/lib/mywork/myWorkPreferences.ts",
+    "parent_sha256": "aa92cc87733d81d3cde7524d2686a91dec08ed8ca1653faeefa8d384b80a02a5",
+    "matches_current": true
+  }
+]

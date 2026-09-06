@@ -1,0 +1,35 @@
+{
+  "api": "bmad_loop.deferredwork.mark_done",
+  "closed_ids": [
+    "DW-101",
+    "DW-102"
+  ],
+  "date": "2026-09-05",
+  "before_sha256": "b72567af5bbd714fb6b3f9bea40cebe60b0b2cd8e641d33908e08436e1f493ba",
+  "after_sha256": "f99467b6a85060999d4bcc21bb1841034c10879478267b87fd819608531d9ab0",
+  "other_entries_preserved": 100,
+  "gate": {
+    "command": "VERIFY_COMPONENT=1 bash scripts/loop-verify.sh",
+    "exit_code": 0,
+    "elapsed_seconds": 177.98948311805725,
+    "tracked_files_verified": 5147,
+    "unexpected_changed_paths": [],
+    "generated_captures_restored": [
+      ".audit/DW-98-fix/implicit-A-retained.png",
+      ".audit/published-status-fix/published-after.png",
+      ".audit/story-7/optimistic-after.png",
+      ".audit/story-7/optimistic-scrolled-after.png",
+      ".audit/story-7/retry-highlight-only.png",
+      ".audit/story-7/retry-text-and-highlight.png",
+      ".audit/story-7/second-overflow-after.png",
+      ".audit/story-8/learning-desktop-after.png",
+      ".audit/story-8/learning-sources-mobile-after.png"
+    ],
+    "log_sha256": "1772d3cf77bda310a21020331b82ecdd0eaef460f149791080b6d81253640501",
+    "at": "2026-09-06T01:00:16.538193+00:00"
+  },
+  "notes": {
+    "DW-101": "B13 preserves complete original Unicode spans, non-overlap and later valid matches; forty helper tests and eighteen mounted Editor tests pass, plus the final nine-step gate (2020 unit/481 browser). Evidence: .audit/branch-consolidation/B13-r2/gate/result.json and review-triage.md.",
+    "DW-102": "B13 indexes hardBreak as whitespace and aligns all three AI highlight producers, including QA paragraph navigation; real-schema, mounted preview/apply and final nine-step gate pass. Evidence: .audit/branch-consolidation/B13-r2/evidence.md and gate/result.json."
+  }
+}

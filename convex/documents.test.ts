@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import type { FunctionArgs } from "convex/server";
 import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
@@ -38,6 +39,203 @@ async function setup() {
 }
 
 describe("uploadDocument processing status", () => {
+
+  test("empty and whitespace uploads keep document reads constant", async () => {
+    const measurements = [];
+    for (const content of ["", "   \n\t "]) {
+      for (const existingCount of [0, 3]) {
+        const { t, projectId, writer } = await setup();
+        await t.run(async (ctx) => {
+          for (let i = 0; i < existingCount; i++) {
+            await ctx.db.insert("projectDocuments", {
+              projectId,
+              fileName: `history-${i}.txt`,
+              fileType: "txt",
+              content: "x".repeat(100_000),
+              source: "chat_upload",
+              uploadedBy: "writer@banhall.com",
+              createdAt: Date.now(),
+            });
+          }
+        });
+        const { documentId, metrics } = await writer.mutation(async (ctx) => {
+          const documentId = await ctx.runMutation(api.documents.uploadDocument, {
+            projectId,
+            fileName: "drawing.png",
+            fileType: "image",
+            content,
+          });
+          return { documentId, metrics: await ctx.meta.getTransactionMetrics() };
+        });
+        const stored = await t.run(async (ctx) => await ctx.db.get(documentId));
+        measurements.push({ content, existingCount, metrics, stored });
+      }
+    }
+
+    // Record every combination before any assertion, including on the red run.
+    console.info("blank upload transaction metrics", JSON.stringify(
+      measurements.map(({ content, existingCount, metrics }) => ({
+        content,
+        existingCount,
+        databaseQueries: metrics.databaseQueries.used,
+        documentsRead: metrics.documentsRead.used,
+        bytesRead: metrics.bytesRead.used,
+      }))
+    ));
+    expect(measurements).toHaveLength(4);
+    for (const { content, metrics, stored } of measurements) {
+      expect.soft(metrics.databaseQueries.used).toBe(2);
+      expect.soft(metrics.documentsRead.used).toBe(2);
+      expect.soft(stored?.content).toBe(content);
+      expect.soft(stored?.processingStatus).toBe("reference_only");
+      expect.soft(stored?.processingDetail).toBe("image_reference");
+    }
+    for (const content of ["", "   \n\t "]) {
+      const bytes = measurements
+        .filter((measurement) => measurement.content === content)
+        .map(({ metrics }) => metrics.bytesRead.used);
+      expect.soft(bytes).toHaveLength(2);
+      expect.soft(new Set(bytes).size).toBe(1);
+    }
+  });
+
+  test.each(["", "   \n\t "])("anonymous blank upload %j writes nothing", async (content) => {
+    const { t, projectId } = await setup();
+    await expect(t.mutation(api.documents.uploadDocument, {
+      projectId,
+      fileName: "drawing.png",
+      fileType: "image",
+      content,
+      attemptKey: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    })).rejects.toThrow("Authentication required");
+    const state = await t.run(async (ctx) => ({
+      documents: await ctx.db.query("projectDocuments").collect(),
+      attempts: await ctx.db.query("documentUploadAttempts").collect(),
+    }));
+    expect(state).toEqual({ documents: [], attempts: [] });
+  });
+
+  test.each(["", "   \n\t "])("blank upload %j rejects a foreign report without writes", async (content) => {
+    const { t, projectId, writer } = await setup();
+    const reportId = await t.run(async (ctx) => {
+      const project = await ctx.db.get(projectId);
+      if (!project) throw new Error("Missing fixture project");
+      const foreignProjectId = await ctx.db.insert("projects", {
+        title: "Foreign project",
+        clientName: "Client",
+        status: "draft",
+        createdBy: project.createdBy,
+        shareToken: "foreign-project-token",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      return await ctx.db.insert("reports", {
+        projectId: foreignProjectId,
+        content: "Foreign report",
+        version: 1,
+        generatedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    const readState = () => t.run(async (ctx) => ({
+      documents: await ctx.db.query("projectDocuments").collect(),
+      attempts: await ctx.db.query("documentUploadAttempts").collect(),
+    }));
+    const before = await readState();
+    await expect(writer.mutation(api.documents.uploadDocument, {
+      projectId,
+      reportId,
+      fileName: "drawing.png",
+      fileType: "image",
+      content,
+      attemptKey: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    })).rejects.toMatchObject({ data: {
+      code: "INVALID_INPUT",
+      message: "Report does not belong to this project",
+    } });
+    expect(await readState()).toEqual(before);
+  });
+
+  test("an archived legacy duplicate keeps archive and trust while backfilling status", async () => {
+    const { t, projectId, writer } = await setup();
+    const legacyId = await t.run(async (ctx) => await ctx.db.insert("projectDocuments", {
+      projectId,
+      fileName: "legacy-notes.txt",
+      fileType: "txt",
+      content: "  Legacy direction.\n",
+      archived: true,
+      category: "writer_notes",
+      source: "chat_upload",
+      uploadedBy: "legacy@banhall.com",
+      createdAt: Date.now(),
+    }));
+    const before = await t.run(async (ctx) => await ctx.db.get(legacyId));
+    expect(before).not.toHaveProperty("processingStatus");
+    expect(before).not.toHaveProperty("uploaderRole");
+    const duplicate = await writer.mutation(api.documents.uploadDocument, {
+      projectId,
+      fileName: "legacy-notes.txt",
+      fileType: "txt",
+      content: "  Legacy direction.\n",
+      category: "background",
+    });
+    expect(duplicate).toBe(legacyId);
+    const after = await t.run(async (ctx) => await ctx.db.get(legacyId));
+    expect(after).toEqual({ ...before, processingStatus: "ready", processingDetail: "text_extracted" });
+    expect(after).not.toHaveProperty("uploaderRole");
+  });
+
+  test("a text-only duplicate gains the supplied original blob and MIME type", async () => {
+    const { t, projectId, writer } = await setup();
+    const args = { projectId, fileName: "notes.txt", fileType: "txt", content: "Readable notes" } satisfies FunctionArgs<typeof api.documents.uploadDocument>;
+    const original = await writer.mutation(api.documents.uploadDocument, args);
+    const storageId = await t.run(async (ctx) => await ctx.storage.store(new Blob(["original bytes"], { type: "text/plain" })));
+    const duplicate = await writer.mutation(api.documents.uploadDocument, {
+      ...args, storageId, mimeType: "text/plain",
+    });
+    expect(duplicate).toBe(original);
+    const state = await t.run(async (ctx) => ({
+      document: await ctx.db.get(original),
+      metadata: await ctx.db.system.get(storageId),
+      url: await ctx.storage.getUrl(storageId),
+      bytes: await (await ctx.storage.get(storageId))?.text(),
+    }));
+    expect(state.document).toMatchObject({ storageId, mimeType: "text/plain" });
+    expect(state.metadata).not.toBeNull();
+    expect(state.url).toEqual(expect.any(String));
+    expect(state.bytes).toBe("original bytes");
+  });
+
+  test("an already-backed duplicate keeps its original and deletes the new orphan", async () => {
+    const { t, projectId, writer } = await setup();
+    const { originalStorageId, orphanStorageId } = await t.run(async (ctx) => ({
+      originalStorageId: await ctx.storage.store(new Blob(["original bytes"], { type: "text/plain" })),
+      orphanStorageId: await ctx.storage.store(new Blob(["orphan bytes"], { type: "application/octet-stream" })),
+    }));
+    const args = { projectId, fileName: "notes.txt", fileType: "txt", content: "Readable notes" } satisfies FunctionArgs<typeof api.documents.uploadDocument>;
+    const original = await writer.mutation(api.documents.uploadDocument, {
+      ...args, storageId: originalStorageId, mimeType: "text/plain",
+    });
+    const before = await t.run(async (ctx) => await ctx.db.get(original));
+    const duplicate = await writer.mutation(api.documents.uploadDocument, {
+      ...args, storageId: orphanStorageId, mimeType: "application/octet-stream",
+    });
+    expect(duplicate).toBe(original);
+    const state = await t.run(async (ctx) => ({
+      document: await ctx.db.get(original),
+      originalMetadata: await ctx.db.system.get(originalStorageId),
+      originalUrl: await ctx.storage.getUrl(originalStorageId),
+      originalBytes: await (await ctx.storage.get(originalStorageId))?.text(),
+      orphanMetadata: await ctx.db.system.get(orphanStorageId),
+      orphanUrl: await ctx.storage.getUrl(orphanStorageId),
+    }));
+    expect(state.document).toEqual(before);
+    expect(state.originalMetadata).not.toBeNull();
+    expect(state.originalUrl).toEqual(expect.any(String));
+    expect(state.originalBytes).toBe("original bytes");
+    expect(state.orphanMetadata).toBeNull();
+    expect(state.orphanUrl).toBeNull();
+  });
   test("derives and persists a status for each kind of extraction outcome", async () => {
     const { t, projectId, writer } = await setup();
 

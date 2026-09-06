@@ -1,0 +1,14 @@
+43:    extractMatchedText,
+119:        actual = extractMatchedText(doc, fromPos, toPos + 1);
+188:          actual = extractMatchedText(doc, best.from, best.to);
+469:        ok = extractMatchedText(doc, from, to) === r.text;
+630:  let aiHighlights = $state<Range[]>([]);
+794:        if (aiHighlights.length) aiHighlights = [];
+980:  export function highlightText(texts: string[], scrollTo?: string) {
+987:    aiHighlights = ranges;
+1001:  export function locateSectionParagraph(section: string, paragraph: number | null) {
+1014:      paras.push({ from, to, text: extractMatchedText(doc, from, to) });
+1019:    aiHighlights = [target];
+1024:    aiHighlights = [];
+1052:  export function highlightRange(from: number, to: number, text: string) {
+1054:    aiHighlights = [{ from, to, text }];

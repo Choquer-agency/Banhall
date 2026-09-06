@@ -1,0 +1,250 @@
+{
+  "instructions": "Paths in historical evidence resolve through this manifest. gzip files preserve exact original bytes; decompress with gzip -dc. Original hashes permit independent verification.",
+  "files": [
+    {
+      "original_path": ".audit/branch-consolidation/planning/B10-preflight.md",
+      "stored_path": ".audit/branch-consolidation/planning/B10-preflight.md",
+      "original_sha256": "b9b741a0bc74c7c0ce36c7d8aaabba746fffa3c92af239adf3fdc032c407ba5c",
+      "stored_sha256": "b9b741a0bc74c7c0ce36c7d8aaabba746fffa3c92af239adf3fdc032c407ba5c",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B10.md",
+      "stored_path": ".audit/branch-consolidation/planning/B10.md",
+      "original_sha256": "48db88889eae75998c70262a6db4516529e5f62cca58a394780ee18b08a1e625",
+      "stored_sha256": "48db88889eae75998c70262a6db4516529e5f62cca58a394780ee18b08a1e625",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B11-preflight.md",
+      "stored_path": ".audit/branch-consolidation/planning/B11-preflight.md",
+      "original_sha256": "ad2b5f4ed3f146b3ac2fc33916644b9481386d0d1babaa19cc2671ca686880d1",
+      "stored_sha256": "ad2b5f4ed3f146b3ac2fc33916644b9481386d0d1babaa19cc2671ca686880d1",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B11-read-time-identities.md",
+      "stored_path": ".audit/branch-consolidation/planning/B11-read-time-identities.md",
+      "original_sha256": "f4743f795370f692dfa38edf184bde2d7a7d9ffa95841c08aaa210705ba96a9f",
+      "stored_sha256": "f4743f795370f692dfa38edf184bde2d7a7d9ffa95841c08aaa210705ba96a9f",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B11.md",
+      "stored_path": ".audit/branch-consolidation/planning/B11.md",
+      "original_sha256": "5f25b19037a90948ea3b56c3bf7eae08a14ccfd6238d3746c6ed0c14824e1ad8",
+      "stored_sha256": "5f25b19037a90948ea3b56c3bf7eae08a14ccfd6238d3746c6ed0c14824e1ad8",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B13-design.md",
+      "stored_path": ".audit/branch-consolidation/planning/B13-design.md",
+      "original_sha256": "393fa205f65746e2ebd42c265ffaf9a31b454f24e693d0f295fb340b5081f106",
+      "stored_sha256": "393fa205f65746e2ebd42c265ffaf9a31b454f24e693d0f295fb340b5081f106",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B2.md",
+      "stored_path": ".audit/branch-consolidation/planning/B2.md",
+      "original_sha256": "03689a9b12799d0f29e580f3d5f41414e0e714b10dd97dc49c32fa8e5ad34350",
+      "stored_sha256": "03689a9b12799d0f29e580f3d5f41414e0e714b10dd97dc49c32fa8e5ad34350",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B3-preflight.md",
+      "stored_path": ".audit/branch-consolidation/planning/B3-preflight.md",
+      "original_sha256": "efafc543ce954955e0cffdcc544a5ff5f69811beb5c115dbe5957dc65ad9f4bb",
+      "stored_sha256": "efafc543ce954955e0cffdcc544a5ff5f69811beb5c115dbe5957dc65ad9f4bb",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B3.md",
+      "stored_path": ".audit/branch-consolidation/planning/B3.md",
+      "original_sha256": "d0d1548d8ad114e33a7b81f72584d1cf1f909e01ee335d306c75792651154cf7",
+      "stored_sha256": "d0d1548d8ad114e33a7b81f72584d1cf1f909e01ee335d306c75792651154cf7",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B4-draft-correction-provenance.json",
+      "stored_path": ".audit/branch-consolidation/planning/B4-draft-correction-provenance.json",
+      "original_sha256": "f502ba2da1a7ac869363f05489b35ed50aebc940193ec83d7df8cb1d077b0817",
+      "stored_sha256": "f502ba2da1a7ac869363f05489b35ed50aebc940193ec83d7df8cb1d077b0817",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B4-preflight.md",
+      "stored_path": ".audit/branch-consolidation/planning/B4-preflight.md",
+      "original_sha256": "94847c516f6ebdfb383c4449d83271db213090dab59bd8c7d1e1c058b9067ed8",
+      "stored_sha256": "94847c516f6ebdfb383c4449d83271db213090dab59bd8c7d1e1c058b9067ed8",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B4.md",
+      "stored_path": ".audit/branch-consolidation/planning/B4.md",
+      "original_sha256": "cba0efe2489056805207bdd71de7e6e0d82d608284593d32dadc60d09808822b",
+      "stored_sha256": "cba0efe2489056805207bdd71de7e6e0d82d608284593d32dadc60d09808822b",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B5-preflight.md",
+      "stored_path": ".audit/branch-consolidation/planning/B5-preflight.md",
+      "original_sha256": "533361f78d6cdefbc7c0f50db45099b322338b44c3b2882e69d19afcdba25967",
+      "stored_sha256": "533361f78d6cdefbc7c0f50db45099b322338b44c3b2882e69d19afcdba25967",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B5.md",
+      "stored_path": ".audit/branch-consolidation/planning/B5.md",
+      "original_sha256": "47de19e30b78cc7fcc82879f96e65d2fba560f655b0c09e96365683ba4f6e63b",
+      "stored_sha256": "47de19e30b78cc7fcc82879f96e65d2fba560f655b0c09e96365683ba4f6e63b",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B6-preflight.md",
+      "stored_path": ".audit/branch-consolidation/planning/B6-preflight.md",
+      "original_sha256": "afd342cd4235f0fa1bc77af9b62106dda6819a09300f1e9f205f6a4545edc08a",
+      "stored_sha256": "afd342cd4235f0fa1bc77af9b62106dda6819a09300f1e9f205f6a4545edc08a",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B6.md",
+      "stored_path": ".audit/branch-consolidation/planning/B6.md",
+      "original_sha256": "0071c53488bf695465dc76e36e932bc0f0f45749b01a3275a9bd66dbf3d81d30",
+      "stored_sha256": "0071c53488bf695465dc76e36e932bc0f0f45749b01a3275a9bd66dbf3d81d30",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B7-preflight.md",
+      "stored_path": ".audit/branch-consolidation/planning/B7-preflight.md",
+      "original_sha256": "0a38e0517832c1d3c8a4c82d67be8ed487ddc08fe02a0549751285fc19c020c0",
+      "stored_sha256": "0a38e0517832c1d3c8a4c82d67be8ed487ddc08fe02a0549751285fc19c020c0",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B7.md",
+      "stored_path": ".audit/branch-consolidation/planning/B7.md",
+      "original_sha256": "ce5fc51e7511428e58c78c4a8a38197e39a10600d9c2f107f4266fe99d07ed8f",
+      "stored_sha256": "ce5fc51e7511428e58c78c4a8a38197e39a10600d9c2f107f4266fe99d07ed8f",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B8-preflight.md",
+      "stored_path": ".audit/branch-consolidation/planning/B8-preflight.md",
+      "original_sha256": "7f40981be57872bd59c94f565e9868663f15174cd22d5d2babb58a007f113981",
+      "stored_sha256": "7f40981be57872bd59c94f565e9868663f15174cd22d5d2babb58a007f113981",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B8.md",
+      "stored_path": ".audit/branch-consolidation/planning/B8.md",
+      "original_sha256": "42e080a78972c553404ec1533ac2f7ca9d4780d07a169861ffa84acdf7844eb5",
+      "stored_sha256": "42e080a78972c553404ec1533ac2f7ca9d4780d07a169861ffa84acdf7844eb5",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B9-preflight.md",
+      "stored_path": ".audit/branch-consolidation/planning/B9-preflight.md",
+      "original_sha256": "4094722e9f1d41ec05b60e23bb34419b6652e07b07ad7748a9943011347f2b0f",
+      "stored_sha256": "4094722e9f1d41ec05b60e23bb34419b6652e07b07ad7748a9943011347f2b0f",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/B9.md",
+      "stored_path": ".audit/branch-consolidation/planning/B9.md",
+      "original_sha256": "3dcad767e7b6e625816f39c07672d489c29a113bf5d99cdf0ddacd9d8c82656f",
+      "stored_sha256": "3dcad767e7b6e625816f39c07672d489c29a113bf5d99cdf0ddacd9d8c82656f",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/current-draft-identities.json",
+      "stored_path": ".audit/branch-consolidation/planning/current-draft-identities.json",
+      "original_sha256": "5a4732bf73a0de73d717a99c915e145e5dc8fc542db2d970c5df7761529aa590",
+      "stored_sha256": "5a4732bf73a0de73d717a99c915e145e5dc8fc542db2d970c5df7761529aa590",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/draft-token-counts.json",
+      "stored_path": ".audit/branch-consolidation/planning/draft-token-counts.json",
+      "original_sha256": "28f1099f3ec7d5a0bc15ee570ff3e2aa600dccf5d0a87d9963465cf4a806c9f6",
+      "stored_sha256": "28f1099f3ec7d5a0bc15ee570ff3e2aa600dccf5d0a87d9963465cf4a806c9f6",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b10-workspace-branches.md",
+      "stored_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b10-workspace-branches.md",
+      "original_sha256": "8afdc36a5dfa6b9efe6a4467f1ae6f95b7a5434cdac7ccb8b428ded5a5a394a2",
+      "stored_sha256": "8afdc36a5dfa6b9efe6a4467f1ae6f95b7a5434cdac7ccb8b428ded5a5a394a2",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b11-brain-erasure-labels.md",
+      "stored_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b11-brain-erasure-labels.md",
+      "original_sha256": "91f70cc058d7250937c5a0b04c847f665cf9a564603b1bb58b37e20566b0ce35",
+      "stored_sha256": "91f70cc058d7250937c5a0b04c847f665cf9a564603b1bb58b37e20566b0ce35",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b13-search-boundaries.md",
+      "stored_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b13-search-boundaries.md",
+      "original_sha256": "e6f631ad1da1a8882cb84014538c5e651d1cf2694c8635871c9d50ec1d1ad219",
+      "stored_sha256": "e6f631ad1da1a8882cb84014538c5e651d1cf2694c8635871c9d50ec1d1ad219",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b2-editor-search.md",
+      "stored_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b2-editor-search.md",
+      "original_sha256": "7e6bf8336d3163d2a6e082ebacb5054bcf183ee0b54bf18adeec325b7850c2cb",
+      "stored_sha256": "7e6bf8336d3163d2a6e082ebacb5054bcf183ee0b54bf18adeec325b7850c2cb",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b3-blank-upload-reads.md",
+      "stored_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b3-blank-upload-reads.md",
+      "original_sha256": "9c9ad58c3fd795e4e36138d1331dc6e0cd9eea2a8bf9e946216872d788fa4b6a",
+      "stored_sha256": "9c9ad58c3fd795e4e36138d1331dc6e0cd9eea2a8bf9e946216872d788fa4b6a",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b4-dead-ui-islands.md",
+      "stored_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b4-dead-ui-islands.md",
+      "original_sha256": "fe9c34f3a4daa9e58c579490a2989a6ce1d7d0d00ca0523706d69feef0c17159",
+      "stored_sha256": "fe9c34f3a4daa9e58c579490a2989a6ce1d7d0d00ca0523706d69feef0c17159",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b5-dead-helpers-underline.md",
+      "stored_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b5-dead-helpers-underline.md",
+      "original_sha256": "3b4145a4b873c16372284c074db84050fddd56a3f314f7aea522a947af13e10b",
+      "stored_sha256": "3b4145a4b873c16372284c074db84050fddd56a3f314f7aea522a947af13e10b",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b6-real-endpoint-tests.md",
+      "stored_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b6-real-endpoint-tests.md",
+      "original_sha256": "8e50b6f5c7862cc1561ec2b8c2b36f139b5103a234276acd6198337f6d6fbabc",
+      "stored_sha256": "8e50b6f5c7862cc1561ec2b8c2b36f139b5103a234276acd6198337f6d6fbabc",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b7-dependency-prune.md",
+      "stored_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b7-dependency-prune.md",
+      "original_sha256": "e2f1a49b33742675390234a5cdf3e6a37d5bc01fed41c113d77d75e928cc65ec",
+      "stored_sha256": "e2f1a49b33742675390234a5cdf3e6a37d5bc01fed41c113d77d75e928cc65ec",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b8-header-mobile-target.md",
+      "stored_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b8-header-mobile-target.md",
+      "original_sha256": "cbb2e3dd5a6a979fdc70fed4699ac85f001d0103603c265b39e546cc878d7837",
+      "stored_sha256": "cbb2e3dd5a6a979fdc70fed4699ac85f001d0103603c265b39e546cc878d7837",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b9-current-documentation.md",
+      "stored_path": ".audit/branch-consolidation/planning/drafts/spec-branch-b9-current-documentation.md",
+      "original_sha256": "9a03cc13e091d2f45090aca74ea8b3acdad5214a90290fbc5af0862bc778927b",
+      "stored_sha256": "9a03cc13e091d2f45090aca74ea8b3acdad5214a90290fbc5af0862bc778927b",
+      "encoding": "identity"
+    }
+  ]
+}

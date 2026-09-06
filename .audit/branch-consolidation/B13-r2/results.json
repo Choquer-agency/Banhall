@@ -1,0 +1,1077 @@
+{
+  "baseline": {
+    "sha256": "216a4d301ace3eca603689917972df9a7d28713f047fb1d2303db99176243c30",
+    "schemas": [
+      {
+        "editable": true,
+        "fixtures": [
+          {
+            "name": "expanded-prefix-tail",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İ target tail"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "target"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 4,
+                  "to": 11,
+                  "text": "arget t"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "expanded-prefix-end",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İ target"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "target"
+            ],
+            "ranges": [
+              []
+            ]
+          },
+          {
+            "name": "rejected-overlap",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İİİİİİ"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "̇i̇i"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 2,
+                  "to": 6,
+                  "text": "İİİİ"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "hard-break",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "alpha"
+                    },
+                    {
+                      "type": "hardBreak"
+                    },
+                    {
+                      "type": "text",
+                      "text": "beta"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "alphabeta",
+              "alpha beta"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 1,
+                  "to": 11,
+                  "text": "alphabeta"
+                }
+              ],
+              []
+            ]
+          },
+          {
+            "name": "supplementary",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "😀😀"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "\ud83d",
+              "\ude00"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 1,
+                  "to": 2,
+                  "text": "\ud83d"
+                },
+                {
+                  "from": 3,
+                  "to": 4,
+                  "text": "\ud83d"
+                }
+              ],
+              [
+                {
+                  "from": 2,
+                  "to": 3,
+                  "text": "\ude00"
+                },
+                {
+                  "from": 4,
+                  "to": 5,
+                  "text": "\ude00"
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "editable": false,
+        "fixtures": [
+          {
+            "name": "expanded-prefix-tail",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İ target tail"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "target"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 4,
+                  "to": 11,
+                  "text": "arget t"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "expanded-prefix-end",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İ target"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "target"
+            ],
+            "ranges": [
+              []
+            ]
+          },
+          {
+            "name": "rejected-overlap",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İİİİİİ"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "̇i̇i"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 2,
+                  "to": 6,
+                  "text": "İİİİ"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "hard-break",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "alpha"
+                    },
+                    {
+                      "type": "hardBreak"
+                    },
+                    {
+                      "type": "text",
+                      "text": "beta"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "alphabeta",
+              "alpha beta"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 1,
+                  "to": 11,
+                  "text": "alphabeta"
+                }
+              ],
+              []
+            ]
+          },
+          {
+            "name": "supplementary",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "😀😀"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "\ud83d",
+              "\ude00"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 1,
+                  "to": 2,
+                  "text": "\ud83d"
+                },
+                {
+                  "from": 3,
+                  "to": 4,
+                  "text": "\ud83d"
+                }
+              ],
+              [
+                {
+                  "from": 2,
+                  "to": 3,
+                  "text": "\ude00"
+                },
+                {
+                  "from": 4,
+                  "to": 5,
+                  "text": "\ude00"
+                }
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "preserved": {
+    "sha256": "367f7b4cc9adcea61af99cacc8bff53c7d153f53f49b66fa02e2dc8370617b18",
+    "schemas": [
+      {
+        "editable": true,
+        "fixtures": [
+          {
+            "name": "expanded-prefix-tail",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İ target tail"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "target"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 3,
+                  "to": 9,
+                  "text": "target"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "expanded-prefix-end",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İ target"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "target"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 3,
+                  "to": 9,
+                  "text": "target"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "rejected-overlap",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İİİİİİ"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "̇i̇i"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 1,
+                  "to": 4,
+                  "text": "İİİ"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "hard-break",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "alpha"
+                    },
+                    {
+                      "type": "hardBreak"
+                    },
+                    {
+                      "type": "text",
+                      "text": "beta"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "alphabeta",
+              "alpha beta"
+            ],
+            "ranges": [
+              [],
+              [
+                {
+                  "from": 1,
+                  "to": 11,
+                  "text": "alpha beta"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "supplementary",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "😀😀"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "\ud83d",
+              "\ude00"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 1,
+                  "to": 3,
+                  "text": "😀"
+                },
+                {
+                  "from": 3,
+                  "to": 5,
+                  "text": "😀"
+                }
+              ],
+              [
+                {
+                  "from": 1,
+                  "to": 3,
+                  "text": "😀"
+                },
+                {
+                  "from": 3,
+                  "to": 5,
+                  "text": "😀"
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "editable": false,
+        "fixtures": [
+          {
+            "name": "expanded-prefix-tail",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İ target tail"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "target"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 3,
+                  "to": 9,
+                  "text": "target"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "expanded-prefix-end",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İ target"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "target"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 3,
+                  "to": 9,
+                  "text": "target"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "rejected-overlap",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İİİİİİ"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "̇i̇i"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 1,
+                  "to": 4,
+                  "text": "İİİ"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "hard-break",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "alpha"
+                    },
+                    {
+                      "type": "hardBreak"
+                    },
+                    {
+                      "type": "text",
+                      "text": "beta"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "alphabeta",
+              "alpha beta"
+            ],
+            "ranges": [
+              [],
+              [
+                {
+                  "from": 1,
+                  "to": 11,
+                  "text": "alpha beta"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "supplementary",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "😀😀"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "\ud83d",
+              "\ude00"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 1,
+                  "to": 3,
+                  "text": "😀"
+                },
+                {
+                  "from": 3,
+                  "to": 5,
+                  "text": "😀"
+                }
+              ],
+              [
+                {
+                  "from": 1,
+                  "to": 3,
+                  "text": "😀"
+                },
+                {
+                  "from": 3,
+                  "to": 5,
+                  "text": "😀"
+                }
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "final": {
+    "sha256": "a6956e4329df390dbcde1e9d5ad375df2df11f75553c32b1a0178b6b1abe51ca",
+    "schemas": [
+      {
+        "editable": true,
+        "fixtures": [
+          {
+            "name": "expanded-prefix-tail",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İ target tail"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "target"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 3,
+                  "to": 9,
+                  "text": "target"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "expanded-prefix-end",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İ target"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "target"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 3,
+                  "to": 9,
+                  "text": "target"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "rejected-overlap",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İİİİİİ"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "̇i̇i"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 1,
+                  "to": 4,
+                  "text": "İİİ"
+                },
+                {
+                  "from": 4,
+                  "to": 7,
+                  "text": "İİİ"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "hard-break",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "alpha"
+                    },
+                    {
+                      "type": "hardBreak"
+                    },
+                    {
+                      "type": "text",
+                      "text": "beta"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "alphabeta",
+              "alpha beta"
+            ],
+            "ranges": [
+              [],
+              [
+                {
+                  "from": 1,
+                  "to": 11,
+                  "text": "alpha beta"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "supplementary",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "😀😀"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "\ud83d",
+              "\ude00"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 1,
+                  "to": 3,
+                  "text": "😀"
+                },
+                {
+                  "from": 3,
+                  "to": 5,
+                  "text": "😀"
+                }
+              ],
+              [
+                {
+                  "from": 1,
+                  "to": 3,
+                  "text": "😀"
+                },
+                {
+                  "from": 3,
+                  "to": 5,
+                  "text": "😀"
+                }
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "editable": false,
+        "fixtures": [
+          {
+            "name": "expanded-prefix-tail",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İ target tail"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "target"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 3,
+                  "to": 9,
+                  "text": "target"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "expanded-prefix-end",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İ target"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "target"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 3,
+                  "to": 9,
+                  "text": "target"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "rejected-overlap",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "İİİİİİ"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "̇i̇i"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 1,
+                  "to": 4,
+                  "text": "İİİ"
+                },
+                {
+                  "from": 4,
+                  "to": 7,
+                  "text": "İİİ"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "hard-break",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "alpha"
+                    },
+                    {
+                      "type": "hardBreak"
+                    },
+                    {
+                      "type": "text",
+                      "text": "beta"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "alphabeta",
+              "alpha beta"
+            ],
+            "ranges": [
+              [],
+              [
+                {
+                  "from": 1,
+                  "to": 11,
+                  "text": "alpha beta"
+                }
+              ]
+            ]
+          },
+          {
+            "name": "supplementary",
+            "document": {
+              "type": "doc",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "😀😀"
+                    }
+                  ]
+                }
+              ]
+            },
+            "needles": [
+              "\ud83d",
+              "\ude00"
+            ],
+            "ranges": [
+              [
+                {
+                  "from": 1,
+                  "to": 3,
+                  "text": "😀"
+                },
+                {
+                  "from": 3,
+                  "to": 5,
+                  "text": "😀"
+                }
+              ],
+              [
+                {
+                  "from": 1,
+                  "to": 3,
+                  "text": "😀"
+                },
+                {
+                  "from": 3,
+                  "to": 5,
+                  "text": "😀"
+                }
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

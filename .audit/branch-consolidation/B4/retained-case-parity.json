@@ -1,0 +1,332 @@
+[
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor QA paragraph boundaries targets paragraph two across a hard break instead of the concatenated decoy",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor actual JSON search boundaries passes cross-break matches into visible AI highlights and preview without changing prose",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor actual JSON search boundaries previews the exact target after expansion in \u0130 target",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor actual JSON search boundaries previews the exact target after expansion in \u0130 target tail",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor search boundary caller regressions keeps 'exact' references with prefix '''' on the later hard-break paragraph",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor search boundary caller regressions keeps 'exact' references with prefix ''\u0130 '' on the later hard-break paragraph",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor search boundary caller regressions keeps 'fragment' references with prefix '''' on the later hard-break paragraph",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor search boundary caller regressions keeps 'fragment' references with prefix ''\u0130 '' on the later hard-break paragraph",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor search boundary caller regressions keeps 'paragraph' references with prefix '''' on the later hard-break paragraph",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor search boundary caller regressions keeps 'paragraph' references with prefix ''\u0130 '' on the later hard-break paragraph",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor search boundary caller regressions previews combined Unicode and hard-break spans and replaces only on explicit apply",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor search surface batches actual findReplaceMatches and preserves duplicate replacement identities",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor search surface batches actual preview construction into one walk plus the scroll lookup",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor search surface highlights the expected paragraph for exact, fragment and paraphrase references",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor search surface renders merged strikes per occurrence and insertion widgets per replacement pair",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor search surface replaceRange edits the serialized document at exactly that range",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "Editor search surface returns find/replace matches sorted by position with smart-case replacements",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/editor/Editor.component.test.ts",
+    "previews actual heading, list and blockquote hard breaks without joining words",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/generation/GenerationRecoveryPanel.component.test.ts",
+    "generation recovery components renders text status in the header chip",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/generation/GenerationRecoveryPanel.component.test.ts",
+    "generation recovery components shows one obvious action after full failure",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/generation/GenerationRecoveryPanel.component.test.ts",
+    "generation recovery components shows partial success and keeps both recovery choices visible",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/Disclosure.component.test.ts",
+    "Disclosure closes with an animated exit: body goes inert immediately, unmounts after the transition",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/Disclosure.component.test.ts",
+    "Disclosure follows chevron rule 7: down when closed, rotated up + primary when open",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/Disclosure.component.test.ts",
+    "Disclosure opens with a \u2265300ms grid-rows transition and exposes the body to focus",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/Disclosure.component.test.ts",
+    "Disclosure starts closed with no mounted body and aria-expanded=false",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/Input.component.test.ts",
+    "Input borderless field contract marks errors semantically and paints validation inside the field",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/Input.component.test.ts",
+    "Input borderless field contract uses no perimeter and keeps the focus indicator inset",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/PageBar.component.test.ts",
+    "PageBar keeps the leading workflow control inside the existing 44px bar",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/SelectInput.component.test.ts",
+    "SelectInput accessible name falls back to the placeholder for existing callers",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/SelectInput.component.test.ts",
+    "SelectInput accessible name uses the explicit ariaLabel when provided",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/StageBadge.component.test.ts",
+    "StageBadge renders every workflow stage as explicit text rather than color alone",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/StageBadge.component.test.ts",
+    "StageBadge uses an opaque high-contrast treatment for delivery stages on dark surfaces",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/StageBadge.component.test.ts",
+    "StageBadge uses the violet held tone (non-error) for paused work",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/UserMenu.component.test.ts",
+    "UserMenu keeps signed-in identity in the app-bar avatar menu",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/UserMenu.component.test.ts",
+    "UserMenu turns the rail icon into a confirmed sign-out action",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/ViewModeToggle.component.test.ts",
+    "ViewModeToggle fits the list display actions below two mobile filters without clipping",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/ViewModeToggle.component.test.ts",
+    "ViewModeToggle keeps List reachable in one click from Board",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/ui/ViewModeToggle.component.test.ts",
+    "ViewModeToggle uses List and Board vocabulary with List first and supports arrow-key selection",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/routes/project/[id]/projectRoute.component.test.ts",
+    "/project/[id] route shape lets ?workspace=current win immediately for a flagged user, with no navigation",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/routes/project/[id]/projectRoute.component.test.ts",
+    "/project/[id] route shape mounts neither report cohort while the access decision is pending (currentWhileLoading=false)",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/routes/project/[id]/projectRoute.component.test.ts",
+    "/project/[id] route shape renders exactly the current report when access is unavailable",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/routes/project/[id]/projectRoute.component.test.ts",
+    "/project/[id] route shape renders exactly the preview workbench when access is available",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/mywork/CurrentWorkLedgerFixture.component.test.ts",
+    "Current My Work ledger presentation keeps mobile data order and 44px actions",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/mywork/CurrentWorkLedgerFixture.component.test.ts",
+    "Current My Work ledger presentation uses semantic desktop table headers and explicit due text",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/mywork/HomeStartProject.component.test.ts",
+    "HomeStartProject centers the opening composition as one chrome-free prompt box",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/mywork/HomeStartProject.component.test.ts",
+    "HomeStartProject keeps the composer disabled until title and transcript are present",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/mywork/HomeStartProject.component.test.ts",
+    "HomeStartProject opens a deliberately blank wizard from the separate intake action",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/mywork/HomeStartProject.component.test.ts",
+    "HomeStartProject starts the existing wizard with editable title and pasted transcript",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/mywork/HomeStartProject.component.test.ts",
+    "HomeStartProject switches Paste and Attach file as exclusive input tabs with Paste selected by default",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/mywork/MyWorkHome.component.test.ts",
+    "MyWorkView as Home greets restrainedly with the user's first name and a time-of-day phrase",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/mywork/MyWorkHome.component.test.ts",
+    "MyWorkView as Home keeps Home focused on project intake and optional device-local recents",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/mywork/MyWorkHome.component.test.ts",
+    "MyWorkView as Home omits the name when identity has not loaded",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/mywork/MyWorkHome.component.test.ts",
+    "MyWorkView as Home removes the loaded summary and work-accountability sections from Home",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/mywork/MyWorkLaneSort.component.test.ts",
+    "Home work-query removal does not render queue controls, work rows, or action controls",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/mywork/MyWorkLaneSort.component.test.ts",
+    "Home work-query removal subscribes only to the With-you band's single bounded query (2026-08-13 amendment)",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/workspace/HomeParity.component.test.ts",
+    "Home Obvious-parity presentation centers Home content in the shell-token boundary while the scroll owner stays full width",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/workspace/HomeParity.component.test.ts",
+    "Home Obvious-parity presentation keeps mobile navigation reachable without reintroducing the Home header",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/workspace/HomeParity.component.test.ts",
+    "Home Obvious-parity presentation keeps one truthful repository continuation when no recents exist",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/workspace/HomeParity.component.test.ts",
+    "Home Obvious-parity presentation keeps the rail's Home row a single focus stop \u2014 the link itself, no focusable wrapper",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/workspace/HomeParity.component.test.ts",
+    "Home Obvious-parity presentation removes Home's redundant context header while keeping creation anchored in the rail",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/components/workspace/HomeParity.component.test.ts",
+    "Home Obvious-parity presentation renders the Recently opened rail from browser-local recents only \u2014 and threads it into Home",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/mywork/homeGreeting.test.ts",
+    "greetingForHour maps day parts at their boundaries",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/mywork/homeGreeting.test.ts",
+    "greetingName prefers firstName, falls back to the first word of name, else empty",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/mywork/relativeTime.test.ts",
+    "formatOpenedRelative uses the same coarse scale with Opened phrasing",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/mywork/relativeTime.test.ts",
+    "formatUpdatedRelative collapses fresh and future timestamps to just now",
+    "passed"
+  ],
+  [
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/src/lib/mywork/relativeTime.test.ts",
+    "formatUpdatedRelative uses singular and plural units at each scale",
+    "passed"
+  ]
+]

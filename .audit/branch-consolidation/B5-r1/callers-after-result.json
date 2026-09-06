@@ -1,0 +1,1 @@
+{"command": ["rg", "-n", "\\b(stashProjectIntent|takeProjectIntent|groupRowsByStageRank|visibleStageGroups|StageGroupId|StageRankRow|StageGroup|StageGroupDisplay|VisibleStageGroups|matchesStageFilter|stageFilterKey|countProjectsByStage|stageFilterItems|extractSections|ReportSections)\\b", "src", "convex", "shared"], "exit": 1, "meaning": "No matches"}

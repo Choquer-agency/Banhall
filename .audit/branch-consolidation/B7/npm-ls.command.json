@@ -1,0 +1,10 @@
+{
+  "command": [
+    "npm",
+    "ls",
+    "--all"
+  ],
+  "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+  "started": "2026-09-06T02:16:12.306946+00:00",
+  "exit": 1
+}

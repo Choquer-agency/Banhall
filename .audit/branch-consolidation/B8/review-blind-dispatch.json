@@ -1,0 +1,23 @@
+{
+  "at": "2026-09-06T02:30:29.549888+00:00",
+  "argv": [
+    "codex",
+    "exec",
+    "--ephemeral",
+    "-m",
+    "gpt-6-astra",
+    "-c",
+    "model_reasoning_effort=\"medium\"",
+    "-c",
+    "approval_policy=\"never\"",
+    "--sandbox",
+    "read-only",
+    "--color",
+    "never",
+    "--output-last-message",
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/.audit/branch-consolidation/B8/review-blind-result.md",
+    "-"
+  ],
+  "prompt_sha256": "fc655d75fbc4acdb6f74966867f227d0186d3945f4de27c133bd904ee15ffb29",
+  "spec_sha256": "f1204b28e2c7781e5065c0350fc114569e51b4dfcc901ae8f5207798ebaba665"
+}

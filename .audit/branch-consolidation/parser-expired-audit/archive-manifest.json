@@ -1,0 +1,96 @@
+{
+  "instructions": "Paths in historical evidence resolve through this manifest. gzip files preserve exact original bytes; decompress with gzip -dc. Original hashes permit independent verification.",
+  "files": [
+    {
+      "original_path": ".audit/branch-consolidation/parser-expired-audit/baseline-helper.snapshot",
+      "stored_path": ".audit/branch-consolidation/parser-expired-audit/baseline-helper.snapshot.gz",
+      "original_sha256": "427bd5428a83f38dc31860c04489f50c35142beaebda0e7ed3a4c7b5d7f43040",
+      "stored_sha256": "70036b727e4b4d4c9e9092b511b4be79025e721ba8d5fdfcc733976f61eda27f",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/parser-expired-audit/build.mjs",
+      "stored_path": ".audit/branch-consolidation/parser-expired-audit/build.mjs",
+      "original_sha256": "0c3b350d3af81e00e1fbfbbb83a5f03846909c52e96f1ccb227b3e99dbf53856",
+      "stored_sha256": "0c3b350d3af81e00e1fbfbbb83a5f03846909c52e96f1ccb227b3e99dbf53856",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/parser-expired-audit/current-page.log",
+      "stored_path": ".audit/branch-consolidation/parser-expired-audit/current-page.log.gz",
+      "original_sha256": "9ffad8c98d466d6d321b21c2bd78ce1b54ce6567b81eb06e1e6b998dc6947697",
+      "stored_sha256": "5523611dc86d8638e1a4809474b6063aa5c27cf6de8d8ed255d8f40ea29ddb6a",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/parser-expired-audit/current-text.log",
+      "stored_path": ".audit/branch-consolidation/parser-expired-audit/current-text.log.gz",
+      "original_sha256": "83b8b9dfbc42fc9ebe37812bc886c056d2d984788d3f599d839e568631856281",
+      "stored_sha256": "6080927038370a32744c46655d3e19260e0e6116b18f2d0e92027a0a41f93930",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/parser-expired-audit/findings.md",
+      "stored_path": ".audit/branch-consolidation/parser-expired-audit/findings.md",
+      "original_sha256": "bf4038bad9d2b1b669b926147e384b7a9ff8c105d6666518ee795430d8c7c0a9",
+      "stored_sha256": "bf4038bad9d2b1b669b926147e384b7a9ff8c105d6666518ee795430d8c7c0a9",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/parser-expired-audit/fixed-page.log",
+      "stored_path": ".audit/branch-consolidation/parser-expired-audit/fixed-page.log.gz",
+      "original_sha256": "39de7e270a069b4c19f70b63a549846e7cb6299333fbb5141035027117c9c2cf",
+      "stored_sha256": "e71131afaac8af5246424e513734d1af89cb53cd85e352cc11bf349812729a9c",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/parser-expired-audit/fixed-text.log",
+      "stored_path": ".audit/branch-consolidation/parser-expired-audit/fixed-text.log.gz",
+      "original_sha256": "9ea760bda01796b6a22d6b2868c599a4284c6288029ae697965a17b9628c018a",
+      "stored_sha256": "f51f0369b1873b40426c5cb4c12b52181ab10cf2f152c815c70d01b47f31662f",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/parser-expired-audit/installed-pdfjs-evidence.txt",
+      "stored_path": ".audit/branch-consolidation/parser-expired-audit/installed-pdfjs-evidence.txt",
+      "original_sha256": "973ff6f4c4b9b2ee1572861faf22dfb2cc4eec8b9893c185bfc7fdc811b606dd",
+      "stored_sha256": "973ff6f4c4b9b2ee1572861faf22dfb2cc4eec8b9893c185bfc7fdc811b606dd",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/parser-expired-audit/parseDocument.source.snapshot",
+      "stored_path": ".audit/branch-consolidation/parser-expired-audit/parseDocument.source.snapshot.gz",
+      "original_sha256": "8dde3d3a7938a55cba76fe350f33e595d795431f6e0d64857839d3738a3ed69a",
+      "stored_sha256": "c6c153a70ceddcc2ad41921c628105e17fa69d6c91eb9e6bae52b634400c82db",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/parser-expired-audit/parser-current.mjs",
+      "stored_path": ".audit/branch-consolidation/parser-expired-audit/parser-current.mjs.gz",
+      "original_sha256": "176abbcde41770a1012e614646e9418365f142000a6e805c54b35ee0f734349a",
+      "stored_sha256": "1e095ece04d556b71a034d6b7fc2c5190799d6ab1a53a8f897aead22aa3262a1",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/parser-expired-audit/parser-observer-fix.mjs",
+      "stored_path": ".audit/branch-consolidation/parser-expired-audit/parser-observer-fix.mjs.gz",
+      "original_sha256": "7f35a9f86e5e47e753d6079ec6e405180d018c017a1e2aee42adf47eb8df01ee",
+      "stored_sha256": "c1a38df117d88f939cd7b49e5b143fcda15d4b9b35b5dc7d7bd257549fac60a9",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/parser-expired-audit/probe.mjs",
+      "stored_path": ".audit/branch-consolidation/parser-expired-audit/probe.mjs",
+      "original_sha256": "0f8f68265436f768ebc9fa3cdecaddd89bef662a7e84047c105bddce579e61ed",
+      "stored_sha256": "0f8f68265436f768ebc9fa3cdecaddd89bef662a7e84047c105bddce579e61ed",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/parser-expired-audit/source-manifest.json",
+      "stored_path": ".audit/branch-consolidation/parser-expired-audit/source-manifest.json",
+      "original_sha256": "b3956f62d12388c10be73dd684c9b08b87a408c2ae4bc9545d1b7bb8231f5dc3",
+      "stored_sha256": "b3956f62d12388c10be73dd684c9b08b87a408c2ae4bc9545d1b7bb8231f5dc3",
+      "encoding": "identity"
+    }
+  ]
+}

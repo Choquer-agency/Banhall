@@ -1,0 +1,13 @@
+- The recovery test renders a completed history once. Add live query updates for request → failure → confirmation to verify the mounted route updates its labels correctly.
+- “No stale failure after confirmation” is ambiguous: historical failures should remain visible, while late failure events should be suppressed. Clarify the acceptance criterion and identify the backend test that proves suppression.
+- The newest-first assertion partly checks the fixture itself: `expect(audit.slice(0, 3)...)` cannot detect an application regression. Describe the browser proof as preserving supplied query order; cite separate evidence for backend ordering.
+- Audit loading and empty results are untested. Add cases for an unresolved audit query and `[]`, checking that neither displays stale events or misleading empty-state copy.
+- Access denial is tested only on initial render. Add an active-audit → `brainStats: null` transition to verify previously visible audit details disappear when access changes.
+- The authenticated-loading test checks that tabs disappear but does not assert that audit rows disappear. Verify sensitive row content is hidden throughout loading.
+- `openAudit()` waits only for the row count, and cell assertions run immediately afterward. Wait for expected cell content too, so an existing table with the same number of rows cannot satisfy readiness prematurely.
+- `rows()` selects every `tbody tr` in the document. Scope row queries to the audit panel or table so unrelated shell tables cannot affect these assertions.
+- All regular fixtures include `sourceId`. Add a valid event without it, and a feedback-linked event where supported, to cover the optional event associations documented in the spec.
+- Omitted reasons are covered, but empty-string reasons are not. Define whether an empty reason should remain blank or use the fallback, then test that behavior explicitly.
+- The supplied evidence leaves canonical test discovery and the full integration gate outstanding. Include their results before treating the batch as integration-verified; the focused runs do not establish those acceptance conditions.
+- The green browser run reports “no Svelte config found” and uses defaults. Explain why this is expected or verify that the test loads the intended project configuration, since configuration parity affects how strongly the run proves actual-route behavior.
+- The embedded red-output tail shows only aggregate failures, not the three claimed label mismatches. Include the relevant assertion excerpts and actual regression digest so the supplied review artifact directly supports its central before/after claim.

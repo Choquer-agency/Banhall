@@ -1,0 +1,101 @@
+convex/projectWorkflowHeader.test.ts:52:      title: "Header fixture",
+src/lib/mywork/laneSort.test.ts:3:  DEFAULT_LANE_SORT,
+src/lib/mywork/laneSort.test.ts:4:  LANE_SORT_HELPER_TEXT,
+src/lib/mywork/laneSort.test.ts:5:  LANE_SORT_OPTIONS,
+src/lib/mywork/laneSort.test.ts:6:  parseLaneSortMode,
+src/lib/mywork/laneSort.test.ts:7:  sortLaneRows,
+src/lib/mywork/laneSort.test.ts:8:} from "./laneSort";
+src/lib/mywork/laneSort.test.ts:21:    expect(LANE_SORT_OPTIONS.map((o) => o.value)).toEqual(["default", "updated", "clientName"]);
+src/lib/mywork/laneSort.test.ts:22:    expect(LANE_SORT_OPTIONS.map((o) => o.label)).toEqual([
+src/lib/mywork/laneSort.test.ts:27:    expect(DEFAULT_LANE_SORT).toBe("default");
+src/lib/mywork/laneSort.test.ts:31:    expect(LANE_SORT_HELPER_TEXT).toBe("Sorts loaded items only.");
+src/lib/mywork/laneSort.test.ts:35:    expect(parseLaneSortMode("clientName")).toBe("clientName");
+src/lib/mywork/laneSort.test.ts:36:    expect(parseLaneSortMode("updated")).toBe("updated");
+src/lib/mywork/laneSort.test.ts:37:    expect(parseLaneSortMode("company")).toBe("default");
+src/lib/mywork/laneSort.test.ts:38:    expect(parseLaneSortMode(undefined)).toBe("default");
+src/lib/mywork/laneSort.test.ts:39:    expect(parseLaneSortMode(null)).toBe("default");
+src/lib/mywork/laneSort.test.ts:40:    expect(parseLaneSortMode(3)).toBe("default");
+src/lib/mywork/laneSort.test.ts:44:    expect(sortLaneRows(rows, "default").map((r) => r.id)).toEqual(["a", "b", "c", "d"]);
+src/lib/mywork/laneSort.test.ts:48:    const sorted = sortLaneRows(rows, "clientName");
+src/lib/mywork/laneSort.test.ts:63:    expect(sortLaneRows(tied, "clientName").map((r) => r.id)).toEqual(["x", "y", "z"]);
+src/lib/mywork/laneSort.test.ts:67:    expect(sortLaneRows(rows, "updated").map((r) => r.id)).toEqual(["d", "a", "c", "b"]);
+src/lib/mywork/laneSort.test.ts:77:    expect(sortLaneRows(mixed, "updated").map((r) => r.id)).toEqual(["d2", "d1", "n1", "n2"]);
+src/lib/mywork/laneSort.test.ts:82:    sortLaneRows(input, "clientName");
+src/lib/mywork/laneSort.test.ts:83:    sortLaneRows(input, "updated");
+src/lib/mywork/myWorkPreferences.test.ts:3:  DEFAULT_MY_WORK_PREFERENCES,
+src/lib/mywork/myWorkPreferences.test.ts:4:  parseMyWorkPreferences,
+src/lib/mywork/myWorkPreferences.test.ts:5:  serializeMyWorkPreferences,
+src/lib/mywork/myWorkPreferences.test.ts:6:} from "./myWorkPreferences";
+src/lib/mywork/myWorkPreferences.test.ts:10:    expect(DEFAULT_MY_WORK_PREFERENCES.laneSort).toBe("default");
+src/lib/mywork/myWorkPreferences.test.ts:11:    expect(parseMyWorkPreferences(null)).toEqual(DEFAULT_MY_WORK_PREFERENCES);
+src/lib/mywork/myWorkPreferences.test.ts:12:    expect(parseMyWorkPreferences("bad-json")).toEqual(DEFAULT_MY_WORK_PREFERENCES);
+src/lib/mywork/myWorkPreferences.test.ts:19:      expect(parseMyWorkPreferences(JSON.stringify({ layout }))).toEqual(
+src/lib/mywork/myWorkPreferences.test.ts:20:        DEFAULT_MY_WORK_PREFERENCES
+src/lib/mywork/myWorkPreferences.test.ts:24:    expect(JSON.parse(serializeMyWorkPreferences(DEFAULT_MY_WORK_PREFERENCES)).layout).toBeUndefined();
+src/lib/mywork/myWorkPreferences.test.ts:29:      parseMyWorkPreferences(serializeMyWorkPreferences({ laneSort: "clientName" }))
+src/lib/mywork/myWorkPreferences.test.ts:30:    ).toEqual({ laneSort: "clientName" });
+src/lib/mywork/myWorkPreferences.test.ts:32:      parseMyWorkPreferences(serializeMyWorkPreferences({ laneSort: "updated" }))
+src/lib/mywork/myWorkPreferences.test.ts:33:    ).toEqual({ laneSort: "updated" });
+src/lib/mywork/myWorkPreferences.test.ts:38:    expect(parseMyWorkPreferences(JSON.stringify({ layout: "list", laneSort: "updated" }))).toEqual({
+src/lib/mywork/myWorkPreferences.test.ts:39:      laneSort: "updated",
+src/lib/mywork/myWorkPreferences.test.ts:41:    expect(parseMyWorkPreferences(JSON.stringify({ laneSort: "company" }))).toEqual(
+src/lib/mywork/myWorkPreferences.test.ts:42:      DEFAULT_MY_WORK_PREFERENCES
+src/lib/mywork/myWorkPreferences.test.ts:44:    expect(parseMyWorkPreferences(JSON.stringify({ laneSort: 7 }))).toEqual(
+src/lib/mywork/myWorkPreferences.test.ts:45:      DEFAULT_MY_WORK_PREFERENCES
+src/lib/mywork/myWorkPreferences.ts:1:import { DEFAULT_LANE_SORT, parseLaneSortMode, type LaneSortMode } from "$lib/mywork/laneSort";
+src/lib/mywork/myWorkPreferences.ts:3:export type MyWorkPreferences = {
+src/lib/mywork/myWorkPreferences.ts:10:  laneSort: LaneSortMode;
+src/lib/mywork/myWorkPreferences.ts:13:export const DEFAULT_MY_WORK_PREFERENCES: MyWorkPreferences = {
+src/lib/mywork/myWorkPreferences.ts:14:  laneSort: DEFAULT_LANE_SORT,
+src/lib/mywork/myWorkPreferences.ts:17:export function parseMyWorkPreferences(raw: string | null): MyWorkPreferences {
+src/lib/mywork/myWorkPreferences.ts:18:  if (!raw) return { ...DEFAULT_MY_WORK_PREFERENCES };
+src/lib/mywork/myWorkPreferences.ts:20:    const parsed = JSON.parse(raw) as { laneSort?: string };
+src/lib/mywork/myWorkPreferences.ts:23:      laneSort: parseLaneSortMode(parsed.laneSort),
+src/lib/mywork/myWorkPreferences.ts:26:    return { ...DEFAULT_MY_WORK_PREFERENCES };
+src/lib/mywork/myWorkPreferences.ts:30:export function serializeMyWorkPreferences(preferences: MyWorkPreferences) {
+src/lib/mywork/laneSort.ts:15:export type LaneSortMode = "default" | "updated" | "clientName";
+src/lib/mywork/laneSort.ts:17:export const DEFAULT_LANE_SORT: LaneSortMode = "default";
+src/lib/mywork/laneSort.ts:19:export const LANE_SORT_OPTIONS: { value: LaneSortMode; label: string }[] = [
+src/lib/mywork/laneSort.ts:26:export const LANE_SORT_HELPER_TEXT = "Sorts loaded items only.";
+src/lib/mywork/laneSort.ts:28:export function parseLaneSortMode(raw: unknown): LaneSortMode {
+src/lib/mywork/laneSort.ts:32:  return DEFAULT_LANE_SORT;
+src/lib/mywork/laneSort.ts:50:export function sortLaneRows<T extends LaneSortableRow>(
+src/lib/mywork/laneSort.ts:52:  mode: LaneSortMode
+src/lib/components/mywork/MyWorkRowFixture.svelte:2:  import MyWorkRow from "./MyWorkRow.svelte";
+src/lib/components/mywork/MyWorkRowFixture.svelte:9:  <MyWorkRow
+src/lib/components/mywork/MyWorkRowFixture.svelte:25:  </MyWorkRow>
+src/lib/components/mywork/MyWorkRow.component.test.ts:4:import MyWorkRow from "./MyWorkRow.svelte";
+src/lib/components/mywork/MyWorkRow.component.test.ts:5:import MyWorkRowFixture from "./MyWorkRowFixture.svelte";
+src/lib/components/mywork/MyWorkRow.component.test.ts:18:describe("MyWorkRow", () => {
+src/lib/components/mywork/MyWorkRow.component.test.ts:21:    await render(MyWorkRow, { props: baseProps });
+src/lib/components/mywork/MyWorkRow.component.test.ts:39:    await render(MyWorkRowFixture, {
+src/lib/components/mywork/MyWorkRow.component.test.ts:54:    await render(MyWorkRow, {
+src/lib/components/comments/CommentHighlight.ts:2: * CSS-based comment highlight decoration (port of src/components/comments/CommentHighlight.tsx).
+src/lib/components/comments/CommentHighlight.ts:13:export function getCommentHighlightStyle(color: string, resolved: boolean) {
+src/lib/components/comments/CommentHighlight.ts:29:export const COMMENT_HIGHLIGHT_CLASS = "comment-highlight";
+src/lib/components/comments/CommentThread.svelte:19:   * One comment card in the sidebar list (port of src/components/comments/CommentThread.tsx).
+src/lib/components/comments/CommentThread.svelte:98:  <!-- Header -->
+src/lib/components/comments/CommentSidebar.svelte:5:  import CommentThread from "./CommentThread.svelte";
+src/lib/components/comments/CommentSidebar.svelte:9:   * Right-hand comments sidebar (port of src/components/comments/CommentSidebar.tsx).
+src/lib/components/comments/CommentSidebar.svelte:103:    <!-- Header -->
+src/lib/components/comments/CommentSidebar.svelte:159:          <CommentThread
+src/lib/components/comments/CommentSidebar.svelte:196:                <CommentThread
+src/lib/components/ui/DatePicker.svelte:83:          <Calendar.Header class="mb-2 flex items-center justify-between">
+src/lib/components/ui/DatePicker.svelte:99:          </Calendar.Header>
+src/lib/components/ui/DateRangePicker.svelte:130:          <RangeCalendar.Header class="mb-2 flex items-center justify-between">
+src/lib/components/ui/DateRangePicker.svelte:146:          </RangeCalendar.Header>
+src/lib/components/chat/AgentChatPanel.svelte:1413:  <!-- Header (pr-12 clears the workspace's overlay close button) -->
+src/lib/components/roles/RoleGuideSheet.svelte:46:      <Drawer.Header class="flex-none border-b border-line px-5 pt-5 pb-4 text-left sm:px-6">
+src/lib/components/roles/RoleGuideSheet.svelte:90:    </Drawer.Header>
+src/lib/components/ui/drawer/index.ts:6:import Header from "./drawer-header.svelte";
+src/lib/components/ui/drawer/index.ts:20:	Header,
+src/lib/components/ui/drawer/index.ts:33:	Header as DrawerHeader,
+src/lib/components/dashboard/ProjectCard.svelte:179:    <!-- Header zone -->
+src/lib/components/workspace/WorkspaceChrome.svelte:99:    <!-- Header inset is the shared `page-gutter` variable (layout.css) — same
+src/lib/components/project-new/CategoryRow.svelte:66:  <!-- Header — the accordion toggle -->
+src/lib/components/project-new/PreviousYearRow.svelte:75:  <!-- Header — the accordion toggle -->
+src/lib/components/generation/IterativeStepper.svelte:158:    <!-- Header -->
+src/lib/components/export/ExportValidationDialog.svelte:132:              <!-- Header -->
+src/lib/components/generation/ReportViewer.svelte:4:   * src/components/generation/ReportViewer.tsx).
+src/lib/components/editor/GapCallout.svelte:2:  Port of src/components/editor/GapCallout.tsx.
+src/lib/components/editor/SectionDivider.svelte:1:<!-- Port of src/components/editor/SectionDivider.tsx — static section divider. -->

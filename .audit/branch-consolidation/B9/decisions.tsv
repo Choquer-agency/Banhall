@@ -1,0 +1,2 @@
+ts	phase	decision	why	evidence	result
+2026-09-06T02:41:49.520007+00:00	B9	Apply six-path documentation reconciliation and smoke line only	Approved spec scope	implementation.diff;toml-proof.json;preservation-proof.json	passed

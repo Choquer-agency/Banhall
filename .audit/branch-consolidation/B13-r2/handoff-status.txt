@@ -1,0 +1,5 @@
+ M src/lib/components/editor/Editor.component.test.ts
+ M src/lib/components/editor/Editor.svelte
+ M src/lib/components/editor/docSearch.test.ts
+ M src/lib/components/editor/docSearch.ts
+?? _bmad-output/implementation-artifacts/spec-branch-b13-search-boundaries.md

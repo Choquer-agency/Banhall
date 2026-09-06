@@ -1,0 +1,6 @@
+phase	decision	why	evidence	result
+intake	Use assigned checkout without installation or shipping	Spec explicitly owns worker scope and HEAD matches	baseline-hashes.json	Baseline 1d6053388326fe4fde43a86177955157f11ce588
+reproduce	Restore preserved tests before source	Retain original failing ranges	before-helper.log;before-component.log	22 helper failures and mounted failures reproduced
+restore	Verify all four snapshot hashes before reuse	Preserve B13 history and tested behavior	../B13/rederive-preservation.json;preserved-helper.log;preserved-component.log	34 helper and 12 mounted pass; overlap and wrong paragraph fail
+repair	Filter overlaps in original coordinates and share extraction	Address iteration 1 without changing ranking or drift fallback	after-helper.log;after-component.log	36 helper and 13 mounted pass
+verify	Compare ordinary benchmark digest and actual traversal totals	Timing alone cannot prove batching	benchmark-comparison.json	Same digest; 30 traversals for 30 batches

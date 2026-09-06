@@ -1,0 +1,1 @@
+{"command": "node node_modules/vitest/vitest.mjs run src/lib/components/editor/docSearch.test.ts --expect.requireAssertions", "exit": 0}

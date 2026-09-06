@@ -2,7 +2,7 @@
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import schema from "./schema";
-import { getInternalProjectAccessOrNull, getProjectAccess } from "./lib/auth";
+import { getInternalProjectAccessOrNull, getProjectAccess, requireInternalProjectAccess } from "./lib/auth";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -94,16 +94,41 @@ function access(actor: Actor, f: Fixture, shareToken?: string) {
 }
 
 describe("getProjectAccess internal eligibility", () => {
-  it("grants internal access to an eligible writer, with or without a token", async () => {
+  it("grants internal access with the exact stored role for an owner, manager, and admin", async () => {
     const f = await setup();
-    const expected = {
-      kind: "internal",
-      project: { _id: f.projectId },
-      user: { _id: f.writerId },
-    };
-    expect(await access(f.writer, f)).toMatchObject(expected);
-    expect(await access(f.writer, f, SHARE_TOKEN)).toMatchObject(expected);
-    expect(await access(f.writer, f, WRONG_TOKEN)).toMatchObject(expected);
+    for (const role of ["writer", "manager", "admin"] as const) {
+      const authId = role === "writer" ? "pa-writer" : `pa-${role}`;
+      const userId = role === "writer" ? f.writerId : await f.t.run((ctx) =>
+        ctx.db.insert("users", { authId, role }));
+      const actor = f.t.withIdentity({ subject: authId });
+      const nullable = await actor.run((ctx) => getInternalProjectAccessOrNull(ctx, f.projectId));
+      const required = await actor.run((ctx) => requireInternalProjectAccess(ctx, f.projectId));
+      expect(required).toMatchObject({ project: { _id: f.projectId }, user: { _id: userId, role } });
+      expect(nullable).toEqual(required);
+      for (const token of [undefined, SHARE_TOKEN, WRONG_TOKEN]) {
+        expect(await access(actor, f, token)).toEqual({ kind: "internal", ...required });
+      }
+    }
+  });
+
+  it("gives an unrelated writer matching nullable, throwing, and token access", async () => {
+    const f = await setup();
+    const otherWriterId = await f.t.run((ctx) => ctx.db.insert("users", {
+      authId: "pa-other-writer", role: "writer", firstName: "Other writer",
+    }));
+    const actor = f.t.withIdentity({ subject: "pa-other-writer" });
+    await publish(f);
+    const nullable = await actor.run((ctx) => getInternalProjectAccessOrNull(ctx, f.projectId));
+    const required = await actor.run((ctx) => requireInternalProjectAccess(ctx, f.projectId));
+    expect(required).toMatchObject({
+      project: { _id: f.projectId, ownerId: f.writerId, createdBy: f.writerId },
+      user: { _id: otherWriterId, role: "writer" },
+    });
+    expect(otherWriterId).not.toBe(f.writerId);
+    expect(required).toEqual(nullable);
+    for (const token of [undefined, SHARE_TOKEN, WRONG_TOKEN]) {
+      expect(await access(actor, f, token)).toEqual({ kind: "internal", ...required });
+    }
   });
 
   it.each([
@@ -155,6 +180,10 @@ describe("getProjectAccess share-token path", () => {
     await publish(f);
     expect(await access(f.noIdentity, f, WRONG_TOKEN)).toEqual({ kind: "denied" });
     expect(await access(f.noIdentity, f)).toEqual({ kind: "denied" });
+    await expect(f.noIdentity.run((ctx) => getInternalProjectAccessOrNull(ctx, f.projectId)))
+      .resolves.toBeNull();
+    await expect(f.noIdentity.run((ctx) => requireInternalProjectAccess(ctx, f.projectId)))
+      .rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED", message: "Authentication required" } });
   });
 
   it("denies a matching token while no report is shared", async () => {
@@ -175,6 +204,10 @@ describe("getProjectAccess share-token path", () => {
 
   it("denies every caller on a missing project", async () => {
     const f = await setup();
+    await expect(f.writer.run((ctx) => getInternalProjectAccessOrNull(ctx, f.missingProjectId)))
+      .resolves.toBeNull();
+    await expect(f.writer.run((ctx) => requireInternalProjectAccess(ctx, f.missingProjectId)))
+      .rejects.toMatchObject({ data: { code: "NOT_FOUND", message: "Project not found" } });
     for (const actor of [f.writer, f.storedAnonymous, f.roleless, f.noIdentity]) {
       expect(
         await actor.run((ctx) => getProjectAccess(ctx, f.missingProjectId, SHARE_TOKEN))

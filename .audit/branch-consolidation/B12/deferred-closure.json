@@ -1,0 +1,7 @@
+{
+  "id": "DW-100",
+  "native_api": "bmad_loop.deferredwork.mark_done",
+  "before_sha256": "4aa829bae80e39edd643e77e6bbcd42e055781824f45e341cb279b400b9d28e9",
+  "after_sha256": "a5438ef44484356742feaa601e2530c1349e0cffbddd58a4b98e70cadce79145",
+  "all_other_entries_preserved": true
+}

@@ -1,0 +1,14 @@
+{
+  "underlying_gate_exit": 0,
+  "guard_exit": 1,
+  "guard_reason": "Additional maintained browser screenshot changed",
+  "reviewed_exception": ".audit/story-7/followup-overflow-after.png",
+  "evidence": ".audit/branch-consolidation/B5-r1/gate/artifact-review/pixel-comparison.json",
+  "resolution": "Generated image preserved; original restored byte-for-byte; all911 shared decoded pixel rows identical and only19 extra white baseline rows differ",
+  "source_after_restoration_matches_staged_candidate": true,
+  "all_other_tracked_paths_unchanged": true,
+  "accepted": true,
+  "node": "v24.19.0",
+  "unit_tests": 2011,
+  "browser_tests": 478
+}

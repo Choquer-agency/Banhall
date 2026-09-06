@@ -1,0 +1,10 @@
+{
+  "command": "node node_modules/vitest/vitest.mjs run src/lib/components/editor/docSearch.test.ts --expect.requireAssertions -t \"batch cost\"",
+  "exit": 1,
+  "sources": {
+    "src/lib/components/editor/Editor.svelte": "01b9aea3d1af126040690275dc3474e38fbf3bdba1d37ad22e000ab4e0964bce",
+    "src/lib/components/editor/docSearch.ts": "4c5c9bd7db2ae111737dc9512078c2a121cf9ef6ed010591cd9f05814f79d3b3",
+    "src/lib/components/editor/Editor.component.test.ts": "dbfe90f8173877867b1dab5bbcdb8b26b90a5a8a65f647f3dee87142590194d5",
+    "src/lib/components/editor/docSearch.test.ts": "011b709e9a1e63f8ae49c90cd0014404e7bfc009ae782fa5080d75f8a7257b7a"
+  }
+}

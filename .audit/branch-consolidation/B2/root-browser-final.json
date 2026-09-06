@@ -1,0 +1,16 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "vitest.component.config.ts",
+    "src/lib/components/editor/Editor.component.test.ts",
+    "--expect.requireAssertions"
+  ],
+  "variant": "final",
+  "exit_code": 0,
+  "editor_sha256": "01b9aea3d1af126040690275dc3474e38fbf3bdba1d37ad22e000ab4e0964bce",
+  "test_sha256": "bf3f5c4c783a124547a16c0272803cbf2dad9932eedc6868bfb70d603cea14de",
+  "at": "2026-09-05T23:35:37.308399+00:00"
+}

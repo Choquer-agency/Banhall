@@ -1,0 +1,239 @@
+{
+  "baseMain": "cc6b706c3b43f971d944cb703a4174eabf3134d9",
+  "sprintTip": "5ec93e594eda60c28da2cfdbf27fb668fd55eb3d",
+  "workspaceTip": "c2211d0e198a78b65ffbb18bd441d17bfe79f4fc",
+  "batches": [
+    {
+      "id": "B1",
+      "title": "Parser resource lifetime and sequential deadline proof",
+      "sourceCommits": [
+        "f82f2b0a9c44b9f5475d6d5c31418ab368bd3c4c",
+        "d381a689e74f0d30cd712134735eb58207835f00"
+      ],
+      "requiredSourceFiles": [
+        "src/lib/components/editor/Editor.component.test.ts",
+        "src/lib/parseDocument.test.ts",
+        "src/lib/parseDocument.ts"
+      ],
+      "dependsOn": [],
+      "integrationAction": "Apply timer fix and parser-test hunks. d381a68 also edits Editor test, so carry that hunk with B2 rather than importing missing file prematurely.",
+      "verification": "Historical parser before4 failing timer counts; after19/19, eager negative control fails intended20-second assertion. Rerun actual parser tests and current full gate.",
+      "conflictsAndPreservation": "Main parser exactly equals pre-fix. Preserve shared absolute60s deadline and ParseTimeout identity. No real-PDF browser proof claimed."
+    },
+    {
+      "id": "B2",
+      "title": "Batched editor search with actual editor proof",
+      "sourceCommits": [
+        "9ee49b2bb94fb4c87c3e570bd11a7ed74c6916d5",
+        "1e84c27339676ad19a034d95bee92144e81b57d5",
+        "e4495a50c183507e8661422c4281785c7cffd3a1"
+      ],
+      "requiredSourceFiles": [
+        "scripts/bench/editor-search.mjs",
+        "src/lib/components/editor/Editor.component.test.ts",
+        "src/lib/components/editor/Editor.svelte",
+        "src/lib/components/editor/docSearch.test.ts",
+        "src/lib/components/editor/docSearch.ts"
+      ],
+      "dependsOn": [
+        "B1"
+      ],
+      "integrationAction": "Bring benchmark, new docSearch helper/tests, Editor refactor and component suite; apply d381a68 Editor fixture correction.",
+      "verification": "Historical benchmark600\u219230 traversals, identical match-position hash, empty batch0 walks; actual Editor4/4. Run benchmark, docSearch units and actual Editor plus proposal UI/regenerate/PED interactions.",
+      "conflictsAndPreservation": "Main Editor equals pre-fix. Preserve exports, preview-only decorations, explicit human apply path and edit authority. Do not turn preview into persisted prose mutation."
+    },
+    {
+      "id": "B3",
+      "title": "Avoid unrelated body reads for blank uploads",
+      "sourceCommits": [
+        "18f383c079ba24bf8781e5c5eca3b2b3af0b0a3f"
+      ],
+      "requiredSourceFiles": [
+        "convex/documents.test.ts",
+        "convex/documents.ts"
+      ],
+      "dependsOn": [],
+      "integrationAction": "Apply documents mutation and meaningful actual mutation read-invariance test.",
+      "verification": "Historical0vs3existing bodies both2queries/2documents/375bytes;35 document/upload tests. Rerun documents/uploadAttempts and current transaction-limit regressions.",
+      "conflictsAndPreservation": "Main files equal parent. Keep blank/reference_only semantics, auth and duplicate behavior. Nonblank collect remains pre-existing boundedness deficit, not solved by this fix."
+    },
+    {
+      "id": "B4",
+      "title": "Delete abandoned component and My Work islands",
+      "sourceCommits": [
+        "ae27b5c6c5597d214d045b4792a102f352d62dec",
+        "28c0c0cca253b57f1171b632046f58d0a5c825a0"
+      ],
+      "requiredSourceFiles": [
+        "src/lib/components/comments/CommentHighlight.ts",
+        "src/lib/components/comments/CommentSidebar.svelte",
+        "src/lib/components/comments/CommentThread.svelte",
+        "src/lib/components/editor/GapCallout.svelte",
+        "src/lib/components/editor/SectionDivider.svelte",
+        "src/lib/components/generation/ReportViewer.svelte",
+        "src/lib/components/mywork/MyWorkGroup.svelte",
+        "src/lib/components/mywork/MyWorkRow.component.test.ts",
+        "src/lib/components/mywork/MyWorkRow.svelte",
+        "src/lib/components/mywork/MyWorkRowFixture.svelte",
+        "src/lib/components/ui/Header.svelte",
+        "src/lib/components/ui/InsightTile.svelte",
+        "src/lib/components/ui/MenuToggleIcon.svelte",
+        "src/lib/mywork/laneSort.test.ts",
+        "src/lib/mywork/laneSort.ts",
+        "src/lib/mywork/myWorkPreferences.test.ts",
+        "src/lib/mywork/myWorkPreferences.ts"
+      ],
+      "dependsOn": [],
+      "integrationAction": "Delete exactly17 files. Update two directly stale adopter/reuse doc references from dx source.",
+      "verification": "Current immutable main import grep finds only self/island/test references. Historical neighboring24tests and MyWork6/26 plus2/5 units pass. Rerun import sweep, Home parity, report recovery and component/full build.",
+      "conflictsAndPreservation": "Main retains all deleted bytes. Preserve current Home/assigned-only contract, current report comments and generation components. Older branch doc discussion is not authority to restore retired five-lane UI."
+    },
+    {
+      "id": "B5",
+      "title": "Remove unused helper exports and duplicate underline registration",
+      "sourceCommits": [
+        "fb6c6b5d68e761cdab0b02975d9670c230f5e060",
+        "0017ee6259fa2bdc4a23c3c13305273a2eee06de"
+      ],
+      "requiredSourceFiles": [
+        "src/lib/dashboard/stageFilter.test.ts",
+        "src/lib/dashboard/stageFilter.ts",
+        "src/lib/reportSections.ts",
+        "src/lib/tiptapConfig.ts",
+        "src/lib/workspace/projectIntentHandoff.test.ts",
+        "src/lib/workspace/projectIntentHandoff.ts",
+        "src/lib/workspace/stageRankGroups.test.ts",
+        "src/lib/workspace/stageRankGroups.ts",
+        "src/routes/project/new/newProjectPrefill.component.test.ts"
+      ],
+      "dependsOn": [
+        "B2"
+      ],
+      "integrationAction": "Apply helper/test deletions and direct public-intent test migration; retain production default adapters.",
+      "verification": "Historical single underline registration in editable/read-only; roundtrip and toggles; helper/pre-fill/browser suites. Re-run actual underline proof and Editor browser tests.",
+      "conflictsAndPreservation": "All first-commit target files match main parent. Preserve reportSections types/used functions and caller APIs. Cannot assume deleting wrappers permits removal of underlying intent storage."
+    },
+    {
+      "id": "B6",
+      "title": "Consolidate real endpoint test coverage without deleting newer BMAD tests",
+      "sourceCommits": [
+        "0fdcacf3f0cbaf434c2024a7fb609be88c453567",
+        "d9ee06235a1be9997eaf62331d98dbc7db78eb35",
+        "c755e003c7027135c9adf5ac3e67c617ddc7cce5"
+      ],
+      "requiredSourceFiles": [
+        "convex/chatProposalsApply.test.ts",
+        "convex/projectAccess.test.ts",
+        "convex/users.test.ts",
+        "tests/chatProposals.test.ts",
+        "tests/projectReviewAccess.test.ts",
+        "tests/teamRoster.test.ts",
+        "vitest.config.ts"
+      ],
+      "dependsOn": [],
+      "integrationAction": "Add final chatProposalsApply suite and projectAccess/users additions; port only missing scenarios. Remove fake access/roster cases only after named replacement map; keep newer main tests/chatProposals.test.ts and its edge-runtime routing.",
+      "verification": "Historical corrected map34old cases=21ported+11covered+2retired; final4files/38cases. Reconcile against current real proposal tests, run both proposal suites, generation/PED/publication tests.",
+      "conflictsAndPreservation": "Main tests/chatProposals.test.ts is already real convex-test from BMAD, not the fake suite this branch deleted. Its deletion would lose current attribution/publication regressions. Keep main tests/reportEdits extraction and snapshot lineage tests. Preserve auth/server authority and explicit apply only."
+    },
+    {
+      "id": "B7",
+      "title": "Remove remaining Bun artifacts without downgrading gate",
+      "sourceCommits": [
+        "ad9952ff1ba107bfbf97955863d4dfcdf774a530",
+        "8649315de144a7e424c12ff461046d5ec8e58ddd"
+      ],
+      "requiredSourceFiles": [
+        "bun.lock",
+        "package-lock.json",
+        "package.json",
+        "scripts/check-test-discovery.mjs",
+        "tsconfig.json"
+      ],
+      "dependsOn": [
+        "B5",
+        "B6"
+      ],
+      "integrationAction": "Remove four unused packages docx,svelte-exmarkdown,tippy.js,eslint and @types/bun/bun-types/bun.lock plus obsolete test/** includes. Reconcile lock from current package graph. Keep main Vitest architecture and newer discovery/9step gate.",
+      "verification": "Current main package equals before8649315; historical npmci/build and underline proof. Run npmci, full unified VERIFY_COMPONENT=1, actual tracked-file discovery negative controls if guard edited (not required here).",
+      "conflictsAndPreservation": "ad9952f old guard lacks NUL paths/exact3archives and must NOT replace main. Main tsconfig has broad generated declarations and newer shared includes; remove only obsolete test/** entries. Pure tests already run under main node project; no need move them all to edge-runtime."
+    },
+    {
+      "id": "B8",
+      "title": "Complete mobile New project target sizing",
+      "sourceCommits": [
+        "d7036f7551f1438c64fea5330dc77327ab7c99eb"
+      ],
+      "requiredSourceFiles": [
+        "src/lib/components/workspace/WorkspaceHeader.component.test.ts",
+        "src/lib/components/workspace/WorkspaceHeader.svelte"
+      ],
+      "dependsOn": [],
+      "integrationAction": "Apply header44px mobile floor. Adapt test to >=44x44 mobile and retain exact32px desktop plus current href/theme assertions.",
+      "verification": "Historical mobile41x32\u219244x44, desktop121.67x32 unchanged with4screenshots. Reproduce current actual header before, after browser measurement and full component suite.",
+      "conflictsAndPreservation": "Main header exactly equals pre-fix, but main test currently asserts32px at both widths, so explicit contradictory expectation must be corrected. Preserve new pointer-context isolation and all unrelated newer keyboard/admin tests."
+    },
+    {
+      "id": "B9",
+      "title": "Finish current setup and historical documentation",
+      "sourceCommits": [
+        "b9e09bc407d835c004b6dcf2ebaa3dc51261892e",
+        "890ca1ab53c31af2dac60f81d3bf65dc4c6b8929",
+        "db6568b038a1b1169092091710bb9e5122668a31",
+        "619f554d902210e1dd46a3c7e90253e247e481a3",
+        "125c6cd47e8b1068f39889855d2029a502e5a856"
+      ],
+      "requiredSourceFiles": [
+        ".github/workflows/ci.yml",
+        ".nvmrc",
+        "AGENTS.md",
+        "README.md",
+        "docs/bmad-loop.md",
+        "docs/design-system.md",
+        "docs/svelte-migration.md",
+        "docs/system-map.md",
+        "env.example",
+        "scripts/loop-verify.sh"
+      ],
+      "dependsOn": [
+        "B4",
+        "B7",
+        "B8"
+      ],
+      "integrationAction": "Selective env.example public variable naming/setup guidance; stale migration/deleted adopter lines; system-map Q8 closure only. Keep current README/AGENTS verification contract and native disposition instructions.",
+      "verification": "Read-only verify each named env consumer; no credentials/deployment provisioning. Gate/CI already proven in main by186029d and pointerc925697.",
+      "conflictsAndPreservation": "Never whole-file transplant system-map: branch would erase live learning-health/PED/rerank source arrows and regress AD12 narrative. Never replace docs/product-domain or bmad-loop/native instructions with older branch."
+    },
+    {
+      "id": "B10",
+      "title": "Retire dead workspace exposure branches with approved amendment",
+      "sourceCommits": [
+        "d0669fec95d4145b3be34a6f6b2b5e76db276cc7",
+        "76f9aca3c973a805a32cc5466cacd11d61ca080e"
+      ],
+      "requiredSourceFiles": [
+        "docs/product-domain.md",
+        "src/lib/dashboard/workspaceExperience.test.ts",
+        "src/lib/dashboard/workspaceExperience.ts",
+        "src/lib/test/app-environment-stub.ts",
+        "src/lib/test/convex-svelte-stub.svelte.ts",
+        "src/lib/workspace/WorkspaceGate.component.test.ts",
+        "src/lib/workspace/WorkspaceGate.svelte",
+        "src/routes/dashboard/+page.svelte",
+        "src/routes/my-work/+page.svelte",
+        "src/routes/project/[id]/projectRoute.component.test.ts",
+        "src/routes/projects/+page.svelte",
+        "src/routes/workspaceRoutes.component.test.ts"
+      ],
+      "dependsOn": [],
+      "integrationAction": "Apply pure resolver dead-code removal, gate/routes comment/call updates and authoritative error/current route tests. Append only55line approved2026-09-03 amendment to current domain document. Merge existing query-error stub instead of replacing it.",
+      "verification": "Historical25row truth table unchanged and targeted component QA test-verified; no live authenticated navigation. Rerun truth table and current full route/WorkspaceGate suites incl auth skips/query errors/params.",
+      "conflictsAndPreservation": "workspace1 getAccess already on main returns true for project.readInternal. Main stub already supports __setQueryError plus skip/stale/variant/research features from BMAD: retain all. Main workspaceRoutes carries later navigation contracts; port exact semantic cases only. Factory ticket remains todo/escalated metadata despite source/evidence; this audit does not mark it done."
+    }
+  ],
+  "alreadyIncorporated": [
+    "bbdd2b1 pure Bun-to-Vitest imports and discovery intent already incorporated by BMAD, preserve newer tests",
+    "ca79e76,494a575,e581436 stale fixture intent superseded by stronger current real browser tests",
+    "b9e09bc gate and two jobs incorporated and strengthened by186029d; pointer contexts byc925697",
+    "11bfe3e duplicate tsconfig include fix already structurally incorporated; current includes must win"
+  ]
+}

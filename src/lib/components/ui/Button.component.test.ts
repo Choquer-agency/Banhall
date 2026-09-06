@@ -44,6 +44,7 @@ describe("Button", () => {
 
     const classes = anchor?.className ?? "";
     for (const token of [...CORE_TOKENS, "min-h-11"]) expect(classes).toContain(token);
+    expect(anchor!.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     // Primary variant (default) consumes the theme-aware action role.
     for (const token of ["bg-action-primary", "text-action-primary-foreground", "hover:bg-action-primary-hover", "focus-visible:ring-action-primary"])
       expect(classes).toContain(token);

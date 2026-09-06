@@ -177,7 +177,7 @@
       <Button
         href={resolve("/project/new")}
         size="xs"
-        class="gap-1.5 motion-reduce:transition-none"
+        class="min-h-11 min-w-11 gap-1.5 motion-reduce:transition-none sm:min-h-0 sm:min-w-0"
       >
         <PlusIcon size={15} weight="bold" aria-hidden="true" />
         <span class="hidden sm:inline">New project</span>

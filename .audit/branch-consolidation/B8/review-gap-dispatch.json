@@ -1,0 +1,23 @@
+{
+  "at": "2026-09-06T02:30:29.550152+00:00",
+  "argv": [
+    "codex",
+    "exec",
+    "--ephemeral",
+    "-m",
+    "gpt-6-astra",
+    "-c",
+    "model_reasoning_effort=\"medium\"",
+    "-c",
+    "approval_policy=\"never\"",
+    "--sandbox",
+    "read-only",
+    "--color",
+    "never",
+    "--output-last-message",
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/.audit/branch-consolidation/B8/review-gap-result.md",
+    "-"
+  ],
+  "prompt_sha256": "6a04d06d158c18bfc2e452896d8578ed8af7c678c1199ff4180ded3e217a5159",
+  "spec_sha256": "f1204b28e2c7781e5065c0350fc114569e51b4dfcc901ae8f5207798ebaba665"
+}

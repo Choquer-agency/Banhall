@@ -1,0 +1,10 @@
+{
+  "time": "2026-09-05T23:22:40.504042+00:00",
+  "head": "38fd254c359cf9589063098f06c7f0356d5882cc",
+  "command": "npx vitest run src/lib/parseDocument.test.ts",
+  "sha256": {
+    "src/lib/parseDocument.ts": "8dde3d3a7938a55cba76fe350f33e595d795431f6e0d64857839d3738a3ed69a",
+    "src/lib/parseDocument.test.ts": "45babe0ea7642fd4933d4ae308341896ffff801bd0a26c2ab143617a11c254f7"
+  },
+  "exit_status": 1
+}

@@ -374,3 +374,34 @@ describe("dashboard current-handoff projection (2026-08-10 amendment)", () => {
     });
   });
 });
+
+it("getFacets classifies canonical stages independently of legacy status", async () => {
+  const { t, asUser, userId } = await setup();
+  await t.run(async (ctx) => {
+    for (const [index, classification] of ([
+      { workflowStage: "drafting", status: "review" },
+      { workflowStage: "on_hold", status: "review" },
+      { workflowStage: "drafting", status: "final" },
+      { status: "review" },
+    ] as const).entries()) {
+      await ctx.db.insert("projects", {
+        title: `Facet classification ${index}`,
+        clientName: "Facet fixture",
+        createdBy: userId,
+        shareToken: `facet-${index}`,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+        ...classification,
+      });
+    }
+  });
+  const facets = await asUser.query(api.dashboard.getFacets, {});
+  expect(facets).toEqual({
+    total: 4,
+    truncated: false,
+    stageCounts: { drafting: 2, on_hold: 1, legacy: 1 },
+    ownerIds: [],
+    industries: [],
+    scienceCodes: [],
+  });
+});

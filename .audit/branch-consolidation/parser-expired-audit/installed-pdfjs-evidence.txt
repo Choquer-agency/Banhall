@@ -1,0 +1,59 @@
+node_modules/pdfjs-dist/build/pdf.mjs SHA256 a209a2124baa35cbb9015b809926f1bcec9dd1c247296290e205dd9d76cb9128
+
+11964:   getTextContent(params = {}) {
+11965:     if (this._transport._htmlForXfa) {
+11966:       return this.getXfa().then(xfa => XfaText.textContent(xfa));
+11967:     }
+11968:     const readableStream = this.streamTextContent(params);
+11969:     return new Promise(function (resolve, reject) {
+11970:       function pump() {
+11971:         reader.read().then(function ({
+11972:           value,
+11973:           done
+11974:         }) {
+11975:           if (done) {
+11976:             resolve(textContent);
+11977:             return;
+11978:           }
+11979:           textContent.lang ??= value.lang;
+11980:           Object.assign(textContent.styles, value.styles);
+11981:           textContent.items.push(...value.items);
+11982:           pump();
+11983:         }, reject);
+11984:       }
+11985:       const reader = readableStream.getReader();
+11986:       const textContent = {
+11987:         items: [],
+11988:         styles: Object.create(null),
+11989:         lang: null
+11990:       };
+11991:       pump();
+11992:     });
+11993:   }
+11994:   getStructTree() {
+12836:   getPage(pageNumber) {
+12837:     if (!Number.isInteger(pageNumber) || pageNumber <= 0 || pageNumber > this._numPages) {
+12838:       return Promise.reject(new Error("Invalid page request."));
+12839:     }
+12840:     const pageIndex = pageNumber - 1,
+12841:       cachedPromise = this.#pagePromises.get(pageIndex);
+12842:     if (cachedPromise) {
+12843:       return cachedPromise;
+12844:     }
+12845:     const promise = this.messageHandler.sendWithPromise("GetPage", {
+12846:       pageIndex
+12847:     }).then(pageInfo => {
+12848:       if (this.destroyed) {
+12849:         throw new Error("Transport destroyed");
+12850:       }
+12851:       if (pageInfo.refStr) {
+12852:         this.#pageRefCache.set(pageInfo.refStr, pageNumber);
+12853:       }
+12854:       const page = new PDFPageProxy(pageIndex, pageInfo, this, this._params.pdfBug);
+12855:       this.#pageCache.set(pageIndex, page);
+12856:       return page;
+12857:     });
+12858:     this.#pagePromises.set(pageIndex, promise);
+12859:     return promise;
+12860:   }
+12861:   getPageIndex(ref) {

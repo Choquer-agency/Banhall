@@ -1,0 +1,17 @@
+src/lib/components/generation/IterativeStepper.svelte:158:    <!-- Header -->
+convex/projectWorkflowHeader.test.ts:52:      title: "Header fixture",
+src/lib/components/export/ExportValidationDialog.svelte:132:              <!-- Header -->
+src/lib/components/project-new/PreviousYearRow.svelte:75:  <!-- Header — the accordion toggle -->
+src/lib/components/dashboard/ProjectCard.svelte:179:    <!-- Header zone -->
+src/lib/components/roles/RoleGuideSheet.svelte:46:      <Drawer.Header class="flex-none border-b border-line px-5 pt-5 pb-4 text-left sm:px-6">
+src/lib/components/roles/RoleGuideSheet.svelte:90:    </Drawer.Header>
+src/lib/components/workspace/WorkspaceChrome.svelte:99:    <!-- Header inset is the shared `page-gutter` variable (layout.css) — same
+src/lib/components/chat/AgentChatPanel.svelte:1413:  <!-- Header (pr-12 clears the workspace's overlay close button) -->
+src/lib/components/ui/DatePicker.svelte:83:          <Calendar.Header class="mb-2 flex items-center justify-between">
+src/lib/components/ui/DatePicker.svelte:99:          </Calendar.Header>
+src/lib/components/ui/DateRangePicker.svelte:130:          <RangeCalendar.Header class="mb-2 flex items-center justify-between">
+src/lib/components/ui/DateRangePicker.svelte:146:          </RangeCalendar.Header>
+src/lib/components/ui/drawer/index.ts:6:import Header from "./drawer-header.svelte";
+src/lib/components/ui/drawer/index.ts:20:	Header,
+src/lib/components/ui/drawer/index.ts:33:	Header as DrawerHeader,
+src/lib/components/project-new/CategoryRow.svelte:66:  <!-- Header — the accordion toggle -->

@@ -1,0 +1,22 @@
+{
+  "src/lib/components/editor/docSearch.ts": {
+    "snapshot": "docSearch.ts.snapshot.txt",
+    "sha256": "367f7b4cc9adcea61af99cacc8bff53c7d153f53f49b66fa02e2dc8370617b18"
+  },
+  "src/lib/components/editor/docSearch.test.ts": {
+    "snapshot": "docSearch.test.ts.snapshot.txt",
+    "sha256": "7648a7ec0bda195e48582a9e9c4b57b52dd7f0b92d7fa9bd6492db4413bf4169"
+  },
+  "src/lib/components/editor/Editor.svelte": {
+    "snapshot": "Editor.svelte.snapshot.txt",
+    "sha256": "d18a0f6cbe0d7aeaa65a63e9dfeea26ec61c945d43a827f3ae5e716525d6944c"
+  },
+  "src/lib/components/editor/Editor.component.test.ts": {
+    "snapshot": "Editor.component.test.ts.snapshot.txt",
+    "sha256": "b428511f1991feb96f3310dfad1ce71051141fcb5df7f06216ed8fce5edd3b9d"
+  },
+  "src/lib/tiptapConfig.ts": {
+    "snapshot": "tiptapConfig.ts.snapshot.txt",
+    "sha256": "aeda054d505e409986b73b9e3bf0e965b5050e656c8e50a84459eb0ddd6ad104"
+  }
+}

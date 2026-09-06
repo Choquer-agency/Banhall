@@ -1,0 +1,115 @@
+[
+  {
+    "path": ".factory/tickets/transcripts-1-model-and-list.md",
+    "fields": [
+      "key: transcripts-1-model-and-list",
+      "status: done",
+      "updated: \"2026-09-03T22:06:50.720Z\"",
+      "branch: factory/transcripts-1-model-and-list"
+    ]
+  },
+  {
+    "path": ".factory/tickets/transcripts-2-generation-reads-all.md",
+    "fields": [
+      "key: transcripts-2-generation-reads-all",
+      "status: done",
+      "updated: \"2026-09-03T22:30:46.007Z\"",
+      "branch: factory/transcripts-2-generation-reads-all"
+    ]
+  },
+  {
+    "path": ".factory/tickets/transcripts-3-create-with-many.md",
+    "fields": [
+      "key: transcripts-3-create-with-many",
+      "status: done",
+      "updated: \"2026-09-04T02:19:15.095Z\"",
+      "branch: factory/transcripts-3-create-with-many",
+      "escalation: implementer session failed (attempt 2); log .factory/runs/20260903-211917-12-tickets/logs/transcripts-3-create-with-many.implement-2.jsonl"
+    ]
+  },
+  {
+    "path": ".factory/tickets/transcripts-4-copies-and-readers.md",
+    "fields": [
+      "key: transcripts-4-copies-and-readers",
+      "status: done",
+      "updated: \"2026-09-04T02:54:59.753Z\"",
+      "branch: factory/transcripts-4-copies-and-readers"
+    ]
+  },
+  {
+    "path": ".factory/tickets/transcripts-5-ui-readers.md",
+    "fields": [
+      "key: transcripts-5-ui-readers",
+      "status: done",
+      "updated: \"2026-09-04T08:04:18.085Z\"",
+      "branch: factory/transcripts-5-ui-readers",
+      "escalation: provider quota exhausted on every fallback (codex gpt-5.6-sol); retry later with  factory run --ticket transcripts-5-ui-readers"
+    ]
+  },
+  {
+    "path": ".factory/tickets/transcripts-6-provenance-sets.md",
+    "fields": [
+      "key: transcripts-6-provenance-sets",
+      "status: done",
+      "updated: \"2026-09-04T08:23:41.291Z\"",
+      "branch: factory/transcripts-6-provenance-sets",
+      "escalation: implementer session failed (attempt 2); log .factory/runs/20260903-211917-12-tickets/logs/transcripts-6-provenance-sets.implement-2.jsonl"
+    ]
+  },
+  {
+    "path": ".factory/tickets/transcripts-7-condense-digests.md",
+    "fields": [
+      "key: transcripts-7-condense-digests",
+      "status: done",
+      "updated: \"2026-09-04T09:19:44.519Z\"",
+      "branch: factory/transcripts-7-condense-digests"
+    ]
+  },
+  {
+    "path": ".factory/tickets/uploader-1-cloud-placeholder-filter.md",
+    "fields": [
+      "key: uploader-1-cloud-placeholder-filter",
+      "status: done",
+      "updated: \"2026-09-03T22:02:12.179Z\"",
+      "branch: factory/uploader-1-cloud-placeholder-filter"
+    ]
+  },
+  {
+    "path": ".factory/tickets/uploader-2-zero-found-diagnostics.md",
+    "fields": [
+      "key: uploader-2-zero-found-diagnostics",
+      "status: done",
+      "updated: \"2026-09-03T21:17:39.899Z\"",
+      "branch: factory/uploader-2-zero-found-diagnostics"
+    ]
+  },
+  {
+    "path": ".factory/tickets/uploader-3-mac-parity.md",
+    "fields": [
+      "key: uploader-3-mac-parity",
+      "status: done",
+      "updated: \"2026-09-04T02:17:40.521Z\"",
+      "branch: factory/uploader-3-mac-parity"
+    ]
+  },
+  {
+    "path": ".factory/tickets/workspace-1-gate-on-for-everyone.md",
+    "fields": [
+      "key: workspace-1-gate-on-for-everyone",
+      "status: done",
+      "updated: \"2026-09-04T08:36:38.786Z\"",
+      "branch: factory/workspace-1-gate-on-for-everyone",
+      "escalation: provider quota exhausted on every fallback (codex gpt-5.6-sol); retry later with  factory run --ticket workspace-1-gate-on-for-everyone"
+    ]
+  },
+  {
+    "path": ".factory/tickets/workspace-2-drop-dead-gate-branches.md",
+    "fields": [
+      "key: workspace-2-drop-dead-gate-branches",
+      "status: escalated",
+      "updated: \"2026-09-04T09:59:37.101Z\"",
+      "branch: factory/workspace-2-drop-dead-gate-branches",
+      "escalation: merge conflict"
+    ]
+  }
+]

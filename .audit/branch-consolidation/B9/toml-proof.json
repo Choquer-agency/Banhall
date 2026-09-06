@@ -1,0 +1,12 @@
+{
+  "node": "v24.19.0",
+  "before": [],
+  "after": [
+    "npm run test:component"
+  ],
+  "onlySemanticChange": "qa.smoke",
+  "qaPermission": "Bash(npm run*)",
+  "verify": [
+    "bash scripts/loop-verify.sh"
+  ]
+}

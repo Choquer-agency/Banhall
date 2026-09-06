@@ -1,0 +1,20 @@
+{
+  "command": "VERIFY_COMPONENT=1 bash scripts/loop-verify.sh",
+  "exit_code": 0,
+  "elapsed_seconds": 177.98948311805725,
+  "tracked_files_verified": 5147,
+  "unexpected_changed_paths": [],
+  "generated_captures_restored": [
+    ".audit/DW-98-fix/implicit-A-retained.png",
+    ".audit/published-status-fix/published-after.png",
+    ".audit/story-7/optimistic-after.png",
+    ".audit/story-7/optimistic-scrolled-after.png",
+    ".audit/story-7/retry-highlight-only.png",
+    ".audit/story-7/retry-text-and-highlight.png",
+    ".audit/story-7/second-overflow-after.png",
+    ".audit/story-8/learning-desktop-after.png",
+    ".audit/story-8/learning-sources-mobile-after.png"
+  ],
+  "log_sha256": "1772d3cf77bda310a21020331b82ecdd0eaef460f149791080b6d81253640501",
+  "at": "2026-09-06T01:00:16.538193+00:00"
+}

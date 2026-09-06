@@ -1,0 +1,45 @@
+{
+  "baseline": "d22e1fa0880512212865d7d60aeb8cfe600dbaa2",
+  "files": {
+    "convex/dashboard.test.ts": {
+      "snapshot": ".audit/branch-consolidation/B5/preserved-source/convex/dashboard.test.ts.snapshot",
+      "sha256": "5d7bc7450234f9f3b119a58b87f08b7b417c38fdb000a8b43b5cda18e261445c"
+    },
+    "src/lib/dashboard/stageFilter.test.ts": {
+      "snapshot": ".audit/branch-consolidation/B5/preserved-source/src/lib/dashboard/stageFilter.test.ts.snapshot",
+      "sha256": "09e30c5d0d770429e4ea9a4e2cbe9e7c87f0b182dceb41dc82786e510ce8d6e3"
+    },
+    "src/lib/dashboard/stageFilter.ts": {
+      "snapshot": ".audit/branch-consolidation/B5/preserved-source/src/lib/dashboard/stageFilter.ts.snapshot",
+      "sha256": "2f17b8db750282155dea184f99e950506f83e90b16d99bcfe1b05e5aee44d2e6"
+    },
+    "src/lib/reportSections.ts": {
+      "snapshot": ".audit/branch-consolidation/B5/preserved-source/src/lib/reportSections.ts.snapshot",
+      "sha256": "47093c299d931caf1dc9e1fef741d351a97b2645bbc11c89f1ae43972cff02cb"
+    },
+    "src/lib/tiptapConfig.ts": {
+      "snapshot": ".audit/branch-consolidation/B5/preserved-source/src/lib/tiptapConfig.ts.snapshot",
+      "sha256": "f0739d78e76bb085e8d09ed30e8f0d11fba70e7064ae686605397e7feac4571d"
+    },
+    "src/lib/workspace/projectIntentHandoff.test.ts": {
+      "snapshot": ".audit/branch-consolidation/B5/preserved-source/src/lib/workspace/projectIntentHandoff.test.ts.snapshot",
+      "sha256": "d52d16685246e29e344c81d230bf769e44a39f9bec16e336d55d8277bb0fe9c8"
+    },
+    "src/lib/workspace/projectIntentHandoff.ts": {
+      "snapshot": ".audit/branch-consolidation/B5/preserved-source/src/lib/workspace/projectIntentHandoff.ts.snapshot",
+      "sha256": "b59f46a7009ca697e9178f45f5af53c8ea9361a66ad84a99344494fb6f4aad82"
+    },
+    "src/lib/workspace/stageRankGroups.test.ts": {
+      "snapshot": ".audit/branch-consolidation/B5/preserved-source/src/lib/workspace/stageRankGroups.test.ts.snapshot",
+      "sha256": "ce5e604502872622deaff62cbac9732cc09b14f09880df5f9091fd0763753b73"
+    },
+    "src/lib/workspace/stageRankGroups.ts": {
+      "snapshot": ".audit/branch-consolidation/B5/preserved-source/src/lib/workspace/stageRankGroups.ts.snapshot",
+      "sha256": "f041b23c42333a61edc6d76f8416291dda9b952cef5e43f964b76fa77a5df625"
+    },
+    "src/routes/project/new/newProjectPrefill.component.test.ts": {
+      "snapshot": ".audit/branch-consolidation/B5/preserved-source/src/routes/project/new/newProjectPrefill.component.test.ts.snapshot",
+      "sha256": "adb5d7756aa947c8bef42398c9650860151bdcf212960d6498735fc8f9b9d00d"
+    }
+  }
+}

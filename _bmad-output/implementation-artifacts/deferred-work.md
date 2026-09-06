@@ -829,3 +829,54 @@ severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260904-133944-0158; this entry preserves the lingering recommendation for a deliberate later review.
 status: done 2026-09-05
 resolution: Independent learning-health follow-up added order-sensitive capped rerank cohort coverage with an actual wrong-order failing control; integrated e3f23432121b6d3145cff7040c485ac28739a25f. Review and verified source identity: .audit/learning-monitor-20260904/DW-99-independent-review.md and DW-99-root-receipt.json. Final combined source569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c passed1970 unit and463 browser tests, both type checks, uploader suites and build; .audit/integration-final-20260905/final-gates/final-verification.json. Review-budget follow-up satisfied.
+
+### DW-100: Observe expired parser operations before returning the timeout
+origin: branch-consolidation-B1-blind-1
+location: src/lib/parseDocument.ts:66
+source_spec: `_bmad-output/implementation-artifacts/spec-branch-b1-parser-lifetime.md`
+severity: medium
+reason: Independent public parseFileToText probes reproduce an unhandled rejection when a page or text operation starts as the shared deadline expires; this early-return hole predates B1. See .audit/branch-consolidation/parser-expired-audit/findings.md and current-page.log/current-text.log. Schedule bounded B12 within the authorized all-branches audit.
+status: done 2026-09-05
+resolution: B12 observes already-started PDF operations when the shared deadline expires. Actual unchanged-source regression produced two unhandled rejections; final23 parser tests and full nine-step gate passed, including1980 unit and463 browser tests. Three fresh Astra6 medium reviews and per-item triage: .audit/branch-consolidation/B12/review-triage.md; source hashes and runtime receipts: after.json and gate/result.json in that directory. Existing deadline, partial output, original errors and timer cleanup preserved.
+
+### DW-101: Map Unicode case expansion to original editor ranges
+origin: branch-consolidation-B2-unicode-case-map
+location: src/lib/components/editor/docSearch.ts
+source_spec: `_bmad-output/implementation-artifacts/spec-branch-b2-editor-search.md`
+severity: high
+reason: Actual installed editable/read-only schema probe shows inherited wrong target range4..11 instead of3..9 for İ target tail, and dropped end match. Identical pre-B2 helper results prove existing provenance. See .audit/branch-consolidation/search-boundary-audit/summary.md/results.json. B13 is scheduled within this authorized audit before final merge.
+status: done 2026-09-05
+resolution: B13 preserves complete original Unicode spans, non-overlap and later valid matches; forty helper tests and eighteen mounted Editor tests pass, plus the final nine-step gate (2020 unit/481 browser). Evidence: .audit/branch-consolidation/B13-r2/gate/result.json and review-triage.md.
+
+### DW-102: Preserve supported hardBreak boundaries in editor search
+origin: branch-consolidation-B2-hard-break
+location: src/lib/components/editor/docSearch.ts
+source_spec: `_bmad-output/implementation-artifacts/spec-branch-b2-editor-search.md`
+severity: medium
+reason: Actual installed schemas accept alpha + hardBreak + beta; old and current search falsely match alphabeta across the break and miss the whitespace-separated phrase. See .audit/branch-consolidation/search-boundary-audit/summary.md/results.json. Broader unsupported inline-atom claim rejected. B13 is scheduled before final merge.
+status: done 2026-09-05
+resolution: B13 indexes hardBreak as whitespace and aligns all three AI highlight producers, including QA paragraph navigation; real-schema, mounted preview/apply and final nine-step gate pass. Evidence: .audit/branch-consolidation/B13-r2/evidence.md and gate/result.json.
+
+### DW-103: Protect referenced storage from duplicate-upload orphan cleanup
+origin: branch-consolidation B3 independent review
+location: convex/documents.ts:114
+source_spec: `_bmad-output/implementation-artifacts/spec-branch-b3-blank-upload-reads.md`
+severity: high
+reason: Static reachable public API sequence: create A with S1 and B with S2, then upload A name/content using S2. Existing nonblank dedupe deletes S2 although B still references it. Standard UI supplies fresh IDs; no production occurrence or runtime reproduction claimed. Cleanup is byte-identical before and after B3. Prove with registered mutation and real storage, then protect referenced bytes while retaining genuine orphan cleanup.
+status: open
+
+### DW-104: Resolve the existing required React peer contract for Svelte auth integration
+origin: branch-consolidation B7 independent dependency review
+location: package-lock.json @convex-dev/better-auth@0.12.5
+source_spec: `_bmad-output/implementation-artifacts/spec-branch-b7-dependency-prune.md`
+severity: medium
+reason: Both baseline and fresh pruned npm ls --all exit1 for required absent react peer ^18.3.1 || ^19.0.0; existing legacy-peer-deps=true permits install. Active server/Svelte exports avoid React adapters, and relevant complete lock records are unchanged. See .audit/branch-consolidation/B7/peer-review.md. Resolve package metadata/runtime policy deliberately with auth compatibility proof, without claiming optional omission or changing this exact-version prune.
+status: open
+
+### DW-105: Assess and remediate retained dependency security advisories
+origin: branch-consolidation B7 independent npm advisory audit
+location: package-lock.json retained dependency graph
+source_spec: `_bmad-output/implementation-artifacts/spec-branch-b7-dependency-prune.md`
+severity: high
+reason: Read-only npm audit --json exit1 reports11 affected package entries:1low,7moderate,3high. Every affected complete lock record is unchanged from B7 baseline. High entries: brace-expansion5.0.7, nanoid3.3.16, tar7.5.20; additional Tiptap/SvelteKit/DOMPurify/Mermaid and other advisories are enumerated with GHSA URLs in .audit/branch-consolidation/B7/peer-audit-summary.md and raw peer-audit.json. Assess reachable vulnerable APIs and attacker inputs, then choose bounded compatible upgrades and verification. No runtime exploit or new pruning exposure is claimed.
+status: open

@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "vitest.component.config.ts",
+    "src/lib/components/workspace/WorkspaceHeader.component.test.ts",
+    "--silent=false",
+    "--reporter=verbose"
+  ],
+  "exit": 1,
+  "baseline_commit": "d28cfc0bc0a34e78683152553143179fac2682c7",
+  "baseline_source_sha256": "b1430e481a64636f76d390727fb890dfafdd3765fb10c905df3875c9efaa0c5e",
+  "current_source_restored_sha256": "3e0b5a0f83a4d07c10ab2f8fae33633dacc0f4a280be43ab9dd094fa08f3fe46",
+  "log_sha256": "14dac8ce7b223c7134e054160a00322859f5cb40962bb7d273a50f3908f62d61",
+  "baseline_desktop": {
+    "width": 121.671875,
+    "height": 32
+  },
+  "baseline_mobile": {
+    "width": 41,
+    "height": 32
+  },
+  "expected_failure": "Corrected mobile height assertion; desktop passes and both widths logged"
+}

@@ -1,0 +1,92 @@
+[
+  {
+    "path": "initial-refs.json",
+    "expected": "02acef642a99505174530e39ca2c4b813473a7a51642099e32c5fe06969b263c",
+    "actual": "02acef642a99505174530e39ca2c4b813473a7a51642099e32c5fe06969b263c",
+    "match": true
+  },
+  {
+    "path": "factory-audit/commit-inventory.json",
+    "expected": "bebee93d787b0b8ba8f1c1838e4178dfc6c27538c0cee473da152a4a2c2fbf85",
+    "actual": "bebee93d787b0b8ba8f1c1838e4178dfc6c27538c0cee473da152a4a2c2fbf85",
+    "match": true
+  },
+  {
+    "path": "factory-audit/integration-batches.json",
+    "expected": "aeae2e19956df1d32e700a7ac507b1fd6a7ce843fa478ebaaba934a1a0770077",
+    "actual": "aeae2e19956df1d32e700a7ac507b1fd6a7ce843fa478ebaaba934a1a0770077",
+    "match": true
+  },
+  {
+    "path": "factory-audit/findings.md",
+    "expected": "2f64a7a02c77927fc9ca17c5196c2a02d519e51c8183fed1883708abc985eec7",
+    "actual": "2f64a7a02c77927fc9ca17c5196c2a02d519e51c8183fed1883708abc985eec7",
+    "match": true
+  },
+  {
+    "path": "factory-audit/auxiliary-verification-sources.json",
+    "expected": "4d4a61c52e49d6a90a86fca930064857d59f1e98287de2688d2e02c78027f07f",
+    "actual": "4d4a61c52e49d6a90a86fca930064857d59f1e98287de2688d2e02c78027f07f",
+    "match": true
+  },
+  {
+    "path": "planning/B9.md",
+    "expected": "3dcad767e7b6e625816f39c07672d489c29a113bf5d99cdf0ddacd9d8c82656f",
+    "actual": "3dcad767e7b6e625816f39c07672d489c29a113bf5d99cdf0ddacd9d8c82656f",
+    "match": true
+  },
+  {
+    "path": "planning/B8.md",
+    "expected": "42e080a78972c553404ec1533ac2f7ca9d4780d07a169861ffa84acdf7844eb5",
+    "actual": "42e080a78972c553404ec1533ac2f7ca9d4780d07a169861ffa84acdf7844eb5",
+    "match": true
+  },
+  {
+    "path": "planning/B7.md",
+    "expected": "ce5fc51e7511428e58c78c4a8a38197e39a10600d9c2f107f4266fe99d07ed8f",
+    "actual": "ce5fc51e7511428e58c78c4a8a38197e39a10600d9c2f107f4266fe99d07ed8f",
+    "match": true
+  },
+  {
+    "path": "planning/B3.md",
+    "expected": "d0d1548d8ad114e33a7b81f72584d1cf1f909e01ee335d306c75792651154cf7",
+    "actual": "d0d1548d8ad114e33a7b81f72584d1cf1f909e01ee335d306c75792651154cf7",
+    "match": true
+  },
+  {
+    "path": "planning/B2.md",
+    "expected": "03689a9b12799d0f29e580f3d5f41414e0e714b10dd97dc49c32fa8e5ad34350",
+    "actual": "03689a9b12799d0f29e580f3d5f41414e0e714b10dd97dc49c32fa8e5ad34350",
+    "match": true
+  },
+  {
+    "path": "planning/B6.md",
+    "expected": "0071c53488bf695465dc76e36e932bc0f0f45749b01a3275a9bd66dbf3d81d30",
+    "actual": "0071c53488bf695465dc76e36e932bc0f0f45749b01a3275a9bd66dbf3d81d30",
+    "match": true
+  },
+  {
+    "path": "planning/B10.md",
+    "expected": "48db88889eae75998c70262a6db4516529e5f62cca58a394780ee18b08a1e625",
+    "actual": "48db88889eae75998c70262a6db4516529e5f62cca58a394780ee18b08a1e625",
+    "match": true
+  },
+  {
+    "path": "planning/B5.md",
+    "expected": "47de19e30b78cc7fcc82879f96e65d2fba560f655b0c09e96365683ba4f6e63b",
+    "actual": "47de19e30b78cc7fcc82879f96e65d2fba560f655b0c09e96365683ba4f6e63b",
+    "match": true
+  },
+  {
+    "path": "planning/B4.md",
+    "expected": "fd7ee2f91854330bb336e46410b678f36e77404f771cdca22b1d92933df88129",
+    "actual": "cba0efe2489056805207bdd71de7e6e0d82d608284593d32dadc60d09808822b",
+    "match": false
+  },
+  {
+    "path": "planning/B11.md",
+    "expected": "5f25b19037a90948ea3b56c3bf7eae08a14ccfd6238d3746c6ed0c14824e1ad8",
+    "actual": "5f25b19037a90948ea3b56c3bf7eae08a14ccfd6238d3746c6ed0c14824e1ad8",
+    "match": true
+  }
+]
