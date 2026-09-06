@@ -1,0 +1,44 @@
+{
+  "at": "2026-09-06T00:23:01.408472+00:00",
+  "results": [
+    {
+      "argv": [
+        "gh",
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "number,title,headRefName,baseRefName,url,isDraft,mergeStateStatus"
+      ],
+      "exit_code": 0,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "gh",
+        "repo",
+        "view",
+        "--json",
+        "nameWithOwner,defaultBranchRef,mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"defaultBranchRef\":{\"name\":\"main\"},\"mergeCommitAllowed\":true,\"nameWithOwner\":\"Choquer-agency/Banhall\",\"rebaseMergeAllowed\":true,\"squashMergeAllowed\":true}\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "ls-remote",
+        "origin",
+        "refs/heads/main"
+      ],
+      "exit_code": 0,
+      "stdout": "cc6b706c3b43f971d944cb703a4174eabf3134d9\trefs/heads/main\n",
+      "stderr": ""
+    }
+  ]
+}

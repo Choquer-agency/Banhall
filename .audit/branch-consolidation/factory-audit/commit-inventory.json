@@ -1,0 +1,1157 @@
+[
+  {
+    "branch": "sprint2-boundary",
+    "sha": "11bfe3ebcb79fd8be78e2e057b45ea69db0f88be",
+    "subject": "fix(tsconfig): one include block after the lane merge (pipeline and chatspend both added it)",
+    "files": {
+      "tsconfig.json": {
+        "parent": "9ab2bf7ee90bde741a7bb516dce9a0844b190284",
+        "commit": "9c80d8bce956399b28bfe3399925d84783dd3e15",
+        "tip": "eabdeed3c27dc5a05226710cd07f2b13b6f7a511",
+        "main": "3fa4a6c8966f254956fb4a8291f54629f31883d9",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "9ee49b2bb94fb4c87c3e570bd11a7ed74c6916d5",
+    "subject": "perf-1-parser-timers-editor-index: add maintained editor-search benchmark",
+    "files": {
+      "scripts/bench/editor-search.mjs": {
+        "parent": null,
+        "commit": "100c7b4f3e3f641c21b66d37be4436197c552a4e",
+        "tip": "100c7b4f3e3f641c21b66d37be4436197c552a4e",
+        "main": null,
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "1e84c27339676ad19a034d95bee92144e81b57d5",
+    "subject": "perf-1-parser-timers-editor-index: pin the editor search surface in a browser suite",
+    "files": {
+      "src/lib/components/editor/Editor.component.test.ts": {
+        "parent": null,
+        "commit": "b31d9627da94265f94145ea451c14b27a47bb235",
+        "tip": "df3da98d4182ee62da0a85824b1b6974ea4825ab",
+        "main": null,
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "e4495a50c183507e8661422c4281785c7cffd3a1",
+    "subject": "perf-1-parser-timers-editor-index: build the editor search index once per batch",
+    "files": {
+      "src/lib/components/editor/Editor.svelte": {
+        "parent": "f977567c482f72e3ca157148489836da8326bf2d",
+        "commit": "f4e230ada92e64a71dc3b0564245ed0f134f120c",
+        "tip": "f4e230ada92e64a71dc3b0564245ed0f134f120c",
+        "main": "f977567c482f72e3ca157148489836da8326bf2d",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/components/editor/docSearch.test.ts": {
+        "parent": null,
+        "commit": "272e8fd60709e0b931d33e39172f1ec94725a253",
+        "tip": "272e8fd60709e0b931d33e39172f1ec94725a253",
+        "main": null,
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/components/editor/docSearch.ts": {
+        "parent": null,
+        "commit": "3580d8445e9a186b1d00ed58cb7a0fcff27833e5",
+        "tip": "3580d8445e9a186b1d00ed58cb7a0fcff27833e5",
+        "main": null,
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "f82f2b0a9c44b9f5475d6d5c31418ab368bd3c4c",
+    "subject": "perf-1-parser-timers-editor-index: release the PDF deadline timer when the race settles",
+    "files": {
+      "src/lib/parseDocument.test.ts": {
+        "parent": "b9018689d6417662f37b69967acd620d2af96023",
+        "commit": "21cfd3644f33ea797d151cedea83af23690ffeee",
+        "tip": "0993d35d179079c20a9b699173a1fb11e2b64885",
+        "main": "b9018689d6417662f37b69967acd620d2af96023",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/parseDocument.ts": {
+        "parent": "bb0bf16421b8547836240b39081a86a5fbeae664",
+        "commit": "1f7a3c5e0ca30e84f98bf25988533fb7c6c078a8",
+        "tip": "1f7a3c5e0ca30e84f98bf25988533fb7c6c078a8",
+        "main": "bb0bf16421b8547836240b39081a86a5fbeae664",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "18f383c079ba24bf8781e5c5eca3b2b3af0b0a3f",
+    "subject": "perf-2-empty-upload-reads: skip the project document read for blank uploads",
+    "files": {
+      "convex/documents.test.ts": {
+        "parent": "228d06e57e0523c08afbf7e62e595bbe6f1014c8",
+        "commit": "77b08e2a658c942d18174fd47531fbe68e4a8a01",
+        "tip": "77b08e2a658c942d18174fd47531fbe68e4a8a01",
+        "main": "228d06e57e0523c08afbf7e62e595bbe6f1014c8",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "convex/documents.ts": {
+        "parent": "6f0f7b145aa61d31c7ece51e56c0d5bd8f8ce3b1",
+        "commit": "d3824af50f922bb2b211ea5e2fea549f09499957",
+        "tip": "d3824af50f922bb2b211ea5e2fea549f09499957",
+        "main": "6f0f7b145aa61d31c7ece51e56c0d5bd8f8ce3b1",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+    "subject": "slop-1-dead-components: delete nine abandoned React-port components",
+    "files": {
+      "src/lib/components/comments/CommentHighlight.ts": {
+        "parent": "9f4a727e13715f58eed3dbcfc1ec5c2e355f4505",
+        "commit": null,
+        "tip": null,
+        "main": "9f4a727e13715f58eed3dbcfc1ec5c2e355f4505",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/components/comments/CommentSidebar.svelte": {
+        "parent": "e17eff8f4cef1ed5cb2c92d2e3402c57229d2a31",
+        "commit": null,
+        "tip": null,
+        "main": "e17eff8f4cef1ed5cb2c92d2e3402c57229d2a31",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/components/comments/CommentThread.svelte": {
+        "parent": "6dd76f0de98775b1cb29c7c3af93237f431dabc1",
+        "commit": null,
+        "tip": null,
+        "main": "6dd76f0de98775b1cb29c7c3af93237f431dabc1",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/components/editor/GapCallout.svelte": {
+        "parent": "d60cc3d2bdb976c77e865b8e2d6da21dc98e3fbb",
+        "commit": null,
+        "tip": null,
+        "main": "d60cc3d2bdb976c77e865b8e2d6da21dc98e3fbb",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/components/editor/SectionDivider.svelte": {
+        "parent": "2cdeb5591959e30b47948007da0f5a4960e5a98e",
+        "commit": null,
+        "tip": null,
+        "main": "2cdeb5591959e30b47948007da0f5a4960e5a98e",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/components/generation/ReportViewer.svelte": {
+        "parent": "03eeb543ddbb6c4667f5afc50ce2dddab74e2281",
+        "commit": null,
+        "tip": null,
+        "main": "03eeb543ddbb6c4667f5afc50ce2dddab74e2281",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/components/ui/Header.svelte": {
+        "parent": "00c72a9e6ed321448c3eedadef25e3ffe73aac30",
+        "commit": null,
+        "tip": null,
+        "main": "00c72a9e6ed321448c3eedadef25e3ffe73aac30",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/components/ui/InsightTile.svelte": {
+        "parent": "988e5d8966ff39043e7dffc4bdf3e31466816016",
+        "commit": null,
+        "tip": null,
+        "main": "988e5d8966ff39043e7dffc4bdf3e31466816016",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/components/ui/MenuToggleIcon.svelte": {
+        "parent": "a021955eecda7924857ef3861470043557e1e96f",
+        "commit": null,
+        "tip": null,
+        "main": "a021955eecda7924857ef3861470043557e1e96f",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "fb6c6b5d68e761cdab0b02975d9670c230f5e060",
+    "subject": "slop-2-dead-helpers-and-deps: delete test-only helper exports and the duplicate underline registration",
+    "files": {
+      "src/lib/dashboard/stageFilter.test.ts": {
+        "parent": "8693813d7e343fe8474e6939593c296522acf916",
+        "commit": "d80cc80a78371448a481b1ef8728ab7d99d75e50",
+        "tip": "5b1e3613a89cb6f70dfa27801eaf279e34aa81e6",
+        "main": "8693813d7e343fe8474e6939593c296522acf916",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/dashboard/stageFilter.ts": {
+        "parent": "44cf83932c70ee294adc8679bf42c2eff00b6c78",
+        "commit": "633a9884a33fdf89e288fe2feaa993fadd10d2c3",
+        "tip": "633a9884a33fdf89e288fe2feaa993fadd10d2c3",
+        "main": "44cf83932c70ee294adc8679bf42c2eff00b6c78",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/reportSections.ts": {
+        "parent": "6a8ba1d8ea483fddc5394476cd5539e19c24bc15",
+        "commit": "4773fccb58fa93dcca5c52cb38dd4304917bb69a",
+        "tip": "4773fccb58fa93dcca5c52cb38dd4304917bb69a",
+        "main": "6a8ba1d8ea483fddc5394476cd5539e19c24bc15",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/tiptapConfig.ts": {
+        "parent": "6a7b03a2fc65ea86eac63f31a303fc8c2a43277e",
+        "commit": "81e4165e77828212a46581a64434d896ee7e0a2a",
+        "tip": "81e4165e77828212a46581a64434d896ee7e0a2a",
+        "main": "6a7b03a2fc65ea86eac63f31a303fc8c2a43277e",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/workspace/projectIntentHandoff.test.ts": {
+        "parent": "9f11266260b1e2447b1ba82a21cd476bcbe15ddb",
+        "commit": "1543b8d2c5b3d554fa92e68ec7bf31fbc3e41a93",
+        "tip": "1543b8d2c5b3d554fa92e68ec7bf31fbc3e41a93",
+        "main": "9f11266260b1e2447b1ba82a21cd476bcbe15ddb",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/workspace/projectIntentHandoff.ts": {
+        "parent": "7d3134b6895e2ed6f5577e72480681ad03385cb6",
+        "commit": "496107bff451ea9e1e6e6d62788e9f894fa48e8c",
+        "tip": "496107bff451ea9e1e6e6d62788e9f894fa48e8c",
+        "main": "7d3134b6895e2ed6f5577e72480681ad03385cb6",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/workspace/stageRankGroups.test.ts": {
+        "parent": "b856f4082de9b5f668917e5eecf6cf78a5986edc",
+        "commit": "3d6dd814135ffb99fd760709643ac606b6981e97",
+        "tip": "3d6dd814135ffb99fd760709643ac606b6981e97",
+        "main": "b856f4082de9b5f668917e5eecf6cf78a5986edc",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/workspace/stageRankGroups.ts": {
+        "parent": "0a36931a88038b44026e49de656f8bfbdd0cd25f",
+        "commit": "bcd7976b17d7e1f8734bdb0ba0c53d6bd5be6722",
+        "tip": "bcd7976b17d7e1f8734bdb0ba0c53d6bd5be6722",
+        "main": "0a36931a88038b44026e49de656f8bfbdd0cd25f",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/routes/project/new/newProjectPrefill.component.test.ts": {
+        "parent": "2d92a0860746eab8579575e59e7751d37670ce98",
+        "commit": "5034de185a151bac8cf6f9762b2fd92f163c03e0",
+        "tip": "5034de185a151bac8cf6f9762b2fd92f163c03e0",
+        "main": "2d92a0860746eab8579575e59e7751d37670ce98",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "8649315de144a7e424c12ff461046d5ec8e58ddd",
+    "subject": "slop-2-dead-helpers-and-deps: drop four unused dependencies",
+    "files": {
+      "package-lock.json": {
+        "parent": "d2bba43a6c12dfdce6fdabdd6d79fce6473a1bb1",
+        "commit": "eba4c14a5f296996c8fcff2f5cb744a7ef3828ec",
+        "tip": "9dbbe5f61b32e485aca279dc855035e0138a2680",
+        "main": "d2bba43a6c12dfdce6fdabdd6d79fce6473a1bb1",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "package.json": {
+        "parent": "0e421bee42ae611ce0b48d7e8afa156046c77360",
+        "commit": "f3f865ef1418aac1b5d7d66b7f425aa22cd12603",
+        "tip": "852319fdbf294e2b488807ccf2e299a27dcf25a5",
+        "main": "0e421bee42ae611ce0b48d7e8afa156046c77360",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "d381a689e74f0d30cd712134735eb58207835f00",
+    "subject": "proof-1-parser-budget-sequence: prove the PDF load and page text consume sequential parts of the shared deadline",
+    "files": {
+      "src/lib/components/editor/Editor.component.test.ts": {
+        "parent": "b31d9627da94265f94145ea451c14b27a47bb235",
+        "commit": "df3da98d4182ee62da0a85824b1b6974ea4825ab",
+        "tip": "df3da98d4182ee62da0a85824b1b6974ea4825ab",
+        "main": null,
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "src/lib/parseDocument.test.ts": {
+        "parent": "21cfd3644f33ea797d151cedea83af23690ffeee",
+        "commit": "0993d35d179079c20a9b699173a1fb11e2b64885",
+        "tip": "0993d35d179079c20a9b699173a1fb11e2b64885",
+        "main": "b9018689d6417662f37b69967acd620d2af96023",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "0017ee6259fa2bdc4a23c3c13305273a2eee06de",
+    "subject": "slop-2-dead-helpers-and-deps: name the legacy-bucket case for what it asserts",
+    "files": {
+      "src/lib/dashboard/stageFilter.test.ts": {
+        "parent": "d80cc80a78371448a481b1ef8728ab7d99d75e50",
+        "commit": "5b1e3613a89cb6f70dfa27801eaf279e34aa81e6",
+        "tip": "5b1e3613a89cb6f70dfa27801eaf279e34aa81e6",
+        "main": "8693813d7e343fe8474e6939593c296522acf916",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "28c0c0cca253b57f1171b632046f58d0a5c825a0",
+    "subject": "slop-3-mywork-island: delete the retired My Work lane presentation island",
+    "files": {
+      "src/lib/components/mywork/MyWorkGroup.svelte": {
+        "parent": "7a31839f583f0d3f40b838d7a814425ac8c5999d",
+        "commit": null,
+        "tip": null,
+        "main": "7a31839f583f0d3f40b838d7a814425ac8c5999d",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/components/mywork/MyWorkRow.component.test.ts": {
+        "parent": "13464de35ce8cc661c19eaf41563e7d3762e5b22",
+        "commit": null,
+        "tip": null,
+        "main": "13464de35ce8cc661c19eaf41563e7d3762e5b22",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/components/mywork/MyWorkRow.svelte": {
+        "parent": "e7790c9a7691766025bceec97d98476b9b7590cb",
+        "commit": null,
+        "tip": null,
+        "main": "e7790c9a7691766025bceec97d98476b9b7590cb",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/components/mywork/MyWorkRowFixture.svelte": {
+        "parent": "451684dda566d6c8d8d02dc48a078cf68ddf402d",
+        "commit": null,
+        "tip": null,
+        "main": "451684dda566d6c8d8d02dc48a078cf68ddf402d",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/mywork/laneSort.test.ts": {
+        "parent": "9e24b6262ce41f2c7b09d7926b0afbd8d2206e6c",
+        "commit": null,
+        "tip": null,
+        "main": "9e24b6262ce41f2c7b09d7926b0afbd8d2206e6c",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/mywork/laneSort.ts": {
+        "parent": "041aa0ef2e48f6360c8d4a365460eb136a6dd818",
+        "commit": null,
+        "tip": null,
+        "main": "041aa0ef2e48f6360c8d4a365460eb136a6dd818",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/mywork/myWorkPreferences.test.ts": {
+        "parent": "6eafb78b6639c1a24fc94b6f633c5ba691d68e2c",
+        "commit": null,
+        "tip": null,
+        "main": "6eafb78b6639c1a24fc94b6f633c5ba691d68e2c",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/mywork/myWorkPreferences.ts": {
+        "parent": "7afe5cba00ce676962c9c5b3da148bb1eb12adc2",
+        "commit": null,
+        "tip": null,
+        "main": "7afe5cba00ce676962c9c5b3da148bb1eb12adc2",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "bbdd2b132c8bbdbe0208fcb5abcbb15b2747cffd",
+    "subject": "tests-1-one-runner: run the pure tests/ suites under vitest",
+    "files": {
+      "tests/brainScienceRouting.test.ts": {
+        "parent": "37f2c2c935cc14b5545f04c7200843bb750f103a",
+        "commit": "3c23a13c5393c92349830d1c7e119d6d549c4748",
+        "tip": "3c23a13c5393c92349830d1c7e119d6d549c4748",
+        "main": "3c23a13c5393c92349830d1c7e119d6d549c4748",
+        "mainEqualsTip": true,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": true
+      },
+      "tests/craScienceCodes.test.ts": {
+        "parent": "409c8c976e00468551063f96814f2ba8b7841a67",
+        "commit": "8807d80330be9b5d9e281a5000138e37376070cb",
+        "tip": "8807d80330be9b5d9e281a5000138e37376070cb",
+        "main": "8807d80330be9b5d9e281a5000138e37376070cb",
+        "mainEqualsTip": true,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": true
+      },
+      "tests/diff.test.ts": {
+        "parent": "b80f7921a0ad3879a5c7e54f8c4a77839b6effd1",
+        "commit": "105deb64b62b612a1a786bcb3288feb9fef826c4",
+        "tip": "105deb64b62b612a1a786bcb3288feb9fef826c4",
+        "main": "105deb64b62b612a1a786bcb3288feb9fef826c4",
+        "mainEqualsTip": true,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": true
+      },
+      "tests/exportValidation.test.ts": {
+        "parent": "a3fd0facf3e4633043844fdfd9ade3756e0c3a8c",
+        "commit": "595b232c8af7cda138e0c66a829b69407dab0c47",
+        "tip": "595b232c8af7cda138e0c66a829b69407dab0c47",
+        "main": "595b232c8af7cda138e0c66a829b69407dab0c47",
+        "mainEqualsTip": true,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": true
+      },
+      "tests/generationMode.test.ts": {
+        "parent": "4721764b72f7f4e2e945f9eccbdc80430ab7772b",
+        "commit": "30104a0676d01ae002b3f77f9f6b7896e1b0fc12",
+        "tip": "30104a0676d01ae002b3f77f9f6b7896e1b0fc12",
+        "main": "30104a0676d01ae002b3f77f9f6b7896e1b0fc12",
+        "mainEqualsTip": true,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": true
+      },
+      "tests/industries.test.ts": {
+        "parent": "0e1e89a80c5626f41425bf89684b67fe81c8c99e",
+        "commit": "aafc4bf77c29c7d4c637430166ed45a05a83761d",
+        "tip": "aafc4bf77c29c7d4c637430166ed45a05a83761d",
+        "main": "aafc4bf77c29c7d4c637430166ed45a05a83761d",
+        "mainEqualsTip": true,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": true
+      },
+      "tests/lineLimits.test.ts": {
+        "parent": "f08788d6dd84be0232a525a4b32aa06f53c54dc5",
+        "commit": "5c7981507d7addefc068dddef1467851b2e3e435",
+        "tip": "5c7981507d7addefc068dddef1467851b2e3e435",
+        "main": "5c7981507d7addefc068dddef1467851b2e3e435",
+        "mainEqualsTip": true,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": true
+      },
+      "tests/qaScoring.test.ts": {
+        "parent": "6455c8077010a2687017a35666e927ca699f6b69",
+        "commit": "6b620b6dda53dd712ee85f4da3f66b4819940b2a",
+        "tip": "6b620b6dda53dd712ee85f4da3f66b4819940b2a",
+        "main": "6b620b6dda53dd712ee85f4da3f66b4819940b2a",
+        "mainEqualsTip": true,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": true
+      },
+      "tests/reportEdits.test.ts": {
+        "parent": "db7a41c7a56085ecfadcc46ac55848cdd4304e3f",
+        "commit": "7607de65b3e2029e52b92fe4355227e5eaf94cc5",
+        "tip": "7607de65b3e2029e52b92fe4355227e5eaf94cc5",
+        "main": "069fd2a1463b19ea8b2e7402aa78a956c0640257",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "tests/reportSections.test.ts": {
+        "parent": "e74b08890ec653039acd50ee6a6622c01d32860f",
+        "commit": "be4a74ecea1540fbfcc16b6305e2838734398aa0",
+        "tip": "be4a74ecea1540fbfcc16b6305e2838734398aa0",
+        "main": "be4a74ecea1540fbfcc16b6305e2838734398aa0",
+        "mainEqualsTip": true,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": true
+      },
+      "tests/snapshots.test.ts": {
+        "parent": "904b51c54556bb906bb7a5598b88c2846ebf856a",
+        "commit": "080af6efbc2a7cc7f5038543064f4f301fe8522b",
+        "tip": "080af6efbc2a7cc7f5038543064f4f301fe8522b",
+        "main": "8aa8b7f7e118376e7f3c52b4e8cadf2fa09451cc",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "tests/teamRoster.test.ts": {
+        "parent": "32aadd9f8358fd30fac559753d30450b33bc822c",
+        "commit": "5f8c1a269f9f08efcef48000ff15e337d9edfef7",
+        "tip": "d5f6b14f9e0250e6c5b29b09dbae50ac0d6cc596",
+        "main": "5f8c1a269f9f08efcef48000ff15e337d9edfef7",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": true
+      },
+      "vitest.config.ts": {
+        "parent": "4cdbcc6dab7360c093b33a414bbf1bf4c1d3fdc8",
+        "commit": "b14b99f20aa68acae66494c91f47fed481e7609a",
+        "tip": "fb49ec9002f8ea8edfbacc578ae43ca94a22ecd2",
+        "main": "2d005185b2d972d0674f2005380f10db1f3a0314",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "0fdcacf3f0cbaf434c2024a7fb609be88c453567",
+    "subject": "tests-2-real-proposal-access-roster-tests: prove the proposal, access and roster scenarios against real Convex endpoints",
+    "files": {
+      "convex/chatProposalsApply.test.ts": {
+        "parent": null,
+        "commit": "22e864efe0d608c19924f17ae3ee0deae13a858e",
+        "tip": "642fda89b1e06fbef76665c8f28ea6bd17355eda",
+        "main": null,
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "convex/projectAccess.test.ts": {
+        "parent": "f1df183a1e9c316b91dfe7ccdd345a9713a6d40f",
+        "commit": "c91c3d23ccc712925d721833f5c11835e05fe5d8",
+        "tip": "c91c3d23ccc712925d721833f5c11835e05fe5d8",
+        "main": "f1df183a1e9c316b91dfe7ccdd345a9713a6d40f",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "convex/users.test.ts": {
+        "parent": "b182c78c4f3b985ea58496348084b6d76a41cee4",
+        "commit": "028f62e962c32ca345bfcb7220b9aa66286b7a0a",
+        "tip": "028f62e962c32ca345bfcb7220b9aa66286b7a0a",
+        "main": "b182c78c4f3b985ea58496348084b6d76a41cee4",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "tests/chatProposals.test.ts": {
+        "parent": "98b8fc2be77b8ede298450786ae94f27f3945c9f",
+        "commit": null,
+        "tip": null,
+        "main": "70c89420bc3fc578614998c4849f9c2971510871",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "tests/projectReviewAccess.test.ts": {
+        "parent": "ef01619d5e32fec2001998592531f4a397241e2b",
+        "commit": null,
+        "tip": null,
+        "main": "0fb1d8e24d8ba233c1e273bc21b476d90db37b29",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "tests/teamRoster.test.ts": {
+        "parent": "5f8c1a269f9f08efcef48000ff15e337d9edfef7",
+        "commit": "d5f6b14f9e0250e6c5b29b09dbae50ac0d6cc596",
+        "tip": "d5f6b14f9e0250e6c5b29b09dbae50ac0d6cc596",
+        "main": "5f8c1a269f9f08efcef48000ff15e337d9edfef7",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "vitest.config.ts": {
+        "parent": "b14b99f20aa68acae66494c91f47fed481e7609a",
+        "commit": "fb49ec9002f8ea8edfbacc578ae43ca94a22ecd2",
+        "tip": "fb49ec9002f8ea8edfbacc578ae43ca94a22ecd2",
+        "main": "2d005185b2d972d0674f2005380f10db1f3a0314",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "d9ee06235a1be9997eaf62331d98dbc7db78eb35",
+    "subject": "tests-2-real-proposal-access-roster-tests: drop the unused admin actor from the apply fixture",
+    "files": {
+      "convex/chatProposalsApply.test.ts": {
+        "parent": "22e864efe0d608c19924f17ae3ee0deae13a858e",
+        "commit": "72955501ee197292eaa9ec59101919dbf77b78ad",
+        "tip": "642fda89b1e06fbef76665c8f28ea6bd17355eda",
+        "main": null,
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "c755e003c7027135c9adf5ac3e67c617ddc7cce5",
+    "subject": "tests-2-real-proposal-access-roster-tests: restore reader parity and isolate queued proposal fixtures",
+    "files": {
+      "convex/chatProposalsApply.test.ts": {
+        "parent": "72955501ee197292eaa9ec59101919dbf77b78ad",
+        "commit": "642fda89b1e06fbef76665c8f28ea6bd17355eda",
+        "tip": "642fda89b1e06fbef76665c8f28ea6bd17355eda",
+        "main": null,
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "ad9952ff1ba107bfbf97955863d4dfcdf774a530",
+    "subject": "tests-3-runner-cleanup-and-guard: drop bun runner leftovers, add test-discovery guard",
+    "files": {
+      "bun.lock": {
+        "parent": "e9425176a9379c0627e190d5733a33e842aa06c7",
+        "commit": null,
+        "tip": null,
+        "main": "e9425176a9379c0627e190d5733a33e842aa06c7",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "package-lock.json": {
+        "parent": "eba4c14a5f296996c8fcff2f5cb744a7ef3828ec",
+        "commit": "9dbbe5f61b32e485aca279dc855035e0138a2680",
+        "tip": "9dbbe5f61b32e485aca279dc855035e0138a2680",
+        "main": "d2bba43a6c12dfdce6fdabdd6d79fce6473a1bb1",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "package.json": {
+        "parent": "f3f865ef1418aac1b5d7d66b7f425aa22cd12603",
+        "commit": "852319fdbf294e2b488807ccf2e299a27dcf25a5",
+        "tip": "852319fdbf294e2b488807ccf2e299a27dcf25a5",
+        "main": "0e421bee42ae611ce0b48d7e8afa156046c77360",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "scripts/check-test-discovery.mjs": {
+        "parent": null,
+        "commit": "7dbf0c7f9ba87ae917ff4c7b4c2cc53390246baa",
+        "tip": "7dbf0c7f9ba87ae917ff4c7b4c2cc53390246baa",
+        "main": "013ec7207d9ac780855857fe483d772c16058b6d",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "tsconfig.json": {
+        "parent": "9c80d8bce956399b28bfe3399925d84783dd3e15",
+        "commit": "eabdeed3c27dc5a05226710cd07f2b13b6f7a511",
+        "tip": "eabdeed3c27dc5a05226710cd07f2b13b6f7a511",
+        "main": "3fa4a6c8966f254956fb4a8291f54629f31883d9",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "ca79e7670ea53237ecb52e4977af0649051da4cc",
+    "subject": "ui-1-component-suite-green: pin the Projects href by parts, not by string",
+    "files": {
+      "src/routes/workspaceRoutes.component.test.ts": {
+        "parent": "575660b2ddcd19158fcda44a9597b797ff98fa6b",
+        "commit": "f0c614ad1c405f434ff43f9e8530421c08406433",
+        "tip": "f0c614ad1c405f434ff43f9e8530421c08406433",
+        "main": "78edc92e48c3096557292d76f5a2772d250ac737",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "4cc4a85fa06cfedcc460dc5527e815ca539b708e",
+    "subject": "ui-1-component-suite-green: drop Button's historical class inventory",
+    "files": {
+      "src/lib/components/ui/Button.component.test.ts": {
+        "parent": "04ebd8464f3aa151a827e206615b314fd3336bee",
+        "commit": "880f9bfea936d4401c6404a0e25958ec93dbdaae",
+        "tip": "880f9bfea936d4401c6404a0e25958ec93dbdaae",
+        "main": "c4dd38f4890720f89bc67238c4ab2532ce85829f",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "494a57575dfe8fa1d3757edff1777994eae53625",
+    "subject": "ui-1-component-suite-green: follow the drawer's real sign-out flow",
+    "files": {
+      "src/lib/components/workspace/WorkspaceChrome.component.test.ts": {
+        "parent": "b4b8d1d74a92f9a0521c519702a71f3a1985d6e9",
+        "commit": "b23c57751f59d7dd52915c301ceadcae60581534",
+        "tip": "b23c57751f59d7dd52915c301ceadcae60581534",
+        "main": "809e83c0975e5ead6721e11de7a84939fcf1a6f6",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "e581436f28c104b3159ab03be3418be228b188cd",
+    "subject": "ui-1-component-suite-green: seed an eligible admin for the rail's Admin group",
+    "files": {
+      "src/lib/components/workspace/WorkspaceRail.component.test.ts": {
+        "parent": "ed271e3c2fae3a8e4d4840837e230ca288677cf1",
+        "commit": "5b1407f7063ead55edaef47c9443e591719d6950",
+        "tip": "5b1407f7063ead55edaef47c9443e591719d6950",
+        "main": "3db22c5fb84b56463d77cb5096de492b1cdaeff3",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "d7036f7551f1438c64fea5330dc77327ab7c99eb",
+    "subject": "ui-1-component-suite-green: give the header's New project action a 44px mobile floor",
+    "files": {
+      "src/lib/components/workspace/WorkspaceHeader.component.test.ts": {
+        "parent": "c02dd2e515fe83668bac456671731dcb6691b31d",
+        "commit": "3fd9a36dbfcc09dbcfd1c762e78cc8497865cc79",
+        "tip": "3fd9a36dbfcc09dbcfd1c762e78cc8497865cc79",
+        "main": "3490403fbdb2a55d46323f387bcb8461bb71da82",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "src/lib/components/workspace/WorkspaceHeader.svelte": {
+        "parent": "de77b81b102a973f6c69f1440d4e2ff303ea3f7a",
+        "commit": "d450f64865d3315aa26d938d9b8c8721b17e70a8",
+        "tip": "d450f64865d3315aa26d938d9b8c8721b17e70a8",
+        "main": "de77b81b102a973f6c69f1440d4e2ff303ea3f7a",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "b9e09bc407d835c004b6dcf2ebaa3dc51261892e",
+    "subject": "dx-1-one-verify-entry: one stepped verification gate, CI that calls it, and docs that describe this app",
+    "files": {
+      ".github/workflows/ci.yml": {
+        "parent": "bfaeef1edb64570c8c93f521df6b0d9deae3e35a",
+        "commit": "f48fd0426616bac07711133a15dc95c3b516a472",
+        "tip": "f48fd0426616bac07711133a15dc95c3b516a472",
+        "main": "f48fd0426616bac07711133a15dc95c3b516a472",
+        "mainEqualsTip": true,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": true
+      },
+      ".nvmrc": {
+        "parent": null,
+        "commit": "a45fd52cc5891570d6299fab38643103c3955474",
+        "tip": "a45fd52cc5891570d6299fab38643103c3955474",
+        "main": "a45fd52cc5891570d6299fab38643103c3955474",
+        "mainEqualsTip": true,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": true
+      },
+      "AGENTS.md": {
+        "parent": "f12afeb44164a721fcbdc571a020062c33d72100",
+        "commit": "41fc66e20cc30c45cdcdda52b33b934d3b3d0610",
+        "tip": "41fc66e20cc30c45cdcdda52b33b934d3b3d0610",
+        "main": "05ebedc8cec566b0c95d2833400f047c29de798f",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "README.md": {
+        "parent": "e215bc4ccf138bbc38ad58ad57e92135484b3c0f",
+        "commit": "452b4c18f995775913a792e6792e0a60b1524166",
+        "tip": "47fb12550a87f1792135fa83fef974295dbec65d",
+        "main": "ac69078de4e3090d99ec14503e08b7dad3b9f906",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "docs/bmad-loop.md": {
+        "parent": "f370afde5d27accdf9a8ba6cc2735e86a6e55d53",
+        "commit": "0513c829a6cbb5019ba18cdfd5e8d3782f609d07",
+        "tip": "e0f80aa7d5814b52b02efb45bdada2f4a605b5bc",
+        "main": "857254916fcfb2756141194ab175c4414a341212",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "docs/design-system.md": {
+        "parent": "862db1276537815512c9442855aeefa9024c5900",
+        "commit": "e64f7315805e06f79c8b77d7aed27cb0f3b06456",
+        "tip": "e64f7315805e06f79c8b77d7aed27cb0f3b06456",
+        "main": "862db1276537815512c9442855aeefa9024c5900",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "docs/svelte-migration.md": {
+        "parent": "6705d54898d8ce16a9ab4eb1140cc2d3c4afe62d",
+        "commit": "89d5a2e6432155e68009cee2e0fde1f186fb7452",
+        "tip": "789ecbfb9d5e407fc8c7d17067321eb3c7b5667d",
+        "main": "6705d54898d8ce16a9ab4eb1140cc2d3c4afe62d",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "docs/system-map.md": {
+        "parent": "788f79b200f1c6ee75bd1200de55046aa3e5fb9a",
+        "commit": "8dd02eeadbff00096a38e660c9f000cba07a1a7e",
+        "tip": "8dd02eeadbff00096a38e660c9f000cba07a1a7e",
+        "main": "902c93a4951fd1d415f0c194685933a621952f19",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "env.example": {
+        "parent": "f80002fc1c3acc965889fd08ce9b4babebe73cce",
+        "commit": "caaf8f4eee03947cd618be581196dde705b39828",
+        "tip": "8bae6c8009f13390297757435d97304811040000",
+        "main": "f80002fc1c3acc965889fd08ce9b4babebe73cce",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "scripts/loop-verify.sh": {
+        "parent": "dd74adfc578567ca92b2c2c9afcc3ba4c77f766a",
+        "commit": "0e524cbfd2bbb0e3daf7f0eb9b4eec97c996258b",
+        "tip": "609b065564d182a16663e1e49c0329ffdef77b12",
+        "main": "e6d3c33794da8cc320a5af2a98c2f5f740a88d32",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "890ca1ab53c31af2dac60f81d3bf65dc4c6b8929",
+    "subject": "dx-1-one-verify-entry: lowercase the historical markers so the done_when rg matches",
+    "files": {
+      "docs/bmad-loop.md": {
+        "parent": "0513c829a6cbb5019ba18cdfd5e8d3782f609d07",
+        "commit": "e0f80aa7d5814b52b02efb45bdada2f4a605b5bc",
+        "tip": "e0f80aa7d5814b52b02efb45bdada2f4a605b5bc",
+        "main": "857254916fcfb2756141194ab175c4414a341212",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "docs/svelte-migration.md": {
+        "parent": "89d5a2e6432155e68009cee2e0fde1f186fb7452",
+        "commit": "789ecbfb9d5e407fc8c7d17067321eb3c7b5667d",
+        "tip": "789ecbfb9d5e407fc8c7d17067321eb3c7b5667d",
+        "main": "6705d54898d8ce16a9ab4eb1140cc2d3c4afe62d",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "ab56b84364b43d00df1232a49ad36c526280e9f5",
+    "subject": "dx-1-one-verify-entry: fold the install hint into one sentence per tool",
+    "files": {
+      "scripts/loop-verify.sh": {
+        "parent": "0e524cbfd2bbb0e3daf7f0eb9b4eec97c996258b",
+        "commit": "253d2fc16a4459571415ab230a97a02298ca2db7",
+        "tip": "609b065564d182a16663e1e49c0329ffdef77b12",
+        "main": "e6d3c33794da8cc320a5af2a98c2f5f740a88d32",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "db6568b038a1b1169092091710bb9e5122668a31",
+    "subject": "dx-1-one-verify-entry: check tools before installing, and copy env.example before convex dev",
+    "files": {
+      "README.md": {
+        "parent": "452b4c18f995775913a792e6792e0a60b1524166",
+        "commit": "a87919f8428a43a75b3fb49b24061bcefd876e3e",
+        "tip": "47fb12550a87f1792135fa83fef974295dbec65d",
+        "main": "ac69078de4e3090d99ec14503e08b7dad3b9f906",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "env.example": {
+        "parent": "caaf8f4eee03947cd618be581196dde705b39828",
+        "commit": "30a0cf059b5860ce570872e7d1521afc0da52885",
+        "tip": "8bae6c8009f13390297757435d97304811040000",
+        "main": "f80002fc1c3acc965889fd08ce9b4babebe73cce",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "scripts/loop-verify.sh": {
+        "parent": "253d2fc16a4459571415ab230a97a02298ca2db7",
+        "commit": "609b065564d182a16663e1e49c0329ffdef77b12",
+        "tip": "609b065564d182a16663e1e49c0329ffdef77b12",
+        "main": "e6d3c33794da8cc320a5af2a98c2f5f740a88d32",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "619f554d902210e1dd46a3c7e90253e247e481a3",
+    "subject": "dx-1-one-verify-entry: say the tool check precedes the dependency install too",
+    "files": {
+      "README.md": {
+        "parent": "a87919f8428a43a75b3fb49b24061bcefd876e3e",
+        "commit": "47fb12550a87f1792135fa83fef974295dbec65d",
+        "tip": "47fb12550a87f1792135fa83fef974295dbec65d",
+        "main": "ac69078de4e3090d99ec14503e08b7dad3b9f906",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "sprint2-boundary",
+    "sha": "125c6cd47e8b1068f39889855d2029a502e5a856",
+    "subject": "dx-1-one-verify-entry: correct the BRAIN_CONTEXTUAL deferred note and list it in env.example",
+    "files": {
+      "env.example": {
+        "parent": "30a0cf059b5860ce570872e7d1521afc0da52885",
+        "commit": "8bae6c8009f13390297757435d97304811040000",
+        "tip": "8bae6c8009f13390297757435d97304811040000",
+        "main": "f80002fc1c3acc965889fd08ce9b4babebe73cce",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "factory/workspace-2-drop-dead-gate-branches",
+    "sha": "d0669fec95d4145b3be34a6f6b2b5e76db276cc7",
+    "subject": "workspace-2-drop-dead-gate-branches: delete the dead gate branches and record the amendment",
+    "files": {
+      "docs/product-domain.md": {
+        "parent": "f2105a88044830f0d97f1adeabc631ed73895cae",
+        "commit": "222cf746227ef66453f78fe9216be9cad8aac483",
+        "tip": "222cf746227ef66453f78fe9216be9cad8aac483",
+        "main": "8a382a6cb7597f9df01401efbfbb6b7c8da86719",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "src/lib/dashboard/workspaceExperience.test.ts": {
+        "parent": "9969cd597d446920a92556d3b4dbb404fbef41f8",
+        "commit": "07a480bfc27b9ac8ddebc9d5d4d2cad422065427",
+        "tip": "07a480bfc27b9ac8ddebc9d5d4d2cad422065427",
+        "main": "9969cd597d446920a92556d3b4dbb404fbef41f8",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/dashboard/workspaceExperience.ts": {
+        "parent": "dce6c27718fe2f5746992d98a5d925ef34898d09",
+        "commit": "36c9f6e00803ed88be0f870fcc365f3b8f751c4d",
+        "tip": "36c9f6e00803ed88be0f870fcc365f3b8f751c4d",
+        "main": "dce6c27718fe2f5746992d98a5d925ef34898d09",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/test/app-environment-stub.ts": {
+        "parent": "8e7ae672df570652e15a3dce90f2fd95dd85d25b",
+        "commit": "2f8e6160f6bf5807c60edd3e946301238d56a765",
+        "tip": "2f8e6160f6bf5807c60edd3e946301238d56a765",
+        "main": "8e7ae672df570652e15a3dce90f2fd95dd85d25b",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/test/convex-svelte-stub.svelte.ts": {
+        "parent": "3e24865a980d9112a559def95e5681d87f3740f6",
+        "commit": "55412eaf5d767a6752e8733672129786caf07979",
+        "tip": "55412eaf5d767a6752e8733672129786caf07979",
+        "main": "02705db6310927428f68a88051094093116d9462",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      },
+      "src/lib/workspace/WorkspaceGate.component.test.ts": {
+        "parent": "20fdc29b2fb702bd8d47edf1f0950b9e9ad490fe",
+        "commit": "d6841a45c18634cae5076e18e93622936b343061",
+        "tip": "d6841a45c18634cae5076e18e93622936b343061",
+        "main": "20fdc29b2fb702bd8d47edf1f0950b9e9ad490fe",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/lib/workspace/WorkspaceGate.svelte": {
+        "parent": "eef2ce2621872771628735d4e08fe95a806c87ec",
+        "commit": "d581ec747e1fc6686b9516a23d725496032e308f",
+        "tip": "d581ec747e1fc6686b9516a23d725496032e308f",
+        "main": "eef2ce2621872771628735d4e08fe95a806c87ec",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/routes/dashboard/+page.svelte": {
+        "parent": "a6e9c39fd6a5302c939f95f432cc94b0cceacfef",
+        "commit": "700ad5115a0c7625baeb4af907dfdd4b91ad8a35",
+        "tip": "700ad5115a0c7625baeb4af907dfdd4b91ad8a35",
+        "main": "a6e9c39fd6a5302c939f95f432cc94b0cceacfef",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/routes/my-work/+page.svelte": {
+        "parent": "1ae2475d60c934ec34c8fcd608edbb833e947ee0",
+        "commit": "3d42b40b5e98c2308387e7011138ba77f17e5eb1",
+        "tip": "3d42b40b5e98c2308387e7011138ba77f17e5eb1",
+        "main": "1ae2475d60c934ec34c8fcd608edbb833e947ee0",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/routes/project/[id]/projectRoute.component.test.ts": {
+        "parent": "7cb7b2220a0519ea2b82015197909578e730a9a1",
+        "commit": "7fcfc610cf3387a0b713208286d6d097f75d1f73",
+        "tip": "7fcfc610cf3387a0b713208286d6d097f75d1f73",
+        "main": "7cb7b2220a0519ea2b82015197909578e730a9a1",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/routes/projects/+page.svelte": {
+        "parent": "871f39f0981062b212f7b39267241c77f830b285",
+        "commit": "94da293918add020b4048119990ca9142dc0e01c",
+        "tip": "94da293918add020b4048119990ca9142dc0e01c",
+        "main": "871f39f0981062b212f7b39267241c77f830b285",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": true,
+        "mainEqualsCommit": false
+      },
+      "src/routes/workspaceRoutes.component.test.ts": {
+        "parent": "575660b2ddcd19158fcda44a9597b797ff98fa6b",
+        "commit": "cb168ad065c66be3d611e0029d94d33f31f9f63c",
+        "tip": "1c05ab0eb265e8b8d214db0acd65d5b11a6b29cc",
+        "main": "78edc92e48c3096557292d76f5a2772d250ac737",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  },
+  {
+    "branch": "factory/workspace-2-drop-dead-gate-branches",
+    "sha": "76f9aca3c973a805a32cc5466cacd11d61ca080e",
+    "subject": "workspace-2-drop-dead-gate-branches: pin the Projects rail anchor to the client-grouped List default",
+    "files": {
+      "src/routes/workspaceRoutes.component.test.ts": {
+        "parent": "cb168ad065c66be3d611e0029d94d33f31f9f63c",
+        "commit": "1c05ab0eb265e8b8d214db0acd65d5b11a6b29cc",
+        "tip": "1c05ab0eb265e8b8d214db0acd65d5b11a6b29cc",
+        "main": "78edc92e48c3096557292d76f5a2772d250ac737",
+        "mainEqualsTip": false,
+        "mainEqualsBefore": false,
+        "mainEqualsCommit": false
+      }
+    }
+  }
+]

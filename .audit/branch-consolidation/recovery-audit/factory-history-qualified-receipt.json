@@ -1,0 +1,9 @@
+{
+  "command": [
+    "python3",
+    ".audit/branch-consolidation/recovery-audit/verify-factory-history-qualified.py"
+  ],
+  "exit": 0,
+  "scriptSha256": "53a436fab6dd5a789d70c601eba6a627ab258d8a794d0c916187514c45fffe20",
+  "historicalReceiptUnchanged": true
+}

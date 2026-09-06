@@ -1,0 +1,10 @@
+{
+  "ledger_sha256": "1ae5f2a45d2a1d5ef214e1d2ce4ddcdbe4ec0f9b9ab0a1771384e417cb968734",
+  "captured_commit_union_verified": 124,
+  "counts": {
+    "path_records_verified": 519,
+    "commits_verified": 124
+  },
+  "all_declared_source_artifact_hashes_match": true,
+  "limits": "Structural identity verification only. Independent semantic review remains complementary; planned batches still require implementation/review/runtime proof."
+}

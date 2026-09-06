@@ -1,0 +1,967 @@
+{
+  "at": "2026-09-06T03:32:14.641701+00:00",
+  "target": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235",
+  "stateInput": {
+    "path": ".audit/branch-consolidation/finalization/content-state.json",
+    "sha256": "82f614f292f505c28bbd9aa63abe8a7f97e9f401a0ae01600b45db2a25e5dde2"
+  },
+  "historicalMappingInputSha256": "658bc6a9ce6d43eef28430aae20c5cc369900f4abb4d3c8ae950dd7e7aa3ee09",
+  "ancestryPlanSha256": "45198d1b4ade525560c7f56df6b95a6878002c975968dbc458810553daf04543",
+  "acceptedBatches": [
+    {
+      "batch": "B1",
+      "acceptedCommit": "38fd254c359cf9589063098f06c7f0356d5882cc",
+      "ancestorOfTarget": true,
+      "reviewRound": "B1",
+      "spec": {
+        "path": "_bmad-output/implementation-artifacts/spec-branch-b1-parser-lifetime.md",
+        "sha256": "5ec9b2a2eda3dfe27348a49141d0771705459ad89e245c130cd3621800e14ea0"
+      },
+      "evidence": {
+        "path": ".audit/branch-consolidation/B1/evidence.md",
+        "sha256": "d4da563e1dcb9b21fb805a9b93775ba7370ae1655ae5eb66f2e1cfe697be0049"
+      },
+      "triage": {
+        "path": ".audit/branch-consolidation/B1/review-triage.md",
+        "sha256": "7f61b1448ef6d357880d68cf62f4d370f589576753318d237b0dfd40677473b7"
+      },
+      "reviewExits": {
+        "path": ".audit/branch-consolidation/B1/review-exits.json",
+        "sha256": "9d60588bdd556df87b62fba07c4000de77a75b5909d1b01859507485914a08f3"
+      },
+      "archiveManifest": {
+        "path": ".audit/branch-consolidation/B1/archive-manifest.json",
+        "sha256": "12404cb69e7654980880e96185e1a75f8ecd66fa619642ec5e2b763d5a58792b"
+      },
+      "reviewedGuardException": {
+        "path": ".audit/branch-consolidation/B1/gate/capture-resolution.json",
+        "sha256": "3f860c662468b90c07504fc7cdd0f54a001d22e0fec60d603247b529149fb391"
+      },
+      "gate": {
+        "path": ".audit/branch-consolidation/B1/gate/result.json",
+        "sha256": "7a1227d306fb501b22da5393de0eb84c12b63d0fe2e6982cd74e7c96f9597681"
+      },
+      "runtime": "Recorded in batch evidence/runtime receipts",
+      "testTotals": [
+        "1976 passed (1976)",
+        "463 passed (463)"
+      ]
+    },
+    {
+      "batch": "B12",
+      "acceptedCommit": "b2d5db5b63c0a70bce20d86df56e11ffbe89fad9",
+      "ancestorOfTarget": true,
+      "reviewRound": "B12",
+      "spec": {
+        "path": "_bmad-output/implementation-artifacts/spec-branch-b12-expired-parser.md",
+        "sha256": "19db16685db446f3672b1cb21dfe139ba9fb3d189a28ae827e6321a3b4b21678"
+      },
+      "evidence": {
+        "path": ".audit/branch-consolidation/B12/evidence.md",
+        "sha256": "eb1f7606ee964323867beb875aed1a92c83ddd79c957754fcc549273944e8e60"
+      },
+      "triage": {
+        "path": ".audit/branch-consolidation/B12/review-triage.md",
+        "sha256": "3f9378ea9cb8b01f1e8211aeca75373754bd0c9b068ff5eecbdc4305b108bdc2"
+      },
+      "reviewExits": {
+        "path": ".audit/branch-consolidation/B12/review-exits.json",
+        "sha256": "76c2fddaa158aed2140db409351c6d72abfeb1877218cfe050938a9a6378e7e6"
+      },
+      "archiveManifest": {
+        "path": ".audit/branch-consolidation/B12/archive-manifest.json",
+        "sha256": "2dbc96ac79f79ef56cb938301f182d105d71a63d5ea2f2bb34bf10e1380d0533"
+      },
+      "gate": {
+        "path": ".audit/branch-consolidation/B12/gate/result.json",
+        "sha256": "07c6ba6667e49f18bc4795a3c3c7fb1554b883cf65fb4e1fad73faf9188ac338"
+      },
+      "runtime": "Recorded in batch evidence/runtime receipts",
+      "testTotals": [
+        "1980 passed (1980)",
+        "463 passed (463)"
+      ]
+    },
+    {
+      "batch": "B2",
+      "acceptedCommit": "1d6053388326fe4fde43a86177955157f11ce588",
+      "ancestorOfTarget": true,
+      "reviewRound": "B2-r1",
+      "spec": {
+        "path": "_bmad-output/implementation-artifacts/spec-branch-b2-editor-search.md",
+        "sha256": "0ff6118c0e6cac8aa270de28c51c4a74c6f872ef9346484fa8eee6a3bd89649a"
+      },
+      "evidence": {
+        "path": ".audit/branch-consolidation/B2-r1/evidence.md",
+        "sha256": "3bb636a4113f02948d28f709ee237ccd4ae2a641d90a5a3e70dbfc3c4c8b4e76"
+      },
+      "triage": {
+        "path": ".audit/branch-consolidation/B2-r1/review-triage.md",
+        "sha256": "c1edba674d82c86a29c3187adbea06169c8b5f5b827ad5c068bbcde4acf37814"
+      },
+      "reviewExits": {
+        "path": ".audit/branch-consolidation/B2-r1/review-exits.json",
+        "sha256": "566211774ac2292d839c6fe90a6ace2289aa3ba2bd787653070043bfbde13fbb"
+      },
+      "archiveManifest": {
+        "path": ".audit/branch-consolidation/B2-r1/archive-manifest.json",
+        "sha256": "8de358be0d00aafed912dc017c64d9b61d9a451b131c563d91c2515951d92961"
+      },
+      "gate": {
+        "path": ".audit/branch-consolidation/B2-r1/gate/result.json",
+        "sha256": "a53ea11561be6e64baf515d9e57e62ce60f92c95f522fa6b259f67cd1839ebd8"
+      },
+      "runtime": "Recorded in batch evidence/runtime receipts",
+      "testTotals": [
+        "1992 passed (1992)",
+        "469 passed (469)"
+      ]
+    },
+    {
+      "batch": "B13",
+      "acceptedCommit": "0d481e2b76390e0eff3208d91f1f47d83b173474",
+      "ancestorOfTarget": true,
+      "reviewRound": "B13-r2",
+      "spec": {
+        "path": "_bmad-output/implementation-artifacts/spec-branch-b13-search-boundaries.md",
+        "sha256": "2ea40abba536343cc21faf35d3f7056edd31fe91ee94e8e865463f18aa51e5db"
+      },
+      "evidence": {
+        "path": ".audit/branch-consolidation/B13-r2/evidence.md",
+        "sha256": "731dc106f2bfbe9ba1f16032bf8921a98dcd16dd8f53a18cf59e037149579ef7"
+      },
+      "triage": {
+        "path": ".audit/branch-consolidation/B13-r2/review-triage.md",
+        "sha256": "7864887bf3a4d64c9db822db9c85b0fb66cab9b6c3ee5c8ca75f5177002086b3"
+      },
+      "reviewExits": {
+        "path": ".audit/branch-consolidation/B13-r2/review-exits.json",
+        "sha256": "6e70703ac9d3d2740431786a66d6e4fe3af4a8d6222c705faa4cda586fd16787"
+      },
+      "archiveManifest": {
+        "path": ".audit/branch-consolidation/B13-r2/archive-manifest.json",
+        "sha256": "61fa24f3b3aaf64ba648bce21cfb7e143e51f6a628503133b99d8dd4d0594acb"
+      },
+      "gate": {
+        "path": ".audit/branch-consolidation/B13-r2/gate/result.json",
+        "sha256": "b3fe72ab464cd5f5085a326f7c129d9cb33fb85d708237b123b2000070ccd2c4"
+      },
+      "runtime": "Recorded in batch evidence/runtime receipts",
+      "testTotals": [
+        "2020 passed (2020)",
+        "481 passed (481)"
+      ]
+    },
+    {
+      "batch": "B3",
+      "acceptedCommit": "d11195e5fdf6fb40baf27cacff86eaad6bf69ef6",
+      "ancestorOfTarget": true,
+      "reviewRound": "B3",
+      "spec": {
+        "path": "_bmad-output/implementation-artifacts/spec-branch-b3-blank-upload-reads.md",
+        "sha256": "1916418bdefd22e5208dfa37ca3ab56925e3ca7379fe65fc10a039fdd09faff3"
+      },
+      "evidence": {
+        "path": ".audit/branch-consolidation/B3/evidence.md",
+        "sha256": "69b55f35aa9efbc41513c9f6a018bd257aabebb12949a6430f6a833fd6dcb90b"
+      },
+      "triage": {
+        "path": ".audit/branch-consolidation/B3/review-triage.md",
+        "sha256": "1039087549750fefa6cbe81504088191cba0c565d159d6a71056f8da85322fab"
+      },
+      "reviewExits": {
+        "path": ".audit/branch-consolidation/B3/review-exits.json",
+        "sha256": "b57191a2728bf58bab4648f257bb03bb6a7e0011b7a0445eefc9931dc973d187"
+      },
+      "archiveManifest": {
+        "path": ".audit/branch-consolidation/B3/archive-manifest.json",
+        "sha256": "ad3e9b49851220e1b038ffbd443aeeec578f7099a8afdea160e4517bcb263cf1"
+      },
+      "gate": {
+        "path": ".audit/branch-consolidation/B3/gate/result.json",
+        "sha256": "fbb95d11fbeb1427cca8463e609073b37085c0facd2f9161ce256a460129cc66"
+      },
+      "runtime": "Recorded in batch evidence/runtime receipts",
+      "testTotals": [
+        "2028 passed (2028)",
+        "481 passed (481)"
+      ]
+    },
+    {
+      "batch": "B4",
+      "acceptedCommit": "d22e1fa0880512212865d7d60aeb8cfe600dbaa2",
+      "ancestorOfTarget": true,
+      "reviewRound": "B4",
+      "spec": {
+        "path": "_bmad-output/implementation-artifacts/spec-branch-b4-dead-ui-islands.md",
+        "sha256": "e16f876ca57e7f852ebaeef15ebf0bfd66e3550618b3c7782fbb100f320923e5"
+      },
+      "evidence": {
+        "path": ".audit/branch-consolidation/B4/evidence.md",
+        "sha256": "b95be83f244a3baf9b09919b6bcecee5d7296950f43c2e5b359f27df7c6e3747"
+      },
+      "triage": {
+        "path": ".audit/branch-consolidation/B4/review-triage.md",
+        "sha256": "20dac8fb7aa767d6418ff3b877ef29701fbf26619686002927e04f5363bda506"
+      },
+      "reviewExits": {
+        "path": ".audit/branch-consolidation/B4/review-exits.json",
+        "sha256": "d936242256db61579cd736903223b730f8d7bae80cdde56ea4985cc13b7991cf"
+      },
+      "archiveManifest": {
+        "path": ".audit/branch-consolidation/B4/archive-manifest.json",
+        "sha256": "075b5b1c887c4fb88a89f0361e396af59fdb9022e5d18efcb2592353a88329c0"
+      },
+      "gate": {
+        "path": ".audit/branch-consolidation/B4/gate/result.json",
+        "sha256": "1cea84237be9019aab18e4d654e4b577341059405189f318807669feba019b6f"
+      },
+      "runtime": "Recorded in batch evidence/runtime receipts",
+      "testTotals": [
+        "2015 passed (2015)",
+        "478 passed (478)"
+      ]
+    },
+    {
+      "batch": "B5",
+      "acceptedCommit": "309570c60c9ad96d02ad234bdc028c34ddf80390",
+      "ancestorOfTarget": true,
+      "reviewRound": "B5-r1",
+      "spec": {
+        "path": "_bmad-output/implementation-artifacts/spec-branch-b5-dead-helpers-underline.md",
+        "sha256": "19a46b7ee457bf437275dae8e0162a2ce134c153def5084c41a588c293906c7f"
+      },
+      "evidence": {
+        "path": ".audit/branch-consolidation/B5-r1/evidence.md",
+        "sha256": "f2a330424083cfe06386f569b0ed53b8c6c3fd8927e1ef9ff89ef1aacfb65a04"
+      },
+      "triage": {
+        "path": ".audit/branch-consolidation/B5-r1/review-triage.md",
+        "sha256": "61b6599fff4686800b4d7ea743efaf4a3349374e9c638715d5982d4d8724ffd9"
+      },
+      "reviewExits": {
+        "path": ".audit/branch-consolidation/B5-r1/review-exits.json",
+        "sha256": "0add5edbd9f3fc600eb22b245dfefc622d9acd93370cfe778ca6cf54692df520"
+      },
+      "archiveManifest": {
+        "path": ".audit/branch-consolidation/B5-r1/archive-manifest.json",
+        "sha256": "baae5415a77a42a5a76ed8041410193d24338aa97fab5e2a9ddb1dfe38d21332"
+      },
+      "reviewedGuardException": {
+        "path": ".audit/branch-consolidation/B5-r1/gate/acceptance.json",
+        "sha256": "51029e51cc8f0eb70019c15fed5eb1fce2552bef72a35cbfad834c394d70f9f4"
+      },
+      "gate": {
+        "path": ".audit/branch-consolidation/B5-r1/gate/result.json",
+        "sha256": "1cae9de1c418e16c3f5f2e4378e5b8057de0c6f3fb1d03d99161837903818528"
+      },
+      "runtime": {
+        "node": "v24.19.0",
+        "npm": "11.17.0",
+        "node_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/node",
+        "npm_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/npm"
+      },
+      "testTotals": [
+        "2011 passed (2011)",
+        "478 passed (478)"
+      ]
+    },
+    {
+      "batch": "B6",
+      "acceptedCommit": "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d",
+      "ancestorOfTarget": true,
+      "reviewRound": "B6",
+      "spec": {
+        "path": "_bmad-output/implementation-artifacts/spec-branch-b6-real-endpoint-tests.md",
+        "sha256": "961f6fa227d1585317d876579e7885dcda15a78154483aeac73857928a9ac6c0"
+      },
+      "evidence": {
+        "path": ".audit/branch-consolidation/B6/evidence.md",
+        "sha256": "40cbba167c45184d7d5f70d281cfd441d188f8eb44c9b67e68c70d671d0a9522"
+      },
+      "triage": {
+        "path": ".audit/branch-consolidation/B6/review-triage.md",
+        "sha256": "b822ea77904c2a06784d9939f82d7733e4f5c26789d7f079e5fa17a4bf3c3d47"
+      },
+      "reviewExits": {
+        "path": ".audit/branch-consolidation/B6/review-exits.json",
+        "sha256": "e72ec7d89c421a4e689404b83ada3071b8e12755872ff3a2e07ed9bbbc7501d6"
+      },
+      "archiveManifest": {
+        "path": ".audit/branch-consolidation/B6/archive-manifest.json",
+        "sha256": "6358f0033df299dd7af1d9f02c030b5bed6fbcd6f3258814d42c000a2d4bd12a"
+      },
+      "gate": {
+        "path": ".audit/branch-consolidation/B6/gate/result.json",
+        "sha256": "a9dd7c36a6186ce4b051cbdae48caf7be11f74947a56d11a6d1ac45ed2ebd8c0"
+      },
+      "runtime": {
+        "node": "v24.19.0",
+        "npm": "11.17.0",
+        "node_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/node",
+        "npm_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/npm"
+      },
+      "testTotals": [
+        "2006 passed (2006)",
+        "478 passed (478)"
+      ]
+    },
+    {
+      "batch": "B7",
+      "acceptedCommit": "d28cfc0bc0a34e78683152553143179fac2682c7",
+      "ancestorOfTarget": true,
+      "reviewRound": "B7",
+      "spec": {
+        "path": "_bmad-output/implementation-artifacts/spec-branch-b7-dependency-prune.md",
+        "sha256": "1297998385acfa09e0ecc8942c02467114825dad45eb4b37b39489fe81180626"
+      },
+      "evidence": {
+        "path": ".audit/branch-consolidation/B7/evidence.md",
+        "sha256": "5e299bf3567f34018796de7ca983b0d111256f545e079d3124d111dc5aa7def1"
+      },
+      "triage": {
+        "path": ".audit/branch-consolidation/B7/review-triage.md",
+        "sha256": "b700ee54010ee1c579eae9aa278d51911e8bfe7f50361b46a5f573001aebf6d2"
+      },
+      "reviewExits": {
+        "path": ".audit/branch-consolidation/B7/review-exits.json",
+        "sha256": "7fa1c9148f1cb8cf4ce78efc060a4e7297a345259414617c0d552195d398f23c"
+      },
+      "archiveManifest": {
+        "path": ".audit/branch-consolidation/B7/archive-manifest.json",
+        "sha256": "9bc1ce2f773ea8450b2a8e3c18a6c444b6a623de8a65f5edef18449ced1b5f42"
+      },
+      "gate": {
+        "path": ".audit/branch-consolidation/B7/gate/result.json",
+        "sha256": "5d15f563d6dc3ad801360d0cb2dcba0b53e95e4e0aeae2676bffc5e8ed19b627"
+      },
+      "runtime": {
+        "node": "v24.19.0",
+        "npm": "11.17.0",
+        "node_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/node",
+        "npm_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/npm"
+      },
+      "testTotals": [
+        "2006 passed (2006)",
+        "478 passed (478)"
+      ]
+    },
+    {
+      "batch": "B8",
+      "acceptedCommit": "9d83ffd3091c1e801285149622c879abe0087556",
+      "ancestorOfTarget": true,
+      "reviewRound": "B8",
+      "spec": {
+        "path": "_bmad-output/implementation-artifacts/spec-branch-b8-header-mobile-target.md",
+        "sha256": "053f7b8e5ff5d708e90fd047ed2f6fb417240c687a954f58edf9abf0a1fdd266"
+      },
+      "evidence": {
+        "path": ".audit/branch-consolidation/B8/evidence.md",
+        "sha256": "b6044cf23bc6c12a7e58ca88b1b28bb0738a51af13a5c3d53bfe6142e1ba0a02"
+      },
+      "triage": {
+        "path": ".audit/branch-consolidation/B8/review-triage.md",
+        "sha256": "de5a3ee4225a5dda53ec664100bd04c6f63f88b3067c6cd04c7030025d9c0ef4"
+      },
+      "reviewExits": {
+        "path": ".audit/branch-consolidation/B8/review-exits.json",
+        "sha256": "f29bf438e4e3d5aad9884251f27426c7803a471c58b46d75bc8d99f3dbd06148"
+      },
+      "archiveManifest": {
+        "path": ".audit/branch-consolidation/B8/archive-manifest.json",
+        "sha256": "1c6ba68e94d99b157c95a7f4f31f3445358b05c1a8d7ffdf06d1a546c9cff26b"
+      },
+      "gate": {
+        "path": ".audit/branch-consolidation/B8/gate/result.json",
+        "sha256": "fbabeff29330fdec130103182a50d6b3c9d67014a932d67d2f1e15a75ff874bf"
+      },
+      "runtime": {
+        "node": "v24.19.0",
+        "npm": "11.17.0",
+        "node_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/node",
+        "npm_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/npm"
+      },
+      "testTotals": [
+        "2006 passed (2006)",
+        "478 passed (478)"
+      ]
+    },
+    {
+      "batch": "B9",
+      "acceptedCommit": "8511662cb8fd9748d02f413c633bf21b5cdec9ee",
+      "ancestorOfTarget": true,
+      "reviewRound": "B9",
+      "spec": {
+        "path": "_bmad-output/implementation-artifacts/spec-branch-b9-current-documentation.md",
+        "sha256": "dd885d22eedf8fa6bc9b8f51d47bd061eb535d52ff0964670db96f098f5cf364"
+      },
+      "evidence": {
+        "path": ".audit/branch-consolidation/B9/evidence.md",
+        "sha256": "6cee06cbec4cafd1121393e00c812b2077448d19aa754769c28e4951faae6823"
+      },
+      "triage": {
+        "path": ".audit/branch-consolidation/B9/review-triage.md",
+        "sha256": "ee5cbb6d789a4b7e731c913b349e48951898818044ece1c9c59aeb24ce7538d2"
+      },
+      "reviewExits": {
+        "path": ".audit/branch-consolidation/B9/review-exits.json",
+        "sha256": "e584cafeb1a6d0500bf8fe316b0e284b1c9d23283c6fb00332fdafa30fd582a0"
+      },
+      "archiveManifest": {
+        "path": ".audit/branch-consolidation/B9/archive-manifest.json",
+        "sha256": "4f10d75407a132f8742c9215b2c9161f60dde27cb3aa457c9eb7e56a42662a52"
+      },
+      "validation": "Documentation/configuration-only exception: parsed TOML, copy fixtures and byte preservation; subsequent B10/B11 combined runtime gates cover unchanged source.",
+      "focusedProof": {
+        "path": ".audit/branch-consolidation/B9/parent-patch-checks.json",
+        "sha256": "5f76fc4c370cc70cc844ff2c3efc5ac3f3ed95c949c9e42b2836d9d6b1c0d348"
+      }
+    },
+    {
+      "batch": "B10",
+      "acceptedCommit": "7c6a0099901a580d4c231df747d358faff064eaf",
+      "ancestorOfTarget": true,
+      "reviewRound": "B10",
+      "spec": {
+        "path": "_bmad-output/implementation-artifacts/spec-branch-b10-workspace-branches.md",
+        "sha256": "039b88fc5693f5d52b1d6d0d97f81c45fb6763ca4f751b2655313fb6c9cbdc86"
+      },
+      "evidence": {
+        "path": ".audit/branch-consolidation/B10/evidence.md",
+        "sha256": "bd07f6e20b84abac4beffd5bcdc56d040e56b757148274a6327ff42d272a2e3b"
+      },
+      "triage": {
+        "path": ".audit/branch-consolidation/B10/review-triage.md",
+        "sha256": "a0a15c09033ca7f30d03ed859a48e2a3c649eee4fc451601a6e383a42d4603a4"
+      },
+      "reviewExits": {
+        "path": ".audit/branch-consolidation/B10/review-exits.json",
+        "sha256": "ef398d0cee9d8497e1e17b38d2fdc6220690aa0fa313a0002878b20ccfe8845c"
+      },
+      "archiveManifest": {
+        "path": ".audit/branch-consolidation/B10/archive-manifest.json",
+        "sha256": "5b8ce8705eb82abff8b6a1bef8edc0836b73112bcfb3308a013869349eca0c37"
+      },
+      "gate": {
+        "path": ".audit/branch-consolidation/B10/gate/result.json",
+        "sha256": "74069a2162ff602772d65a19d627c999f939b4180d92bac9739bb3e722fc312d"
+      },
+      "runtime": {
+        "node": "v24.19.0",
+        "npm": "11.17.0",
+        "node_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/node",
+        "npm_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/npm"
+      },
+      "testTotals": [
+        "2020 passed (2020)",
+        "482 passed (482)"
+      ]
+    },
+    {
+      "batch": "B11",
+      "acceptedCommit": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235",
+      "ancestorOfTarget": true,
+      "reviewRound": "B11",
+      "spec": {
+        "path": "_bmad-output/implementation-artifacts/spec-branch-b11-brain-erasure-labels.md",
+        "sha256": "ea1ac0090233521f827da660abfa5747183c54f225b4cf7f6142101028bd7246"
+      },
+      "evidence": {
+        "path": ".audit/branch-consolidation/B11/evidence.md",
+        "sha256": "63e812deb82b84467e28c6f3de04ef19465bc6b7b08d4c1c6483a4451aa1935e"
+      },
+      "triage": {
+        "path": ".audit/branch-consolidation/B11/review-triage.md",
+        "sha256": "ebcac8d4ef852ce8793bd42b4d7c713e9a5e0c65600f71cd54078da01328d936"
+      },
+      "reviewExits": {
+        "path": ".audit/branch-consolidation/B11/review-exits.json",
+        "sha256": "0c17c359e7e09cf22c4043f6182411de3ee027089742721e8fe23ec0c57f3c07"
+      },
+      "archiveManifest": {
+        "path": ".audit/branch-consolidation/B11/archive-manifest.json",
+        "sha256": "afd5405888b6cfbddc1b4ff137f460b44e9e66cfa632f1b2b6254196093fb642"
+      },
+      "gate": {
+        "path": ".audit/branch-consolidation/B11/gate/result.json",
+        "sha256": "1bd8ccfc81a7455df2dd42832f7452e9e3a78695798cd2d73e006eb8892f2b8f"
+      },
+      "runtime": {
+        "node": "v24.19.0",
+        "npm": "11.17.0",
+        "node_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/node",
+        "npm_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/npm"
+      },
+      "testTotals": [
+        "2020 passed (2020)",
+        "489 passed (489)"
+      ]
+    }
+  ],
+  "historicalSourceDispositions": [
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "d0669fec95d4145b3be34a6f6b2b5e76db276cc7",
+      "subject": "workspace-2-drop-dead-gate-branches: delete the dead gate branches and record the amendment",
+      "requiredBatches": [
+        "B10"
+      ],
+      "acceptedMappings": {
+        "B10": "7c6a0099901a580d4c231df747d358faff064eaf"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "76f9aca3c973a805a32cc5466cacd11d61ca080e",
+      "subject": "workspace-2-drop-dead-gate-branches: pin the Projects rail anchor to the client-grouped List default",
+      "requiredBatches": [
+        "B10"
+      ],
+      "acceptedMappings": {
+        "B10": "7c6a0099901a580d4c231df747d358faff064eaf"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "9ee49b2bb94fb4c87c3e570bd11a7ed74c6916d5",
+      "subject": "perf-1-parser-timers-editor-index: add maintained editor-search benchmark",
+      "requiredBatches": [
+        "B2"
+      ],
+      "acceptedMappings": {
+        "B2": "1d6053388326fe4fde43a86177955157f11ce588"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "1e84c27339676ad19a034d95bee92144e81b57d5",
+      "subject": "perf-1-parser-timers-editor-index: pin the editor search surface in a browser suite",
+      "requiredBatches": [
+        "B2"
+      ],
+      "acceptedMappings": {
+        "B2": "1d6053388326fe4fde43a86177955157f11ce588"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "e4495a50c183507e8661422c4281785c7cffd3a1",
+      "subject": "perf-1-parser-timers-editor-index: build the editor search index once per batch",
+      "requiredBatches": [
+        "B2"
+      ],
+      "acceptedMappings": {
+        "B2": "1d6053388326fe4fde43a86177955157f11ce588"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "f82f2b0a9c44b9f5475d6d5c31418ab368bd3c4c",
+      "subject": "perf-1-parser-timers-editor-index: release the PDF deadline timer when the race settles",
+      "requiredBatches": [
+        "B1"
+      ],
+      "acceptedMappings": {
+        "B1": "38fd254c359cf9589063098f06c7f0356d5882cc"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "18f383c079ba24bf8781e5c5eca3b2b3af0b0a3f",
+      "subject": "perf-2-empty-upload-reads: skip the project document read for blank uploads",
+      "requiredBatches": [
+        "B3"
+      ],
+      "acceptedMappings": {
+        "B3": "d11195e5fdf6fb40baf27cacff86eaad6bf69ef6"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "ae27b5c6c5597d214d045b4792a102f352d62dec",
+      "subject": "slop-1-dead-components: delete nine abandoned React-port components",
+      "requiredBatches": [
+        "B4"
+      ],
+      "acceptedMappings": {
+        "B4": "d22e1fa0880512212865d7d60aeb8cfe600dbaa2"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "d381a689e74f0d30cd712134735eb58207835f00",
+      "subject": "proof-1-parser-budget-sequence: prove the PDF load and page text consume sequential parts of the shared deadline",
+      "requiredBatches": [
+        "B1",
+        "B2"
+      ],
+      "acceptedMappings": {
+        "B1": "38fd254c359cf9589063098f06c7f0356d5882cc",
+        "B2": "1d6053388326fe4fde43a86177955157f11ce588"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "fb6c6b5d68e761cdab0b02975d9670c230f5e060",
+      "subject": "slop-2-dead-helpers-and-deps: delete test-only helper exports and the duplicate underline registration",
+      "requiredBatches": [
+        "B5"
+      ],
+      "acceptedMappings": {
+        "B5": "309570c60c9ad96d02ad234bdc028c34ddf80390"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "8649315de144a7e424c12ff461046d5ec8e58ddd",
+      "subject": "slop-2-dead-helpers-and-deps: drop four unused dependencies",
+      "requiredBatches": [
+        "B7"
+      ],
+      "acceptedMappings": {
+        "B7": "d28cfc0bc0a34e78683152553143179fac2682c7"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "0017ee6259fa2bdc4a23c3c13305273a2eee06de",
+      "subject": "slop-2-dead-helpers-and-deps: name the legacy-bucket case for what it asserts",
+      "requiredBatches": [
+        "B5"
+      ],
+      "acceptedMappings": {
+        "B5": "309570c60c9ad96d02ad234bdc028c34ddf80390"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "28c0c0cca253b57f1171b632046f58d0a5c825a0",
+      "subject": "slop-3-mywork-island: delete the retired My Work lane presentation island",
+      "requiredBatches": [
+        "B4"
+      ],
+      "acceptedMappings": {
+        "B4": "d22e1fa0880512212865d7d60aeb8cfe600dbaa2"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "0fdcacf3f0cbaf434c2024a7fb609be88c453567",
+      "subject": "tests-2-real-proposal-access-roster-tests: prove the proposal, access and roster scenarios against real Convex endpoints",
+      "requiredBatches": [
+        "B6"
+      ],
+      "acceptedMappings": {
+        "B6": "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "d9ee06235a1be9997eaf62331d98dbc7db78eb35",
+      "subject": "tests-2-real-proposal-access-roster-tests: drop the unused admin actor from the apply fixture",
+      "requiredBatches": [
+        "B6"
+      ],
+      "acceptedMappings": {
+        "B6": "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "c755e003c7027135c9adf5ac3e67c617ddc7cce5",
+      "subject": "tests-2-real-proposal-access-roster-tests: restore reader parity and isolate queued proposal fixtures",
+      "requiredBatches": [
+        "B6"
+      ],
+      "acceptedMappings": {
+        "B6": "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "ad9952ff1ba107bfbf97955863d4dfcdf774a530",
+      "subject": "tests-3-runner-cleanup-and-guard: drop bun runner leftovers, add test-discovery guard",
+      "requiredBatches": [
+        "B7"
+      ],
+      "acceptedMappings": {
+        "B7": "d28cfc0bc0a34e78683152553143179fac2682c7"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "4cc4a85fa06cfedcc460dc5527e815ca539b708e",
+      "subject": "ui-1-component-suite-green: drop Button's historical class inventory",
+      "requiredBatches": [
+        "B8"
+      ],
+      "acceptedMappings": {
+        "B8": "9d83ffd3091c1e801285149622c879abe0087556"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "e581436f28c104b3159ab03be3418be228b188cd",
+      "subject": "ui-1-component-suite-green: seed an eligible admin for the rail's Admin group",
+      "requiredBatches": [
+        "B8"
+      ],
+      "acceptedMappings": {
+        "B8": "9d83ffd3091c1e801285149622c879abe0087556"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "d7036f7551f1438c64fea5330dc77327ab7c99eb",
+      "subject": "ui-1-component-suite-green: give the header's New project action a 44px mobile floor",
+      "requiredBatches": [
+        "B8"
+      ],
+      "acceptedMappings": {
+        "B8": "9d83ffd3091c1e801285149622c879abe0087556"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "b9e09bc407d835c004b6dcf2ebaa3dc51261892e",
+      "subject": "dx-1-one-verify-entry: one stepped verification gate, CI that calls it, and docs that describe this app",
+      "requiredBatches": [
+        "B9"
+      ],
+      "acceptedMappings": {
+        "B9": "8511662cb8fd9748d02f413c633bf21b5cdec9ee"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "890ca1ab53c31af2dac60f81d3bf65dc4c6b8929",
+      "subject": "dx-1-one-verify-entry: lowercase the historical markers so the done_when rg matches",
+      "requiredBatches": [
+        "B9"
+      ],
+      "acceptedMappings": {
+        "B9": "8511662cb8fd9748d02f413c633bf21b5cdec9ee"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "db6568b038a1b1169092091710bb9e5122668a31",
+      "subject": "dx-1-one-verify-entry: check tools before installing, and copy env.example before convex dev",
+      "requiredBatches": [
+        "B9"
+      ],
+      "acceptedMappings": {
+        "B9": "8511662cb8fd9748d02f413c633bf21b5cdec9ee"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "619f554d902210e1dd46a3c7e90253e247e481a3",
+      "subject": "dx-1-one-verify-entry: say the tool check precedes the dependency install too",
+      "requiredBatches": [
+        "B9"
+      ],
+      "acceptedMappings": {
+        "B9": "8511662cb8fd9748d02f413c633bf21b5cdec9ee"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "factory-audit/full-history-disposition.json",
+      "sourceSha": "125c6cd47e8b1068f39889855d2029a502e5a856",
+      "subject": "dx-1-one-verify-entry: correct the BRAIN_CONTEXTUAL deferred note and list it in env.example",
+      "requiredBatches": [
+        "B9"
+      ],
+      "acceptedMappings": {
+        "B9": "8511662cb8fd9748d02f413c633bf21b5cdec9ee"
+      },
+      "pendingBatches": []
+    },
+    {
+      "ledger": "recovery-audit/recovery-ledger.json",
+      "sourceSha": "186dc570967a0eaa388c72595376d41ba8a9b5d8",
+      "subject": "feat(brain): confirmed Brain unlearn and retry-free embeds on revoked sources",
+      "requiredBatches": [
+        "B11"
+      ],
+      "acceptedMappings": {
+        "B11": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235"
+      },
+      "pendingBatches": [],
+      "requirement": {
+        "batch": "B11",
+        "status": "pending_root_integration_review_and_proof",
+        "backend": "superseded; retain accepted current backend",
+        "frontend": {
+          "path": "src/routes/admin/brain/+page.svelte",
+          "archivedUsefulHunks": [
+            {
+              "action": "revoke",
+              "currentMainLabel": "Revoked (unlearned)",
+              "requiredLabel": "Revoked (unlearn requested)"
+            },
+            {
+              "action": "unlearn_confirmed",
+              "currentMainLabel": null,
+              "requiredLabel": "Erasure confirmed"
+            }
+          ],
+          "currentBackendCompanionLabel": {
+            "action": "unlearn_failed",
+            "requiredLabel": "Erasure attempt failed",
+            "reason": "A failed attempt is not terminal erasure failure; retry or later confirmation may follow."
+          }
+        },
+        "acceptance": "Render audit rows distinguishing requested, confirmed and failed-attempt events, including failure followed by confirmation. Do not infer erasure from status=revoked; preserve backend and source exposure semantics."
+      }
+    }
+  ],
+  "plannedParents": [
+    {
+      "id": "A01",
+      "tip": "842cdf5160cd405de19b8643ad9295bcd4049e95",
+      "prerequisites": {
+        "B11": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235"
+      }
+    },
+    {
+      "id": "A02",
+      "tip": "091ec5a22f57ae3f566d6b70c56c3a61069763fc",
+      "prerequisites": {}
+    },
+    {
+      "id": "A03",
+      "tip": "5df0d2c4ae9677a891cd8ca19f2669da40fc4311",
+      "prerequisites": {}
+    },
+    {
+      "id": "A04",
+      "tip": "4e0bdf5d45d7f5d555227783c69d01e29bfbec43",
+      "prerequisites": {}
+    },
+    {
+      "id": "A05",
+      "tip": "9aa4c32d5407dd02e15bf0532587a099343bf70d",
+      "prerequisites": {}
+    },
+    {
+      "id": "A06",
+      "tip": "f42c7f3322cf2d48a0bcd45597ddde14f084e888",
+      "prerequisites": {}
+    },
+    {
+      "id": "A07",
+      "tip": "84dab21fc3f2e635f0ead01a7c671dfc279fa644",
+      "prerequisites": {}
+    },
+    {
+      "id": "A08",
+      "tip": "4555939ad846c638e291b06fd74e9ff3b637f881",
+      "prerequisites": {}
+    },
+    {
+      "id": "A09",
+      "tip": "4c26f2fb345247139963457ef7d770677b82fb45",
+      "prerequisites": {}
+    },
+    {
+      "id": "A10",
+      "tip": "784102690e5921cdf84bd2eb948711e2991cb53d",
+      "prerequisites": {}
+    },
+    {
+      "id": "A11",
+      "tip": "44b702478781d278d8f7626285d55ec9dbb4a5cf",
+      "prerequisites": {}
+    },
+    {
+      "id": "A12",
+      "tip": "53a2dbd3176bb1d976fcc41de9c960ece49021f5",
+      "prerequisites": {}
+    },
+    {
+      "id": "A13",
+      "tip": "ff001c3371b9519af01cd25529d991f8762f3e01",
+      "prerequisites": {}
+    },
+    {
+      "id": "A14",
+      "tip": "2d393923482b2bfda4ab4b78219c535249bd4f98",
+      "prerequisites": {}
+    },
+    {
+      "id": "A15",
+      "tip": "81612bf7af8938cbe98f63bc3f452dc6bf3e5002",
+      "prerequisites": {}
+    },
+    {
+      "id": "A16",
+      "tip": "172a05eca5e177bf409bc3f2abec43118b899eee",
+      "prerequisites": {}
+    },
+    {
+      "id": "A17",
+      "tip": "625352b58c6d9e9dca61371329e2cdf28b112103",
+      "prerequisites": {}
+    },
+    {
+      "id": "A18",
+      "tip": "ab65d107b2fec003021cd451fc0ebc0e1cc2d9cc",
+      "prerequisites": {}
+    },
+    {
+      "id": "A19",
+      "tip": "c2211d0e198a78b65ffbb18bd441d17bfe79f4fc",
+      "prerequisites": {
+        "B10": "7c6a0099901a580d4c231df747d358faff064eaf"
+      }
+    },
+    {
+      "id": "A20",
+      "tip": "5ec93e594eda60c28da2cfdbf27fb668fd55eb3d",
+      "prerequisites": {
+        "B1": "38fd254c359cf9589063098f06c7f0356d5882cc",
+        "B12": "b2d5db5b63c0a70bce20d86df56e11ffbe89fad9",
+        "B2": "1d6053388326fe4fde43a86177955157f11ce588",
+        "B3": "d11195e5fdf6fb40baf27cacff86eaad6bf69ef6",
+        "B4": "d22e1fa0880512212865d7d60aeb8cfe600dbaa2",
+        "B5": "309570c60c9ad96d02ad234bdc028c34ddf80390",
+        "B6": "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d",
+        "B7": "d28cfc0bc0a34e78683152553143179fac2682c7",
+        "B8": "9d83ffd3091c1e801285149622c879abe0087556",
+        "B9": "8511662cb8fd9748d02f413c633bf21b5cdec9ee"
+      }
+    }
+  ],
+  "openFollowups": [
+    "DW-103",
+    "DW-104",
+    "DW-105"
+  ],
+  "uncommittedExclusion": "Cownose14 files and other external dirty worktrees are preserved; branch-tip ancestry never includes uncommitted bytes.",
+  "limits": "Committed proof identities and completed review/gate receipts supplement parent semantic acceptance; historical ledger classifications remain unchanged. No ancestry or remote merge is asserted by this checker."
+}

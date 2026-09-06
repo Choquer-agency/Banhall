@@ -1,0 +1,27 @@
+[
+  {
+    "batch": "B1",
+    "manifest_sha256": "12404cb69e7654980880e96185e1a75f8ecd66fa619642ec5e2b763d5a58792b",
+    "verified_records": 59
+  },
+  {
+    "batch": "B12",
+    "manifest_sha256": "2dbc96ac79f79ef56cb938301f182d105d71a63d5ea2f2bb34bf10e1380d0533",
+    "verified_records": 53
+  },
+  {
+    "batch": "B2",
+    "manifest_sha256": "5d204c982a346e3cd6071db6567bb4de2c0f032e9c2f86d86081679ed2f4eefd",
+    "verified_records": 68
+  },
+  {
+    "batch": "B2-r1",
+    "manifest_sha256": "8de358be0d00aafed912dc017c64d9b61d9a451b131c563d91c2515951d92961",
+    "verified_records": 102
+  },
+  {
+    "batch": "search-boundary-audit",
+    "manifest_sha256": "837095166ffb388df6831cc3792b58a9d99c1ec11926088fcc2112bfe16d8037",
+    "verified_records": 4
+  }
+]

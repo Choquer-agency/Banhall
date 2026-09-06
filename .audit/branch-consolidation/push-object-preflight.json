@@ -1,0 +1,70 @@
+{
+  "at": "2026-09-06T00:34:28.360034+00:00",
+  "scope": "Current accepted HEAD and planned historical parents, excluding captured origin remote ancestry; uncommitted B13 work excluded",
+  "objects": 1659,
+  "uncompressed_object_bytes": 9926034,
+  "largest_blobs": [
+    {
+      "sha": "f3ba7598098ad8dc5ff1663787ec3da14cc5b0da",
+      "size": 649350,
+      "path": ".audit/branch-consolidation/B2-r1/baseline-hashes.json"
+    },
+    {
+      "sha": "eba4c14a5f296996c8fcff2f5cb744a7ef3828ec",
+      "size": 269721,
+      "path": "package-lock.json"
+    },
+    {
+      "sha": "9dbbe5f61b32e485aca279dc855035e0138a2680",
+      "size": 268955,
+      "path": "package-lock.json"
+    },
+    {
+      "sha": "915226f67c5304b8ec350b194045174e55394695",
+      "size": 136790,
+      "path": ".audit/branch-consolidation/B12/gate/captures/.audit/story-8/learning-desktop-after.png"
+    },
+    {
+      "sha": "3a108d4517bea1782f8568a6af9bc92abce68b76",
+      "size": 136773,
+      "path": ".audit/branch-consolidation/B1/gate/captures/.audit/story-8/learning-desktop-after.png"
+    },
+    {
+      "sha": "c6e983475e7514b8c9a7b8956f2c29d9009e215b",
+      "size": 136772,
+      "path": ".audit/branch-consolidation/B2-r1/gate/captures/.audit/story-8/learning-desktop-after.png"
+    },
+    {
+      "sha": "222cf746227ef66453f78fe9216be9cad8aac483",
+      "size": 130791,
+      "path": "docs/product-domain.md"
+    },
+    {
+      "sha": "60463b38870b58853e0008929e948de35bea5381",
+      "size": 117915,
+      "path": "docs/product-domain.md"
+    },
+    {
+      "sha": "b8d7a2310e5def09f2dfb26914082d705969cc26",
+      "size": 106795,
+      "path": "src/lib/components/project/PreviewProjectPage.svelte"
+    },
+    {
+      "sha": "64fcf7bf699effbda2099a15ab250cf95d52bb5e",
+      "size": 102421,
+      "path": "convex/generations.ts"
+    },
+    {
+      "sha": "c00d3ecaa00b78102e806ab109fed234c2bf3d75",
+      "size": 102005,
+      "path": "convex/generations.ts"
+    },
+    {
+      "sha": "0355eed265968b0123880dbafd81a81b1e235c36",
+      "size": 100575,
+      "path": "convex/generations.ts"
+    }
+  ],
+  "blobs_above_100MiB": [],
+  "read_only": true
+}

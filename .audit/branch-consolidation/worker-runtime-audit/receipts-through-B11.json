@@ -1,0 +1,2963 @@
+{
+  "scope": [
+    "B1",
+    "B12",
+    "B2",
+    "B2-r1",
+    "B13",
+    "B13-r1",
+    "B13-r2",
+    "B3",
+    "B4",
+    "B5",
+    "B5-r1",
+    "B6",
+    "B7",
+    "B8",
+    "B9",
+    "B10",
+    "B11"
+  ],
+  "implementation_workers": 17,
+  "review_workers": 51,
+  "review_rounds": 17,
+  "distinct_sessions": 68,
+  "all_headers_match": true,
+  "all_completed_exit0": true,
+  "failures": [],
+  "pending_excluded": [],
+  "rows": [
+    {
+      "batch": "B1",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "workspace-write [workdir, /tmp, $TMPDIR]",
+        "session id": "01a073cb-d6aa-7b20-88df-12fe74b102a9"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:01:46.268412+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B1/implementation-result.md",
+        "sha256": "254bd1f33c355716767e8c047c0999065bedd7c30e3952e421e440daf9be0da6",
+        "bytes": 667
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B1/implementation.log",
+        "sha256": "fda53a00a99773b5bf6ac7d5cabe2eeb101b9ed835aeab4deb85e4f027ad971c",
+        "bytes": 173373
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B1/implementation-exit.json",
+        "sha256": "19e2604fe7001e59d5b2121992ed206c81564a1b571787025b0fcb3370b4da9a",
+        "bytes": 74
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B1/dispatch.json",
+        "sha256": "73211dabd21351e22499aabd0b8f3c2a96c2770724b14665c58844722e2d0bd8",
+        "bytes": 684
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 74,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "[\"node --input-type=module -e 'import { readFileSync } from \\\"node:fs\\\"; import { execFileSync } from \\\"node:child_process\\\"; const file = \\\"src/lib/parseDocument.test.ts\\\"; const name = \\\"keeps one cumulative 60s budget across the load and every page\\\"; const source = readFileSync(file, \\\"utf8\\\"); const start = source.indexOf(\\\"it(\\\" + JSON.stringify(name)); if (start < 0) throw new Error(\\\"Missing cumulative-budget test\\\"); const end = source.indexOf(\\\"\\\\n  it(\\\", start + 1); const ",
+        "  console.error(\"Chromium readiness check timed out after 20 seconds\");"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B1",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a073cf-b4e8-7971-90ec-98f09f0197a9"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:03:38.789517+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B1/review-blind.md",
+        "sha256": "3e07a97256c16459f561ce7602731f27306327cf0cb2bbccedc9d64a2f39c581",
+        "bytes": 2968
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B1/review-blind.log",
+        "sha256": "e13dd073eabf1410451ab3e44d350f347ed933f6e36ec28d32e996da00004966",
+        "bytes": 34473
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B1/review-blind-exit.json",
+        "sha256": "1625c1aa7d3700fc461d0bf1708a0602ed5ead6bd3e84c349188ca2f88de752a",
+        "bytes": 239
+      },
+      "dispatch": null,
+      "dispatch_argv_matches": null,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "Rejection: document load, getPage, and later getTextContent cases assert the identical original error, one destroy call, and zero timers. Baseline failed with 1, 2, and 5 timers; final passes.",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B1",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a073cf-b4ec-7b32-80ed-53b0c743d1ca"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:03:20.246214+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B1/review-edge.md",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B1/review-edge.log",
+        "sha256": "f4d0dc322baa189dd498b02a0cc1ed4a2ea665c0f8af020f50de7b1de883d6b9",
+        "bytes": 34640
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B1/review-edge-exit.json",
+        "sha256": "ced29c18840d3ef45de90bcbec4042c079c40f7972851dd125f2b468e6436d4c",
+        "bytes": 238
+      },
+      "dispatch": null,
+      "dispatch_argv_matches": null,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "Rejection: document load, getPage, and later getTextContent cases assert the identical original error, one destroy call, and zero timers. Baseline failed with 1, 2, and 5 timers; final passes.",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B1",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a073cf-b4f2-7fb3-819e-cd619e635249"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:03:29.033647+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B1/review-gap.md",
+        "sha256": "cf87c32d185d257a566f972441f0b6160112e6bf4ec0bc1cd98dfbbdf87ce05b",
+        "bytes": 27
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B1/review-gap.log",
+        "sha256": "5b3d5bb3391ce2424d379bc2600b46883d8913f9b271b7793c40ef421a977759",
+        "bytes": 89322
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B1/review-gap-exit.json",
+        "sha256": "6121f393ba467b39496195d01734d07b1b8142031f721dbba36289ddd981dcf5",
+        "bytes": 237
+      },
+      "dispatch": null,
+      "dispatch_argv_matches": null,
+      "header_matches": true,
+      "warning_count": 71,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "Rejection: document load, getPage, and later getTextContent cases assert the identical original error, one destroy call, and zero timers. Baseline failed with 1, 2, and 5 timers; final passes.",
+        "  console.error(\"Chromium readiness check timed out after 20 seconds\");"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B12",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "workspace-write [workdir, /tmp, $TMPDIR]",
+        "session id": "01a073df-db53-7240-9111-a6a59184175c"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:24:08.448249+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B12/implementation-result.md",
+        "sha256": "2eacfa91787d119b7db7917e86f9f2fffb2569bc49fd23be1bd57c66beeaf463",
+        "bytes": 706
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B12/implementation.log",
+        "sha256": "4270b07537b88ef72a8f35cecb60f67116521628f65d11b88c41a978805fb05a",
+        "bytes": 150235
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B12/implementation-exit.json",
+        "sha256": "8c202b509081824c70e6a16deb2ecaf4e803b331b7710117b84123125901152f",
+        "bytes": 734
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B12/implementation-dispatch.json",
+        "sha256": "3c04d75a566e68bd78026c98f303f67780850f1bef69de322f6b5d3e71159b9d",
+        "bytes": 637
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B12",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a073e3-287b-71c2-879d-78f0f2eb4900"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:24:55.504415+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B12/review-blind-result.md",
+        "sha256": "40288cc0d6f38008b05c2a09a0b33780ee5b0f89820ad885a969ec75fb4a91ba",
+        "bytes": 2457
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B12/review-blind.log",
+        "sha256": "d75d073b3c748bb38b3e0eea89d817d5cf067e28ca40292796b251992fa21977",
+        "bytes": 32918
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B12/review-blind-exit.json",
+        "sha256": "8770e90ecd8ef8a6d2904dab2f7abd7fa7fb8cfa1421b007410fe2d1d498e7a6",
+        "bytes": 726
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B12/review-blind-dispatch.json",
+        "sha256": "6ea04a37ea377b6f2c1152845bf9a9f04c73c0b5bbf9e57e9b5c289ce7369890",
+        "bytes": 629
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B12",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a073e3-29fe-7d70-95a2-a67c32e272b6"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:24:41.279745+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B12/review-edge-result.md",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B12/review-edge.log",
+        "sha256": "c9d644c9872a8835e6860f4842a59635bf22bc535824bbb16b69fa6e81f55fbc",
+        "bytes": 34445
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B12/review-edge-exit.json",
+        "sha256": "19d602c961f2d1997df2114dbf24bffa7fc8e068dcecd0a4027af6f97731d740",
+        "bytes": 725
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B12/review-edge-dispatch.json",
+        "sha256": "94468e855f8da893d5fddb2f320170446270581a31ee3b881dd8294786cb1493",
+        "bytes": 628
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 67,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B12",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a073e3-2863-77c1-997b-081880c39ec1"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:24:45.307657+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B12/review-gap-result.md",
+        "sha256": "cf87c32d185d257a566f972441f0b6160112e6bf4ec0bc1cd98dfbbdf87ce05b",
+        "bytes": 27
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B12/review-gap.log",
+        "sha256": "c9c394b0226847ca8d26079cb05880b296b4fa8acf8c945918060d0286001919",
+        "bytes": 84609
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B12/review-gap-exit.json",
+        "sha256": "bcb7d0e57a95cb7ab978f8738e697982e6fbcc8fb04376a0e1ca1b2e968429ea",
+        "bytes": 724
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B12/review-gap-dispatch.json",
+        "sha256": "cb764df87c2c65e7a1d8643d97820796e3033af15fc7efd5cedb1064f355f033",
+        "bytes": 627
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "  console.error(\"Chromium readiness check timed out after 20 seconds\");",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B2",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "workspace-write [workdir, /tmp, $TMPDIR]",
+        "session id": "01a073e8-48ac-7e90-901a-443e14f1b161"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:34:32.103910+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B2/implementation-result.md",
+        "sha256": "9c6fae10ef02d1eb0a1f5b38b5a9035f14c31552861ce3236bce9aeabd67957a",
+        "bytes": 676
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B2/implementation.log",
+        "sha256": "b19af96e053c6fa6b25e8fbe3a2a1f1419b79a8651f0cf6ab160fc5d5aba52e0",
+        "bytes": 210219
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B2/implementation-exit.json",
+        "sha256": "9d64a5a2a3bb1f19671b8195a2cde88e8ae640b0089f262f3490ef82cf8b65a0",
+        "bytes": 733
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B2/implementation-dispatch.json",
+        "sha256": "9f96485eedbe1cd96f004eecc9d10ba7e5027c430e2a6333ad5be37572df14fe",
+        "bytes": 636
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B2",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a073ee-bb85-7af1-8bcb-7f391bdc8db3"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:37:41.221988+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B2/review-blind-result.md",
+        "sha256": "394007fea5c3accbf06b795d9069dfb60bac122fae049840c077e0cc0991a0f4",
+        "bytes": 3432
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B2/review-blind.log",
+        "sha256": "da7f84ef5c8dec1a67ed30c9941c2546b63f59d3d70d646f5a8456bb4c157ff5",
+        "bytes": 67305
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B2/review-blind-exit.json",
+        "sha256": "4d089d2c59182629b620adc8de14888f9728fe3b26e8ed42d88005658c16c906",
+        "bytes": 725
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B2/review-blind-dispatch.json",
+        "sha256": "59a2f8cbfc55aeca174bf2b3a77ee266bd1d43e2d219b19fd893902ed46b4676",
+        "bytes": 628
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B2",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a073ee-bb85-7ae0-9d45-0ad5a9e30978"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:37:32.342170+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B2/review-edge-result.md",
+        "sha256": "ce286cac3840a91f8fa4b002b5ea8a4e12f20582ba62abf238af331e80ce1273",
+        "bytes": 808
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B2/review-edge.log",
+        "sha256": "f121e458a242225b1b13e453d49463dfc9749f396f7903145169f549db81656e",
+        "bytes": 68781
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B2/review-edge-exit.json",
+        "sha256": "6700cffac0afa374e2655663c41460704f60104baf7684a8114ec0b6ca4278de",
+        "bytes": 724
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B2/review-edge-dispatch.json",
+        "sha256": "6b5572e104f81ee52c30a7dd15bfce73a18482e7216fb523997d8cf8054f434c",
+        "bytes": 627
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B2",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a073ee-bb85-71e0-abc3-7501cc1a9553"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:37:43.967371+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B2/review-gap-result.md",
+        "sha256": "8ff73a5953b9a505a7e55e6a64ab6e8d12c4eab38cd30453aaf68781aeece1e2",
+        "bytes": 1732
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B2/review-gap.log",
+        "sha256": "4f418c13e78643c6d5f89a9853f4185e4df71494c67a430f0f972c5a26eece04",
+        "bytes": 158230
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B2/review-gap-exit.json",
+        "sha256": "d53f9a4e51c036a0c4a670ea0d6775e9805896236d1f3124e5750847327c08eb",
+        "bytes": 723
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B2/review-gap-dispatch.json",
+        "sha256": "d03a294fd252d15b3ab3e29d887d132a90ba4a1e202e6573e9326267d11ede38",
+        "bytes": 626
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "  console.error(\"Chromium readiness check timed out after 20 seconds\");",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B2-r1",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "danger-full-access",
+        "session id": "01a073f5-d5cb-7610-a336-482ead8945a1"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:49:29.280576+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B2-r1/implementation-result.md",
+        "sha256": "7f494f5a0ac9a8cbaf4f560142227bf8f5bdb58f71332dbaf0d295e0048ac06f",
+        "bytes": 723
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B2-r1/initial-save-probe/implementation.log",
+        "sha256": "ed7ef5ab230121f6b21da82c7fd241ede63482d85d001da8b1923410392f3122",
+        "bytes": 149581
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B2-r1/implementation-exit.json",
+        "sha256": "356937d61ca14a4b511ca1e28eb7b26fcd48e20847e162763a0a11b96f305cd9",
+        "bytes": 739
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B2-r1/initial-save-probe/implementation-dispatch.json",
+        "sha256": "0188f332e8c74e99e2e4ffd5700d1b3e6f125c0e73c8a5ff7e62e2941cec0024",
+        "bytes": 642
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B2-r1",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a073fa-e6f3-7291-90d9-e01e5f54cd9b"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:51:01.744170+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B2-r1/review-blind-result.md",
+        "sha256": "7c957efda383789015f67c010445f5188e3c2a57ec7a92c198dac87fa8a335dc",
+        "bytes": 3950
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B2-r1/review-blind.log",
+        "sha256": "484959e247e472e762e22811329bcc23ba482493bc0abc9afac924669e5af301",
+        "bytes": 71877
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B2-r1/review-blind-exit.json",
+        "sha256": "782db8165b99dfcafb123c6afe28c80e93aeb617db12903b697598bcaeb109b9",
+        "bytes": 728
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B2-r1/review-blind-dispatch.json",
+        "sha256": "5d0572881121fd87333c273cd5e7fd76f2110858e49a0e1fac6affda67e13fdb",
+        "bytes": 631
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B2-r1",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a073fa-e6f3-7993-adbc-aae90848e125"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:50:58.756440+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B2-r1/review-edge-result.md",
+        "sha256": "d55cfbafe5bea028db621706e88235a1af8b70a90c4928d0954c7e3dfb53fb72",
+        "bytes": 789
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B2-r1/review-edge.log",
+        "sha256": "81870d9b853b5f2665bcf3ab16d99bcad655cc67d6d878f254c66c251af6d1c4",
+        "bytes": 72376
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B2-r1/review-edge-exit.json",
+        "sha256": "1ba8ca329b78a0a056aea94f4597575e5c779a2935d1d20cccfb1c8bb6933831",
+        "bytes": 727
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B2-r1/review-edge-dispatch.json",
+        "sha256": "0907c1bea0a44d2cae1aec109cff64ae76a4f419444c5f35d3825e53d5b81701",
+        "bytes": 630
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B2-r1",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a073fa-e6f3-71c0-9887-100cf6880872"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-05T23:50:43.866759+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B2-r1/review-gap-result.md",
+        "sha256": "cf87c32d185d257a566f972441f0b6160112e6bf4ec0bc1cd98dfbbdf87ce05b",
+        "bytes": 27
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B2-r1/review-gap.log",
+        "sha256": "2052aa7adcb78b178b49eaa5645855407813be8090d61b73f99a7265ec2ccf20",
+        "bytes": 109719
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B2-r1/review-gap-exit.json",
+        "sha256": "a7cadbee5d6bc2466bd513e74ffdb8d20d7a77295fad966742b55df697f12200",
+        "bytes": 726
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B2-r1/review-gap-dispatch.json",
+        "sha256": "f7c456b81e23624c9cd3cf0479ada5528b584c7a1081937dd027c497d9bb3899",
+        "bytes": 629
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B13",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "danger-full-access",
+        "session id": "01a07417-e7fc-7641-9729-46ace90523b7"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T00:27:09.662896+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B13/implementation-result.md",
+        "sha256": "78885284e79510bc7971ef4cbb335be4706bddcac3902f88581f38d5d4c1abc0",
+        "bytes": 667
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B13/implementation.log",
+        "sha256": "ebaa5156d1a6792cb090c17c08296b5105122aef4e8f2bf4e76b5b7cbcfa4555",
+        "bytes": 147150
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B13/implementation-exit.json",
+        "sha256": "6ba82d75bf56971d66aed39d767c226627ec9e5ddd6cff7cf024010f209b0730",
+        "bytes": 737
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B13/implementation-dispatch.json",
+        "sha256": "16f65fd0001edd330b0cbcab206d63dc2ab17877c8277664fe792b478170f398",
+        "bytes": 640
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B13",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a0741d-23ad-71c0-83d0-4a38c0810666"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T00:28:20.923628+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B13/review-blind-result.md",
+        "sha256": "aec9fa25b62320ca2c41d9a13a9402837fbdc717ffc528470054ad91fa64d26f",
+        "bytes": 3390
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B13/review-blind.log",
+        "sha256": "422add53073c3d9c1ed9071ba592318aac143b61160e1e1c83a5edb7ea1abb66",
+        "bytes": 44392
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B13/review-blind-exit.json",
+        "sha256": "cace1a7d8dd6225033baf5f869ee9315eb7e07e4645dc1830c42922cfb233b9b",
+        "bytes": 726
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B13/review-blind-dispatch.json",
+        "sha256": "d4951bc58d4d44a8eef7eaba78548d42497abd638b51a25c242376a60eb57521",
+        "bytes": 629
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B13",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a0741d-23ae-7c71-a8a2-8c598ac790d3"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T00:28:15.830606+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B13/review-edge-result.md",
+        "sha256": "5b5a3fd8c9426006d84a2a41ec4ee73872f5b9c704b0916e27480cd7aebcb1e2",
+        "bytes": 474
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B13/review-edge.log",
+        "sha256": "b63c74eff3167cf1c2d379e6b64fe3b9410c12508fefbf7297c794bbb5870702",
+        "bytes": 45284
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B13/review-edge-exit.json",
+        "sha256": "8f6b154714498bda4ddd1797b673e05f4a0b56bdfea98cdc4b139c7372a5b169",
+        "bytes": 725
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B13/review-edge-dispatch.json",
+        "sha256": "b0980a47bda07be8a710f02937f1f5d86473246ef7c91ce26b9d61bfec4e7db7",
+        "bytes": 628
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B13",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a0741d-23ad-7b82-9b58-4fc2efab56d3"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T00:29:04.107094+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B13/review-gap-result.md",
+        "sha256": "77b064bf0586156df2000c4742202e1f2ba807ac7a239389bd175b966721aab5",
+        "bytes": 1572
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B13/review-gap.log",
+        "sha256": "ad5e8f2bbec7e6f090795a909d044d9e9df115d823dbaab0fe3853906adc3484",
+        "bytes": 137586
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B13/review-gap-exit.json",
+        "sha256": "f2a8d85bb5a37237e4469939e88eec931c7eb9e629f69214bacb56c94394b335",
+        "bytes": 724
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B13/review-gap-dispatch.json",
+        "sha256": "4ca2d96f67eac7308c815b04d9d638c2ce4c4907df90aeb88b4ec792cbcf4335",
+        "bytes": 627
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B13-r1",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "danger-full-access",
+        "session id": "01a07420-a95b-7180-98ba-90648bc9215e"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T00:36:35.470461+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B13-r1/implementation-result.md",
+        "sha256": "9a1502bd104fc79e2e77dbbd1a1fb72dad2ce2438b1bccb7f41e2a0793921587",
+        "bytes": 623
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B13-r1/implementation.log",
+        "sha256": "4d52fc88735f4bdc377f06071bc376fdd84cbac2efe157f564d3aeaa060ef806",
+        "bytes": 203583
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B13-r1/implementation-exit.json",
+        "sha256": "136a97bad0c131167d335613a887aa88ac53aeb5d2328ff92ac5801bb6a78f54",
+        "bytes": 740
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B13-r1/implementation-dispatch.json",
+        "sha256": "36926c412a9b3ddf1ca1679dc880f517530665f8798e3593ce76a47b4da67972",
+        "bytes": 643
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B13-r1",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07426-9fd4-7720-90e5-f3b2b6486470"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T00:38:57.812951+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B13-r1/review-blind-result.md",
+        "sha256": "c35377463e75d75ab721050a7859d8c4072cd852a818d192a1964e1f3e6baebf",
+        "bytes": 3469
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B13-r1/review-blind.log",
+        "sha256": "dfa9f96f449c137b25d6586ce2e20bda899d291e0eb6c80c22c87c038503e494",
+        "bytes": 57513
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B13-r1/review-blind-exit.json",
+        "sha256": "882a6a3fb986780b4e1e9dbc6542c9afc03c0e55e6c2a4bf943ee140d272849e",
+        "bytes": 729
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B13-r1/review-blind-dispatch.json",
+        "sha256": "36bb05d074078d2c24344e1eed91228eed05477463ab1055bb5d99095b115cce",
+        "bytes": 632
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B13-r1",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07426-9fd2-7130-88a1-69b1c4e1a0b4"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T00:38:54.286240+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B13-r1/review-edge-result.md",
+        "sha256": "ac1134a032e6ca9a48fd7579ea22a173244eb03f164874bf67ce2ef7f29d400e",
+        "bytes": 417
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B13-r1/review-edge.log",
+        "sha256": "c874e74d5cc3a45694311f2a73b5b4e59df6617c386af81bcb8830536f26372f",
+        "bytes": 58133
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B13-r1/review-edge-exit.json",
+        "sha256": "f9dd03dc9ee37cef034e5cf2a84103276bfe39d442382f8d89064d3dcea2a58d",
+        "bytes": 728
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B13-r1/review-edge-dispatch.json",
+        "sha256": "a0f214c876394c2aecdae19e0367bdd1c7a04cfa5c570d84956cd31977c862a3",
+        "bytes": 631
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B13-r1",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07426-9fd1-7753-9b2b-5aafcdb7f264"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T00:39:15.155656+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B13-r1/review-gap-result.md",
+        "sha256": "d9bd01aa01201b0d5669775ab11c6f9e458e2733c5e7f3ce2f7c29149219929d",
+        "bytes": 1611
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B13-r1/review-gap.log",
+        "sha256": "fc783a9218cbb211f6a3342a35b49557db1fec2d2db17a46dbde150e06edd4e6",
+        "bytes": 144340
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B13-r1/review-gap-exit.json",
+        "sha256": "958cf35d266a9de660333a50fd1df29197b403eb09842efbffefbda5b1ca01a3",
+        "bytes": 727
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B13-r1/review-gap-dispatch.json",
+        "sha256": "4d8538fef38f1f2c2fab84604735d35bfa047250aa09aea5e3d2ab0c9c51fccb",
+        "bytes": 630
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B13-r2",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "danger-full-access",
+        "session id": "01a0742b-014e-7761-9831-8db50de36b98"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T00:50:53.807327+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B13-r2/implementation-result.md",
+        "sha256": "41dcc0154c7373c1c80b492f93fea1bdd13f64593c996b64fec04370a68f9f2b",
+        "bytes": 909
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B13-r2/implementation.log",
+        "sha256": "3f96a82819fb690183f710f1d2469c2208abd27c0fbd82381be0cb5e30b7956c",
+        "bytes": 346014
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B13-r2/implementation-exit.json",
+        "sha256": "062447d3594cdd5184fde7e9c4312f88e9b1b66bcb95b0a952c25d4ce22d3c26",
+        "bytes": 740
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B13-r2/implementation-dispatch.json",
+        "sha256": "6e7dbd45a6c1145eba71ed94e4c4875a1f563a38e77940b268e8b83cd11e3d7c",
+        "bytes": 643
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 67,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B13-r2",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07433-35ec-78e2-a62f-7b959c041167"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T00:52:31.522274+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B13-r2/review-blind-result.md",
+        "sha256": "532ff1b0ddf4dafdd2fcbd8950dd7f7e70d4e3922c6f709bf372146d8b033037",
+        "bytes": 3496
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B13-r2/review-blind.log",
+        "sha256": "eae1044f3e6184ac7b3ec7f8cb8949bc1087a56ebae2b3112d61b7308906ed8b",
+        "bytes": 67158
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B13-r2/review-blind-exit.json",
+        "sha256": "8f5a0ccfcb0cd7287646200937880fbee92559c6ee7a7def7c74b6ba6639d80f",
+        "bytes": 729
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B13-r2/review-blind-dispatch.json",
+        "sha256": "9b442dbf560fe8fab070a625ffe4ef2588b710ddc90561b1750877380879f001",
+        "bytes": 632
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B13-r2",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07433-3572-7e30-bafc-c679b00bc677"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T00:52:15.205260+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B13-r2/review-edge-result.md",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B13-r2/review-edge.log",
+        "sha256": "7987d8f8176d8660bae258bfc7d639105538d4efb91014b1c57692c4c8a5dd3f",
+        "bytes": 80716
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B13-r2/review-edge-exit.json",
+        "sha256": "7f21e81276e9c2c50f920eac31fabd30a73c82f6c661dc77baa793bb9875a58d",
+        "bytes": 728
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B13-r2/review-edge-dispatch.json",
+        "sha256": "20fe5baf81fdb6cec04e747736b284737cce6b316ae697e11f0c66fbb63db8d1",
+        "bytes": 631
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B13-r2",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07433-3572-7c80-839a-f5219c346ae7"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T00:52:19.783616+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B13-r2/review-gap-result.md",
+        "sha256": "cf87c32d185d257a566f972441f0b6160112e6bf4ec0bc1cd98dfbbdf87ce05b",
+        "bytes": 27
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B13-r2/review-gap.log",
+        "sha256": "0224b512f34994016def0aee0bd739f42a8ed1a5e85bb94c74809a7417b3ed92",
+        "bytes": 161804
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B13-r2/review-gap-exit.json",
+        "sha256": "3c0ca90fc2979cc0e3c447d1d4e6140588511177c6897b23b99f83a4a94a1d0e",
+        "bytes": 727
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B13-r2/review-gap-dispatch.json",
+        "sha256": "f197af0c84807c261195b13d3cecd17d13f15916ccc4ceee63fd70dcd692cec7",
+        "bytes": 630
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B3",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "danger-full-access",
+        "session id": "01a0743d-7561-7be1-a3b5-0039986d18b3"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:07:29.535020+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B3/implementation-result.md",
+        "sha256": "fb661b1b267bed387cd7dc8ba64eb89abf3af7fc102e13a63611abc149464a6a",
+        "bytes": 667
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B3/implementation.log",
+        "sha256": "0dca7b4c562f6b86c3ca6ef0c1b49f1ea99e7e2c0b452977b463abcd08c1d8ef",
+        "bytes": 218722
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B3/implementation-exit.json",
+        "sha256": "19398ae2526540f42fc246960e5bf48bf8f719ee9858e7868cac41b0a731cf82",
+        "bytes": 736
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B3/implementation-dispatch.json",
+        "sha256": "bf08c58a75ce742e6f3c2dc3a43d0801be0c643eeed04c8d274a8ae6bf3bf5c8",
+        "bytes": 639
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 71,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "        attemptKey: \"TypeError: failed to fetch\",",
+        "        attempts: [attempt({ attemptKey: \"TypeError: failed to fetch\" })],"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B3",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07443-1866-7a63-be0c-4403b0e255ae"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:09:46.696423+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B3/review-blind-result.md",
+        "sha256": "fcae2977fa7d42792f76ee12446163bf19654a9b09406f88e2ff6afd47a02524",
+        "bytes": 2473
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B3/review-blind.log",
+        "sha256": "0c3e73833a0de9d2ae0e4003e64643524992ec93f7939024460426c862c5a693",
+        "bytes": 38314
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B3/review-blind-exit.json",
+        "sha256": "7a8ad8b1c733e39ec524a94183839e6475af930b69d7b48aa8bc419aa8fb3a0a",
+        "bytes": 725
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B3/review-blind-dispatch.json",
+        "sha256": "3e84748bd6267ee89f542b59dbe4dd2531a924041f674961415ee24df2df2034",
+        "bytes": 628
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B3",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07443-18b6-73d3-8b0b-d3902b96e69e"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:09:30.715219+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B3/review-edge-result.md",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B3/review-edge.log",
+        "sha256": "6090230296458e1af69b79390ec04d6dbdab54d4c0a79e6e21c0292e88cb5a4d",
+        "bytes": 40096
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B3/review-edge-exit.json",
+        "sha256": "89bc6f2839e17aa5cb5d8ba5fe7f3c235329db602e8ab85cb6286bf5b0815e2b",
+        "bytes": 724
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B3/review-edge-dispatch.json",
+        "sha256": "826767700564ed30408e60d46912e21ec9edf8e2542a34a837d219f767b72ae8",
+        "bytes": 627
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B3",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07443-1899-7963-a6c9-111d1e6a5ef2"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:09:39.197095+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B3/review-gap-result.md",
+        "sha256": "cf87c32d185d257a566f972441f0b6160112e6bf4ec0bc1cd98dfbbdf87ce05b",
+        "bytes": 27
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B3/review-gap.log",
+        "sha256": "e765569919a323afe103a691d48cfaa98f9dad0c6510fe4244813901e63e1473",
+        "bytes": 118844
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B3/review-gap-exit.json",
+        "sha256": "e501c171dbe7745abf44efeb76b7f55a3d11ebbac43aba5be6c308cf3327aa7f",
+        "bytes": 723
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B3/review-gap-dispatch.json",
+        "sha256": "1b5597fc4dc9b62744b2a5d0c48211508b47a19aee73e7fd29ee9322a937b154",
+        "bytes": 626
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B4",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "danger-full-access",
+        "session id": "01a07448-4bdd-7c00-b331-8442b6741777"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:19:36.766801+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B4/implementation-result.md",
+        "sha256": "2755b50b90b77dca6ab2f30b3532c101001d5852b42043256b46beee7f54e0c4",
+        "bytes": 702
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B4/implementation.log",
+        "sha256": "9643843a32b4b44bb863cadadcd977c4aac360b630c2828a0324ac8708c1d2b8",
+        "bytes": 181634
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B4/implementation-exit.json",
+        "sha256": "97dacc3ce6a2e884e37ec3b9231e3fa0fc625ba5112f3a0c751ca5915ed98924",
+        "bytes": 736
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B4/implementation-dispatch.json",
+        "sha256": "aff116d3c1ad0275185a348fc8aecd62ec8a1c90963e816ac25233a3a38a5912",
+        "bytes": 639
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 71,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: failed to resolve OAuth metadata before using stored credentials",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B4",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a0744d-199e-7780-a6aa-614264767271"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:20:56.083514+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B4/review-blind-result.md",
+        "sha256": "7f4e67726117bc774aacf2a18b37f12075179954c72527f36b143d633c3f1187",
+        "bytes": 3301
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B4/review-blind.log",
+        "sha256": "4c11924e3f3e87d3ec93c760894186c5f0ebaed175a5d5a6f5ad21014117327c",
+        "bytes": 84187
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B4/review-blind-exit.json",
+        "sha256": "a791003c5fce131514f9b6767735a3e008764be3c7a4f1a0ab81816a4c0bca09",
+        "bytes": 725
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B4/review-blind-dispatch.json",
+        "sha256": "56ea07bbca8124eea1e8ac02e3302de1f116fc9e9738c5afbccd3417fc70b2be",
+        "bytes": 628
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B4",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a0744d-199e-7a81-8264-afd01f7d14c6"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:20:26.800120+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B4/review-edge-result.md",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B4/review-edge.log",
+        "sha256": "4a308b1e3e12888ca71cd41a7c06e5a34433b7b4d87646ec7f0f25219cc1151e",
+        "bytes": 84313
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B4/review-edge-exit.json",
+        "sha256": "f29c2079074e9612cce115b4217aded3adf5dd9354b181b5895a11521ff84ae2",
+        "bytes": 724
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B4/review-edge-dispatch.json",
+        "sha256": "86ff959fa82ca97ee99303e8a288617e1bbd3a6a2777b10c8982d0fe6713c529",
+        "bytes": 627
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B4",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a0744d-199e-7810-842f-9b615ab93d27"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:20:37.662038+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B4/review-gap-result.md",
+        "sha256": "cf87c32d185d257a566f972441f0b6160112e6bf4ec0bc1cd98dfbbdf87ce05b",
+        "bytes": 27
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B4/review-gap.log",
+        "sha256": "01831de6be4f91cff9eb0cb3b7f929cb2708f589209165d9fdd887a234125c27",
+        "bytes": 115290
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B4/review-gap-exit.json",
+        "sha256": "2c71a2281450ed9f49057f4976cdda4666dcfae157f9982585678502dea286e2",
+        "bytes": 723
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B4/review-gap-dispatch.json",
+        "sha256": "b66a2bb80482ee8680801d6dade2e4315546294743686010a3cfcac3ac0f2ea6",
+        "bytes": 626
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 72,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B5",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "danger-full-access",
+        "session id": "01a07456-53e6-77e0-87a4-aed515159a05"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:34:50.983463+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B5/implementation-result.md",
+        "sha256": "a360705abf39194ebce3890d9b9603ae046a9d30781189e627de35ff08a53357",
+        "bytes": 736
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B5/implementation.log",
+        "sha256": "d33f0e15c5a93bcfd74763eba9212b8d67f59ce686b4efeb874ae576f7acea89",
+        "bytes": 341999
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B5/implementation-exit.json",
+        "sha256": "c1625b4a9743ca2531949920eb987be09b07ea074f6f3f79cae0592f06f0acc2",
+        "bytes": 736
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B5/implementation-dispatch.json",
+        "sha256": "77e9c0e459e861cc261f73a27b4dec10a61e6ccd82c7272d0201c53f1c4c73ee",
+        "bytes": 639
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B5",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a0745a-e481-71b2-b578-150dbd847008"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:35:47.167205+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B5/review-blind-result.md",
+        "sha256": "ba57bd5185ea6d77beca18163bd2fb9e03e21d9ed4ea3a6a8ff8d6588fb24dcb",
+        "bytes": 3246
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B5/review-blind.log",
+        "sha256": "68031d9d67e305890f43d7ff44018636b371e06d2f3a97281ecc7a6db0bc5441",
+        "bytes": 59463
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B5/review-blind-exit.json",
+        "sha256": "73c415913734652b54de65a80147d707be32bfc4dcba0f42978d1cef02e86d39",
+        "bytes": 725
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B5/review-blind-dispatch.json",
+        "sha256": "b584de027a7c9b02eb54837acc2b2602ce70634eb0353a6bd703484c4ef3815b",
+        "bytes": 628
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B5",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a0745a-e45c-7cf2-bce4-da28acfa409d"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:35:31.587672+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B5/review-edge-result.md",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B5/review-edge.log",
+        "sha256": "a5b6fa83804f3afb4f62a8148472b5a23c629328df3c3a209ece21d4c0683f01",
+        "bytes": 59699
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B5/review-edge-exit.json",
+        "sha256": "0109b8e7ce39b36740290584642201a9b58c631033f904f92e732c3f475c5205",
+        "bytes": 724
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B5/review-edge-dispatch.json",
+        "sha256": "ac792e66147dec5e5715fbc0dfd47a24ceb722aea309431d5f0c0f3204f723fd",
+        "bytes": 627
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B5",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a0745a-e459-70c3-8a87-86911ffa71b3"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:36:22.000623+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B5/review-gap-result.md",
+        "sha256": "502de8c90dbea117360bfb2bd9420e1cb11cb4f2710eef55860635a9df6881af",
+        "bytes": 1634
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B5/review-gap.log",
+        "sha256": "231f006dfc7a11fc3ccbf4973f640df68164fe3a673f19efe0674223ff8c923e",
+        "bytes": 190985
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B5/review-gap-exit.json",
+        "sha256": "bd1186b84f54e2ade731776a9647a8ca24db8b9f060dfa99179face12aff29b5",
+        "bytes": 723
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B5/review-gap-dispatch.json",
+        "sha256": "9eda7556cce6b20c061e00668ba853058e982fe2bf5bf04945e26448f9f1e233",
+        "bytes": 626
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 71,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "  console.error(\"Chromium readiness check timed out after 20 seconds\");",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B5-r1",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "danger-full-access",
+        "session id": "01a0745f-4c01-7af0-a6b8-74efda4bf70c"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:45:25.123714+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B5-r1/implementation-result.md",
+        "sha256": "326c5e8722072072cdc415e65edf4e574c0e38d9e549a48d0dc3547ded2f6873",
+        "bytes": 842
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B5-r1/implementation.log",
+        "sha256": "2a693e8d57f11308d85aa293a4354d317e397ccf4a16bef2f1d2059cafda496d",
+        "bytes": 303769
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B5-r1/implementation-exit.json",
+        "sha256": "55127b337b82073f666867b8efaf587ab74855693b7421e61095e4e9a3d13974",
+        "bytes": 739
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B5-r1/implementation-dispatch.json",
+        "sha256": "bf24eaa81d8487c55b7a75ffb195cca02d3cb5825c499d50ed6f68676c27b6d1",
+        "bytes": 642
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B5-r1",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07464-b450-7112-bade-e18e0fb36eb8"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:46:29.777386+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B5-r1/review-blind-result.md",
+        "sha256": "437cf1326809bef64b6f5322de75eed346810b2db9b1c30eb1a938b581b2fbed",
+        "bytes": 2712
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B5-r1/review-blind.log",
+        "sha256": "9d4457013216ccf2d9e4517f8972efb78d99d6e0834cfe69b904a9243bbf9856",
+        "bytes": 62461
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B5-r1/review-blind-exit.json",
+        "sha256": "6a3b92d8b91d164908f68d40c4be3424a764e6c8dc4941bd0c21cedd3a341684",
+        "bytes": 728
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B5-r1/review-blind-dispatch.json",
+        "sha256": "1f868586265c3d73446d3e0af1ba89eaf73e53d1dd591f3919c7a0671c896f5a",
+        "bytes": 631
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B5-r1",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07464-b49e-7fa0-8d42-ad8145d59cec"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:46:11.087752+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B5-r1/review-edge-result.md",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B5-r1/review-edge.log",
+        "sha256": "f162ce730c398bc3c0745f107579be638ad19bb065f334196bd3b8299eba3906",
+        "bytes": 63140
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B5-r1/review-edge-exit.json",
+        "sha256": "aae9dbe8702ab5f31547d022d99e54e1f8dc1540443405f3b4c63314bd397cad",
+        "bytes": 727
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B5-r1/review-edge-dispatch.json",
+        "sha256": "32a827c4acffbdc42304d97e5388b2275f94f1ed077d002116eba03db768bdf8",
+        "bytes": 630
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B5-r1",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07464-b3be-7690-b2e6-93110cd14f07"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T01:46:19.040219+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B5-r1/review-gap-result.md",
+        "sha256": "cf87c32d185d257a566f972441f0b6160112e6bf4ec0bc1cd98dfbbdf87ce05b",
+        "bytes": 27
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B5-r1/review-gap.log",
+        "sha256": "85fd9944cc299850234d5d097767840835e9190d8e8c284aa85fb25e77c7595e",
+        "bytes": 94109
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B5-r1/review-gap-exit.json",
+        "sha256": "09f82e2f7df8de6df9659c5d927e84f47d92a60da863901267f2f300b0986b6d",
+        "bytes": 726
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B5-r1/review-gap-dispatch.json",
+        "sha256": "cdb24a3016af07a2bd6d2ceb90b65bd2bf85ea652f3040ad8001b959f715b516",
+        "bytes": 629
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B6",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "danger-full-access",
+        "session id": "01a0746d-505a-7013-8f3b-8da848cd93b7"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:02:03.300468+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B6/implementation-result.md",
+        "sha256": "9b5b0a2886372a52651987bade275cc6b223805d00e987abb47b10e3bbcc1a59",
+        "bytes": 705
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B6/implementation.log",
+        "sha256": "05803f2cf28f3b3f1f5d5d8ff09be37787cf376d85ff846afc932bdbb852ee41",
+        "bytes": 241884
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B6/implementation-exit.json",
+        "sha256": "fe370beeb597fe273843762211e279fd2d103d327b09d959435ad38e21ef56f6",
+        "bytes": 736
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B6/implementation-dispatch.json",
+        "sha256": "907024f2b46e92627811d6ba3d13dc10641ad69d2fd7f70057be1272fcc68399",
+        "bytes": 639
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B6",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07477-95d9-7893-878d-b62fbc0f3b8c"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:06:58.600688+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B6/review-blind-result.md",
+        "sha256": "eb825cdae55c59df93a551b08e2b26fede428b68dab7568fc4c43e4e2b581c66",
+        "bytes": 3050
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B6/review-blind.log",
+        "sha256": "21ca9e644c9523199b9d45041174c7d5a13ad6c92103b644bb3afe4e111483ef",
+        "bytes": 79754
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B6/review-blind-exit.json",
+        "sha256": "13667790e1753dde18f363f251c1716b3a7cef3b881ea49344e6e52fff646d4e",
+        "bytes": 725
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B6/review-blind-dispatch.json",
+        "sha256": "eccf38f48708463f1ab27bc54123290a880a190e85cb99315895367fcfc97f5e",
+        "bytes": 628
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B6",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07477-963b-7870-9fd1-6d1d42d8d425"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:06:52.135154+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B6/review-edge-result.md",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B6/review-edge.log",
+        "sha256": "d37f3f64eb0058e0da849d1911e07bbc1041368230a47751244edde198546cad",
+        "bytes": 80252
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B6/review-edge-exit.json",
+        "sha256": "d15af683df8543f3eb8ff5a8633a03c2f19011306901603ba48b7f6ff424624d",
+        "bytes": 724
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B6/review-edge-dispatch.json",
+        "sha256": "038db506b6a53fcd751f72570ed761168f0571b630d4c8ce67aa0c7e08cb3ed3",
+        "bytes": 627
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B6",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07477-960c-7f81-9cfc-280f0f6882c3"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:07:02.308522+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B6/review-gap-result.md",
+        "sha256": "cf87c32d185d257a566f972441f0b6160112e6bf4ec0bc1cd98dfbbdf87ce05b",
+        "bytes": 27
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B6/review-gap.log",
+        "sha256": "acdf29a9873eb0ab985248bfed54a88de45f5aca3f3e2de46406d37bea1985cc",
+        "bytes": 222526
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B6/review-gap-exit.json",
+        "sha256": "b4695a04bd07cad142c7b8b8fcfc5121c72ac17f27ccb30a0641fd6ca9e94b1e",
+        "bytes": 723
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B6/review-gap-dispatch.json",
+        "sha256": "09c4e13444292662c490c855dade7267df63b484eabbde3a0a48d2005d6192f5",
+        "bytes": 626
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B7",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "danger-full-access",
+        "session id": "01a0747d-fcc6-7cf3-b62e-a8cc78dd7c33"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:18:19.991671+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B7/implementation-result.md",
+        "sha256": "f63ebac5965c0dfd685ea825ce3771d16c335d391664a4bf1a566449d731306b",
+        "bytes": 765
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B7/implementation.log",
+        "sha256": "0417faa0bd05bd1745f516b697415477680ec701b667f0c46f4e8ebcd885d2e3",
+        "bytes": 98365
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B7/implementation-exit.json",
+        "sha256": "d7f0283b5ddeda2e45dce347c119c671136913c5ede6f97d71ec39779f6c4ddb",
+        "bytes": 736
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B7/implementation-dispatch.json",
+        "sha256": "cc709223ff56499446c48add61a93e88f71caca6b5618d2b9d3190c2f0a91200",
+        "bytes": 639
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B7",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07483-2164-79c2-85b1-5692cf941033"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:19:46.003363+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B7/review-blind-result.md",
+        "sha256": "a424d5fab856f0c8195412a921d4726bff654a76dbe60e7177534215f2b7f03a",
+        "bytes": 2871
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B7/review-blind.log",
+        "sha256": "7a021263a73135e60821e3a7ee9fb78c94695b72d1de99c84528a7c8a4f2e72c",
+        "bytes": 302302
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B7/review-blind-exit.json",
+        "sha256": "2a8082e271026c56637ee198570e8f16135789e39954dc6cc637c368e2fb2f3a",
+        "bytes": 725
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B7/review-blind-dispatch.json",
+        "sha256": "ada7ab848b2af7e74bdabd0280f7410414bd2ced2879b56c34eff91927cb9e69",
+        "bytes": 628
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B7",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07483-2164-7992-bcd7-9cac2c0c28a9"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:19:40.361465+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B7/review-edge-result.md",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B7/review-edge.log",
+        "sha256": "c22dd18b507dd6cba367d1f40097b2cfca8376625fea898fe00d72f541bb82f1",
+        "bytes": 329716
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B7/review-edge-exit.json",
+        "sha256": "ef73b4bff8786681a4e4f8dc0d2ebc6a67f245471d592a682462e1d2fec5bbb7",
+        "bytes": 724
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B7/review-edge-dispatch.json",
+        "sha256": "9cdb3b00c48850912e6e70e00abcfedd4a68cf0e0c1142dbac00cca285abb9f3",
+        "bytes": 627
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 72,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B7",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07483-2164-70b2-b54e-0a76a6544f12"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:19:53.097102+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B7/review-gap-result.md",
+        "sha256": "cf87c32d185d257a566f972441f0b6160112e6bf4ec0bc1cd98dfbbdf87ce05b",
+        "bytes": 27
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B7/review-gap.log",
+        "sha256": "bff76a2c8936f0805f046057fdb6321f2cac2229add6a6b0e53346ef054d9ec1",
+        "bytes": 377864
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B7/review-gap-exit.json",
+        "sha256": "1e34f473b34b06a67aaab30d0199d667d24e0edd683c373fc29f5e33c51882b1",
+        "bytes": 723
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B7/review-gap-dispatch.json",
+        "sha256": "7429a673033d8c851865a95672efb4c8bbd8ed3b91f6e647e4e2b73d3cc7d3a4",
+        "bytes": 626
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 73,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead",
+        "  console.error(\"Chromium readiness check timed out after 20 seconds\");"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B8",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "danger-full-access",
+        "session id": "01a0748a-990b-7bf3-8ffe-512cff372d47"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:29:59.176149+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B8/implementation-result.md",
+        "sha256": "280543763c2a6912c89e5b94f6c1d34cd7ce2efbf6026032253914b362a74a5c",
+        "bytes": 590
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B8/implementation.log",
+        "sha256": "cc7d6d23636ec001d44c4a98ab90caf7b6d8593e4988af4afee1812a4424e6ce",
+        "bytes": 215242
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B8/implementation-exit.json",
+        "sha256": "05f2a626fc6c9912733f8d7888392211b9ff06ac38ee8a23bfe1b60269888e1d",
+        "bytes": 736
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B8/implementation-dispatch.json",
+        "sha256": "3419ab2d8f45ef7dda062603cef9a1fb81eae080ade81b747749f8e3baa4fe13",
+        "bytes": 639
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B8",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a0748d-91a9-7921-b53e-1bf04328f089"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:31:04.048321+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B8/review-blind-result.md",
+        "sha256": "dd4597b7ffd8437a07fe11e2600739073db6c4ac9c4e1944853db3dd51e705ec",
+        "bytes": 2554
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B8/review-blind.log",
+        "sha256": "daea7ab915887f23f12d487f8da327bf016d167e245ab034dadca7f145b39a65",
+        "bytes": 31860
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B8/review-blind-exit.json",
+        "sha256": "380a205195a2b397ca1070c822b04af01475aedd90a20cc5a2efedad81957ac2",
+        "bytes": 725
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B8/review-blind-dispatch.json",
+        "sha256": "05268d450ea95c0899410e72770d5d4f1d21a48784f9e6498d483fc74d173d84",
+        "bytes": 628
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B8",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a0748d-91ba-7050-b492-006976962d01"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:30:49.931272+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B8/review-edge-result.md",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B8/review-edge.log",
+        "sha256": "1e72777102285893f11eaf70de8b27856afa454055080e0585d37c67708de8b3",
+        "bytes": 33480
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B8/review-edge-exit.json",
+        "sha256": "1fdf60509748c1b6a7158052d8801cd486a15e18fed053cad1374db470fc5f10",
+        "bytes": 724
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B8/review-edge-dispatch.json",
+        "sha256": "3dbb75e8b2191c49010e6dafb4669adbfe35d2f004cd548d2f65a202c3e5e2f7",
+        "bytes": 627
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B8",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a0748d-917a-7083-824a-e3578fc22d5a"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:31:02.476197+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B8/review-gap-result.md",
+        "sha256": "cf87c32d185d257a566f972441f0b6160112e6bf4ec0bc1cd98dfbbdf87ce05b",
+        "bytes": 27
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B8/review-gap.log",
+        "sha256": "92f1bf6de8c955680c1e247d5a9ed9c01ba7b4659843cb2d9f62e702945cc0db",
+        "bytes": 95346
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B8/review-gap-exit.json",
+        "sha256": "a46339bdef2e1a2fccddb37249ee5077e7afe5e2a3c7d98a409d6da15e8e11d3",
+        "bytes": 723
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B8/review-gap-dispatch.json",
+        "sha256": "1de859d23b5fd8359ebc95706c2ae55f2f02ba52b0a24039b2ed5e7df32e983e",
+        "bytes": 626
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B9",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "danger-full-access",
+        "session id": "01a07494-2d61-7d80-901e-e94cf08ab286"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:41:56.867777+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B9/implementation-result.md",
+        "sha256": "8a4955915705832af7c3374a67d10a5dd6a46321fdee385fd9371469dcdc0984",
+        "bytes": 532
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B9/implementation.log",
+        "sha256": "a0eff2e8cf159b68b2f06a756d978f571aa35c8cbab3de21168361314337a42f",
+        "bytes": 273318
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B9/implementation-exit.json",
+        "sha256": "0d65878b18ea8ab5260bbccbaebca67becf93d98348cb01d8adb2480d43f988e",
+        "bytes": 736
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B9/implementation-dispatch.json",
+        "sha256": "d3a69ba3305d9f58f56f59d62922e6aeb507eb03af88e8d645a869ce7977b69b",
+        "bytes": 639
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B9",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07498-d991-7bf1-97af-08f14f18f605"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:43:32.337920+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B9/review-blind-result.md",
+        "sha256": "231529bf3ddb83ec584ba75b847028e02d6a0fc313af90162d472eca2413f8eb",
+        "bytes": 2616
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B9/review-blind.log",
+        "sha256": "90c86e3f87e0c3609e7a19293abfa89176f12294ac9eccb934964098388a62e5",
+        "bytes": 43694
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B9/review-blind-exit.json",
+        "sha256": "facf09071ed531a263815440e74865dcbe4022e6dee5f4d73e5840ce5726e52b",
+        "bytes": 725
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B9/review-blind-dispatch.json",
+        "sha256": "f196d2ac32f8f593cdfca03fb3754a966026fa1b67e7481f35ca56c66140c27b",
+        "bytes": 628
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B9",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07498-d944-7df2-a374-a23355562d32"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:43:05.669836+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B9/review-edge-result.md",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B9/review-edge.log",
+        "sha256": "58f69bb0d3b4c967c63b6c500bec8d3ccac45430805abe8f0f1fb6153a758ed3",
+        "bytes": 44642
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B9/review-edge-exit.json",
+        "sha256": "41c045a1a2f66e67d83c171668eae41ac77a7af4d80e9b16ca9c6323dda256ae",
+        "bytes": 724
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B9/review-edge-dispatch.json",
+        "sha256": "d5127820b98552eb21e7c3c5e09946b1d64c7589d2e8c1d4d348aa9fc726ddd8",
+        "bytes": 627
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B9",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a07498-d927-7e42-8b03-aed689a94e48"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:43:28.157028+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B9/review-gap-result.md",
+        "sha256": "cf87c32d185d257a566f972441f0b6160112e6bf4ec0bc1cd98dfbbdf87ce05b",
+        "bytes": 27
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B9/review-gap.log",
+        "sha256": "16beca83c3db1a6c071e296cf4741e94aae21897d14d21de4419f5f9d9bff640",
+        "bytes": 92121
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B9/review-gap-exit.json",
+        "sha256": "f8930707f190653a370fb0aff6cea7ad8998404542d2283784905169f411dad0",
+        "bytes": 723
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B9/review-gap-dispatch.json",
+        "sha256": "776bd142be09165bbe4f7a374a6e7a7645b132931d58fa05dd378a48d0bf2b87",
+        "bytes": 626
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 69,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B10",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "danger-full-access",
+        "session id": "01a0749d-86f4-7c70-86bf-8c1b4141e211"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:54:39.391667+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B10/implementation-result.md",
+        "sha256": "92c5fc602423a774b290a6561303ca9b8c536116f81ce1845fc7206802dcbbd5",
+        "bytes": 669
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B10/implementation.log",
+        "sha256": "c56b31ede3292faaa86d8e34a4a40ed8459354aee4e7be4f0a0a78e5f77ef0da",
+        "bytes": 334137
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B10/implementation-exit.json",
+        "sha256": "4e91afa4448198a17863c89e38959ebe93f8c9355615e908caac10f32eb71653",
+        "bytes": 737
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B10/implementation-dispatch.json",
+        "sha256": "d595a4498d3e4a670b505f7768be0fb81fb04ad0f59efb4aec37ccd73cf0f9d3",
+        "bytes": 640
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 73,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        " * - Error or ready-unavailable resolve to `current` (fail-closed).",
+        "**Board client axis:** The Projects Board may group by client **as a display grouping of recorded client names** (identical D7 language and caveats as the approved List grouping \u2014 never a durable Client/Company entity, no merge affordances, no client pages implied; the recorded-name qualifier and the backfill-completeness warning carry verbatim onto every client-grouped surface). Chosen interpretation: **stacked per-client lanes** (each lane a horizontal row of stage columns for that client, l"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B10",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a074a4-2407-79a1-9b4c-b28675ab85fa"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:55:48.309570+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B10/review-blind-result.md",
+        "sha256": "22e37e493966796b1f11994f40d7f447b61c9558b1fbf0fe14ef4d7622799e47",
+        "bytes": 3305
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B10/review-blind.log",
+        "sha256": "7ae857ce368ce14404d07cd800e595279ad4bec1b53a0443c9f2e902ceb0af0e",
+        "bytes": 78671
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B10/review-blind-exit.json",
+        "sha256": "beab852df7b100b8d636ffb5b1098a1d9cb3ee14a13813363a242d1c15a6958b",
+        "bytes": 726
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B10/review-blind-dispatch.json",
+        "sha256": "7fb4549b20436e403c16ad46c1edb4a27b8d5a05100b6b7849a6b53c4073b088",
+        "bytes": 629
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 72,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "* - Error or ready-unavailable resolve to `current` (fail-closed).",
+        "The amendment calls the error fallback \u201cfail-closed,\u201d although it mounts the current UI. Clarify that this closes preview exposure only; authorization still depends on capability checks inside the fallback."
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B10",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a074a4-2405-74a3-8e78-70618dfb14fd"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:55:30.214038+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B10/review-edge-result.md",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B10/review-edge.log",
+        "sha256": "d3c3e9fafdbeeeffb1e1638c84a4debc8527a4dfda7b038a201a2b767a6aa99e",
+        "bytes": 78789
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B10/review-edge-exit.json",
+        "sha256": "2ffdb05041ced2e13ddaa9e21bb5129694ffeef65461a458bef25675fbb04e6b",
+        "bytes": 725
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B10/review-edge-dispatch.json",
+        "sha256": "b762bc736e0d0cbd9e31e9a0ae97dc1428dd1c3c88573d8108adbdb4ca8c6e6d",
+        "bytes": 628
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "* - Error or ready-unavailable resolve to `current` (fail-closed).",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B10",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a074a4-2404-7601-89f7-5dcf275b53c3"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T02:55:32.736447+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B10/review-gap-result.md",
+        "sha256": "cf87c32d185d257a566f972441f0b6160112e6bf4ec0bc1cd98dfbbdf87ce05b",
+        "bytes": 27
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B10/review-gap.log",
+        "sha256": "862ff662258c7d48d7b31af48e71d121a28d339a6ac9e0ce565542c9d8a41fa6",
+        "bytes": 120691
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B10/review-gap-exit.json",
+        "sha256": "ba1dca2f03bb9c90adeec85c29f5f512f211c092a5c3040846fc739bf142dee0",
+        "bytes": 724
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B10/review-gap-dispatch.json",
+        "sha256": "d4715ca657e322ef1e1afac0268d9d5db2b55cbdc78c25bc0266fc57e7da3701",
+        "bytes": 627
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "* - Error or ready-unavailable resolve to `current` (fail-closed).",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B11",
+      "role": "implementation",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "danger-full-access",
+        "session id": "01a074b3-7572-72c2-8ab3-a43626959a04"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T03:16:11.346578+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B11/implementation-result.md",
+        "sha256": "8b53cbbb0b2c78093f69da6a3de891ddaf4a2440791641da46d98865f4ed9d2c",
+        "bytes": 699
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B11/implementation.log",
+        "sha256": "81dd5720ac5ebfcb111c94291de390a0bbe18779fd19caac6d115f022100dc3e",
+        "bytes": 188046
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B11/implementation-exit.json",
+        "sha256": "b8b3e5e4aa94d572f33ed44c734a6fa211831478c694adad96dae74ce8fcb109",
+        "bytes": 737
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B11/implementation-dispatch.json",
+        "sha256": "cf3987e0dc51b18b9f7b64f5d8173d090702c9bce1543d1a821dfd75f482e6ef",
+        "bytes": 640
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 70,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "expected [ 'unlearn_failed', \u2026(3) ] to deeply equal [ 'Erasure attempt failed', \u2026(3) ]",
+        "WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: No such file or directory (os error 2)"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B11",
+      "role": "review-blind",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a074b7-d9c1-7140-869c-927e8f8bb33e"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T03:17:26.591712+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B11/review-blind-result.md",
+        "sha256": "9de29a05a0017ca167222fd8a4aeec997e54eb7733f4e2d427c1198a653af6f3",
+        "bytes": 2652
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B11/review-blind.log",
+        "sha256": "706064d76935194cc5ce4e52f389113fc27934a8e4de1476f0196441ebce94fe",
+        "bytes": 38964
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B11/review-blind-exit.json",
+        "sha256": "9c5114801c0ba28e56741b2b344a84e7ff8bb0ef956f7cce37154c06322ac24d",
+        "bytes": 726
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B11/review-blind-dispatch.json",
+        "sha256": "8ba5369c865615d860f6a8c27438faab9ee54b4d7b1c97b84e0bf65893c97c86",
+        "bytes": 629
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 73,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_exec_server::client::http_client::route_aware_http_client: http/request send failed http_method=\"POST\" error_is_timeout=false error_is_connect=false error=error sending request",
+        "WARN codex_rmcp_client::http_client_adapter: streamable HTTP post_message failed endpoint_scheme=\"https\" endpoint_host=\"api.seranking.com\" endpoint_path=\"/mcp\" endpoint_has_query=false mcp_method=\"initialize\" mcp_request_id=\"0\" has_session_id=false has_authorization_header=true"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B11",
+      "role": "review-edge",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a074b7-d9c1-7f71-90b8-769ec370855f"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T03:16:56.535260+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B11/review-edge-result.md",
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "bytes": 2
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B11/review-edge.log",
+        "sha256": "f4ebab7b6ad049b299db28c2f66cbe99a61507e5633dff3675a9f9eb247bd96e",
+        "bytes": 39763
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B11/review-edge-exit.json",
+        "sha256": "c7181a230128ef226da55593033a809233994dbaaf7f60ece1a536a250c54f6d",
+        "bytes": 725
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B11/review-edge-dispatch.json",
+        "sha256": "2c2b80df8c651a1f2f7738040cc11844a2cd99cbe80c60717ed79c4f08d78aae",
+        "bytes": 628
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 73,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_exec_server::client::http_client::route_aware_http_client: http/request send failed http_method=\"POST\" error_is_timeout=false error_is_connect=false error=error sending request",
+        "WARN codex_rmcp_client::http_client_adapter: streamable HTTP post_message failed endpoint_scheme=\"https\" endpoint_host=\"api.seranking.com\" endpoint_path=\"/mcp\" endpoint_has_query=false mcp_method=\"initialize\" mcp_request_id=\"0\" has_session_id=false has_authorization_header=true"
+      ],
+      "complete": true
+    },
+    {
+      "batch": "B11",
+      "role": "review-gap",
+      "header": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "sandbox": "read-only",
+        "session id": "01a074b7-d9c1-74e1-8167-4fa1d6e34ad1"
+      },
+      "exit": 0,
+      "completed_at": "2026-09-06T03:17:08.825900+00:00",
+      "result": {
+        "path": ".audit/branch-consolidation/B11/review-gap-result.md",
+        "sha256": "cf87c32d185d257a566f972441f0b6160112e6bf4ec0bc1cd98dfbbdf87ce05b",
+        "bytes": 27
+      },
+      "log": {
+        "path": ".audit/branch-consolidation/B11/review-gap.log",
+        "sha256": "e243645bb1cdf2a4e95de80dfd2787db8d2598313c2a5883ec7fe65b5b09c8c8",
+        "bytes": 83678
+      },
+      "exit_receipt": {
+        "path": ".audit/branch-consolidation/B11/review-gap-exit.json",
+        "sha256": "210361acd59c67da17e593919cd3a92cf1c799f6741e2fbdb52e14c6d084046a",
+        "bytes": 724
+      },
+      "dispatch": {
+        "path": ".audit/branch-consolidation/B11/review-gap-dispatch.json",
+        "sha256": "23c9bc1ac68d89bd74f26548b99a0ce54108dfa4fac9871500144f90a02fba7a",
+        "bytes": 627
+      },
+      "dispatch_argv_matches": true,
+      "header_matches": true,
+      "warning_count": 72,
+      "warning_examples": [
+        "WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/",
+        "WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back",
+        "WARN codex_exec_server::client::http_client::route_aware_http_client: http/request send failed http_method=\"GET\" error_is_timeout=false error_is_connect=false error=error sending request",
+        "expected [ 'unlearn_failed', \u2026(3) ] to deeply equal [ 'Erasure attempt failed', \u2026(3) ]"
+      ],
+      "complete": true
+    }
+  ]
+}

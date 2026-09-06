@@ -1,0 +1,30 @@
+{
+  "captured_utc": "20260906T030859Z",
+  "registered": 39,
+  "dirty_worktrees": 7,
+  "dirty_paths": 33,
+  "changes": [
+    {
+      "worktree": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "old_HEAD": "cc6b706c3b43f971d944cb703a4174eabf3134d9",
+      "HEAD": "8511662cb8fd9748d02f413c633bf21b5cdec9ee",
+      "added_status": [
+        "A  _bmad-output/implementation-artifacts/spec-branch-b10-workspace-branches.md",
+        "M  docs/product-domain.md",
+        "M  src/lib/dashboard/workspaceExperience.test.ts",
+        "M  src/lib/dashboard/workspaceExperience.ts",
+        "M  src/lib/test/app-environment-stub.ts",
+        "M  src/lib/workspace/WorkspaceGate.component.test.ts",
+        "M  src/lib/workspace/WorkspaceGate.svelte",
+        "M  src/routes/dashboard/+page.svelte",
+        "M  src/routes/my-work/+page.svelte",
+        "M  src/routes/project/[id]/projectRoute.component.test.ts",
+        "M  src/routes/projects/+page.svelte",
+        "M  src/routes/workspaceRoutes.component.test.ts"
+      ],
+      "removed_status": []
+    }
+  ],
+  "removed_worktrees": [],
+  "prior_dirty_hash_changes": []
+}

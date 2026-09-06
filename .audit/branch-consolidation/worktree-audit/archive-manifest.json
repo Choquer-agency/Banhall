@@ -1,0 +1,278 @@
+{
+  "instructions": "Paths in historical evidence resolve through this manifest. gzip files preserve exact original bytes; decompress with gzip -dc. Original hashes permit independent verification.",
+  "files": [
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/checkpoint-20260906T030859Z/comparison.json",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/checkpoint-20260906T030859Z/comparison.json",
+      "original_sha256": "bf70fcf02f61fd1fa651e73ffa93b7ecf395b9e16f9faa290b29174c938f2765",
+      "stored_sha256": "bf70fcf02f61fd1fa651e73ffa93b7ecf395b9e16f9faa290b29174c938f2765",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/checkpoint-20260906T030859Z/cownose-comparison.json",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/checkpoint-20260906T030859Z/cownose-comparison.json",
+      "original_sha256": "c2ba4f8562c27035ded022e25ecfbf5919cafa56756d0da342746a0057a2ad0e",
+      "stored_sha256": "c2ba4f8562c27035ded022e25ecfbf5919cafa56756d0da342746a0057a2ad0e",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/checkpoint-20260906T030859Z/dirty-identities.json",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/checkpoint-20260906T030859Z/dirty-identities.json",
+      "original_sha256": "95543d8ca959fea473922f829e2bfd7c0b547558bfe5f918f958b805cc662cce",
+      "stored_sha256": "95543d8ca959fea473922f829e2bfd7c0b547558bfe5f918f958b805cc662cce",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/checkpoint-20260906T030859Z/findings.md",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/checkpoint-20260906T030859Z/findings.md.gz",
+      "original_sha256": "692a0feaaa4ed81e3d6c1cd66f0a5f1cafce4d9cd30bbd4f8687987da7c7cf46",
+      "stored_sha256": "140991c32b62b0fa998896612ab2776810987deda4901692f7b07b496b1c5e7e",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/checkpoint-20260906T030859Z/process-cwd.json",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/checkpoint-20260906T030859Z/process-cwd.json",
+      "original_sha256": "29271a0a1df865b2d9058b83b9f79d46d2dc18488697362a1f51b4b2f91f5473",
+      "stored_sha256": "29271a0a1df865b2d9058b83b9f79d46d2dc18488697362a1f51b4b2f91f5473",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/checkpoint-20260906T030859Z/worktrees.json",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/checkpoint-20260906T030859Z/worktrees.json",
+      "original_sha256": "d45be7a41bd08a52a8ae591ee955d4f37a69af1d7712421afb74a574ae044bef",
+      "stored_sha256": "d45be7a41bd08a52a8ae591ee955d4f37a69af1d7712421afb74a574ae044bef",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/checkpoint-20260906T030859Z/worktrees.raw.txt",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/checkpoint-20260906T030859Z/worktrees.raw.txt.gz",
+      "original_sha256": "e2ac504838b54bb6d79f513773b81915195b4581b1bfbfa26caf8f737ad03a5f",
+      "stored_sha256": "aeaac2fb4ce448cb8d3ae86613be78a63b9916e6f06f51c36a2894cf817cf570",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/chatFeedbackReadLimits.main.test.ts.snapshot",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/chatFeedbackReadLimits.main.test.ts.snapshot.gz",
+      "original_sha256": "0fc3835aff7b4b3a65421366e487b3a7d4b179b2943bcd21de0cf3ea906c1b77",
+      "stored_sha256": "957d9328e389de0c75e7fb6bd76a54cda8ad8548b1d657e98218baa99d2eb536",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/feedback-manifest.json",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/feedback-manifest.json",
+      "original_sha256": "52f300360f055ae5dcaa3ab3ca710967f85fcbf80c6b3199920919448ecf35a9",
+      "stored_sha256": "52f300360f055ae5dcaa3ab3ca710967f85fcbf80c6b3199920919448ecf35a9",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/feedbackReadLimit.probe.test.ts.snapshot",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/feedbackReadLimit.probe.test.ts.snapshot.gz",
+      "original_sha256": "789765d7acdf981016eda0be5a21dc9215736a1649a6c7d6e996d467bc88dfa1",
+      "stored_sha256": "20357748e27eb8a7ab3e3bf5cf74bdd6290e54af9aadd2828385d207a04168df",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/findings.md",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/findings.md",
+      "original_sha256": "40b0c52413b5c848428ec1fb5bb2a452362aae417fc6849b3905ee51bff3da86",
+      "stored_sha256": "40b0c52413b5c848428ec1fb5bb2a452362aae417fc6849b3905ee51bff3da86",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/head.patch",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/head.patch.gz",
+      "original_sha256": "8e0c196bd022f2d17078c206bd1cf01f94476be2f39695e5b6a9cc76cc68d8f6",
+      "stored_sha256": "f0390862bd10197470633e5dfaa982cdda5aadc513d4e5349e9a55d13d32934b",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/main.patch",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/main.patch.gz",
+      "original_sha256": "4b5b1fdc008ad4fa43b950b88b672a78ee9f54d50afab343b5a3eb41828cc0b8",
+      "stored_sha256": "bbf745bd6024878b58dc71cb35f2e91b4a0360233bf9e977cfddc514f8bbd2f2",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/manifest.json",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/manifest.json",
+      "original_sha256": "7c381e5e0f8cb57d0f2a8deab37fc1ea6511ca31eece43ba4784eac57bc0b818",
+      "stored_sha256": "7c381e5e0f8cb57d0f2a8deab37fc1ea6511ca31eece43ba4784eac57bc0b818",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/convex/crons.ts",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/convex/crons.ts",
+      "original_sha256": "353ebf5239fdbaf890c70eb854b76e56c64800540c2c991a4f7979146f35a788",
+      "stored_sha256": "353ebf5239fdbaf890c70eb854b76e56c64800540c2c991a4f7979146f35a788",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/convex/pdReviews.ts",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/convex/pdReviews.ts",
+      "original_sha256": "c93aa5783e4aa8b89408514b1d3e6722785ce77e743a94751b642e4ca221178f",
+      "stored_sha256": "c93aa5783e4aa8b89408514b1d3e6722785ce77e743a94751b642e4ca221178f",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/convex/projects.ts",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/convex/projects.ts",
+      "original_sha256": "dba44234d8997c03c76dcc6ee836b89eefaa1cbfe805dc1a65ac1eddc94af509",
+      "stored_sha256": "dba44234d8997c03c76dcc6ee836b89eefaa1cbfe805dc1a65ac1eddc94af509",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/convex/schema.ts",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/convex/schema.ts",
+      "original_sha256": "68aba1e6bd4de62615c92d119240937bb9f9445fd1c2a3bedc57a7a2e2cab19a",
+      "stored_sha256": "68aba1e6bd4de62615c92d119240937bb9f9445fd1c2a3bedc57a7a2e2cab19a",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/editor/ModelTestSummary.svelte",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/editor/ModelTestSummary.svelte",
+      "original_sha256": "6c3d440019040a2ddf5f29ece7a73d0c65a1e7aba7311ba611f577b69b07c2e8",
+      "stored_sha256": "6c3d440019040a2ddf5f29ece7a73d0c65a1e7aba7311ba611f577b69b07c2e8",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/project/CurrentProjectPage.svelte",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/project/CurrentProjectPage.svelte",
+      "original_sha256": "cf7738171290c64a5f37b2cd3ca76e82a8f070c041c9da737e32994577d3d781",
+      "stored_sha256": "cf7738171290c64a5f37b2cd3ca76e82a8f070c041c9da737e32994577d3d781",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/project/CurrentProjectReviewFeedback.component.test.ts",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/project/CurrentProjectReviewFeedback.component.test.ts.gz",
+      "original_sha256": "a29498df47908986e63824bd4f14386070827d552e5a445d549180dd32a95d31",
+      "stored_sha256": "908d3626c58620e2a43cece2efd12c9e02c54d83e21a590f8aacfc8d8e4e2b7b",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/ui/UserMenu.component.test.ts",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/ui/UserMenu.component.test.ts.gz",
+      "original_sha256": "faf5ba946f7727f30c8be9b411292f13e1d60e8d4db5f67543ffd3c5c7c64420",
+      "stored_sha256": "e4c98ee1f257bc26fe97ec3282ee3df1f4a8871f568b7af033cb318dfd703532",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/ui/UserMenu.svelte",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/ui/UserMenu.svelte",
+      "original_sha256": "7bec859f03b37529c5b2fb2de32564ac6fe9b42f9ae4bf315e32d35ef96efede",
+      "stored_sha256": "7bec859f03b37529c5b2fb2de32564ac6fe9b42f9ae4bf315e32d35ef96efede",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/workspace/WorkspaceHeader.component.test.ts",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/workspace/WorkspaceHeader.component.test.ts.gz",
+      "original_sha256": "dfc3fbbf7ce7130b161a0304100a0363e2abc6e83cdd49aaa1c496cd25359180",
+      "stored_sha256": "5fca03741a737d9756fd19bc717d3ffb6087ef4d64aa4567bfe745858de67eeb",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/workspace/WorkspaceRail.component.test.ts",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/workspace/WorkspaceRail.component.test.ts.gz",
+      "original_sha256": "05bff8cc738b03f04f1875a88574f490cd0badb12c57a1831c9fc10dce5423aa",
+      "stored_sha256": "e1bcd3c959b51cc97920f7f4539dfc350028de33fe9c3a67b65917df5b062144",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/workspace/WorkspaceRail.svelte",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/lib/components/workspace/WorkspaceRail.svelte",
+      "original_sha256": "0ec1a6c2e87a01a2bb209a3e5b19af1a15d0f9e3ac261e66b218b989613051ab",
+      "stored_sha256": "0ec1a6c2e87a01a2bb209a3e5b19af1a15d0f9e3ac261e66b218b989613051ab",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/routes/layout.css",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/routes/layout.css",
+      "original_sha256": "acb6ddbddb7c89471eda69bd611688ef6557d6377867baafcfa132f448bdd2e2",
+      "stored_sha256": "acb6ddbddb7c89471eda69bd611688ef6557d6377867baafcfa132f448bdd2e2",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/routes/project/new/+page.svelte",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot/src/routes/project/new/+page.svelte",
+      "original_sha256": "d31e1353c9a2fd9cfc34c8acb2aae52a563402a1ad6ed4a865a9a9059e792d85",
+      "stored_sha256": "d31e1353c9a2fd9cfc34c8acb2aae52a563402a1ad6ed4a865a9a9059e792d85",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot-recheck.json",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/snapshot-recheck.json",
+      "original_sha256": "28dc5442c2b22eaec3351cfd05e27e240ac8af7dd65bbcbd904a37928316a8b9",
+      "stored_sha256": "28dc5442c2b22eaec3351cfd05e27e240ac8af7dd65bbcbd904a37928316a8b9",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/cownose/untracked.patch",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/cownose/untracked.patch.gz",
+      "original_sha256": "09148f7ee26cb20f4d6a1cb7ae504173cece53d610e10e7397a51f5b1e2c4b56",
+      "stored_sha256": "f0ebf4cebe718202828fb07c41874daeb876d563cac1168e23e31aa0627eb10f",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/dirty-file-identities.json",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/dirty-file-identities.json",
+      "original_sha256": "715d4f382dd36b064973cda4eab6d3f9c371aa0157d8c822a68881afc83bd2aa",
+      "stored_sha256": "715d4f382dd36b064973cda4eab6d3f9c371aa0157d8c822a68881afc83bd2aa",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/factory-ticket-status.json",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/factory-ticket-status.json",
+      "original_sha256": "283d2e37f67e5b12595bfd93d26c4e985ad30c04bbf75956242333cd01219363",
+      "stored_sha256": "283d2e37f67e5b12595bfd93d26c4e985ad30c04bbf75956242333cd01219363",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/findings.md",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/findings.md.gz",
+      "original_sha256": "3ccc9d186953bbc97a1cf148d266581e8b10429cb4c28d0bbac10953ab971ad5",
+      "stored_sha256": "48b925f86746e1874c472be67375a913dffff7225720d079fbc64d543027a527",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/process-cwd.json",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/process-cwd.json",
+      "original_sha256": "1814b6a42d037cf6ce11b3c6f1463fa87c3e0b0abbba36969c36ec46f79ff885",
+      "stored_sha256": "1814b6a42d037cf6ce11b3c6f1463fa87c3e0b0abbba36969c36ec46f79ff885",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/refs-not-contained.json",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/refs-not-contained.json",
+      "original_sha256": "f768dc8883a6291f5ffe459877862e2d25c86a83b2b0e8a7dce390511a5e4bbc",
+      "stored_sha256": "f768dc8883a6291f5ffe459877862e2d25c86a83b2b0e8a7dce390511a5e4bbc",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/refs.tsv",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/refs.tsv.gz",
+      "original_sha256": "a599dbf993e43e12d334561aaeedf92bec2adcde8a63e07f839c58461cb16e7c",
+      "stored_sha256": "d9d199c447425ff2bb0798e99e7c1adb92f586d41a0e565f0982edc6d47a7436",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/workspace-2-marker-check.txt",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/workspace-2-marker-check.txt",
+      "original_sha256": "103e2fc4b6ee964248955271e5c4f57d509db8cb6b772aed61fd2a5a9fc45cac",
+      "stored_sha256": "103e2fc4b6ee964248955271e5c4f57d509db8cb6b772aed61fd2a5a9fc45cac",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/worktrees.json",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/worktrees.json",
+      "original_sha256": "03acd49bb670b29b66a9b5577907fa5c17a9b6aa8c025b89b49094c574e0e297",
+      "stored_sha256": "03acd49bb670b29b66a9b5577907fa5c17a9b6aa8c025b89b49094c574e0e297",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worktree-audit/worktrees.raw.txt",
+      "stored_path": ".audit/branch-consolidation/worktree-audit/worktrees.raw.txt.gz",
+      "original_sha256": "00a98208c7eb40b8d2dc0bd38f7ab3a85f9d7948acfebb6530a8895eca3cedc8",
+      "stored_sha256": "a3ee60547be9e1227b673dae4aa81bcae979496eacc4da97c2bce046d7ab5275",
+      "encoding": "gzip"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "command": [
+    "python3",
+    ".audit/branch-consolidation/recovery-audit/verify-final-ancestry.py",
+    "d11195e5fdf6fb40baf27cacff86eaad6bf69ef6",
+    "d11195e5fdf6fb40baf27cacff86eaad6bf69ef6",
+    "--output",
+    ".audit/branch-consolidation/recovery-audit/ancestry-incomplete-control.json"
+  ],
+  "exit": 1,
+  "stderr": "",
+  "expected": "exit 1: current HEAD retains missing historical ancestors; baseline and required HEAD are ancestors",
+  "observed": {
+    "status": "ancestry_incomplete",
+    "capturedMissing": 23,
+    "plannedParentsMissing": 20,
+    "refDrift": [],
+    "errors": [],
+    "baselineAncestor": true,
+    "requiredIntegrationAncestor": true
+  },
+  "scriptSha256": "2288e0c23ec347c72e7d589580ce0453112eb9ba51c4938f194833907b6f5be8",
+  "resultSha256": "42724127719abf8896e18571c52da4c6da52d3cd0e992a747d777223fe3e2e8b"
+}

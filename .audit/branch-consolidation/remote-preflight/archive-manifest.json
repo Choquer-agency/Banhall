@@ -1,0 +1,12 @@
+{
+  "instructions": "Paths in historical evidence resolve through this manifest. gzip files preserve exact original bytes; decompress with gzip -dc. Original hashes permit independent verification.",
+  "files": [
+    {
+      "original_path": ".audit/branch-consolidation/remote-preflight/result.json",
+      "stored_path": ".audit/branch-consolidation/remote-preflight/result.json",
+      "original_sha256": "5a32a32d23692a55f0f0d5ca70786d695a7c9a037b208bd756e67a35584a527d",
+      "stored_sha256": "5a32a32d23692a55f0f0d5ca70786d695a7c9a037b208bd756e67a35584a527d",
+      "encoding": "identity"
+    }
+  ]
+}

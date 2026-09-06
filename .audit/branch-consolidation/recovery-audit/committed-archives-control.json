@@ -1,0 +1,83 @@
+{
+  "targetInput": "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d",
+  "manifests": [
+    {
+      "path": ".audit/branch-consolidation/B1/archive-manifest.json",
+      "sha256": "12404cb69e7654980880e96185e1a75f8ecd66fa619642ec5e2b763d5a58792b",
+      "records": 59
+    },
+    {
+      "path": ".audit/branch-consolidation/B12/archive-manifest.json",
+      "sha256": "2dbc96ac79f79ef56cb938301f182d105d71a63d5ea2f2bb34bf10e1380d0533",
+      "records": 53
+    },
+    {
+      "path": ".audit/branch-consolidation/B13-r1/archive-manifest.json",
+      "sha256": "9558aa6c4ee86e780369052902177cfd90ed1399f0c0411c4677e5c57f381c0e",
+      "records": 68
+    },
+    {
+      "path": ".audit/branch-consolidation/B13-r2/archive-manifest.json",
+      "sha256": "61fa24f3b3aaf64ba648bce21cfb7e143e51f6a628503133b99d8dd4d0594acb",
+      "records": 102
+    },
+    {
+      "path": ".audit/branch-consolidation/B13/archive-manifest.json",
+      "sha256": "4bfddb9becad2f596dc11217452cfc5590700296b1e5c03e366c8b837adfaa36",
+      "records": 73
+    },
+    {
+      "path": ".audit/branch-consolidation/B2-r1/archive-manifest.json",
+      "sha256": "8de358be0d00aafed912dc017c64d9b61d9a451b131c563d91c2515951d92961",
+      "records": 102
+    },
+    {
+      "path": ".audit/branch-consolidation/B2/archive-manifest.json",
+      "sha256": "5d204c982a346e3cd6071db6567bb4de2c0f032e9c2f86d86081679ed2f4eefd",
+      "records": 68
+    },
+    {
+      "path": ".audit/branch-consolidation/B3/archive-manifest.json",
+      "sha256": "ad3e9b49851220e1b038ffbd443aeeec578f7099a8afdea160e4517bcb263cf1",
+      "records": 51
+    },
+    {
+      "path": ".audit/branch-consolidation/B4/archive-manifest.json",
+      "sha256": "075b5b1c887c4fb88a89f0361e396af59fdb9022e5d18efcb2592353a88329c0",
+      "records": 109
+    },
+    {
+      "path": ".audit/branch-consolidation/B5-r1/archive-manifest.json",
+      "sha256": "baae5415a77a42a5a76ed8041410193d24338aa97fab5e2a9ddb1dfe38d21332",
+      "records": 86
+    },
+    {
+      "path": ".audit/branch-consolidation/B5/archive-manifest.json",
+      "sha256": "f3b4ae96aa00d575fee8213c5d5c38a7c3a77832b41c8479ed19102cf834501f",
+      "records": 59
+    },
+    {
+      "path": ".audit/branch-consolidation/B6/archive-manifest.json",
+      "sha256": "6358f0033df299dd7af1d9f02c030b5bed6fbcd6f3258814d42c000a2d4bd12a",
+      "records": 43
+    },
+    {
+      "path": ".audit/branch-consolidation/parser-expired-audit/archive-manifest.json",
+      "sha256": "8f52ee266c49925d4fe6572214abb372828150859830b8dd6b4257cbc6d79723",
+      "records": 13
+    },
+    {
+      "path": ".audit/branch-consolidation/search-boundary-audit/archive-manifest.json",
+      "sha256": "837095166ffb388df6831cc3792b58a9d99c1ec11926088fcc2112bfe16d8037",
+      "records": 4
+    }
+  ],
+  "issues": [],
+  "recordsChecked": 890,
+  "identicalDuplicateRecords": [],
+  "scope": "Committed objects only; no index or working-file evidence.",
+  "target": "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d",
+  "manifestCount": 14,
+  "exitCode": 0,
+  "status": "valid_committed_archives"
+}

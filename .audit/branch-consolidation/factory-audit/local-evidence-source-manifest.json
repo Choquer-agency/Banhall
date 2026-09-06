@@ -1,0 +1,62 @@
+[
+  {
+    "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/slop-1-dead-components/evidence.md",
+    "sha256": "0980305b8cf0b49a3af53dbb7b0f8134f9c150b1b713feee503bfc1b397c33cc",
+    "copiedTo": "slop-1-dead-components-evidence.md"
+  },
+  {
+    "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/perf-1-parser-timers-editor-index/evidence.md",
+    "sha256": "d0c8e0020fd90a3650ed0843fb0884e8e6cb96a035d260192d1dbdbe5a4dd353",
+    "copiedTo": "perf-1-parser-timers-editor-index-evidence.md"
+  },
+  {
+    "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/tests-2-real-proposal-access-roster-tests/evidence.md",
+    "sha256": "dbc5f27cf88c77e07c39fdf50ad29adcc88dd0c8172b997236a0403595b18375",
+    "copiedTo": "tests-2-real-proposal-access-roster-tests-evidence.md"
+  },
+  {
+    "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/slop-3-mywork-island/evidence.md",
+    "sha256": "1e5b6c19b6a340f0243230aa6774f88c956d138cc9ce328c3d9020249da6fba5",
+    "copiedTo": "slop-3-mywork-island-evidence.md"
+  },
+  {
+    "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/slop-2-dead-helpers-and-deps/evidence.md",
+    "sha256": "1466950ed7b0113cff03ce57733c1bb6d09abe800c5c0ba6176a44139b12bece",
+    "copiedTo": "slop-2-dead-helpers-and-deps-evidence.md"
+  },
+  {
+    "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/tests-1-one-runner/evidence.md",
+    "sha256": "0c2d17d7d2dc56f56943fd2d928dfaf936bedbed12925688c20245277d20ce9f",
+    "copiedTo": "tests-1-one-runner-evidence.md"
+  },
+  {
+    "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/perf-2-empty-upload-reads/evidence.md",
+    "sha256": "36f53812b88f90132638c7229b75453faa84638a13d5066ee05da79ec1f5f7a3",
+    "copiedTo": "perf-2-empty-upload-reads-evidence.md"
+  },
+  {
+    "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/dx-1-one-verify-entry/evidence.md",
+    "sha256": "466d530ea66cd87469a18955e17a0212a67666bdae3beacafc0a9d25333f02ec",
+    "copiedTo": "dx-1-one-verify-entry-evidence.md"
+  },
+  {
+    "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/workspace-2-drop-dead-gate-branches/evidence.md",
+    "sha256": "4956ac7ee364bd7f7f2f46d01345af6176ad7e5a0b8b16c9b3688ddc2a9a3e70",
+    "copiedTo": "workspace-2-drop-dead-gate-branches-evidence.md"
+  },
+  {
+    "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/ui-1-component-suite-green/evidence.md",
+    "sha256": "8ad7778d17118cec06c3d7281e15a2efe8de16db507258cc356fb79888b1816d",
+    "copiedTo": "ui-1-component-suite-green-evidence.md"
+  },
+  {
+    "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/proof-1-parser-budget-sequence/evidence.md",
+    "sha256": "d86df4380bdcc0ee0d0d43cbe45c2152bbae067420bb7b80968b48c8d62cb110",
+    "copiedTo": "proof-1-parser-budget-sequence-evidence.md"
+  },
+  {
+    "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/tests-3-runner-cleanup-and-guard/evidence.md",
+    "sha256": "7399418494ee0fd55722d7fbd0344a199e6d92ec270eda457fde00f7859c12f4",
+    "copiedTo": "tests-3-runner-cleanup-and-guard-evidence.md"
+  }
+]

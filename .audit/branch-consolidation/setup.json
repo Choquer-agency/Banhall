@@ -1,0 +1,13 @@
+{
+  "at": "2026-09-05T22:46:55.911608+00:00",
+  "baseline": "cc6b706c3b43f971d944cb703a4174eabf3134d9",
+  "branch": "codex/branch-consolidation",
+  "checkout": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+  "runtime_seed": "/Users/johnnynguyen/Documents/Repos/Banhall-bmad-completion/_bmad",
+  "runtime_is_private_copy": true,
+  "excluded_runtime_paths": [
+    "render",
+    "__pycache__",
+    "*.pyc"
+  ]
+}

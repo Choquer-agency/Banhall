@@ -1,0 +1,68 @@
+{
+  "instructions": "Paths in historical evidence resolve through this manifest. gzip files preserve exact original bytes; decompress with gzip -dc. Original hashes permit independent verification.",
+  "files": [
+    {
+      "original_path": ".audit/branch-consolidation/worker-runtime-audit/check-through-B10.py",
+      "stored_path": ".audit/branch-consolidation/worker-runtime-audit/check-through-B10.py",
+      "original_sha256": "6c30b86fb42730256f094718df6bdd6992a4b0d622a77a8ee59fc0e9ad328561",
+      "stored_sha256": "6c30b86fb42730256f094718df6bdd6992a4b0d622a77a8ee59fc0e9ad328561",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worker-runtime-audit/check-through-B11.py",
+      "stored_path": ".audit/branch-consolidation/worker-runtime-audit/check-through-B11.py",
+      "original_sha256": "2a1c1a1535674c2c7ad1e4f1d26e1b765ab0bc4dac6e209c3b84fe83faecc809",
+      "stored_sha256": "2a1c1a1535674c2c7ad1e4f1d26e1b765ab0bc4dac6e209c3b84fe83faecc809",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worker-runtime-audit/check.py",
+      "stored_path": ".audit/branch-consolidation/worker-runtime-audit/check.py",
+      "original_sha256": "25c94bb31f3fd2bfe89f85f3bd27c9adbe1cecf48c1e0eeb8c8ba2a12b482e38",
+      "stored_sha256": "25c94bb31f3fd2bfe89f85f3bd27c9adbe1cecf48c1e0eeb8c8ba2a12b482e38",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worker-runtime-audit/conclusion-through-B10.md",
+      "stored_path": ".audit/branch-consolidation/worker-runtime-audit/conclusion-through-B10.md",
+      "original_sha256": "6e1aec02f035bde6956877939a551741a3ac5b730e3b2afd74ebf62d2ae1f5d9",
+      "stored_sha256": "6e1aec02f035bde6956877939a551741a3ac5b730e3b2afd74ebf62d2ae1f5d9",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worker-runtime-audit/conclusion-through-B11.md",
+      "stored_path": ".audit/branch-consolidation/worker-runtime-audit/conclusion-through-B11.md",
+      "original_sha256": "d31903ca9bafcddf647f9a6f06bac5fc07b3985c769991a71bd1d3b1f436db5c",
+      "stored_sha256": "d31903ca9bafcddf647f9a6f06bac5fc07b3985c769991a71bd1d3b1f436db5c",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worker-runtime-audit/conclusion.md",
+      "stored_path": ".audit/branch-consolidation/worker-runtime-audit/conclusion.md",
+      "original_sha256": "b3bfd3d1246b83d4d744eaca6ace5ca4bba79f6623a6175d67d662177d8e37a6",
+      "stored_sha256": "b3bfd3d1246b83d4d744eaca6ace5ca4bba79f6623a6175d67d662177d8e37a6",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worker-runtime-audit/receipts-through-B10.json",
+      "stored_path": ".audit/branch-consolidation/worker-runtime-audit/receipts-through-B10.json",
+      "original_sha256": "0185b7a387b015ec80e0cb83de0e8419f93d61b57d546cc6da089e6defb60523",
+      "stored_sha256": "0185b7a387b015ec80e0cb83de0e8419f93d61b57d546cc6da089e6defb60523",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worker-runtime-audit/receipts-through-B11.json",
+      "stored_path": ".audit/branch-consolidation/worker-runtime-audit/receipts-through-B11.json",
+      "original_sha256": "053e127fdb559e9f4067f8fa5ba7da4f9709c60c1fa1e123c1ffdfd5845835af",
+      "stored_sha256": "053e127fdb559e9f4067f8fa5ba7da4f9709c60c1fa1e123c1ffdfd5845835af",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/worker-runtime-audit/receipts.json",
+      "stored_path": ".audit/branch-consolidation/worker-runtime-audit/receipts.json",
+      "original_sha256": "7a6fe0364ca7e760f95cad8f002710ac2455c49442ceb5200d1da0cd0a424b19",
+      "stored_sha256": "7a6fe0364ca7e760f95cad8f002710ac2455c49442ceb5200d1da0cd0a424b19",
+      "encoding": "identity"
+    }
+  ]
+}

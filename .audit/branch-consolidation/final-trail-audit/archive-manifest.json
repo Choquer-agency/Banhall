@@ -1,0 +1,33 @@
+{
+  "instructions": "Paths in historical evidence resolve through this manifest. gzip files preserve exact original bytes; decompress with gzip -dc. Original hashes permit independent verification.",
+  "files": [
+    {
+      "original_path": ".audit/branch-consolidation/final-trail-audit/preliminary-review.md",
+      "stored_path": ".audit/branch-consolidation/final-trail-audit/preliminary-review.md",
+      "original_sha256": "a2747fe3657de2c1c689c6dcb2565ae802aa611ebf7045d73e4f8aecbd2fbff6",
+      "stored_sha256": "a2747fe3657de2c1c689c6dcb2565ae802aa611ebf7045d73e4f8aecbd2fbff6",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/final-trail-audit/premerge-review.md",
+      "stored_path": ".audit/branch-consolidation/final-trail-audit/premerge-review.md",
+      "original_sha256": "e21f7fab3a4ffc2fcc8fb24f99002eba57047a66f14f7f81ecc921052ea84d1c",
+      "stored_sha256": "e21f7fab3a4ffc2fcc8fb24f99002eba57047a66f14f7f81ecc921052ea84d1c",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/final-trail-audit/transcript-scope-premerge.json",
+      "stored_path": ".audit/branch-consolidation/final-trail-audit/transcript-scope-premerge.json",
+      "original_sha256": "24826df7a10dc449e36377c050151f5dfc9c67c82ca4d3a33a25e79082db278c",
+      "stored_sha256": "24826df7a10dc449e36377c050151f5dfc9c67c82ca4d3a33a25e79082db278c",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/final-trail-audit/transcript-scope.json",
+      "stored_path": ".audit/branch-consolidation/final-trail-audit/transcript-scope.json",
+      "original_sha256": "c46201c46effa389745a2f322e53cf86de152cec86421cc878830fb75f087f6b",
+      "stored_sha256": "c46201c46effa389745a2f322e53cf86de152cec86421cc878830fb75f087f6b",
+      "encoding": "identity"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "originalLedgerPath": "planning/B4.md",
+  "originalExpectedSha256": "fd7ee2f91854330bb336e46410b678f36e77404f771cdca22b1d92933df88129",
+  "recoveredArtifact": ".audit/branch-consolidation/recovery-audit/B4-original-hash-recovered.md",
+  "method": "Reversed the recorded planning-only correction: removed appended retained-neighbor matrix; restored baseline sentence; removed added Editor selector; restored two directory selectors. Result matched the pre-existing ledger SHA256 exactly. This is a hash-verified reconstruction, not an independently saved original file.",
+  "replacementPath": ".audit/branch-consolidation/planning/B4.md",
+  "replacementSha256": "cba0efe2489056805207bdd71de7e6e0d82d608284593d32dadc60d09808822b",
+  "approvalTrail": ".audit/branch-consolidation/planning/B4-draft-correction-provenance.json",
+  "approvalTrailSha256": "f502ba2da1a7ac869363f05489b35ed50aebc940193ec83d7df8cb1d077b0817",
+  "currentProof": "B4 accepted d22e1fa0880512212865d7d60aeb8cfe600dbaa2: exact17 deletions, source isolation, identical66 retained runtime cases, 15 component/2unit suite selectors; parent authoritative Node24 gate 2015unit/478browser. Does not claim comment add/resolve lifecycle coverage.",
+  "historicalLedgerChanged": false,
+  "historicalReceiptChanged": false
+}

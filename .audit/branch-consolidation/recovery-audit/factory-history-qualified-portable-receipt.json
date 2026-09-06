@@ -1,0 +1,15 @@
+{
+  "command": [
+    "python3",
+    ".audit/branch-consolidation/recovery-audit/verify-factory-history-qualified.py"
+  ],
+  "exit": 0,
+  "scriptSha256": "101a7685c3c01e502dff80a63a6fe3e4e6cc299ca318184940c7eb14362dd5fe",
+  "protectedInputsUnchanged": true,
+  "protectedInputSha256": {
+    ".audit/branch-consolidation/verify_factory_history.py": "7c85ea2066e7d5f1437f23b3d359802982d64a7c193cabd307f97e2a0d6558f6",
+    ".audit/branch-consolidation/factory-audit/full-history-disposition.json": "1ae5f2a45d2a1d5ef214e1d2ce4ddcdbe4ec0f9b9ab0a1771384e417cb968734",
+    ".audit/branch-consolidation/factory-audit/root-full-history-verification.json": "2a3181de066843a354312e80b16fbd116644a3932890cd77860622d3a64904f0"
+  },
+  "evidenceReadPolicy": "Original path if present; otherwise losslessly decompress sibling .gz; errors propagate."
+}

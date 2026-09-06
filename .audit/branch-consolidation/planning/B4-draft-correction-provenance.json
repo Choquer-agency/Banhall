@@ -1,0 +1,11 @@
+{
+  "reason": "Previous correction persisted in planning/B4.md, not the intended planning/drafts/spec-branch-b4-dead-ui-islands.md. This was a target-path misunderstanding, not a concurrent overwrite. Both previous reported hashes still matched on reinspection.",
+  "intendedDraft": ".audit/branch-consolidation/planning/drafts/spec-branch-b4-dead-ui-islands.md",
+  "intendedDraftBeforeSha256": "aa99c2ffa38121b45e6dd508c61ae032d7cd6cd5eb07eaf5ddf5ba3077a8abcc",
+  "intendedDraftAfterSha256": "5c43fad25674ce922c38a8a178f2728e498549fa07fb227f8a26a4d1e806cc55",
+  "planningB4Sha256": "cba0efe2489056805207bdd71de7e6e0d82d608284593d32dadc60d09808822b",
+  "preflightSha256": "94847c516f6ebdfb383c4449d83271db213090dab59bd8c7d1e1c058b9067ed8",
+  "correction": "Copied the exact three retained commands into intended draft; 15 component files and 2 unit files, excluding all deleted suites on both sides. Reports matrix now limits claims to executed editor/route/recovery compatibility plus static comment isolation. Exact 17-file deletion allowlist unchanged.",
+  "runtimeTestsExecuted": false,
+  "canonicalOrProductChanges": false
+}

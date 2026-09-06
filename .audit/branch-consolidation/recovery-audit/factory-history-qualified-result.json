@@ -1,0 +1,18 @@
+{
+  "ledger_sha256": "1ae5f2a45d2a1d5ef214e1d2ce4ddcdbe4ec0f9b9ab0a1771384e417cb968734",
+  "captured_commit_union_verified": 124,
+  "counts": {
+    "path_records_verified": 519,
+    "commits_verified": 124
+  },
+  "all_declared_source_artifact_hashes_match_at_original_paths": false,
+  "historical_identities_verified_with_explicit_recovery": true,
+  "qualified_replacement": {
+    "path": "planning/B4.md",
+    "historical_recovered_path": ".audit/branch-consolidation/recovery-audit/B4-original-hash-recovered.md",
+    "expected_historical_sha256": "fd7ee2f91854330bb336e46410b678f36e77404f771cdca22b1d92933df88129",
+    "current_replacement_sha256": "cba0efe2489056805207bdd71de7e6e0d82d608284593d32dadc60d09808822b",
+    "provenance": ".audit/branch-consolidation/recovery-audit/B4-historical-recovery-provenance.json"
+  },
+  "limits": "Structural identity verification only. Independent semantic review remains complementary; planned batches still require implementation/review/runtime proof."
+}

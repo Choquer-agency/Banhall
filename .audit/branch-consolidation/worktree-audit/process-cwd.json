@@ -1,0 +1,534 @@
+{
+  "lsof_returncode": 0,
+  "processes": [
+    {
+      "pid": 940,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "879 04-05:03:10 S    -/bin/zsh"
+    },
+    {
+      "pid": 971,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "98960 01-12:45:52 Ss+  -zsh"
+    },
+    {
+      "pid": 1009,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "98960 01-12:45:52 Ss+  -zsh"
+    },
+    {
+      "pid": 1046,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "98960 01-12:45:52 Ss+  -zsh"
+    },
+    {
+      "pid": 1094,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "98960 01-12:45:52 Ss+  -zsh"
+    },
+    {
+      "pid": 15249,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "32183 10:01:39 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 15250,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "32183 10:01:39 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 15251,
+      "command": "codex",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "32183 10:01:39 S    /Applications/ChatGPT.app/Contents/Resources/codex"
+    },
+    {
+      "pid": 21310,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 06:35:06 S    npm exec shadcn@latest mcp"
+    },
+    {
+      "pid": 21342,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "21310 06:35:05 S    node"
+    },
+    {
+      "pid": 27252,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "41937 17:32:21 SN   -/bin/zsh"
+    },
+    {
+      "pid": 31975,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 19:08:44 S    npm exec convex@latest mcp start"
+    },
+    {
+      "pid": 31976,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 19:08:44 S    npm exec exa-mcp-server"
+    },
+    {
+      "pid": 31977,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 19:08:44 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 31978,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 19:08:44 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 31979,
+      "command": "mcp-server-darwin-arm64",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 19:08:44 S    /Users/johnnynguyen/.pencil/mcp/cursor/out/mcp-server-darwin-arm64"
+    },
+    {
+      "pid": 31980,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 19:08:44 S    npm exec ref-tools-mcp@latest"
+    },
+    {
+      "pid": 31981,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 19:08:44 S    npm exec shadcn@latest mcp"
+    },
+    {
+      "pid": 31982,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 19:08:44 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 32183,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "31977 19:08:43 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 32867,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "31975 19:08:42 S    node"
+    },
+    {
+      "pid": 32898,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "31976 19:08:42 S    node"
+    },
+    {
+      "pid": 32933,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "31980 19:08:42 S    node"
+    },
+    {
+      "pid": 32958,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "31981 19:08:42 S    node"
+    },
+    {
+      "pid": 34056,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 03:09:09 S    npm exec exa-mcp-server"
+    },
+    {
+      "pid": 34059,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 03:09:09 S    npm exec shadcn@latest mcp"
+    },
+    {
+      "pid": 34060,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 03:09:09 S    npm exec ref-tools-mcp@latest"
+    },
+    {
+      "pid": 34062,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 03:09:09 S    npm exec convex@latest mcp start"
+    },
+    {
+      "pid": 34063,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 03:09:09 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 34064,
+      "command": "mcp-server-darwin-arm64",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 03:09:09 S    /Users/johnnynguyen/.pencil/mcp/cursor/out/mcp-server-darwin-arm64"
+    },
+    {
+      "pid": 34065,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 03:09:09 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 34066,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 03:09:09 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 34132,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "34063 03:09:09 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 34302,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "34062 03:09:08 S    node"
+    },
+    {
+      "pid": 34333,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "34056 03:09:08 S    node"
+    },
+    {
+      "pid": 34358,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "34060 03:09:08 S    node"
+    },
+    {
+      "pid": 34383,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "34059 03:09:08 S    node"
+    },
+    {
+      "pid": 39584,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "39580 18:49:35 S    -/bin/zsh"
+    },
+    {
+      "pid": 40847,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "39584 18:49:32 SN   -/bin/zsh"
+    },
+    {
+      "pid": 40849,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "39584 18:49:32 S+   pi"
+    },
+    {
+      "pid": 41937,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "41931 01-22:49:42 S+   -/bin/zsh"
+    },
+    {
+      "pid": 47137,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 06:05:22 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 47138,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 06:05:22 S    npm exec convex@latest mcp start"
+    },
+    {
+      "pid": 47139,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 06:05:22 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 47140,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 06:05:22 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 47141,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 06:05:22 S    npm exec ref-tools-mcp@latest"
+    },
+    {
+      "pid": 47142,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 06:05:22 S    npm exec exa-mcp-server"
+    },
+    {
+      "pid": 47143,
+      "command": "mcp-server-darwin-arm64",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 06:05:22 S    /Users/johnnynguyen/.pencil/mcp/cursor/out/mcp-server-darwin-arm64"
+    },
+    {
+      "pid": 47145,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "47139 06:05:22 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 47255,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "47138 06:05:21 S    node"
+    },
+    {
+      "pid": 47280,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "47142 06:05:21 S    node"
+    },
+    {
+      "pid": 47305,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "47141 06:05:21 S    node"
+    },
+    {
+      "pid": 63199,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "940 01-02:15:37 SN   -/bin/zsh"
+    },
+    {
+      "pid": 63201,
+      "command": "bun",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "940 01-02:15:37 S+   bun"
+    },
+    {
+      "pid": 63213,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "63201 01-02:15:37 S+   node"
+    },
+    {
+      "pid": 67978,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 02:11:14 S    npm exec shadcn@latest mcp"
+    },
+    {
+      "pid": 68142,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "67978 02:11:13 S    node"
+    },
+    {
+      "pid": 73023,
+      "command": "mcp-server-darwin-arm64",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 01:07 S    /Users/johnnynguyen/.pencil/mcp/cursor/out/mcp-server-darwin-arm64"
+    },
+    {
+      "pid": 73024,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 01:07 S    npm exec convex@latest mcp start"
+    },
+    {
+      "pid": 73026,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 01:07 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 73043,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 01:07 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 73044,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 01:07 S    npm exec exa-mcp-server"
+    },
+    {
+      "pid": 73045,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 01:07 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 73046,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 01:07 S    npm exec ref-tools-mcp@latest"
+    },
+    {
+      "pid": 73049,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "73045 01:07 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 73097,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "73024 01:06 S    node"
+    },
+    {
+      "pid": 73122,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "73044 01:06 S    node"
+    },
+    {
+      "pid": 73147,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "73046 01:06 S    node"
+    },
+    {
+      "pid": 77370,
+      "command": "Python",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 00:09 Ss   /opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+    },
+    {
+      "pid": 78591,
+      "command": "sleep",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": ""
+    },
+    {
+      "pid": 78675,
+      "command": "sleep",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "63199 00:01 SN   sleep"
+    },
+    {
+      "pid": 78677,
+      "command": "sleep",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "40847 00:01 SN   sleep"
+    },
+    {
+      "pid": 78686,
+      "command": "zsh",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "process_metadata": "12702 00:00 Ss   /bin/zsh"
+    },
+    {
+      "pid": 78698,
+      "command": "Python",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "process_metadata": "78686 00:00 S    /opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+    },
+    {
+      "pid": 78701,
+      "command": "lsof",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+      "process_metadata": ""
+    },
+    {
+      "pid": 78702,
+      "command": "git",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": ""
+    },
+    {
+      "pid": 92591,
+      "command": "mcp-server-darwin-arm64",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 12:25:17 S    /Users/johnnynguyen/.pencil/mcp/cursor/out/mcp-server-darwin-arm64"
+    },
+    {
+      "pid": 92592,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 12:25:17 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 92593,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 12:25:17 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
+    },
+    {
+      "pid": 92594,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 12:25:17 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 92595,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 12:25:17 S    npm exec ref-tools-mcp@latest"
+    },
+    {
+      "pid": 92641,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 12:25:17 S    npm exec convex@latest mcp start"
+    },
+    {
+      "pid": 92642,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "12702 12:25:17 S    npm exec exa-mcp-server"
+    },
+    {
+      "pid": 92644,
+      "command": "node_repl",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "92592 12:25:17 S    /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+    },
+    {
+      "pid": 92681,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "92641 12:25:16 S    node"
+    },
+    {
+      "pid": 92706,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "92642 12:25:16 S    node"
+    },
+    {
+      "pid": 92731,
+      "command": "node",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "92595 12:25:16 S    node"
+    },
+    {
+      "pid": 98960,
+      "command": "tmux",
+      "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall",
+      "process_metadata": "1 01-12:45:55 Ss   tmux"
+    }
+  ],
+  "scope": "CWD and executable metadata only; no argv or environment read"
+}

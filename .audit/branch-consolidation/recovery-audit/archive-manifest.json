@@ -1,0 +1,201 @@
+{
+  "instructions": "Paths in historical evidence resolve through this manifest. gzip files preserve exact original bytes; decompress with gzip -dc. Original hashes permit independent verification.",
+  "files": [
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/B4-historical-recovery-provenance.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/B4-historical-recovery-provenance.json",
+      "original_sha256": "744259a02708aebab26832936750a9018ab1fdff553f1104bdda178d3a32fbae",
+      "stored_sha256": "744259a02708aebab26832936750a9018ab1fdff553f1104bdda178d3a32fbae",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/B4-original-hash-recovered.md",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/B4-original-hash-recovered.md",
+      "original_sha256": "fd7ee2f91854330bb336e46410b678f36e77404f771cdca22b1d92933df88129",
+      "stored_sha256": "fd7ee2f91854330bb336e46410b678f36e77404f771cdca22b1d92933df88129",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/ancestry-incomplete-control-receipt.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/ancestry-incomplete-control-receipt.json",
+      "original_sha256": "08a28692fc632a3d269c1564d040f38cc31e8dd799682dcc6239be96c6e9c0e9",
+      "stored_sha256": "08a28692fc632a3d269c1564d040f38cc31e8dd799682dcc6239be96c6e9c0e9",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/ancestry-incomplete-control-with-new-refs-receipt.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/ancestry-incomplete-control-with-new-refs-receipt.json",
+      "original_sha256": "68ca10628fe61958a1cf0f84cca73e988eda4d52b70fec0efb0fa9de5fec1a10",
+      "stored_sha256": "68ca10628fe61958a1cf0f84cca73e988eda4d52b70fec0efb0fa9de5fec1a10",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/ancestry-incomplete-control-with-new-refs.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/ancestry-incomplete-control-with-new-refs.json",
+      "original_sha256": "e31eb1f60f417364cdde38fec9e10a2b016e480206cb71a69adaebda06de2a6f",
+      "stored_sha256": "e31eb1f60f417364cdde38fec9e10a2b016e480206cb71a69adaebda06de2a6f",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/ancestry-incomplete-control.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/ancestry-incomplete-control.json",
+      "original_sha256": "42724127719abf8896e18571c52da4c6da52d3cd0e992a747d777223fe3e2e8b",
+      "stored_sha256": "42724127719abf8896e18571c52da4c6da52d3cd0e992a747d777223fe3e2e8b",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/committed-archives-control-receipt.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/committed-archives-control-receipt.json",
+      "original_sha256": "a0aef22093e222fac00524b0be2babf4d38bf8002f882714750529d5355a75e3",
+      "stored_sha256": "a0aef22093e222fac00524b0be2babf4d38bf8002f882714750529d5355a75e3",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/committed-archives-control.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/committed-archives-control.json",
+      "original_sha256": "2db42e192c76bc781dd7720141485b4a07ba43d2768b855e8d6e5fd712fbd75f",
+      "stored_sha256": "2db42e192c76bc781dd7720141485b4a07ba43d2768b855e8d6e5fd712fbd75f",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/factory-history-drift-replay-receipt.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/factory-history-drift-replay-receipt.json",
+      "original_sha256": "b61050fa490342379cf47968821a297c1bb21d9c0eddeb449f68f3e38d30bad2",
+      "stored_sha256": "b61050fa490342379cf47968821a297c1bb21d9c0eddeb449f68f3e38d30bad2",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/factory-history-drift-replay.log",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/factory-history-drift-replay.log.gz",
+      "original_sha256": "2f8a50bc0d0fbaf6ca1a4f38770ae678c3aed02e5668e8b5ac6af6a9a93ac03b",
+      "stored_sha256": "927f3f4dcfedd1baf7eacc60d3baa3a5c97ae6ab3c3dcbeb2becdd26ea81430f",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/factory-history-qualified-portable-receipt.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/factory-history-qualified-portable-receipt.json",
+      "original_sha256": "f88172af4cc8ab1316096ced9316b3f40b68dc3e82076666d373971dc930b752",
+      "stored_sha256": "f88172af4cc8ab1316096ced9316b3f40b68dc3e82076666d373971dc930b752",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/factory-history-qualified-portable-replay.log",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/factory-history-qualified-portable-replay.log.gz",
+      "original_sha256": "a1490da5c5219bcb2606898792fc3717b13467ddd3c8d037b510755afa9541dc",
+      "stored_sha256": "160bf11f9eef27048136154dfb753ca43d07dac5a35bbbfc989415608adc88af",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/factory-history-qualified-receipt.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/factory-history-qualified-receipt.json",
+      "original_sha256": "388bdfb7b01cdc16582df541c02b2471bb5d42c8df4b721aeb97a88b9a5aa3ad",
+      "stored_sha256": "388bdfb7b01cdc16582df541c02b2471bb5d42c8df4b721aeb97a88b9a5aa3ad",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/factory-history-qualified-replay.log",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/factory-history-qualified-replay.log.gz",
+      "original_sha256": "a1490da5c5219bcb2606898792fc3717b13467ddd3c8d037b510755afa9541dc",
+      "stored_sha256": "160bf11f9eef27048136154dfb753ca43d07dac5a35bbbfc989415608adc88af",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/factory-history-qualified-result.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/factory-history-qualified-result.json",
+      "original_sha256": "d2d36f98ea652ad6f2976c059131b068495eda34ba23a8ee44de3bf4a2781611",
+      "stored_sha256": "d2d36f98ea652ad6f2976c059131b068495eda34ba23a8ee44de3bf4a2781611",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/factory-history-source-drift-inventory.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/factory-history-source-drift-inventory.json",
+      "original_sha256": "a911ae88a5feef4b031dc2910316ec48f8bf62c369ae873dd350763470785e20",
+      "stored_sha256": "a911ae88a5feef4b031dc2910316ec48f8bf62c369ae873dd350763470785e20",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/final-admission-checklist.md",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/final-admission-checklist.md",
+      "original_sha256": "619952bda8881819801073b12ffc9275061238abe467888434d335375f4ec526",
+      "stored_sha256": "619952bda8881819801073b12ffc9275061238abe467888434d335375f4ec526",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/final-admission-mapping-snapshot.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/final-admission-mapping-snapshot.json",
+      "original_sha256": "658bc6a9ce6d43eef28430aae20c5cc369900f4abb4d3c8ae950dd7e7aa3ee09",
+      "stored_sha256": "658bc6a9ce6d43eef28430aae20c5cc369900f4abb4d3c8ae950dd7e7aa3ee09",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/finalization-preflight.md",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/finalization-preflight.md",
+      "original_sha256": "5a353ce114a26ce375d43c2b6f3eb8fb2e58ff2b874a6d713bad912356af191a",
+      "stored_sha256": "5a353ce114a26ce375d43c2b6f3eb8fb2e58ff2b874a6d713bad912356af191a",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/learning-resume-20260904-summary.md",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/learning-resume-20260904-summary.md",
+      "original_sha256": "7a81af1b8fb328e2772259ca36b8173aa2eb7aa24a70752902eb1e751c464956",
+      "stored_sha256": "7a81af1b8fb328e2772259ca36b8173aa2eb7aa24a70752902eb1e751c464956",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/learning-resume-receipt-provenance.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/learning-resume-receipt-provenance.json",
+      "original_sha256": "5432757deb8f2b13ccb9055186f74b06313130351f6793da8b4292411da206c8",
+      "stored_sha256": "5432757deb8f2b13ccb9055186f74b06313130351f6793da8b4292411da206c8",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/recovery-ledger.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/recovery-ledger.json",
+      "original_sha256": "abd25847dcfe1e7d949d7bd5d2d30b6bb1aa8c01e281a07ddb01f7d02f16604c",
+      "stored_sha256": "abd25847dcfe1e7d949d7bd5d2d30b6bb1aa8c01e281a07ddb01f7d02f16604c",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/report.md",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/report.md",
+      "original_sha256": "0ac1ff3560acecbf81c914119108eccb9bf7bbdc8d7ad0f81df627e4d92627f6",
+      "stored_sha256": "0ac1ff3560acecbf81c914119108eccb9bf7bbdc8d7ad0f81df627e4d92627f6",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/root-verification.json",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/root-verification.json",
+      "original_sha256": "75467e3bac4f652c1442fe43a814173c6be999d98332986090d0511bc61d0a03",
+      "stored_sha256": "75467e3bac4f652c1442fe43a814173c6be999d98332986090d0511bc61d0a03",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/verify-committed-archives.py",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/verify-committed-archives.py",
+      "original_sha256": "048a25ab9140124f6a32fbb70771642862eac636ab044dc829f7768a009431cc",
+      "stored_sha256": "048a25ab9140124f6a32fbb70771642862eac636ab044dc829f7768a009431cc",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/verify-factory-history-qualified-initial-snapshot.py",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/verify-factory-history-qualified-initial-snapshot.py",
+      "original_sha256": "53a436fab6dd5a789d70c601eba6a627ab258d8a794d0c916187514c45fffe20",
+      "stored_sha256": "53a436fab6dd5a789d70c601eba6a627ab258d8a794d0c916187514c45fffe20",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/verify-factory-history-qualified.py",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/verify-factory-history-qualified.py",
+      "original_sha256": "101a7685c3c01e502dff80a63a6fe3e4e6cc299ca318184940c7eb14362dd5fe",
+      "stored_sha256": "101a7685c3c01e502dff80a63a6fe3e4e6cc299ca318184940c7eb14362dd5fe",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/recovery-audit/verify-final-ancestry.py",
+      "stored_path": ".audit/branch-consolidation/recovery-audit/verify-final-ancestry.py",
+      "original_sha256": "65bdcac556f0f6bca958be5743e8fca40f423b84207ab126e65e69de408174df",
+      "stored_sha256": "65bdcac556f0f6bca958be5743e8fca40f423b84207ab126e65e69de408174df",
+      "encoding": "identity"
+    }
+  ]
+}

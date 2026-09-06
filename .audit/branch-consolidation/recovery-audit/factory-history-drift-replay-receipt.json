@@ -1,0 +1,8 @@
+{
+  "command": [
+    "python3",
+    ".audit/branch-consolidation/verify_factory_history.py"
+  ],
+  "exit": 1,
+  "historicalReceiptUnchanged": true
+}

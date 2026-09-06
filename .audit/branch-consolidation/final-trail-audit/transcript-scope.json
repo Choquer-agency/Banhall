@@ -1,0 +1,11 @@
+{
+  "transcript": "/Users/johnnynguyen/.codex/sessions/2026/09/04/rollout-2026-09-04T11-57-41-01a06dc8-a784-7e33-8e47-d10a6f994549.jsonl",
+  "start_line": 11453,
+  "end_line": 15720,
+  "start_timestamp": "2026-09-05T22:45:35.015Z",
+  "end_timestamp": "2026-09-06T03:14:00.548Z",
+  "scope_sha256": "6bb825985584eaa8bd2095d227566c20278fc1e447c38d9d08dfe4fe387aab18",
+  "hash_method": "SHA-256 of exact JSONL bytes emitted by sed -n '11453,15720p'",
+  "privacy_scope": "Only this active user-task slice was inspected. No unrelated transcript or private chat was read or copied.",
+  "status": "preliminary; extend with a new checkpoint file after B11 and shipping"
+}

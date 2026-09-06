@@ -1,0 +1,763 @@
+{
+  "targetInput": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235",
+  "requiredIntegrationInput": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235",
+  "refDrift": [],
+  "newlyObservedRefs": [
+    {
+      "ref": "refs/heads/codex/branch-consolidation",
+      "sha": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235",
+      "ancestor": true
+    }
+  ],
+  "excludedSymbolicRefs": [
+    {
+      "ref": "refs/remotes/origin/HEAD",
+      "sha": "cc6b706c3b43f971d944cb703a4174eabf3134d9",
+      "symbolicTarget": "refs/remotes/origin/main"
+    }
+  ],
+  "capturedChecks": [
+    {
+      "ref": "refs/heads/archive/bmad-loop-sprint1b",
+      "sha": "842cdf5160cd405de19b8643ad9295bcd4049e95",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/better-auth-migration",
+      "sha": "cd247698353a6a754c8cbb4b1b65a3572c1f4b10",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-030217-50fa",
+      "sha": "0b6325cd85dbf1c01e9a1e5cff67e6eef02f7ef7",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-065146-9a65",
+      "sha": "5de0e9a389022afc4ee21f740fe6fdd0755fa9b8",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121331-bb2f",
+      "sha": "7265ad6a3e648d0c96f27d0359db36abc5f5ed99",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121341-8dea",
+      "sha": "7265ad6a3e648d0c96f27d0359db36abc5f5ed99",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121348-da5b",
+      "sha": "7265ad6a3e648d0c96f27d0359db36abc5f5ed99",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121356-972e",
+      "sha": "7265ad6a3e648d0c96f27d0359db36abc5f5ed99",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121607-3217",
+      "sha": "0dd0d6bd98c28e54107ae10fe06a90fd83c6dab2",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121620-6b94",
+      "sha": "076b3041949b6acffcdb738a233d92583d46c893",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121631-a914",
+      "sha": "f9389a46d26d1a45efe1645e4b965eb3cf40da8a",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-121647-f30f",
+      "sha": "c20934e0bb898a60d0ee298c577c708109a74f63",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-133944-0158",
+      "sha": "76d101671d109012438ed5fb282168872811103c",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-145336-4d56",
+      "sha": "a62e1760a9931c9451c34baa2df8af29fa1e9538",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/bmad-loop/20260904-162523-6e72",
+      "sha": "309382d88630fc54166b895f9cc4272bdc5b3872",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-analyzer-provenance-fix",
+      "sha": "bbaa9d20a9607d6463ee5298e1a5c9d8aebf19df",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-browser-fix",
+      "sha": "410fcbd27d8acdb519a07bffd1281d1810cd83d4",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-browser-gate-repair",
+      "sha": "3b8a451e3738a8da1bd95ba5e7029dba6f970a4d",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-browser-pointer",
+      "sha": "c9256971e922daed89f8e252cc3982ff34aec5bb",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-completion",
+      "sha": "c9256971e922daed89f8e252cc3982ff34aec5bb",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-deidentify-linebreak-fix",
+      "sha": "d868ad1d88436d2cfb803c1083d0f1ff8479d94f",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw96-fix",
+      "sha": "091ec5a22f57ae3f566d6b70c56c3a61069763fc",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw97-fix",
+      "sha": "5df0d2c4ae9677a891cd8ca19f2669da40fc4311",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw97-review",
+      "sha": "74f8789d582c7b3ea4b66f2d70624811d269186f",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw98-fix",
+      "sha": "4e0bdf5d45d7f5d555227783c69d01e29bfbec43",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw98-review",
+      "sha": "e8abbc14523eff3e1aa490712e7efafe9cd86b24",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw99-fix",
+      "sha": "9aa4c32d5407dd02e15bf0532587a099343bf70d",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw99-review",
+      "sha": "c3bcddd475a924780cfaf2362b0217d1d58d428d",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-feedback-probe",
+      "sha": "8c8080576d30c919f825e12f4b786f3f28b86b8f",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-feedback-read-fix",
+      "sha": "f42c7f3322cf2d48a0bcd45597ddde14f084e888",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/bmad-integration-review",
+      "sha": "9da55bece5948da12129720dd2330a3032c985bf",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-linux-pointer-diagnostic",
+      "sha": "84dab21fc3f2e635f0ead01a7c671dfc279fa644",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/bmad-native-entrypoint-fix",
+      "sha": "19b7505738f2477ab646b763f6ae3d659c74d96b",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-privacy-contract",
+      "sha": "a84022d0fae24281b55f58d57f4b4193d69c9dee",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-proposal-tests",
+      "sha": "176817b4230a7d0153d397134f846de2e9441bde",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-published-status-fix",
+      "sha": "4555939ad846c638e291b06fd74e9ff3b637f881",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/bmad-review-menu-verification",
+      "sha": "97e32b72891c6d50d45191ac272607936fba1628",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-unicode-fix",
+      "sha": "2462c4cc6eb67501d4f412d15674435e8adfd43b",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-unlearn-fix",
+      "sha": "b3338523c10085426a094bb8e5b13ccc55f9f7cf",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-verification-contract",
+      "sha": "186029d408b418c4337ee0e772520629cdae937c",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/bmad-verification-fix",
+      "sha": "4c26f2fb345247139963457ef7d770677b82fb45",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-chatspend-20260904",
+      "sha": "8f9dd05f7c4592baede7542c1d3858a8992c6dbf",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-chatspend-retry2-20260904",
+      "sha": "6dab1f63ea71cb9f22cd1c37cfb2c74249a38367",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-learnchat-20260904",
+      "sha": "97622e4135ce3720455f8adea32464cabdfd3a27",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-learnchat-baseline-20260904",
+      "sha": "5de0e9a389022afc4ee21f740fe6fdd0755fa9b8",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-learning4-approved-resolution-20260904",
+      "sha": "784102690e5921cdf84bd2eb948711e2991cb53d",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-learning5-codegen-recovery-20260904",
+      "sha": "44b702478781d278d8f7626285d55ec9dbb4a5cf",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-learning8-approved-resolution-20260905",
+      "sha": "53a2dbd3176bb1d976fcc41de9c960ece49021f5",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-ped-malformed-review-20260904",
+      "sha": "ff001c3371b9519af01cd25529d991f8762f3e01",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-ped-native-final-review-20260904",
+      "sha": "2d393923482b2bfda4ab4b78219c535249bd4f98",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-pipeline-20260904",
+      "sha": "ee0ff2b0f1b9a24e6f29e1fda1dc7d00fc42b1e5",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-pipeline-retry2-20260904",
+      "sha": "bcc0b9fa3f53beffde73b7cf9badd192f1372382",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-deferred-20260904",
+      "sha": "0dd0d6bd98c28e54107ae10fe06a90fd83c6dab2",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-followup-20260904",
+      "sha": "6182a5de6947d3e8fcd72024f7a720b4af0639f5",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-ledger-escalation-20260904",
+      "sha": "828cc5adf0a814be4930fae8953a9cb745ed5766",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-native-final-review-20260904",
+      "sha": "81612bf7af8938cbe98f63bc3f452dc6bf3e5002",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-native-ledger-20260904",
+      "sha": "5c2765316db129c93127551b78068d1a1a37e55b",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-rearmed-spec-20260904",
+      "sha": "172a05eca5e177bf409bc3f2abec43118b899eee",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-sweep-spec-crash-20260904",
+      "sha": "a62e1760a9931c9451c34baa2df8af29fa1e9538",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-research-phone-review-20260904",
+      "sha": "625352b58c6d9e9dca61371329e2cdf28b112103",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-schema-20260904",
+      "sha": "b3e0c2ad2740c827be17a7cd0d777d95d6ee6b35",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/codex/preserve-snapshot-ownership-review-20260904",
+      "sha": "ab65d107b2fec003021cd451fc0ebc0e1cc2d9cc",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/cownose",
+      "sha": "c7167fb59d3eb46b7a21aafbad6a292ed25ea0df",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/factory/workspace-2-drop-dead-gate-branches",
+      "sha": "c2211d0e198a78b65ffbb18bd441d17bfe79f4fc",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/lane/spec-ai-engine-sprint-2-boundary/chatspend",
+      "sha": "8f2199688ce3bd34ead3293b8b606db22ceed378",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/lane/spec-ai-engine-sprint-2-boundary/pipeline",
+      "sha": "c138fbebeccc01b25f38362c79c9b316119c3fff",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/lane/spec-ai-engine-sprint-2-boundary/qa",
+      "sha": "7c27eeff15c583389462b5e3e68eb47bdb373cb5",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/lane/spec-ai-engine-sprint-2-boundary/schema",
+      "sha": "7dc7131d72bca734215d78dd38aeb732f4050842",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/legacy-nextjs-react",
+      "sha": "bf22e88137ba361ae8999d84a94a0d432d598d4e",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/main",
+      "sha": "14d3d1795d9f861257ac122f7183449b248a369a",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/sprint2-boundary",
+      "sha": "5ec93e594eda60c28da2cfdbf27fb668fd55eb3d",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/sprint2-learn-chat",
+      "sha": "c3bcddd475a924780cfaf2362b0217d1d58d428d",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/heads/svelte-migration",
+      "sha": "3da60ccab54d5602b8129ab08d640f3d45a35a0a",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/remotes/origin/better-auth-migration",
+      "sha": "cd247698353a6a754c8cbb4b1b65a3572c1f4b10",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/remotes/origin/codex/bmad-completion",
+      "sha": "c9256971e922daed89f8e252cc3982ff34aec5bb",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/remotes/origin/codex/bmad-linux-pointer-diagnostic",
+      "sha": "84dab21fc3f2e635f0ead01a7c671dfc279fa644",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/remotes/origin/legacy-nextjs-react",
+      "sha": "bf22e88137ba361ae8999d84a94a0d432d598d4e",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/remotes/origin/main",
+      "sha": "cc6b706c3b43f971d944cb703a4174eabf3134d9",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/remotes/origin/sprint2-boundary",
+      "sha": "11bfe3ebcb79fd8be78e2e057b45ea69db0f88be",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/remotes/origin/sprint2-learn-chat",
+      "sha": "80db3c255851842c26938657ee60c313780971fc",
+      "ancestor": true
+    },
+    {
+      "ref": "refs/remotes/origin/svelte-migration",
+      "sha": "3da60ccab54d5602b8129ab08d640f3d45a35a0a",
+      "ancestor": true
+    }
+  ],
+  "plannedParents": [
+    {
+      "id": "A01",
+      "sha": "842cdf5160cd405de19b8643ad9295bcd4049e95",
+      "ancestor": false
+    },
+    {
+      "id": "A02",
+      "sha": "091ec5a22f57ae3f566d6b70c56c3a61069763fc",
+      "ancestor": false
+    },
+    {
+      "id": "A03",
+      "sha": "5df0d2c4ae9677a891cd8ca19f2669da40fc4311",
+      "ancestor": false
+    },
+    {
+      "id": "A04",
+      "sha": "4e0bdf5d45d7f5d555227783c69d01e29bfbec43",
+      "ancestor": false
+    },
+    {
+      "id": "A05",
+      "sha": "9aa4c32d5407dd02e15bf0532587a099343bf70d",
+      "ancestor": false
+    },
+    {
+      "id": "A06",
+      "sha": "f42c7f3322cf2d48a0bcd45597ddde14f084e888",
+      "ancestor": false
+    },
+    {
+      "id": "A07",
+      "sha": "84dab21fc3f2e635f0ead01a7c671dfc279fa644",
+      "ancestor": false
+    },
+    {
+      "id": "A08",
+      "sha": "4555939ad846c638e291b06fd74e9ff3b637f881",
+      "ancestor": false
+    },
+    {
+      "id": "A09",
+      "sha": "4c26f2fb345247139963457ef7d770677b82fb45",
+      "ancestor": false
+    },
+    {
+      "id": "A10",
+      "sha": "784102690e5921cdf84bd2eb948711e2991cb53d",
+      "ancestor": false
+    },
+    {
+      "id": "A11",
+      "sha": "44b702478781d278d8f7626285d55ec9dbb4a5cf",
+      "ancestor": false
+    },
+    {
+      "id": "A12",
+      "sha": "53a2dbd3176bb1d976fcc41de9c960ece49021f5",
+      "ancestor": false
+    },
+    {
+      "id": "A13",
+      "sha": "ff001c3371b9519af01cd25529d991f8762f3e01",
+      "ancestor": false
+    },
+    {
+      "id": "A14",
+      "sha": "2d393923482b2bfda4ab4b78219c535249bd4f98",
+      "ancestor": false
+    },
+    {
+      "id": "A15",
+      "sha": "81612bf7af8938cbe98f63bc3f452dc6bf3e5002",
+      "ancestor": false
+    },
+    {
+      "id": "A16",
+      "sha": "172a05eca5e177bf409bc3f2abec43118b899eee",
+      "ancestor": false
+    },
+    {
+      "id": "A17",
+      "sha": "625352b58c6d9e9dca61371329e2cdf28b112103",
+      "ancestor": false
+    },
+    {
+      "id": "A18",
+      "sha": "ab65d107b2fec003021cd451fc0ebc0e1cc2d9cc",
+      "ancestor": false
+    },
+    {
+      "id": "A19",
+      "sha": "c2211d0e198a78b65ffbb18bd441d17bfe79f4fc",
+      "ancestor": false
+    },
+    {
+      "id": "A20",
+      "sha": "5ec93e594eda60c28da2cfdbf27fb668fd55eb3d",
+      "ancestor": false
+    }
+  ],
+  "errors": [],
+  "scope": "Committed ancestry only; not content acceptance, CI proof or uncommitted-work integration.",
+  "target": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235",
+  "requiredIntegration": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235",
+  "capturedCount": 81,
+  "plannedParentCount": 20,
+  "baseline": "cc6b706c3b43f971d944cb703a4174eabf3134d9",
+  "baselineAncestor": true,
+  "requiredIntegrationAncestor": true,
+  "capturedMissing": [
+    {
+      "ref": "refs/heads/archive/bmad-loop-sprint1b",
+      "sha": "842cdf5160cd405de19b8643ad9295bcd4049e95",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw96-fix",
+      "sha": "091ec5a22f57ae3f566d6b70c56c3a61069763fc",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw97-fix",
+      "sha": "5df0d2c4ae9677a891cd8ca19f2669da40fc4311",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw98-fix",
+      "sha": "4e0bdf5d45d7f5d555227783c69d01e29bfbec43",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/bmad-dw99-fix",
+      "sha": "9aa4c32d5407dd02e15bf0532587a099343bf70d",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/bmad-feedback-read-fix",
+      "sha": "f42c7f3322cf2d48a0bcd45597ddde14f084e888",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/bmad-linux-pointer-diagnostic",
+      "sha": "84dab21fc3f2e635f0ead01a7c671dfc279fa644",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/bmad-published-status-fix",
+      "sha": "4555939ad846c638e291b06fd74e9ff3b637f881",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/bmad-verification-fix",
+      "sha": "4c26f2fb345247139963457ef7d770677b82fb45",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-learning4-approved-resolution-20260904",
+      "sha": "784102690e5921cdf84bd2eb948711e2991cb53d",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-learning5-codegen-recovery-20260904",
+      "sha": "44b702478781d278d8f7626285d55ec9dbb4a5cf",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-learning8-approved-resolution-20260905",
+      "sha": "53a2dbd3176bb1d976fcc41de9c960ece49021f5",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-ped-malformed-review-20260904",
+      "sha": "ff001c3371b9519af01cd25529d991f8762f3e01",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-ped-native-final-review-20260904",
+      "sha": "2d393923482b2bfda4ab4b78219c535249bd4f98",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-native-final-review-20260904",
+      "sha": "81612bf7af8938cbe98f63bc3f452dc6bf3e5002",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-native-ledger-20260904",
+      "sha": "5c2765316db129c93127551b78068d1a1a37e55b",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-qa-rearmed-spec-20260904",
+      "sha": "172a05eca5e177bf409bc3f2abec43118b899eee",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-research-phone-review-20260904",
+      "sha": "625352b58c6d9e9dca61371329e2cdf28b112103",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/codex/preserve-snapshot-ownership-review-20260904",
+      "sha": "ab65d107b2fec003021cd451fc0ebc0e1cc2d9cc",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/factory/workspace-2-drop-dead-gate-branches",
+      "sha": "c2211d0e198a78b65ffbb18bd441d17bfe79f4fc",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/heads/sprint2-boundary",
+      "sha": "5ec93e594eda60c28da2cfdbf27fb668fd55eb3d",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/remotes/origin/codex/bmad-linux-pointer-diagnostic",
+      "sha": "84dab21fc3f2e635f0ead01a7c671dfc279fa644",
+      "ancestor": false
+    },
+    {
+      "ref": "refs/remotes/origin/sprint2-boundary",
+      "sha": "11bfe3ebcb79fd8be78e2e057b45ea69db0f88be",
+      "ancestor": false
+    }
+  ],
+  "plannedParentsMissing": [
+    {
+      "id": "A01",
+      "sha": "842cdf5160cd405de19b8643ad9295bcd4049e95",
+      "ancestor": false
+    },
+    {
+      "id": "A02",
+      "sha": "091ec5a22f57ae3f566d6b70c56c3a61069763fc",
+      "ancestor": false
+    },
+    {
+      "id": "A03",
+      "sha": "5df0d2c4ae9677a891cd8ca19f2669da40fc4311",
+      "ancestor": false
+    },
+    {
+      "id": "A04",
+      "sha": "4e0bdf5d45d7f5d555227783c69d01e29bfbec43",
+      "ancestor": false
+    },
+    {
+      "id": "A05",
+      "sha": "9aa4c32d5407dd02e15bf0532587a099343bf70d",
+      "ancestor": false
+    },
+    {
+      "id": "A06",
+      "sha": "f42c7f3322cf2d48a0bcd45597ddde14f084e888",
+      "ancestor": false
+    },
+    {
+      "id": "A07",
+      "sha": "84dab21fc3f2e635f0ead01a7c671dfc279fa644",
+      "ancestor": false
+    },
+    {
+      "id": "A08",
+      "sha": "4555939ad846c638e291b06fd74e9ff3b637f881",
+      "ancestor": false
+    },
+    {
+      "id": "A09",
+      "sha": "4c26f2fb345247139963457ef7d770677b82fb45",
+      "ancestor": false
+    },
+    {
+      "id": "A10",
+      "sha": "784102690e5921cdf84bd2eb948711e2991cb53d",
+      "ancestor": false
+    },
+    {
+      "id": "A11",
+      "sha": "44b702478781d278d8f7626285d55ec9dbb4a5cf",
+      "ancestor": false
+    },
+    {
+      "id": "A12",
+      "sha": "53a2dbd3176bb1d976fcc41de9c960ece49021f5",
+      "ancestor": false
+    },
+    {
+      "id": "A13",
+      "sha": "ff001c3371b9519af01cd25529d991f8762f3e01",
+      "ancestor": false
+    },
+    {
+      "id": "A14",
+      "sha": "2d393923482b2bfda4ab4b78219c535249bd4f98",
+      "ancestor": false
+    },
+    {
+      "id": "A15",
+      "sha": "81612bf7af8938cbe98f63bc3f452dc6bf3e5002",
+      "ancestor": false
+    },
+    {
+      "id": "A16",
+      "sha": "172a05eca5e177bf409bc3f2abec43118b899eee",
+      "ancestor": false
+    },
+    {
+      "id": "A17",
+      "sha": "625352b58c6d9e9dca61371329e2cdf28b112103",
+      "ancestor": false
+    },
+    {
+      "id": "A18",
+      "sha": "ab65d107b2fec003021cd451fc0ebc0e1cc2d9cc",
+      "ancestor": false
+    },
+    {
+      "id": "A19",
+      "sha": "c2211d0e198a78b65ffbb18bd441d17bfe79f4fc",
+      "ancestor": false
+    },
+    {
+      "id": "A20",
+      "sha": "5ec93e594eda60c28da2cfdbf27fb668fd55eb3d",
+      "ancestor": false
+    }
+  ],
+  "ancestryComplete": false,
+  "refDriftRequiresReview": false,
+  "newRefDispositionsRequired": true,
+  "allBranchesDispositionEstablished": false,
+  "newRefDispositionNote": "Ancestry completeness covers the captured 81 refs and 20 parents. New refs require explicit parent disposition, including the expected integration branch; ancestry alone does not establish content acceptance or an all-branches claim.",
+  "exitCode": 1,
+  "status": "ancestry_incomplete"
+}

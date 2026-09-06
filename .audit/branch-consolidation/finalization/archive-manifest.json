@@ -1,0 +1,124 @@
+{
+  "instructions": "Paths in historical evidence resolve through this manifest. gzip files preserve exact original bytes; decompress with gzip -dc. Original hashes permit independent verification.",
+  "files": [
+    {
+      "original_path": ".audit/branch-consolidation/finalization/accepted-batch-archives.json",
+      "stored_path": ".audit/branch-consolidation/finalization/accepted-batch-archives.json",
+      "original_sha256": "e197e6d63303611d6fff178213fec010b979c4db5456bd8e44a6e5716b36f36b",
+      "stored_sha256": "e197e6d63303611d6fff178213fec010b979c4db5456bd8e44a6e5716b36f36b",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/accepted-batch-archives.log",
+      "stored_path": ".audit/branch-consolidation/finalization/accepted-batch-archives.log.gz",
+      "original_sha256": "e197e6d63303611d6fff178213fec010b979c4db5456bd8e44a6e5716b36f36b",
+      "stored_sha256": "bf5bf22a52a3ded990b5ed91dd32db0968e6e95a9ca6b38c55c26a5dfb2554af",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/accepted-source.json",
+      "stored_path": ".audit/branch-consolidation/finalization/accepted-source.json",
+      "original_sha256": "fb8c06f9e97bac7b4a5768e145edafd9aa92df81c4b71d62b22a6e8da1655b47",
+      "stored_sha256": "fb8c06f9e97bac7b4a5768e145edafd9aa92df81c4b71d62b22a6e8da1655b47",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/admission-progress.json",
+      "stored_path": ".audit/branch-consolidation/finalization/admission-progress.json",
+      "original_sha256": "8e45968458646fcd505dd94cf6dd9877c7531aaf7d875e11c37394ef8af450d0",
+      "stored_sha256": "8e45968458646fcd505dd94cf6dd9877c7531aaf7d875e11c37394ef8af450d0",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/ancestry-before.json",
+      "stored_path": ".audit/branch-consolidation/finalization/ancestry-before.json",
+      "original_sha256": "dfc3897bd0d5dadd1e43702efb2877582edc8b7cdc3354f1552c007060fbfe0e",
+      "stored_sha256": "dfc3897bd0d5dadd1e43702efb2877582edc8b7cdc3354f1552c007060fbfe0e",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/ancestry-before.log",
+      "stored_path": ".audit/branch-consolidation/finalization/ancestry-before.log.gz",
+      "original_sha256": "dfc3897bd0d5dadd1e43702efb2877582edc8b7cdc3354f1552c007060fbfe0e",
+      "stored_sha256": "5a6e7ce18cf3e0cd38a9e8f30f03d9a9e2bb6ec0b403065e12a70de646c26ff4",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/content-admission-replay.log",
+      "stored_path": ".audit/branch-consolidation/finalization/content-admission-replay.log.gz",
+      "original_sha256": "a815a2c7778be6b9c63b89e8d0cdd3795d3aef483820396b4c1728cb4ed67374",
+      "stored_sha256": "59dd852a6b65ce7cf872fe1569a9dfdd955ba1052018face01b77eafe5e44239",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/content-admission.json",
+      "stored_path": ".audit/branch-consolidation/finalization/content-admission.json",
+      "original_sha256": "1c9ba7842b167ad3b385d4972ee4cd1878c397fa9bfda0e778af40c6fd67793d",
+      "stored_sha256": "1c9ba7842b167ad3b385d4972ee4cd1878c397fa9bfda0e778af40c6fd67793d",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/content-state.json",
+      "stored_path": ".audit/branch-consolidation/finalization/content-state.json",
+      "original_sha256": "82f614f292f505c28bbd9aa63abe8a7f97e9f401a0ae01600b45db2a25e5dde2",
+      "stored_sha256": "82f614f292f505c28bbd9aa63abe8a7f97e9f401a0ae01600b45db2a25e5dde2",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/package-discovery.log",
+      "stored_path": ".audit/branch-consolidation/finalization/package-discovery.log.gz",
+      "original_sha256": "0f70e65455cd318f435b7c674e6b1f0b7812be082f6a863794a844c14120a206",
+      "stored_sha256": "c57c4622d02da800943427724766ab01ff78a49d1ff9c2f6773e4416d14ba453",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/package-source-proof.json",
+      "stored_path": ".audit/branch-consolidation/finalization/package-source-proof.json",
+      "original_sha256": "23f8f3bb6df9abf112e4cff1e1686c27ff9ac0324f5c7aff7e9af13444b3508a",
+      "stored_sha256": "23f8f3bb6df9abf112e4cff1e1686c27ff9ac0324f5c7aff7e9af13444b3508a",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/preflight-0.log",
+      "stored_path": ".audit/branch-consolidation/finalization/preflight-0.log.gz",
+      "original_sha256": "07be74582a8862de214328a7d10aec9bfeefe4741da42b4829275765795645eb",
+      "stored_sha256": "4c0b78c3f15683602bd1432b3896dce6866de62dc2a6e2531a873efd3aa1d6bf",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/preflight-1.log",
+      "stored_path": ".audit/branch-consolidation/finalization/preflight-1.log.gz",
+      "original_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "stored_sha256": "abc129be8d26e8d4afe9ce45f9d5a73c8ed9aa62810ca24ee789fe4581dc4a80",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/preflight-2.log",
+      "stored_path": ".audit/branch-consolidation/finalization/preflight-2.log.gz",
+      "original_sha256": "1524ee4f7768a74a57e6d14d99bccdac08880bde502135b90a12a4873e5deb2b",
+      "stored_sha256": "2555e8153fff528ca90685a0a93025205d8ab9f7b0ea4cac988114ce58e59f4e",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/preflight-3.log",
+      "stored_path": ".audit/branch-consolidation/finalization/preflight-3.log.gz",
+      "original_sha256": "422e613103f4d644a295e372749b8800ca872e8349658d0194be6fb0a0a4b29c",
+      "stored_sha256": "409b96318922dc73643c63106b2ff9bc3ac48c54d02455e5cd3470fe47b6135f",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/remote-preflight.json",
+      "stored_path": ".audit/branch-consolidation/finalization/remote-preflight.json",
+      "original_sha256": "6eb2bc267f8469a518f5a95ca6b617ac5397b138258e23592c01191ec376110a",
+      "stored_sha256": "6eb2bc267f8469a518f5a95ca6b617ac5397b138258e23592c01191ec376110a",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/verify-content-admission.py",
+      "stored_path": ".audit/branch-consolidation/finalization/verify-content-admission.py",
+      "original_sha256": "fb6dbe563333cf41ed5c7483d65fe04f35149e30a6a79372cbeac811d97c249a",
+      "stored_sha256": "fb6dbe563333cf41ed5c7483d65fe04f35149e30a6a79372cbeac811d97c249a",
+      "encoding": "identity"
+    }
+  ]
+}
