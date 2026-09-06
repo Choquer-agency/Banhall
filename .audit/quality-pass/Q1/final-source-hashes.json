@@ -1,0 +1,8 @@
+{
+  "convex/documents.ts": "5d16f475a3a1a5e6abe6120256affc5e65f3f607ca8999c631bded5957be81cc",
+  "convex/schema.ts": "ff927e4c0e4e747125e9d343c0550e5f3383272e4c70971f5ba6c512cd0b4985",
+  "convex/seed.ts": "51d6930bfcd54a58e0b5ef083b3da8d01defd091de19c5bbba473c98953115a0",
+  "convex/lib/storage.ts": "ce8c35468c1d11e6772b8cd2fa20af0b562da29a500805be6d8a3e2c4c9b79cd",
+  "convex/storageCleanup.test.ts": "456ea3a6547e323652655b04831a392984657d4331c99f1654d51fc6ff7f48f5",
+  "_bmad-output/implementation-artifacts/spec-quality-dw103-storage-references.md": "b8c6f80e429c131f93dd420e1d944fa9fc68b3e342a0fb328b8cc47899488f75"
+}

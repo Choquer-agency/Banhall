@@ -1070,6 +1070,7 @@ export default defineSchema({
     ),
     createdAt: v.number(),
   })
+    .index("by_storageId", ["storageId"])
     .index("by_projectId", ["projectId"])
     .searchIndex("search_content", {
       searchField: "content",
@@ -1684,6 +1685,7 @@ export default defineSchema({
     createdBy: v.string(),
     createdAt: v.number(),
   })
+    .index("by_storageId", ["storageId"])
     .index("by_status", ["status"])
     .index("by_hash", ["sourceHash"])
     .index("by_ragKey", ["ragKey"])
@@ -2048,6 +2050,8 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
+    .index("by_storageId", ["storageId"])
+    .index("by_textStorageId", ["textStorageId"])
     .index("by_driveItemId", ["driveItemId"])
     .index("by_status", ["status"])
     .index("by_pairGroupKey", ["pairGroupKey"])

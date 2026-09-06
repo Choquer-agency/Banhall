@@ -1,0 +1,4 @@
+ts	phase	decision	why	evidence	result
+2026-09-06T04:08:21.048367+00:00	baseline	Correct denial fixture to roleless caller	Preserve existing internal writer permissions	.audit/quality-pass/Q1/baseline-tests.log	Final baseline retained before production edit
+2026-09-06T04:08:21.048367+00:00	build	Share indexed remaining-reference check across three callers	Protect all four reference fields transactionally	convex/lib/storage.ts	58 focused tests pass
+2026-09-06T04:08:21.048367+00:00	verify	Leave root review and canonical gate pending	Spec reserves final acceptance	.audit/quality-pass/Q1/evidence.md	No staging or commits

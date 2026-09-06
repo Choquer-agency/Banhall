@@ -11,6 +11,7 @@ import {
   deriveStoredProcessing,
 } from "../shared/documentStatus";
 import { requireAttemptKey, resolveUploadAttempt } from "./lib/uploadAttempts";
+import { deleteStorageIfUnreferenced } from "./lib/storage";
 
 const fileTypeValidator = v.union(
   v.literal("txt"),
@@ -108,8 +109,8 @@ export const uploadDocument = mutation({
           ...(args.mimeType ? { mimeType: args.mimeType } : {}),
         });
       } else if (args.storageId && dup.storageId !== args.storageId) {
-        // Already have the file — drop the orphaned re-upload.
-        await ctx.storage.delete(args.storageId);
+        // Already have the file; reclaim the supplied bytes only if unreferenced.
+        await deleteStorageIfUnreferenced(ctx, args.storageId);
       }
       // Backfill-on-touch: the dedupe key is (fileName, content), so the
       // derivation is identical by construction. Fill it in when missing;
@@ -235,8 +236,8 @@ export const deleteDocument = mutation({
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
     await requireInternalProjectAccess(ctx, doc.projectId);
-    if (doc.storageId) await ctx.storage.delete(doc.storageId);
     await ctx.db.delete(args.documentId);
+    if (doc.storageId) await deleteStorageIfUnreferenced(ctx, doc.storageId);
   },
 });
 
