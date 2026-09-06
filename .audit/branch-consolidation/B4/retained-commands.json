@@ -1,0 +1,5 @@
+[
+  "node node_modules/vitest/vitest.mjs run --config vitest.component.config.ts 'src/routes/project/[id]/projectRoute.component.test.ts' src/lib/components/editor/Editor.component.test.ts src/lib/components/generation/GenerationRecoveryPanel.component.test.ts src/lib/components/ui/PageBar.component.test.ts src/lib/components/ui/Disclosure.component.test.ts src/lib/components/ui/StageBadge.component.test.ts src/lib/components/ui/ViewModeToggle.component.test.ts src/lib/components/ui/SelectInput.component.test.ts src/lib/components/ui/Input.component.test.ts src/lib/components/ui/UserMenu.component.test.ts",
+  "node node_modules/vitest/vitest.mjs run --config vitest.component.config.ts src/lib/components/mywork/MyWorkLaneSort.component.test.ts src/lib/components/mywork/MyWorkHome.component.test.ts src/lib/components/mywork/HomeStartProject.component.test.ts src/lib/components/mywork/CurrentWorkLedgerFixture.component.test.ts src/lib/components/workspace/HomeParity.component.test.ts",
+  "node node_modules/vitest/vitest.mjs run src/lib/mywork/homeGreeting.test.ts src/lib/mywork/relativeTime.test.ts"
+]

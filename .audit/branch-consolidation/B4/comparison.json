@@ -1,0 +1,15 @@
+{
+  "retained_cases_identical": 66,
+  "before_discovered_unique": 217,
+  "after_discovered_unique": 214,
+  "removed_suites": [
+    "src/lib/components/mywork/MyWorkRow.component.test.ts",
+    "src/lib/mywork/laneSort.test.ts",
+    "src/lib/mywork/myWorkPreferences.test.ts"
+  ],
+  "retained_tracked_orphans": [],
+  "unchanged_other_tracked_files": 5416,
+  "exact_deleted_files": 17,
+  "staged_changes": false,
+  "diff_check_exit": 0
+}

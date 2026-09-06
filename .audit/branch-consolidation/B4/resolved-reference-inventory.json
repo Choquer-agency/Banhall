@@ -1,0 +1,51 @@
+[
+  {
+    "caller": "src/lib/mywork/laneSort.test.ts",
+    "line": 8,
+    "specifier": "./laneSort",
+    "target": "src/lib/mywork/laneSort.ts",
+    "inside_allowlist": true
+  },
+  {
+    "caller": "src/lib/mywork/myWorkPreferences.test.ts",
+    "line": 6,
+    "specifier": "./myWorkPreferences",
+    "target": "src/lib/mywork/myWorkPreferences.ts",
+    "inside_allowlist": true
+  },
+  {
+    "caller": "src/lib/mywork/myWorkPreferences.ts",
+    "line": 1,
+    "specifier": "$lib/mywork/laneSort",
+    "target": "src/lib/mywork/laneSort.ts",
+    "inside_allowlist": true
+  },
+  {
+    "caller": "src/lib/components/mywork/MyWorkRowFixture.svelte",
+    "line": 2,
+    "specifier": "./MyWorkRow.svelte",
+    "target": "src/lib/components/mywork/MyWorkRow.svelte",
+    "inside_allowlist": true
+  },
+  {
+    "caller": "src/lib/components/mywork/MyWorkRow.component.test.ts",
+    "line": 4,
+    "specifier": "./MyWorkRow.svelte",
+    "target": "src/lib/components/mywork/MyWorkRow.svelte",
+    "inside_allowlist": true
+  },
+  {
+    "caller": "src/lib/components/mywork/MyWorkRow.component.test.ts",
+    "line": 5,
+    "specifier": "./MyWorkRowFixture.svelte",
+    "target": "src/lib/components/mywork/MyWorkRowFixture.svelte",
+    "inside_allowlist": true
+  },
+  {
+    "caller": "src/lib/components/comments/CommentSidebar.svelte",
+    "line": 5,
+    "specifier": "./CommentThread.svelte",
+    "target": "src/lib/components/comments/CommentThread.svelte",
+    "inside_allowlist": true
+  }
+]

@@ -1,0 +1,13 @@
+docs/todos/psos/tasks/PSOS-04-steps-15-16-plan.md:662:2. **Header at zero:** project with only healthy docs → header byte-identical to today (no
+docs/todos/psos/tasks/PSOS-04-steps-15-16-plan.md:699:| Header count double-vocabulary confusion | "failed" could be read as "any bad status" | `countReceiptFailures` uses the summary line's own vocabulary; unit-tested | 15d tests |
+docs/todos/psos/tasks/PSOS-05.md:124:| 2026-07-28 | Signed in through installed Google Chrome as an administrator and opened genuine partial generation `k579qgcv1e69acsrpaxam2cmgs8b9cqa` for project `k97cdf1xg9x6dqenftwe59ncq98b9rt3`. | Header showed “Some drafts need retry”; Opus 4.8 remained fully selectable; Sonnet 5 showed “Needs retry”; recovery copy exposed no provider details. |
+docs/svelte-migration.md:77:  ui/IconAction, ui/MenuToggleIcon, ui/Header, BuildStamp, dashboard/ProjectCard;
+docs/design-system.md:216:  Column identity = header pill + position + gutter. Header is
+docs/design-system.md:403:  MyWorkGroup, ProjectsClientGroup, and the workspace header's mobile search
+docs/design-system.md:835:- **Header distribution.** The Projects title/count and New project action
+docs/todos/psos/tasks/PSOS-10-implementation-plan.md:345:| Header shows Stage, Owner, With, Due with graceful empties; Creator is never Owner | Semantic metadata component tests; backend Owner-null/Creator-present fixture; mobile/desktop Chrome screenshots |
+docs/product-domain.md:946:- **Header contract:** workspace pages that carry a title bar share the same
+docs/futur-board-ticket-breakdown-psos.md:317:**In scope**: Header block showing **Stage** (human label), **Owner** (avatar+name),
+docs/futur-board-ticket-breakdown-psos.md:328:- [ ] Header shows all four slots with graceful "—" empties; never shows createdBy as
+docs/todos/psos/tasks/PSOS-10.md:56:**In scope**: Header block showing **Stage** (human label), **Owner** (avatar+name),
+docs/todos/psos/tasks/PSOS-10.md:67:- [x] Header shows all four slots with graceful "—" empties; never shows createdBy as
