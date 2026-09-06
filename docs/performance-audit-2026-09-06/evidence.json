@@ -1,0 +1,1561 @@
+{
+  "source_commit": "c48f61ac035c1f93bc636a45d3f87c5e28ebe259",
+  "main_commit": "9b7c397f17051ebcc776e4779e8083e231b18644",
+  "purpose": "Compact audit evidence; no improvements implemented; private/session/network traces excluded",
+  "source_artifact_sha256": {
+    "module-profile.json": "97b5d5c457aacfa955b32927c78c8e3dc545d774302975fabbf3832c1f624ce7",
+    "editor-profile.json": "80f5fbfacb37a12be988086b056a1b2e675a359bcb4ad644430e6d9425e0b764",
+    "parser-profile.json": "bb865f85c521e33c291700b489e88fc330045d6dfac64f956de7f9a464f632a3",
+    "live-login-profile.json": "060230d5f7f0eff41d35d557101d1aa69603574b9de687e93ec91f745df8dc12",
+    "chat-derive-profile.json": "c4121098a2fddf464b67148d2b17ef22f076dd138733a8821cfbea5b49dfd6e8",
+    "table-sample.stdout.log": "0935c3e3ea7ca6fc63c5c6913ad976069bcc7916674cc40610170d0dac5aa580",
+    "scale-sample.stdout.log": "a068b7fe2b03e44140a901a19a5bbea9f85c247ee453bf8d167efdeccc788b59",
+    "bundles.json": "e9a9b6865291357addb7e477a022b8c8da65a162128431b8feea697c2416e596",
+    "audit-review.json": "10132cd75914a2a371c7216d58822642caad720e60893b3c99ae8153cb756f08"
+  },
+  "measurements": {
+    "module-profile": {
+      "browser": "151.0.7922.34",
+      "method": "Isolated static HTML imports unchanged production-built Projects module then report module; repeat report import tests warm ES module cache. No app boot, data fetch, auth, or component mounting; no coverage/profiler overhead. Fresh context each run. CPU4 includes 80ms RTT and 6Mbit/s down; CPU1 local unthrottled. Gzip server network bytes measured.",
+      "samples": [
+        {
+          "cpu": 1,
+          "sample": 1,
+          "timings": [
+            {
+              "name": "projects",
+              "start": 55,
+              "elapsedMs": 79.19999998807907
+            },
+            {
+              "name": "report",
+              "start": 134.30000001192093,
+              "elapsedMs": 93.5
+            },
+            {
+              "name": "report-reimport",
+              "start": 227.80000001192093,
+              "elapsedMs": 0.19999998807907104
+            }
+          ],
+          "errors": [],
+          "additional_report_resources": {
+            "count": 23,
+            "encoded_bytes": 387865,
+            "decoded_bytes": 1339617
+          }
+        },
+        {
+          "cpu": 1,
+          "sample": 2,
+          "timings": [
+            {
+              "name": "projects",
+              "start": 14.5,
+              "elapsedMs": 53.80000001192093
+            },
+            {
+              "name": "report",
+              "start": 68.30000001192093,
+              "elapsedMs": 89.39999997615814
+            },
+            {
+              "name": "report-reimport",
+              "start": 157.69999998807907,
+              "elapsedMs": 0.30000001192092896
+            }
+          ],
+          "errors": [],
+          "additional_report_resources": {
+            "count": 23,
+            "encoded_bytes": 387865,
+            "decoded_bytes": 1339617
+          }
+        },
+        {
+          "cpu": 1,
+          "sample": 3,
+          "timings": [
+            {
+              "name": "projects",
+              "start": 14.100000023841858,
+              "elapsedMs": 48.30000001192093
+            },
+            {
+              "name": "report",
+              "start": 62.40000003576279,
+              "elapsedMs": 66.89999997615814
+            },
+            {
+              "name": "report-reimport",
+              "start": 129.30000001192093,
+              "elapsedMs": 0.3999999761581421
+            }
+          ],
+          "errors": [],
+          "additional_report_resources": {
+            "count": 23,
+            "encoded_bytes": 387865,
+            "decoded_bytes": 1339617
+          }
+        },
+        {
+          "cpu": 4,
+          "sample": 1,
+          "timings": [
+            {
+              "name": "projects",
+              "start": 45.89999997615814,
+              "elapsedMs": 782.3000000119209
+            },
+            {
+              "name": "report",
+              "start": 828.5999999642372,
+              "elapsedMs": 912.6000000238419
+            },
+            {
+              "name": "report-reimport",
+              "start": 1741.199999988079,
+              "elapsedMs": 2.899999976158142
+            }
+          ],
+          "errors": [],
+          "additional_report_resources": {
+            "count": 23,
+            "encoded_bytes": 387865,
+            "decoded_bytes": 1339617
+          }
+        },
+        {
+          "cpu": 4,
+          "sample": 2,
+          "timings": [
+            {
+              "name": "projects",
+              "start": 47,
+              "elapsedMs": 771.9000000357628
+            },
+            {
+              "name": "report",
+              "start": 818.9000000357628,
+              "elapsedMs": 905.3999999761581
+            },
+            {
+              "name": "report-reimport",
+              "start": 1724.300000011921,
+              "elapsedMs": 5.399999976158142
+            }
+          ],
+          "errors": [],
+          "additional_report_resources": {
+            "count": 23,
+            "encoded_bytes": 387865,
+            "decoded_bytes": 1339617
+          }
+        },
+        {
+          "cpu": 4,
+          "sample": 3,
+          "timings": [
+            {
+              "name": "projects",
+              "start": 46.30000001192093,
+              "elapsedMs": 771.9000000357628
+            },
+            {
+              "name": "report",
+              "start": 818.2000000476837,
+              "elapsedMs": 912.0999999642372
+            },
+            {
+              "name": "report-reimport",
+              "start": 1730.300000011921,
+              "elapsedMs": 2.5
+            }
+          ],
+          "errors": [],
+          "additional_report_resources": {
+            "count": 23,
+            "encoded_bytes": 387865,
+            "decoded_bytes": 1339617
+          }
+        }
+      ]
+    },
+    "editor-profile": {
+      "browser": "151.0.7922.34",
+      "method": "Isolated production-compiled actual Editor.svelte with exact production report-closure CSS and application fonts ready. Synthetic 2k/10k/50k-word prose, local onUpdate callback only; no Convex roundtrip. Inputs typed through Playwright, 35ms inter-key delay, event timing observer threshold16ms; event-max is lab sample, not field INP. Transaction batch is separate scripted stress.",
+      "samples": [
+        {
+          "cpu": 1,
+          "words": 2000,
+          "sample": 1,
+          "mount": {
+            "chars": 16610,
+            "paragraphs": 30,
+            "visibleWords": 2154,
+            "mountTwoFrameMs": 92.19999998807907,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 16,
+          "largest_scripted_transaction_ms": 3.899999976158142,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 1,
+          "words": 2000,
+          "sample": 2,
+          "mount": {
+            "chars": 16610,
+            "paragraphs": 30,
+            "visibleWords": 2154,
+            "mountTwoFrameMs": 42.30000001192093,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 56,
+          "largest_scripted_transaction_ms": 3.399999976158142,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 1,
+          "words": 2000,
+          "sample": 3,
+          "mount": {
+            "chars": 16610,
+            "paragraphs": 30,
+            "visibleWords": 2154,
+            "mountTwoFrameMs": 43.5,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 48,
+          "largest_scripted_transaction_ms": 2.800000011920929,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 1,
+          "words": 10000,
+          "sample": 1,
+          "mount": {
+            "chars": 76208,
+            "paragraphs": 129,
+            "visibleWords": 9975,
+            "mountTwoFrameMs": 56.60000002384186,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 40,
+          "largest_scripted_transaction_ms": 3.899999976158142,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 1,
+          "words": 10000,
+          "sample": 2,
+          "mount": {
+            "chars": 76208,
+            "paragraphs": 129,
+            "visibleWords": 9975,
+            "mountTwoFrameMs": 61.30000001192093,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 56,
+          "largest_scripted_transaction_ms": 5.399999976158142,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 1,
+          "words": 10000,
+          "sample": 3,
+          "mount": {
+            "chars": 76208,
+            "paragraphs": 129,
+            "visibleWords": 9975,
+            "mountTwoFrameMs": 54.09999996423721,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 56,
+          "largest_scripted_transaction_ms": 5.399999976158142,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 1,
+          "words": 50000,
+          "sample": 1,
+          "mount": {
+            "chars": 377810,
+            "paragraphs": 630,
+            "visibleWords": 49554,
+            "mountTwoFrameMs": 138.5,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 40,
+          "largest_scripted_transaction_ms": 15.399999976158142,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 1,
+          "words": 50000,
+          "sample": 2,
+          "mount": {
+            "chars": 377810,
+            "paragraphs": 630,
+            "visibleWords": 49554,
+            "mountTwoFrameMs": 138.89999997615814,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 40,
+          "largest_scripted_transaction_ms": 13.400000035762787,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 1,
+          "words": 50000,
+          "sample": 3,
+          "mount": {
+            "chars": 377810,
+            "paragraphs": 630,
+            "visibleWords": 49554,
+            "mountTwoFrameMs": 141.39999997615814,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 40,
+          "largest_scripted_transaction_ms": 13.300000011920929,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 4,
+          "words": 2000,
+          "sample": 1,
+          "mount": {
+            "chars": 16610,
+            "paragraphs": 30,
+            "visibleWords": 2154,
+            "mountTwoFrameMs": 220,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 48,
+          "largest_scripted_transaction_ms": 7.899999976158142,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 4,
+          "words": 2000,
+          "sample": 2,
+          "mount": {
+            "chars": 16610,
+            "paragraphs": 30,
+            "visibleWords": 2154,
+            "mountTwoFrameMs": 211.5999999642372,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 48,
+          "largest_scripted_transaction_ms": 9.399999976158142,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 4,
+          "words": 2000,
+          "sample": 3,
+          "mount": {
+            "chars": 16610,
+            "paragraphs": 30,
+            "visibleWords": 2154,
+            "mountTwoFrameMs": 215.80000001192093,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 48,
+          "largest_scripted_transaction_ms": 8.199999988079071,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 4,
+          "words": 10000,
+          "sample": 1,
+          "mount": {
+            "chars": 76208,
+            "paragraphs": 129,
+            "visibleWords": 9975,
+            "mountTwoFrameMs": 282,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 64,
+          "largest_scripted_transaction_ms": 17.099999964237213,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 4,
+          "words": 10000,
+          "sample": 2,
+          "mount": {
+            "chars": 76208,
+            "paragraphs": 129,
+            "visibleWords": 9975,
+            "mountTwoFrameMs": 280.4000000357628,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 72,
+          "largest_scripted_transaction_ms": 19.400000035762787,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 4,
+          "words": 10000,
+          "sample": 3,
+          "mount": {
+            "chars": 76208,
+            "paragraphs": 129,
+            "visibleWords": 9975,
+            "mountTwoFrameMs": 289.30000001192093,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 64,
+          "largest_scripted_transaction_ms": 15.900000035762787,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 4,
+          "words": 50000,
+          "sample": 1,
+          "mount": {
+            "chars": 377810,
+            "paragraphs": 630,
+            "visibleWords": 49554,
+            "mountTwoFrameMs": 612.2000000476837,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 120,
+          "largest_scripted_transaction_ms": 56.40000003576279,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 4,
+          "words": 50000,
+          "sample": 2,
+          "mount": {
+            "chars": 377810,
+            "paragraphs": 630,
+            "visibleWords": 49554,
+            "mountTwoFrameMs": 607.1000000238419,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 112,
+          "largest_scripted_transaction_ms": 57.40000003576279,
+          "local_save_count": 1
+        },
+        {
+          "cpu": 4,
+          "words": 50000,
+          "sample": 3,
+          "mount": {
+            "chars": 377810,
+            "paragraphs": 630,
+            "visibleWords": 49554,
+            "mountTwoFrameMs": 600.4000000357628,
+            "computedFont": "\"Geist Variable\", Geist, system-ui, sans-serif"
+          },
+          "errors": [],
+          "largest_observed_typing_event_ms": 120,
+          "largest_scripted_transaction_ms": 58.39999997615814,
+          "local_save_count": 1
+        }
+      ]
+    },
+    "parser-profile": {
+      "browser": "151.0.7922.34",
+      "method": "Actual production-compiled parseFileToText in Chromium on synthetic XLSX 5000/20000 rows x20 text cells. No uploads or backend. First workbook per context includes dynamic XLSX import; second reuses it. Content capped by actual app at400000 plus marker AFTER parse/CSV. CPU4 is4x throttle, local unthrottlednetwork.",
+      "samples": [
+        {
+          "cpu": 1,
+          "sample": 1,
+          "rows": 5000,
+          "columns": 20,
+          "elapsedMs": 333,
+          "inputBytes": 744979,
+          "outputChars": 400053,
+          "tasks": [
+            {
+              "start": 164.9000000357628,
+              "duration": 303
+            }
+          ],
+          "errors": []
+        },
+        {
+          "cpu": 1,
+          "sample": 1,
+          "rows": 20000,
+          "columns": 20,
+          "elapsedMs": 1184.300000011921,
+          "inputBytes": 2982397,
+          "outputChars": 400053,
+          "tasks": [
+            {
+              "start": 613.4000000357628,
+              "duration": 1181
+            }
+          ],
+          "errors": []
+        },
+        {
+          "cpu": 1,
+          "sample": 2,
+          "rows": 5000,
+          "columns": 20,
+          "elapsedMs": 321.5,
+          "inputBytes": 744979,
+          "outputChars": 400053,
+          "tasks": [
+            {
+              "start": 105.59999996423721,
+              "duration": 296
+            }
+          ],
+          "errors": []
+        },
+        {
+          "cpu": 1,
+          "sample": 2,
+          "rows": 20000,
+          "columns": 20,
+          "elapsedMs": 1194.800000011921,
+          "inputBytes": 2982397,
+          "outputChars": 400053,
+          "tasks": [
+            {
+              "start": 544.1999999880791,
+              "duration": 1193
+            }
+          ],
+          "errors": []
+        },
+        {
+          "cpu": 4,
+          "sample": 1,
+          "rows": 5000,
+          "columns": 20,
+          "elapsedMs": 1257,
+          "inputBytes": 744979,
+          "outputChars": 400053,
+          "tasks": [
+            {
+              "start": 206.19999998807907,
+              "duration": 1221
+            }
+          ],
+          "errors": []
+        },
+        {
+          "cpu": 4,
+          "sample": 1,
+          "rows": 20000,
+          "columns": 20,
+          "elapsedMs": 4933.199999988079,
+          "inputBytes": 2982397,
+          "outputChars": 400053,
+          "tasks": [
+            {
+              "start": 1583.300000011921,
+              "duration": 4930
+            }
+          ],
+          "errors": []
+        },
+        {
+          "cpu": 4,
+          "sample": 2,
+          "rows": 5000,
+          "columns": 20,
+          "elapsedMs": 1292.300000011921,
+          "inputBytes": 744979,
+          "outputChars": 400053,
+          "tasks": [
+            {
+              "start": 211.39999997615814,
+              "duration": 1253
+            }
+          ],
+          "errors": []
+        },
+        {
+          "cpu": 4,
+          "sample": 2,
+          "rows": 20000,
+          "columns": 20,
+          "elapsedMs": 4926.899999976158,
+          "inputBytes": 2982397,
+          "outputChars": 400053,
+          "tasks": [
+            {
+              "start": 1621.8999999761581,
+              "duration": 4923
+            }
+          ],
+          "errors": []
+        }
+      ]
+    },
+    "live-login-profile": {
+      "browser": "151.0.7922.34",
+      "method": "Live canonical production sign-in page, unsigned fresh contexts, 3 runs per profile. CPU1 desktop unthrottled network; CPU4 mobile viewport390x844 DPR2 with 80ms added latency/6Mbit/s down. LCP/shift observations end 1.5s after networkidle. Not authenticated navigation or field vitals.",
+      "samples": [
+        {
+          "cpu": 1,
+          "sample": 1,
+          "status": 200,
+          "errors": [],
+          "lcp_ms": 328,
+          "observed_cls": 0,
+          "javascript_encoded_bytes": 148272
+        },
+        {
+          "cpu": 1,
+          "sample": 2,
+          "status": 200,
+          "errors": [],
+          "lcp_ms": 244,
+          "observed_cls": 0,
+          "javascript_encoded_bytes": 148272
+        },
+        {
+          "cpu": 1,
+          "sample": 3,
+          "status": 200,
+          "errors": [],
+          "lcp_ms": 228,
+          "observed_cls": 0,
+          "javascript_encoded_bytes": 148272
+        },
+        {
+          "cpu": 4,
+          "sample": 1,
+          "status": 200,
+          "errors": [],
+          "lcp_ms": 652,
+          "observed_cls": 0,
+          "javascript_encoded_bytes": 148272
+        },
+        {
+          "cpu": 4,
+          "sample": 2,
+          "status": 200,
+          "errors": [],
+          "lcp_ms": 660,
+          "observed_cls": 0,
+          "javascript_encoded_bytes": 148272
+        },
+        {
+          "cpu": 4,
+          "sample": 3,
+          "status": 200,
+          "errors": [],
+          "lcp_ms": 628,
+          "observed_cls": 0,
+          "javascript_encoded_bytes": 148272
+        }
+      ]
+    },
+    "chat-derive-profile": {
+      "runtime": "v24.19.0",
+      "method": "Actual installed derive helper replays full UIMessageChunk stream as app does. Synthetic text only; Node desktop, not browser, no network or markdown rendering. One warmup per size is sample1.",
+      "samples": [
+        {
+          "chunks": 100,
+          "sample": 1,
+          "elapsedMs": 8.089167000000003,
+          "characters": 3500
+        },
+        {
+          "chunks": 100,
+          "sample": 2,
+          "elapsedMs": 2.438333,
+          "characters": 3500
+        },
+        {
+          "chunks": 100,
+          "sample": 3,
+          "elapsedMs": 2.03762500000002,
+          "characters": 3500
+        },
+        {
+          "chunks": 100,
+          "sample": 4,
+          "elapsedMs": 1.950333999999998,
+          "characters": 3500
+        },
+        {
+          "chunks": 100,
+          "sample": 5,
+          "elapsedMs": 1.3685420000000192,
+          "characters": 3500
+        },
+        {
+          "chunks": 1000,
+          "sample": 1,
+          "elapsedMs": 12.949708000000015,
+          "characters": 35000
+        },
+        {
+          "chunks": 1000,
+          "sample": 2,
+          "elapsedMs": 11.354667000000006,
+          "characters": 35000
+        },
+        {
+          "chunks": 1000,
+          "sample": 3,
+          "elapsedMs": 11.88495900000001,
+          "characters": 35000
+        },
+        {
+          "chunks": 1000,
+          "sample": 4,
+          "elapsedMs": 11.192499999999995,
+          "characters": 35000
+        },
+        {
+          "chunks": 1000,
+          "sample": 5,
+          "elapsedMs": 11.793000000000006,
+          "characters": 35000
+        },
+        {
+          "chunks": 5000,
+          "sample": 1,
+          "elapsedMs": 185.67516600000002,
+          "characters": 175000
+        },
+        {
+          "chunks": 5000,
+          "sample": 2,
+          "elapsedMs": 181.37725000000006,
+          "characters": 175000
+        },
+        {
+          "chunks": 5000,
+          "sample": 3,
+          "elapsedMs": 170.814709,
+          "characters": 175000
+        },
+        {
+          "chunks": 5000,
+          "sample": 4,
+          "elapsedMs": 176.066417,
+          "characters": 175000
+        },
+        {
+          "chunks": 5000,
+          "sample": 5,
+          "elapsedMs": 199.61466600000006,
+          "characters": 175000
+        }
+      ]
+    }
+  },
+  "development_data_shape": [
+    {
+      "createdAtRange": [
+        1775610809441.9785,
+        1788267382283.6143
+      ],
+      "durationMs": null,
+      "fieldChars": [
+        [
+          "dashboardSearchText",
+          4725
+        ],
+        [
+          "_id",
+          1802
+        ],
+        [
+          "createdBy",
+          1802
+        ],
+        [
+          "ownerId",
+          1802
+        ],
+        [
+          "shareToken",
+          1802
+        ],
+        [
+          "title",
+          1783
+        ],
+        [
+          "interviewerUserId",
+          1054
+        ],
+        [
+          "clientName",
+          977
+        ]
+      ],
+      "jsonChars": {
+        "max": 1119,
+        "median": 892,
+        "min": 690,
+        "n": 53,
+        "p95": 1005,
+        "total": 46403
+      },
+      "limit": 200,
+      "sample": 53,
+      "saturated": false,
+      "table": "projects"
+    },
+    {
+      "createdAtRange": [
+        1778019883298.411,
+        1788267546899.344
+      ],
+      "durationMs": null,
+      "fieldChars": [
+        [
+          "content",
+          449648
+        ],
+        [
+          "contentHash",
+          1848
+        ],
+        [
+          "_id",
+          1020
+        ],
+        [
+          "projectId",
+          1020
+        ],
+        [
+          "sourceTranscriptId",
+          850
+        ],
+        [
+          "generationId",
+          816
+        ],
+        [
+          "_creationTime",
+          534
+        ],
+        [
+          "provenanceId",
+          408
+        ]
+      ],
+      "jsonChars": {
+        "max": 29655,
+        "median": 13260,
+        "min": 7256,
+        "n": 30,
+        "p95": 29015,
+        "total": 461676
+      },
+      "limit": 30,
+      "sample": 30,
+      "saturated": true,
+      "table": "reports"
+    },
+    {
+      "createdAtRange": [
+        1785008948382.9785,
+        1788267382283.615
+      ],
+      "durationMs": null,
+      "fieldChars": [
+        [
+          "content",
+          1193973
+        ],
+        [
+          "_id",
+          1020
+        ],
+        [
+          "projectId",
+          1020
+        ],
+        [
+          "_creationTime",
+          533
+        ],
+        [
+          "createdAt",
+          390
+        ]
+      ],
+      "jsonChars": {
+        "max": 68308,
+        "median": 42613,
+        "min": 163,
+        "n": 30,
+        "p95": 68308,
+        "total": 1198796
+      },
+      "limit": 30,
+      "sample": 30,
+      "saturated": true,
+      "table": "transcripts"
+    },
+    {
+      "createdAtRange": [
+        1787533321063.0217,
+        1788267387798.1147
+      ],
+      "durationMs": null,
+      "fieldChars": [
+        [
+          "content",
+          461336
+        ],
+        [
+          "mimeType",
+          2190
+        ],
+        [
+          "fileName",
+          1272
+        ],
+        [
+          "_id",
+          1020
+        ],
+        [
+          "projectId",
+          1020
+        ],
+        [
+          "storageId",
+          1020
+        ],
+        [
+          "uploadedBy",
+          1020
+        ],
+        [
+          "_creationTime",
+          532
+        ]
+      ],
+      "jsonChars": {
+        "max": 60368,
+        "median": 3503,
+        "min": 1995,
+        "n": 30,
+        "p95": 60368,
+        "total": 477087
+      },
+      "limit": 30,
+      "sample": 30,
+      "saturated": true,
+      "table": "projectDocuments"
+    },
+    {
+      "createdAtRange": [
+        1785011642824.4373,
+        1788267388149.6375
+      ],
+      "durationMs": null,
+      "fieldChars": [
+        [
+          "agentOutputs",
+          632255
+        ],
+        [
+          "brainRetrievalBrief",
+          30928
+        ],
+        [
+          "brainProvenance",
+          24801
+        ],
+        [
+          "progressLog",
+          12926
+        ],
+        [
+          "_id",
+          1020
+        ],
+        [
+          "projectId",
+          1020
+        ],
+        [
+          "requestedBy",
+          1020
+        ],
+        [
+          "scheduledJobId",
+          1020
+        ]
+      ],
+      "jsonChars": {
+        "max": 60482,
+        "median": 7479,
+        "min": 1146,
+        "n": 30,
+        "p95": 53005,
+        "total": 721769
+      },
+      "limit": 30,
+      "sample": 30,
+      "saturated": true,
+      "table": "generations"
+    },
+    {
+      "createdAtRange": [
+        1788369970645.5457,
+        1788678038932.3328
+      ],
+      "durationMs": null,
+      "fieldChars": [
+        [
+          "_id",
+          3400
+        ],
+        [
+          "model",
+          2700
+        ],
+        [
+          "callSite",
+          2500
+        ],
+        [
+          "_creationTime",
+          1775
+        ],
+        [
+          "createdAt",
+          1300
+        ],
+        [
+          "costUsd",
+          787
+        ],
+        [
+          "inputTokens",
+          337
+        ],
+        [
+          "outputTokens",
+          288
+        ]
+      ],
+      "jsonChars": {
+        "max": 287,
+        "median": 286,
+        "min": 284,
+        "n": 100,
+        "p95": 287,
+        "total": 28587
+      },
+      "limit": 100,
+      "sample": 100,
+      "saturated": true,
+      "table": "aiUsage"
+    }
+  ],
+  "development_scale_sample": [
+    {
+      "durationMsPresent": 0,
+      "jsonCharsTotal": 524687,
+      "limit": 5000,
+      "maxJsonChars": 386,
+      "maxPerProjectWithinSample": 334,
+      "sample": 1592,
+      "saturated": false,
+      "table": "aiUsage"
+    },
+    {
+      "durationMsPresent": 0,
+      "jsonCharsTotal": 825524,
+      "limit": 60,
+      "maxJsonChars": 16983,
+      "maxPerProjectWithinSample": 16,
+      "sample": 60,
+      "saturated": true,
+      "table": "reportSnapshots"
+    },
+    {
+      "durationMsPresent": 0,
+      "jsonCharsTotal": 4361,
+      "limit": 100,
+      "maxJsonChars": 320,
+      "maxPerProjectWithinSample": 2,
+      "sample": 14,
+      "saturated": false,
+      "table": "agentChatThreads"
+    },
+    {
+      "durationMsPresent": 0,
+      "jsonCharsTotal": 2019971,
+      "limit": 100,
+      "maxJsonChars": 95751,
+      "maxPerProjectWithinSample": 9,
+      "sample": 100,
+      "saturated": true,
+      "table": "projectDocuments"
+    },
+    {
+      "durationMsPresent": 0,
+      "jsonCharsTotal": 2020735,
+      "limit": 100,
+      "maxJsonChars": 103114,
+      "maxPerProjectWithinSample": 1,
+      "sample": 53,
+      "saturated": false,
+      "table": "transcripts"
+    }
+  ],
+  "route_bundles": {
+    "method": "Transitive static imports from accepted production-build manifest. Gzip is offline per-file estimate, not network transfer. Dynamic imports excluded until requested. Incremental subtracts shared root only, not warm dashboard.",
+    "routes": [
+      {
+        "route": "/",
+        "node": 3,
+        "layouts": [],
+        "cold": {
+          "modules": 22,
+          "bytes": 408228,
+          "gzip": 136386
+        },
+        "incremental_over_root": {
+          "modules": 1,
+          "bytes": 506,
+          "gzip": 339
+        }
+      },
+      {
+        "route": "/admin/backfill",
+        "node": 4,
+        "layouts": [],
+        "cold": {
+          "modules": 36,
+          "bytes": 713906,
+          "gzip": 214961
+        },
+        "incremental_over_root": {
+          "modules": 15,
+          "bytes": 306184,
+          "gzip": 78914
+        }
+      },
+      {
+        "route": "/admin/brain",
+        "node": 5,
+        "layouts": [],
+        "cold": {
+          "modules": 37,
+          "bytes": 737780,
+          "gzip": 219750
+        },
+        "incremental_over_root": {
+          "modules": 16,
+          "bytes": 330058,
+          "gzip": 83703
+        }
+      },
+      {
+        "route": "/admin/house-rules",
+        "node": 6,
+        "layouts": [],
+        "cold": {
+          "modules": 38,
+          "bytes": 746900,
+          "gzip": 225568
+        },
+        "incremental_over_root": {
+          "modules": 17,
+          "bytes": 339178,
+          "gzip": 89521
+        }
+      },
+      {
+        "route": "/admin/ingestion",
+        "node": 7,
+        "layouts": [],
+        "cold": {
+          "modules": 42,
+          "bytes": 776957,
+          "gzip": 232063
+        },
+        "incremental_over_root": {
+          "modules": 21,
+          "bytes": 369235,
+          "gzip": 96016
+        }
+      },
+      {
+        "route": "/admin/learning",
+        "node": 8,
+        "layouts": [],
+        "cold": {
+          "modules": 35,
+          "bytes": 720637,
+          "gzip": 217091
+        },
+        "incremental_over_root": {
+          "modules": 14,
+          "bytes": 312915,
+          "gzip": 81044
+        }
+      },
+      {
+        "route": "/admin/models",
+        "node": 9,
+        "layouts": [],
+        "cold": {
+          "modules": 37,
+          "bytes": 738191,
+          "gzip": 221893
+        },
+        "incremental_over_root": {
+          "modules": 16,
+          "bytes": 330469,
+          "gzip": 85846
+        }
+      },
+      {
+        "route": "/admin/reviews",
+        "node": 10,
+        "layouts": [],
+        "cold": {
+          "modules": 36,
+          "bytes": 729771,
+          "gzip": 219165
+        },
+        "incremental_over_root": {
+          "modules": 15,
+          "bytes": 322049,
+          "gzip": 83118
+        }
+      },
+      {
+        "route": "/admin/tags",
+        "node": 11,
+        "layouts": [],
+        "cold": {
+          "modules": 38,
+          "bytes": 741801,
+          "gzip": 223242
+        },
+        "incremental_over_root": {
+          "modules": 17,
+          "bytes": 334079,
+          "gzip": 87195
+        }
+      },
+      {
+        "route": "/admin/usage",
+        "node": 12,
+        "layouts": [],
+        "cold": {
+          "modules": 37,
+          "bytes": 802318,
+          "gzip": 238381
+        },
+        "incremental_over_root": {
+          "modules": 16,
+          "bytes": 394596,
+          "gzip": 102334
+        }
+      },
+      {
+        "route": "/admin/users",
+        "node": 13,
+        "layouts": [],
+        "cold": {
+          "modules": 42,
+          "bytes": 770176,
+          "gzip": 232968
+        },
+        "incremental_over_root": {
+          "modules": 21,
+          "bytes": 362454,
+          "gzip": 96921
+        }
+      },
+      {
+        "route": "/alerts",
+        "node": 14,
+        "layouts": [],
+        "cold": {
+          "modules": 37,
+          "bytes": 721623,
+          "gzip": 217851
+        },
+        "incremental_over_root": {
+          "modules": 16,
+          "bytes": 313901,
+          "gzip": 81804
+        }
+      },
+      {
+        "route": "/changelog",
+        "node": 15,
+        "layouts": [],
+        "cold": {
+          "modules": 39,
+          "bytes": 858056,
+          "gzip": 256587
+        },
+        "incremental_over_root": {
+          "modules": 18,
+          "bytes": 450334,
+          "gzip": 120540
+        }
+      },
+      {
+        "route": "/dashboard",
+        "node": 16,
+        "layouts": [],
+        "cold": {
+          "modules": 46,
+          "bytes": 793576,
+          "gzip": 235730
+        },
+        "incremental_over_root": {
+          "modules": 25,
+          "bytes": 385854,
+          "gzip": 99683
+        }
+      },
+      {
+        "route": "/login",
+        "node": 17,
+        "layouts": [],
+        "cold": {
+          "modules": 25,
+          "bytes": 416354,
+          "gzip": 140470
+        },
+        "incremental_over_root": {
+          "modules": 4,
+          "bytes": 8632,
+          "gzip": 4423
+        }
+      },
+      {
+        "route": "/my-work",
+        "node": 18,
+        "layouts": [],
+        "cold": {
+          "modules": 41,
+          "bytes": 835366,
+          "gzip": 248832
+        },
+        "incremental_over_root": {
+          "modules": 20,
+          "bytes": 427644,
+          "gzip": 112785
+        }
+      },
+      {
+        "route": "/projects",
+        "node": 23,
+        "layouts": [],
+        "cold": {
+          "modules": 41,
+          "bytes": 835376,
+          "gzip": 248835
+        },
+        "incremental_over_root": {
+          "modules": 20,
+          "bytes": 427654,
+          "gzip": 112788
+        }
+      },
+      {
+        "route": "/project/new",
+        "node": 21,
+        "layouts": [],
+        "cold": {
+          "modules": 47,
+          "bytes": 899488,
+          "gzip": 266204
+        },
+        "incremental_over_root": {
+          "modules": 26,
+          "bytes": 491766,
+          "gzip": 130157
+        }
+      },
+      {
+        "route": "/project/questionnaire",
+        "node": 22,
+        "layouts": [],
+        "cold": {
+          "modules": 30,
+          "bytes": 606157,
+          "gzip": 182635
+        },
+        "incremental_over_root": {
+          "modules": 9,
+          "bytes": 198435,
+          "gzip": 46588
+        }
+      },
+      {
+        "route": "/project/[id]",
+        "node": 19,
+        "layouts": [],
+        "cold": {
+          "modules": 58,
+          "bytes": 2047531,
+          "gzip": 597544
+        },
+        "incremental_over_root": {
+          "modules": 37,
+          "bytes": 1639809,
+          "gzip": 461497
+        }
+      },
+      {
+        "route": "/project/[id]/financial",
+        "node": 20,
+        "layouts": [],
+        "cold": {
+          "modules": 34,
+          "bytes": 715708,
+          "gzip": 211752
+        },
+        "incremental_over_root": {
+          "modules": 13,
+          "bytes": 307986,
+          "gzip": 75705
+        }
+      },
+      {
+        "route": "/requests",
+        "node": 24,
+        "layouts": [],
+        "cold": {
+          "modules": 34,
+          "bytes": 705385,
+          "gzip": 211939
+        },
+        "incremental_over_root": {
+          "modules": 13,
+          "bytes": 297663,
+          "gzip": 75892
+        }
+      },
+      {
+        "route": "/review/[shareToken]",
+        "node": 25,
+        "layouts": [],
+        "cold": {
+          "modules": 27,
+          "bytes": 813273,
+          "gzip": 264900
+        },
+        "incremental_over_root": {
+          "modules": 6,
+          "bytes": 405551,
+          "gzip": 128853
+        }
+      },
+      {
+        "route": "/settings",
+        "node": 26,
+        "layouts": [
+          2
+        ],
+        "cold": {
+          "modules": 36,
+          "bytes": 705288,
+          "gzip": 211968
+        },
+        "incremental_over_root": {
+          "modules": 15,
+          "bytes": 297566,
+          "gzip": 75921
+        }
+      },
+      {
+        "route": "/settings/account",
+        "node": 27,
+        "layouts": [
+          2
+        ],
+        "cold": {
+          "modules": 39,
+          "bytes": 714194,
+          "gzip": 215794
+        },
+        "incremental_over_root": {
+          "modules": 18,
+          "bytes": 306472,
+          "gzip": 79747
+        }
+      },
+      {
+        "route": "/settings/writing",
+        "node": 28,
+        "layouts": [
+          2
+        ],
+        "cold": {
+          "modules": 42,
+          "bytes": 730246,
+          "gzip": 221519
+        },
+        "incremental_over_root": {
+          "modules": 21,
+          "bytes": 322524,
+          "gzip": 85472
+        }
+      },
+      {
+        "route": "/signup/[token]",
+        "node": 29,
+        "layouts": [],
+        "cold": {
+          "modules": 25,
+          "bytes": 418009,
+          "gzip": 140886
+        },
+        "incremental_over_root": {
+          "modules": 4,
+          "bytes": 10287,
+          "gzip": 4839
+        }
+      },
+      {
+        "route": "/styleguide",
+        "node": 30,
+        "layouts": [],
+        "cold": {
+          "modules": 36,
+          "bytes": 775661,
+          "gzip": 233900
+        },
+        "incremental_over_root": {
+          "modules": 15,
+          "bytes": 367939,
+          "gzip": 97853
+        }
+      }
+    ]
+  }
+}
