@@ -746,7 +746,9 @@ location: _bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/qa/stories/8
 source_spec: `_bmad-output/specs/spec-ai-engine-sprint-2-boundary/lanes/qa/stories/8-blocking-qa-policy.md`
 severity: medium
 reason: Story8 remains in-review after its prior native run exhausted harvest attempts while full verification was held. Resume a real BMAD follow-up review using this existing spec as the result spec, preserving its frozen contract, baseline and prior review history. Independently inspect the historical QA implementation from original implementation baseline f122b086d745acc40b4decca26b9aaafc7257f6a as well as subsequent repairs; run the required standard gates on current code and commit genuine fresh verification evidence before native acceptance. Existing ignored .audit evidence must be explicitly staged if used as the review artifact. Do not erase the prior deferred run or infer completion from an old green gate.
-status: open
+status: done 2026-09-04
+resolution: resolved by sweep bundle dw-blocking-qa-native-followup
+resolution-undo: eae3f9a83a5ffeb3abc33715a88080b171a2fa1f429e5bf4a33583f6d620075d 2026-09-04 7374617475733a206f70656e
 
 ### DW-93: Complete persisted post-edit-distance native follow-up
 origin: operator recovery of native run 20260904-065146-9a65, 2026-09-04
