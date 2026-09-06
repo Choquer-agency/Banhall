@@ -1,0 +1,11 @@
+- The destination assertion uses the same `resolve("/settings")` expression as production and an empty-base stub. It cannot detect failures when the application runs under a nonempty base path; add an independent expected-URL check for that configuration.
+- The role matrix verifies menu visibility and a mocked navigation request only. It does not establish that writer, manager, and admin users can reach Settings through the actual authenticated route and its redirects.
+- Avatar sign-out preservation is asserted only through item visibility. Activate Sign out and verify its existing behavior after inserting Settings above it.
+- The stated `signingOut` disabled-state constraint has no behavioral coverage. Hold the sign-out promise pending and verify that repeated activation cannot initiate duplicate sign-outs.
+- Keyboard coverage opens with ArrowDown and activates with Enter only. Add coverage for Enter/Space trigger activation and normal arrow-key traversal between Settings and Sign out.
+- Menu dismissal and focus restoration are not tested for the avatar menu. Verify that Escape closes it, restores focus to the account trigger, and causes no navigation or sign-out.
+- Every new navigation case explicitly uses the light theme. Add coverage for other supported theme configurations to check Settings text, icon, hover, and keyboard-focus visibility.
+- `avatar-current.png` is written during a test but never compared with an expected image. It is a capture artifact, not an automated visual regression assertion; make that distinction explicit or add a reviewed comparison.
+- The before/after visual evidence uses different identity fixtures. Capture both states with the same user, theme, and viewport so unrelated fixture differences do not complicate comparison.
+- The spec remains `in-progress` with all execution checkboxes unchecked, despite the evidence claiming those implementation tasks are complete. Update the execution record while keeping the outstanding root review and full verification gate explicitly pending.
+- The supplied evidence acknowledges that the required final full gate and independent three-lens review have not run. Focused component results and earlier baseline hashes do not establish final acceptance of the combined changes; attach those final results before closing the work.

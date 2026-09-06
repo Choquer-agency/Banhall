@@ -9,7 +9,7 @@
   import { clearAllOutboxes } from "$lib/uploads/attemptOutbox";
   import { api } from "../../../../convex/_generated/api";
   import { displayName } from "$lib/displayName";
-  import { SignOutIcon } from "phosphor-svelte";
+  import { GearSixIcon, SignOutIcon } from "phosphor-svelte";
   import { toast } from "svelte-sonner";
   import { modalPop, overlayFade } from "$lib/motion";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
@@ -179,6 +179,13 @@
           <p class="min-w-0 truncate text-sm font-semibold text-ink">{label || "Account"}</p>
         </div>
         <div>
+        <DropdownMenu.Item
+          onSelect={() => goto(resolve("/settings")).catch(() => toast.error("Settings could not open. Please try again."))}
+          class="flex h-11 min-h-11 w-full shrink-0 items-center gap-2.5 px-3.5 text-left text-sm text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:bg-primary-wash focus-visible:text-ink focus-visible:outline-none"
+        >
+          <GearSixIcon size={16} weight="regular" aria-hidden="true" class="shrink-0" />
+          Settings
+        </DropdownMenu.Item>
         <DropdownMenu.Item
           onSelect={handleSignOut}
           disabled={signingOut}

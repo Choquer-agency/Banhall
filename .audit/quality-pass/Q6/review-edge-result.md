@@ -1,0 +1,1 @@
+[{"location":"src/lib/components/ui/UserMenu.svelte:183","trigger_condition":"Settings navigation rejects because the destination cannot load","guard_snippet":"onSelect={() => goto(resolve(\"/settings\")).catch(() => toast.error(\"Unable to open Settings\"))}","potential_consequence":"Menu closes without navigation or feedback, and the rejection remains unhandled."}]

@@ -1,0 +1,9 @@
+{
+  "baseline_head": "bea7e2d218ea06743f94b2c5fd5e1755e5fd98e8",
+  "prior_source_differences": [],
+  "Q4_full_gate_hash_matches": true,
+  "root-check.log": true,
+  "root-baseline.log": true,
+  "root-fixed.log": true,
+  "root-diff-check.log": true
+}
