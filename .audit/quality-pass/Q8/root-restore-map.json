@@ -1,0 +1,37 @@
+[
+  {
+    "stored_path": ".audit/quality-pass/Q8/runtime/MarkdownFixture.svelte.txt",
+    "restore_path": ".audit/quality-pass/Q8/runtime/MarkdownFixture.svelte",
+    "sha256": "83a46be7f88df76bcb8dd4d9750b27e43950ce5da26bb10985a9fd610aa95148"
+  },
+  {
+    "stored_path": ".audit/quality-pass/Q8/runtime/component.config.ts.txt",
+    "restore_path": ".audit/quality-pass/Q8/runtime/component.config.ts",
+    "sha256": "b9987c27b165dbb094b6d73d361204c3b13bbf5850b4bcbdfe89347a81017eae"
+  },
+  {
+    "stored_path": ".audit/quality-pass/Q8/runtime/markdown.component.test.ts.txt",
+    "restore_path": ".audit/quality-pass/Q8/runtime/markdown.component.test.ts",
+    "sha256": "4f460f9c92c852b3518dfab7c3e425f322d293e01633018dc14cd1ba0e705a40"
+  },
+  {
+    "stored_path": ".audit/quality-pass/Q8/runtime/vite-observe.config.ts.txt",
+    "restore_path": ".audit/quality-pass/Q8/runtime/vite-observe.config.ts",
+    "sha256": "b053c54d24eaed9fe361860547fd45ba04e8fcca8f9a2c77d98e40e8dbd12a20"
+  },
+  {
+    "stored_path": ".audit/quality-pass/Q8/post-review-runtime/MarkdownFixture.svelte.txt",
+    "restore_path": ".audit/quality-pass/Q8/post-review-runtime/MarkdownFixture.svelte",
+    "sha256": "83a46be7f88df76bcb8dd4d9750b27e43950ce5da26bb10985a9fd610aa95148"
+  },
+  {
+    "stored_path": ".audit/quality-pass/Q8/post-review-runtime/component.config.ts.txt",
+    "restore_path": ".audit/quality-pass/Q8/post-review-runtime/component.config.ts",
+    "sha256": "89cbd66376d6f9ac5f7d79b9e3017ec4c57a50b2f989959c2e8cb4d5fb18af31"
+  },
+  {
+    "stored_path": ".audit/quality-pass/Q8/post-review-runtime/hostile.component.test.ts.txt",
+    "restore_path": ".audit/quality-pass/Q8/post-review-runtime/hostile.component.test.ts",
+    "sha256": "ca0cb521d9efab2207471a38940a97a09d82e13bb4d864044e1abdbf645645e1"
+  }
+]

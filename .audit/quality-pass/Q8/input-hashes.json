@@ -1,0 +1,9 @@
+{
+  ".audit/quality-pass/Q8/inputs/package-lock.before.json": "d31482119f86dae5aae70a05ffcb19b1ed9cab43bb460b738f1aa0686906cda3",
+  ".audit/quality-pass/Q8/inputs/report.md": "d1510fdbc1e4071bd40bd99f1ccde12a14cfecf2da16fe5388e1cf5834b0cd9d",
+  ".audit/quality-pass/Q8/inputs/package.before.json": "a8498465ae520899f577f515785bc1c39170fe86faf43e9be006a0688b57889c",
+  ".audit/quality-pass/Q8/inputs/candidate-advisories.json": "dccb860f8a423357df50db4a0aeb44b77ba8342062f3ea7887e0d2590506f5b7",
+  ".audit/quality-pass/Q8/inputs/parents.json": "6acefa552e0408be5449a7b19161cbde41b376ee8b63387dc7c9ad0b110bbf21",
+  ".audit/quality-pass/Q8/inputs/Q8-runtime-preflight.md": "43a645189c11843b39fc550361fdfebaf0f5616e222dd5968b88f376668c9346",
+  "_bmad-output/implementation-artifacts/spec-quality-dependency-health.md": "4bd9cd927b980305619115d4212754483c915f36187b77269f85d1c865a08cf3"
+}

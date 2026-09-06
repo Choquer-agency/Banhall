@@ -1,0 +1,24 @@
+{
+  "document": {
+    "consumer": "mammoth.extractRawText -> mammoth/lib/xml/xmldom -> @xmldom/xmldom",
+    "mammoth": "1.12.0",
+    "xmldom": "0.8.15",
+    "validText": "Actual DOCX & XML text\n\n",
+    "malformedError": "Error: error: [xmldom error]\telement parse error: Error: attribute value no end '\"' match\n@#[line:undefined,col:undefined]"
+  },
+  "bundle": {
+    "chunk": "_app/immutable/nodes/19.WWydvuEZ.js",
+    "chunkSha256": "c0cd6404bb0d1cb98a1b88c6a8a2429f8e0ba17ba61bb55c5f93132bb0ede205",
+    "manifestSha256": "d4ed5afb05324a93e2ccc819fb49404a4ae5bc5e8fc12fc2faa9306d30bd2d12",
+    "exports": [
+      "component"
+    ],
+    "pageErrors": [],
+    "externalRequests": [],
+    "currentProductionManifestAndGeneratedRouteBound": true,
+    "kitBootstrapGlobals": [
+      "__sveltekit_136gq9e"
+    ],
+    "scope": "module evaluation only; not mounted/authenticated/chat interaction"
+  }
+}

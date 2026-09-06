@@ -1,0 +1,17 @@
+[
+  {
+    "stored": ".audit/quality-pass/Q8/post-review-runtime/component.config.ts.txt",
+    "restore": ".audit/quality-pass/Q8/post-review-runtime/component.config.ts",
+    "sha256": "89cbd66376d6f9ac5f7d79b9e3017ec4c57a50b2f989959c2e8cb4d5fb18af31"
+  },
+  {
+    "stored": ".audit/quality-pass/Q8/post-review-runtime/hostile.component.test.ts.txt",
+    "restore": ".audit/quality-pass/Q8/post-review-runtime/hostile.component.test.ts",
+    "sha256": "ca0cb521d9efab2207471a38940a97a09d82e13bb4d864044e1abdbf645645e1"
+  },
+  {
+    "stored": ".audit/quality-pass/Q8/post-review-runtime/MarkdownFixture.svelte.txt",
+    "restore": ".audit/quality-pass/Q8/post-review-runtime/MarkdownFixture.svelte",
+    "sha256": "83a46be7f88df76bcb8dd4d9750b27e43950ce5da26bb10985a9fd610aa95148"
+  }
+]

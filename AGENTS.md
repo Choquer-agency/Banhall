@@ -43,6 +43,9 @@ SR&ED report generation for a consulting firm. SvelteKit 2 + Svelte 5 runes, Tai
 <!-- /bmad:context -->
 
 - Fresh component captures use ignored `.vitest-attachments/` (including `story-7/`, `story-8/`, `DW-98-fix/` and `published-status-fix/`) and `src/**/__screenshots__/`. Canonical verification must preserve tracked source and historical evidence bytes, including pre-existing working changes, without restoration.
+- For dependency changes, preserve the lock through `npm ci`, run `npm ls --all` and `npm audit --json`, and explain every changed package before the full verification gate. Keep direct Tiptap packages aligned unless the change explicitly includes a migration.
+- Verify upgraded SDKs through their real request/response boundary with HTTP transport stubbed; constructor-only or decoded-response mocks do not establish SDK compatibility.
+- Give temporary browser audit configs their own `cacheDir`. After dependency or optimizer changes, prove the canonical browser suite with a fresh optimizer cache; a warm rerun alone does not prove CI reproducibility.
 
 <!-- convex-ai-start -->
 

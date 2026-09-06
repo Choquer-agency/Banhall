@@ -1,0 +1,941 @@
+{
+  "unit": "Q8",
+  "records": [
+    {
+      "original_path": ".audit/quality-pass/Q8/audit-after.json",
+      "stored_path": ".audit/quality-pass/Q8/audit-after.json",
+      "compressed": false,
+      "original_sha256": "30ae1f5459db030a79e4b4e585ec6298974cc11281504d30965c43d903a91dec",
+      "stored_sha256": "30ae1f5459db030a79e4b4e585ec6298974cc11281504d30965c43d903a91dec",
+      "original_bytes": 366
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/audit-before.json",
+      "stored_path": ".audit/quality-pass/Q8/audit-before.json",
+      "compressed": false,
+      "original_sha256": "889643571712390ab11cd12ccb45f3c4f07bbaac8ca26e4b823b00b83ef4b429",
+      "stored_sha256": "889643571712390ab11cd12ccb45f3c4f07bbaac8ca26e4b823b00b83ef4b429",
+      "original_bytes": 12055
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/canonical-final.log",
+      "stored_path": ".audit/quality-pass/Q8/canonical-final.log.gz",
+      "compressed": true,
+      "original_sha256": "e962d30409ed43d911a4820ce6f955b7fd95ad6db561816aa9114b920fe5df8e",
+      "stored_sha256": "d0c9c84b3bb75a52a56d60ebd931e7060653aa1719c50cbce36be04dfc40b453",
+      "original_bytes": 42099
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/canonical-gate.log",
+      "stored_path": ".audit/quality-pass/Q8/canonical-gate.log.gz",
+      "compressed": true,
+      "original_sha256": "632b9ec7409cb60b120bb802fc8a2300af80b985da092f5f9b49b5a825f2c14f",
+      "stored_sha256": "345025793ce955f75616c995950a78b6eac90e68b45e794804c0d974537655a8",
+      "original_bytes": 106821
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/changed-package-reasons.json",
+      "stored_path": ".audit/quality-pass/Q8/changed-package-reasons.json",
+      "compressed": false,
+      "original_sha256": "8748adb1a64b3b692cb43fc3611d6a3fe7f5dc5c0ed02b08bc3d46d881f42369",
+      "stored_sha256": "8748adb1a64b3b692cb43fc3611d6a3fe7f5dc5c0ed02b08bc3d46d881f42369",
+      "original_bytes": 14485
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/changed-packages.tsv",
+      "stored_path": ".audit/quality-pass/Q8/changed-packages.tsv",
+      "compressed": false,
+      "original_sha256": "e77ff724c8cb883299fa98542c72ae6af72c5f55b98cc36464a8b004d5c95c33",
+      "stored_sha256": "e77ff724c8cb883299fa98542c72ae6af72c5f55b98cc36464a8b004d5c95c33",
+      "original_bytes": 9334
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/client-archive-check.json",
+      "stored_path": ".audit/quality-pass/Q8/client-archive-check.json",
+      "compressed": false,
+      "original_sha256": "f2e0a1f336da2fbeaf5d09f70c6bc6a842b54b0712c48fb59a30ef6dd57bc58c",
+      "stored_sha256": "f2e0a1f336da2fbeaf5d09f70c6bc6a842b54b0712c48fb59a30ef6dd57bc58c",
+      "original_bytes": 141
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/client-build-final.log",
+      "stored_path": ".audit/quality-pass/Q8/client-build-final.log.gz",
+      "compressed": true,
+      "original_sha256": "08ab26d09cf56ade340885a2d1b8ce942eec0a81869a0a46eb6b49480a7fa68e",
+      "stored_sha256": "497bf5bdfab2ab1ee7508a35d945504962ac44a81f82ba27f970b153cdde5de0",
+      "original_bytes": 36241
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/client-build.log",
+      "stored_path": ".audit/quality-pass/Q8/client-build.log.gz",
+      "compressed": true,
+      "original_sha256": "582d998bc2a62eb0774c221b39f0e35272d0139d06d3e694fb93964ce7dd856c",
+      "stored_sha256": "f1c1c70bbd28e129bbf6426f4a73fc71b612e0b73a2999c5bce57a8325613431",
+      "original_bytes": 36241
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/client-hash-check.log",
+      "stored_path": ".audit/quality-pass/Q8/client-hash-check.log.gz",
+      "compressed": true,
+      "original_sha256": "8697cc73baa8706129284dd23d88ec5ed8759e8e015c1b01ca4689033d615219",
+      "stored_sha256": "7205a902fc948d6e97b7e655c65a7c561f45c9c33a676dbb4696c1b42fd5dd07",
+      "original_bytes": 245
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/client-modules-attempt1.json",
+      "stored_path": ".audit/quality-pass/Q8/client-modules-attempt1.json.gz",
+      "compressed": true,
+      "original_sha256": "fe2825461b5f5331e36d2bf76d7a29c8a751ce49fa2de71badae8e6ff6e554a8",
+      "stored_sha256": "bc5a9c4308849add7b6eca4c873e7e3013c75b16334ce69fc86fd4cb4e3fc029",
+      "original_bytes": 981699
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/client-modules.json",
+      "stored_path": ".audit/quality-pass/Q8/client-modules.json.gz",
+      "compressed": true,
+      "original_sha256": "0d28d477a07541f4a8b416bf82b79f6328e08c46c92ac401ff4abf0b37d40c3a",
+      "stored_sha256": "edcee4d6253735b7c364e01a7c3d42e6bcab98730c109956c36483e4e26a060f",
+      "original_bytes": 981699
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/client-verification.json",
+      "stored_path": ".audit/quality-pass/Q8/client-verification.json",
+      "compressed": false,
+      "original_sha256": "0b7359d236f44bcb67339f163ad8653f9e628601351885cc0b2c4ef523d96804",
+      "stored_sha256": "0b7359d236f44bcb67339f163ad8653f9e628601351885cc0b2c4ef523d96804",
+      "original_bytes": 261
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/component-final.log",
+      "stored_path": ".audit/quality-pass/Q8/component-final.log.gz",
+      "compressed": true,
+      "original_sha256": "dc32b5afa44f5f416b2e9c0357995927164b5957bc8e1df50263089bc9c432da",
+      "stored_sha256": "dee164010d95be9bdf8d51b527c2dddbdbcaf635fceead19c3962570e4e3790e",
+      "original_bytes": 53149
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/component-focused-retry.log",
+      "stored_path": ".audit/quality-pass/Q8/component-focused-retry.log.gz",
+      "compressed": true,
+      "original_sha256": "75952900fbdc70b66a9dc2333ec38368b0bcbce61d1d2ffd696f190ca558d1ca",
+      "stored_sha256": "30df2ed4dfae5847ca4240582572cd8e42cf6a8d0f833d2571fcc59bac576877",
+      "original_bytes": 1551
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/cookie-runtime.log",
+      "stored_path": ".audit/quality-pass/Q8/cookie-runtime.log.gz",
+      "compressed": true,
+      "original_sha256": "4cd3cfd453695c36a3bbe66661d7d15fb7a6772885c956d0881cbc0c3fffff08",
+      "stored_sha256": "65fe47e18e479b7597497fc2121420f8e6df4f387439aa6e1c90595233082924",
+      "original_bytes": 538
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/decisions.tsv",
+      "stored_path": ".audit/quality-pass/Q8/decisions.tsv",
+      "compressed": false,
+      "original_sha256": "5d34537f766f889e7ec477c364a9c787b9c16782d2d45f95a52ee3d4546d459a",
+      "stored_sha256": "5d34537f766f889e7ec477c364a9c787b9c16782d2d45f95a52ee3d4546d459a",
+      "original_bytes": 1305
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/evidence.md",
+      "stored_path": ".audit/quality-pass/Q8/evidence.md",
+      "compressed": false,
+      "original_sha256": "b71d0126a37203ed9cdcc4051310b4f8358bb79764714d5eee467397ba1b0acf",
+      "stored_sha256": "b71d0126a37203ed9cdcc4051310b4f8358bb79764714d5eee467397ba1b0acf",
+      "original_bytes": 7921
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/final-receipt.json",
+      "stored_path": ".audit/quality-pass/Q8/final-receipt.json",
+      "compressed": false,
+      "original_sha256": "726b99a8f208ae217f9c05fae8107cc7193ff4b9e349ca7c03bbd8fde428b823",
+      "stored_sha256": "726b99a8f208ae217f9c05fae8107cc7193ff4b9e349ca7c03bbd8fde428b823",
+      "original_bytes": 440
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/focused-unit.log",
+      "stored_path": ".audit/quality-pass/Q8/focused-unit.log.gz",
+      "compressed": true,
+      "original_sha256": "dc0bb6bb71016138810d7d7d60a155b9a94b4d4fba8b0d817e534db3fa92a241",
+      "stored_sha256": "9a49e3a5e308d3e83eb87589e6029c20516985c02511e80398d5e1d24462c115",
+      "original_bytes": 245
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/implement-exits.json",
+      "stored_path": ".audit/quality-pass/Q8/implement-exits.json",
+      "compressed": false,
+      "original_sha256": "2de3666a6ade82b302d774081c422cae839a8bcc92e0a2fb215d2097d24481ec",
+      "stored_sha256": "2de3666a6ade82b302d774081c422cae839a8bcc92e0a2fb215d2097d24481ec",
+      "original_bytes": 878
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/implementation-dispatch.json",
+      "stored_path": ".audit/quality-pass/Q8/implementation-dispatch.json",
+      "compressed": false,
+      "original_sha256": "4c753fd4a16d34d7e0117eda6151e25800a7727dd9cbb05698e0731ac296c577",
+      "stored_sha256": "4c753fd4a16d34d7e0117eda6151e25800a7727dd9cbb05698e0731ac296c577",
+      "original_bytes": 717
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/implementation-exit.json",
+      "stored_path": ".audit/quality-pass/Q8/implementation-exit.json",
+      "compressed": false,
+      "original_sha256": "d2ad6b47c6cf4a7770c848b4773f26f3446db4fae3770296668061bf5ff7aa8e",
+      "stored_sha256": "d2ad6b47c6cf4a7770c848b4773f26f3446db4fae3770296668061bf5ff7aa8e",
+      "original_bytes": 814
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/implementation-prompt.txt",
+      "stored_path": ".audit/quality-pass/Q8/implementation-prompt.txt.gz",
+      "compressed": true,
+      "original_sha256": "a590572e95f0c436fce20f29316f2a02dccf04b5f0907398a9b0a71ba4a2525e",
+      "stored_sha256": "1b04c26392e81135961fd8899a6b8df752cd97c8df3c582a54fad4110a08c944",
+      "original_bytes": 365
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/implementation-result.md",
+      "stored_path": ".audit/quality-pass/Q8/implementation-result.md",
+      "compressed": false,
+      "original_sha256": "cacab2295f1c5b58a549a4d2217554695abc7205bd177c82405b4875e15c9155",
+      "stored_sha256": "cacab2295f1c5b58a549a4d2217554695abc7205bd177c82405b4875e15c9155",
+      "original_bytes": 634
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/implementation.log",
+      "stored_path": ".audit/quality-pass/Q8/implementation.log.gz",
+      "compressed": true,
+      "original_sha256": "9b9cf69e53e2203670c0c36a02b5464218fe5f593356e721d42c51e2bf22fa61",
+      "stored_sha256": "c0709e732e0bdb5207dfe8d4d6154e7b0aed7ba648eb2fdf47945d716b617b09",
+      "original_bytes": 246924
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/input-hashes.json",
+      "stored_path": ".audit/quality-pass/Q8/input-hashes.json",
+      "compressed": false,
+      "original_sha256": "2c2d169244501ad89dddb7b08ebdf8bb42a3a3f8e3ee5fa4c8cc52f37a7d1267",
+      "stored_sha256": "2c2d169244501ad89dddb7b08ebdf8bb42a3a3f8e3ee5fa4c8cc52f37a7d1267",
+      "original_bytes": 884
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/inputs/Q8-runtime-preflight.md",
+      "stored_path": ".audit/quality-pass/Q8/inputs/Q8-runtime-preflight.md",
+      "compressed": false,
+      "original_sha256": "43a645189c11843b39fc550361fdfebaf0f5616e222dd5968b88f376668c9346",
+      "stored_sha256": "43a645189c11843b39fc550361fdfebaf0f5616e222dd5968b88f376668c9346",
+      "original_bytes": 9066
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/inputs/candidate-advisories.json",
+      "stored_path": ".audit/quality-pass/Q8/inputs/candidate-advisories.json",
+      "compressed": false,
+      "original_sha256": "dccb860f8a423357df50db4a0aeb44b77ba8342062f3ea7887e0d2590506f5b7",
+      "stored_sha256": "dccb860f8a423357df50db4a0aeb44b77ba8342062f3ea7887e0d2590506f5b7",
+      "original_bytes": 589
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/inputs/package-lock.before.json",
+      "stored_path": ".audit/quality-pass/Q8/inputs/package-lock.before.json.gz",
+      "compressed": true,
+      "original_sha256": "d31482119f86dae5aae70a05ffcb19b1ed9cab43bb460b738f1aa0686906cda3",
+      "stored_sha256": "7037ea90af3512bc9f7c54c85c16d0fc6eaa009a5eeea07d047b6c417d848f3b",
+      "original_bytes": 268955
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/inputs/package.before.json",
+      "stored_path": ".audit/quality-pass/Q8/inputs/package.before.json",
+      "compressed": false,
+      "original_sha256": "a8498465ae520899f577f515785bc1c39170fe86faf43e9be006a0688b57889c",
+      "stored_sha256": "a8498465ae520899f577f515785bc1c39170fe86faf43e9be006a0688b57889c",
+      "original_bytes": 2838
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/inputs/parents.json",
+      "stored_path": ".audit/quality-pass/Q8/inputs/parents.json",
+      "compressed": false,
+      "original_sha256": "6acefa552e0408be5449a7b19161cbde41b376ee8b63387dc7c9ad0b110bbf21",
+      "stored_sha256": "6acefa552e0408be5449a7b19161cbde41b376ee8b63387dc7c9ad0b110bbf21",
+      "original_bytes": 997
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/inputs/report.md",
+      "stored_path": ".audit/quality-pass/Q8/inputs/report.md",
+      "compressed": false,
+      "original_sha256": "d1510fdbc1e4071bd40bd99f1ccde12a14cfecf2da16fe5388e1cf5834b0cd9d",
+      "stored_sha256": "d1510fdbc1e4071bd40bd99f1ccde12a14cfecf2da16fe5388e1cf5834b0cd9d",
+      "original_bytes": 7201
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/install-first.log",
+      "stored_path": ".audit/quality-pass/Q8/install-first.log.gz",
+      "compressed": true,
+      "original_sha256": "0013109e0bc9644c0e466528a04d340be71211ba34119124e30b99938c68757d",
+      "stored_sha256": "e5db81973185e2dce4917580f176ccce19406136f147ee8fe81bdc5700273e66",
+      "original_bytes": 736
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/install-receipt.json",
+      "stored_path": ".audit/quality-pass/Q8/install-receipt.json",
+      "compressed": false,
+      "original_sha256": "b37eeffa42bd9359c624f4743e29d3e7177ebc2e2122e2dd72ad86fc9be85707",
+      "stored_sha256": "b37eeffa42bd9359c624f4743e29d3e7177ebc2e2122e2dd72ad86fc9be85707",
+      "original_bytes": 607
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/install-repeat.log",
+      "stored_path": ".audit/quality-pass/Q8/install-repeat.log.gz",
+      "compressed": true,
+      "original_sha256": "32bbfaface097baed8c618c42dbf9363bb8ff4cfd8367d900f5f34776fa8c6c3",
+      "stored_sha256": "59baffb76568004089916393b83a18f6631cfb06be1d3e36cea0b259b50bf2bf",
+      "original_bytes": 736
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/lock-before-repeat.sha256",
+      "stored_path": ".audit/quality-pass/Q8/lock-before-repeat.sha256",
+      "compressed": false,
+      "original_sha256": "886046204349c0850c3d500062bf31c9e3c833346aa8a52fe2ed2fb36e146373",
+      "stored_sha256": "886046204349c0850c3d500062bf31c9e3c833346aa8a52fe2ed2fb36e146373",
+      "original_bytes": 84
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/lock-repeat-check.log",
+      "stored_path": ".audit/quality-pass/Q8/lock-repeat-check.log.gz",
+      "compressed": true,
+      "original_sha256": "04ebf4e9a72bbbfe7328dfa59ce425fb68e5dc7ea9e975b347161f1d013c0973",
+      "stored_sha256": "34dc0f27c35fa0dbb07b57093d418a681c56344fdb26d798e3d9c3b8f0065763",
+      "original_bytes": 22
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/markdown-runtime-attempt1.log",
+      "stored_path": ".audit/quality-pass/Q8/markdown-runtime-attempt1.log.gz",
+      "compressed": true,
+      "original_sha256": "3aa71479d14cb6a8f9c274df16618f87d51f3d319ea3835eb1037e8cd4213480",
+      "stored_sha256": "8b472b5ff2928e76b866fcc47c488bdca4d82651b584a6eaa293e42bda1d1d1e",
+      "original_bytes": 1841
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/markdown-runtime.log",
+      "stored_path": ".audit/quality-pass/Q8/markdown-runtime.log.gz",
+      "compressed": true,
+      "original_sha256": "005a560afa19662020b6dbcfd85378d317d2bc15d748e611b2fdbf6c304481ff",
+      "stored_sha256": "bd0f856adaf9a416bc0beb0ccd7b01c165397b0d9b37c16dc9c434e0a30eeb0c",
+      "original_bytes": 535
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/observed-client-chunks.tar.gz",
+      "stored_path": ".audit/quality-pass/Q8/observed-client-chunks.tar.gz",
+      "compressed": false,
+      "original_sha256": "167649f05e2c990773fd0408087f4133707e5979a706f5b096938806e4bc83d1",
+      "stored_sha256": "167649f05e2c990773fd0408087f4133707e5979a706f5b096938806e4bc83d1",
+      "original_bytes": 1324905
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/peers.log",
+      "stored_path": ".audit/quality-pass/Q8/peers.log.gz",
+      "compressed": true,
+      "original_sha256": "8460d51f9eae25a1f9fef78cad5b49c7615631b7258ab465f698e60b8a9565c1",
+      "stored_sha256": "4c95173efd05b4c67f5fb9c5b5e97bd89b716aaeed4ab3dd53398cc5da61d6a9",
+      "original_bytes": 2968
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-dependencies/evidence.md",
+      "stored_path": ".audit/quality-pass/Q8/post-review-dependencies/evidence.md",
+      "compressed": false,
+      "original_sha256": "549436497f184bc50d8cd1063d7c1e2fee61caf42599159ee7355e895d80a6ff",
+      "stored_sha256": "549436497f184bc50d8cd1063d7c1e2fee61caf42599159ee7355e895d80a6ff",
+      "original_bytes": 1566
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-dependencies/full-tree.log",
+      "stored_path": ".audit/quality-pass/Q8/post-review-dependencies/full-tree.log.gz",
+      "compressed": true,
+      "original_sha256": "ed3551cb12196dc0539f42d8cd68f48d007b66a84c235a02f552215cd1628e45",
+      "stored_sha256": "3fb3f612f8e6288107c873d809c551e01baf22c5774e7715f50581217052ffb2",
+      "original_bytes": 142903
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-dependencies/npmrc-before.txt",
+      "stored_path": ".audit/quality-pass/Q8/post-review-dependencies/npmrc-before.txt.gz",
+      "compressed": true,
+      "original_sha256": "4e0780cf3a39b42b0a19799b741c5501ed3a8eb199cef76b3184ae348c2f8d36",
+      "stored_sha256": "faf8ce73afef2b693e8fa17883dc6ee2b883d45fa1f0067de64c869c8ae81605",
+      "original_bytes": 102
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-dependencies/production-auth-peers.log",
+      "stored_path": ".audit/quality-pass/Q8/post-review-dependencies/production-auth-peers.log.gz",
+      "compressed": true,
+      "original_sha256": "288c4a663a6ce683a13e2c4b6047149447098201d07f36dddac86ddbe377e446",
+      "stored_sha256": "c5f133b31a51ba6a9a144b34a4aabe443a707efb2ad13455a0e3e6aeedde9ca5",
+      "original_bytes": 1878
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-dependencies/production-full-tree.log",
+      "stored_path": ".audit/quality-pass/Q8/post-review-dependencies/production-full-tree.log.gz",
+      "compressed": true,
+      "original_sha256": "c1c876710c014876f559863c991b3832f31a11daa16637c504e114cec1fad91e",
+      "stored_sha256": "583c1f0483690cae4dcef2e0b6ac3db72983583c4cd22a16ff4abb9904d879dc",
+      "original_bytes": 105360
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-dependencies/production-install.log",
+      "stored_path": ".audit/quality-pass/Q8/post-review-dependencies/production-install.log.gz",
+      "compressed": true,
+      "original_sha256": "abaf2239d0ef707001329294346d732c0b075e3fab0a5abd280064f2c0104a6e",
+      "stored_sha256": "39b58aec26615f071c560d42087f5491bf708a5172f882d24c0e7ced3de58030",
+      "original_bytes": 143
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-dependencies/result.json",
+      "stored_path": ".audit/quality-pass/Q8/post-review-dependencies/result.json",
+      "compressed": false,
+      "original_sha256": "26642ca3f5217e3a510767532464d5750d220afddccde6a3bb8123fb7a02b33c",
+      "stored_sha256": "26642ca3f5217e3a510767532464d5750d220afddccde6a3bb8123fb7a02b33c",
+      "original_bytes": 1630
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/MarkdownFixture.svelte.txt",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/MarkdownFixture.svelte.txt.gz",
+      "compressed": true,
+      "original_sha256": "83a46be7f88df76bcb8dd4d9750b27e43950ce5da26bb10985a9fd610aa95148",
+      "stored_sha256": "235b53fe089dc59a0110ab3ec974ae82eede5a402139d490b4ce7cd58020b2f2",
+      "original_bytes": 439
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/built-module-page.png",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/built-module-page.png",
+      "compressed": false,
+      "original_sha256": "3878570f4a62a0d65f57cf1754e0269e56ec797f4e36e26b44c172eb6e800401",
+      "stored_sha256": "3878570f4a62a0d65f57cf1754e0269e56ec797f4e36e26b44c172eb6e800401",
+      "original_bytes": 4254
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/component.config.ts.txt",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/component.config.ts.txt.gz",
+      "compressed": true,
+      "original_sha256": "89cbd66376d6f9ac5f7d79b9e3017ec4c57a50b2f989959c2e8cb4d5fb18af31",
+      "stored_sha256": "adf114d82a634799562de162f47fe002d520198b1ee2b6e1aee4ba30825db9e4",
+      "original_bytes": 579
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle-current.exit",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle-current.exit",
+      "compressed": false,
+      "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "stored_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "original_bytes": 2
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle-current.log",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle-current.log.gz",
+      "compressed": true,
+      "original_sha256": "6daa49b79061add359a7dbb35b1a06543ace7cd863994393aa3558c4bc3e8691",
+      "stored_sha256": "33f7d01df98c95af50c74bafc8211b2aa2dc1143a33319107ea22b533eff9912",
+      "original_bytes": 390
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle-final.exit",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle-final.exit",
+      "compressed": false,
+      "original_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "stored_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "original_bytes": 2
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle-final.log",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle-final.log.gz",
+      "compressed": true,
+      "original_sha256": "aa517f45e42c9b15966f432675943978181da104c0429dcd370cd1daa2d187f2",
+      "stored_sha256": "9b1c3e9f08a6144d4bfd10686dc56e538be3cdd2cbd8895b8a85513d66a87394",
+      "original_bytes": 780
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle.exit",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle.exit",
+      "compressed": false,
+      "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "stored_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "original_bytes": 2
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle.json",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle.json",
+      "compressed": false,
+      "original_sha256": "c47c802c5f73545c4dcf46499255d2fc234e1f9cf87a739bd6755a631f0e5176",
+      "stored_sha256": "c47c802c5f73545c4dcf46499255d2fc234e1f9cf87a739bd6755a631f0e5176",
+      "original_bytes": 903
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle.log",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle.log.gz",
+      "compressed": true,
+      "original_sha256": "3fb5c0bc0af0a4340291db5829cee3bcd54bbd0e744b6340843e289b5caad3f2",
+      "stored_sha256": "9941970a27e0dc31619f70e7c84f25aaec2f4b9be548776b8480d45cf987b5d6",
+      "original_bytes": 647
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle.mjs",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/document-and-bundle.mjs",
+      "compressed": false,
+      "original_sha256": "c034fb5c9814532dd1b071f4ceea8bea61f9d5617a3b92b8040f06b8cf9b7da0",
+      "stored_sha256": "c034fb5c9814532dd1b071f4ceea8bea61f9d5617a3b92b8040f06b8cf9b7da0",
+      "original_bytes": 4353
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/generated-project-node.txt",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/generated-project-node.txt.gz",
+      "compressed": true,
+      "original_sha256": "7603a2329a46f7e5796451654998f1c141fb6ed9c23fa0f5d7de114424add258",
+      "stored_sha256": "cb7d81c3afb1e8c1a31de9a0c93a103a5c4fce5985a99ef09c7e017f1ab61356",
+      "original_bytes": 88
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/hashes.json",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/hashes.json",
+      "compressed": false,
+      "original_sha256": "16648980f8d4cbfe343e6b36ba8e87f3ee3eaf5e91df058534213746142bed3d",
+      "stored_sha256": "16648980f8d4cbfe343e6b36ba8e87f3ee3eaf5e91df058534213746142bed3d",
+      "original_bytes": 2802
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/hostile-boundary.png",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/hostile-boundary.png",
+      "compressed": false,
+      "original_sha256": "3e0952003872d2c503fb41f25ae504d9c3188538c03cf23d29a2953174f645a7",
+      "stored_sha256": "3e0952003872d2c503fb41f25ae504d9c3188538c03cf23d29a2953174f645a7",
+      "original_bytes": 11354
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/hostile-final.exit",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/hostile-final.exit",
+      "compressed": false,
+      "original_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "stored_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "original_bytes": 2
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/hostile-final.log",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/hostile-final.log.gz",
+      "compressed": true,
+      "original_sha256": "0b3b889014d48ae2e6a1932c004ae0ab4a4a2e091686d2b3a9dee8f99d7de6f4",
+      "stored_sha256": "14470b4b45350e63281f5cce915bae30c176bff3fadcd9ccab2d6574c9b6ad97",
+      "original_bytes": 600
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/hostile.component.test.ts.txt",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/hostile.component.test.ts.txt.gz",
+      "compressed": true,
+      "original_sha256": "ca0cb521d9efab2207471a38940a97a09d82e13bb4d864044e1abdbf645645e1",
+      "stored_sha256": "85c32b069ffae277bf422a4cafa9c1dc5d70bfc6c476367ae814537f8cfd0d4a",
+      "original_bytes": 1799
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/hostile.exit",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/hostile.exit",
+      "compressed": false,
+      "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "stored_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "original_bytes": 2
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/hostile.log",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/hostile.log.gz",
+      "compressed": true,
+      "original_sha256": "5894a5562d86ac135775ffcad5c8b362a4bc079af7a8ceb789eaa69654fd1c72",
+      "stored_sha256": "95a335f8bd99e01af560bc5ec4528d018dd710524599db164e902848fad3c712",
+      "original_bytes": 1435
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/production-manifest.json",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/production-manifest.json",
+      "compressed": false,
+      "original_sha256": "d4ed5afb05324a93e2ccc819fb49404a4ae5bc5e8fc12fc2faa9306d30bd2d12",
+      "stored_sha256": "d4ed5afb05324a93e2ccc819fb49404a4ae5bc5e8fc12fc2faa9306d30bd2d12",
+      "original_bytes": 39527
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/report.md",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/report.md",
+      "compressed": false,
+      "original_sha256": "821fce1127d178a23bf8e1f13cbab06222ec02db05ff202e5fabccc049a76364",
+      "stored_sha256": "821fce1127d178a23bf8e1f13cbab06222ec02db05ff202e5fabccc049a76364",
+      "original_bytes": 4344
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-runtime/restore-map.json",
+      "stored_path": ".audit/quality-pass/Q8/post-review-runtime/restore-map.json",
+      "compressed": false,
+      "original_sha256": "cd10ad6b270ebe36af03c6239f7a77ca435536f3f192861ee8e818bd7241e805",
+      "stored_sha256": "cd10ad6b270ebe36af03c6239f7a77ca435536f3f192861ee8e818bd7241e805",
+      "original_bytes": 786
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-sdk/before.json",
+      "stored_path": ".audit/quality-pass/Q8/post-review-sdk/before.json",
+      "compressed": false,
+      "original_sha256": "96a6d5542f3f9d776c5df042bfc110d8e31f4b1a93c592abc1816f5d983301f1",
+      "stored_sha256": "96a6d5542f3f9d776c5df042bfc110d8e31f4b1a93c592abc1816f5d983301f1",
+      "original_bytes": 596
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-sdk/check.exit",
+      "stored_path": ".audit/quality-pass/Q8/post-review-sdk/check.exit",
+      "compressed": false,
+      "original_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "stored_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "original_bytes": 2
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-sdk/check.log",
+      "stored_path": ".audit/quality-pass/Q8/post-review-sdk/check.log.gz",
+      "compressed": true,
+      "original_sha256": "ed78a482a7cf5d6bf9bb50a072ccca09e0f59d7eb33b3445b8addde524a1b1a2",
+      "stored_sha256": "2a90ae8a967e1984088d51b57070e95bb463299cb32e1edf1107ca9ee703d806",
+      "original_bytes": 255
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-sdk/evidence.md",
+      "stored_path": ".audit/quality-pass/Q8/post-review-sdk/evidence.md",
+      "compressed": false,
+      "original_sha256": "f68c22ef2b24c208d1be4bf10a27b5dfaa4118d0a1334ee076bd81a022d0ad59",
+      "stored_sha256": "f68c22ef2b24c208d1be4bf10a27b5dfaa4118d0a1334ee076bd81a022d0ad59",
+      "original_bytes": 3772
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-sdk/final-unit.exit",
+      "stored_path": ".audit/quality-pass/Q8/post-review-sdk/final-unit.exit",
+      "compressed": false,
+      "original_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "stored_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "original_bytes": 2
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-sdk/final-unit.log",
+      "stored_path": ".audit/quality-pass/Q8/post-review-sdk/final-unit.log.gz",
+      "compressed": true,
+      "original_sha256": "4891ea051c5bbcbf3fc9499e1705c04adbbd499e16fa1af76e0e8446345e2703",
+      "stored_sha256": "77fe71c7758791b8cbd06dc4364990bd2e4c9728ab796b19f1017a73aa8ff7b5",
+      "original_bytes": 245
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-sdk/focused.exit",
+      "stored_path": ".audit/quality-pass/Q8/post-review-sdk/focused.exit",
+      "compressed": false,
+      "original_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "stored_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "original_bytes": 2
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-sdk/focused.log",
+      "stored_path": ".audit/quality-pass/Q8/post-review-sdk/focused.log.gz",
+      "compressed": true,
+      "original_sha256": "f0bd5ea7b73325186fc31c913a08e0129e54be989f10fc465fff4a2250f539ef",
+      "stored_sha256": "447d38fac61568084ecfacf0c097999301cc23e7b642061d67ff21827b8da4fb",
+      "original_bytes": 1633
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-sdk/receipt.json",
+      "stored_path": ".audit/quality-pass/Q8/post-review-sdk/receipt.json",
+      "compressed": false,
+      "original_sha256": "3e2421f6677dd849b2c2a77236f61d0abbcc8b6a30abcaa0ec9c475d1fe1960a",
+      "stored_sha256": "3e2421f6677dd849b2c2a77236f61d0abbcc8b6a30abcaa0ec9c475d1fe1960a",
+      "original_bytes": 1767
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-sdk/stream-signal-usage.txt",
+      "stored_path": ".audit/quality-pass/Q8/post-review-sdk/stream-signal-usage.txt.gz",
+      "compressed": true,
+      "original_sha256": "9bab7fd3577afc172fbd863a8395fd207953b40a8178aa53ff74c903294ae636",
+      "stored_sha256": "adcb557384837d70645e30b9b6c10231eda034272e9624fda6852f670479175e",
+      "original_bytes": 76
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/post-review-sdk/structured.sdk.test.ts.final.txt",
+      "stored_path": ".audit/quality-pass/Q8/post-review-sdk/structured.sdk.test.ts.final.txt.gz",
+      "compressed": true,
+      "original_sha256": "481f84bca68ba56a59277aa2fe6b14d171c698cbd4f349ec35357ed59e51b803",
+      "stored_sha256": "bd33a904e193d91c2dd78ab2ef166ba57080e6ef138e0fa755d587e3619421b1",
+      "original_bytes": 4808
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/resolution-check.log",
+      "stored_path": ".audit/quality-pass/Q8/resolution-check.log.gz",
+      "compressed": true,
+      "original_sha256": "64723abf1685ab180815d9d884924219c0964e098f0b968219fc9817f2432c81",
+      "stored_sha256": "566fa7d70b525c5eda457afb7d0c15c9c083147b282e9637e09f61ff62639be6",
+      "original_bytes": 430
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/resolve-final.log",
+      "stored_path": ".audit/quality-pass/Q8/resolve-final.log.gz",
+      "compressed": true,
+      "original_sha256": "1e94ea41fda397568adf7fa64a2835979e575aa3e4f3b0f6fa6061b0d2e670df",
+      "stored_sha256": "ccf1b1fddd2fbcb49ab361fc45fc321901700bfb6181ef828a49d65127c0bb96",
+      "original_bytes": 135
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/resolve-temporary.log",
+      "stored_path": ".audit/quality-pass/Q8/resolve-temporary.log.gz",
+      "compressed": true,
+      "original_sha256": "8ee9e2d17ec0be39bd2b55d35e1d14e3c038583e83fa4ea75bc5318ce9941c10",
+      "stored_sha256": "521068de2cd4f7b5ff9354c20bfc94914d8385cf9fdc3d78e08e6a7d8afdbb52",
+      "original_bytes": 132
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-blind-dispatch.json",
+      "stored_path": ".audit/quality-pass/Q8/review-blind-dispatch.json",
+      "compressed": false,
+      "original_sha256": "d7207536441ae56d109bd1d8180a9492713dd82c51037cb3379b529439117244",
+      "stored_sha256": "d7207536441ae56d109bd1d8180a9492713dd82c51037cb3379b529439117244",
+      "original_bytes": 706
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-blind-exit.json",
+      "stored_path": ".audit/quality-pass/Q8/review-blind-exit.json",
+      "compressed": false,
+      "original_sha256": "8a24e54b9e37066f8dcb38e57146e901872c4bca273e6dade90f400ec6e8fd27",
+      "stored_sha256": "8a24e54b9e37066f8dcb38e57146e901872c4bca273e6dade90f400ec6e8fd27",
+      "original_bytes": 803
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-blind-prompt.txt",
+      "stored_path": ".audit/quality-pass/Q8/review-blind-prompt.txt.gz",
+      "compressed": true,
+      "original_sha256": "31505ad6db65139479b7c2b219bd6cbb0c8b3ffeb83f467fbaaed4dea8f2869b",
+      "stored_sha256": "2fe1d940adf2ea7a74db9225ae81c71ee1989e457ebb4f3405a99cab2ab4dc66",
+      "original_bytes": 58114
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-blind-result.md",
+      "stored_path": ".audit/quality-pass/Q8/review-blind-result.md",
+      "compressed": false,
+      "original_sha256": "b5b4367cd7fc3db591e72fe1efcb95b59b96c3511c31477004fdfb20a7c76634",
+      "stored_sha256": "b5b4367cd7fc3db591e72fe1efcb95b59b96c3511c31477004fdfb20a7c76634",
+      "original_bytes": 2922
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-blind.log",
+      "stored_path": ".audit/quality-pass/Q8/review-blind.log.gz",
+      "compressed": true,
+      "original_sha256": "c200aac9a6771b465187b51c7924d1a39b5b117cb3447df2fa3ce36caf7d9922",
+      "stored_sha256": "298524858496306352c1d55a8f5e9b94fa4d546e2fd415ecd6a625e6cb7a6ef6",
+      "original_bytes": 73965
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-content.diff",
+      "stored_path": ".audit/quality-pass/Q8/review-content.diff.gz",
+      "compressed": true,
+      "original_sha256": "81e0e53c9e8f54472949c5e609553454e29cc4e21079d0ead628e5472897dbb3",
+      "stored_sha256": "f04c46457b625758f2bf8dba8962c3c4a5fb343efda22bb436923f4f8516c595",
+      "original_bytes": 57717
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-edge-dispatch.json",
+      "stored_path": ".audit/quality-pass/Q8/review-edge-dispatch.json",
+      "compressed": false,
+      "original_sha256": "cac1613bd60c11d10a874a2caa92c66b0ec0798ad40857570635dfcb729b5bbd",
+      "stored_sha256": "cac1613bd60c11d10a874a2caa92c66b0ec0798ad40857570635dfcb729b5bbd",
+      "original_bytes": 705
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-edge-exit.json",
+      "stored_path": ".audit/quality-pass/Q8/review-edge-exit.json",
+      "compressed": false,
+      "original_sha256": "8a9831d74c9192e75932e258fb1bc61dc29cdf6fd246fed2056a4be49020ecbb",
+      "stored_sha256": "8a9831d74c9192e75932e258fb1bc61dc29cdf6fd246fed2056a4be49020ecbb",
+      "original_bytes": 802
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-edge-prompt.txt",
+      "stored_path": ".audit/quality-pass/Q8/review-edge-prompt.txt.gz",
+      "compressed": true,
+      "original_sha256": "6a9f07c1ea96a933dc17f314f57fa29bbbe7a175a132b274cf42d7819b0ddf62",
+      "stored_sha256": "1ea8f087a446d0863a607df984f74490da1216913ac211a534eeebb0a9996c72",
+      "original_bytes": 58100
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-edge-result.md",
+      "stored_path": ".audit/quality-pass/Q8/review-edge-result.md",
+      "compressed": false,
+      "original_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "stored_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "original_bytes": 2
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-edge.log",
+      "stored_path": ".audit/quality-pass/Q8/review-edge.log.gz",
+      "compressed": true,
+      "original_sha256": "4bd88b8f3c2244c2df00ebd412fe956788c06e6adda714905d5a22086444183f",
+      "stored_sha256": "0f71c9c51b452dff8e6ec4726e1f87e8b2f3a63e9a676cc78558ba1c0f69b3b5",
+      "original_bytes": 74184
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-exits.json",
+      "stored_path": ".audit/quality-pass/Q8/review-exits.json",
+      "compressed": false,
+      "original_sha256": "672aa54f37a005141d7dbb9e15273a269bb6484751cf4c01dd252b298ba807f8",
+      "stored_sha256": "672aa54f37a005141d7dbb9e15273a269bb6484751cf4c01dd252b298ba807f8",
+      "original_bytes": 2592
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-gap-dispatch.json",
+      "stored_path": ".audit/quality-pass/Q8/review-gap-dispatch.json",
+      "compressed": false,
+      "original_sha256": "4048e4884375141def2464d40681e6e9ab7cb039ce421ed1cbe4f0e22470edc6",
+      "stored_sha256": "4048e4884375141def2464d40681e6e9ab7cb039ce421ed1cbe4f0e22470edc6",
+      "original_bytes": 704
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-gap-exit.json",
+      "stored_path": ".audit/quality-pass/Q8/review-gap-exit.json",
+      "compressed": false,
+      "original_sha256": "7d55283b74023c01d91c892c1a9cce7f87632dc407d6dc517e55aff9608237ed",
+      "stored_sha256": "7d55283b74023c01d91c892c1a9cce7f87632dc407d6dc517e55aff9608237ed",
+      "original_bytes": 801
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-gap-prompt.txt",
+      "stored_path": ".audit/quality-pass/Q8/review-gap-prompt.txt.gz",
+      "compressed": true,
+      "original_sha256": "f2305824155a11519835591d5bc6de3394c782ca7a1a808719bbb28859e3a4f0",
+      "stored_sha256": "96df8afdf268444c0b3bad226f8823cfec6f61c9414bbc6badef5ba599bd2982",
+      "original_bytes": 58100
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-gap-result.md",
+      "stored_path": ".audit/quality-pass/Q8/review-gap-result.md",
+      "compressed": false,
+      "original_sha256": "d5d2cd4e3e0a91493ec9e0099e50530b8cbbdd0a8903f8cfe0d642dcc3081f28",
+      "stored_sha256": "d5d2cd4e3e0a91493ec9e0099e50530b8cbbdd0a8903f8cfe0d642dcc3081f28",
+      "original_bytes": 1696
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-gap.log",
+      "stored_path": ".audit/quality-pass/Q8/review-gap.log.gz",
+      "compressed": true,
+      "original_sha256": "08fd76053cf4dce623cab77879f90909ae3ec6f6fe0d7328907305a3288205a8",
+      "stored_sha256": "bb35fb32ff84b906bb2c915a607d8c5ce6c8225cf22f37809e497a0b6cea928e",
+      "original_bytes": 222662
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/review-triage.md",
+      "stored_path": ".audit/quality-pass/Q8/review-triage.md",
+      "compressed": false,
+      "original_sha256": "bc889475ab70cc882efa26ba83022a50b45c1d3c245bd3c18f8e1b7e5fd7734b",
+      "stored_sha256": "bc889475ab70cc882efa26ba83022a50b45c1d3c245bd3c18f8e1b7e5fd7734b",
+      "original_bytes": 4312
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/root-acceptance.json",
+      "stored_path": ".audit/quality-pass/Q8/root-acceptance.json",
+      "compressed": false,
+      "original_sha256": "0aa346ad927541220939b1674fa63ccda64ee2e512728e5857b7efe1fedd5b6c",
+      "stored_sha256": "0aa346ad927541220939b1674fa63ccda64ee2e512728e5857b7efe1fedd5b6c",
+      "original_bytes": 563
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/root-final-source.json",
+      "stored_path": ".audit/quality-pass/Q8/root-final-source.json",
+      "compressed": false,
+      "original_sha256": "e9811b3826713187e6977f7208f12b2efdba575f768201613b4c0ccd7d35ba7a",
+      "stored_sha256": "e9811b3826713187e6977f7208f12b2efdba575f768201613b4c0ccd7d35ba7a",
+      "original_bytes": 694
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/root-reproduce.md",
+      "stored_path": ".audit/quality-pass/Q8/root-reproduce.md",
+      "compressed": false,
+      "original_sha256": "261c870060201e4ae54f005cbc9158a749a848324ef68d3f3baa5a17d44c50ca",
+      "stored_sha256": "261c870060201e4ae54f005cbc9158a749a848324ef68d3f3baa5a17d44c50ca",
+      "original_bytes": 1822
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/root-restore-map.json",
+      "stored_path": ".audit/quality-pass/Q8/root-restore-map.json",
+      "compressed": false,
+      "original_sha256": "b962ca9ba96bdb8662731da2cafd39172fc7af64c6ac7bec4dc59e220f0de417",
+      "stored_sha256": "b962ca9ba96bdb8662731da2cafd39172fc7af64c6ac7bec4dc59e220f0de417",
+      "original_bytes": 1806
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/runtime/MarkdownFixture.svelte.txt",
+      "stored_path": ".audit/quality-pass/Q8/runtime/MarkdownFixture.svelte.txt.gz",
+      "compressed": true,
+      "original_sha256": "83a46be7f88df76bcb8dd4d9750b27e43950ce5da26bb10985a9fd610aa95148",
+      "stored_sha256": "235b53fe089dc59a0110ab3ec974ae82eede5a402139d490b4ce7cd58020b2f2",
+      "original_bytes": 439
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/runtime/__screenshots__/markdown.component.test.ts/actual-MessageContent-fallback--streamed-markdown-and-opt-in-Mermaid-runtime-1.png",
+      "stored_path": ".audit/quality-pass/Q8/runtime/__screenshots__/markdown.component.test.ts/actual-MessageContent-fallback--streamed-markdown-and-opt-in-Mermaid-runtime-1.png",
+      "compressed": false,
+      "original_sha256": "393307749a1f379d5de0101272b0f5bc0bb18515f95fd3a04a08afd5b4818765",
+      "stored_sha256": "393307749a1f379d5de0101272b0f5bc0bb18515f95fd3a04a08afd5b4818765",
+      "original_bytes": 11179
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/runtime/component.config.ts.txt",
+      "stored_path": ".audit/quality-pass/Q8/runtime/component.config.ts.txt.gz",
+      "compressed": true,
+      "original_sha256": "b9987c27b165dbb094b6d73d361204c3b13bbf5850b4bcbdfe89347a81017eae",
+      "stored_sha256": "654d0be65cd74e12f7a66490c01ee420ad4f4ea082a72ac9065825197a00a856",
+      "original_bytes": 269
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/runtime/cookie-check.mjs",
+      "stored_path": ".audit/quality-pass/Q8/runtime/cookie-check.mjs",
+      "compressed": false,
+      "original_sha256": "10947c68f2213889dbd958539161d59d228d4c767c0d1b4dc62997a53f1668c3",
+      "stored_sha256": "10947c68f2213889dbd958539161d59d228d4c767c0d1b4dc62997a53f1668c3",
+      "original_bytes": 2447
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/runtime/markdown.component.test.ts.txt",
+      "stored_path": ".audit/quality-pass/Q8/runtime/markdown.component.test.ts.txt.gz",
+      "compressed": true,
+      "original_sha256": "4f460f9c92c852b3518dfab7c3e425f322d293e01633018dc14cd1ba0e705a40",
+      "stored_sha256": "998e2b310babb553ccf42a92a7aeb220f44ae729baa3c31c6cc98d49a3ba3726",
+      "original_bytes": 1643
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/runtime/verify-client.mjs",
+      "stored_path": ".audit/quality-pass/Q8/runtime/verify-client.mjs",
+      "compressed": false,
+      "original_sha256": "e99c17fa5f6b8eeda59a96312def892cb77e700b54f9100ddaf20cd0527c11c0",
+      "stored_sha256": "e99c17fa5f6b8eeda59a96312def892cb77e700b54f9100ddaf20cd0527c11c0",
+      "original_bytes": 1299
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/runtime/verify-resolution.mjs",
+      "stored_path": ".audit/quality-pass/Q8/runtime/verify-resolution.mjs",
+      "compressed": false,
+      "original_sha256": "55febfe6233cd0f9857b926dcc77fcfce9c05bb1c606c43519dd5839defc6084",
+      "stored_sha256": "55febfe6233cd0f9857b926dcc77fcfce9c05bb1c606c43519dd5839defc6084",
+      "original_bytes": 2012
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/runtime/vite-observe.config.ts.txt",
+      "stored_path": ".audit/quality-pass/Q8/runtime/vite-observe.config.ts.txt.gz",
+      "compressed": true,
+      "original_sha256": "b053c54d24eaed9fe361860547fd45ba04e8fcca8f9a2c77d98e40e8dbd12a20",
+      "stored_sha256": "35e33e8b79ba75406587de24ff08829d8889a01f4246ff8b64e2483a4b8df17f",
+      "original_bytes": 1504
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/tracked-before-final-verification.json",
+      "stored_path": ".audit/quality-pass/Q8/tracked-before-final-verification.json.gz",
+      "compressed": true,
+      "original_sha256": "b338f844d27d5348d31f3c8ce994d6df10ef78cace7531d6825bd962649ae89a",
+      "stored_sha256": "fe28847de2759dc00dfa1ed2069ab8e19ebab001f99065dcef7acce9db0917ce",
+      "original_bytes": 887915
+    },
+    {
+      "original_path": ".audit/quality-pass/Q8/tracked-before-verification.json",
+      "stored_path": ".audit/quality-pass/Q8/tracked-before-verification.json.gz",
+      "compressed": true,
+      "original_sha256": "121827318bd743186334f704fc20fdc797d44b792e1c31d812fced954120b5bf",
+      "stored_sha256": "f0bf88f51c561c5f9aca9c9db55517cc52b2760c2213a341c0cd3bd028de8d7a",
+      "original_bytes": 887915
+    }
+  ]
+}
