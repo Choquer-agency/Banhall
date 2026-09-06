@@ -1,0 +1,80 @@
+[
+  {
+    "at": "2026-09-06T03:16:40.485635+00:00",
+    "argv": [
+      "codex",
+      "exec",
+      "--ephemeral",
+      "-m",
+      "gpt-6-astra",
+      "-c",
+      "model_reasoning_effort=\"medium\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "--sandbox",
+      "read-only",
+      "--color",
+      "never",
+      "--output-last-message",
+      "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/.audit/branch-consolidation/B11/review-blind-result.md",
+      "-"
+    ],
+    "prompt_sha256": "fe0504184937b6ba64c12186160b6fae7b421cde040ffeab3203927716a2d87f",
+    "spec_sha256": "5bacf60cfe097fdabb7714dadafd9aa3b1336379d28ddbcd87c6c6951ca865ac",
+    "exit_code": 0,
+    "completed_at": "2026-09-06T03:17:26.591712+00:00",
+    "result_exists": true
+  },
+  {
+    "at": "2026-09-06T03:16:40.485874+00:00",
+    "argv": [
+      "codex",
+      "exec",
+      "--ephemeral",
+      "-m",
+      "gpt-6-astra",
+      "-c",
+      "model_reasoning_effort=\"medium\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "--sandbox",
+      "read-only",
+      "--color",
+      "never",
+      "--output-last-message",
+      "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/.audit/branch-consolidation/B11/review-edge-result.md",
+      "-"
+    ],
+    "prompt_sha256": "5d180fc18a0b0fd733bbbb36d24f1926223892a678440886c46a416ab0e0ad73",
+    "spec_sha256": "5bacf60cfe097fdabb7714dadafd9aa3b1336379d28ddbcd87c6c6951ca865ac",
+    "exit_code": 0,
+    "completed_at": "2026-09-06T03:16:56.535260+00:00",
+    "result_exists": true
+  },
+  {
+    "at": "2026-09-06T03:16:40.485956+00:00",
+    "argv": [
+      "codex",
+      "exec",
+      "--ephemeral",
+      "-m",
+      "gpt-6-astra",
+      "-c",
+      "model_reasoning_effort=\"medium\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "--sandbox",
+      "read-only",
+      "--color",
+      "never",
+      "--output-last-message",
+      "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/.audit/branch-consolidation/B11/review-gap-result.md",
+      "-"
+    ],
+    "prompt_sha256": "cd0e9bbf7de2b2b92a2fe95d36bdf4d7c6fc33639e0d83b327d33aec393ae5b9",
+    "spec_sha256": "5bacf60cfe097fdabb7714dadafd9aa3b1336379d28ddbcd87c6c6951ca865ac",
+    "exit_code": 0,
+    "completed_at": "2026-09-06T03:17:08.825900+00:00",
+    "result_exists": true
+  }
+]

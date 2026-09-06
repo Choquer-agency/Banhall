@@ -1,0 +1,40 @@
+{
+  "worker_regression_sha256": "624f7f75f9e7b34ee02d50ef00bf7bf875ff8168d05a77d2526ff8b259c884f4",
+  "final_regression_sha256": "ed3b417e611cb0bd5530dd7ce464ad0975345c73e767a5a9221f3ffd441ae20e",
+  "commands": [
+    {
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "vitest.component.config.ts",
+        "src/routes/admin/brain/BrainAudit.component.test.ts"
+      ],
+      "exit": 0,
+      "log": ".audit/branch-consolidation/B11/parent-patch-0.log",
+      "sha256": "555bfc3a56665a0c0fa35d5ce08db506acbe7fb1995710638a1f37d917862003"
+    },
+    {
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "convex/brainUnlearn.test.ts"
+      ],
+      "exit": 0,
+      "log": ".audit/branch-consolidation/B11/parent-patch-1.log",
+      "sha256": "37207136051ae37e9438d868c5abb80094e8232aa86b5e1b0bc6acc81165e2ce"
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit": 0,
+      "log": ".audit/branch-consolidation/B11/parent-patch-2.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

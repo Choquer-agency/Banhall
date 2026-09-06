@@ -1,0 +1,10 @@
+[
+  {
+    "original_path": "src/routes/admin/brain/__screenshots__/BrainAudit.component.test.ts/-admin-brain-actual-audit-route-renders-all-eight-event-labels-and-same-source-recovery-newest-first-with-exact-row-details-1.png",
+    "stored_path": ".audit/branch-consolidation/B11/red-baseline-0.png",
+    "sha256": "7c020d6953a08a0ac34cfe64202a54774fa791cbf164fdc722a532adba591e8d",
+    "baseline_commit": "7c6a0099901a580d4c231df747d358faff064eaf",
+    "regression_sha256": "624f7f75f9e7b34ee02d50ef00bf7bf875ff8168d05a77d2526ff8b259c884f4",
+    "provenance": "Vitest red.log automatic failed-label screenshot; not a after/final UI claim"
+  }
+]

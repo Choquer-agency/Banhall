@@ -18,7 +18,9 @@
     ingest: "Imported",
     approve: "Approved",
     reject: "Rejected",
-    revoke: "Revoked (unlearned)",
+    revoke: "Revoked (unlearn requested)",
+    unlearn_confirmed: "Erasure confirmed",
+    unlearn_failed: "Erasure attempt failed",
     reweight: "Reweighted",
     revert: "Reverted",
   };
