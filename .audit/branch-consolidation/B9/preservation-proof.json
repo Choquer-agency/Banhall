@@ -1,0 +1,20 @@
+{
+  "changedTrackedPaths": [
+    ".factory/factory.toml",
+    "README.md",
+    "docs/design-system.md",
+    "docs/svelte-migration.md",
+    "docs/system-map.md",
+    "env.example"
+  ],
+  "protectedFilesUnchanged": 5876,
+  "factoryOnlyChangedLine": [
+    25
+  ],
+  "readmeVerificationByteIdentical": true,
+  "prerequisiteAncestors": {
+    "B4": "d22e1fa0880512212865d7d60aeb8cfe600dbaa2",
+    "B6": "71e809f9f58e07b1b436fff95b2dbe6e9d05b27d",
+    "B7": "d28cfc0bc0a34e78683152553143179fac2682c7"
+  }
+}

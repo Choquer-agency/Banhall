@@ -400,7 +400,7 @@ live Obvious evidence (Chrome control unavailable).
   content to collapse. Hosts keep the trigger (`aria-expanded` +
   `aria-controls`) and use `ui/DisclosureChevron.svelte` for the rule-7
   chevron — a chevron must never animate while its content snaps. Adopted by
-  MyWorkGroup, ProjectsClientGroup, and the workspace header's mobile search
+  ProjectsClientGroup and the workspace header's mobile search
   reveal; the global bits-ui 300ms scale/fade enter/exit for dropdowns,
   selects, tooltips, and dialogs is verified and preserved. No decorative
   perpetual animation anywhere.

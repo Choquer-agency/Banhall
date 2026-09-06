@@ -386,7 +386,7 @@ Read the solid arrows: the loop from writer signal to digest to prompt is live a
 | Spend alerts fire when a project runs hot | Metered, no alert yet (decision: alert only, never cap) | AD-9 |
 | Staging, CI deploy, in-app alerts, backups | None; no prod deployment exists yet | AD-22 |
 
-Summary: the workflow, provenance, and human-gating foundations are real and tested, and they are exactly what a paste-into-ChatGPT workflow lacks. The learning loop is wired but blind, the trust boundary is half-built, and data lifecycle and authorization ceilings are missing. Those four are Sprint 2 and the new AD-19 to AD-22.
+Summary: the workflow, provenance, and human-gating foundations are real and tested, and they are exactly what a paste-into-ChatGPT workflow lacks. The learning loop has bounded observational measurements and associated judgments, but no causal proof of better reports; prompt/digest outcome attribution remains unmeasured and CRA outcome signals remain schema only. The trust boundary is half-built, and data lifecycle and authorization ceilings are missing. Those four are Sprint 2 and the new AD-19 to AD-22.
 
 ## 13. Top risks
 
@@ -395,7 +395,7 @@ Summary: the workflow, provenance, and human-gating foundations are real and tes
 | 1 | `ready_for_delivery` and `delivered` fail closed | No project can be finished (Q1, product blocker) |
 | 9 | Transcript fencing, uploader-role trust and the chat evidence boundary landed (CAP-2, CAP-3, CAP-4); the rest of AD-11 is open | Prompt injection channel narrowed; remaining CAP items are the follow-up |
 | 11 | Verbatim client text and titles enter digests and the Brain | Client A's sentences and name can surface in client B's draft |
-| 12 | `brainProvenance` and post-edit distance are write-only | Cannot prove learning works or roll back a bad digest on evidence |
+| 12 | `brainProvenance`, persisted post-edit distance and rerank outcomes feed the bounded learning-health read surface; prompt/digest outcome attribution remains unmeasured and CRA outcome signals remain schema only | Observational measurements and associated judgments do not establish that learning causes better reports or attribute outcomes to a digest |
 | 39 | ~50 writes (delete document and blob, delete comment, research egress, chat spend, identity fields) need only "any role" | Any invited writer can act destructively on any client's project with no trail |
 | 43 | `deleteProject` cascades 8 of 49 tables and no storage blobs | Frozen transcripts, files, snapshots, chat threads survive a delete |
 | 44 | No egress register; OpenRouter without `data_collection: deny`; Graph `Files.Read.All`; research egress without consent | Confidentiality posture is not stated anywhere |
@@ -414,7 +414,7 @@ Full register (51 rows, 8 fixed) is in the spine.
 | Q5 | Closed 2026-09-04: no prod yet, one deployment serves everyone; split at launch. Open: is the changelog `repository_dispatch` wired? | Operations |
 | Q6 | Ingestion `approveItem` skips the pending queue. Intentional? | Knowledge governance |
 | Q7 | Closed by AD-11a | AI engine |
-| Q8 | Port or delete the 14 dead bun tests; add component tests to CI? | Tests |
+| Q8 | Closed 2026-09-05: legacy test migration and mapped fake-suite replacement admitted (B6); obsolete Bun dependencies/configuration pruned (B7). The discovery guard accounts for executable tests and three historical archives. CI defines separate verification and browser component jobs; required checks remain a separate branch-protection setting. | Tests |
 | Q9 | Retention windows (proposed 90 / 90 / 180 / 180 days) | Data lifecycle |
 | Q10 | Closed 2026-09-04: Owner or Admin for delete / egress / spend / identity writes | Authorization |
 | Q11 | Share-token rotation and expiry (proposed 30 / 90 days) | Authorization |
@@ -424,7 +424,7 @@ Full register (51 rows, 8 fixed) is in the spine.
 
 ## 15. Stack
 
-svelte 5.56.6, @sveltejs/kit 2.70.1, vite 8.1.5, tailwindcss 4.3.3, bits-ui 2.18, svelte-tiptap 3.0, convex 1.42.3, convex-svelte 0.14, @convex-dev/agent 0.6.4, @convex-dev/rag 0.7.5, @convex-dev/better-auth 0.12, ai 6.0.230 (v6 line by decision until AD-11 CAP-4 lands), @ai-sdk/anthropic 3.0, vitest 4.1, Node 22 in CI. Default model `claude-sonnet-5` direct; `openai/*` and `google/*` via OpenRouter; Voyage `voyage-3-large` + `rerank-2.5`.
+svelte 5.56.6, @sveltejs/kit 2.70.1, vite 8.1.5, tailwindcss 4.3.3, bits-ui 2.18, svelte-tiptap 3.0, convex 1.42.3, convex-svelte 0.14, @convex-dev/agent 0.6.4, @convex-dev/rag 0.7.5, @convex-dev/better-auth 0.12, ai 6.0.230 (v6 line by decision until AD-11 CAP-4 lands), @ai-sdk/anthropic 3.0, vitest 4.1, Node 24 in CI (from `.nvmrc`). Default model `claude-sonnet-5` direct; `openai/*` and `google/*` via OpenRouter; Voyage `voyage-3-large` + `rerank-2.5`.
 
 ## 16. Where to go next
 

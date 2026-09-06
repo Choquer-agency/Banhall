@@ -1,0 +1,22 @@
+# B9 parent review triage
+
+Three fresh Astra6 medium layers completed with exit0. Edge returned `[]`; gap found no gaps. Twelve blind findings evaluated independently. Parent makes two trivial documentation patches; no implementation/configuration behavior beyond the approved single smoke value changes.
+
+| Finding | Severity / route | Resolution |
+| --- | --- | --- |
+| Copy command overwrites configured checkout | medium / patch | Use an explicit existence guard and preserve existing values, adding only missing example entries. Initial copy remains before Convex provisioning. Verify command behavior with temporary fixture files, never real env values. |
+| Missing configuration during initial sync | low / reject | Full provisioning troubleshooting exceeds the bounded documentation reconciliation. It correctly tells readers to select intended development deployment and configure backend settings; no successful fresh deployment is claimed. |
+| Minimum complete app/sign-in/generation settings | low / reject | Feature-by-feature onboarding and invite-only account setup are broader than the exact env-name grouping. Existing consumers are accurately named; no claim that optional schema metadata means every feature works without credentials. |
+| SITE_URL concrete value | low / reject | Current code passes SITE_URL to Better Auth baseURL. The scoped docs correctly distinguish it from PUBLIC_CONVEX_SITE_URL; inferring universal deployment values would exceed this source-backed correction. No new hosting configuration is prescribed. |
+| Secret generation/rotation guidance | low / reject | Broader operational procedure is not needed to identify the installed library consumer; no secret values inspected or rotation policy invented. |
+| Trusted-origin formats | low / reject | Current auth source documents comma-separated deployment-specific origins. A complete origin provisioning guide is outside this exact six-path reconciliation; listed name and direct-read classification are correct. |
+| Concrete backend env deployment commands | low / reject | Exact environment ownership and intended deployment selection are stated. No provisioning/credential workflow is authorized in this batch; expanded CLI examples are not required for the changed claims. |
+| Contextual retrieval tradeoff removed | low / patch | env.example now states unset disables contextualization,1 adds Anthropic calls/cost using ANTHROPIC_API_KEY, and embeddings remain separate. Source ingest.ts directly supports this; no free-ingestion or causal quality claim. |
+| Full new-address frontend/backend hosting procedure | low / reject | Broader deployment manual than this setup reconciliation; no new deployment or implied complete production readiness. |
+| Factory missing-browser failure routing | low / reject | Current README and root verification contract already describe Chromium install/preflight prerequisites and actionable failures. Adding engine status policy or parser behavior is prohibited; no repeated-loop defect demonstrated. |
+| Screenshot side effects absent from config | low / reject | Preserved README Verification explicitly documents generated historical captures and inspection/restoration; project agents inherit AGENTS verification instructions. Single smoke comment is not a replacement operational guide. |
+| Broad npm-run permission acceptance | medium / reject | Explicitly accepted in authorized SPEC/preflight: installed parser derives Bash(npm run*) when roles.qa.allow is absent. The scope does not claim exact-command isolation. QA remains constrained by task/repository scope; roles/parser and deterministic verify unchanged. This documented existing parser behavior is retained, not hidden by TOML-only proof. |
+
+No intent gap, bad specification or proven new pre-existing defect; no native ledger mutation. Parent independent tomllib and byte comparisons preserve README Verification and all factory lines except25. Documentation/config-only validation is intentional; prior B8 component gate plus later combined gates provide distinct runtime proof, not a fabricated B9 test run.
+
+The first parent guard candidate, cp -n, preserved an existing fixture but returned1 on this host. parent-copy-initial.json retains that result. Replaced with the exact documented shell conditional; absent and existing fixture cases both exit0 with expected bytes. No real environment file was read or modified.

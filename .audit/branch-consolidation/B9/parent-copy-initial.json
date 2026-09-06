@@ -1,0 +1,25 @@
+{
+  "argv": [
+    "cp",
+    "-n",
+    "env.example",
+    ".env.local"
+  ],
+  "results": [
+    {
+      "state": "absent",
+      "exit": 0,
+      "stdout": "",
+      "stderr": "",
+      "fixture_result": "PUBLIC_CONVEX_URL=\n"
+    },
+    {
+      "state": "existing",
+      "exit": 1,
+      "stdout": "",
+      "stderr": "",
+      "fixture_result": "PUBLIC_CONVEX_URL=https://fixture.convex.cloud\n"
+    }
+  ],
+  "reason_replaced": "Existing destination is preserved but cp -n exits1 on this host; use explicit shell conditional with success for no-op."
+}

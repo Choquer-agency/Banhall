@@ -1,0 +1,22 @@
+{
+  "copy_argv": [
+    "sh",
+    "-c",
+    "if [ ! -e .env.local ]; then\n  cp env.example .env.local\nfi"
+  ],
+  "fixtures": [
+    {
+      "state": "absent",
+      "exit": 0,
+      "expected_bytes_preserved": true
+    },
+    {
+      "state": "existing",
+      "exit": 0,
+      "expected_bytes_preserved": true
+    }
+  ],
+  "readme_verification_preserved": true,
+  "factory_only_semantic_key": "qa.smoke",
+  "actual_env_files_read": false
+}
