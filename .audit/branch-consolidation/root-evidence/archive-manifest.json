@@ -4,8 +4,8 @@
     {
       "original_path": ".audit/branch-consolidation/README.md",
       "stored_path": ".audit/branch-consolidation/README.md",
-      "original_sha256": "e56a7f9d07cb843a7915d80f9afb9d6e121bd5ac09e25d9f6d82dbfaec5a17a0",
-      "stored_sha256": "e56a7f9d07cb843a7915d80f9afb9d6e121bd5ac09e25d9f6d82dbfaec5a17a0",
+      "original_sha256": "b362603eabf0443e95768116bcc8534b5efa3276c7e8d0806c9c16d862f6189b",
+      "stored_sha256": "b362603eabf0443e95768116bcc8534b5efa3276c7e8d0806c9c16d862f6189b",
       "encoding": "identity"
     },
     {
@@ -46,8 +46,8 @@
     {
       "original_path": ".audit/branch-consolidation/decisions.tsv",
       "stored_path": ".audit/branch-consolidation/decisions.tsv",
-      "original_sha256": "5e582b4e1d09b9b6079c920ffb192b0744f75ca6e059d581ad38543b4d06425e",
-      "stored_sha256": "5e582b4e1d09b9b6079c920ffb192b0744f75ca6e059d581ad38543b4d06425e",
+      "original_sha256": "9736c29f8d8f83f168d4e7f894d1f2cac668bf8ce7a22d2be42437dd33988cfb",
+      "stored_sha256": "9736c29f8d8f83f168d4e7f894d1f2cac668bf8ce7a22d2be42437dd33988cfb",
       "encoding": "identity"
     },
     {
@@ -109,8 +109,8 @@
     {
       "original_path": ".audit/branch-consolidation/state.json",
       "stored_path": ".audit/branch-consolidation/root-evidence/state-at-admission.json",
-      "original_sha256": "82f614f292f505c28bbd9aa63abe8a7f97e9f401a0ae01600b45db2a25e5dde2",
-      "stored_sha256": "82f614f292f505c28bbd9aa63abe8a7f97e9f401a0ae01600b45db2a25e5dde2",
+      "original_sha256": "383e0ce4c2460d8ad918a45e3869dd06e9f8c410be784a6d0470336d01c5b572",
+      "stored_sha256": "383e0ce4c2460d8ad918a45e3869dd06e9f8c410be784a6d0470336d01c5b572",
       "encoding": "identity"
     },
     {

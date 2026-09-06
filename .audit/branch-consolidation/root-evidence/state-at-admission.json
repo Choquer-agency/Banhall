@@ -1,5 +1,5 @@
 {
-  "phase": "All source accepted; audit package admission before ancestry",
+  "phase": "Audited source and all captured ancestry ready for PR",
   "baseline": "cc6b706c3b43f971d944cb703a4174eabf3134d9",
   "branch": "codex/branch-consolidation",
   "scope": "All captured local/remote branch tips and registered worktree state; integrate outstanding valid changes with BMAD review and per-batch gates before normal PR/main merge; preserve reviewed current policies.",
@@ -10,9 +10,8 @@
   },
   "mutations": "Root owns integration; auditors read-only except own audit artifacts.",
   "pending": [
-    "Commit final audit package and verify immutable archives/source identity",
-    "Record historical ancestry without source changes",
-    "Push PR, manually require both actual-head CI jobs, normal merge and verify main"
+    "Push final candidate PR and require both actual-head GitHub CI jobs",
+    "Normal merge, verify main checks and ancestry, final Sol trail review"
   ],
   "active_batch": null,
   "implementation_owner": "Fresh GPT-6 Astra medium worker",
@@ -127,5 +126,7 @@
   "b8_commit": "9d83ffd3091c1e801285149622c879abe0087556",
   "b9_commit": "8511662cb8fd9748d02f413c633bf21b5cdec9ee",
   "b10_commit": "7c6a0099901a580d4c231df747d358faff064eaf",
-  "b11_commit": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235"
+  "b11_commit": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235",
+  "ancestry_commit": "21f0fc34c9b39aa1be7109fd24f52555af20bc54",
+  "accepted_source_commit": "2bf526d15b7c6b776b3ed5f404b95d584eb4e235"
 }

@@ -30,6 +30,20 @@
       "encoding": "identity"
     },
     {
+      "original_path": ".audit/branch-consolidation/finalization/ancestry-after.json",
+      "stored_path": ".audit/branch-consolidation/finalization/ancestry-after.json",
+      "original_sha256": "5a748f37b4f66bbb36040959fea1ee7dbee93e387e0bba48c0b3ff6d67360bba",
+      "stored_sha256": "5a748f37b4f66bbb36040959fea1ee7dbee93e387e0bba48c0b3ff6d67360bba",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/ancestry-after.log",
+      "stored_path": ".audit/branch-consolidation/finalization/ancestry-after.log.gz",
+      "original_sha256": "5a748f37b4f66bbb36040959fea1ee7dbee93e387e0bba48c0b3ff6d67360bba",
+      "stored_sha256": "0ec6ab59fefdedda82caefd1911395af165791d13f96d0ab6980d3398daae23b",
+      "encoding": "gzip"
+    },
+    {
       "original_path": ".audit/branch-consolidation/finalization/ancestry-before.json",
       "stored_path": ".audit/branch-consolidation/finalization/ancestry-before.json",
       "original_sha256": "dfc3897bd0d5dadd1e43702efb2877582edc8b7cdc3354f1552c007060fbfe0e",
@@ -41,6 +55,20 @@
       "stored_path": ".audit/branch-consolidation/finalization/ancestry-before.log.gz",
       "original_sha256": "dfc3897bd0d5dadd1e43702efb2877582edc8b7cdc3354f1552c007060fbfe0e",
       "stored_sha256": "5a6e7ce18cf3e0cd38a9e8f30f03d9a9e2bb6ec0b403065e12a70de646c26ff4",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/ancestry-merge.json",
+      "stored_path": ".audit/branch-consolidation/finalization/ancestry-merge.json",
+      "original_sha256": "4b210b8926a0d6d52ac92991f84da32f862b7df1bc10c569548f5dced16a7e3e",
+      "stored_sha256": "4b210b8926a0d6d52ac92991f84da32f862b7df1bc10c569548f5dced16a7e3e",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/ancestry-merge.log",
+      "stored_path": ".audit/branch-consolidation/finalization/ancestry-merge.log.gz",
+      "original_sha256": "4a5fa0707306d0dcaf5be565106f031a0a0338e86a019205dab8b2b2aedb77c8",
+      "stored_sha256": "e5011778ba74d0eb66752ff85d8ee8a928a084e17c515d8b5fb8f78a2ba59a3a",
       "encoding": "gzip"
     },
     {
@@ -63,6 +91,27 @@
       "original_sha256": "82f614f292f505c28bbd9aa63abe8a7f97e9f401a0ae01600b45db2a25e5dde2",
       "stored_sha256": "82f614f292f505c28bbd9aa63abe8a7f97e9f401a0ae01600b45db2a25e5dde2",
       "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/package-archives-invalid-arg.log",
+      "stored_path": ".audit/branch-consolidation/finalization/package-archives-invalid-arg.log.gz",
+      "original_sha256": "e5b8f900c495e03d722f06055b9ffafc82ba06cf4c99d276a951f2ac57635232",
+      "stored_sha256": "4ce3636d7ec71381a6b68afc82f1fb27ad3180df778b85cc3b5d9d2ea423be00",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/package-archives.json",
+      "stored_path": ".audit/branch-consolidation/finalization/package-archives.json",
+      "original_sha256": "835a0ae1f5f0db62c81aa17f140d65802cc248ddd50f94b4a55173974dffcbfc",
+      "stored_sha256": "835a0ae1f5f0db62c81aa17f140d65802cc248ddd50f94b4a55173974dffcbfc",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/finalization/package-archives.log",
+      "stored_path": ".audit/branch-consolidation/finalization/package-archives.log.gz",
+      "original_sha256": "835a0ae1f5f0db62c81aa17f140d65802cc248ddd50f94b4a55173974dffcbfc",
+      "stored_sha256": "edafc6d19948478bdf7bf071ae25e6a3403a59eccbe25b568b3f8e0b24d6714d",
+      "encoding": "gzip"
     },
     {
       "original_path": ".audit/branch-consolidation/finalization/package-discovery.log",
