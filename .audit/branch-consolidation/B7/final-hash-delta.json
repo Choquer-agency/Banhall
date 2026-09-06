@@ -1,0 +1,22 @@
+{
+  "changed": {
+    "bun.lock": {
+      "before": "aa998e080f04609165959646fe5bc1a170d5b43075af33f5ff95d3a5486ed3e0",
+      "after": null
+    },
+    "package-lock.json": {
+      "before": "d4213ef7b50aa850ea095dbe6c65b35306ae7589a90073c0e377147421a33dac",
+      "after": "d31482119f86dae5aae70a05ffcb19b1ed9cab43bb460b738f1aa0686906cda3"
+    },
+    "package.json": {
+      "before": "f30aa3e89510822bf7b4c9a3564b7584a205168846824d809e32f0da34c7c625",
+      "after": "a8498465ae520899f577f515785bc1c39170fe86faf43e9be006a0688b57889c"
+    },
+    "tsconfig.json": {
+      "before": "d39277f0a90d57dd28b0a4bc8afe625b7873f2c671696ca50964f62213b249ec",
+      "after": "58fc5b8f09df6a361bc729667016ac485bdd80834d6a8202f0c1b888a30890e5"
+    }
+  },
+  "unchanged_tracked_files": 5716,
+  "staged_changes": []
+}

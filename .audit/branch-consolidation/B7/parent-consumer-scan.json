@@ -1,0 +1,2197 @@
+{
+  "tracked_inventory_argv": [
+    "git",
+    "ls-files",
+    "-z"
+  ],
+  "selected_roots": [
+    "src/",
+    "convex/",
+    "shared/",
+    "scripts/",
+    "tests/",
+    ".github/"
+  ],
+  "selected_root_files_and_factory_config": true,
+  "scanned": [
+    ".factory/factory.toml",
+    ".github/workflows/ci.yml",
+    ".github/workflows/publish-changelog.yml",
+    ".gitignore",
+    ".npmrc",
+    ".nvmrc",
+    "components.json",
+    "convex/_generated/ai/ai-files.state.json",
+    "convex/_generated/api.d.ts",
+    "convex/_generated/api.js",
+    "convex/_generated/dataModel.d.ts",
+    "convex/_generated/server.d.ts",
+    "convex/_generated/server.js",
+    "convex/ai/__fixtures__/injection/instruction-override.txt",
+    "convex/ai/__fixtures__/injection/marker-forgery.txt",
+    "convex/ai/__fixtures__/injection/role-spoof.txt",
+    "convex/ai/__fixtures__/injection/tool-call-request.txt",
+    "convex/ai/analyzerAgent.ts",
+    "convex/ai/brain/embeddings.ts",
+    "convex/ai/brain/erase.ts",
+    "convex/ai/brain/ingest.ts",
+    "convex/ai/brain/query.ts",
+    "convex/ai/brain/rag.ts",
+    "convex/ai/brain/retrieve.test.ts",
+    "convex/ai/brain/retrieve.ts",
+    "convex/ai/brain/retrieveFloorEdges.test.ts",
+    "convex/ai/brain/retrieveOutcomes.test.ts",
+    "convex/ai/brain/scienceRouting.ts",
+    "convex/ai/brainRetrieval.ts",
+    "convex/ai/changelogPipeline.ts",
+    "convex/ai/chatAgentV2.ts",
+    "convex/ai/chatEvidence.test.ts",
+    "convex/ai/chatEvidence.ts",
+    "convex/ai/chronologyAgent.test.ts",
+    "convex/ai/chronologyAgent.ts",
+    "convex/ai/condense.ts",
+    "convex/ai/condenseAgent.test.ts",
+    "convex/ai/condenseAgent.ts",
+    "convex/ai/contextBoundary.test.ts",
+    "convex/ai/financialAgent.ts",
+    "convex/ai/instrument.test.ts",
+    "convex/ai/instrument.ts",
+    "convex/ai/iterative.ts",
+    "convex/ai/learning.ts",
+    "convex/ai/model.ts",
+    "convex/ai/modelFeedback.ts",
+    "convex/ai/openrouter.ts",
+    "convex/ai/openrouterCore.test.ts",
+    "convex/ai/openrouterCore.ts",
+    "convex/ai/openrouterRetryLoop.test.ts",
+    "convex/ai/pipeline.compare.test.ts",
+    "convex/ai/pipeline.ts",
+    "convex/ai/postQa.ts",
+    "convex/ai/promptDefinitions.ts",
+    "convex/ai/promptProgram.ts",
+    "convex/ai/promptScaffolds.test.ts",
+    "convex/ai/prompts.test.ts",
+    "convex/ai/prompts.ts",
+    "convex/ai/providers.test.ts",
+    "convex/ai/providers.ts",
+    "convex/ai/qaAgent.ts",
+    "convex/ai/qaChecks.test.ts",
+    "convex/ai/qaChecks.ts",
+    "convex/ai/reasoningSignature.test.ts",
+    "convex/ai/reasoningSignature.ts",
+    "convex/ai/research/actions.ts",
+    "convex/ai/research/core.test.ts",
+    "convex/ai/research/core.ts",
+    "convex/ai/research/manager.ts",
+    "convex/ai/research/openrouter.ts",
+    "convex/ai/research/workflow.ts",
+    "convex/ai/reviewAgent.ts",
+    "convex/ai/scrubPipeline.test.ts",
+    "convex/ai/section242Agent.ts",
+    "convex/ai/section244Agent.ts",
+    "convex/ai/section246Agent.ts",
+    "convex/ai/sectionAgents.test.ts",
+    "convex/ai/structured.test.ts",
+    "convex/ai/structured.ts",
+    "convex/ai/styleAnalysis.test.ts",
+    "convex/ai/styleAnalysis.ts",
+    "convex/ai/trustedContext.test.ts",
+    "convex/ai/trustedContext.ts",
+    "convex/ai/writerStyle.ts",
+    "convex/aiUsage.ts",
+    "convex/appSettings.test.ts",
+    "convex/appSettings.ts",
+    "convex/auth.config.ts",
+    "convex/auth.ts",
+    "convex/brain.ts",
+    "convex/brainErase.test.ts",
+    "convex/brainFeedback.test.ts",
+    "convex/brainUnlearn.test.ts",
+    "convex/changelog.ts",
+    "convex/chat.ts",
+    "convex/chatContext.test.ts",
+    "convex/chatContextLinkedFallback.test.ts",
+    "convex/chatEvidenceBoundary.test.ts",
+    "convex/chatFeedback.test.ts",
+    "convex/chatFeedback.ts",
+    "convex/chatFeedbackReadLimits.test.ts",
+    "convex/chatProposals.test.ts",
+    "convex/chatTurns.test.ts",
+    "convex/chatV2.ts",
+    "convex/comments.test.ts",
+    "convex/comments.ts",
+    "convex/convex.config.ts",
+    "convex/crons.ts",
+    "convex/dashboard.test.ts",
+    "convex/dashboard.ts",
+    "convex/dashboardBackfill.ts",
+    "convex/dashboardStageCounts.test.ts",
+    "convex/debugTools.ts",
+    "convex/documents.test.ts",
+    "convex/documents.ts",
+    "convex/emailMigration.test.ts",
+    "convex/emailMigration.ts",
+    "convex/errorReports.ts",
+    "convex/financial.ts",
+    "convex/generationAttribution.test.ts",
+    "convex/generationEntryFailure.test.ts",
+    "convex/generationInput.test.ts",
+    "convex/generationLifecycle.test.ts",
+    "convex/generationReaper.test.ts",
+    "convex/generationRecovery.test.ts",
+    "convex/generations.ts",
+    "convex/houseStyle.test.ts",
+    "convex/houseStyle.ts",
+    "convex/http.ts",
+    "convex/ingestion.test.ts",
+    "convex/ingestion.ts",
+    "convex/ingestionPort.test.ts",
+    "convex/ingestionPort.ts",
+    "convex/ingestionSync.ts",
+    "convex/invites.test.ts",
+    "convex/invites.ts",
+    "convex/learning.test.ts",
+    "convex/learning.ts",
+    "convex/learningFailure.test.ts",
+    "convex/learningHealth.test.ts",
+    "convex/learningHealth.ts",
+    "convex/learningHealthBytes.test.ts",
+    "convex/lib/activeGeneration.ts",
+    "convex/lib/auth.ts",
+    "convex/lib/contracts.ts",
+    "convex/lib/dashboardProjection.ts",
+    "convex/lib/deidentify.test.ts",
+    "convex/lib/deidentify.ts",
+    "convex/lib/editDistance.test.ts",
+    "convex/lib/editDistance.ts",
+    "convex/lib/eligibleOwner.ts",
+    "convex/lib/email.test.ts",
+    "convex/lib/email.ts",
+    "convex/lib/ingestionClassify.ts",
+    "convex/lib/learningAdmission.ts",
+    "convex/lib/learningHealthReads.ts",
+    "convex/lib/lineLimits.test.ts",
+    "convex/lib/lineLimits.ts",
+    "convex/lib/ownerMatching.ts",
+    "convex/lib/providerConfig.ts",
+    "convex/lib/qaFindings.ts",
+    "convex/lib/reportEdits.ts",
+    "convex/lib/rerankTelemetry.ts",
+    "convex/lib/roleCapabilities.ts",
+    "convex/lib/snapshots.test.ts",
+    "convex/lib/snapshots.ts",
+    "convex/lib/styleOverrides.ts",
+    "convex/lib/teamRoster.ts",
+    "convex/lib/tiptapReport.test.ts",
+    "convex/lib/tiptapReport.ts",
+    "convex/lib/transcripts.ts",
+    "convex/lib/uploadAttempts.ts",
+    "convex/lib/workItemOversight.ts",
+    "convex/liveWriterLabels.test.ts",
+    "convex/myWork.test.ts",
+    "convex/myWork.ts",
+    "convex/myWorkBackfill.ts",
+    "convex/myWorkOps.ts",
+    "convex/oversight.ts",
+    "convex/ownerBackfill.test.ts",
+    "convex/ownerBackfill.ts",
+    "convex/pdReviewProjection.test.ts",
+    "convex/pdReviews.ts",
+    "convex/preEditSnapshot.test.ts",
+    "convex/projectAccess.test.ts",
+    "convex/projectActivity.test.ts",
+    "convex/projectActivity.ts",
+    "convex/projectCreation.test.ts",
+    "convex/projectCreation.ts",
+    "convex/projectDuplication.ts",
+    "convex/projectEvents.test.ts",
+    "convex/projectEvidence.ts",
+    "convex/projectWorkflow.test.ts",
+    "convex/projectWorkflow.ts",
+    "convex/projectWorkflowHeader.test.ts",
+    "convex/projects.test.ts",
+    "convex/projects.ts",
+    "convex/providerReadiness.ts",
+    "convex/qaBlocking.test.ts",
+    "convex/qaFindingsCleanup.test.ts",
+    "convex/reaperIntegration.test.ts",
+    "convex/reportAuthz.test.ts",
+    "convex/reportEditAccess.test.ts",
+    "convex/reportEditDistance.test.ts",
+    "convex/reportEditDistance.ts",
+    "convex/reportViews.ts",
+    "convex/reports.test.ts",
+    "convex/reports.ts",
+    "convex/research.ts",
+    "convex/researchProjection.test.ts",
+    "convex/researchReviewMode.test.ts",
+    "convex/reviewFromProject.test.ts",
+    "convex/reviewFromProject.ts",
+    "convex/reviews.test.ts",
+    "convex/reviews.ts",
+    "convex/roleCapabilities.test.ts",
+    "convex/sanitizationBoundary.test.ts",
+    "convex/schema.ts",
+    "convex/scienceCodeSuggestions.ts",
+    "convex/seed.ts",
+    "convex/snapshots.test.ts",
+    "convex/snapshots.ts",
+    "convex/tags.ts",
+    "convex/transcriptDigests.test.ts",
+    "convex/transcriptDigests.ts",
+    "convex/transcripts.test.ts",
+    "convex/transcripts.ts",
+    "convex/tsconfig.json",
+    "convex/uploadAttempts.test.ts",
+    "convex/uploadAttempts.ts",
+    "convex/users.test.ts",
+    "convex/users.ts",
+    "convex/workItems.test.ts",
+    "convex/workItems.ts",
+    "convex/workspaceRollout.test.ts",
+    "convex/workspaceRollout.ts",
+    "convex/writerProfiles.test.ts",
+    "convex/writerProfiles.ts",
+    "env.example",
+    "package.json",
+    "scripts/bench/editor-search.mjs",
+    "scripts/check-test-discovery.mjs",
+    "scripts/client-uploader/README.txt",
+    "scripts/client-uploader/Run-Uploader.bat",
+    "scripts/client-uploader/Run-Uploader.command",
+    "scripts/client-uploader/banhall-uploader.ps1",
+    "scripts/client-uploader/banhall-uploader.sh",
+    "scripts/client-uploader/setup.sh",
+    "scripts/client-uploader/tests/run-tests.ps1",
+    "scripts/client-uploader/tests/run-tests.sh",
+    "scripts/client-uploader/uploader-lib.ps1",
+    "scripts/loop-verify.sh",
+    "scripts/onedrive-crawler.mjs",
+    "scripts/publish-changelog.mjs",
+    "scripts/seed-brain.mjs",
+    "shared/bannedWords.test.ts",
+    "shared/bannedWords.ts",
+    "shared/capabilities.ts",
+    "shared/chatProposals.ts",
+    "shared/craScienceCodes.ts",
+    "shared/dashboardProjection.ts",
+    "shared/documentStatus.ts",
+    "shared/firmTime.test.ts",
+    "shared/firmTime.ts",
+    "shared/generationModels.ts",
+    "shared/houseRules.ts",
+    "shared/humanProse.test.ts",
+    "shared/humanProse.ts",
+    "shared/industries.ts",
+    "shared/pdReview.ts",
+    "shared/projectTypes.ts",
+    "shared/qaScorecard.ts",
+    "shared/roles.ts",
+    "shared/styleOverrides.test.ts",
+    "shared/styleOverrides.ts",
+    "shared/workItems.ts",
+    "shared/workflowLabels.ts",
+    "shared/workflowStages.test.ts",
+    "shared/workflowStages.ts",
+    "shared/workflowTransitions.ts",
+    "shared/writerProfileLimits.ts",
+    "skills-lock.json",
+    "src/app.d.ts",
+    "src/app.html",
+    "src/hooks.server.ts",
+    "src/lib/assets/favicon.svg",
+    "src/lib/authClient.ts",
+    "src/lib/chat/agentInternal.ts",
+    "src/lib/chat/turnParts.test.ts",
+    "src/lib/chat/turnParts.ts",
+    "src/lib/chat/uiMessages.svelte.ts",
+    "src/lib/components/BuildStamp.svelte",
+    "src/lib/components/admin/AdminWorkspacePage.component.test.ts",
+    "src/lib/components/admin/AdminWorkspacePage.svelte",
+    "src/lib/components/admin/DailySpendChart.svelte",
+    "src/lib/components/admin/FeedbackRow.svelte",
+    "src/lib/components/admin/SourceRow.svelte",
+    "src/lib/components/admin/SpendBars.svelte",
+    "src/lib/components/chat/AgentChatPanel.svelte",
+    "src/lib/components/chat/AssistantTurn.svelte",
+    "src/lib/components/chat/ChatFeedback.component.test.ts",
+    "src/lib/components/chat/ChatProposalArtifact.svelte",
+    "src/lib/components/chat/FeedbackSubscription.component.test.ts",
+    "src/lib/components/chat/OptimisticSend.component.test.ts",
+    "src/lib/components/chat/ProposalCard.svelte",
+    "src/lib/components/chat/ProposedEditCard.svelte",
+    "src/lib/components/chat/ReasoningTraceStep.svelte",
+    "src/lib/components/chat/RegenerateLimits.component.test.ts",
+    "src/lib/components/chat/RegenerateQueryState.component.test.ts",
+    "src/lib/components/chat/RegenerateTurn.component.test.ts",
+    "src/lib/components/chat/ToolTraceStep.svelte",
+    "src/lib/components/chat/TurnTrace.svelte",
+    "src/lib/components/chat/primitives/ActionButton.svelte",
+    "src/lib/components/chat/primitives/ChainOfThought.svelte",
+    "src/lib/components/chat/primitives/ChainOfThoughtContent.svelte",
+    "src/lib/components/chat/primitives/ChainOfThoughtItem.svelte",
+    "src/lib/components/chat/primitives/ChainOfThoughtStep.svelte",
+    "src/lib/components/chat/primitives/ChainOfThoughtTrigger.svelte",
+    "src/lib/components/chat/primitives/ChatContainer.svelte",
+    "src/lib/components/chat/primitives/FeedbackBar.svelte",
+    "src/lib/components/chat/primitives/Loader.svelte",
+    "src/lib/components/chat/primitives/Message.svelte",
+    "src/lib/components/chat/primitives/MessageActions.svelte",
+    "src/lib/components/chat/primitives/MessageAvatar.svelte",
+    "src/lib/components/chat/primitives/MessageContent.svelte",
+    "src/lib/components/chat/primitives/PromptInput.svelte",
+    "src/lib/components/chat/primitives/PromptInputActions.svelte",
+    "src/lib/components/chat/primitives/PromptInputTextarea.svelte",
+    "src/lib/components/chat/primitives/ScrollButton.svelte",
+    "src/lib/components/chat/primitives/Source.svelte",
+    "src/lib/components/chat/primitives/SourceContent.svelte",
+    "src/lib/components/chat/primitives/SourceTrigger.svelte",
+    "src/lib/components/chat/primitives/Suggestion.svelte",
+    "src/lib/components/chat/primitives/context.ts",
+    "src/lib/components/chat/primitives/index.ts",
+    "src/lib/components/chat/primitives/sourceContext.ts",
+    "src/lib/components/comments/CommentInput.svelte",
+    "src/lib/components/comments/CommentOverlay.svelte",
+    "src/lib/components/comments/MarginComments.svelte",
+    "src/lib/components/dashboard/AllProjectsView.svelte",
+    "src/lib/components/dashboard/BulkEditDialog.svelte",
+    "src/lib/components/dashboard/CompanyProjectGroup.svelte",
+    "src/lib/components/dashboard/CurrentDashboard.component.test.ts",
+    "src/lib/components/dashboard/CurrentDashboard.svelte",
+    "src/lib/components/dashboard/ProjectCard.svelte",
+    "src/lib/components/dashboard/ProjectCardMetadata.component.test.ts",
+    "src/lib/components/dashboard/ProjectCardMetadata.svelte",
+    "src/lib/components/dashboard/ProjectStateBadge.component.test.ts",
+    "src/lib/components/dashboard/ProjectStateBadge.svelte",
+    "src/lib/components/editor/BlockHandle.svelte",
+    "src/lib/components/editor/ChronologyTable.svelte",
+    "src/lib/components/editor/Editor.component.test.ts",
+    "src/lib/components/editor/Editor.svelte",
+    "src/lib/components/editor/EditorToolbar.svelte",
+    "src/lib/components/editor/FilesPanel.svelte",
+    "src/lib/components/editor/LogsPanel.svelte",
+    "src/lib/components/editor/ModelTestSummary.svelte",
+    "src/lib/components/editor/QAScorePanel.svelte",
+    "src/lib/components/editor/SlashCommandMenu.svelte",
+    "src/lib/components/editor/ToolbarButton.svelte",
+    "src/lib/components/editor/docSearch.test.ts",
+    "src/lib/components/editor/docSearch.ts",
+    "src/lib/components/editor/types.ts",
+    "src/lib/components/errors/ErrorMonitor.svelte",
+    "src/lib/components/errors/PageErrorBoundary.svelte",
+    "src/lib/components/errors/ReportRow.svelte",
+    "src/lib/components/errors/breadcrumbs.ts",
+    "src/lib/components/errors/format.ts",
+    "src/lib/components/evidence/FilingReadinessPanel.svelte",
+    "src/lib/components/export/ExportValidationDialog.svelte",
+    "src/lib/components/generation/CandidateSelection.svelte",
+    "src/lib/components/generation/ComparePairPicker.svelte",
+    "src/lib/components/generation/GenerationProgress.svelte",
+    "src/lib/components/generation/GenerationRecoveryPanel.component.test.ts",
+    "src/lib/components/generation/GenerationRecoveryPanel.svelte",
+    "src/lib/components/generation/GenerationStatusChip.svelte",
+    "src/lib/components/generation/GhostCompareDialog.svelte",
+    "src/lib/components/generation/IterativeStepper.svelte",
+    "src/lib/components/generation/ModelLogo.svelte",
+    "src/lib/components/generation/ModelSelectDialog.svelte",
+    "src/lib/components/generation/ModelSelectPanel.svelte",
+    "src/lib/components/generation/SingleModelPicker.svelte",
+    "src/lib/components/history/VersionHistory.svelte",
+    "src/lib/components/history/milestones.ts",
+    "src/lib/components/mywork/CurrentMyWorkView.svelte",
+    "src/lib/components/mywork/CurrentWorkLedgerFixture.component.test.ts",
+    "src/lib/components/mywork/CurrentWorkLedgerFixture.svelte",
+    "src/lib/components/mywork/HomeStartProject.component.test.ts",
+    "src/lib/components/mywork/HomeStartProject.svelte",
+    "src/lib/components/mywork/MyWorkHome.component.test.ts",
+    "src/lib/components/mywork/MyWorkLaneSort.component.test.ts",
+    "src/lib/components/mywork/MyWorkView.svelte",
+    "src/lib/components/mywork/WithYouBand.svelte",
+    "src/lib/components/project-new/CategoryRow.svelte",
+    "src/lib/components/project-new/PreviousYearRow.svelte",
+    "src/lib/components/project-new/TagPicker.svelte",
+    "src/lib/components/project-new/UnsupportedWarning.svelte",
+    "src/lib/components/project-new/shared.ts",
+    "src/lib/components/project/AssignmentComposerDialog.component.test.ts",
+    "src/lib/components/project/AssignmentComposerDialog.svelte",
+    "src/lib/components/project/CancelWorkItemDialog.svelte",
+    "src/lib/components/project/CurrentProjectPage.svelte",
+    "src/lib/components/project/EditableText.component.test.ts",
+    "src/lib/components/project/EditableText.svelte",
+    "src/lib/components/project/FiscalYearEndInput.svelte",
+    "src/lib/components/project/FiscalYearField.svelte",
+    "src/lib/components/project/IndustryField.svelte",
+    "src/lib/components/project/OwnerTransferDialog.component.test.ts",
+    "src/lib/components/project/OwnerTransferDialog.svelte",
+    "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+    "src/lib/components/project/PreviewProjectPage.svelte",
+    "src/lib/components/project/ProjectActivityList.svelte",
+    "src/lib/components/project/ProjectHighlights.component.test.ts",
+    "src/lib/components/project/ProjectHighlights.svelte",
+    "src/lib/components/project/ProjectWorkflowMenu.component.test.ts",
+    "src/lib/components/project/ProjectWorkflowMenu.svelte",
+    "src/lib/components/project/ReassignWorkItemDialog.svelte",
+    "src/lib/components/project/ScienceCodeField.svelte",
+    "src/lib/components/project/StageChangeDialog.component.test.ts",
+    "src/lib/components/project/StageChangeDialog.svelte",
+    "src/lib/components/project/WorkflowDetailsPanel.component.test.ts",
+    "src/lib/components/project/WorkflowDetailsPanel.svelte",
+    "src/lib/components/project/projectPageBoundary.test.ts",
+    "src/lib/components/qa/QALauncher.svelte",
+    "src/lib/components/qa/QARailPanel.svelte",
+    "src/lib/components/research/ResearchFeed.svelte",
+    "src/lib/components/review-pd/PdReviewReport.svelte",
+    "src/lib/components/review-pd/PdReviewStart.svelte",
+    "src/lib/components/review/NameGate.svelte",
+    "src/lib/components/review/ReadOnlyEditor.svelte",
+    "src/lib/components/roles/RoleDetail.svelte",
+    "src/lib/components/roles/RoleGuideSheet.component.test.ts",
+    "src/lib/components/roles/RoleGuideSheet.svelte",
+    "src/lib/components/ui/AppNav.svelte",
+    "src/lib/components/ui/Badge.svelte",
+    "src/lib/components/ui/Button.component.test.ts",
+    "src/lib/components/ui/Button.svelte",
+    "src/lib/components/ui/ChatIcon.svelte",
+    "src/lib/components/ui/Checkbox.svelte",
+    "src/lib/components/ui/DatePicker.svelte",
+    "src/lib/components/ui/DateRangePicker.svelte",
+    "src/lib/components/ui/Disclosure.component.test.ts",
+    "src/lib/components/ui/Disclosure.svelte",
+    "src/lib/components/ui/DisclosureChevron.svelte",
+    "src/lib/components/ui/DisclosureFixture.svelte",
+    "src/lib/components/ui/GhostPopover.svelte",
+    "src/lib/components/ui/IconAction.svelte",
+    "src/lib/components/ui/IndustrySelect.svelte",
+    "src/lib/components/ui/Input.component.test.ts",
+    "src/lib/components/ui/Input.svelte",
+    "src/lib/components/ui/LegacyStatusBadge.svelte",
+    "src/lib/components/ui/NavActions.svelte",
+    "src/lib/components/ui/PageBar.component.test.ts",
+    "src/lib/components/ui/PageBar.svelte",
+    "src/lib/components/ui/PageBarFixture.svelte",
+    "src/lib/components/ui/PageContainer.svelte",
+    "src/lib/components/ui/SelectInput.component.test.ts",
+    "src/lib/components/ui/SelectInput.svelte",
+    "src/lib/components/ui/ShaderBackground.svelte",
+    "src/lib/components/ui/Spinner.svelte",
+    "src/lib/components/ui/StageBadge.component.test.ts",
+    "src/lib/components/ui/StageBadge.svelte",
+    "src/lib/components/ui/Tooltip.svelte",
+    "src/lib/components/ui/UserMenu.component.test.ts",
+    "src/lib/components/ui/UserMenu.svelte",
+    "src/lib/components/ui/ViewModeToggle.component.test.ts",
+    "src/lib/components/ui/ViewModeToggle.svelte",
+    "src/lib/components/ui/drawer/drawer-close.svelte",
+    "src/lib/components/ui/drawer/drawer-content.svelte",
+    "src/lib/components/ui/drawer/drawer-description.svelte",
+    "src/lib/components/ui/drawer/drawer-footer.svelte",
+    "src/lib/components/ui/drawer/drawer-header.svelte",
+    "src/lib/components/ui/drawer/drawer-nested.svelte",
+    "src/lib/components/ui/drawer/drawer-overlay.svelte",
+    "src/lib/components/ui/drawer/drawer-portal.svelte",
+    "src/lib/components/ui/drawer/drawer-title.svelte",
+    "src/lib/components/ui/drawer/drawer-trigger.svelte",
+    "src/lib/components/ui/drawer/drawer.svelte",
+    "src/lib/components/ui/drawer/index.ts",
+    "src/lib/components/ui/formControlContract.test.ts",
+    "src/lib/components/ui/tooltip/index.ts",
+    "src/lib/components/ui/tooltip/tooltip-content.svelte",
+    "src/lib/components/ui/tooltip/tooltip-portal.svelte",
+    "src/lib/components/ui/tooltip/tooltip-provider.svelte",
+    "src/lib/components/ui/tooltip/tooltip-trigger.svelte",
+    "src/lib/components/ui/tooltip/tooltip.svelte",
+    "src/lib/components/upload/ProcessingStatusBadge.component.test.ts",
+    "src/lib/components/upload/ProcessingStatusBadge.svelte",
+    "src/lib/components/upload/UploadReceipt.a11y.component.test.ts",
+    "src/lib/components/upload/UploadReceipt.component.test.ts",
+    "src/lib/components/upload/UploadReceipt.svelte",
+    "src/lib/components/upload/UploadReceiptRow.component.test.ts",
+    "src/lib/components/upload/UploadReceiptRow.svelte",
+    "src/lib/components/workspace/AnimatedSidebarToggleIcon.svelte",
+    "src/lib/components/workspace/BoardColumnHeader.svelte",
+    "src/lib/components/workspace/BoardFiltersPopover.svelte",
+    "src/lib/components/workspace/CommandPalette.svelte",
+    "src/lib/components/workspace/HomeParity.component.test.ts",
+    "src/lib/components/workspace/ProjectBoardCard.component.test.ts",
+    "src/lib/components/workspace/ProjectBoardCard.svelte",
+    "src/lib/components/workspace/ProjectsBoard.component.test.ts",
+    "src/lib/components/workspace/ProjectsBoard.svelte",
+    "src/lib/components/workspace/ProjectsClientGroup.component.test.ts",
+    "src/lib/components/workspace/ProjectsClientGroup.svelte",
+    "src/lib/components/workspace/ProjectsClientGroups.component.test.ts",
+    "src/lib/components/workspace/ProjectsClientGroups.svelte",
+    "src/lib/components/workspace/ProjectsDisplayMenu.component.test.ts",
+    "src/lib/components/workspace/ProjectsDisplayMenu.svelte",
+    "src/lib/components/workspace/ProjectsTable.component.test.ts",
+    "src/lib/components/workspace/ProjectsTable.svelte",
+    "src/lib/components/workspace/ProjectsTableView.component.test.ts",
+    "src/lib/components/workspace/ProjectsTableView.svelte",
+    "src/lib/components/workspace/ProjectsTableViewGrouping.component.test.ts",
+    "src/lib/components/workspace/RecentProjectsRail.svelte",
+    "src/lib/components/workspace/ViewPresetMenu.svelte",
+    "src/lib/components/workspace/WorkspaceChrome.component.test.ts",
+    "src/lib/components/workspace/WorkspaceChrome.svelte",
+    "src/lib/components/workspace/WorkspaceChromePointer.component.test.ts",
+    "src/lib/components/workspace/WorkspaceDashboard.component.test.ts",
+    "src/lib/components/workspace/WorkspaceDashboard.svelte",
+    "src/lib/components/workspace/WorkspaceHeader.component.test.ts",
+    "src/lib/components/workspace/WorkspaceHeader.svelte",
+    "src/lib/components/workspace/WorkspaceRail.component.test.ts",
+    "src/lib/components/workspace/WorkspaceRail.svelte",
+    "src/lib/components/workspace/WorkspaceRailResize.component.test.ts",
+    "src/lib/components/workspace/WorkspaceRailResizeHandle.svelte",
+    "src/lib/components/workspace/WorkspaceShell.svelte",
+    "src/lib/components/workspace/WorkspaceShellControls.svelte",
+    "src/lib/contextCategories.ts",
+    "src/lib/currency.ts",
+    "src/lib/dashboard/adminRoutes.ts",
+    "src/lib/dashboard/generationActivity.test.ts",
+    "src/lib/dashboard/generationActivity.ts",
+    "src/lib/dashboard/ownerDisplay.test.ts",
+    "src/lib/dashboard/ownerDisplay.ts",
+    "src/lib/dashboard/projectCardMetadata.test.ts",
+    "src/lib/dashboard/projectsTablePreferences.test.ts",
+    "src/lib/dashboard/projectsTablePreferences.ts",
+    "src/lib/dashboard/selection.test.ts",
+    "src/lib/dashboard/stageFilter.test.ts",
+    "src/lib/dashboard/stageFilter.ts",
+    "src/lib/dashboard/viewMode.test.ts",
+    "src/lib/dashboard/viewMode.ts",
+    "src/lib/dashboard/viewPresets.test.ts",
+    "src/lib/dashboard/viewPresets.ts",
+    "src/lib/dashboard/workspaceExperience.test.ts",
+    "src/lib/dashboard/workspaceExperience.ts",
+    "src/lib/diff.ts",
+    "src/lib/displayName.ts",
+    "src/lib/errors.ts",
+    "src/lib/exportTemplateDocx.ts",
+    "src/lib/exportValidation.test.ts",
+    "src/lib/exportValidation.ts",
+    "src/lib/generation/recovery.test.ts",
+    "src/lib/generation/recovery.ts",
+    "src/lib/industries.ts",
+    "src/lib/motion.ts",
+    "src/lib/motion/panelMotion.ts",
+    "src/lib/mywork/homeGreeting.test.ts",
+    "src/lib/mywork/homeGreeting.ts",
+    "src/lib/mywork/relativeTime.test.ts",
+    "src/lib/mywork/relativeTime.ts",
+    "src/lib/parseDocument.test.ts",
+    "src/lib/parseDocument.ts",
+    "src/lib/qa/pdReview.test.ts",
+    "src/lib/qa/qaScorecard.test.ts",
+    "src/lib/qaScoring.ts",
+    "src/lib/reportSections.ts",
+    "src/lib/requestId.test.ts",
+    "src/lib/requestId.ts",
+    "src/lib/roles/capabilityMatrix.test.ts",
+    "src/lib/roles/roleDescriptions.test.ts",
+    "src/lib/roles/roleDescriptions.ts",
+    "src/lib/settings/sections.ts",
+    "src/lib/stableQuery.svelte.ts",
+    "src/lib/test/FeedbackSubscriptionHarness.svelte",
+    "src/lib/test/app-environment-stub.ts",
+    "src/lib/test/app-navigation-stub.ts",
+    "src/lib/test/app-paths-stub.ts",
+    "src/lib/test/app-state-stub.svelte.ts",
+    "src/lib/test/component-setup.ts",
+    "src/lib/test/convex-auth-state-stub.svelte.ts",
+    "src/lib/test/convex-auth-stub.ts",
+    "src/lib/test/convex-svelte-stub.svelte.ts",
+    "src/lib/test/env-dynamic-public-stub.ts",
+    "src/lib/test/env-static-public-stub.ts",
+    "src/lib/tiptapConfig.test.ts",
+    "src/lib/tiptapConfig.ts",
+    "src/lib/uploads/attemptOutbox.test.ts",
+    "src/lib/uploads/attemptOutbox.ts",
+    "src/lib/uploads/documentStatus.test.ts",
+    "src/lib/uploads/outboxFlush.test.ts",
+    "src/lib/uploads/outboxFlush.ts",
+    "src/lib/uploads/processingStatus.test.ts",
+    "src/lib/uploads/processingStatus.ts",
+    "src/lib/uploads/receiptRows.test.ts",
+    "src/lib/uploads/receiptRows.ts",
+    "src/lib/utils.ts",
+    "src/lib/workflow/activityPresentation.test.ts",
+    "src/lib/workflow/activityPresentation.ts",
+    "src/lib/workflow/assignmentDefaults.test.ts",
+    "src/lib/workflow/assignmentDefaults.ts",
+    "src/lib/workflow/due.test.ts",
+    "src/lib/workflow/due.ts",
+    "src/lib/workflow/stagePresentation.test.ts",
+    "src/lib/workflow/stagePresentation.ts",
+    "src/lib/workflow/workflowLabels.test.ts",
+    "src/lib/workspace/WorkspaceGate.component.test.ts",
+    "src/lib/workspace/WorkspaceGate.svelte",
+    "src/lib/workspace/fiscalYearGroups.test.ts",
+    "src/lib/workspace/fiscalYearGroups.ts",
+    "src/lib/workspace/projectIntentHandoff.test.ts",
+    "src/lib/workspace/projectIntentHandoff.ts",
+    "src/lib/workspace/projectPagingContext.test.ts",
+    "src/lib/workspace/projectPagingContext.ts",
+    "src/lib/workspace/projectRowMapping.test.ts",
+    "src/lib/workspace/projectRowMapping.ts",
+    "src/lib/workspace/railPreferences.test.ts",
+    "src/lib/workspace/railPreferences.ts",
+    "src/lib/workspace/recentProjects.test.ts",
+    "src/lib/workspace/recentProjects.ts",
+    "src/lib/workspace/searchContinuity.test.ts",
+    "src/lib/workspace/searchContinuity.ts",
+    "src/lib/workspace/stageRankGroups.test.ts",
+    "src/lib/workspace/stageRankGroups.ts",
+    "src/routes/+layout.server.ts",
+    "src/routes/+layout.svelte",
+    "src/routes/+page.svelte",
+    "src/routes/admin/adminWorkspaceRoutes.test.ts",
+    "src/routes/admin/backfill/+page.svelte",
+    "src/routes/admin/brain/+page.svelte",
+    "src/routes/admin/house-rules/+page.svelte",
+    "src/routes/admin/ingestion/+page.svelte",
+    "src/routes/admin/learning/+page.svelte",
+    "src/routes/admin/learning/LearningHealth.component.test.ts",
+    "src/routes/admin/models/+page.svelte",
+    "src/routes/admin/reviews/+page.svelte",
+    "src/routes/admin/reviews/reviewsPublishGate.component.test.ts",
+    "src/routes/admin/tags/+page.svelte",
+    "src/routes/admin/usage/+page.svelte",
+    "src/routes/admin/users/+page.svelte",
+    "src/routes/alerts/+page.svelte",
+    "src/routes/api/auth/[...all]/+server.ts",
+    "src/routes/changelog/+page.svelte",
+    "src/routes/dashboard/+page.svelte",
+    "src/routes/layout.css",
+    "src/routes/login/+page.svelte",
+    "src/routes/my-work/+page.svelte",
+    "src/routes/project/[id]/+page.svelte",
+    "src/routes/project/[id]/currentProjectTranscripts.component.test.ts",
+    "src/routes/project/[id]/financial/+page.svelte",
+    "src/routes/project/[id]/projectRoute.component.test.ts",
+    "src/routes/project/new/+page.svelte",
+    "src/routes/project/new/newProjectPrefill.component.test.ts",
+    "src/routes/project/new/newProjectTranscripts.component.test.ts",
+    "src/routes/project/questionnaire/+page.svelte",
+    "src/routes/project/questionnaire/questionnaireSubmit.component.test.ts",
+    "src/routes/projects/+page.svelte",
+    "src/routes/requests/+page.svelte",
+    "src/routes/review/[shareToken]/+page.svelte",
+    "src/routes/settings/+layout.svelte",
+    "src/routes/settings/+page.ts",
+    "src/routes/settings/account/+page.svelte",
+    "src/routes/settings/writing/+page.svelte",
+    "src/routes/signup/[token]/+page.svelte",
+    "src/routes/styleguide/+page.svelte",
+    "src/routes/workspaceRoutes.component.test.ts",
+    "tests/aiUsage.test.ts",
+    "tests/brainScienceRouting.test.ts",
+    "tests/chatProposals.test.ts",
+    "tests/craScienceCodes.test.ts",
+    "tests/diff.test.ts",
+    "tests/exportValidation.test.ts",
+    "tests/generationMode.test.ts",
+    "tests/industries.test.ts",
+    "tests/lineLimits.test.ts",
+    "tests/qaScoring.test.ts",
+    "tests/reportEdits.test.ts",
+    "tests/reportSections.test.ts",
+    "tests/snapshots.test.ts",
+    "tests/teamRoster.test.ts",
+    "tsconfig.json",
+    "vercel.json",
+    "vite.config.ts",
+    "vitest.component.config.ts",
+    "vitest.config.ts"
+  ],
+  "excluded": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "DEMO_SCRIPT.md",
+    "PRODUCT.md",
+    "README.md",
+    "ROADMAP.md",
+    "bun.lock",
+    "convex/_generated/ai/guidelines.md",
+    "convex/ai/__fixtures__/injection/README.md",
+    "design-qa.md",
+    "package-lock.json",
+    "scripts/client-uploader/DEV-HANDOFF.md"
+  ],
+  "literal_import_pattern": "(?:\\bfrom\\s*|\\bimport\\s*\\(?\\s*|\\brequire(?:\\.resolve)?\\s*\\(\\s*)[\"']((?:docx|svelte-exmarkdown|tippy\\.js|eslint|@types/bun|bun:test)(?:/[^\"']*)?)[\"']",
+  "broad_mention_pattern": "(?<![\\w-])(?:docx|svelte-exmarkdown|tippy\\.js|eslint|@types/bun|bun:test)(?![\\w-])",
+  "literal_imports": [],
+  "all_package_mentions": [
+    {
+      "path": "convex/ai/condenseAgent.test.ts",
+      "line": 110,
+      "text": "      label: \"Kickoff.docx\","
+    },
+    {
+      "path": "convex/ai/condenseAgent.test.ts",
+      "line": 114,
+      "text": "    expect(single).toBe('Interview transcript \"Kickoff.docx\":\\n\\nbody');"
+    },
+    {
+      "path": "convex/ai/condenseAgent.test.ts",
+      "line": 119,
+      "text": "      label: \"Kickoff.docx\","
+    },
+    {
+      "path": "convex/ai/condenseAgent.test.ts",
+      "line": 123,
+      "text": "    expect(windowed).toContain('\"Kickoff.docx\", window 2 of 3');"
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 244,
+      "text": "        args: { fileName: \"interview.docx\", fileType: \"docx\" as const, content: \"we tried X\" },"
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 322,
+      "text": "        fileName: \"legacy.docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 323,
+      "text": "        fileType: \"docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 333,
+      "text": "      fileName: \"legacy.docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 334,
+      "text": "      fileType: \"docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 348,
+      "text": "      fileName: \"legacy.docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 349,
+      "text": "      fileType: \"docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 511,
+      "text": "      fileName: \"interview.docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 512,
+      "text": "      fileType: \"docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 517,
+      "text": "      fileName: \"interview.docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 518,
+      "text": "      fileType: \"docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 548,
+      "text": "        fileName: \"notes.docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 549,
+      "text": "        fileType: \"docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 602,
+      "text": "      fileName: \"interview.docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 603,
+      "text": "      fileType: \"docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 610,
+      "text": "        { attemptKey: key, fileName: \"interview.docx\", origin: \"chat_upload\" },"
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 615,
+      "text": "      fileName: \"interview.docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 616,
+      "text": "      fileType: \"docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 692,
+      "text": "        fileName: \"legacy-notes.docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 693,
+      "text": "        fileType: \"docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 709,
+      "text": "    expect(byName.get(\"legacy-notes.docx\")?.processingStatus).toBe(\"ready\");"
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 736,
+      "text": "      fileName: \"notes.docx\","
+    },
+    {
+      "path": "convex/documents.test.ts",
+      "line": 737,
+      "text": "      fileType: \"docx\","
+    },
+    {
+      "path": "convex/documents.ts",
+      "line": 19,
+      "text": "  v.literal(\"docx\"),"
+    },
+    {
+      "path": "convex/ingestionPort.test.ts",
+      "line": 39,
+      "text": "      path: \"Acme/2025 - Dec 31/Submitted/PD1 - Widget.docx\","
+    },
+    {
+      "path": "convex/ingestionPort.test.ts",
+      "line": 40,
+      "text": "      name: \"PD1 - Widget.docx\","
+    },
+    {
+      "path": "convex/ingestionPort.test.ts",
+      "line": 115,
+      "text": "      fileName: \"PD1 - Widget.docx\","
+    },
+    {
+      "path": "convex/ingestionPort.test.ts",
+      "line": 116,
+      "text": "      fileType: \"docx\","
+    },
+    {
+      "path": "convex/ingestionPort.test.ts",
+      "line": 137,
+      "text": "      name: \"PD2 - Gadget.docx\","
+    },
+    {
+      "path": "convex/ingestionPort.test.ts",
+      "line": 138,
+      "text": "      path: \"Acme/2025 - Dec 31/Submitted/PD2 - Gadget.docx\","
+    },
+    {
+      "path": "convex/ingestionPort.ts",
+      "line": 28,
+      "text": "const FILE_TYPES: Record<string, \"txt\" | \"md\" | \"pdf\" | \"docx\"> = {"
+    },
+    {
+      "path": "convex/ingestionPort.ts",
+      "line": 32,
+      "text": "  docx: \"docx\","
+    },
+    {
+      "path": "convex/ingestionPort.ts",
+      "line": 37,
+      "text": "  docx: \"application/vnd.openxmlformats-officedocument.wordprocessingml.document\","
+    },
+    {
+      "path": "convex/ingestionSync.ts",
+      "line": 154,
+      "text": "  if (ext === \"docx\") {"
+    },
+    {
+      "path": "convex/ingestionSync.ts",
+      "line": 164,
+      "text": "    return { note: \"Legacy .doc \u2014 re-save as .docx to extract text\" };"
+    },
+    {
+      "path": "convex/lib/ingestionClassify.ts",
+      "line": 8,
+      "text": "export const INGEST_EXTENSIONS = new Set([\"docx\", \"doc\", \"pdf\", \"txt\", \"vtt\"]);"
+    },
+    {
+      "path": "convex/lib/ingestionClassify.ts",
+      "line": 43,
+      "text": "  } else if (parent.includes(\"submit\") && (ext === \"docx\" || ext === \"doc\")) {"
+    },
+    {
+      "path": "convex/pdReviewProjection.test.ts",
+      "line": 28,
+      "text": "      fileName: \"source.docx\","
+    },
+    {
+      "path": "convex/pdReviewProjection.test.ts",
+      "line": 29,
+      "text": "      fileType: \"docx\","
+    },
+    {
+      "path": "convex/pdReviewProjection.test.ts",
+      "line": 38,
+      "text": "      sourceFileName: \"source.docx\","
+    },
+    {
+      "path": "convex/pdReviewProjection.test.ts",
+      "line": 110,
+      "text": "        fileName: \"source.docx\","
+    },
+    {
+      "path": "convex/pdReviewProjection.test.ts",
+      "line": 111,
+      "text": "        fileType: \"docx\","
+    },
+    {
+      "path": "convex/pdReviewProjection.test.ts",
+      "line": 120,
+      "text": "        sourceFileName: \"source.docx\","
+    },
+    {
+      "path": "convex/projects.test.ts",
+      "line": 310,
+      "text": "        fileName: \"Existing PD.docx\","
+    },
+    {
+      "path": "convex/projects.test.ts",
+      "line": 311,
+      "text": "        fileType: \"docx\","
+    },
+    {
+      "path": "convex/projects.test.ts",
+      "line": 371,
+      "text": "        sourceFileName: \"Existing PD.docx\","
+    },
+    {
+      "path": "convex/projects.test.ts",
+      "line": 387,
+      "text": "          sourceFileName: \"Existing PD.docx\","
+    },
+    {
+      "path": "convex/projects.test.ts",
+      "line": 456,
+      "text": "      sourceFileName: \"Existing PD.docx\","
+    },
+    {
+      "path": "convex/projects.test.ts",
+      "line": 1192,
+      "text": "          { content: \"Part one body\", label: \"Day 1.docx\" },"
+    },
+    {
+      "path": "convex/projects.test.ts",
+      "line": 1193,
+      "text": "          { content: \"Part two body\", label: \"Day 2.docx\" },"
+    },
+    {
+      "path": "convex/projects.test.ts",
+      "line": 1205,
+      "text": "      [transcriptIds[0], \"Day 1.docx\", 0],"
+    },
+    {
+      "path": "convex/projects.test.ts",
+      "line": 1206,
+      "text": "      [transcriptIds[1], \"Day 2.docx\", 1],"
+    },
+    {
+      "path": "convex/projects.test.ts",
+      "line": 1224,
+      "text": "        { content: \"Alpha body\", label: \"Alpha.docx\" },"
+    },
+    {
+      "path": "convex/projects.test.ts",
+      "line": 1225,
+      "text": "        { content: \"Beta body\", label: \"Beta.docx\" },"
+    },
+    {
+      "path": "convex/projects.test.ts",
+      "line": 1245,
+      "text": "      [sourceRows[0]?.content, \"Alpha.docx\", sourceRows[0]?.contentHash, 0],"
+    },
+    {
+      "path": "convex/projects.test.ts",
+      "line": 1246,
+      "text": "      [sourceRows[1]?.content, \"Beta.docx\", sourceRows[1]?.contentHash, 1],"
+    },
+    {
+      "path": "convex/reaperIntegration.test.ts",
+      "line": 46,
+      "text": "        fileName: \"source.docx\","
+    },
+    {
+      "path": "convex/reaperIntegration.test.ts",
+      "line": 47,
+      "text": "        fileType: \"docx\","
+    },
+    {
+      "path": "convex/reaperIntegration.test.ts",
+      "line": 57,
+      "text": "        sourceFileName: \"source.docx\","
+    },
+    {
+      "path": "convex/reaperIntegration.test.ts",
+      "line": 68,
+      "text": "        sourceFileName: \"source.docx\","
+    },
+    {
+      "path": "convex/researchReviewMode.test.ts",
+      "line": 57,
+      "text": "      fileName: \"uploaded-pd.docx\","
+    },
+    {
+      "path": "convex/researchReviewMode.test.ts",
+      "line": 58,
+      "text": "      fileType: \"docx\","
+    },
+    {
+      "path": "convex/researchReviewMode.test.ts",
+      "line": 162,
+      "text": "        title: \"uploaded-pd.docx\","
+    },
+    {
+      "path": "convex/schema.ts",
+      "line": 1007,
+      "text": "      v.literal(\"docx\"),"
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 170,
+      "text": "  { label: \"Kickoff.docx\", content: `A${\"a\".repeat(TRANSCRIPT_BUDGET_CHARS / 2)}` },"
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 171,
+      "text": "  { label: \"Follow-up.docx\", content: `B${\"b\".repeat(TRANSCRIPT_BUDGET_CHARS / 2)}` },"
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 313,
+      "text": "      `Kickoff.docx 1/1 ${OVER_BUDGET[0].content.length}`,"
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 314,
+      "text": "      `Follow-up.docx 1/1 ${OVER_BUDGET[1].content.length}`,"
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 317,
+      "text": "      `Condensing transcript 1 of 2 \"Kickoff.docx\" (${OVER_BUDGET[0].content.length.toLocaleString(\"en-US\")} chars)\u2026`,"
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 318,
+      "text": "      `Condensing transcript 2 of 2 \"Follow-up.docx\" (${OVER_BUDGET[1].content.length.toLocaleString(\"en-US\")} chars)\u2026`,"
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 366,
+      "text": "    expect(input?.transcript).toContain(\"=== Transcript 1: Kickoff.docx ===\");"
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 400,
+      "text": "      'Reusing stored digest for transcript 1 of 2 \"Kickoff.docx\".',"
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 401,
+      "text": "      'Reusing stored digest for transcript 2 of 2 \"Follow-up.docx\".',"
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 436,
+      "text": "      { label: \"Long.docx\", content: [paragraph, paragraph].join(\"\\n\\n\") },"
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 437,
+      "text": "      { label: \"Short.docx\", content: \"d\".repeat(120_000) },"
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 451,
+      "text": "      \"Long.docx 1/2\","
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 452,
+      "text": "      \"Long.docx 2/2\","
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 453,
+      "text": "      \"Short.docx 1/1\","
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 485,
+      "text": "      { label: \"Tiny.docx\", content: short },"
+    },
+    {
+      "path": "convex/transcriptDigests.test.ts",
+      "line": 486,
+      "text": "      { label: \"Huge.docx\", content: \"f\".repeat(TRANSCRIPT_BUDGET_CHARS) },"
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 72,
+      "text": "      { label: \"third.docx\", position: 2, content: \"Third body\", createdAt: 100 },"
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 73,
+      "text": "      { label: \"first.docx\", position: 0, content: \"First body\", createdAt: 300 },"
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 74,
+      "text": "      { label: \"second.docx\", position: 1, content: \"Second body\", createdAt: 200 },"
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 82,
+      "text": "      \"first.docx\","
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 83,
+      "text": "      \"second.docx\","
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 84,
+      "text": "      \"third.docx\","
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 89,
+      "text": "      label: \"first.docx\","
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 149,
+      "text": "      { label: \"real.docx\", position: 0, content: \"Real body\", createdAt: 300 },"
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 157,
+      "text": "    expect(list[0].label).toBe(\"real.docx\");"
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 176,
+      "text": "      { label: \"only.docx\", position: 0, content: \"Body\", createdAt: 100 },"
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 190,
+      "text": "      { label: \"only.docx\", position: 0, content: \"Body text\", createdAt: 100 },"
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 197,
+      "text": "    ).toEqual({ _id: f.transcriptIds[0], label: \"only.docx\", content: \"Body text\" });"
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 212,
+      "text": "      { label: \"only.docx\", position: 0, content: \"Body\", createdAt: 100 },"
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 226,
+      "text": "      { label: \"only.docx\", position: 0, content: \"Body\", createdAt: 100 },"
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 258,
+      "text": "      buildTranscriptPromptText([{ label: \"kickoff.docx\", content: \"Raw body\" }])"
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 265,
+      "text": "        { label: \"kickoff.docx\", content: \"First\" },"
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 266,
+      "text": "        { label: \"follow-up.docx\", content: \"Second\" },"
+    },
+    {
+      "path": "convex/transcripts.test.ts",
+      "line": 269,
+      "text": "      \"=== Transcript 1: kickoff.docx ===\\nFirst\\n\\n=== Transcript 2: follow-up.docx ===\\nSecond\""
+    },
+    {
+      "path": "convex/uploadAttempts.test.ts",
+      "line": 43,
+      "text": "    fileName: \"notes.docx\","
+    },
+    {
+      "path": "convex/uploadAttempts.test.ts",
+      "line": 70,
+      "text": "      fileName: \"notes.docx\","
+    },
+    {
+      "path": "convex/uploadAttempts.test.ts",
+      "line": 139,
+      "text": "      fileName: \"notes.docx\","
+    },
+    {
+      "path": "convex/uploadAttempts.test.ts",
+      "line": 140,
+      "text": "      fileType: \"docx\","
+    },
+    {
+      "path": "convex/uploadAttempts.test.ts",
+      "line": 159,
+      "text": "      fileName: \"notes.docx\","
+    },
+    {
+      "path": "convex/uploadAttempts.test.ts",
+      "line": 160,
+      "text": "      fileType: \"docx\","
+    },
+    {
+      "path": "convex/uploadAttempts.test.ts",
+      "line": 169,
+      "text": "      fileName: \"notes.docx\","
+    },
+    {
+      "path": "convex/uploadAttempts.test.ts",
+      "line": 170,
+      "text": "      fileType: \"docx\","
+    },
+    {
+      "path": "convex/uploadAttempts.test.ts",
+      "line": 194,
+      "text": "      fileName: \"notes.docx\","
+    },
+    {
+      "path": "convex/uploadAttempts.test.ts",
+      "line": 195,
+      "text": "      fileType: \"docx\","
+    },
+    {
+      "path": "convex/uploadAttempts.test.ts",
+      "line": 266,
+      "text": "      attempts: [attempt(), attempt({ attemptKey: KEY_B, fileName: \"fresh.docx\" })],"
+    },
+    {
+      "path": "convex/uploadAttempts.test.ts",
+      "line": 303,
+      "text": "        fileName: \"notes.docx\","
+    },
+    {
+      "path": "convex/uploadAttempts.test.ts",
+      "line": 304,
+      "text": "        fileType: \"docx\","
+    },
+    {
+      "path": "convex/uploadAttempts.test.ts",
+      "line": 318,
+      "text": "      fileName: `file-${i}.docx`,"
+    },
+    {
+      "path": "scripts/client-uploader/banhall-uploader.ps1",
+      "line": 192,
+      "text": "$allowedExt = @(\".docx\", \".doc\", \".pdf\", \".txt\", \".vtt\")"
+    },
+    {
+      "path": "scripts/client-uploader/banhall-uploader.ps1",
+      "line": 270,
+      "text": "Write-Host (\"Found {0} document(s) (.docx/.doc/.pdf/.txt/.vtt).\" -f @($entries).Count)"
+    },
+    {
+      "path": "scripts/client-uploader/banhall-uploader.sh",
+      "line": 31,
+      "text": "ALLOWED_EXT=\".docx .doc .pdf .txt .vtt\""
+    },
+    {
+      "path": "scripts/client-uploader/banhall-uploader.sh",
+      "line": 156,
+      "text": "# \".hidden.docx\" has \".docx\"."
+    },
+    {
+      "path": "scripts/client-uploader/banhall-uploader.sh",
+      "line": 174,
+      "text": "# \"~$notes.docx\" reports \"link\". $2 is 1 when the entry is a symlink."
+    },
+    {
+      "path": "scripts/client-uploader/banhall-uploader.sh",
+      "line": 494,
+      "text": "echo \"Found $COUNT document(s) (.docx/.doc/.pdf/.txt/.vtt).\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 62,
+      "text": "$allowed = @(\".docx\", \".doc\", \".pdf\", \".txt\", \".vtt\")"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 66,
+      "text": "    $file = New-FakeFile \"cloud.docx\" $null \"Archive, ReparsePoint\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 72,
+      "text": "    $file = New-FakeFile \"link.docx\" \"SymbolicLink\" \"Archive, ReparsePoint\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 76,
+      "text": "    $file = New-FakeFile \"junction.docx\" \"Junction\" \"Directory, ReparsePoint\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 80,
+      "text": "    (Expect \"placeholder\" $false (Test-RealLink (New-FakeFile \"cloud.docx\" $null \"Archive, ReparsePoint\"))),"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 81,
+      "text": "    (Expect \"symlink\" $true (Test-RealLink (New-FakeFile \"link.docx\" \"SymbolicLink\" $null))) |"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 87,
+      "text": "    Expect \"reason\" \"temp\" (Get-UploadSkipReason (New-FakeFile '~$notes.docx' $null $null) $allowed)"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 90,
+      "text": "    Expect \"reason\" \"dotfile\" (Get-UploadSkipReason (New-FakeFile \".hidden.docx\" $null $null) $allowed)"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 96,
+      "text": "    Expect \"reason\" $null (Get-UploadSkipReason (New-FakeFile \"report.docx\" $null \"Archive\") $allowed)"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 104,
+      "text": "    Expect \"reason\" \"link\" (Get-UploadSkipReason (New-FakeFile '~$notes.docx' \"SymbolicLink\" $null) $allowed)"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 107,
+      "text": "    $file = [pscustomobject]@{ Name = \"report.docx\"; Extension = \".docx\" }"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 113,
+      "text": "    Expect \"reason\" \"extension\" (Get-UploadSkipReason (New-FakeFile \"report.docx\" $null $null) @())"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 116,
+      "text": "    $noAttr = [pscustomobject]@{ Name = \"report.docx\"; Extension = \".docx\"; LinkType = $null }"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 117,
+      "text": "    $unsetAttr = [pscustomobject]@{ Name = \"report.docx\"; Extension = \".docx\"; LinkType = $null; Attributes = $null }"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 118,
+      "text": "    $minusOne = [pscustomobject]@{ Name = \"report.docx\"; Extension = \".docx\"; LinkType = $null; Attributes = -1 }"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 130,
+      "text": "    Expect \"cloud-only\" $true (Test-CloudOnly (New-FakeFile \"cloud.docx\" $null \"Archive, Offline\"))"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 137,
+      "text": "        Name = \"cloud.docx\"; Extension = \".docx\"; LinkType = $null"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 143,
+      "text": "    (Expect \"archive\" $false (Test-CloudOnly (New-FakeFile \"local.docx\" $null \"Archive\"))),"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 144,
+      "text": "    (Expect \"reparse point alone\" $false (Test-CloudOnly (New-FakeFile \"ph.docx\" $null \"Archive, ReparsePoint\"))) |"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 148,
+      "text": "    $noAttr = [pscustomobject]@{ Name = \"a.docx\"; Extension = \".docx\" }"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 149,
+      "text": "    $unset = [pscustomobject]@{ Name = \"a.docx\"; Extension = \".docx\"; Attributes = $null }"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 283,
+      "text": "    $real = Join-Path $tree \"sub/real.docx\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 285,
+      "text": "    Set-Content -LiteralPath (Join-Path $tree 'sub/~$real.docx') -Value \"temp\" -Encoding UTF8"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 286,
+      "text": "    Set-Content -LiteralPath (Join-Path $tree \"sub/.hidden.docx\") -Value \"hidden\" -Encoding UTF8"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 291,
+      "text": "        New-Item -ItemType SymbolicLink -Path (Join-Path $tree \"link.docx\") -Target $real -ErrorAction Stop | Out-Null"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 298,
+      "text": "    $dotEnumerated = @($walked | Where-Object { $_.Name -eq \".hidden.docx\" }).Count -eq 1"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 305,
+      "text": "    Check \"AC4 exactly one candidate, the real .docx\" {"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 307,
+      "text": "        (Expect \"candidate name\" \"real.docx\" $scan.Candidates[0].Name) |"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 343,
+      "text": "        (Expect \".docx is the biggest bucket\" \".docx\" \"$($hist[0].Extension)\"),"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.ps1",
+      "line": 367,
+      "text": "    Set-Content -LiteralPath (Join-Path $bracketRoot \"real.docx\") -Value \"real\" -Encoding UTF8"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 74,
+      "text": "echo a > \"$TREE/report.docx\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 77,
+      "text": "echo d > \"$TREE/~\\$temp.docx\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 78,
+      "text": "echo e > \"$TREE/.hidden.docx\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 79,
+      "text": "ln -s \"$TREE/report.docx\" \"$TREE/link.docx\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 106,
+      "text": "   expect \"rels\" \"Client A/Fiscal 2024/REPORT2.DOCX|Client A/Fiscal 2024/report.docx|Client \u00dcn\u00efcode/Fiscal 2024/r\u00e9sum\u00e9.pdf|\" \"$rels\") | head -1"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 114,
+      "text": "   expect \"link is not a candidate\" 0 \"$(grep -c 'link\\.docx' \"$FILELIST\" | tr -d ' ')\") | head -1"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 121,
+      "text": "  expect \"prefixed rel\" \"Client A/Fiscal 2024/report.docx\" \"$(cut -f1 \"$FILELIST\" | grep 'report.docx$' | head -1)\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 163,
+      "text": "  (expect \"plain\" \".docx\" \"$(ext_of \"report.docx\")\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 164,
+      "text": "   expect \"uppercase\" \".docx\" \"$(ext_of \"REPORT.DOCX\")\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 166,
+      "text": "   expect \"dotfile with an extension\" \".docx\" \"$(ext_of \".hidden.docx\")\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 174,
+      "text": "   expect \"file\" \"is_file\" \"$(root_state \"$TREE/report.docx\")\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 182,
+      "text": "  out=\"$( (require_folder \"$TREE/report.docx\") </dev/null 2>&1 )\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 185,
+      "text": "   expect \"message\" \"That path is a file, not a folder: $TREE/report.docx\" \"$(echo \"$out\" | sed -n 1p)\") | head -1"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 214,
+      "text": "echo secret > \"$READDIR/locked.docx\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 215,
+      "text": "echo open > \"$READDIR/open.docx\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 216,
+      "text": "chmod 000 \"$READDIR/locked.docx\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 219,
+      "text": "  if [ \"$(id -u)\" = \"0\" ] || [ -r \"$READDIR/locked.docx\" ]; then"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 226,
+      "text": "  upload_one \"read/locked.docx\" \"$READDIR/locked.docx\" >/dev/null"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 227,
+      "text": "  (expect \"log line\" \"READ_ERROR\tread/locked.docx\" \"$(sed -n 1p \"$LOG\")\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 237,
+      "text": "  upload_one \"read/open.docx\" \"$READDIR/open.docx\" >/dev/null"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 240,
+      "text": "   expect \"log line\" \"STAGED\tread/open.docx\t\" \"$(sed -n 1p \"$LOG\")\") | head -1"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 245,
+      "text": "  if [ \"$(id -u)\" = \"0\" ] || [ -r \"$READDIR/locked.docx\" ]; then"
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 250,
+      "text": "  good=\"$(sha256_of \"$READDIR/open.docx\")\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 252,
+      "text": "   expect \"unreadable file yields nothing\" \"\" \"$(sha256_of \"$READDIR/locked.docx\")\""
+    },
+    {
+      "path": "scripts/client-uploader/tests/run-tests.sh",
+      "line": 253,
+      "text": "   expect \"missing file yields nothing\" \"\" \"$(sha256_of \"$TMP/nope.docx\")\") | head -1"
+    },
+    {
+      "path": "scripts/client-uploader/uploader-lib.ps1",
+      "line": 22,
+      "text": "# \"~$notes.docx\" reports \"link\"."
+    },
+    {
+      "path": "scripts/onedrive-crawler.mjs",
+      "line": 40,
+      "text": "const INGEST_EXTENSIONS = new Set([\"docx\", \"doc\", \"pdf\", \"txt\", \"vtt\"]);"
+    },
+    {
+      "path": "scripts/onedrive-crawler.mjs",
+      "line": 138,
+      "text": "  console.log(`Found ${files.length} candidate file(s) (.docx/.doc/.pdf/.txt/.vtt)\\n`);"
+    },
+    {
+      "path": "shared/documentStatus.ts",
+      "line": 29,
+      "text": "  \"docx\","
+    },
+    {
+      "path": "shared/documentStatus.ts",
+      "line": 48,
+      "text": "  \".txt,.md,.markdown,.pdf,.docx,.msg,.eml,.mbox,.xlsx,.xls,.csv,.png,.jpg,.jpeg,.webp,.gif\";"
+    },
+    {
+      "path": "shared/documentStatus.ts",
+      "line": 52,
+      "text": "  \"PDF, Word (.docx), Excel (.xlsx/.xls/.csv), email (.eml/.msg/.mbox), images (.png/.jpg/.webp/.gif), .txt, .md\";"
+    },
+    {
+      "path": "src/lib/components/chat/AgentChatPanel.svelte",
+      "line": 129,
+      "text": "  ): \"txt\" | \"md\" | \"pdf\" | \"docx\" | \"msg\" | \"eml\" | \"xlsx\" | \"image\" | \"other\" {"
+    },
+    {
+      "path": "src/lib/components/chat/AgentChatPanel.svelte",
+      "line": 132,
+      "text": "    if (l.endsWith(\".docx\")) return \"docx\";"
+    },
+    {
+      "path": "src/lib/components/editor/FilesPanel.svelte",
+      "line": 41,
+      "text": "    docx: \"bg-blue-50 text-blue-500\","
+    },
+    {
+      "path": "src/lib/components/mywork/HomeStartProject.svelte",
+      "line": 53,
+      "text": "    if (!file.name.toLowerCase().endsWith(\".docx\")) {"
+    },
+    {
+      "path": "src/lib/components/mywork/HomeStartProject.svelte",
+      "line": 54,
+      "text": "      transcriptError = \"Transcripts must be Word (.docx) files. Teams exports are supported, or you can paste the transcript instead.\";"
+    },
+    {
+      "path": "src/lib/components/mywork/HomeStartProject.svelte",
+      "line": 191,
+      "text": "            <span class=\"truncate\">Word transcript (.docx)</span>"
+    },
+    {
+      "path": "src/lib/components/mywork/HomeStartProject.svelte",
+      "line": 264,
+      "text": "        accept=\".docx\""
+    },
+    {
+      "path": "src/lib/components/project-new/shared.ts",
+      "line": 20,
+      "text": "): \"txt\" | \"md\" | \"pdf\" | \"docx\" | \"msg\" | \"eml\" | \"xlsx\" | \"image\" | \"other\" {"
+    },
+    {
+      "path": "src/lib/components/project-new/shared.ts",
+      "line": 23,
+      "text": "  if (l.endsWith(\".docx\")) return \"docx\";"
+    },
+    {
+      "path": "src/lib/components/project/CurrentProjectPage.svelte",
+      "line": 775,
+      "text": "      saveAs(blob, `${safeClient}_Schedule60_FY${year}.docx`);"
+    },
+    {
+      "path": "src/lib/components/project/CurrentProjectPage.svelte",
+      "line": 1174,
+      "text": "              label={exporting ? \"Exporting\u2026\" : \"Export .docx\"}"
+    },
+    {
+      "path": "src/lib/components/project/CurrentProjectPage.svelte",
+      "line": 1175,
+      "text": "              title=\"Export .docx\""
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 38,
+      "text": "  transcripts = [transcriptRow(\"t-1\", \"Kickoff interview.docx\", 11)],"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 147,
+      "text": "      transcriptRow(\"t-1\", \"Kickoff interview.docx\", 11),"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 148,
+      "text": "      transcriptRow(\"t-2\", \"Follow-up call.docx\", 240),"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 153,
+      "text": "    expect(triggers[0].textContent).toContain(\"Kickoff interview.docx\");"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 154,
+      "text": "    expect(triggers[1].textContent).toContain(\"Follow-up call.docx\");"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 179,
+      "text": "      label: \"Follow-up call.docx\","
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 189,
+      "text": "      transcriptRow(\"t-1\", \"Kickoff interview.docx\", 11),"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 190,
+      "text": "      transcriptRow(\"t-2\", \"Follow-up call.docx\", 240),"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 201,
+      "text": "      transcriptRow(\"t-9\", \"Site visit.docx\", 30),"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 202,
+      "text": "      transcriptRow(\"t-10\", \"Lab walkthrough.docx\", 60),"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 206,
+      "text": "      label: \"Site visit.docx\","
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 210,
+      "text": "    await expect.poll(() => transcriptTriggers()[0]?.textContent).toContain(\"Site visit.docx\");"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 243,
+      "text": "      transcriptRow(\"t-1\", \"Kickoff interview.docx\", 11),"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 244,
+      "text": "      transcriptRow(\"t-2\", \"Follow-up call.docx\", 240),"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 329,
+      "text": "    expect(region.textContent).toContain(\"Kickoff interview.docx\");"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 343,
+      "text": "    expect(modal()!.textContent).toContain(\"Kickoff interview.docx\");"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectIntake.component.test.ts",
+      "line": 374,
+      "text": "      await expect.poll(() => downloaded).toEqual([\"Kickoff interview.docx.txt\"]);"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectPage.svelte",
+      "line": 930,
+      "text": "      saveAs(blob, `${safeClient}_Schedule60_FY${year}.docx`);"
+    },
+    {
+      "path": "src/lib/components/project/PreviewProjectPage.svelte",
+      "line": 1509,
+      "text": "          <button type=\"button\" title=\"Export .docx\" aria-label={exporting ? \"Exporting\u2026\" : \"Export .docx\"} onclick={handleExport} disabled={exporting} class=\"flex size-7 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11\">"
+    },
+    {
+      "path": "src/lib/components/upload/UploadReceipt.a11y.component.test.ts",
+      "line": 22,
+      "text": "    fileName: \"notes.docx\","
+    },
+    {
+      "path": "src/lib/components/upload/UploadReceipt.a11y.component.test.ts",
+      "line": 61,
+      "text": "  \"Remove \u2014 notes.docx\","
+    },
+    {
+      "path": "src/lib/components/upload/UploadReceipt.component.test.ts",
+      "line": 10,
+      "text": "    fileName: \"notes.docx\","
+    },
+    {
+      "path": "src/lib/components/upload/UploadReceipt.component.test.ts",
+      "line": 20,
+      "text": "  row({ key: \"a\", fileName: \"a.docx\" }),"
+    },
+    {
+      "path": "src/lib/components/upload/UploadReceipt.component.test.ts",
+      "line": 21,
+      "text": "  row({ key: \"b\", fileName: \"b.docx\" }),"
+    },
+    {
+      "path": "src/lib/components/upload/UploadReceipt.component.test.ts",
+      "line": 22,
+      "text": "  row({ key: \"c\", fileName: \"c.docx\" }),"
+    },
+    {
+      "path": "src/lib/components/upload/UploadReceipt.component.test.ts",
+      "line": 23,
+      "text": "  row({ key: \"d\", fileName: \"d.docx\" }),"
+    },
+    {
+      "path": "src/lib/components/upload/UploadReceipt.component.test.ts",
+      "line": 50,
+      "text": "      row({ key: \"a\", fileName: \"a.docx\" }),"
+    },
+    {
+      "path": "src/lib/components/upload/UploadReceipt.component.test.ts",
+      "line": 51,
+      "text": "      row({ key: \"b\", fileName: \"b.docx\", status: null }),"
+    },
+    {
+      "path": "src/lib/components/upload/UploadReceipt.component.test.ts",
+      "line": 52,
+      "text": "      row({ key: \"c\", fileName: \"c.docx\" }),"
+    },
+    {
+      "path": "src/lib/components/upload/UploadReceiptRow.component.test.ts",
+      "line": 19,
+      "text": "    fileName: \"notes.docx\","
+    },
+    {
+      "path": "src/lib/exportTemplateDocx.ts",
+      "line": 15,
+      "text": "const TEMPLATE_URL = \"/templates/schedule60.docx\";"
+    },
+    {
+      "path": "src/lib/exportTemplateDocx.ts",
+      "line": 30,
+      "text": "// the missing information is unmissable in the .docx."
+    },
+    {
+      "path": "src/lib/parseDocument.ts",
+      "line": 32,
+      "text": "  | \"docx\""
+    },
+    {
+      "path": "src/lib/parseDocument.ts",
+      "line": 162,
+      "text": " * Supports .txt / .md (read directly), .docx (mammoth), and .pdf (pdf.js)."
+    },
+    {
+      "path": "src/lib/parseDocument.ts",
+      "line": 176,
+      "text": "  if (lower.endsWith(\".docx\")) {"
+    },
+    {
+      "path": "src/lib/parseDocument.ts",
+      "line": 180,
+      "text": "    return { fileName: name, fileType: \"docx\", content: capContent(result.value.trim()) };"
+    },
+    {
+      "path": "src/lib/uploads/attemptOutbox.test.ts",
+      "line": 28,
+      "text": "    fileName: \"notes.docx\","
+    },
+    {
+      "path": "src/lib/uploads/attemptOutbox.test.ts",
+      "line": 70,
+      "text": "      file: { name: \"notes.docx\" },"
+    },
+    {
+      "path": "src/lib/uploads/attemptOutbox.test.ts",
+      "line": 188,
+      "text": "    appendOutbox(USER_A, entry({ fileName: \"renamed.docx\" }));"
+    },
+    {
+      "path": "src/lib/uploads/attemptOutbox.test.ts",
+      "line": 191,
+      "text": "    expect(queued[0].fileName).toBe(\"renamed.docx\");"
+    },
+    {
+      "path": "src/lib/uploads/documentStatus.test.ts",
+      "line": 143,
+      "text": "  it(\"rule 8 \u2014 supported but empty (scanned PDF, empty .txt, image-only .docx)\", () => {"
+    },
+    {
+      "path": "src/lib/uploads/documentStatus.test.ts",
+      "line": 144,
+      "text": "    for (const name of [\"scan.pdf\", \"empty.txt\", \"images-only.docx\"]) {"
+    },
+    {
+      "path": "src/lib/uploads/documentStatus.test.ts",
+      "line": 166,
+      "text": "    expect(derive({ fileName: \"interview.docx\", content: \"we tried X\" })).toEqual({"
+    },
+    {
+      "path": "src/lib/uploads/documentStatus.test.ts",
+      "line": 296,
+      "text": "    { fileName: \"a.docx\", content: \"text\" },"
+    },
+    {
+      "path": "src/lib/uploads/documentStatus.test.ts",
+      "line": 297,
+      "text": "    { fileName: \"a.docx\", content: \"text\" + CAP_TRUNCATION_MARKER },"
+    },
+    {
+      "path": "src/lib/uploads/outboxFlush.test.ts",
+      "line": 22,
+      "text": "    fileName: \"notes.docx\","
+    },
+    {
+      "path": "src/lib/uploads/receiptRows.test.ts",
+      "line": 23,
+      "text": "    fileName: \"interview.docx\","
+    },
+    {
+      "path": "src/lib/uploads/receiptRows.test.ts",
+      "line": 47,
+      "text": "    fileName: \"live.docx\","
+    },
+    {
+      "path": "src/lib/uploads/receiptRows.test.ts",
+      "line": 68,
+      "text": "      [doc({ _id: docId(\"d1\") }), doc({ _id: docId(\"d2\"), fileName: \"second.docx\" })],"
+    },
+    {
+      "path": "src/lib/uploads/receiptRows.test.ts",
+      "line": 73,
+      "text": "      \"live.docx\","
+    },
+    {
+      "path": "src/lib/uploads/receiptRows.test.ts",
+      "line": 75,
+      "text": "      \"interview.docx\","
+    },
+    {
+      "path": "src/lib/uploads/receiptRows.test.ts",
+      "line": 76,
+      "text": "      \"second.docx\","
+    },
+    {
+      "path": "src/lib/uploads/receiptRows.test.ts",
+      "line": 95,
+      "text": "      [attempt({ attemptKey: key, fileName: \"stale name.docx\" })],"
+    },
+    {
+      "path": "src/lib/uploads/receiptRows.test.ts",
+      "line": 101,
+      "text": "    expect(rows[0].fileName).toBe(\"live.docx\");"
+    },
+    {
+      "path": "src/lib/uploads/receiptRows.test.ts",
+      "line": 318,
+      "text": "        eph({ attemptKey: \"a0000000-0000-4000-8000-000000000003\", fileName: \"notes.docx\", status: \"ready\", documentId: docId(\"d2\"), hasFile: true }),"
+    },
+    {
+      "path": "src/lib/uploads/receiptRows.test.ts",
+      "line": 340,
+      "text": "        eph({ attemptKey: \"b0000000-0000-4000-8000-000000000001\", fileName: \"lost.docx\", status: \"upload_failed\", hasFile: true }),"
+    },
+    {
+      "path": "src/lib/uploads/receiptRows.test.ts",
+      "line": 341,
+      "text": "        eph({ attemptKey: \"b0000000-0000-4000-8000-000000000002\", fileName: \"ok.docx\", status: \"ready\", hasFile: true }),"
+    },
+    {
+      "path": "src/lib/uploads/receiptRows.test.ts",
+      "line": 344,
+      "text": "    expect(rows.filter((r) => r.canRetry).map((r) => r.fileName)).toEqual([\"lost.docx\"]);"
+    },
+    {
+      "path": "src/lib/workspace/projectIntentHandoff.test.ts",
+      "line": 20,
+      "text": "        transcriptFileName: \" Teams interview.docx \","
+    },
+    {
+      "path": "src/lib/workspace/projectIntentHandoff.test.ts",
+      "line": 27,
+      "text": "      transcriptFileName: \"Teams interview.docx\","
+    },
+    {
+      "path": "src/lib/workspace/projectIntentHandoff.test.ts",
+      "line": 48,
+      "text": "      transcriptFileName: \"interview.docx\","
+    },
+    {
+      "path": "src/lib/workspace/projectIntentHandoff.test.ts",
+      "line": 53,
+      "text": "      transcriptFileName: \"interview.docx\","
+    },
+    {
+      "path": "src/routes/layout.css",
+      "line": 677,
+      "text": "   exports to docx from the document JSON). */"
+    },
+    {
+      "path": "src/routes/project/[id]/currentProjectTranscripts.component.test.ts",
+      "line": 106,
+      "text": "      transcriptRow(\"t-1\", \"Kickoff interview.docx\", 11),"
+    },
+    {
+      "path": "src/routes/project/[id]/currentProjectTranscripts.component.test.ts",
+      "line": 107,
+      "text": "      transcriptRow(\"t-2\", \"Follow-up call.docx\", 240),"
+    },
+    {
+      "path": "src/routes/project/[id]/currentProjectTranscripts.component.test.ts",
+      "line": 112,
+      "text": "    expect(triggers[0].textContent).toContain(\"Kickoff interview.docx\");"
+    },
+    {
+      "path": "src/routes/project/[id]/currentProjectTranscripts.component.test.ts",
+      "line": 113,
+      "text": "    expect(triggers[1].textContent).toContain(\"Follow-up call.docx\");"
+    },
+    {
+      "path": "src/routes/project/[id]/currentProjectTranscripts.component.test.ts",
+      "line": 145,
+      "text": "      label: \"Follow-up call.docx\","
+    },
+    {
+      "path": "src/routes/project/new/+page.svelte",
+      "line": 132,
+      "text": "  // this browser holds (an extracted .docx, or a paste) or a reference to a"
+    },
+    {
+      "path": "src/routes/project/new/+page.svelte",
+      "line": 299,
+      "text": "  // Jul 17 meeting: transcripts are Teams exports \u2014 .docx only. Anything else"
+    },
+    {
+      "path": "src/routes/project/new/+page.svelte",
+      "line": 306,
+      "text": "      file.name.toLowerCase().endsWith(\".docx\")"
+    },
+    {
+      "path": "src/routes/project/new/+page.svelte",
+      "line": 311,
+      "text": "        : `Transcripts must be Word (.docx) files \u2014 Teams exports are. Put other documents in the context slots below, or paste the transcript text instead.`;"
+    },
+    {
+      "path": "src/routes/project/new/+page.svelte",
+      "line": 1097,
+      "text": "                    <span class=\"text-xs text-gray-400\">Word (.docx), PDF, or .txt</span>"
+    },
+    {
+      "path": "src/routes/project/new/+page.svelte",
+      "line": 1227,
+      "text": "                    Word (.docx) \u2014 the Teams export"
+    },
+    {
+      "path": "src/routes/project/new/+page.svelte",
+      "line": 1254,
+      "text": "              accept=\".docx\""
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 16,
+      "text": " * The wizard's transcript intake is an ordered list: several .docx files at"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 24,
+      "text": "  document.querySelector<HTMLInputElement>('input[type=\"file\"][accept=\".docx\"]');"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 152,
+      "text": "  it(\"adds three .docx from one chooser and appends more on reuse\", async () => {"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 160,
+      "text": "      await docxFile(\"Day 1.docx\", [\"alpha\", \"beta\", \"gamma\"]),"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 161,
+      "text": "      await docxFile(\"Day 2.docx\", [\"delta\", \"epsilon\"]),"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 162,
+      "text": "      await docxFile(\"Day 3.docx\", [\"zeta\", \"eta\", \"theta\", \"iota\"]),"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 166,
+      "text": "      .toEqual([\"Day 1.docx\", \"Day 2.docx\", \"Day 3.docx\"]);"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 173,
+      "text": "    selectFiles([await docxFile(\"Day 4.docx\", [\"kappa\", \"lambda\"])]);"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 176,
+      "text": "      .toEqual([\"Day 1.docx\", \"Day 2.docx\", \"Day 3.docx\", \"Day 4.docx\"]);"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 178,
+      "text": "    await clickLabel(\"Remove Day 2.docx\");"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 181,
+      "text": "      .toEqual([\"Day 1.docx\", \"Day 3.docx\", \"Day 4.docx\"]);"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 184,
+      "text": "  it(\"rejects a non-.docx file with the existing message\", async () => {"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 193,
+      "text": "      .toContain(\"Transcripts must be Word (.docx) files\");"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 276,
+      "text": "        label: \"Day 1.docx\","
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 284,
+      "text": "        label: \"Day 2.docx\","
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 296,
+      "text": "    await expect.poll(itemLabels).toEqual([\"Day 1.docx\", \"Day 2.docx\"]);"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 299,
+      "text": "    await clickLabel(\"Remove Day 1.docx\");"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 300,
+      "text": "    await expect.poll(itemLabels).toEqual([\"Day 2.docx\"]);"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 310,
+      "text": "    await expect.poll(itemLabels).toEqual([\"Day 1.docx\", \"Day 2.docx\"]);"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 328,
+      "text": "      { fromTranscriptId: \"transcript-1\", label: \"Day 1.docx\" },"
+    },
+    {
+      "path": "src/routes/project/new/newProjectTranscripts.component.test.ts",
+      "line": 329,
+      "text": "      { fromTranscriptId: \"transcript-2\", label: \"Day 2.docx\" },"
+    },
+    {
+      "path": "src/routes/styleguide/+page.svelte",
+      "line": 18,
+      "text": "    { key: \"r1\", fileName: \"Interview transcript.docx\", status: \"ready\", canRetry: false, canReplace: false, canRemove: true },"
+    },
+    {
+      "path": "src/routes/styleguide/+page.svelte",
+      "line": 24,
+      "text": "    { key: \"r7\", fileName: \"Lab results.docx\", status: null, canRetry: false, canReplace: false, canRemove: false },"
+    },
+    {
+      "path": "src/routes/styleguide/+page.svelte",
+      "line": 25,
+      "text": "    { key: \"r8\", fileName: \"Superseded draft.docx\", status: \"ready\", archived: true, canRetry: false, canReplace: false, canRemove: true },"
+    }
+  ],
+  "tracked_test_directory_files": [],
+  "test_directory_exists": false,
+  "tsconfig_exact_three_line_removal": true,
+  "limit": "Literal import scan plus broad name inventory; computed package names cannot be proven absent by regex. Full canonical build/tests provide separate runtime coverage."
+}

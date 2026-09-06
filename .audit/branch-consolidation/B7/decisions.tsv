@@ -1,0 +1,3 @@
+timestamp	phase	decision	reason	evidence	result
+2026-09-06T02:17:14.136221+00:00	implementation	Use cumulative ad9952f lock blob	Baseline inputs match source parent exactly; full retained graph proven	graph-proof.json	146 unreachable entries removed; no survivor tuple drift
+2026-09-06T02:17:14.136410+00:00	verification	Preserve existing React peer limitation	Baseline and fresh npm ls report identical required missing peer; broadening forbidden	baseline-npm-ls.log; npm-ls.log	Reported for parent review

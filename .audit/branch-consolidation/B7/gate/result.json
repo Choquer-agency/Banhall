@@ -1,0 +1,25 @@
+{
+  "runtime": {
+    "node": "v24.19.0",
+    "npm": "11.17.0",
+    "node_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/node",
+    "npm_executable": "/Users/johnnynguyen/.nvm/versions/node/v24.19.0/bin/npm"
+  },
+  "command": "VERIFY_COMPONENT=1 bash scripts/loop-verify.sh",
+  "exit_code": 0,
+  "elapsed_seconds": 157.15642499923706,
+  "tracked_files_verified": 5733,
+  "unexpected_changed_paths": [],
+  "generated_captures_restored": [
+    ".audit/DW-98-fix/implicit-A-retained.png",
+    ".audit/published-status-fix/published-after.png",
+    ".audit/story-7/optimistic-after.png",
+    ".audit/story-7/optimistic-scrolled-after.png",
+    ".audit/story-7/retry-highlight-only.png",
+    ".audit/story-7/retry-text-and-highlight.png",
+    ".audit/story-7/second-overflow-after.png",
+    ".audit/story-8/learning-sources-mobile-after.png"
+  ],
+  "log_sha256": "b1b80fb5070bcf53e4ea072a30ee2a23d8421b9282f063a404ba35fe13a5a9ce",
+  "at": "2026-09-06T02:26:16.744771+00:00"
+}

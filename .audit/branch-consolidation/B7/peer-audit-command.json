@@ -1,0 +1,9 @@
+{
+  "argv": [
+    "npm",
+    "audit",
+    "--json"
+  ],
+  "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+  "exit": 1
+}

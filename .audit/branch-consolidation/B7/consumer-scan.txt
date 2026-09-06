@@ -1,0 +1,50 @@
+./package.json:50:    "docx": "^9.6.1",
+./package.json:57:    "svelte-exmarkdown": "^5.0.2",
+./package.json:62:    "tippy.js": "^6.3.7",
+./package.json:72:    "@types/bun": "^1.3.14",
+./package.json:78:    "eslint": "^9",
+./scripts/onedrive-crawler.mjs:40:const INGEST_EXTENSIONS = new Set(["docx", "doc", "pdf", "txt", "vtt"]);
+./shared/documentStatus.ts:29:  "docx",
+./convex/_generated/api.js:1:/* eslint-disable */
+./convex/_generated/server.js:1:/* eslint-disable */
+./convex/_generated/server.d.ts:1:/* eslint-disable */
+./convex/documents.test.ts:244:        args: { fileName: "interview.docx", fileType: "docx" as const, content: "we tried X" },
+./convex/documents.test.ts:323:        fileType: "docx",
+./convex/documents.test.ts:334:      fileType: "docx",
+./convex/documents.test.ts:349:      fileType: "docx",
+./convex/documents.test.ts:512:      fileType: "docx",
+./convex/documents.test.ts:518:      fileType: "docx",
+./convex/documents.test.ts:549:        fileType: "docx",
+./convex/documents.test.ts:603:      fileType: "docx",
+./convex/documents.test.ts:616:      fileType: "docx",
+./convex/documents.test.ts:693:        fileType: "docx",
+./convex/documents.test.ts:737:      fileType: "docx",
+./src/lib/chat/uiMessages.svelte.ts:31:// eslint-disable-next-line @typescript-eslint/no-explicit-any
+./convex/_generated/api.d.ts:1:/* eslint-disable */
+./convex/_generated/dataModel.d.ts:1:/* eslint-disable */
+./src/lib/chat/turnParts.test.ts:16:// eslint-disable-next-line @typescript-eslint/no-explicit-any
+./convex/researchReviewMode.test.ts:58:      fileType: "docx",
+./convex/uploadAttempts.test.ts:140:      fileType: "docx",
+./convex/uploadAttempts.test.ts:160:      fileType: "docx",
+./convex/uploadAttempts.test.ts:170:      fileType: "docx",
+./convex/uploadAttempts.test.ts:195:      fileType: "docx",
+./convex/uploadAttempts.test.ts:304:        fileType: "docx",
+./src/lib/parseDocument.ts:32:  | "docx"
+./src/lib/parseDocument.ts:180:    return { fileName: name, fileType: "docx", content: capContent(result.value.trim()) };
+./convex/schema.ts:1007:      v.literal("docx"),
+./convex/pdReviewProjection.test.ts:29:      fileType: "docx",
+./convex/pdReviewProjection.test.ts:111:        fileType: "docx",
+./convex/projects.test.ts:311:        fileType: "docx",
+./convex/ingestionPort.ts:28:const FILE_TYPES: Record<string, "txt" | "md" | "pdf" | "docx"> = {
+./convex/ingestionPort.ts:32:  docx: "docx",
+./convex/ingestionSync.ts:154:  if (ext === "docx") {
+./convex/reaperIntegration.test.ts:47:        fileType: "docx",
+./src/lib/components/project-new/shared.ts:20:): "txt" | "md" | "pdf" | "docx" | "msg" | "eml" | "xlsx" | "image" | "other" {
+./src/lib/components/project-new/shared.ts:23:  if (l.endsWith(".docx")) return "docx";
+./convex/lib/ingestionClassify.ts:8:export const INGEST_EXTENSIONS = new Set(["docx", "doc", "pdf", "txt", "vtt"]);
+./convex/lib/ingestionClassify.ts:43:  } else if (parent.includes("submit") && (ext === "docx" || ext === "doc")) {
+./convex/documents.ts:19:  v.literal("docx"),
+./src/lib/components/chat/AgentChatPanel.svelte:129:  ): "txt" | "md" | "pdf" | "docx" | "msg" | "eml" | "xlsx" | "image" | "other" {
+./src/lib/components/chat/AgentChatPanel.svelte:132:    if (l.endsWith(".docx")) return "docx";
+./src/lib/components/workspace/WorkspaceShell.svelte:68:  // eslint-disable-next-line svelte/no-side-effects-in-init -- one-shot sync of the bindable from storage
+./convex/ingestionPort.test.ts:116:      fileType: "docx",

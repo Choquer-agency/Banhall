@@ -864,3 +864,19 @@ source_spec: `_bmad-output/implementation-artifacts/spec-branch-b3-blank-upload-
 severity: high
 reason: Static reachable public API sequence: create A with S1 and B with S2, then upload A name/content using S2. Existing nonblank dedupe deletes S2 although B still references it. Standard UI supplies fresh IDs; no production occurrence or runtime reproduction claimed. Cleanup is byte-identical before and after B3. Prove with registered mutation and real storage, then protect referenced bytes while retaining genuine orphan cleanup.
 status: open
+
+### DW-104: Resolve the existing required React peer contract for Svelte auth integration
+origin: branch-consolidation B7 independent dependency review
+location: package-lock.json @convex-dev/better-auth@0.12.5
+source_spec: `_bmad-output/implementation-artifacts/spec-branch-b7-dependency-prune.md`
+severity: medium
+reason: Both baseline and fresh pruned npm ls --all exit1 for required absent react peer ^18.3.1 || ^19.0.0; existing legacy-peer-deps=true permits install. Active server/Svelte exports avoid React adapters, and relevant complete lock records are unchanged. See .audit/branch-consolidation/B7/peer-review.md. Resolve package metadata/runtime policy deliberately with auth compatibility proof, without claiming optional omission or changing this exact-version prune.
+status: open
+
+### DW-105: Assess and remediate retained dependency security advisories
+origin: branch-consolidation B7 independent npm advisory audit
+location: package-lock.json retained dependency graph
+source_spec: `_bmad-output/implementation-artifacts/spec-branch-b7-dependency-prune.md`
+severity: high
+reason: Read-only npm audit --json exit1 reports11 affected package entries:1low,7moderate,3high. Every affected complete lock record is unchanged from B7 baseline. High entries: brace-expansion5.0.7, nanoid3.3.16, tar7.5.20; additional Tiptap/SvelteKit/DOMPurify/Mermaid and other advisories are enumerated with GHSA URLs in .audit/branch-consolidation/B7/peer-audit-summary.md and raw peer-audit.json. Assess reachable vulnerable APIs and attacker inputs, then choose bounded compatible upgrades and verification. No runtime exploit or new pruning exposure is claimed.
+status: open

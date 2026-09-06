@@ -1,0 +1,12 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "src/lib/tiptapConfig.test.ts",
+    "--expect.requireAssertions"
+  ],
+  "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+  "started": "2026-09-06T02:16:14.577036+00:00",
+  "exit": 0
+}

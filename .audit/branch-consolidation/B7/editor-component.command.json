@@ -1,0 +1,13 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "vitest.component.config.ts",
+    "src/lib/components/editor/Editor.component.test.ts"
+  ],
+  "cwd": "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation",
+  "started": "2026-09-06T02:16:12.308599+00:00",
+  "exit": 0
+}
