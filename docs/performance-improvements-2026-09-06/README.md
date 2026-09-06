@@ -1,6 +1,6 @@
 # Verified performance improvements
 
-Implemented against main `201e46bd72c89ac2d59ad41022102b88b3f8433f` on 2026-09-06. [Machine-readable evidence](evidence.json) includes source hashes, final serial samples, and verification counts. These results describe the combined implementation.
+Measured at implementation commit `ded9a7f728413a9ee2388681e8fe3284b370c74c` (merged as `657add2`), against main `201e46bd72c89ac2d59ad41022102b88b3f8433f`, on 2026-09-06. [Machine-readable evidence](evidence.json) includes source hashes, final serial samples, and verification counts. These historical results describe that combined implementation. Subsequent lifecycle and recovery corrections are recorded in the [Astra high-effort follow-up](astra-high-review.md).
 
 ## Changes
 

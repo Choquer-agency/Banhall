@@ -12,24 +12,35 @@ beforeEach(() => {
   __setQueryData("chatV2:listMessages", { streams: { kind: "list", messages: [] } });
   __setPaginatedRows("chatV2:listMessages", []);
 });
-it("does not request inactive code, offers retry, and keeps the mounted assistant after activation", async () => {
+it("does not request inactive code and keeps the mounted assistant after activation", async () => {
   const load = vi.fn<() => Promise<typeof import("$lib/components/chat/AgentChatPanel.svelte")>>()
-    .mockRejectedValueOnce(new Error("Module fetch failed"))
     .mockImplementation(() => import("$lib/components/chat/AgentChatPanel.svelte"));
   const view = await render(LazyAssistantHarness, { ...ids, load, active: false });
   expect(load).not.toHaveBeenCalled();
   await view.rerender({ active: true });
-  await expect.element(page.getByRole("alert")).toHaveTextContent("Could not load assistant");
-  await page.getByRole("button", { name: "Retry assistant" }).click();
   const composer = page.getByRole("textbox", { name: "Message the report assistant" });
   await expect.element(composer).toBeVisible();
   const node = composer.element();
-  await composer.fill("Retained after retry");
+  await composer.fill("Retained after activation");
   await view.rerender({ active: false });
   await view.rerender({ active: true });
   expect(composer.element()).toBe(node);
-  await expect.element(composer).toHaveValue("Retained after retry");
-  expect(load).toHaveBeenCalledTimes(2);
+  await expect.element(composer).toHaveValue("Retained after activation");
+  expect(load).toHaveBeenCalledTimes(1);
+});
+
+it("explains reload recovery without repeatedly invoking a failed module import", async () => {
+  // This checks the error affordance only. The production HTTP-failure and
+  // actual reload boundary is exercised by lazy-module-recovery.mjs.
+  const load = vi.fn<() => Promise<typeof import("$lib/components/chat/AgentChatPanel.svelte")>>()
+    .mockRejectedValue(new Error("Module fetch failed"));
+  const view = await render(LazyAssistantHarness, { ...ids, load });
+  await expect.element(page.getByRole("alert")).toHaveTextContent("Could not load assistant");
+  await expect.element(page.getByRole("alert")).toHaveTextContent("Unsaved changes may be lost");
+  await expect.element(page.getByRole("button", { name: "Reload page", exact: true })).toBeVisible();
+  await view.rerender({ active: false });
+  await view.rerender({ active: true });
+  expect(load).toHaveBeenCalledTimes(1);
 });
 
 it.each(["highlight", "research"])("delivers pending %s set while the real assistant module is still loading", async kind => {

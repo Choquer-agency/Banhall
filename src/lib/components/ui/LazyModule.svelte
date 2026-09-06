@@ -27,7 +27,8 @@
   {:catch}
     <div class="flex flex-col items-center justify-center gap-3 p-4 text-sm text-ink-muted" role="alert">
       <p>Could not load {label}.</p>
-      <Button variant="secondary" onclick={() => (request = load())}>Retry {label}</Button>
+      <p>Reload the page to try again. Unsaved changes may be lost.</p>
+      <Button variant="secondary" onclick={() => location.reload()}>Reload page</Button>
     </div>
   {/await}
 {/if}

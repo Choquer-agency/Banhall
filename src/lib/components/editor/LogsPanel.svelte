@@ -60,7 +60,7 @@
   {#if isOpen}
     <div class="mt-3 space-y-3 border-l border-gray-100 pl-4">
       {#if logQ.error}
-        <p role="alert" class="text-xs text-gray-400">Could not load logs.</p>
+        <p role="alert" class="text-xs text-gray-400">Could not load logs. Reload the page to try again.</p>
       {:else if log === undefined}
         <p role="status" class="text-xs text-gray-400">Loading logs…</p>
       {:else if count === 0}

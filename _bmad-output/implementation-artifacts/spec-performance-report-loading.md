@@ -6,8 +6,8 @@ status: done
 baseline_commit: 201e46bd72c89ac2d59ad41022102b88b3f8433f
 review_loop_iteration: 0
 context:
-  - {project-root}/AGENTS.md
-  - {project-root}/docs/svelte-migration.md
+  - "{project-root}/AGENTS.md"
+  - "{project-root}/docs/svelte-migration.md"
 ---
 <frozen-after-approval reason="User authorized implementing audited performance improvements">
 ## Intent
@@ -40,12 +40,13 @@ Always keep currentWhileLoading=false and cohort selection in WorkspaceGate. Laz
 - [x] Produce rerunnable bundle comparison recording static shell, each selected-cohort closure, and optional-tool closures separately.
 Acceptance: Given pending access, no project queries mount. Given each cohort selection, correct report renders and the other module is absent from the initial graph. Given never-opened assistant, assistant-only queries remain skipped. Given reopened assistant, state survives. Given optional panels, all open paths function and failure recovery is actionable.
 ## Spec Change Log
+2026-09-06 Astra high review: real failed module fetches remain cached in the browser. Use an explicit page reload for recovery after automatic reload is throttled; preserve successful mounted tool state and disclose possible unsaved changes.
 ## Verification
 Run required browser component baseline before component edits. Run focused changed and existing route/review-feedback/intake suites after changes. Record outputs under .audit/performance-improvements. Parent runs full canonical and component gates and production build after sequential units. Do not commit or push from this subtask. Report unmet acceptance explicitly; do not count shell-only byte reduction as full report speedup.
 
 ## Final Verification
 
-All nine steps of `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` passed on the final implementation: 2,090 unit tests, 562 browser component tests, both typechecks, discovery guard, production build and both uploader harnesses. Focused independent review findings were resolved and reinspected. Final sequential benchmark results, source hashes, limitations and reproduction commands are committed in [performance evidence](../../docs/performance-improvements-2026-09-06/README.md).
+All nine steps of `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` passed on the final implementation: 2,090 unit tests, 580 browser component tests, both typechecks, discovery guard, production build and both uploader harnesses. Focused independent review findings were resolved and reinspected. Final sequential benchmark results, source hashes, limitations and reproduction commands are committed in [performance evidence](../../docs/performance-improvements-2026-09-06/README.md).
 
 ## Suggested Review Order
 
@@ -74,3 +75,11 @@ All nine steps of `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` passed on the
 
 - Measure each complete report cohort, including default desktop assistant.
   [report-bundles.mjs:33](../../scripts/performance/report-bundles.mjs#L33)
+
+## Astra High Review Findings
+
+- [x] [Review][Patch] Quote YAML context paths.
+- [x] [Review][Patch] Recover from cached dynamic import failures.
+- [x] [Review][Patch] Provide actionable deferred-query error recovery.
+
+Astra high follow-up: all patch findings above are resolved. The complete nine-step gate and independent reinspection passed; [review and verification record](../../docs/performance-improvements-2026-09-06/astra-high-review.md).

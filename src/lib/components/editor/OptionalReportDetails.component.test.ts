@@ -4,7 +4,7 @@ import { render } from "vitest-browser-svelte";
 import LogsPanel from "./LogsPanel.svelte";
 import FilingReadinessPanel from "$lib/components/evidence/FilingReadinessPanel.svelte";
 import type { Id } from "../../../../convex/_generated/dataModel";
-import { __resetConvexStub, __setQueryData, __activeQueryCount } from "$lib/test/convex-svelte-stub.svelte";
+import { __resetConvexStub, __setQueryData, __setQueryError, __activeQueryCount } from "$lib/test/convex-svelte-stub.svelte";
 const projectId = "project-1" as Id<"projects">;
 beforeEach(() => { __resetConvexStub(); });
 it("leaves logs unsubscribed until open and reports loading instead of a fabricated empty count", async () => {
@@ -40,4 +40,30 @@ it("keeps filing readiness live while details wait, then retains the evidence dr
   await toggle.click();
   await expect.element(page.getByRole("textbox", { name: "Source description" })).toHaveValue("Retained evidence draft");
   expect(__activeQueryCount("projectEvidence:listEvidence")).toBe(1);
+});
+
+it("gives logs recovery guidance and shows a recovered subscription", async () => {
+  __setQueryError("chat:listProjectLog", new Error("Unavailable"));
+  await render(LogsPanel, { projectId });
+  await page.getByRole("button", { name: "Logs", exact: true }).click();
+  await expect.element(page.getByRole("alert")).toHaveTextContent("Reload the page to try again.");
+  __setQueryError("chat:listProjectLog", undefined);
+  __setQueryData("chat:listProjectLog", [{ _id: "recovered", role: "writer", content: "Recovered question", createdAt: 1 }]);
+  await expect.element(page.getByText("Recovered question", { exact: true })).toBeVisible();
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+});
+it("gives filing evidence recovery guidance while preserving the readiness summary", async () => {
+  __setQueryData("projectEvidence:getReadiness", { ready: false, blockers: [{ code: "ATTESTATION_REQUIRED", message: "Attestation required" }] });
+  __setQueryData("projectEvidence:listEvidence", []);
+  __setQueryData("reports:getProvenance", null);
+  __setQueryError("documents:listDocuments", new Error("Unavailable"));
+  await render(FilingReadinessPanel, { projectId, reportId: "report-1" as Id<"reports">, clientName: "Acme", userRole: "writer" });
+  const toggle = page.getByRole("button", { name: /Filing readiness/ });
+  await toggle.click();
+  await expect.element(toggle).toHaveTextContent("1 blocker");
+  await expect.element(page.getByRole("alert")).toHaveTextContent("Reload the page to try again.");
+  __setQueryError("documents:listDocuments", undefined);
+  __setQueryData("documents:listDocuments", []);
+  await expect.element(page.getByRole("button", { name: "Add evidence", exact: true })).toBeVisible();
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
 });

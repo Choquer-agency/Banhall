@@ -1,0 +1,63 @@
+{
+  "review_base": "657add29fa81e6c51bf381966c90e7922825eda4",
+  "reviewer_configuration": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "independent_reviewers": 3,
+    "served_metadata": "unavailable"
+  },
+  "source_sha256": {
+    "scripts/performance/lazy-module-recovery.mjs": "c0fd3b77c7342041c11717671c19b5f453318ea93b1768ce0db465944d9dd48e",
+    "src/lib/components/chat/AgentChatPanel.svelte": "6869e9d2e6422495d648ed3dc0bb7ec77e093563af115035a941e65095f55656",
+    "src/lib/components/chat/UploadOwnership.component.test.ts": "ff893e0b2817e4c4d4f99365c67302c7c44e022688111d7f1be47813dc3a6962",
+    "src/lib/components/editor/FilesPanel.svelte": "ef5e50db1fb416be46f93e46c28099b59196e1ad0a0f7696ca166d864f48aa93",
+    "src/lib/components/editor/FilesPanelReplacement.component.test.ts": "eea7197a8db45bf30961592de39c392871a02f473be29a086c853eed0a601986",
+    "src/lib/components/editor/LogsPanel.svelte": "626fce9b20672228d1b8f38825939914c148e0136f128c342b47b7bbdc5a6300",
+    "src/lib/components/editor/OptionalReportDetails.component.test.ts": "e157025103578eaf07bd30cabe8a7da118f8481973897cfb9b1ce991a04678df",
+    "src/lib/components/evidence/FilingReadinessPanel.svelte": "362042acf6d88ab416b8f3ad1d4f29b4253577381383b4d19d9c6407ece52c9a",
+    "src/lib/components/ui/LazyModule.component.test.ts": "6655c680acda8d99a1bae54e55f70129a54ac504428d8838c4b22abdfeef226e",
+    "src/lib/components/ui/LazyModule.svelte": "be394c7d6cdabf1b9347f0d80d710abeafe2d5b20d8adca850c370fc5f92152a",
+    "src/lib/extractionScope.svelte.ts": "afc2c958c1f2d21ab52b9187346d5f74ab1e17a4dd74a17f81317f68cc5a992e"
+  },
+  "canonical_verification": {
+    "command": "VERIFY_COMPONENT=1 bash scripts/loop-verify.sh",
+    "steps_passed": 9,
+    "unit_files": 158,
+    "unit_tests": 2090,
+    "browser_files": 76,
+    "browser_tests": 580,
+    "typecheck_errors": 0,
+    "typecheck_warnings": 0,
+    "powershell_checks": 50,
+    "bash_checks": 18,
+    "local_log_sha256": "70a19017a26200795df81b4ef97a05388b5ff4b1e2b01508af872e72a97de447"
+  },
+  "module_recovery": {
+    "method": "Actual production LazyModule and extracted existing layout preload handler; HTTP 503 optional chunk with automatic-reload throttle active, then HTTP 200 and user-triggered reload. No Convex/auth or timing claim.",
+    "requests": [
+      {
+        "path": "/assets/Optional-D8HQDy1d.js",
+        "status": 503
+      },
+      {
+        "path": "/assets/Optional-D8HQDy1d.js",
+        "status": 200
+      }
+    ],
+    "browser": "151.0.7922.34",
+    "cachedFailure": {
+      "sameDocumentRetry": "rejected",
+      "networkRequests": 1
+    },
+    "recovery": {
+      "documentNavigations": 2,
+      "moduleStatuses": [
+        503,
+        200
+      ],
+      "retainedInstanceAndDraft": true
+    },
+    "passed": true
+  },
+  "spec_headers": "All three parse successfully with js-yaml after quoting context paths."
+}

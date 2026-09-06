@@ -415,5 +415,7 @@
         }
       }
     }
-  }
+  },
+  "implementation_commit": "ded9a7f728413a9ee2388681e8fe3284b370c74c",
+  "scope_note": "Historical implementation measurements and source hashes. Subsequent lifecycle and recovery corrections are documented in astra-high-review.md."
 }
