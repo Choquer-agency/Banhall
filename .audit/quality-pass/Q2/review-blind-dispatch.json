@@ -1,0 +1,23 @@
+{
+  "at": "2026-09-06T04:25:13.296171+00:00",
+  "argv": [
+    "codex",
+    "exec",
+    "--ephemeral",
+    "-m",
+    "gpt-6-astra",
+    "-c",
+    "model_reasoning_effort=\"medium\"",
+    "-c",
+    "approval_policy=\"never\"",
+    "--sandbox",
+    "read-only",
+    "--color",
+    "never",
+    "--output-last-message",
+    "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass/.audit/quality-pass/Q2/review-blind-result.md",
+    "-"
+  ],
+  "prompt_sha256": "a240dc8c865d95090373abba68a2c3627c6f8af05559d7d8a517abddfb1b6beb",
+  "spec_sha256": "d462266d19591e3d1f7352e9bbcc04775745a7bea62770ca6044a959758bc16e"
+}

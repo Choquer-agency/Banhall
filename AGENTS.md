@@ -26,7 +26,6 @@ SR&ED report generation for a consulting firm. SvelteKit 2 + Svelte 5 runes, Tai
 - `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` adds the browser component suite (`npm run test:component`), which needs `npx playwright install chromium` once (Linux: `npx playwright install --with-deps chromium`). Optional preflight launches headless Chromium. `npm test` itself never touches a browser.
 - CI defines two jobs: one runs `bash scripts/loop-verify.sh`, the other installs Chromium and runs `npm run test:component`. Still run `test:component` locally before touching `src/lib/components`. Required branch-protection checks are configured separately from this workflow.
 
-- Existing component tests rewrite historical screenshots under `.audit`. Inspect their diffs after browser runs and restore only generated historical outputs that must stay unchanged, preserving unrelated work.
 
 ## Conventions that differ from defaults
 
@@ -42,6 +41,8 @@ SR&ED report generation for a consulting firm. SvelteKit 2 + Svelte 5 runes, Tai
 - Never add `sveltekit()` to `vitest.component.config.ts`; it pulls `$app`/`$env` and breaks the browser project.
 
 <!-- /bmad:context -->
+
+- Fresh component captures use ignored `.vitest-attachments/` (including `story-7/`, `story-8/`, `DW-98-fix/` and `published-status-fix/`) and `src/**/__screenshots__/`. Canonical verification must preserve tracked source and historical evidence bytes, including pre-existing working changes, without restoration.
 
 <!-- convex-ai-start -->
 

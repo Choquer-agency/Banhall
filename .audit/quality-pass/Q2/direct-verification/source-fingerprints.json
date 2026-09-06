@@ -1,0 +1,14 @@
+{
+  "src/lib/components/chat/OptimisticSend.component.test.ts": {
+    "original_sha256": "bac4cc1945a42182c2060b30401b2e94914e6662fa868d4bb68bc4f01de192ad",
+    "candidate_sha256": "0df387a81245dfa3d819311e3aeb2af4b9c4cf4681ea011603242aba840650ea"
+  },
+  "src/routes/admin/learning/LearningHealth.component.test.ts": {
+    "original_sha256": "1134413fd641dce9410614e824d5c359fc74e89e536378af343cbd1c913cb0da",
+    "candidate_sha256": "b610573280b069d9fb7a20af137d187757abcd0fe9c2b77e4aa3c11f9745e1df"
+  },
+  "AGENTS.md": {
+    "original_sha256": "cee8d25679a1d0c2fe982c223d41a19ab92d57a3c6d6a0cd0935bb19505b9e35",
+    "candidate_sha256": "bfc38147ae033bcc8bb71ede58a1cb4182ac034ed2b2391d6fe214582d4591da"
+  }
+}

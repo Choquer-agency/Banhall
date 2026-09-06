@@ -1,0 +1,10 @@
+{
+  "src/lib/components/chat/OptimisticSend.component.test.ts": {
+    "only_destination_prefix_changed": true,
+    "capture_sites": 7
+  },
+  "src/routes/admin/learning/LearningHealth.component.test.ts": {
+    "only_destination_prefix_changed": true,
+    "capture_sites": 6
+  }
+}

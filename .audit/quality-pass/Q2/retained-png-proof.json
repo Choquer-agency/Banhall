@@ -1,0 +1,114 @@
+[
+  {
+    "path": ".audit/quality-pass/Q2/verified-pngs/story-7/optimistic-after.png",
+    "sha256": "cfacb6859d7dbd5ec10cdfa788144c9f03465c8f2c3ad7be78c29a4c90a244e1",
+    "width": 610,
+    "height": 720,
+    "png_chunks_crc_valid": true,
+    "decoded_scanline_bytes": 1318320
+  },
+  {
+    "path": ".audit/quality-pass/Q2/verified-pngs/story-7/retry-highlight-only.png",
+    "sha256": "d5214919e4f43a7f4bcb008325cc696099ee93cf855809e45fd39e520855bd72",
+    "width": 610,
+    "height": 720,
+    "png_chunks_crc_valid": true,
+    "decoded_scanline_bytes": 1318320
+  },
+  {
+    "path": ".audit/quality-pass/Q2/verified-pngs/story-7/retry-text-and-highlight.png",
+    "sha256": "f6911a20e2982351b5526cd988fbca598bafdbb61dacb6cdf58f00ce70cd9130",
+    "width": 610,
+    "height": 720,
+    "png_chunks_crc_valid": true,
+    "decoded_scanline_bytes": 1318320
+  },
+  {
+    "path": ".audit/quality-pass/Q2/verified-pngs/DW-98-fix/implicit-A-retained.png",
+    "sha256": "d24b867d86388808918944f8a201ac0f956167c140b1f55bb94c7fb5d1b760d1",
+    "width": 610,
+    "height": 720,
+    "png_chunks_crc_valid": true,
+    "decoded_scanline_bytes": 1318320
+  },
+  {
+    "path": ".audit/quality-pass/Q2/verified-pngs/story-7/optimistic-scrolled-after.png",
+    "sha256": "137658158a1e31265760b5534c05e719754c57ce67ea1bdae4ea313ab3ba6de2",
+    "width": 610,
+    "height": 720,
+    "png_chunks_crc_valid": true,
+    "decoded_scanline_bytes": 1318320
+  },
+  {
+    "path": ".audit/quality-pass/Q2/verified-pngs/story-7/followup-overflow-after.png",
+    "sha256": "6850d58ba0e21661f83b81a2c7eaebd4e60c5902a861e8de4fdaccce0e8f99a5",
+    "width": 272,
+    "height": 930,
+    "png_chunks_crc_valid": true,
+    "decoded_scanline_bytes": 759810
+  },
+  {
+    "path": ".audit/quality-pass/Q2/verified-pngs/story-7/second-overflow-after.png",
+    "sha256": "ae09eb00e7f2408724685753530a888f99354cc4a41966659c0af604649f40b1",
+    "width": 272,
+    "height": 720,
+    "png_chunks_crc_valid": true,
+    "decoded_scanline_bytes": 588240
+  },
+  {
+    "path": ".audit/quality-pass/Q2/verified-pngs/published-status-fix/published-after.png",
+    "sha256": "060c1987d5fec657ba52433b8a9d7b95cfc2df38650ed767f0959975bbf0eed9",
+    "width": 610,
+    "height": 720,
+    "png_chunks_crc_valid": true,
+    "decoded_scanline_bytes": 1318320
+  },
+  {
+    "path": ".audit/quality-pass/Q2/verified-pngs/story-8/learning-desktop-after.png",
+    "sha256": "8ca7588f4a42fe819b650c83fc75c98214c442c827226b5374eb355e7d816c9d",
+    "width": 1152,
+    "height": 720,
+    "png_chunks_crc_valid": true,
+    "decoded_scanline_bytes": 2489040
+  },
+  {
+    "path": ".audit/quality-pass/Q2/verified-pngs/story-8/learning-sources-desktop-after.png",
+    "sha256": "96f49a75983ec73455ac1600363d96e7ccf6666bea38a1e35a8b83c9bbd45d7f",
+    "width": 1152,
+    "height": 720,
+    "png_chunks_crc_valid": true,
+    "decoded_scanline_bytes": 2489040
+  },
+  {
+    "path": ".audit/quality-pass/Q2/verified-pngs/story-8/third-learning-long-title-after.png",
+    "sha256": "94852cfe25b6cefdf9bebfc6f247c7ec72b8163810e7e100202155811572ce9f",
+    "width": 333,
+    "height": 720,
+    "png_chunks_crc_valid": true,
+    "decoded_scanline_bytes": 720000
+  },
+  {
+    "path": ".audit/quality-pass/Q2/verified-pngs/story-8/learning-mobile-after.png",
+    "sha256": "7c9030aaf5e9e54dfb6e0e5f1fc03d00fdac5f70ae0e1780bad9362afa03bb5b",
+    "width": 333,
+    "height": 720,
+    "png_chunks_crc_valid": true,
+    "decoded_scanline_bytes": 720000
+  },
+  {
+    "path": ".audit/quality-pass/Q2/verified-pngs/story-8/learning-sources-mobile-after.png",
+    "sha256": "141d7e17be2dba0bf8c92beb088dfe37687cb6ebef2ead13e71dd364997638c2",
+    "width": 333,
+    "height": 720,
+    "png_chunks_crc_valid": true,
+    "decoded_scanline_bytes": 720000
+  },
+  {
+    "path": ".audit/quality-pass/Q2/verified-pngs/story-8/learning-current-after.png",
+    "sha256": "77383bf4425f7d24490cfecab5e5b04947640f5e7311686f66c5862743d48cd0",
+    "width": 333,
+    "height": 720,
+    "png_chunks_crc_valid": true,
+    "decoded_scanline_bytes": 720000
+  }
+]

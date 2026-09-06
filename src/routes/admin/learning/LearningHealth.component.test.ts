@@ -99,9 +99,9 @@ describe("/admin/learning actual page", () => {
       expect(Number(getComputedStyle(heading).fontWeight)).toBeLessThanOrEqual(500);
     }
     noOverflow();
-    await page.screenshot({ path: "../../../../.audit/story-8/learning-desktop-after.png", fullPage: false });
+    await page.screenshot({ path: "../../../../.vitest-attachments/story-8/learning-desktop-after.png", fullPage: false });
     sourceTable?.scrollIntoView({ block: "center" });
-    await page.screenshot({ path: "../../../../.audit/story-8/learning-sources-desktop-after.png", fullPage: false });
+    await page.screenshot({ path: "../../../../.vitest-attachments/story-8/learning-sources-desktop-after.png", fullPage: false });
   });
 
   it("distinguishes historical entry identity from wholly unattributed judgment evidence", async () => {
@@ -155,7 +155,7 @@ describe("/admin/learning actual page", () => {
     titleRange.selectNodeContents(title);
     expect(titleRange.getClientRects().length).toBeGreaterThan(1);
     cell.scrollIntoView({ block: "start" });
-    await page.screenshot({ path: "../../../../.audit/story-8/third-learning-long-title-after.png", fullPage: false });
+    await page.screenshot({ path: "../../../../.vitest-attachments/story-8/third-learning-long-title-after.png", fullPage: false });
   });
 
   it("keeps missing days unconnected and exposes the actual daily means and sample counts", async () => {
@@ -375,9 +375,9 @@ describe("/admin/learning actual page", () => {
     table.scrollLeft = 0;
     document.querySelector("main")?.scrollTo({ top: 0, behavior: "instant" });
     expect(button("30 days").getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
-    await page.screenshot({ path: "../../../../.audit/story-8/learning-mobile-after.png", fullPage: false });
+    await page.screenshot({ path: "../../../../.vitest-attachments/story-8/learning-mobile-after.png", fullPage: false });
     table?.scrollIntoView({ block: "center" });
-    await page.screenshot({ path: "../../../../.audit/story-8/learning-sources-mobile-after.png", fullPage: false });
+    await page.screenshot({ path: "../../../../.vitest-attachments/story-8/learning-sources-mobile-after.png", fullPage: false });
     __setPageUrl("/admin/learning?workspace=current");
     await expect.poll(() => document.querySelector('[data-admin-presentation="current"]')).not.toBeNull();
     expect(document.querySelectorAll("main")).toHaveLength(1);
@@ -388,7 +388,7 @@ describe("/admin/learning actual page", () => {
     // Vitest captures its iframe body as a Playwright element, so fullPage is
     // ignored. Constrain that capture box to the viewport without clipping or
     // resizing the route itself; screenshot styles are removed immediately.
-    await page.screenshot({ path: "../../../../.audit/story-8/learning-current-after.png", style: "body { height: 100vh !important; }" });
+    await page.screenshot({ path: "../../../../.vitest-attachments/story-8/learning-current-after.png", style: "body { height: 100vh !important; }" });
   });
 
   for (const user of [{ role: "writer" }, { role: "manager" }, { role: "admin", isAnonymous: true }, {}, null]) {
