@@ -1,0 +1,8 @@
+{
+  "at": "2026-09-06T06:35:43.642532+00:00",
+  "cache": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass/node_modules/.vite",
+  "previous_cache_existed": true,
+  "preserved_at": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass/.vitest-attachments/pre-final-vite-cache",
+  "method": "rename owned generated cache; no source or external-checkout changes",
+  "cache_absent_before_gate": true
+}

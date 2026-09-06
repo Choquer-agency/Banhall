@@ -1,0 +1,69 @@
+{
+  "head": "390eb452ab840f3e6a2a16711f61d3c6ddb90c38",
+  "gate_log_hash_matches": true,
+  "actual_counts": [
+    "Test Files  156 passed (156)",
+    "Tests  2077 passed (2077)",
+    "Test Files  66 passed (66)",
+    "Tests  522 passed (522)"
+  ],
+  "steps": [
+    "[1/9] preflight",
+    "[2/9] convex typecheck",
+    "[3/9] svelte-check",
+    "[4/9] unit tests",
+    "[5/9] test discovery guard",
+    "[6/9] production build",
+    "[7/9] uploader harness (pwsh)",
+    "[8/9] uploader harness (bash)",
+    "[9/9] component suite"
+  ],
+  "source_manifest_count": 6870,
+  "source_changes": [],
+  "current_non_audit_non_ledger_drift": [],
+  "index_receipt_equal": true,
+  "reload_messages": [],
+  "archive_checks": [
+    {
+      "unit": "Q1",
+      "records": 45,
+      "mismatches": []
+    },
+    {
+      "unit": "Q2",
+      "records": 70,
+      "mismatches": []
+    },
+    {
+      "unit": "Q3",
+      "records": 38,
+      "mismatches": []
+    },
+    {
+      "unit": "Q4",
+      "records": 78,
+      "mismatches": []
+    },
+    {
+      "unit": "Q5",
+      "records": 53,
+      "mismatches": []
+    },
+    {
+      "unit": "Q6",
+      "records": 56,
+      "mismatches": []
+    },
+    {
+      "unit": "Q7",
+      "records": 72,
+      "mismatches": []
+    },
+    {
+      "unit": "Q8",
+      "records": 117,
+      "mismatches": []
+    }
+  ],
+  "issues": []
+}

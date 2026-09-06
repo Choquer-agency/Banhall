@@ -1,0 +1,73 @@
+{
+  "version": "0.12.5",
+  "peerDependencies": {
+    "react": "^18.3.1 || ^19.0.0",
+    "convex": "^1.25.0",
+    "better-auth": ">=1.6.11 <1.7.0"
+  },
+  "dependencies": {
+    "zod": "^4.0.0",
+    "jose": "^6.1.0",
+    "remeda": "^2.32.0",
+    "semver": "^7.7.3",
+    "type-fest": "^5.0.0",
+    "common-tags": "^1.8.2",
+    "convex-helpers": "^0.1.95",
+    "@better-fetch/fetch": "^1.1.18"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/client/index.d.ts",
+      "default": "./dist/client/index.js"
+    },
+    "./test": "./src/test.ts",
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "default": "./dist/react/index.js"
+    },
+    "./utils": {
+      "types": "./dist/utils/index.d.ts",
+      "default": "./dist/utils/index.js"
+    },
+    "./nextjs": {
+      "types": "./dist/nextjs/index.d.ts",
+      "default": "./dist/nextjs/index.js"
+    },
+    "./adapter": {
+      "types": "./dist/component/adapter.d.ts",
+      "default": "./dist/component/adapter.js"
+    },
+    "./plugins": {
+      "types": "./dist/plugins/index.d.ts",
+      "default": "./dist/plugins/index.js"
+    },
+    "./auth-config": {
+      "types": "./dist/auth-config.d.ts",
+      "default": "./dist/auth-config.js"
+    },
+    "./react-start": {
+      "types": "./dist/react-start/index.d.ts",
+      "default": "./dist/react-start/index.js"
+    },
+    "./package.json": "./package.json",
+    "./convex.config": {
+      "types": "./dist/component/convex.config.d.ts",
+      "default": "./dist/component/convex.config.js"
+    },
+    "./nextjs/client": {
+      "types": "./dist/nextjs/client.d.ts",
+      "default": "./dist/nextjs/client.js"
+    },
+    "./client/plugins": {
+      "types": "./dist/client/plugins/index.d.ts",
+      "default": "./dist/client/plugins/index.js"
+    },
+    "./convex.config.js": {
+      "types": "./dist/component/convex.config.d.ts",
+      "default": "./dist/component/convex.config.js"
+    },
+    "./_generated/component.js": {
+      "types": "./dist/component/_generated/component.d.ts"
+    }
+  }
+}

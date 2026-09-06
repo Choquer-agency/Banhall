@@ -1,0 +1,312 @@
+{
+  "Q5_commit": "bea7e2d218ea06743f94b2c5fd5e1755e5fd98e8",
+  "Q5_archives": 53,
+  "Q5_source_binding": {
+    "src/lib/components/editor/ModelTestSummary.svelte": true,
+    "src/lib/components/editor/ModelTestSummary.component.test.ts": true,
+    "_bmad-output/implementation-artifacts/spec-quality-Q5.md": true
+  },
+  "workers": [
+    {
+      "unit": "Q5",
+      "role": "implementation",
+      "header": {
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "session id": "01a07520-3fdb-7362-bc29-93702a1990eb"
+      },
+      "verified": true,
+      "exit": 0
+    },
+    {
+      "unit": "Q5",
+      "role": "review-blind",
+      "header": {
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "session id": "01a07523-dc83-7851-9ffe-b42d2a9148dc"
+      },
+      "verified": true,
+      "exit": 0
+    },
+    {
+      "unit": "Q5",
+      "role": "review-edge",
+      "header": {
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "session id": "01a07523-dc83-7653-bc30-bcb7a78685c4"
+      },
+      "verified": true,
+      "exit": 0
+    },
+    {
+      "unit": "Q5",
+      "role": "review-gap",
+      "header": {
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "session id": "01a07523-dc9f-7411-a6e3-4b587f6171ed"
+      },
+      "verified": true,
+      "exit": 0
+    },
+    {
+      "unit": "Q6",
+      "role": "implementation",
+      "header": {
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "session id": "01a07529-96dc-7400-923a-c0d2e5042b56"
+      },
+      "verified": true,
+      "exit": 0
+    },
+    {
+      "unit": "Q6",
+      "role": "review-blind",
+      "header": {
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "session id": "01a07531-2802-74a3-bcd1-045c2a034674"
+      },
+      "verified": true,
+      "exit": 0
+    },
+    {
+      "unit": "Q6",
+      "role": "review-edge",
+      "header": {
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "session id": "01a07531-2802-7c23-8cdd-73f0f8fa3bd6"
+      },
+      "verified": true,
+      "exit": 0
+    },
+    {
+      "unit": "Q6",
+      "role": "review-gap",
+      "header": {
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "session id": "01a07531-2802-7401-ac19-7b33bd1049c0"
+      },
+      "verified": true,
+      "exit": 0
+    }
+  ],
+  "distinct_sessions": 8,
+  "Q6_post_review_hashes": [
+    {
+      "path": ".audit/quality-pass/Q6/pre-review-source.txt",
+      "matches": true
+    },
+    {
+      "path": ".audit/quality-pass/Q6/pre-review-test.txt",
+      "matches": true
+    },
+    {
+      "path": "src/lib/components/ui/UserMenu.svelte",
+      "matches": true
+    },
+    {
+      "path": "src/lib/components/ui/UserMenu.component.test.ts",
+      "matches": true
+    },
+    {
+      "path": ".audit/quality-pass/Q6/rejection-before-refined.log",
+      "matches": true
+    },
+    {
+      "path": ".audit/quality-pass/Q6/post-review-component.log",
+      "matches": true
+    },
+    {
+      "path": ".audit/quality-pass/Q6/post-review-check.log",
+      "matches": true
+    },
+    {
+      "path": ".audit/quality-pass/Q6/post-review-diff-check.log",
+      "matches": true
+    },
+    {
+      "path": ".audit/quality-pass/Q6/avatar-before.png",
+      "matches": true
+    },
+    {
+      "path": ".audit/quality-pass/Q6/avatar-account-writer-after.png",
+      "matches": true
+    }
+  ],
+  "Q6_initial_special_entries": [],
+  "Q6_initial_regular_changes": [
+    "src/lib/components/ui/UserMenu.component.test.ts",
+    "src/lib/components/ui/UserMenu.svelte"
+  ],
+  "Q6_index_current_matches": false,
+  "rail_current_equals_Q5": true,
+  "issues": [],
+  "Q6_initial_omitted_paths": [
+    ".audit/quality-pass/Q6/archive-manifest.json",
+    ".audit/quality-pass/Q6/artifact-sha256.json",
+    ".audit/quality-pass/Q6/avatar-account-writer-after.png",
+    ".audit/quality-pass/Q6/avatar-after.png",
+    ".audit/quality-pass/Q6/avatar-before.png",
+    ".audit/quality-pass/Q6/baseline-component.log.gz",
+    ".audit/quality-pass/Q6/baseline-exit.txt.gz",
+    ".audit/quality-pass/Q6/baseline-proof.json",
+    ".audit/quality-pass/Q6/baseline-refined.log.gz",
+    ".audit/quality-pass/Q6/baseline-source.sha256",
+    ".audit/quality-pass/Q6/check-with-env.log.gz",
+    ".audit/quality-pass/Q6/check.log.gz",
+    ".audit/quality-pass/Q6/decisions.tsv",
+    ".audit/quality-pass/Q6/diff-check.log.gz",
+    ".audit/quality-pass/Q6/evidence.md",
+    ".audit/quality-pass/Q6/final-component.log.gz",
+    ".audit/quality-pass/Q6/fixed-component.log.gz",
+    ".audit/quality-pass/Q6/implement-exits.json",
+    ".audit/quality-pass/Q6/implementation-dispatch.json",
+    ".audit/quality-pass/Q6/implementation-exit.json",
+    ".audit/quality-pass/Q6/implementation-prompt.txt.gz",
+    ".audit/quality-pass/Q6/implementation-result.md",
+    ".audit/quality-pass/Q6/implementation.log.gz",
+    ".audit/quality-pass/Q6/initial-bytes.json.gz",
+    ".audit/quality-pass/Q6/initial-index.txt.gz",
+    ".audit/quality-pass/Q6/post-review-check.log.gz",
+    ".audit/quality-pass/Q6/post-review-component.log.gz",
+    ".audit/quality-pass/Q6/post-review-diff-check.log.gz",
+    ".audit/quality-pass/Q6/post-review-evidence.md",
+    ".audit/quality-pass/Q6/post-review-sha256.txt.gz",
+    ".audit/quality-pass/Q6/pre-review-source.sha256",
+    ".audit/quality-pass/Q6/pre-review-source.txt.gz",
+    ".audit/quality-pass/Q6/pre-review-test.sha256",
+    ".audit/quality-pass/Q6/pre-review-test.txt.gz",
+    ".audit/quality-pass/Q6/regression-test.sha256",
+    ".audit/quality-pass/Q6/rejection-before-refined.log.gz",
+    ".audit/quality-pass/Q6/rejection-before.log.gz",
+    ".audit/quality-pass/Q6/review-blind-dispatch.json",
+    ".audit/quality-pass/Q6/review-blind-exit.json",
+    ".audit/quality-pass/Q6/review-blind-prompt.txt.gz",
+    ".audit/quality-pass/Q6/review-blind-result.md",
+    ".audit/quality-pass/Q6/review-blind.log.gz",
+    ".audit/quality-pass/Q6/review-content.diff.gz",
+    ".audit/quality-pass/Q6/review-edge-dispatch.json",
+    ".audit/quality-pass/Q6/review-edge-exit.json",
+    ".audit/quality-pass/Q6/review-edge-prompt.txt.gz",
+    ".audit/quality-pass/Q6/review-edge-result.md",
+    ".audit/quality-pass/Q6/review-edge.log.gz",
+    ".audit/quality-pass/Q6/review-exits.json",
+    ".audit/quality-pass/Q6/review-gap-dispatch.json",
+    ".audit/quality-pass/Q6/review-gap-exit.json",
+    ".audit/quality-pass/Q6/review-gap-prompt.txt.gz",
+    ".audit/quality-pass/Q6/review-gap-result.md",
+    ".audit/quality-pass/Q6/review-gap.log.gz",
+    ".audit/quality-pass/Q6/review-triage.md",
+    ".audit/quality-pass/Q6/root-acceptance.json",
+    ".audit/quality-pass/Q6/verification-result.json",
+    ".claude/skills/brandkit",
+    ".claude/skills/design-taste-frontend",
+    ".claude/skills/design-taste-frontend-v1",
+    ".claude/skills/full-output-enforcement",
+    ".claude/skills/gpt-taste",
+    ".claude/skills/high-end-visual-design",
+    ".claude/skills/image-to-code",
+    ".claude/skills/imagegen-frontend-mobile",
+    ".claude/skills/imagegen-frontend-web",
+    ".claude/skills/industrial-brutalist-ui",
+    ".claude/skills/minimalist-ui",
+    ".claude/skills/redesign-existing-projects",
+    ".claude/skills/stitch-design-taste",
+    "_bmad-output/implementation-artifacts/spec-quality-Q6.md"
+  ],
+  "index_added_entries": [
+    "100644 eac49fe2e3e233dd3424916346ec3e110a070842 0\t.audit/quality-pass/Q6/archive-manifest.json",
+    "100644 bb695b4387024e00063188277ab4e2fe0f5b42f3 0\t.audit/quality-pass/Q6/artifact-sha256.json",
+    "100644 148a4536e367013ec627747aa7079e41538abf6e 0\t.audit/quality-pass/Q6/avatar-account-writer-after.png",
+    "100644 1dcd6025eeb61d5c0806f21be4fa14d2d74e50f0 0\t.audit/quality-pass/Q6/avatar-after.png",
+    "100644 92fbbe473a311c1af8f54f592c9aed6f206b32f9 0\t.audit/quality-pass/Q6/avatar-before.png",
+    "100644 dc582ef936d4475c120ffe91b8d1d925d8f678d2 0\t.audit/quality-pass/Q6/baseline-component.log.gz",
+    "100644 11fba1f524f78119fa149f0b3b348414747f3a2e 0\t.audit/quality-pass/Q6/baseline-exit.txt.gz",
+    "100644 8a8239a9cc83813881d33dfd4d2ffa3fd5938d8e 0\t.audit/quality-pass/Q6/baseline-proof.json",
+    "100644 18c1fc6643b80f9f9a1ff69c969b2bc33c54485f 0\t.audit/quality-pass/Q6/baseline-refined.log.gz",
+    "100644 4cbdd2791debb76d93b02240ae723bcb71d85b1e 0\t.audit/quality-pass/Q6/baseline-source.sha256",
+    "100644 8aa49ae2fb5232b9a998e034abcb15b6e0b9209e 0\t.audit/quality-pass/Q6/check-with-env.log.gz",
+    "100644 1c0f1a6eae960c39dabd6cc6c6c1be0184d11a7e 0\t.audit/quality-pass/Q6/check.log.gz",
+    "100644 fe4772d4fe5c0c7316435ea186255f43d2d82b34 0\t.audit/quality-pass/Q6/decisions.tsv",
+    "100644 86e43ea3218b5890302b754bbf8927f94e79f7ee 0\t.audit/quality-pass/Q6/diff-check.log.gz",
+    "100644 0092d2d88b93522906ecdf3c84d76a7094d67ded 0\t.audit/quality-pass/Q6/evidence.md",
+    "100644 509f65cf620dc7081f8e3d3efb759ff5846ca780 0\t.audit/quality-pass/Q6/final-component.log.gz",
+    "100644 5bf693320309c001fc63e379e2fc03960488aa55 0\t.audit/quality-pass/Q6/fixed-component.log.gz",
+    "100644 6b93f04491b4f46c74262768efcc83611f4325a6 0\t.audit/quality-pass/Q6/implement-exits.json",
+    "100644 7b4052cef77bd5f052c170fe2ea3cec31b944671 0\t.audit/quality-pass/Q6/implementation-dispatch.json",
+    "100644 a5a89b5002548cddc0e5f80c325418910108aed4 0\t.audit/quality-pass/Q6/implementation-exit.json",
+    "100644 b5fff85b4bbf35bc943d42073bcdaa37d97794c0 0\t.audit/quality-pass/Q6/implementation-prompt.txt.gz",
+    "100644 2f7b88fce456c3d0274634ae2d05544521b0af36 0\t.audit/quality-pass/Q6/implementation-result.md",
+    "100644 a7147a08d0aa5ee3a18288d36f9cece4a830947d 0\t.audit/quality-pass/Q6/implementation.log.gz",
+    "100644 2d416c5eeef031e1da8d4962af4e7769743df512 0\t.audit/quality-pass/Q6/initial-bytes.json.gz",
+    "100644 3ace38fdfe6fb3adb5ee560351a3fd68ada6097d 0\t.audit/quality-pass/Q6/initial-index.txt.gz",
+    "100644 8aa49ae2fb5232b9a998e034abcb15b6e0b9209e 0\t.audit/quality-pass/Q6/post-review-check.log.gz",
+    "100644 d965f185fe9dc92c7e07956b36913fcdd0931a9d 0\t.audit/quality-pass/Q6/post-review-component.log.gz",
+    "100644 86e43ea3218b5890302b754bbf8927f94e79f7ee 0\t.audit/quality-pass/Q6/post-review-diff-check.log.gz",
+    "100644 818638c7dbe6ccb8eb0d261c7e1f87c98d8383ab 0\t.audit/quality-pass/Q6/post-review-evidence.md",
+    "100644 82d4ec73200266d83cba1f10b3bc16e1a071f63a 0\t.audit/quality-pass/Q6/post-review-sha256.txt.gz",
+    "100644 875c6e903be08a72fd5d91d80dc30a3d03b6ace8 0\t.audit/quality-pass/Q6/pre-review-source.sha256",
+    "100644 1094188c8ee5c30b395635e41999e700281f987a 0\t.audit/quality-pass/Q6/pre-review-source.txt.gz",
+    "100644 1e0d41096b0d9331c5675b3b612958f7e43800e7 0\t.audit/quality-pass/Q6/pre-review-test.sha256",
+    "100644 5b0773ccb805e0c2ec5ffbe9fe20cdda0235a67c 0\t.audit/quality-pass/Q6/pre-review-test.txt.gz",
+    "100644 e751a766fde14485664aaec0474fe7a743819e3d 0\t.audit/quality-pass/Q6/regression-test.sha256",
+    "100644 c3e37dfd0e482338f071bd0b48807e5b7d162abd 0\t.audit/quality-pass/Q6/rejection-before-refined.log.gz",
+    "100644 ca421a8025761303261bf687ed44674c22e596b9 0\t.audit/quality-pass/Q6/rejection-before.log.gz",
+    "100644 13aa9633f46e94f3325dc070ab7bb398db426bd5 0\t.audit/quality-pass/Q6/review-blind-dispatch.json",
+    "100644 1f08ade71a5ab31d597d28f18e718c079c5b352d 0\t.audit/quality-pass/Q6/review-blind-exit.json",
+    "100644 a699365cd9582664c3ee881473b55748a5c59bd1 0\t.audit/quality-pass/Q6/review-blind-prompt.txt.gz",
+    "100644 373a11ce29e7aeb61b1bf62753098029dcb57e07 0\t.audit/quality-pass/Q6/review-blind-result.md",
+    "100644 19584235216b53f9c8ce75a8b57d194b6355148a 0\t.audit/quality-pass/Q6/review-blind.log.gz",
+    "100644 aa2f51a7e3180a0c42116d0a66f4d7e11cc90afe 0\t.audit/quality-pass/Q6/review-content.diff.gz",
+    "100644 f72745682f335d6a056bbb5d7f382b67e11cf78f 0\t.audit/quality-pass/Q6/review-edge-dispatch.json",
+    "100644 95a3690e34441aeec5b75f55377c21905fcc00aa 0\t.audit/quality-pass/Q6/review-edge-exit.json",
+    "100644 0239ea2d2c222d4f922cdad47a8757e9897ecc8d 0\t.audit/quality-pass/Q6/review-edge-prompt.txt.gz",
+    "100644 738c3847bc37f2f8dfd13dc5f65120452b29d9f5 0\t.audit/quality-pass/Q6/review-edge-result.md",
+    "100644 be857c95f537d71e49c11b0535c27b67ca873d85 0\t.audit/quality-pass/Q6/review-edge.log.gz",
+    "100644 2104cb074d4de3dbd2eb7f98be4c89ff73dca191 0\t.audit/quality-pass/Q6/review-exits.json",
+    "100644 8111e82642eb88f20985fee06d9cbebadf09e6e1 0\t.audit/quality-pass/Q6/review-gap-dispatch.json",
+    "100644 50ce5402a045d7a4be8dc1b5952eb392fbc73555 0\t.audit/quality-pass/Q6/review-gap-exit.json",
+    "100644 b81dc63932bfa50b929cfb0eb9600e302e232d93 0\t.audit/quality-pass/Q6/review-gap-prompt.txt.gz",
+    "100644 1227bdb380c00ff9c73d688d2dde3735a4da511d 0\t.audit/quality-pass/Q6/review-gap-result.md",
+    "100644 72e512eec36b9ab014a4063823408afcc8a9e7d2 0\t.audit/quality-pass/Q6/review-gap.log.gz",
+    "100644 7ce3fd82f9ac46325cd6db412c0f1cafe056519a 0\t.audit/quality-pass/Q6/review-triage.md",
+    "100644 c46fc1fe0ae7a4cf6da4091786540ff3f0e057d9 0\t.audit/quality-pass/Q6/root-acceptance.json",
+    "100644 576d17b11c9199b044a25905da9bb5d5a6c58cf5 0\t.audit/quality-pass/Q6/verification-result.json",
+    "100644 5ee5479e4b73487c2c87da7be34d3d4d15f3d1b5 0\t_bmad-output/implementation-artifacts/spec-quality-Q6.md",
+    "100644 90b0f60e4eea9f3895eaae3a78fdbe37f2a2260f 0\tsrc/lib/components/ui/UserMenu.component.test.ts",
+    "100644 d7905b0ee9f920e175d5fc0b008e425de1cb39b9 0\tsrc/lib/components/ui/UserMenu.svelte"
+  ],
+  "index_removed_entries": [
+    "100644 6b2f4d39dd90420cdb5cb6ffe08a1d09c69663a3 0\tsrc/lib/components/ui/UserMenu.component.test.ts",
+    "100644 89f3cb7c72422cfc9d02d6e0433af4ec246e8359 0\tsrc/lib/components/ui/UserMenu.svelte"
+  ],
+  "initial_omitted_symlinks": [
+    ".claude/skills/brandkit",
+    ".claude/skills/design-taste-frontend",
+    ".claude/skills/design-taste-frontend-v1",
+    ".claude/skills/full-output-enforcement",
+    ".claude/skills/gpt-taste",
+    ".claude/skills/high-end-visual-design",
+    ".claude/skills/image-to-code",
+    ".claude/skills/imagegen-frontend-mobile",
+    ".claude/skills/imagegen-frontend-web",
+    ".claude/skills/industrial-brutalist-ui",
+    ".claude/skills/minimalist-ui",
+    ".claude/skills/redesign-existing-projects",
+    ".claude/skills/stitch-design-taste"
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "base": "ed79a296039109fe1a2bf5dd867f9e5af22f2967",
+  "status": "accepted-awaiting-shipping",
+  "scope": "Remaining audited work first; isolated Banhall quality improvements.",
+  "active_unit": "closeout-archive",
+  "planned_units": [
+    "Q1 storage references",
+    "Q2 verification artifacts",
+    "Q3 copied running review",
+    "Q4 comparison feedback",
+    "Q5 score row identity",
+    "Q6 avatar settings",
+    "Q7 original upload resilience",
+    "Q8 dependency graph health"
+  ],
+  "accepted_units": [
+    {
+      "unit": "Q1",
+      "commit": "31ca9c3ba0b22e24da853ae763592d87bd71cc85"
+    },
+    {
+      "unit": "Q2",
+      "commit": "5f1998c9e486130e62569849a917ee1b79442791"
+    },
+    {
+      "unit": "Q3",
+      "commit": "0a538c72b41123801198782e08c12d17de9d253f"
+    },
+    {
+      "unit": "Q4",
+      "commit": "67e115c124320e7e3c446cb2538335f052b7c52c"
+    },
+    {
+      "unit": "Q5",
+      "commit": "bea7e2d218ea06743f94b2c5fd5e1755e5fd98e8"
+    },
+    {
+      "unit": "Q6",
+      "commit": "73b0b0fe75d16e248ea794b73289574c1530aedb"
+    },
+    {
+      "unit": "Q7",
+      "commit": "e2cfb873b32586d1a620a75e1de61cc49d323eb3"
+    },
+    {
+      "unit": "Q8",
+      "commit": "390eb452ab840f3e6a2a16711f61d3c6ddb90c38"
+    }
+  ],
+  "final_gate": {
+    "head": "390eb452ab840f3e6a2a16711f61d3c6ddb90c38",
+    "exit_code": 0,
+    "unit_tests": 2077,
+    "browser_tests": 522,
+    "source_paths": 6870,
+    "index_unchanged": true
+  },
+  "native_closed_ids": [
+    "DW-103",
+    "DW-104",
+    "DW-105"
+  ],
+  "historical_open_ledger_entries": 80,
+  "cross_model_audit": "configured gpt-5.6-sol medium: no material flags"
+}

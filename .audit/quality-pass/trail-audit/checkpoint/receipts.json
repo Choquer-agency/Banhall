@@ -1,0 +1,55 @@
+{
+  "reviewer": {
+    "model": "Codex GPT-6",
+    "relationship": "separate audit session from gpt-6-astra implementation and per-unit reviewers"
+  },
+  "scope": {
+    "accepted_units_reviewed": ["Q1", "Q2", "Q3", "Q4", "Q5", "Q6"],
+    "excluded_as_pending": ["Q7 acceptance", "Q8 implementation and acceptance", "final combined gate", "push", "merge", "deployment checks", "ledger closure"],
+    "transcript": {
+      "path": "/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/banhall-quality-trail-efi7zw3c/transcript.jsonl",
+      "sha256": "94540b517ec6c7041d7ee26fe3ed9ae1f871afb38b0846dae017476903919f2b"
+    },
+    "messages": {
+      "path": "/var/folders/95/nr9fdn1d7gdf3q7qtf4_v34r0000gn/T/banhall-quality-trail-efi7zw3c/messages.json",
+      "sha256": "ba06ba3d111a980631d2847ed5566b7f59217dd30b80d520e80d97e9a9f4cfa3"
+    }
+  },
+  "core_inputs": [
+    {"path": ".audit/quality-pass/decisions.tsv", "sha256": "d4e084a6efa7dce5b08cae2fdf44cfbfdbf8d458f6406e0f5e45877fee939f3d"},
+    {"path": ".audit/quality-pass/README.md", "sha256": "96bea118942d1465df14e920d8b1dcaf146ad08c87e896c88d4e96060cda4f2f"},
+    {"path": ".audit/quality-pass/state.json", "sha256": "df0a7e2905e66fa4a5b72fb8a92f7867ae4e05635813d145e0fd0060f1d776f7"},
+    {"path": ".audit/quality-pass/runtime-audit/through-Q6/report.md", "sha256": "9140acd0c400020d7edb27d0cf30f12ca53637862da80ea5b01383fb62a9b44c"},
+    {"path": ".audit/quality-pass/runtime-audit/through-Q6/receipts.json", "sha256": "5bec7772eed8430b887b65e3f18ce4e67993fe1b788330cfca9df85ff85c7578"},
+    {"path": ".audit/quality-pass/runtime-audit/external-full-supplement.md", "sha256": "78c8b463747f2a746504ef30d1c43ab5c106ff00e7d2e0489c265248661d6528"},
+    {"path": ".audit/quality-pass/deployment-boundary.md", "sha256": "909e82dfe858d9c93a21354cc76bf570bc6955cc81e86daee79c8b2b475747ea"},
+    {"path": ".audit/quality-pass/dependencies/report.md", "sha256": "d1510fdbc1e4071bd40bd99f1ccde12a14cfecf2da16fe5388e1cf5834b0cd9d"},
+    {"path": ".audit/quality-pass/ledger-scope.json", "sha256": "c3d36a4f04f0d0977186f6933a7949d156f6d182405b31619b4b3e1f24968f34"}
+  ],
+  "finding": {
+    "severity": "low",
+    "title": "Q4 machine-readable review status is stale",
+    "historical_receipt": {
+      "path": ".audit/quality-pass/Q4/verification-result.json",
+      "sha256": "4683fecb157e87e1cf870a324c8bae2cf79f09fef4b6a8a9f9b794214c9091bc",
+      "value": "independent_three_lens_review=incomplete: collaboration spawn unavailable"
+    },
+    "superseding_evidence": [
+      {"path": ".audit/quality-pass/Q4/review-exits.json", "sha256": "63579f99ee8deab71779762fb21bcab0f9e0e441ec6119f4d768e39079d3622d", "result": "three distinct root-dispatched reviews exit 0"},
+      {"path": ".audit/quality-pass/Q4/review-triage.md", "sha256": "0acbd5c4e58ac072919102c6b9ee52e4559e41660b93ea0ee15e81e7c59ec619", "result": "failed extra attempt excluded and all three later reviews triaged"}
+    ],
+    "recommended_action": "Add a later immutable acceptance receipt or an explicit machine-readable supersession pointer; preserve the historical result."
+  },
+  "qualified_limits": [
+    "Final external-worktree inventory should be repeated at the ship boundary.",
+    "Q5 and Q6 final combined canonical gate remains pending after Q8.",
+    "Q4 post-review test bytes await the final combined gate.",
+    "Per-unit reviewers are distinct gpt-6-astra sessions, not different model families.",
+    "Dependency and Convex deployment proof remain pending and explicitly unclaimed.",
+    "Eighty historical open ledger entries remain outside scope and untriaged."
+  ],
+  "mutations": [
+    ".audit/quality-pass/trail-audit/checkpoint/report.md",
+    ".audit/quality-pass/trail-audit/checkpoint/receipts.json"
+  ]
+}

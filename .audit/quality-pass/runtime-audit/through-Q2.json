@@ -1,0 +1,175 @@
+{
+  "units": [
+    {
+      "unit": "Q1",
+      "commit": "31ca9c3ba0b22e24da853ae763592d87bd71cc85",
+      "verified_archive_records": 45
+    },
+    {
+      "unit": "Q2",
+      "commit": "5f1998c9e486130e62569849a917ee1b79442791",
+      "verified_archive_records": 70
+    }
+  ],
+  "workers": [
+    {
+      "unit": "Q1",
+      "role": "implementation",
+      "headers": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "session id": "01a074e2-5e08-7c82-9d6d-cd2723cf65e8"
+      },
+      "exit": 0,
+      "verified": true
+    },
+    {
+      "unit": "Q1",
+      "role": "review-blind",
+      "headers": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "session id": "01a074e7-a6ca-7f13-b42c-f2cea6f4da8f"
+      },
+      "exit": 0,
+      "verified": true
+    },
+    {
+      "unit": "Q1",
+      "role": "review-edge",
+      "headers": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "session id": "01a074e7-a6cc-77f2-ba49-e7f7742ff8bd"
+      },
+      "exit": 0,
+      "verified": true
+    },
+    {
+      "unit": "Q1",
+      "role": "review-gap",
+      "headers": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "session id": "01a074e7-a6cb-72d0-9863-c7bd63101478"
+      },
+      "exit": 0,
+      "verified": true
+    },
+    {
+      "unit": "Q2",
+      "role": "implementation",
+      "headers": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "session id": "01a074f0-d0cb-71f1-bf47-46c955cb728c"
+      },
+      "exit": 0,
+      "verified": true
+    },
+    {
+      "unit": "Q2",
+      "role": "review-blind",
+      "headers": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "session id": "01a074f6-9a7c-7043-8eb4-cb799b3d164b"
+      },
+      "exit": 0,
+      "verified": true
+    },
+    {
+      "unit": "Q2",
+      "role": "review-edge",
+      "headers": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "session id": "01a074f6-9a7c-7401-9033-30f45a8542f1"
+      },
+      "exit": 0,
+      "verified": true
+    },
+    {
+      "unit": "Q2",
+      "role": "review-gap",
+      "headers": {
+        "workdir": "/Users/johnnynguyen/Documents/Repos/Banhall-quality-pass",
+        "model": "gpt-6-astra",
+        "reasoning effort": "medium",
+        "session id": "01a074f6-9a7d-7862-8cbf-37e66f1f4c24"
+      },
+      "exit": 0,
+      "verified": true
+    }
+  ],
+  "distinct_sessions": 8,
+  "pngs_verified": 14,
+  "direct_gate": {
+    "head": "31ca9c3ba0b22e24da853ae763592d87bd71cc85",
+    "command": "VERIFY_COMPONENT=1 bash scripts/loop-verify.sh",
+    "exit_code": 0,
+    "elapsed_seconds": 162.173193,
+    "log_sha256": "e0119f6aae20d706b20b21477178493d42686dd45a3e028862af8304f9e3fca3",
+    "tracked_paths_verified": 6366,
+    "changed_tracked_paths": [],
+    "status_unchanged": true,
+    "inventory_unchanged": true,
+    "index_unchanged": true,
+    "spec_unchanged": true,
+    "historical_paths_verified": 3068,
+    "fresh_nonempty_ignored_pngs": 14,
+    "source_preservation": {
+      "src/lib/components/chat/OptimisticSend.component.test.ts": {
+        "only_destination_prefix_changed": true,
+        "capture_sites": 7
+      },
+      "src/routes/admin/learning/LearningHealth.component.test.ts": {
+        "only_destination_prefix_changed": true,
+        "capture_sites": 6
+      }
+    },
+    "diff_check_exit_code": 0,
+    "changed_source_files": [
+      "AGENTS.md",
+      "src/lib/components/chat/OptimisticSend.component.test.ts",
+      "src/routes/admin/learning/LearningHealth.component.test.ts"
+    ],
+    "restoration_performed": false
+  },
+  "matched_log": ".audit/quality-pass/Q2/direct-verification/gate.log",
+  "actual_log_totals": [
+    "Test Files  154 passed (154)",
+    "Tests  2038 passed (2038)",
+    "Test Files  63 passed (63)",
+    "Tests  489 passed (489)"
+  ],
+  "actual_log_steps": [
+    "[1/9] preflight",
+    "[2/9] convex typecheck",
+    "[3/9] svelte-check",
+    "[4/9] unit tests",
+    "[5/9] test discovery guard",
+    "[6/9] production build",
+    "[7/9] uploader harness (pwsh)",
+    "[8/9] uploader harness (bash)",
+    "[9/9] component suite"
+  ],
+  "final_source_hashes_match": {
+    "AGENTS.md": true,
+    "src/lib/components/chat/OptimisticSend.component.test.ts": true,
+    "src/routes/admin/learning/LearningHealth.component.test.ts": true,
+    "_bmad-output/implementation-artifacts/spec-quality-verification-artifacts.md": true
+  },
+  "writer_hashes_match_gate": {
+    "src/lib/components/chat/OptimisticSend.component.test.ts": true,
+    "src/routes/admin/learning/LearningHealth.component.test.ts": true
+  },
+  "issues": []
+}

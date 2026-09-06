@@ -1,0 +1,10 @@
+{
+  "scope": "Synthetic in-memory only; no native mutator or real prepare/execute/finalize invoked",
+  "valid_delta": "pass",
+  "rejected_corruptions": [
+    "outside",
+    "other_entry",
+    "target_reason",
+    "wrong_note"
+  ]
+}

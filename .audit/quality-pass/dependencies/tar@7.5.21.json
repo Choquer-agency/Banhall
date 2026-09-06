@@ -1,0 +1,216 @@
+{
+  "version": "7.5.21",
+  "dependencies": {
+    "chownr": "^3.0.0",
+    "yallist": "^5.0.0",
+    "minipass": "^7.1.2",
+    "minizlib": "^3.1.0",
+    "@isaacs/fs-minipass": "^4.0.0"
+  },
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.min.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/index.d.ts",
+        "default": "./dist/commonjs/index.min.js"
+      }
+    },
+    "./c": {
+      "import": {
+        "types": "./dist/esm/create.d.ts",
+        "default": "./dist/esm/create.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/create.d.ts",
+        "default": "./dist/commonjs/create.js"
+      }
+    },
+    "./r": {
+      "import": {
+        "types": "./dist/esm/create.d.ts",
+        "default": "./dist/esm/create.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/create.d.ts",
+        "default": "./dist/commonjs/create.js"
+      }
+    },
+    "./t": {
+      "import": {
+        "types": "./dist/esm/list.d.ts",
+        "default": "./dist/esm/list.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/list.d.ts",
+        "default": "./dist/commonjs/list.js"
+      }
+    },
+    "./u": {
+      "import": {
+        "types": "./dist/esm/update.d.ts",
+        "default": "./dist/esm/update.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/update.d.ts",
+        "default": "./dist/commonjs/update.js"
+      }
+    },
+    "./x": {
+      "import": {
+        "types": "./dist/esm/extract.d.ts",
+        "default": "./dist/esm/extract.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/extract.d.ts",
+        "default": "./dist/commonjs/extract.js"
+      }
+    },
+    "./pax": {
+      "import": {
+        "types": "./dist/esm/pax.d.ts",
+        "default": "./dist/esm/pax.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/pax.d.ts",
+        "default": "./dist/commonjs/pax.js"
+      }
+    },
+    "./raw": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/index.d.ts",
+        "default": "./dist/commonjs/index.js"
+      }
+    },
+    "./list": {
+      "import": {
+        "types": "./dist/esm/list.d.ts",
+        "default": "./dist/esm/list.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/list.d.ts",
+        "default": "./dist/commonjs/list.js"
+      }
+    },
+    "./pack": {
+      "import": {
+        "types": "./dist/esm/pack.d.ts",
+        "default": "./dist/esm/pack.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/pack.d.ts",
+        "default": "./dist/commonjs/pack.js"
+      }
+    },
+    "./parse": {
+      "import": {
+        "types": "./dist/esm/parse.d.ts",
+        "default": "./dist/esm/parse.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/parse.d.ts",
+        "default": "./dist/commonjs/parse.js"
+      }
+    },
+    "./types": {
+      "import": {
+        "types": "./dist/esm/types.d.ts",
+        "default": "./dist/esm/types.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/types.d.ts",
+        "default": "./dist/commonjs/types.js"
+      }
+    },
+    "./create": {
+      "import": {
+        "types": "./dist/esm/create.d.ts",
+        "default": "./dist/esm/create.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/create.d.ts",
+        "default": "./dist/commonjs/create.js"
+      }
+    },
+    "./header": {
+      "import": {
+        "types": "./dist/esm/header.d.ts",
+        "default": "./dist/esm/header.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/header.d.ts",
+        "default": "./dist/commonjs/header.js"
+      }
+    },
+    "./unpack": {
+      "import": {
+        "types": "./dist/esm/unpack.d.ts",
+        "default": "./dist/esm/unpack.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/unpack.d.ts",
+        "default": "./dist/commonjs/unpack.js"
+      }
+    },
+    "./update": {
+      "import": {
+        "types": "./dist/esm/update.d.ts",
+        "default": "./dist/esm/update.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/update.d.ts",
+        "default": "./dist/commonjs/update.js"
+      }
+    },
+    "./extract": {
+      "import": {
+        "types": "./dist/esm/extract.d.ts",
+        "default": "./dist/esm/extract.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/extract.d.ts",
+        "default": "./dist/commonjs/extract.js"
+      }
+    },
+    "./replace": {
+      "import": {
+        "types": "./dist/esm/create.d.ts",
+        "default": "./dist/esm/create.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/create.d.ts",
+        "default": "./dist/commonjs/create.js"
+      }
+    },
+    "./read-entry": {
+      "import": {
+        "types": "./dist/esm/read-entry.d.ts",
+        "default": "./dist/esm/read-entry.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/read-entry.d.ts",
+        "default": "./dist/commonjs/read-entry.js"
+      }
+    },
+    "./write-entry": {
+      "import": {
+        "types": "./dist/esm/write-entry.d.ts",
+        "default": "./dist/esm/write-entry.js"
+      },
+      "require": {
+        "types": "./dist/commonjs/write-entry.d.ts",
+        "default": "./dist/commonjs/write-entry.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
