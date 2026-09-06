@@ -1,0 +1,5 @@
+ts	phase	decision	why	evidence	result
+2026-09-06T01:07:20.653926+00:00	build	Follow spec baseline and scope	Spec explicitly supersedes generic factory flow	baseline-state.txt	Matched baseline; preserved parent ownership
+2026-09-06T01:07:20.653926+00:00	prove	Capture every metrics combination before assertions	Retain complete genuine red and green measurements	baseline-red.log;fixed-metrics-visible.log	Red exit 1; fixed exit 0
+2026-09-06T01:07:20.653926+00:00	build	Move only dedupe eligibility ahead of collection	Avoid unrelated blank-body reads while retaining existing outcomes	../../../convex/documents.ts	41 tests pass
+2026-09-06T01:07:20.653926+00:00	handoff	Leave full gate and review to parent	Explicit spec verification ownership	evidence.md	Focused proof complete

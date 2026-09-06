@@ -856,3 +856,11 @@ severity: medium
 reason: Actual installed schemas accept alpha + hardBreak + beta; old and current search falsely match alphabeta across the break and miss the whitespace-separated phrase. See .audit/branch-consolidation/search-boundary-audit/summary.md/results.json. Broader unsupported inline-atom claim rejected. B13 is scheduled before final merge.
 status: done 2026-09-05
 resolution: B13 indexes hardBreak as whitespace and aligns all three AI highlight producers, including QA paragraph navigation; real-schema, mounted preview/apply and final nine-step gate pass. Evidence: .audit/branch-consolidation/B13-r2/evidence.md and gate/result.json.
+
+### DW-103: Protect referenced storage from duplicate-upload orphan cleanup
+origin: branch-consolidation B3 independent review
+location: convex/documents.ts:114
+source_spec: `_bmad-output/implementation-artifacts/spec-branch-b3-blank-upload-reads.md`
+severity: high
+reason: Static reachable public API sequence: create A with S1 and B with S2, then upload A name/content using S2. Existing nonblank dedupe deletes S2 although B still references it. Standard UI supplies fresh IDs; no production occurrence or runtime reproduction claimed. Cleanup is byte-identical before and after B3. Prove with registered mutation and real storage, then protect referenced bytes while retaining genuine orphan cleanup.
+status: open

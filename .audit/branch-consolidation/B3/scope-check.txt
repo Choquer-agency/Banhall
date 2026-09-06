@@ -1,0 +1,7 @@
+Only tracked files changed: ['convex/documents.test.ts', 'convex/documents.ts']
+All other tracked file SHA-256 values match baseline, including uploadAttempts.test.ts, generated files, config, prior batches and tracked ledgers.
+Existing documents.test.ts content/assertions preserved exactly; additions only.
+ M convex/documents.test.ts
+ M convex/documents.ts
+?? _bmad-output/implementation-artifacts/spec-branch-b3-blank-upload-reads.md
+Staged diff:

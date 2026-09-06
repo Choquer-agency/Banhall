@@ -80,12 +80,15 @@ export const uploadDocument = mutation({
     // claiming success for a file that was never stored. There is also no text
     // to save by deduping. Two identical unreadable uploads now make two rows,
     // which is the honest answer: the user performed two uploads.
-    const existingDocs = await ctx.db
-      .query("projectDocuments")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
+    const canDedupe = args.content.trim().length > 0;
+    const existingDocs = canDedupe
+      ? await ctx.db
+          .query("projectDocuments")
+          .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+          .collect()
+      : [];
     const dup =
-      args.content.trim().length > 0
+      canDedupe
         ? existingDocs.find(
             (d) => d.fileName === args.fileName && d.content === args.content
           )
