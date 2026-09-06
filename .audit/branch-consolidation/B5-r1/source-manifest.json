@@ -1,0 +1,53 @@
+{
+  "baseline": "d22e1fa0880512212865d7d60aeb8cfe600dbaa2",
+  "branch": "codex/branch-consolidation",
+  "node": "v24.19.0",
+  "npm": "11.17.0",
+  "historical_sources": {
+    "fb6c6b5d68e761cdab0b02975d9670c230f5e060": {
+      "identity": "fb6c6b5d68e761cdab0b02975d9670c230f5e060 slop-2-dead-helpers-and-deps: delete test-only helper exports and the duplicate underline registration",
+      "files": [
+        "src/lib/dashboard/stageFilter.test.ts",
+        "src/lib/dashboard/stageFilter.ts",
+        "src/lib/reportSections.ts",
+        "src/lib/tiptapConfig.ts",
+        "src/lib/workspace/projectIntentHandoff.test.ts",
+        "src/lib/workspace/projectIntentHandoff.ts",
+        "src/lib/workspace/stageRankGroups.test.ts",
+        "src/lib/workspace/stageRankGroups.ts",
+        "src/routes/project/new/newProjectPrefill.component.test.ts"
+      ],
+      "blobs": {
+        "src/lib/dashboard/stageFilter.test.ts": "d80cc80a78371448a481b1ef8728ab7d99d75e50",
+        "src/lib/dashboard/stageFilter.ts": "633a9884a33fdf89e288fe2feaa993fadd10d2c3",
+        "src/lib/reportSections.ts": "4773fccb58fa93dcca5c52cb38dd4304917bb69a",
+        "src/lib/tiptapConfig.ts": "81e4165e77828212a46581a64434d896ee7e0a2a",
+        "src/lib/workspace/projectIntentHandoff.test.ts": "1543b8d2c5b3d554fa92e68ec7bf31fbc3e41a93",
+        "src/lib/workspace/projectIntentHandoff.ts": "496107bff451ea9e1e6e6d62788e9f894fa48e8c",
+        "src/lib/workspace/stageRankGroups.test.ts": "3d6dd814135ffb99fd760709643ac606b6981e97",
+        "src/lib/workspace/stageRankGroups.ts": "bcd7976b17d7e1f8734bdb0ba0c53d6bd5be6722",
+        "src/routes/project/new/newProjectPrefill.component.test.ts": "5034de185a151bac8cf6f9762b2fd92f163c03e0"
+      }
+    },
+    "0017ee6259fa2bdc4a23c3c13305273a2eee06de": {
+      "identity": "0017ee6259fa2bdc4a23c3c13305273a2eee06de slop-2-dead-helpers-and-deps: name the legacy-bucket case for what it asserts",
+      "files": [
+        "src/lib/dashboard/stageFilter.test.ts"
+      ],
+      "blobs": {
+        "src/lib/dashboard/stageFilter.test.ts": "5b1e3613a89cb6f70dfa27801eaf279e34aa81e6"
+      }
+    }
+  },
+  "integrations": {
+    "1d6053388326fe4fde43a86177955157f11ce588": {
+      "identity": "1d6053388326fe4fde43a86177955157f11ce588 perf(editor): batch document searches with guarded caller paths",
+      "ancestor_exit": 0
+    },
+    "0d481e2b76390e0eff3208d91f1f47d83b173474": {
+      "identity": "0d481e2b76390e0eff3208d91f1f47d83b173474 fix(editor): preserve Unicode and hard-break search boundaries",
+      "ancestor_exit": 0
+    }
+  },
+  "historical_proof_blob": "a24d9b656f774417664c97f9d5d440df2e96da04"
+}

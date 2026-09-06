@@ -1,0 +1,13 @@
+{
+  "convex/dashboard.test.ts": "01084d09329c43531e3df6b57be5ca4d3fc5d2b2a8d39fa200dc2ce234b9095c",
+  "src/lib/dashboard/stageFilter.test.ts": "20ec03d936d271309af67317447aab211ead9c468d5ec3b0484ffa3a278af4d4",
+  "src/lib/dashboard/stageFilter.ts": "2f17b8db750282155dea184f99e950506f83e90b16d99bcfe1b05e5aee44d2e6",
+  "src/lib/reportSections.ts": "47093c299d931caf1dc9e1fef741d351a97b2645bbc11c89f1ae43972cff02cb",
+  "src/lib/tiptapConfig.ts": "f0739d78e76bb085e8d09ed30e8f0d11fba70e7064ae686605397e7feac4571d",
+  "src/lib/workspace/projectIntentHandoff.test.ts": "5247bad9a4c3f06ee88981319c450c7af6a9de90050d283f3b02a1a75d106c94",
+  "src/lib/workspace/projectIntentHandoff.ts": "b59f46a7009ca697e9178f45f5af53c8ea9361a66ad84a99344494fb6f4aad82",
+  "src/lib/workspace/stageRankGroups.test.ts": "ce5e604502872622deaff62cbac9732cc09b14f09880df5f9091fd0763753b73",
+  "src/lib/workspace/stageRankGroups.ts": "f041b23c42333a61edc6d76f8416291dda9b952cef5e43f964b76fa77a5df625",
+  "src/routes/project/new/newProjectPrefill.component.test.ts": "adb5d7756aa947c8bef42398c9650860151bdcf212960d6498735fc8f9b9d00d",
+  "src/lib/tiptapConfig.test.ts": "7ba7b0f7bb4889401759614bced27738d02518d2f12ca4a7e37813746c862bb4"
+}

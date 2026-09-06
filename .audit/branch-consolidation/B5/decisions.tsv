@@ -1,0 +1,2 @@
+timestamp	phase	decision	reason	evidence	result
+2026-09-06T01:34:27.730596+00:00	implementation	Apply scoped historical removals and strengthen current API assertions	Spec-authorized worker scope	source-manifest.json;commands.jsonl;review.diff	Ten allowed paths changed; parent finalization pending

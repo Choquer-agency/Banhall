@@ -1,0 +1,69 @@
+src/routes/project/new/newProjectPrefill.component.test.ts:7:import { stashProjectIntent, stashProjectStart, takeProjectIntent, takeProjectStart } from "$lib/workspace/projectIntentHandoff";
+src/routes/project/new/newProjectPrefill.component.test.ts:63:    stashProjectIntent("Solar tracker prototype");
+src/routes/project/new/newProjectPrefill.component.test.ts:68:    expect(takeProjectIntent()).toBe("");
+src/routes/project/new/newProjectPrefill.component.test.ts:91:    stashProjectIntent("Solar tracker prototype");
+src/routes/project/new/newProjectPrefill.component.test.ts:102:    expect(takeProjectIntent()).toBe("");
+src/lib/reportSections.ts:67:export interface ReportSections {
+src/lib/reportSections.ts:267:export function extractSections(content: string): ReportSections {
+src/lib/dashboard/stageFilter.test.ts:3:  countProjectsByStage,
+src/lib/dashboard/stageFilter.test.ts:5:  matchesStageFilter,
+src/lib/dashboard/stageFilter.test.ts:6:  stageFilterItems,
+src/lib/dashboard/stageFilter.test.ts:7:  stageFilterKey,
+src/lib/dashboard/stageFilter.test.ts:19:    expect(stageFilterKey(projects[0])).toBe("drafting");
+src/lib/dashboard/stageFilter.test.ts:20:    expect(matchesStageFilter(projects[0], "drafting")).toBe(true);
+src/lib/dashboard/stageFilter.test.ts:21:    expect(matchesStageFilter(projects[0], "internal_review")).toBe(false);
+src/lib/dashboard/stageFilter.test.ts:22:    expect(matchesStageFilter(projects[1], "on_hold")).toBe(true);
+src/lib/dashboard/stageFilter.test.ts:26:    expect(stageFilterKey(projects[3])).toBe(LEGACY_STAGE_FILTER);
+src/lib/dashboard/stageFilter.test.ts:27:    expect(matchesStageFilter(projects[3], LEGACY_STAGE_FILTER)).toBe(true);
+src/lib/dashboard/stageFilter.test.ts:28:    expect(countProjectsByStage(projects)).toEqual({ drafting: 2, on_hold: 1, legacy: 1 });
+src/lib/dashboard/stageFilter.test.ts:32:    expect(stageFilterItems(projects)).toEqual([
+src/lib/workspace/projectIntentHandoff.ts:51:export function stashProjectIntent(value: string, now: number = Date.now()) {
+src/lib/workspace/projectIntentHandoff.ts:55:export function takeProjectIntent(now: number = Date.now()) {
+src/lib/dashboard/stageFilter.ts:10:export function stageFilterKey(project: StageProject) {
+src/lib/dashboard/stageFilter.ts:14:export function matchesStageFilter(project: StageProject, filter: string) {
+src/lib/dashboard/stageFilter.ts:15:  return filter === "all" || stageFilterKey(project) === filter;
+src/lib/dashboard/stageFilter.ts:18:export function countProjectsByStage(projects: readonly StageProject[]) {
+src/lib/dashboard/stageFilter.ts:20:    const key = stageFilterKey(project);
+src/lib/dashboard/stageFilter.ts:48:export function stageFilterItems(projects: readonly StageProject[]) {
+src/lib/dashboard/stageFilter.ts:49:  return stageFilterItemsFromCounts(countProjectsByStage(projects), projects.length);
+src/lib/workspace/projectIntentHandoff.test.ts:6:  stashProjectIntent,
+src/lib/workspace/projectIntentHandoff.test.ts:8:  takeProjectIntent,
+src/lib/workspace/projectIntentHandoff.test.ts:38:    stashProjectIntent("Solar tracker prototype", 2_000);
+src/lib/workspace/projectIntentHandoff.test.ts:39:    expect(takeProjectIntent(2_100)).toBe("Solar tracker prototype");
+src/lib/workspace/stageRankGroups.ts:33:export type StageGroupId = WorkflowStage | "legacy";
+src/lib/workspace/stageRankGroups.ts:35:export type StageRankRow = {
+src/lib/workspace/stageRankGroups.ts:41:export type StageGroup<T extends StageRankRow> = {
+src/lib/workspace/stageRankGroups.ts:42:  id: StageGroupId;
+src/lib/workspace/stageRankGroups.ts:55:function frozenRank(id: StageGroupId) {
+src/lib/workspace/stageRankGroups.ts:83:export function groupRowsByStageRank<T extends StageRankRow>(
+src/lib/workspace/stageRankGroups.ts:86:): StageGroup<T>[] {
+src/lib/workspace/stageRankGroups.ts:87:  const buckets = new Map<StageGroupId, T[]>();
+src/lib/workspace/stageRankGroups.ts:93:    const id: StageGroupId = row.workflowStage ?? "legacy";
+src/lib/workspace/stageRankGroups.ts:99:  const ids: StageGroupId[] = [...WORKFLOW_STAGE_PIPELINE_ORDER, "legacy"];
+src/lib/workspace/stageRankGroups.ts:115:export type StageGroupDisplay<T extends StageRankRow> = {
+src/lib/workspace/stageRankGroups.ts:116:  id: StageGroupId;
+src/lib/workspace/stageRankGroups.ts:135:export type VisibleStageGroups<T extends StageRankRow> = {
+src/lib/workspace/stageRankGroups.ts:136:  groups: StageGroupDisplay<T>[];
+src/lib/workspace/stageRankGroups.ts:156:export function visibleStageGroups<T extends StageRankRow>(
+src/lib/workspace/stageRankGroups.ts:157:  groups: StageGroup<T>[],
+src/lib/workspace/stageRankGroups.ts:160:): VisibleStageGroups<T> {
+src/lib/workspace/stageRankGroups.ts:162:  const display: StageGroupDisplay<T>[] = [];
+src/lib/workspace/stageRankGroups.test.ts:3:  groupRowsByStageRank,
+src/lib/workspace/stageRankGroups.test.ts:5:  visibleStageGroups,
+src/lib/workspace/stageRankGroups.test.ts:31:describe("groupRowsByStageRank", () => {
+src/lib/workspace/stageRankGroups.test.ts:35:    const groups = groupRowsByStageRank(rows, true);
+src/lib/workspace/stageRankGroups.test.ts:52:    const groups = groupRowsByStageRank(rows, false);
+src/lib/workspace/stageRankGroups.test.ts:66:    const groups = groupRowsByStageRank(rows, false);
+src/lib/workspace/stageRankGroups.test.ts:69:    expect(groupRowsByStageRank(rows, true).every((group) => !group.maybeIncomplete)).toBe(true);
+src/lib/workspace/stageRankGroups.test.ts:89:describe("visibleStageGroups", () => {
+src/lib/workspace/stageRankGroups.test.ts:91:    const groups = groupRowsByStageRank([row("a", "drafting")], true);
+src/lib/workspace/stageRankGroups.test.ts:92:    const visible = visibleStageGroups(groups, { drafting: 1, intake: 2 }, true);
+src/lib/workspace/stageRankGroups.test.ts:105:    const groups = groupRowsByStageRank([row("a", "intake"), row("b", "drafting")], false);
+src/lib/workspace/stageRankGroups.test.ts:106:    const visible = visibleStageGroups(groups, undefined, true);
+src/lib/workspace/stageRankGroups.test.ts:122:    const groups = groupRowsByStageRank([row("a", "intake")], false);
+src/lib/workspace/stageRankGroups.test.ts:123:    const visible = visibleStageGroups(groups, undefined, true);
+src/lib/workspace/stageRankGroups.test.ts:135:    const groups = groupRowsByStageRank([row("a", "drafting")], true);
+src/lib/workspace/stageRankGroups.test.ts:136:    const visible = visibleStageGroups(groups, { drafting: 0 }, true);
+src/lib/workspace/stageRankGroups.test.ts:141:    const withLegacy = visibleStageGroups(
+src/lib/workspace/stageRankGroups.test.ts:142:      groupRowsByStageRank([row("a")], true),
+src/lib/workspace/stageRankGroups.test.ts:147:    const withoutLegacy = visibleStageGroups(groupRowsByStageRank([], true), {}, false);

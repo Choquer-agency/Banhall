@@ -1,0 +1,9 @@
+### Duplicate Underline registration can return without failing verification
+
+- **Changed surface:** `src/lib/tiptapConfig.ts:43` removes explicit Underline registration, leaving StarterKit as its provider.
+- **Impacted consumer or site:** Editor construction in `src/lib/components/editor/Editor.svelte:695` and `src/lib/components/review/ReadOnlyEditor.svelte:191`.
+- **Existing test evidence:** **Broken-verification gap.** `.audit/branch-consolidation/B5/underline-registration-proof.mjs:33` infers baseline mode from explicit registration; lines 79–83 then accept two registrations and one warning. `Editor.component.test.ts:112` tests search, previews and serialization without asserting registration uniqueness. `docSearch.test.ts:290` exercises the shared schema for search. Repository symbol/import searches found no registered test enforcing one Underline registration. The audit script is outside the normal verification gate.
+- **Missing verification:** An automated acceptance assertion requiring exactly one Underline registration in both editor modes, independent of the source configuration.
+- **Demonstration:** Restore the deleted Underline import and array entry. The proof automatically labels this “baseline” and accepts the duplicate condition; the inspected editor tests do not assert against it.
+- **Consequence:** The duplicate registration and emitted warnings this change removes can return while verification passes.
+- **Suggested test shape:** Register the real-editor proof in normal verification with fixed post-change expectations. Require an explicit separate mode for baseline characterization.

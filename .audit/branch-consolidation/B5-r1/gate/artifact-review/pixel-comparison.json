@@ -1,0 +1,15 @@
+{
+  "baseline": [
+    272,
+    930
+  ],
+  "generated": [
+    272,
+    911
+  ],
+  "shared_rows": 911,
+  "changed_shared_rows": [],
+  "extra_rows": 19,
+  "extra_rows_all_white": true,
+  "method": "Read-only PNG8 RGB/RGBA unfilter with standard-library zlib; compare every decoded byte; no image edits"
+}

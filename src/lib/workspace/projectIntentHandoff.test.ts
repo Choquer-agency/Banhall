@@ -1,15 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   MAX_PROJECT_INTENT_LENGTH,
   PROJECT_INTENT_HANDOFF_TTL_MS,
   normalizeProjectIntent,
-  stashProjectIntent,
   stashProjectStart,
-  takeProjectIntent,
   takeProjectStart,
 } from "./projectIntentHandoff";
 
 describe("project start handoff", () => {
+  beforeEach(() => {
+    takeProjectStart(0);
+  });
+
   it("normalizes the title and carries transcript intake once", () => {
     stashProjectStart(
       {
@@ -31,12 +33,28 @@ describe("project start handoff", () => {
     });
   });
 
-  it("bounds titles and preserves the title-only compatibility wrappers", () => {
+  it("bounds titles and round-trips a title-only handoff", () => {
     expect(normalizeProjectIntent("x".repeat(MAX_PROJECT_INTENT_LENGTH + 10))).toHaveLength(
       MAX_PROJECT_INTENT_LENGTH
     );
-    stashProjectIntent("Solar tracker prototype", 2_000);
-    expect(takeProjectIntent(2_100)).toBe("Solar tracker prototype");
+    stashProjectStart({ title: "Solar tracker prototype" }, 2_000);
+    expect(takeProjectStart(2_100).title).toBe("Solar tracker prototype");
+  });
+
+  it("admits the full handoff at exactly the TTL boundary", () => {
+    stashProjectStart({
+      title: "Solar tracker",
+      transcriptText: "Interview",
+      transcriptFileName: "interview.docx",
+    }, 1_000);
+    expect(takeProjectStart(1_000 + PROJECT_INTENT_HANDOFF_TTL_MS)).toEqual({
+      title: "Solar tracker",
+      transcriptText: "Interview",
+      transcriptFileName: "interview.docx",
+    });
+    expect(takeProjectStart(1_000 + PROJECT_INTENT_HANDOFF_TTL_MS)).toEqual({
+      title: "", transcriptText: "", transcriptFileName: null,
+    });
   });
 
   it("discards stale and empty values", () => {

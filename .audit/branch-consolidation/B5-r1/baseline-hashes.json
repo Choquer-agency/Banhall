@@ -1,0 +1,18 @@
+{
+  "src/lib/dashboard/stageFilter.test.ts": "d4e2742a4bfa9f8da13181b7a864307d562a0a894af0af24182321acbadec017",
+  "src/lib/dashboard/stageFilter.ts": "5dd3f9d919508373fd6a71754b53d3ad089100172c85c42453827f64c1c29c8d",
+  "src/lib/reportSections.ts": "70274bf1ce83daf762c15e054e75c16f704fab5649f2c9b41c6cbbd005267791",
+  "src/lib/tiptapConfig.ts": "aeda054d505e409986b73b9e3bf0e965b5050e656c8e50a84459eb0ddd6ad104",
+  "src/lib/workspace/projectIntentHandoff.test.ts": "e0fe7051e85c00b0c61ad48ecf86f5bea886105c292ae166aac11cfc68eece60",
+  "src/lib/workspace/projectIntentHandoff.ts": "787d480bbbea412222353f0d319e29ac0901193492e937473f996a62331a0ba3",
+  "src/lib/workspace/stageRankGroups.test.ts": "120ed27509b95256e0a4d4aa3d7e0478a70651a590c840016971ffa3c4df3513",
+  "src/lib/workspace/stageRankGroups.ts": "b411681deb565c1951687f7186249fb01a3ef9a7fe18357a4da4b7da7589cffd",
+  "src/routes/project/new/newProjectPrefill.component.test.ts": "d95495466ae01474401899394e6b9ccf42e816ef79c932167ac11f29d9885b27",
+  "convex/dashboard.test.ts": "32e9d1a4db5bc389c52df9b66da63da7c781a5272d1ebac4e076ba6ce3494fae",
+  "convex/dashboard.ts": "b525cb6413b108b7a7a229351e3c99385e9941438ee9bdf315bde57730153b2b",
+  "convex/dashboardStageCounts.test.ts": "fb317a368bc040d85fb213db31180b76976b0c8e6b005acab4a51f732b60570a",
+  "src/lib/components/editor/Editor.svelte": "0b6d8a87232849623e2d3d2ff0ac83a06666956a07a85d406266b5743acfea83",
+  "src/lib/components/editor/Editor.component.test.ts": "c60d0d67a7ef3ce6aecb7910f8c523f57435a3825df39aff5fb0a7f4d1b7692e",
+  "src/lib/components/editor/docSearch.ts": "a6956e4329df390dbcde1e9d5ad375df2df11f75553c32b1a0178b6b1abe51ca",
+  "src/lib/components/editor/docSearch.test.ts": "524156421221c51d7f34817894a3c465b6c1765b0b382308a63a86b2ac94adfa"
+}
