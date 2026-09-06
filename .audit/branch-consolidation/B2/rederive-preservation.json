@@ -1,0 +1,25 @@
+{
+  "baseline": "b2d5db5b63c0a70bce20d86df56e11ffbe89fad9",
+  "files": {
+    "src/lib/components/editor/Editor.svelte": {
+      "snapshot": ".audit/branch-consolidation/B2/preserved-source/src/lib/components/editor/Editor.svelte.snapshot",
+      "sha256": "01b9aea3d1af126040690275dc3474e38fbf3bdba1d37ad22e000ab4e0964bce"
+    },
+    "src/lib/components/editor/docSearch.ts": {
+      "snapshot": ".audit/branch-consolidation/B2/preserved-source/src/lib/components/editor/docSearch.ts.snapshot",
+      "sha256": "e49adbce3a1c258ce283cbcbfb7c7e0022f32940e6b3a8c20ee232800ee6774b"
+    },
+    "src/lib/components/editor/docSearch.test.ts": {
+      "snapshot": ".audit/branch-consolidation/B2/preserved-source/src/lib/components/editor/docSearch.test.ts.snapshot",
+      "sha256": "9f9c1635aee4d3dcb4f8b33e431818f5673146d3bb3512da90f0fcdf2abf7279"
+    },
+    "src/lib/components/editor/Editor.component.test.ts": {
+      "snapshot": ".audit/branch-consolidation/B2/preserved-source/src/lib/components/editor/Editor.component.test.ts.snapshot",
+      "sha256": "bf3f5c4c783a124547a16c0272803cbf2dad9932eedc6868bfb70d603cea14de"
+    },
+    "scripts/bench/editor-search.mjs": {
+      "snapshot": ".audit/branch-consolidation/B2/preserved-source/scripts/bench/editor-search.mjs.snapshot",
+      "sha256": "7cf4daaf4eb948b6f9cc30714c5e592759043580b20d120fb5af0b4d5f91ba90"
+    }
+  }
+}

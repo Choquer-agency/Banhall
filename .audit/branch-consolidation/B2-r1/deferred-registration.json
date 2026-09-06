@@ -1,0 +1,10 @@
+{
+  "ids": [
+    "DW-101",
+    "DW-102"
+  ],
+  "before_sha256": "a5438ef44484356742feaa601e2530c1349e0cffbddd58a4b98e70cadce79145",
+  "after_sha256": "b72567af5bbd714fb6b3f9bea40cebe60b0b2cd8e641d33908e08436e1f493ba",
+  "existing_ledger_exact_prefix_preserved": true,
+  "all_prior100_entries_preserved": true
+}

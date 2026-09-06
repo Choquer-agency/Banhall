@@ -1,0 +1,34 @@
+{
+  "baseline": "b2d5db5b63c0a70bce20d86df56e11ffbe89fad9",
+  "files": {
+    "src/lib/components/editor/Editor.svelte": {
+      "sha256": "01b9aea3d1af126040690275dc3474e38fbf3bdba1d37ad22e000ab4e0964bce",
+      "preservedSha256": "01b9aea3d1af126040690275dc3474e38fbf3bdba1d37ad22e000ab4e0964bce",
+      "matchesPreserved": true
+    },
+    "src/lib/components/editor/docSearch.ts": {
+      "sha256": "216a4d301ace3eca603689917972df9a7d28713f047fb1d2303db99176243c30",
+      "preservedSha256": "e49adbce3a1c258ce283cbcbfb7c7e0022f32940e6b3a8c20ee232800ee6774b",
+      "matchesPreserved": false
+    },
+    "src/lib/components/editor/docSearch.test.ts": {
+      "sha256": "011b709e9a1e63f8ae49c90cd0014404e7bfc009ae782fa5080d75f8a7257b7a",
+      "preservedSha256": "9f9c1635aee4d3dcb4f8b33e431818f5673146d3bb3512da90f0fcdf2abf7279",
+      "matchesPreserved": false
+    },
+    "src/lib/components/editor/Editor.component.test.ts": {
+      "sha256": "dbfe90f8173877867b1dab5bbcdb8b26b90a5a8a65f647f3dee87142590194d5",
+      "preservedSha256": "bf3f5c4c783a124547a16c0272803cbf2dad9932eedc6868bfb70d603cea14de",
+      "matchesPreserved": false
+    },
+    "scripts/bench/editor-search.mjs": {
+      "sha256": "7cf4daaf4eb948b6f9cc30714c5e592759043580b20d120fb5af0b4d5f91ba90",
+      "preservedSha256": "7cf4daaf4eb948b6f9cc30714c5e592759043580b20d120fb5af0b4d5f91ba90",
+      "matchesPreserved": true
+    }
+  },
+  "changedTrackedPaths": [
+    "src/lib/components/editor/Editor.svelte"
+  ],
+  "allProtectedTrackedBytesUnchanged": true
+}

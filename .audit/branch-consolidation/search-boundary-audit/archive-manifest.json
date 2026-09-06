@@ -1,0 +1,33 @@
+{
+  "instructions": "Paths in historical evidence resolve through this manifest. gzip files preserve exact original bytes; decompress with gzip -dc. Original hashes permit independent verification.",
+  "files": [
+    {
+      "original_path": ".audit/branch-consolidation/search-boundary-audit/probe.mjs",
+      "stored_path": ".audit/branch-consolidation/search-boundary-audit/probe.mjs",
+      "original_sha256": "68ff51a14231e862821f1d3a0f8b6f306c7097cc24f571769b5a821ded47201d",
+      "stored_sha256": "68ff51a14231e862821f1d3a0f8b6f306c7097cc24f571769b5a821ded47201d",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/search-boundary-audit/results.json",
+      "stored_path": ".audit/branch-consolidation/search-boundary-audit/results.json",
+      "original_sha256": "d4684b0b3359e7327f24436885c564594ff07f823c6cb8219c5631eeb8eab761",
+      "stored_sha256": "d4684b0b3359e7327f24436885c564594ff07f823c6cb8219c5631eeb8eab761",
+      "encoding": "identity"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/search-boundary-audit/stderr.log",
+      "stored_path": ".audit/branch-consolidation/search-boundary-audit/stderr.log.gz",
+      "original_sha256": "6f590ed840b4dcea9287482e5fe18a8c08b6f5f356f48e2cb6618156288e1d31",
+      "stored_sha256": "28db6f014da6f4784fb375ed6ed18d838f9df23bb0ed321efd961a123239efc0",
+      "encoding": "gzip"
+    },
+    {
+      "original_path": ".audit/branch-consolidation/search-boundary-audit/summary.md",
+      "stored_path": ".audit/branch-consolidation/search-boundary-audit/summary.md",
+      "original_sha256": "076a19db547337628fff2598ea292f1b86b3726b424e2c92886ac3c8b73914b6",
+      "stored_sha256": "076a19db547337628fff2598ea292f1b86b3726b424e2c92886ac3c8b73914b6",
+      "encoding": "identity"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "passed": true,
+  "before": [
+    {
+      "kind": "synthetic_editor_cpu",
+      "chars": 22790,
+      "proposalPairs": 20,
+      "iterations": 30,
+      "descendantTraversals": 600,
+      "medianMs": 59.73,
+      "p95Ms": 67.69,
+      "matchPositionsSha256": "97e33b1b41e05229838b63cdc1f9bde97b8d265c7e4138f0dfee37303cf85397"
+    },
+    {
+      "kind": "synthetic_editor_cpu",
+      "chars": 91490,
+      "proposalPairs": 20,
+      "iterations": 30,
+      "descendantTraversals": 600,
+      "medianMs": 245.45,
+      "p95Ms": 249.82,
+      "matchPositionsSha256": "97e33b1b41e05229838b63cdc1f9bde97b8d265c7e4138f0dfee37303cf85397"
+    }
+  ],
+  "after": [
+    {
+      "kind": "synthetic_editor_cpu",
+      "chars": 22790,
+      "proposalPairs": 20,
+      "iterations": 30,
+      "descendantTraversals": 30,
+      "medianMs": 3.46,
+      "p95Ms": 4.02,
+      "matchPositionsSha256": "97e33b1b41e05229838b63cdc1f9bde97b8d265c7e4138f0dfee37303cf85397"
+    },
+    {
+      "kind": "synthetic_editor_cpu",
+      "chars": 91490,
+      "proposalPairs": 20,
+      "iterations": 30,
+      "descendantTraversals": 30,
+      "medianMs": 13.5,
+      "p95Ms": 14.87,
+      "matchPositionsSha256": "97e33b1b41e05229838b63cdc1f9bde97b8d265c7e4138f0dfee37303cf85397"
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+{"command": "node node_modules/vitest/vitest.mjs run convex/chatProposals.test.ts tests/chatProposals.test.ts --expect.requireAssertions", "exit": 0}

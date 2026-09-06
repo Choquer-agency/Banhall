@@ -838,3 +838,19 @@ severity: medium
 reason: Independent public parseFileToText probes reproduce an unhandled rejection when a page or text operation starts as the shared deadline expires; this early-return hole predates B1. See .audit/branch-consolidation/parser-expired-audit/findings.md and current-page.log/current-text.log. Schedule bounded B12 within the authorized all-branches audit.
 status: done 2026-09-05
 resolution: B12 observes already-started PDF operations when the shared deadline expires. Actual unchanged-source regression produced two unhandled rejections; final23 parser tests and full nine-step gate passed, including1980 unit and463 browser tests. Three fresh Astra6 medium reviews and per-item triage: .audit/branch-consolidation/B12/review-triage.md; source hashes and runtime receipts: after.json and gate/result.json in that directory. Existing deadline, partial output, original errors and timer cleanup preserved.
+
+### DW-101: Map Unicode case expansion to original editor ranges
+origin: branch-consolidation-B2-unicode-case-map
+location: src/lib/components/editor/docSearch.ts
+source_spec: `_bmad-output/implementation-artifacts/spec-branch-b2-editor-search.md`
+severity: high
+reason: Actual installed editable/read-only schema probe shows inherited wrong target range4..11 instead of3..9 for İ target tail, and dropped end match. Identical pre-B2 helper results prove existing provenance. See .audit/branch-consolidation/search-boundary-audit/summary.md/results.json. B13 is scheduled within this authorized audit before final merge.
+status: open
+
+### DW-102: Preserve supported hardBreak boundaries in editor search
+origin: branch-consolidation-B2-hard-break
+location: src/lib/components/editor/docSearch.ts
+source_spec: `_bmad-output/implementation-artifacts/spec-branch-b2-editor-search.md`
+severity: medium
+reason: Actual installed schemas accept alpha + hardBreak + beta; old and current search falsely match alphabeta across the break and miss the whitespace-separated phrase. See .audit/branch-consolidation/search-boundary-audit/summary.md/results.json. Broader unsupported inline-atom claim rejected. B13 is scheduled before final merge.
+status: open
