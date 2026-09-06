@@ -219,7 +219,7 @@
       {/if}
 
       {#if evidenceQ.error || provenanceQ.error || documentsQ.error}
-        <p role="alert" class="mt-4 text-sm text-ink-muted">Could not load filing evidence.</p>
+        <p role="alert" class="mt-4 text-sm text-ink-muted">Could not load filing evidence. Reload the page to try again.</p>
       {:else if evidenceQ.data === undefined || provenanceQ.data === undefined || documentsQ.data === undefined}
         <p role="status" class="mt-4 text-sm text-ink-muted">Loading filing evidence…</p>
       {:else}

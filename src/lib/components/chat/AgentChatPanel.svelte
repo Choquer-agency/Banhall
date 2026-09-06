@@ -111,7 +111,8 @@
     reviewingId,
     onBeforeApply,
   }: Props = $props();
-  const extractionScope = createExtractionScope(() => `${projectId}:${reportId}`);
+  const uploadOwner = $derived(`${projectId}:${reportId}`);
+  const extractionScope = createExtractionScope(() => uploadOwner);
 
   /** The source passages a proposal references — for scroll-and-highlight. */
   function proposalRefs(p: Proposal): string[] {
@@ -382,6 +383,20 @@
   let receiptEntries = $state<EphemeralEntry[]>([]);
   const retryableFiles = new Map<string, { file: File; category: ContextCategoryId }>();
   const receiptBusy = new SvelteSet<string>();
+  $effect(() => {
+    // Upload UI and retained files belong to this exact owner. Keep completed
+    // receipts across ordinary rerenders, but discard old-owner selections,
+    // context pills and retries when its scope ends.
+    uploadOwner;
+    return () => {
+      receiptEntries = [];
+      retryableFiles.clear();
+      receiptBusy.clear();
+      pendingFiles = null;
+      attachments = [];
+      if (fileInputEl) fileInputEl.value = "";
+    };
+  });
   const receiptRows = $derived(buildReceiptRows([], [], receiptEntries));
   const receiptSettled = $derived(receiptEntries.some((entry) => entry.status !== null));
   let attachments = $state<

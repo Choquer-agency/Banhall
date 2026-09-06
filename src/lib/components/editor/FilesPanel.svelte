@@ -156,6 +156,14 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   let replaceTarget = $state<DocRow | null>(null);
   let pendingReplace = $state<{ doc: DocRow; file: File } | null>(null);
   let replaceInputEl: HTMLInputElement | null = $state(null);
+  const replacementOwner = $derived(projectId);
+  $effect(() => {
+    void replacementOwner;
+    // A staged confirmation or open file picker belongs to its original project.
+    // Keep in-flight busy flags until their own finally blocks settle.
+    pendingReplace = null;
+    replaceTarget = null;
+  });
 
   const attemptsDenied = $derived(attemptsQ.data === null);
   const attempts = $derived(attemptsQ.data ?? []);
@@ -307,6 +315,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
       operation.throwIfAborted();
       return documentId;
     } catch (error) {
+      operation.throwIfAborted();
       if (isParseAbort(error)) throw error;
       void withUploadTimeout(
         failUploadAttempt({ projectId: operationProjectId, attemptKey, failureCode: "upload_failed" })

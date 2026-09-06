@@ -6,8 +6,8 @@ status: done
 baseline_commit: 201e46bd72c89ac2d59ad41022102b88b3f8433f
 review_loop_iteration: 0
 context:
-  - {project-root}/AGENTS.md
-  - {project-root}/docs/svelte-migration.md
+  - "{project-root}/AGENTS.md"
+  - "{project-root}/docs/svelte-migration.md"
 ---
 <frozen-after-approval reason="User authorized implementing and pushing audited performance improvements">
 ## Intent
@@ -39,7 +39,7 @@ Run focused parser and worker browser tests. Record actual test commands and res
 
 ## Final Verification
 
-All nine steps of `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` passed on the final implementation: 2,090 unit tests, 562 browser component tests, both typechecks, discovery guard, production build and both uploader harnesses. Focused independent review findings were resolved and reinspected. Final sequential benchmark results, source hashes, limitations and reproduction commands are committed in [performance evidence](../../docs/performance-improvements-2026-09-06/README.md).
+All nine steps of `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` passed on the final implementation: 2,090 unit tests, 580 browser component tests, both typechecks, discovery guard, production build and both uploader harnesses. Focused independent review findings were resolved and reinspected. Final sequential benchmark results, source hashes, limitations and reproduction commands are committed in [performance evidence](../../docs/performance-improvements-2026-09-06/README.md).
 
 ## Suggested Review Order
 
@@ -68,3 +68,13 @@ All nine steps of `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` passed on the
 
 - Reproduce main-thread responsiveness with synthetic workbooks.
   [spreadsheet-probe.mjs:5](../../scripts/performance/spreadsheet-probe.mjs#L5)
+
+## Astra High Review Findings
+
+- [x] [Review][Patch] Quote YAML context paths.
+- [x] [Review][Patch] Clear cancelled chat upload receipts and retained files.
+- [x] [Review][Patch] Guard late replacement failure handling after owner cancellation.
+- [x] [Review][Patch] Cover actual replacement consumers at read and mutation boundaries.
+- [x] [Review][Patch] Preserve pending extraction across unchanged-owner rerenders.
+
+Astra high follow-up: all patch findings above are resolved. The complete nine-step gate and independent reinspection passed; [review and verification record](../../docs/performance-improvements-2026-09-06/astra-high-review.md).
