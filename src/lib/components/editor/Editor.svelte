@@ -40,6 +40,7 @@
   } from "$lib/reportSections";
   import {
     buildSearchIndex,
+    extractMatchedText,
     findAllOccurrencesCI,
     findOccurrencesBatch,
     normalizeForMatch,
@@ -115,7 +116,7 @@
       if (fromPos === undefined || toPos === undefined) return null;
       let actual = needle;
       try {
-        actual = doc.textBetween(fromPos, toPos + 1, " ");
+        actual = extractMatchedText(doc, fromPos, toPos + 1);
       } catch {
         /* keep needle */
       }
@@ -184,7 +185,7 @@
       if (best && bestScore >= 0.5) {
         let actual = best.text;
         try {
-          actual = doc.textBetween(best.from, best.to, " ");
+          actual = extractMatchedText(doc, best.from, best.to);
         } catch {
           /* keep textContent */
         }
@@ -465,7 +466,7 @@
       let to = Math.max(from, Math.min(r.to, docSize));
       let ok = false;
       try {
-        ok = doc.textBetween(from, to, " ") === r.text;
+        ok = extractMatchedText(doc, from, to) === r.text;
       } catch {
         ok = false;
       }
@@ -999,15 +1000,18 @@
    * paragraph targets the section's first paragraph without claiming precision. */
   export function locateSectionParagraph(section: string, paragraph: number | null) {
     if (!editor) return;
+    const doc = editor.state.doc;
     const paras: Range[] = [];
     let inSection = false;
-    editor.state.doc.forEach((node, offset) => {
+    doc.forEach((node, offset) => {
       if (node.type.name === "heading") {
         inSection = node.textContent.includes(section);
         return;
       }
       if (!inSection || node.type.name !== "paragraph" || !node.textContent.trim()) return;
-      paras.push({ from: offset + 1, to: offset + 1 + node.content.size, text: node.textContent });
+      const from = offset + 1;
+      const to = from + node.content.size;
+      paras.push({ from, to, text: extractMatchedText(doc, from, to) });
     });
     if (paras.length === 0) return;
     const index = paragraph === null ? 0 : Math.min(Math.max(paragraph, 1), paras.length) - 1;

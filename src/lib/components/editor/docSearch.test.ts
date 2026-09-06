@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { getSchema } from "@tiptap/core";
+import { getEditorExtensions } from "../../tiptapConfig";
 import { Schema } from "@tiptap/pm/model";
 import {
   buildSearchIndex,
@@ -281,5 +283,164 @@ describe("docSearch batch cost", () => {
       findOccurrencesBatch(doc, CORPUS_NEEDLES);
     });
     expect(folds).toBe(1);
+  });
+});
+
+
+describe.each([true, false])("actual editor schema (editable=%s)", (editable) => {
+  const actualSchema = getSchema(getEditorExtensions({ editable }));
+  const text = (value: string) => actualSchema.text(value);
+  const br = () => actualSchema.node("hardBreak");
+  const paragraph = (content: Parameters<typeof actualSchema.node>[2] = []) =>
+    actualSchema.node("paragraph", null, content);
+  const document = (content: Parameters<typeof actualSchema.node>[2]) => {
+    const doc = actualSchema.node("doc", null, content);
+    doc.check();
+    return doc;
+  };
+
+  it.each(["İ target tail", "İ target"])("maps expansion before target in %s", (value) => {
+    expect(findAllOccurrencesCI(document([paragraph([text(value)])]), "target")).toEqual([
+      { from: 3, to: 9, text: "target" },
+    ]);
+  });
+
+  it("keeps the first non-overlapping original span after repeated expansion", () => {
+    const doc = document([paragraph([text("İİİİİ")])]);
+    expect(findAllOccurrencesCI(doc, "\u0307i")).toEqual([
+      { from: 1, to: 3, text: "İİ" },
+      { from: 3, to: 5, text: "İİ" },
+    ]);
+    expect(findAllOccurrencesCI(doc, "i")).toEqual(
+      [1, 2, 3, 4, 5].map((from) => ({ from, to: from + 1, text: "İ" }))
+    );
+  });
+
+  it("continues one folded unit after rejected overlap to keep later valid spans", () => {
+    const doc = document([paragraph([text("İİİİİİ")])]);
+    expect(findAllOccurrencesCI(doc, "\u0307i\u0307i")).toEqual([
+      { from: 1, to: 4, text: "İİİ" },
+      { from: 4, to: 7, text: "İİİ" },
+    ]);
+  });
+
+  it("retains hard-break boundaries in headings, list items and blockquotes", () => {
+    const content = () => [text("alpha"), br(), text("beta")];
+    const doc = document([
+      actualSchema.node("heading", { level: 2 }, content()),
+      actualSchema.node("bulletList", null, [
+        actualSchema.node("listItem", null, [paragraph(content())]),
+      ]),
+      actualSchema.node("blockquote", null, [paragraph(content())]),
+    ]);
+    expect(findOccurrencesBatch(doc, ["alphabeta", "alpha beta"])).toEqual([
+      [], [
+        { from: 1, to: 11, text: "alpha beta" },
+        { from: 15, to: 25, text: "alpha beta" },
+        { from: 30, to: 40, text: "alpha beta" },
+      ],
+    ]);
+  });
+
+  it("never splits supplementary characters for malformed surrogate needles", () => {
+    const doc = document([paragraph([text("😀😀")])]);
+    for (const needle of ["\ud83d", "\ude00"]) {
+      expect(findAllOccurrencesCI(doc, needle)).toEqual([
+        { from: 1, to: 3, text: "😀" }, { from: 3, to: 5, text: "😀" },
+      ]);
+    }
+    expect(findAllOccurrencesCI(doc, "\ude00\ud83d")).toEqual([
+      { from: 1, to: 5, text: "😀😀" },
+    ]);
+  });
+
+  it("retains contextual sigma across hard breaks and paragraphs", () => {
+    const doc = document([
+      paragraph([text("ΟΣ"), br(), text("Α")]),
+      paragraph([text("ΟΣ")]), paragraph([text("Α")]),
+    ]);
+    expect(findAllOccurrencesCI(doc, "ΟΣ Α")).toEqual([
+      { from: 1, to: 5, text: "ΟΣ Α" },
+      { from: 7, to: 12, text: "ΟΣ Α" },
+    ]);
+    expect(findAllOccurrencesCI(doc, "οσ α")).toEqual([]);
+  });
+
+  it("maps expanded units and supplementary letters to complete original spans", () => {
+    const doc = document([paragraph([text("İ 😀 𐐀Z")])]);
+    expect(findOccurrencesBatch(doc, ["İ", "i", "\u0307", "😀", "𐐨z", "i\u0307 😀", "", "İ"])).toEqual([
+      [{ from: 1, to: 2, text: "İ" }],
+      [{ from: 1, to: 2, text: "İ" }],
+      [{ from: 1, to: 2, text: "İ" }],
+      [{ from: 3, to: 5, text: "😀" }],
+      [{ from: 6, to: 9, text: "𐐀Z" }],
+      [{ from: 1, to: 5, text: "İ 😀" }],
+      [],
+      [{ from: 1, to: 2, text: "İ" }],
+    ]);
+  });
+
+  it("retains whole-string final sigma context across marks", () => {
+    const doc = document([paragraph([
+      text("İ Ο"), actualSchema.text("Σ", [actualSchema.mark("bold")]), text(" ΟΣΑ"),
+    ])]);
+    expect(findOccurrencesBatch(doc, ["ΟΣ", "οσ", "ΟΣΑ"])).toEqual([
+      [{ from: 3, to: 5, text: "ΟΣ" }],
+      [{ from: 6, to: 8, text: "ΟΣ" }],
+      [{ from: 6, to: 9, text: "ΟΣΑ" }],
+    ]);
+  });
+
+  it("separates hard breaks and returns their whitespace representation", () => {
+    const doc = document([paragraph([text("alpha"), br(), text("beta")])]);
+    expect(buildSearchIndex(doc)).toEqual({ hay: "alpha beta", posMap: [1, 2, 3, 4, 5, 7, 7, 8, 9, 10] });
+    expect(findOccurrencesBatch(doc, ["alphabeta", "alpha beta", "alpha\nbeta"])).toEqual([
+      [], [{ from: 1, to: 11, text: "alpha beta" }], [{ from: 1, to: 11, text: "alpha beta" }],
+    ]);
+  });
+
+  it("collapses repeated boundaries without leading or trailing spans", () => {
+    const doc = document([
+      paragraph([br(), text(" alpha "), br(), br()]), paragraph(),
+      paragraph([br(), text(" beta "), br()]),
+    ]);
+    expect(buildSearchIndex(doc).hay).toBe("alpha beta");
+    expect(findOccurrencesBatch(doc, [" alpha beta ", "beta", "alphabeta"])).toEqual([
+      [{ from: 3, to: 21, text: "alpha       beta" }],
+      [{ from: 17, to: 21, text: "beta" }], [],
+    ]);
+  });
+
+  it("preserves horizontal-rule extraction and ordinary casing", () => {
+    const doc = document([paragraph([text("Alpha")]), actualSchema.node("horizontalRule"), paragraph([text("Beta")])]);
+    expect(findAllOccurrencesCI(doc, "alpha beta")).toEqual([{ from: 1, to: 13, text: "Alpha Beta" }]);
+  });
+
+  it("folds a single expanding code point only once for the haystack", () => {
+    const doc = document([paragraph([text("İ")])]);
+    const original = String.prototype.toLowerCase;
+    let haystackFolds = 0;
+    String.prototype.toLowerCase = function (this: string) {
+      if (String(this) === "İ") haystackFolds++;
+      return original.call(this);
+    };
+    try {
+      expect(findAllOccurrencesCI(doc, "i\u0307")).toEqual([{ from: 1, to: 2, text: "İ" }]);
+    } finally {
+      String.prototype.toLowerCase = original;
+    }
+    expect(haystackFolds).toBe(1);
+  });
+
+  it("walks once for mixed boundary batches and never for blank batches", () => {
+    const doc = document([paragraph([text("İ alpha"), br(), text("beta")])]);
+    const walk = doc.descendants.bind(doc);
+    let traversals = 0;
+    doc.descendants = (...args: Parameters<typeof walk>) => { traversals++; return walk(...args); };
+    expect(findOccurrencesBatch(doc, ["", " "])).toEqual([[], []]);
+    expect(traversals).toBe(0);
+    const finds = Array.from({ length: 20 }, () => "alpha beta");
+    expect(findOccurrencesBatch(doc, finds)).toEqual(finds.map(() => [{ from: 3, to: 13, text: "alpha beta" }]));
+    expect(traversals).toBe(1);
   });
 });

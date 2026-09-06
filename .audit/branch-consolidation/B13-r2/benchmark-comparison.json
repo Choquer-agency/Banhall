@@ -1,0 +1,48 @@
+{
+  "samePositionDigest": true,
+  "bothFixturesTraversalsPer30Iterations": 30,
+  "baseline": [
+    {
+      "kind": "synthetic_editor_cpu",
+      "chars": 22790,
+      "proposalPairs": 20,
+      "iterations": 30,
+      "descendantTraversals": 30,
+      "medianMs": 3.42,
+      "p95Ms": 4.06,
+      "matchPositionsSha256": "97e33b1b41e05229838b63cdc1f9bde97b8d265c7e4138f0dfee37303cf85397"
+    },
+    {
+      "kind": "synthetic_editor_cpu",
+      "chars": 91490,
+      "proposalPairs": 20,
+      "iterations": 30,
+      "descendantTraversals": 30,
+      "medianMs": 13.44,
+      "p95Ms": 14.85,
+      "matchPositionsSha256": "97e33b1b41e05229838b63cdc1f9bde97b8d265c7e4138f0dfee37303cf85397"
+    }
+  ],
+  "final": [
+    {
+      "kind": "synthetic_editor_cpu",
+      "chars": 22790,
+      "proposalPairs": 20,
+      "iterations": 30,
+      "descendantTraversals": 30,
+      "medianMs": 3.99,
+      "p95Ms": 4.33,
+      "matchPositionsSha256": "97e33b1b41e05229838b63cdc1f9bde97b8d265c7e4138f0dfee37303cf85397"
+    },
+    {
+      "kind": "synthetic_editor_cpu",
+      "chars": 91490,
+      "proposalPairs": 20,
+      "iterations": 30,
+      "descendantTraversals": 30,
+      "medianMs": 15.39,
+      "p95Ms": 17.05,
+      "matchPositionsSha256": "97e33b1b41e05229838b63cdc1f9bde97b8d265c7e4138f0dfee37303cf85397"
+    }
+  ]
+}

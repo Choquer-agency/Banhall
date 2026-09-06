@@ -845,7 +845,8 @@ location: src/lib/components/editor/docSearch.ts
 source_spec: `_bmad-output/implementation-artifacts/spec-branch-b2-editor-search.md`
 severity: high
 reason: Actual installed editable/read-only schema probe shows inherited wrong target range4..11 instead of3..9 for İ target tail, and dropped end match. Identical pre-B2 helper results prove existing provenance. See .audit/branch-consolidation/search-boundary-audit/summary.md/results.json. B13 is scheduled within this authorized audit before final merge.
-status: open
+status: done 2026-09-05
+resolution: B13 preserves complete original Unicode spans, non-overlap and later valid matches; forty helper tests and eighteen mounted Editor tests pass, plus the final nine-step gate (2020 unit/481 browser). Evidence: .audit/branch-consolidation/B13-r2/gate/result.json and review-triage.md.
 
 ### DW-102: Preserve supported hardBreak boundaries in editor search
 origin: branch-consolidation-B2-hard-break
@@ -853,4 +854,5 @@ location: src/lib/components/editor/docSearch.ts
 source_spec: `_bmad-output/implementation-artifacts/spec-branch-b2-editor-search.md`
 severity: medium
 reason: Actual installed schemas accept alpha + hardBreak + beta; old and current search falsely match alphabeta across the break and miss the whitespace-separated phrase. See .audit/branch-consolidation/search-boundary-audit/summary.md/results.json. Broader unsupported inline-atom claim rejected. B13 is scheduled before final merge.
-status: open
+status: done 2026-09-05
+resolution: B13 indexes hardBreak as whitespace and aligns all three AI highlight producers, including QA paragraph navigation; real-schema, mounted preview/apply and final nine-step gate pass. Evidence: .audit/branch-consolidation/B13-r2/evidence.md and gate/result.json.

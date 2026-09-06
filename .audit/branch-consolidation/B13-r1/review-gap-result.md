@@ -1,0 +1,9 @@
+### QA paragraph navigation lacks coverage for the changed highlight validation
+
+- **Changed surface:** `Editor.svelte:469` now validates AI highlight ranges using text that represents hard breaks as spaces.
+- **Impacted consumer or site:** `locateSectionParagraph` at `Editor.svelte:1001`, called by QA gap navigation at `CurrentProjectPage.svelte:440` and `PreviewProjectPage.svelte:516`, still stores `node.textContent`, which omits hard breaks.
+- **Existing test evidence:** **Regression gap.** Repository symbol and import-reference searches found no tests calling `locateSectionParagraph`. The regression test at `Editor.component.test.ts:296` checks paragraph selection through `highlightText`, whose text extraction was updated.
+- **Missing verification:** Assert that QA paragraph navigation highlights the requested hard-break paragraph when an earlier paragraph contains its concatenated text.
+- **Demonstration:** Under a matching section heading, place `alphabeta` in paragraph 1 and `alpha`, hardBreak, `beta` in paragraph 2. Call `locateSectionParagraph(section, 2)`. Its stored text is `alphabeta`, but the changed validator extracts `alpha beta`. Validation fails, and `findTextInDoc` at `Editor.svelte:474` searches the concatenated text and selects paragraph 1. The tests checked never exercise this entry point.
+- **Consequence:** QA navigation scrolls toward the requested paragraph but highlights an earlier paragraph.
+- **Suggested test shape:** Mount this document, invoke `locateSectionParagraph`, and assert that only paragraph 2 receives `.ai-ref-highlight`, including its hard break.

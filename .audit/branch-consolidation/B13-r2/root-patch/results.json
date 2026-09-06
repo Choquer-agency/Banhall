@@ -1,0 +1,47 @@
+[
+  {
+    "label": "helper",
+    "argv": [
+      "node",
+      "node_modules/vitest/vitest.mjs",
+      "run",
+      "src/lib/components/editor/docSearch.test.ts",
+      "--expect.requireAssertions"
+    ],
+    "exit_code": 0,
+    "log_sha256": "fc33bde7279c30c976332f87991911799799a5b648ed7e646b433481757fe1ca"
+  },
+  {
+    "label": "component",
+    "argv": [
+      "node",
+      "node_modules/vitest/vitest.mjs",
+      "run",
+      "--config",
+      "vitest.component.config.ts",
+      "src/lib/components/editor/Editor.component.test.ts",
+      "--expect.requireAssertions"
+    ],
+    "exit_code": 0,
+    "log_sha256": "077e89d630b988adf16beb696093755e82b061c8482c2a59df9522ca612527fd"
+  },
+  {
+    "label": "benchmark",
+    "argv": [
+      "node",
+      "scripts/bench/editor-search.mjs"
+    ],
+    "exit_code": 0,
+    "log_sha256": "891b0ebe0dcacb8d4c6a695fed225bd5feff70080e18674728aeaf5c7f4ef702"
+  },
+  {
+    "label": "diff",
+    "argv": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "exit_code": 0,
+    "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

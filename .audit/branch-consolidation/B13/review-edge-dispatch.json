@@ -1,0 +1,23 @@
+{
+  "at": "2026-09-06T00:27:41.597621+00:00",
+  "argv": [
+    "codex",
+    "exec",
+    "--ephemeral",
+    "-m",
+    "gpt-6-astra",
+    "-c",
+    "model_reasoning_effort=\"medium\"",
+    "-c",
+    "approval_policy=\"never\"",
+    "--sandbox",
+    "read-only",
+    "--color",
+    "never",
+    "--output-last-message",
+    "/Users/johnnynguyen/Documents/Repos/Banhall-branch-consolidation/.audit/branch-consolidation/B13/review-edge-result.md",
+    "-"
+  ],
+  "prompt_sha256": "a2f3d28c6f444b7cba63701d5e139ef84ce60b6ceb1620de7d2abea876a8b530",
+  "spec_sha256": "32cc5f0042f711c012b4241afd92c294d24925807bec0037a8415f4d9492cb07"
+}
