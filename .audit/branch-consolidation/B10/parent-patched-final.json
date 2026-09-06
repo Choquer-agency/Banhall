@@ -1,0 +1,38 @@
+[
+  {
+    "argv": [
+      "node",
+      "node_modules/vitest/vitest.mjs",
+      "run",
+      "src/lib/dashboard/workspaceExperience.test.ts"
+    ],
+    "exit": 0,
+    "log": ".audit/branch-consolidation/B10/parent-patched-final-0.log",
+    "sha256": "03f9d261f19a841568033e423aa6a7f96b21f2740ba9d1e4ff2b397a24dae430"
+  },
+  {
+    "argv": [
+      "node",
+      "node_modules/vitest/vitest.mjs",
+      "run",
+      "--config",
+      "vitest.component.config.ts",
+      "src/lib/workspace/WorkspaceGate.component.test.ts",
+      "src/routes/workspaceRoutes.component.test.ts",
+      "src/routes/project/[id]/projectRoute.component.test.ts"
+    ],
+    "exit": 0,
+    "log": ".audit/branch-consolidation/B10/parent-patched-final-1.log",
+    "sha256": "addfbf8d43afb5d1c85a5711e5407dcdc2caee08dcd80934d8363c4ed5e379f1"
+  },
+  {
+    "argv": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "exit": 0,
+    "log": ".audit/branch-consolidation/B10/parent-patched-final-2.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

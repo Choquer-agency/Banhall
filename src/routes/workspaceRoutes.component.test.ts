@@ -1,38 +1,63 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { page as browserPage } from "vitest/browser";
+import { goto } from "$app/navigation";
+import { page } from "$app/state";
+import { tick } from "svelte";
 import { render } from "vitest-browser-svelte";
+import { __resetAuthState } from "$lib/test/convex-auth-stub";
 import ProjectsPage from "./projects/+page.svelte";
 import MyWorkPage from "./my-work/+page.svelte";
 import DashboardPage from "./dashboard/+page.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
-import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
+import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import {
   __resetConvexStub,
   __setPaginatedRows,
   __setQueryData,
+  __setQueryError,
+  __activeQueryCount,
+  __activeQueryArgs,
 } from "$lib/test/convex-svelte-stub.svelte";
 
-/**
- * Route wiring for the canonical workspace URLs (product-domain amendment
- * 2026-08-06): /projects and /my-work render the workspace for flagged
- * users and soft-redirect everyone else to the /dashboard compatibility
- * entry with `view` set and every other param preserved; the flagged
- * /dashboard soft-navigates to the canonical URL. `$app/environment` is
- * stubbed dev=false so the real gate decision path runs.
- */
+vi.mock("$app/navigation", { spy: true });
+
+/** Canonical routes preserve params through successful access, error, and override. */
 function seedWorkspaceQueries() {
   __setQueryData("myWork:getViewConfig", { killSwitch: true, ready: false });
   __setQueryData("dashboard:getFacets", { total: 0, truncated: false, stageCounts: {} });
   __setPaginatedRows("dashboard:listFlatProjects", []);
 }
 
-const gotoUrls = () => __navigationCalls.filter((call) => call.kind === "goto").map((call) => call.url);
+async function expectSoftNavigation(href: string) {
+  const expected = new URL(href, page.url);
+  await expect.poll(() => vi.mocked(goto).mock.calls.find(([url]) =>
+    new URL(String(url), expected).pathname === expected.pathname
+  )).toBeDefined();
+  await tick();
+  expect(vi.mocked(goto).mock.calls).toHaveLength(1);
+  const call = vi.mocked(goto).mock.calls[0];
+  if (!call) throw new Error(`Missing navigation to ${expected.pathname}`);
+  const actual = new URL(String(call[0]), expected);
+  expect(actual.origin).toBe(expected.origin);
+  expect(actual.pathname).toBe(expected.pathname);
+  expect([...new Set(actual.searchParams.keys())].sort()).toEqual([...new Set(expected.searchParams.keys())].sort());
+  for (const key of new Set(expected.searchParams.keys())) {
+    expect(actual.searchParams.getAll(key)).toEqual(expected.searchParams.getAll(key));
+  }
+  expect(call[1]).toEqual({ replaceState: true });
+}
+
+const gotoUrls = () => vi.mocked(goto).mock.calls.map(([url]) => String(url));
 
 describe("canonical workspace routes", () => {
   beforeEach(() => {
+    __resetAuthState();
     localStorage.clear();
     __resetPage();
     __resetNavigation();
+    vi.mocked(goto).mockClear();
+    // Assert the requested navigation; this fixture does not mount destination routes.
+    vi.mocked(goto).mockResolvedValue(undefined);
     __resetConvexStub();
   });
 
@@ -61,7 +86,7 @@ describe("canonical workspace routes", () => {
       expect(link).toBeDefined();
       const actual = new URL(link!.href);
       const expected = new URLSearchParams(expectedQuery);
-      expect([...actual.searchParams.keys()]).toEqual([...expected.keys()]);
+      expect([...new Set(actual.searchParams.keys())].sort()).toEqual([...new Set(expected.keys())].sort());
       for (const key of new Set(expected.keys())) {
         expect(actual.searchParams.getAll(key)).toEqual(expected.getAll(key));
       }
@@ -69,20 +94,35 @@ describe("canonical workspace routes", () => {
     expect(gotoUrls()).toHaveLength(0);
   });
 
-  it("/projects sends a non-flagged user to /dashboard?view=all_projects preserving params", async () => {
-    __setPageUrl("/projects?layout=list&utm=x");
-    __setQueryData("workspaceRollout:getAccess", { available: false });
-    await render(ProjectsPage, {});
+  it.each([
+    "/projects?layout=board&group=status&utm=x",
+    "/projects?utm=first&utm=second&note=R%26D%20%2B%20caf%C3%A9",
+    "/my-work?layout=list&group=client&utm=x",
+    "/my-work?utm=first&utm=second&note=R%26D%20%2B%20caf%C3%A9",
+  ])("%s falls back on query error with all params preserved", async (href) => {
+    __setPageUrl(href);
+    __setQueryData("workspaceRollout:getAccess", { available: true });
+    __setQueryError("workspaceRollout:getAccess", new Error("Access denied"));
+    const expected = new URL(href, page.url);
+    const projects = expected.pathname === "/projects";
+    expected.pathname = "/dashboard";
+    expected.searchParams.set("view", projects ? "all_projects" : "my_work");
+    if (projects) await render(ProjectsPage, {});
+    else await render(MyWorkPage, {});
 
-    await expect.poll(() => gotoUrls()).toContain("/dashboard?layout=list&utm=x&view=all_projects");
+    await expectSoftNavigation(`${expected.pathname}${expected.search}`);
+    expect(document.querySelector('[data-workspace-gate-route-state="current"]')).not.toBeNull();
+    expect(document.querySelector('[data-dashboard-experience="preview"]')).toBeNull();
   });
 
-  it("/my-work sends a non-flagged user to /dashboard?view=my_work preserving workspace=current", async () => {
-    __setPageUrl("/my-work?workspace=current");
+  it("/my-work preserves the current override and skips access during navigation", async () => {
+    __setPageUrl("/my-work?workspace=current&utm=first&utm=second&note=caf%C3%A9");
     await render(MyWorkPage, {});
 
-    // ?workspace=current wins even mid-load — the access query is skipped.
-    await expect.poll(() => gotoUrls()).toContain("/dashboard?workspace=current&view=my_work");
+    await expectSoftNavigation("/dashboard?workspace=current&utm=first&utm=second&note=caf%C3%A9&view=my_work");
+    expect(__activeQueryCount("workspaceRollout:getAccess")).toBe(0);
+    expect(__activeQueryArgs("workspaceRollout:getAccess")).toEqual([]);
+    expect(document.querySelector('[data-workspace-gate-route-state="current"]')).not.toBeNull();
   });
 
   it("/my-work shows a neutral loading state (no redirect, no preview flash) while the decision loads", async () => {
@@ -91,36 +131,37 @@ describe("canonical workspace routes", () => {
 
     await expect.poll(() => document.querySelector('[aria-label="Loading workspace"]')).not.toBeNull();
     expect(document.querySelector("[data-workspace-shell]")).toBeNull();
-    await new Promise((resolveSettle) => setTimeout(resolveSettle, 50));
+    await tick();
     expect(gotoUrls()).toHaveLength(0);
   });
 
-  it("/dashboard soft-navigates a flagged user to the canonical URL, mapping ?view and keeping other params", async () => {
+  it("/dashboard soft-navigates an authorized user to the canonical URL, mapping ?view and keeping other params", async () => {
     __setPageUrl("/dashboard?view=all_projects&layout=board");
     __setQueryData("workspaceRollout:getAccess", { available: true });
     await render(DashboardPage, {});
 
-    await expect.poll(() => gotoUrls()).toContain("/projects?layout=board");
+    await expectSoftNavigation("/projects?layout=board");
   });
 
-  it("/dashboard defaults the flagged redirect to /my-work", async () => {
+  it("/dashboard defaults the preview redirect to /my-work", async () => {
     __setPageUrl("/dashboard");
     __setQueryData("workspaceRollout:getAccess", { available: true });
     await render(DashboardPage, {});
 
-    await expect.poll(() => gotoUrls()).toContain("/my-work");
+    await expectSoftNavigation("/my-work");
   });
 
-  it("/dashboard keeps the current experience mounted for non-flagged users — no navigation", async () => {
+  it("/dashboard keeps the current experience mounted for users with access errors — no navigation", async () => {
     __setPageUrl("/dashboard");
-    __setQueryData("workspaceRollout:getAccess", { available: false });
+    __setQueryData("workspaceRollout:getAccess", { available: true });
+    __setQueryError("workspaceRollout:getAccess", new Error("Access denied"));
     seedWorkspaceQueries();
     await render(DashboardPage, {});
 
     await expect
       .poll(() => document.querySelector('[data-dashboard-experience="current"]'))
       .not.toBeNull();
-    await new Promise((resolveSettle) => setTimeout(resolveSettle, 50));
+    await tick();
     expect(gotoUrls()).toHaveLength(0);
   });
 });

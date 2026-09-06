@@ -1,0 +1,13 @@
+{
+  "docs/product-domain.md": "3436ac6a20a3f5732e102cc6b711277fa4b375f19a71512355c825ee0e47a209",
+  "src/lib/dashboard/workspaceExperience.test.ts": "90aa51cd92a5ad1fed0efa2f6261b0ca5eecdebe24b45d7cffc8cb6f2be52089",
+  "src/lib/dashboard/workspaceExperience.ts": "c2cb87fc7e8693b5c93521ba5fc1b114257151b0a1dc0c518e1956f6d2cb23ea",
+  "src/lib/test/app-environment-stub.ts": "86e5df421789c2d436eb1ffdc265680d37a520f4531e57a2c7b7e396dc6193de",
+  "src/lib/workspace/WorkspaceGate.component.test.ts": "1371c1d77dc17210ea1f84ca3fd992e6ab13463bd08e814c6d289a6c2948aa05",
+  "src/lib/workspace/WorkspaceGate.svelte": "337e94a3150b38c5c1f500804ebd35a4cafb8d54b15b92354c258c1fe85af794",
+  "src/routes/dashboard/+page.svelte": "2a2f20afa7f478925e532e22bbbf5ad3cb6a0b30219565112b11db5ca8694afb",
+  "src/routes/my-work/+page.svelte": "188564fe2b3d5b41561754b54e2c7327a7c8cf721ef921694df41d6ffa11b432",
+  "src/routes/project/[id]/projectRoute.component.test.ts": "36f05077eb9c14c302b675a1e08c5f7ecb81a1c3aa74dbc21dd663bc5385d65f",
+  "src/routes/projects/+page.svelte": "0167da52c150d4c3e83f99294a1b58ed5c8dae582ae709741bd1a02bafe5bbc0",
+  "src/routes/workspaceRoutes.component.test.ts": "2c19dd717361691b920a11493d8d7d1d7dce6f145415b8f4517a2408a5ab9347"
+}

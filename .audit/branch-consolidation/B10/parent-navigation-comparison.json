@@ -1,0 +1,46 @@
+{
+  "baseline_commit": "8511662cb8fd9748d02f413c633bf21b5cdec9ee",
+  "results": [
+    {
+      "phase": "candidate",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "vitest.component.config.ts",
+        "src/routes/workspaceRoutes.component.test.ts",
+        "-t",
+        "/dashboard soft-navigates",
+        "--silent=false",
+        "--reporter=verbose"
+      ],
+      "exit": 1,
+      "probe": "B10 navigation probe [[\"/projects?layout=board\",{\"replaceState\":true}],[\"/my-work?layout=board\",{\"replaceState\":true}]]",
+      "log_sha256": "681227362380f75d05e976f55f92cffa63114feac3f9fdf7a1d738c9db890189"
+    },
+    {
+      "phase": "baseline",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "vitest.component.config.ts",
+        "src/routes/workspaceRoutes.component.test.ts",
+        "-t",
+        "/dashboard soft-navigates",
+        "--silent=false",
+        "--reporter=verbose"
+      ],
+      "exit": 1,
+      "probe": "B10 navigation probe [[\"/projects?layout=board\",{\"replaceState\":true}],[\"/my-work?layout=board\",{\"replaceState\":true}]]",
+      "log_sha256": "f65878c1fb2f6c505d329085d8ff0f3c8f3c767fd513506ce5f520d684d0d725"
+    }
+  ],
+  "source_restored": {
+    "src/lib/dashboard/workspaceExperience.ts": "c2cb87fc7e8693b5c93521ba5fc1b114257151b0a1dc0c518e1956f6d2cb23ea",
+    "src/lib/workspace/WorkspaceGate.svelte": "337e94a3150b38c5c1f500804ebd35a4cafb8d54b15b92354c258c1fe85af794"
+  },
+  "test_restored_sha256": "4619b13614699d9cb4f1ba8327ed497f9388b9a391c4fdca495e556eeefc8e35"
+}

@@ -1,0 +1,28 @@
+[
+  {
+    "argv": [
+      "node",
+      "node_modules/vitest/vitest.mjs",
+      "run",
+      "src/lib/dashboard/workspaceExperience.test.ts"
+    ],
+    "exit": 0,
+    "log": ".audit/branch-consolidation/B10/parent-patched-0.log",
+    "sha256": "7276db43544f0b0ff0d6505aaf3499b4c8f04a471e71e8e2795fc910dadc052f"
+  },
+  {
+    "argv": [
+      "node",
+      "node_modules/vitest/vitest.mjs",
+      "run",
+      "--config",
+      "vitest.component.config.ts",
+      "src/lib/workspace/WorkspaceGate.component.test.ts",
+      "src/routes/workspaceRoutes.component.test.ts",
+      "src/routes/project/[id]/projectRoute.component.test.ts"
+    ],
+    "exit": 1,
+    "log": ".audit/branch-consolidation/B10/parent-patched-1.log",
+    "sha256": "d480138bb599844e0c5eac5e17a41c4c8c2e168263b5c91f448a9a22dfec6140"
+  }
+]
