@@ -919,6 +919,8 @@ export default defineSchema({
     // Any single-target producer (research today, QA/review agents later)
     // sets this instead of applyProposal special-casing its origin.
     requireUniqueTarget: v.optional(v.boolean()),
+    // A coordinated revision: every passage must still match exactly once.
+    requireUniqueTargets: v.optional(v.boolean()),
     // Writer-authored wording revisions made directly in the proposal card.
     // The canonical target never changes; these fields make the learning event
     // auditable without conflating it with model-generated candidates.

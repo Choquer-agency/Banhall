@@ -31,6 +31,9 @@ import {
   type PMNode,
 } from "./lib/reportEdits";
 import { getEffectiveWriterStyle } from "./writerProfiles";
+import { applyPassageEdits } from "./lib/passageEdits";
+import { publicChatDelta, publicChatMessage } from "./lib/chatPublicOutput";
+import { safeErrorDetails } from "./lib/safeErrorDetails";
 import { domainError, sha256 } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { proposalPairs } from "../shared/chatProposals";
@@ -148,11 +151,27 @@ export const listMessages = query({
       threadId: args.threadId,
       paginationOpts: args.paginationOpts,
     });
+    let streamArgs = args.streamArgs;
+    if (streamArgs?.kind === "deltas") {
+      // The pinned agent component does not verify cursor ownership itself.
+      // Include retained finished streams so their final delta can still drain.
+      const ownedStreams = await ctx.runQuery(components.agent.streams.list, {
+        threadId: args.threadId, statuses: ["streaming", "finished", "aborted"],
+      });
+      const ownedIds = new Set(ownedStreams.map(stream => stream.streamId));
+      streamArgs = { ...streamArgs, cursors: streamArgs.cursors.filter(cursor => ownedIds.has(cursor.streamId)) };
+    }
     const streams = await syncStreams(ctx, components.agent, {
       threadId: args.threadId,
-      streamArgs: args.streamArgs,
+      streamArgs,
     });
-    return { ...paginated, streams };
+    return { ...paginated, page: paginated.page.map(publicChatMessage),
+      streams: streams?.kind === "deltas"
+        ? { ...streams, deltas: streams.deltas.map(publicChatDelta) }
+        : streams?.kind === "list"
+          ? { ...streams, messages: streams.messages.map(({ streamId, status, format, order, stepOrder }) =>
+            ({ streamId, status, format, order, stepOrder })) }
+          : streams };
   },
 });
 
@@ -277,6 +296,7 @@ export const sendMessage = mutation({
     refineProposalId: v.optional(v.id("chatProposals")),
     /** Force a fresh thread even when the report already has one ("New chat"). */
     newThread: v.optional(v.boolean()),
+    allowBrain: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const report = await ctx.db.get(args.reportId);
@@ -369,6 +389,7 @@ export const sendMessage = mutation({
       // reply. Threads are shared per report, so the thread's own userId (its
       // creator) is the wrong writer for later participants.
       userId,
+      ...(args.allowBrain === true ? { allowBrain: true } : {}),
     });
 
     return { threadId: agentThreadId, messageId };
@@ -462,7 +483,7 @@ export const applyProposal = mutation({
       }
     } catch (err) {
       // Policy lookup must never block an apply; default to scrubbing.
-      console.error("apply-time scrub policy lookup failed", err);
+      console.error("apply-time scrub policy lookup failed", safeErrorDetails(err));
       pairs = pairs.map((pair) => ({
         ...pair,
         replaceWith: scrubBannedWords(pair.replaceWith),
@@ -478,7 +499,14 @@ export const applyProposal = mutation({
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       domainError("INVALID_INPUT", "The report content is not a valid editor document");
     }
-    const { doc: updated, count } = applyReplacements(parsed as PMNode, pairs);
+    const bulkResult = proposal.requireUniqueTargets
+      ? applyPassageEdits(parsed as PMNode, pairs)
+      : null;
+    if (bulkResult && !bulkResult.ok) {
+      await ctx.db.patch(args.proposalId, { state: "stale" });
+      return { applied: false as const, count: 0, reason: bulkResult.reason };
+    }
+    const { doc: updated, count } = bulkResult ?? applyReplacements(parsed as PMNode, pairs);
     if (count === 0) {
       await ctx.db.patch(args.proposalId, { state: "stale" });
       return {
@@ -584,6 +612,9 @@ export const markProposalApplied = mutation({
     }
     if (proposal.kind === "references") {
       domainError("INVALID_INPUT", "Highlights have nothing to apply.");
+    }
+    if (proposal.requireUniqueTargets) {
+      domainError("INVALID_INPUT", "Apply this coordinated revision from its suggestion card so every passage can be checked together.");
     }
     if (proposal.state !== "pending") {
       domainError(
@@ -868,6 +899,7 @@ export const saveProposal = internalMutation({
       v.array(v.object({ find: v.string(), replaceWith: v.string() }))
     ),
     references: v.optional(v.array(v.string())),
+    requireUniqueTargets: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.agentThreadId);
@@ -918,6 +950,11 @@ export const saveProposal = internalMutation({
     }
 
     const pairs = proposalPairs(args);
+    if (args.requireUniqueTargets) {
+      if (args.kind !== "replacements") return { ok: false as const, reason: "A passage set must use replacements." };
+      const result = applyPassageEdits(parsed as PMNode, pairs);
+      if (!result.ok) return { ok: false as const, reason: result.reason };
+    }
     if (args.kind !== "references") {
       if (pairs.length === 0) {
         return { ok: false as const, reason: "The suggestion did not include text to replace." };
@@ -967,6 +1004,7 @@ export const saveProposal = internalMutation({
       replacements: args.replacements,
       references: args.references,
       requireUniqueTarget: args.kind === "edit" ? true : undefined,
+      requireUniqueTargets: args.requireUniqueTargets,
       state: args.kind === "references" ? "applied" : "pending",
       createdAt: Date.now(),
     });

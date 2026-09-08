@@ -76,7 +76,7 @@
   onShowInDoc={references.length > 0
     ? () => onReferenceText?.(references)
     : undefined}
-  onReviewOneByOne={proposal.replacements && proposal.replacements.length > 0 && onReviewReplacements
+  onReviewOneByOne={!proposal.requireUniqueTargets && proposal.replacements && proposal.replacements.length > 0 && onReviewReplacements
     ? () => onReviewReplacements(pairs, proposal._id)
     : undefined}
   onPreviewInDoc={onPreviewProposal

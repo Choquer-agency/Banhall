@@ -23,6 +23,7 @@ import { buildChatTurnRequest, type ChatTurnContext } from "./chatEvidence";
 import { describeContextCuts } from "./trustedContext";
 import { preserveReasoningSignature } from "./reasoningSignature";
 import { searchBrainExemplars, formatBrainExemplars } from "./brain/retrieve";
+import { safeErrorDetails } from "../lib/safeErrorDetails";
 
 // ─── Agent-based chat (BNH-10 P2) ────────────────────────────────────────────
 // Parallel-run replacement for chatAgent.ts. The @convex-dev/agent component
@@ -110,6 +111,49 @@ const makeProposeReplacements = (bannedWordsWaived: boolean) =>
     },
   });
 
+const makeProposeBulkEdits = (bannedWordsWaived: boolean) => createTool({
+  description: "Propose a coordinated revision of different report passages in one reviewable card. Account for EVERY previously identified finding. Each target must be unique and passages must not overlap. The writer applies the proposal.",
+  inputSchema: z.object({
+    edits: z.array(z.object({
+      targetText: z.string().min(1),
+      newText: z.string().min(1),
+    })).min(1).max(40),
+    findings: z.array(z.discriminatedUnion("status", [
+      z.object({ id: z.string().min(1), status: z.literal("proposed"), editNumbers: z.array(z.number().int().min(1)).min(1) }),
+      z.object({ id: z.string().min(1), status: z.literal("gap"), reason: z.string().min(1) }),
+      z.object({ id: z.string().min(1), status: z.literal("conflict"), reason: z.string().min(1) }),
+    ])).min(1).max(80),
+  }).superRefine((input, ctx) => {
+    const ids = new Set(input.findings.map(f => f.id));
+    const covered = new Set(input.findings.flatMap(f => f.status === "proposed" ? f.editNumbers : []));
+    if (ids.size !== input.findings.length ||
+        [...covered].some(n => n > input.edits.length) ||
+        input.edits.some((_, i) => !covered.has(i + 1))) {
+      ctx.addIssue({ code: "custom", message: "Use unique finding IDs and map every edit to a finding using its one-based edit number." });
+    }
+  }),
+  execute: async (ctx, input, options): Promise<string> => {
+    if (!ctx.threadId) throw new Error("No thread in tool context");
+    const result = await ctx.runMutation(internal.chatV2.saveProposal, {
+      agentThreadId: ctx.threadId,
+      toolCallId: options.toolCallId,
+      promptMessageId: ctx.messageId,
+      kind: "replacements",
+      requireUniqueTargets: true,
+      replacements: input.edits.map(edit => ({
+        find: edit.targetText,
+        replaceWith: scrubBannedWordsUnlessWaived(edit.newText, bannedWordsWaived),
+      })),
+    });
+    if (!result.ok) return result.stopped
+      ? `Stop requested: ${result.reason} Do not retry.`
+      : `Proposal NOT created: ${result.reason} Re-read the current report and retry.`;
+    return `Coordinated revision proposed for writer review, not applied. Report this coverage checklist, retaining the finding IDs:\n${input.findings.map(f => f.status === "proposed"
+      ? `${f.id}: proposed in edit(s) ${f.editNumbers.join(", ")}`
+      : `${f.id}: ${f.status}: ${f.reason}`).join("\n")}`;
+  },
+});
+
 const highlightPassages = createTool({
   description:
     "Locate passages for the writer WITHOUT changing them — the document panel scrolls to and highlights each one. Use for find/show/point-to requests only.",
@@ -179,7 +223,7 @@ const searchBrain = createTool({
       }
       return formatBrainExemplars(exemplars);
     } catch (err) {
-      console.error("searchBrain tool failed", err);
+      console.error("searchBrain tool failed", safeErrorDetails(err));
       return "The Brain search hit a technical error just now — this is an infrastructure issue, not missing knowledge. Tell the writer to try again shortly.";
     }
   },
@@ -190,14 +234,11 @@ const searchBrain = createTool({
  * here as the same model would on claude.ai — a writer shouldn't get shallower
  * answers because they asked inside Banhall.
  *
- * `adaptive` (Sonnet 4.6/Opus 4.6+) lets the model scale its own thinking to
- * the task instead of us paying a fixed budget on every "tighten this
- * sentence". `display: "summarized"` is required for the thinking text to come
- * back at all — without it the blocks arrive empty and the trace's reasoning
- * disclosure would render nothing.
+ * Adaptive thinking stays enabled, but its text is private. The browser gets
+ * the answer and proposal cards, not a reasoning transcript.
  */
-const CHAT_THINKING = {
-  thinking: { type: "adaptive" as const, display: "summarized" as const },
+export const CHAT_THINKING = {
+  thinking: { type: "adaptive" as const, display: "omitted" as const },
 };
 
 /**
@@ -223,11 +264,12 @@ export const CHAT_CONTEXT_OPTIONS = Object.freeze(
   } satisfies ContextOptions
 );
 
-const buildChatTools = (bannedWordsWaived: boolean) => ({
+export const buildChatTools = (bannedWordsWaived: boolean, allowBrain = false) => ({
   proposeEdit: makeProposeEdit(bannedWordsWaived),
   proposeReplacements: makeProposeReplacements(bannedWordsWaived),
+  proposeBulkEdits: makeProposeBulkEdits(bannedWordsWaived),
   highlightPassages,
-  searchBrain,
+  ...(allowBrain ? { searchBrain } : {}),
 });
 
 const CHAT_TOOLS = buildChatTools(false);
@@ -268,7 +310,7 @@ export const reportChatAgent = new Agent(components.agent, {
         createdAt: Date.now(),
       });
     } catch (error) {
-      console.error("chat usage could not be queued", error);
+      console.error("chat usage could not be queued", safeErrorDetails(error));
     }
   },
   // Reply → tool call → short lead-in; searchBrain adds a hop. 5 is headroom.
@@ -289,6 +331,8 @@ export const streamChatReply = internalAction({
     // this reply. Optional for scheduler calls queued before this field
     // existed — absent means default (full) enforcement.
     userId: v.optional(v.id("users")),
+    // Only the authenticated send mutation can authorize this turn's retrieval.
+    allowBrain: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const startedAt = Date.now();
@@ -319,8 +363,8 @@ export const streamChatReply = internalAction({
         }
       );
       // PSOS-49/50: the sender's EFFECTIVE house-style waivers + preferences
-      // (org-wide modes apply even for legacy turns with no userId). Never
-      // blocks the reply; a failed lookup means default enforcement.
+      // (org-wide modes apply even for legacy turns with no userId). A failed
+      // lookup must stop the turn instead of silently ignoring saved settings.
       const profilePromise: Promise<{
         customInstructions: string | null;
         styleOverrides: StyleOverrides;
@@ -330,8 +374,8 @@ export const streamChatReply = internalAction({
           args.userId ? { userId: args.userId } : {}
         )
         .catch((err: unknown) => {
-          console.error("writer profile fetch failed for chat turn", err);
-          return null;
+          console.error("writer profile fetch failed for chat turn", safeErrorDetails(err));
+          throw new Error("CHAT_PROFILE_UNAVAILABLE");
         });
       const [context, writerStyle] = await Promise.all([
         contextPromise,
@@ -379,7 +423,7 @@ export const streamChatReply = internalAction({
           // Ephemeral: with `promptMessageId` set the agent library saves no
           // input messages, so the evidence never enters thread history.
           messages: turn.messages,
-          tools: buildChatTools(styleOverrides.bannedWords),
+          tools: buildChatTools(styleOverrides.bannedWords, args.allowBrain === true),
           providerOptions: { anthropic: CHAT_THINKING },
           maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
           // Must run upstream of the agent's smoothStream — see the module
@@ -388,7 +432,7 @@ export const streamChatReply = internalAction({
           experimental_transform: preserveReasoningSignature<typeof CHAT_TOOLS>(),
           onStepFinish: (step) => {
             for (const toolCall of step.toolCalls) {
-              toolCallIds.add(toolCall.toolCallId);
+              if (toolCall) toolCallIds.add(toolCall.toolCallId);
             }
           },
         },
@@ -398,6 +442,10 @@ export const streamChatReply = internalAction({
         }
       );
       await result.consumeStream();
+      const finishReason = await result.finishReason;
+      if (finishReason === "content-filter" || finishReason === "length") {
+        throw new Error("CHAT_INCOMPLETE_RESPONSE");
+      }
       await ctx.runMutation(internal.chatV2.finishTurn, {
         agentThreadId: args.agentThreadId,
         promptMessageId: args.promptMessageId,
@@ -415,7 +463,7 @@ export const streamChatReply = internalAction({
         endedAt: Date.now(),
         stepCount: toolCallIds.size,
       });
-      console.error("report chat response failed", error);
+      console.error("report chat response failed", { threadId: args.agentThreadId, ...safeErrorDetails(error) });
       if (finish.status !== "failed") return;
 
       await saveMessage(ctx, components.agent, {
@@ -425,7 +473,9 @@ export const streamChatReply = internalAction({
         promptMessageId: args.promptMessageId,
         message: {
           role: "assistant",
-          content: "I couldn’t finish that response. Try again.",
+          content: error instanceof Error && error.message === "CHAT_PROFILE_UNAVAILABLE"
+            ? "I couldn't load your saved writing settings, so I haven't proposed changes. Please retry. You don't need to rewrite your instructions."
+            : "I couldn’t finish that response. Try again.",
         },
       });
     }

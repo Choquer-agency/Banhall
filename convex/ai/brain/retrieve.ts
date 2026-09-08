@@ -20,6 +20,7 @@ import {
 } from "../../../shared/craScienceCodes";
 import { pickScienceRouted } from "./scienceRouting";
 import { recordRerankOutcome, type RerankOutcome } from "../../lib/rerankTelemetry";
+import { safeErrorDetails } from "../../lib/safeErrorDetails";
 
 export type BrainExemplar = {
   text: string;
@@ -331,7 +332,7 @@ export async function searchBrainExemplars(
         return result;
       } catch (err) {
         rerankFailed = true;
-        console.error("brain rerank failed; falling back to vector order", err);
+        console.error("brain rerank failed; falling back to vector order", safeErrorDetails(err));
       }
     }
     // Non-reranked exit (≤k candidates, or the rerank catch above): apply the
@@ -343,7 +344,7 @@ export async function searchBrainExemplars(
     terminalOutcome = rerankFailed ? "fallback" : "skip";
     return result;
   } catch (err) {
-    console.error("brain search failed; returning no exemplars", err);
+    console.error("brain search failed; returning no exemplars", safeErrorDetails(err));
     return { exemplars: [], degraded: true };
   } finally {
     await recordRerankOutcome(ctx, terminalOutcome, `brain:rerank${usageSuffix}`);

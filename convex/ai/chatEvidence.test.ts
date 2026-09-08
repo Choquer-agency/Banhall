@@ -520,13 +520,13 @@ describe("chat turn request", () => {
     expect(turn.system).toContain("WRITER'S PERSONAL STYLE PREFERENCES");
     expect(turn.system).toContain("Prefer first person plural.");
     expect(String(turn.messages[0]?.content)).not.toContain("Prefer first person plural.");
-    // A writer with no waiver has no preferences block at all.
+    // Compatible preferences still apply when the house rules stay enabled.
     expect(
       buildChatTurnRequest({
         context: context(),
         customInstructions: "Prefer first person plural.",
       }).system
-    ).not.toContain("WRITER'S PERSONAL STYLE PREFERENCES");
+    ).toContain("Prefer first person plural.");
   });
 
   it("falls back to the placeholders for an empty report and a missing analysis", () => {
