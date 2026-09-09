@@ -34,7 +34,7 @@
   import Spinner from "$lib/components/ui/Spinner.svelte";
   import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
   import type { ResearchSelection } from "$lib/components/editor/types";
-  import { DropdownMenu } from "bits-ui";
+  import { DropdownMenu, Checkbox } from "bits-ui";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
   import Button from "$lib/components/ui/Button.svelte";
   import { fade } from "svelte/transition";
@@ -256,6 +256,8 @@
 
 
   let input = $state("");
+  let allowBrain = $state(false);
+  $effect(() => { conversationScope; allowBrain = false; });
   let sending = $state(false);
   let researchStarting = $state(false);
   let researchError = $state<string | null>(null);
@@ -676,6 +678,7 @@
     const args: Parameters<typeof sendMessage>[0] = {
       reportId,
       content: trimmed,
+      ...(!historical && allowBrain ? { allowBrain: true } : {}),
       ...(intent.kind === "regenerate" ? { threadId: intent.threadId } : {
         ...(selectedThreadId ? { threadId: selectedThreadId } : {}),
         ...(pendingHighlight ? { highlight: { ...pendingHighlight } } : {}),
@@ -698,6 +701,7 @@
       if (!selectedThreadId) startingNewChat = true;
       input = "";
       refiningProposal = null;
+      allowBrain = false;
       onClearHighlight?.();
     }
     dismissHint();
@@ -1353,6 +1357,17 @@
       {/snippet}
     </PromptInputTextarea>
     </div>
+    {#if !pendingResearch}
+      <label class="flex items-center gap-2 px-2 py-1 text-caption text-ink-muted">
+        <Checkbox.Root bind:checked={allowBrain} aria-label="Use Brain examples for this message"
+          title="Allow a new search of approved past reports. Previous conversation remains available."
+          disabled={sending || isStreaming}
+          class="flex size-4 shrink-0 items-center justify-center rounded border border-line data-[state=checked]:bg-primary-selected data-[state=checked]:text-white">
+          {#snippet children({ checked })}{#if checked}<span aria-hidden="true">✓</span>{/if}{/snippet}
+        </Checkbox.Root>
+        Use Brain examples for this message
+      </label>
+    {/if}
     <!-- Obvious anatomy: actions on a row BELOW the text — attach left, send right. -->
     <div class="flex items-center justify-between">
     <PromptInputActions>

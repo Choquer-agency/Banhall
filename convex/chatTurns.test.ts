@@ -8,7 +8,7 @@ import {
   CHAT_CONTEXT_OPTIONS,
   reportChatAgent,
 } from "./ai/chatAgentV2";
-import type { ModelMessage } from "ai";
+import { APICallError, type ModelMessage } from "ai";
 import { CHAT_EVIDENCE_GUIDANCE } from "./ai/prompts";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -150,6 +150,145 @@ afterEach(() => {
 });
 
 describe("bounded chat context", () => {
+  test("keeps provider request bodies out of the failed-turn log", async () => {
+    const f = await setup();
+    const { result } = await sendQueuedTurn(f);
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(reportChatAgent, "streamText").mockRejectedValue(new APICallError({
+      message: "PRIVATE_CANARY", url: "https://example.test", statusCode: 429,
+      requestBodyValues: { system: "PRIVATE_CANARY", messages: ["PRIVATE_CANARY"] },
+    }));
+    await f.t.action(internal.ai.chatAgentV2.streamChatReply, {
+      agentThreadId: result.threadId, promptMessageId: result.messageId, reportId: f.reportId,
+    });
+    expect(errorLog).toHaveBeenCalledWith("report chat response failed", expect.objectContaining({ statusCode: 429 }));
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain("PRIVATE_CANARY");
+  });
+  test.each(["content-filter", "length"])("marks %s provider output as a failed turn instead of silent completion", async finishReason => {
+    const f = await setup();
+    const { result, turn } = await sendQueuedTurn(f);
+    vi.spyOn(reportChatAgent, "streamText").mockResolvedValue({
+      consumeStream: async () => {}, finishReason: Promise.resolve(finishReason),
+    } as unknown as Awaited<ReturnType<typeof reportChatAgent.streamText>>);
+    await f.t.action(internal.ai.chatAgentV2.streamChatReply, {
+      agentThreadId: result.threadId, promptMessageId: result.messageId, reportId: f.reportId,
+    });
+    expect((await f.t.run(ctx => ctx.db.get(turn._id)))?.status).toBe("failed");
+    const messages = await f.t.run(ctx => reportChatAgent.fetchContextMessages(ctx, {
+      userId: f.userId, threadId: result.threadId, contextOptions: CHAT_CONTEXT_OPTIONS,
+    }));
+    expect(JSON.stringify(messages)).toContain("Try again.");
+  });
+  test.each([false, true])("loads saved preferences and gates Brain tools with opt-in=%s", async allowBrain => {
+    const f = await setup();
+    await f.t.run(ctx => ctx.db.insert("writerProfiles", {
+      userId: f.userId, customInstructions: "Use operating envelope for supported ranges.",
+      enabled: true, updatedBy: f.userId, createdAt: Date.now(), updatedAt: Date.now(),
+    }));
+    const { result } = await sendQueuedTurn(f);
+    const stream = vi.spyOn(reportChatAgent, "streamText").mockResolvedValue({
+      consumeStream: async () => {},
+    } as unknown as Awaited<ReturnType<typeof reportChatAgent.streamText>>);
+    await f.t.action(internal.ai.chatAgentV2.streamChatReply, {
+      agentThreadId: result.threadId, promptMessageId: result.messageId,
+      reportId: f.reportId, userId: f.userId, allowBrain,
+    });
+    expect(stream.mock.calls[0]?.[2].system).toContain("Use operating envelope for supported ranges.");
+    const tools = stream.mock.calls[0]?.[2].tools;
+    expect(tools).toHaveProperty("proposeBulkEdits");
+    expect(tools && "searchBrain" in tools).toBe(allowBrain);
+  });
+
+  test("stops before the provider when the saved profile cannot be loaded", async () => {
+    const f = await setup();
+    await f.t.run(async ctx => {
+      const profile = { userId: f.userId, customInstructions: "Saved settings", enabled: true,
+        updatedBy: f.userId, createdAt: Date.now(), updatedAt: Date.now() };
+      // Duplicate rows make the real unique lookup fail. No mocked database.
+      await ctx.db.insert("writerProfiles", profile);
+      await ctx.db.insert("writerProfiles", profile);
+    });
+    const { result, turn } = await sendQueuedTurn(f);
+    const stream = vi.spyOn(reportChatAgent, "streamText");
+    await f.t.action(internal.ai.chatAgentV2.streamChatReply, {
+      agentThreadId: result.threadId, promptMessageId: result.messageId,
+      reportId: f.reportId, userId: f.userId,
+    });
+    expect(stream).not.toHaveBeenCalled();
+    expect((await f.t.run(ctx => ctx.db.get(turn._id)))?.status).toBe("failed");
+    const messages = await f.t.run(ctx => reportChatAgent.fetchContextMessages(ctx, {
+      userId: f.userId, threadId: result.threadId, contextOptions: CHAT_CONTEXT_OPTIONS,
+    }));
+    expect(JSON.stringify(messages)).toContain("couldn't load your saved writing settings");
+  });
+
+  test.each([false, true])("keeps a sixteen-passage proposal pending and applies all or none when stale=%s", async stale => {
+    const f = await setup();
+    const originals = Array.from({ length: 16 }, (_, i) => `Trial ${i + 1} had a measured range.`);
+    const doc = (texts: string[]) => JSON.stringify({ type: "doc", content: texts.map(text => ({
+      type: "paragraph", content: [{ type: "text", text }],
+    })) });
+    const original = doc(originals);
+    await f.t.run(async ctx => {
+      await ctx.db.patch(f.projectId, { ownerId: f.userId });
+      await ctx.db.patch(f.reportId, { content: original });
+    });
+    const { result } = await sendQueuedTurn(f);
+    const pairs = originals.map((find, i) => ({ find, replaceWith: `Trial ${i + 1} had a measured operating envelope.` }));
+    const saved = await f.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: result.threadId, promptMessageId: result.messageId,
+      toolCallId: "bulk-16", kind: "replacements", requireUniqueTargets: true, replacements: pairs,
+    });
+    if (!saved.ok) throw new Error(saved.reason);
+    expect((await f.t.run(ctx => ctx.db.get(f.reportId)))?.content).toBe(original);
+    expect((await f.t.run(ctx => ctx.db.get(saved.proposalId)))?.state).toBe("pending");
+    await expect(f.actor.mutation(api.chatV2.markProposalApplied, {
+      proposalId: saved.proposalId, content: original, expectedRevisionNumber: 0,
+    })).rejects.toThrow("coordinated revision");
+    const current = stale ? doc([...originals.slice(0, 15), "A human changed the last trial."]) : original;
+    if (stale) await f.t.run(ctx => ctx.db.patch(f.reportId, { content: current }));
+    const applied = await f.actor.mutation(api.chatV2.applyProposal, { proposalId: saved.proposalId });
+    expect(applied.applied).toBe(!stale);
+    expect((await f.t.run(ctx => ctx.db.get(f.reportId)))?.content)
+      .toBe(stale ? current : doc(pairs.map(p => p.replaceWith)));
+  });
+
+  test("binds delta cursors to their authorized thread and redacts private stream parts", async () => {
+    const f = await setup();
+    const { result } = await sendQueuedTurn(f);
+    const foreign = await f.t.run(ctx => reportChatAgent.createThread(ctx, { userId: "other-user" }));
+    const makeStream = async (threadId: string, text: string) => {
+      const streamId = await f.t.mutation(components.agent.streams.create, {
+        threadId, order: 1, stepOrder: 1, format: "UIMessageChunk",
+        model: "PRIVATE_MODEL_CANARY", provider: "PRIVATE_PROVIDER_CANARY",
+        providerOptions: { anthropic: { test: "PRIVATE_OPTIONS_CANARY" } },
+      });
+      await f.t.mutation(components.agent.streams.addDelta, {
+        streamId, start: 0, end: 3, parts: [
+          { type: "text-delta", id: "t", delta: text },
+          { type: "reasoning-delta", id: "r", delta: "PRIVATE_REASONING_CANARY" },
+          { type: "tool-output-available", toolCallId: "c", output: "PRIVATE_RETRIEVAL_CANARY" },
+        ],
+      });
+      return streamId;
+    };
+    const ownId = await makeStream(result.threadId, "Visible answer");
+    const foreignId = await makeStream(foreign.threadId, "FOREIGN_STREAM_CANARY");
+    const streamList = await f.actor.query(api.chatV2.listMessages, {
+      threadId: result.threadId, paginationOpts: { cursor: null, numItems: 0 },
+      streamArgs: { kind: "list", startOrder: 0 },
+    });
+    expect(JSON.stringify(streamList)).toContain(ownId);
+    expect(JSON.stringify(streamList)).not.toContain("PRIVATE_");
+    const visible = await f.actor.query(api.chatV2.listMessages, {
+      threadId: result.threadId, paginationOpts: { cursor: null, numItems: 0 },
+      streamArgs: { kind: "deltas", cursors: [{ streamId: ownId, cursor: 0 }, { streamId: foreignId, cursor: 0 }] },
+    });
+    expect(JSON.stringify(visible)).toContain("Visible answer");
+    expect(JSON.stringify(visible)).not.toContain("PRIVATE_");
+    expect(JSON.stringify(visible)).not.toContain("FOREIGN_STREAM_CANARY");
+  });
+
   test("keeps the newest 30 non-tool messages without a provider call", async () => {
     const t = createTest();
     const userId = "context-window-user";

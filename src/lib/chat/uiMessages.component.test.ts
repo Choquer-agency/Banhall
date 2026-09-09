@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import UIMessagesHarness from "$lib/test/UIMessagesHarness.svelte";
 import { __activeQueryArgs, __resetConvexStub, __setPaginatedRows, __setQueryDataForArgs } from "$lib/test/convex-svelte-stub.svelte";
 import type { StreamDelta, StreamMessage } from "@convex-dev/agent/validators";
+import { publicChatDelta } from "../../../convex/lib/chatPublicOutput";
 const query = "chatV2:listMessages";
 const stream = (id: string, order = 0): StreamMessage => ({ streamId: id, order, stepOrder: 0, format: "UIMessageChunk", status: "streaming" });
 function list(threadId: string, messages: StreamMessage[]) {
@@ -15,6 +16,20 @@ function deltas(threadId: string, cursors: Array<{ streamId: string; cursor: num
 const output = () => page.getByTestId("projection");
 beforeEach(() => { __resetConvexStub(); __setPaginatedRows(query, []); });
 afterEach(() => { vi.restoreAllMocks(); });
+
+it("advances past a fully redacted chunk and renders the next visible answer", async () => {
+  list("one", [stream("a")]);
+  deltas("one", [{ streamId: "a", cursor: 0 }], [publicChatDelta({ streamId: "a", start: 0, end: 1,
+    parts: [{ type: "reasoning-delta", id: "r", delta: "PRIVATE_CANARY" }] })]);
+  await render(UIMessagesHarness, { threadId: "one" });
+  await expect.poll(() => __activeQueryArgs(query)).toContainEqual(expect.objectContaining({
+    streamArgs: { kind: "deltas", cursors: [{ streamId: "a", cursor: 1 }] },
+  }));
+  deltas("one", [{ streamId: "a", cursor: 1 }], [{ streamId: "a", start: 1, end: 3,
+    parts: [{ type: "text-start", id: "t" }, { type: "text-delta", id: "t", delta: "Visible answer" }] }]);
+  await expect.element(output()).toHaveTextContent("Visible answer");
+  await expect.element(output()).not.toHaveTextContent("PRIVATE_CANARY");
+});
 
 it("accepts contiguous batches once, waits for gaps, handles interleaving/status/removal and persisted authority", async () => {
   list("one", [stream("a"), stream("b", 1)]);

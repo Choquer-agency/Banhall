@@ -1782,3 +1782,14 @@ A change to vocabulary, an invariant, a transition edge, or a decision above req
 3. migration and compatibility impact recorded;
 4. authorization/test impact recorded; and
 5. approval by the product owner before implementation relies on the change.
+
+
+### Report chat reliability and confidentiality, September 8, 2026
+
+The approved chat hardening request preserves agents-propose/humans-apply and all existing role rights. Enabled saved writing preferences participate even when no house-style waiver is active, subject to the existing enforced-rule precedence. A profile lookup failure stops the reply rather than silently proceeding without the profile.
+
+A coordinated passage revision is one pending proposal. Every original target must remain unique and non-overlapping at creation and apply. The ordinary individual replacement stepper cannot apply that proposal. The writer may edit candidate wording in the card, then apply the whole revision after server validation.
+
+Ordinary report chat can initiate a Brain search only when the sender explicitly enables it for that message. This governs new retrieval, not previously visible conversation history or the separate Contextual Research flow. Private model reasoning and raw tool arguments/results do not belong in the browser response. The assistant may explain visible product behavior and report evidence, while declining extraction of private implementation instructions or unrelated information.
+
+See [the scoped workflow pilot](chat-workflow-pilot.md) for verification commands and remaining limits.

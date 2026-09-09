@@ -45,6 +45,23 @@ beforeEach(() => {
   __setQueryData("research:listSessions", []);
 });
 
+it("requires an explicit Brain choice for each message and preserves it only for retry", async () => {
+  __setMutationError(sendName, new Error("Connection unavailable"));
+  await render(AgentChatPanel, { reportId, projectId });
+  const brain = page.getByRole("checkbox", { name: "Use Brain examples for this message" });
+  await expect.element(brain).not.toBeChecked();
+  await brain.click();
+  await writeAndSend("Use a past report as a structure example.");
+  await expect.element(retry()).toBeEnabled();
+  await expect.element(brain).not.toBeChecked();
+  expect(__mutationCalls(sendName)[0]).toMatchObject({ allowBrain: true });
+  __setMutationResult(sendName, { threadId: "thread-1", messageId: "brain-prompt" });
+  await retry().click();
+  expect(__mutationCalls(sendName)[1]).toEqual(__mutationCalls(sendName)[0]);
+  await expect.element(brain).not.toBeChecked();
+  await page.screenshot({ path: "../../../../.audit/chat-reliability/composer-after.png" });
+});
+
 it.each(["new", "existing"])("immediately renders a %s conversation send without inventing a durable turn", async kind => {
   if (kind === "existing") seedThreads();
   const pending = deferred();
