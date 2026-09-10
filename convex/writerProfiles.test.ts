@@ -150,6 +150,8 @@ describe("writer profile style overrides", () => {
     expect(forGeneration).toEqual({
       customInstructions: "Legacy instructions.",
       styleOverrides: NO_STYLE_OVERRIDES,
+      buildOrder: ["242", "244", "246"],
+      tier: "writer_profile",
     });
   });
 
@@ -167,6 +169,8 @@ describe("writer profile style overrides", () => {
     expect(result).toEqual({
       customInstructions: null,
       styleOverrides: { ...NO_STYLE_OVERRIDES, repetitionCaps: true },
+      buildOrder: ["242", "244", "246"],
+      tier: "writer_profile",
     });
   });
 
@@ -233,7 +237,12 @@ describe("writer profile style overrides", () => {
       t.query(internal.writerProfiles.getProfileForGeneration, {
         userId: ids.writerId,
       })
-    ).resolves.toBeNull();
+    ).resolves.toEqual({
+      customInstructions: null,
+      styleOverrides: NO_STYLE_OVERRIDES,
+      buildOrder: ["242", "244", "246"],
+      tier: "house_rules",
+    });
 
     // Explicitly clearing the toggles (empty object → all-false) with
     // whitespace-only instructions leaves nothing to apply.
@@ -246,6 +255,11 @@ describe("writer profile style overrides", () => {
       t.query(internal.writerProfiles.getProfileForGeneration, {
         userId: ids.writerId,
       })
-    ).resolves.toBeNull();
+    ).resolves.toEqual({
+      customInstructions: null,
+      styleOverrides: NO_STYLE_OVERRIDES,
+      buildOrder: ["242", "244", "246"],
+      tier: "writer_profile",
+    });
   });
 });

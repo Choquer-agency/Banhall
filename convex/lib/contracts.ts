@@ -28,6 +28,8 @@ export const domainErrorCodes = [
   "INVALID_INPUT",
   "BLOCKING_EXISTS",
   "REVIEW_DECISION_REQUIRED",
+  // Story 1 (CAP-1/2/4): Brief edit error when version stale
+  "BRIEF_STALE",
 ] as const;
 
 export type DomainErrorCode = (typeof domainErrorCodes)[number];
