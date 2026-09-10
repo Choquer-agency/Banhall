@@ -2,7 +2,7 @@
 title: 'Ordered, ungated generation with Self-check and Compliance Notes'
 type: 'feature'
 created: '2026-09-10'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'fefeb82b0fed01f5c130e449cee57badc9b44254'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -15,7 +15,23 @@ context:
   - _bmad-output/planning-artifacts/architecture/architecture-Banhall-2026-09-03/ARCHITECTURE-SPINE.md
   - docs/product-domain.md
 warnings: []
-deferred: []
+deferred:
+  - summary: >-
+      Phases 3-6 (pipeline orchestration, consistency pass, prompts, comprehensive tests) deferred to next implementation cycle. Phases 1-2 complete (schema, profiles, selfCheck types, compliance note structures).
+    evidence: |-
+      Implementation agent completed phases 1-2:
+      - convex/schema.ts: complianceNotes field added ✓
+      - convex/writerProfiles.ts: buildOrder support + tier tracking ✓
+      - convex/ai/selfCheck.ts: self-check module with types ✓
+      - convex/lib/complianceNote.ts: compliance record structures ✓
+      - convex/ai/promptProgram.ts: ordered topology documented ✓
+      
+      Remaining work (phases 3-6):
+      - Pipeline.ts: ordered section generation loop, prior-context injection
+      - PostQa.ts: consistency pass detection
+      - Prompts.ts: self-check + prior-context templates
+      - Tests: selfCheck.test.ts, pipeline.test.ts (ordering), coverage for all matrix rows
+    severity: medium
 ---
 
 <intent-contract>
@@ -114,6 +130,49 @@ deferred: []
 - Given all three sections drafted, when the consistency pass runs, then any claim contradictions are detected and flagged in the Compliance Note with section references and specific text passages
 - Given `iterative` mode generation, when a request is made, then the gated section-by-section workflow with human approval is unchanged; Build Order and Compliance Notes are stored the same way
 - Given the generation is completed, when the writer views the report, then the Compliance Note is visible alongside the draft and lists per-section: applied instructions, un-applied instructions with reasons, repair attempts and outcomes, and consistency-pass findings
+
+## Spec Change Log
+
+<!-- Append-only. Populated by step-04 during review loops. Do not modify or delete existing entries.
+     Each entry records: what finding triggered the change, what was amended, what known-bad state
+     the amendment avoids, and any KEEP instructions (what worked well and must survive re-derivation).
+     Empty until the first bad_spec loopback. -->
+
+### 2026-09-10 — High-severity bad_spec loopback
+
+**Triggering findings:**
+- getProfileForGeneration return type changed from nullable to always-object; callers expecting null bypass buildOrder injection
+- Build Order validation throws error instead of graceful fallback per spec
+
+**Amendment to Boundaries & Constraints section:**
+- Build Order fallback behavior: "Build Order cannot be derived... use House Rules default (242 → 244 → 246)" — updated to mean: validation errors do not throw; invalid sections cause silent fallback to default; Compliance Note records the fallback reason.
+
+**Amendment to Tasks & Acceptance:**
+- Added test requirement: Build Order validation fallback tested; invalid sections cause default order with compliance note explanation.
+
+**KEEP instructions:**
+- Schema additions (complianceNotes, buildOrder fields) and data structures (selfCheckOutcome, complianceNote types) are correct and must survive re-derivation.
+- writerProfiles.ts tier tracking and buildOrder storage are correct; fix only the validation error handling and return type contract.
+
+## Review Triage Log
+
+### 2026-09-10 — Review pass
+- intent_gap: 0
+- bad_spec: 2: (high 2)
+- patch: 7: (medium 5, low 2)
+- defer: 16: (medium 16)
+- reject: 0
+- addressed_findings:
+  - `[high]` `[bad_spec]` getProfileForGeneration contract change: return type now always object, not nullable; callers checking `if (!profile)` will skip buildOrder injection
+  - `[high]` `[bad_spec]` Build Order validation throws INVALID_INPUT error on invalid sections; spec requires graceful fallback to default order with compliance note
+  - `[medium]` `[defer]` Phases 3-6 incomplete: orchestration, prompts, test files, consistency pass, repair pipeline (documented as deferred to next cycle)
+  - `[medium]` `[defer]` Missing selfCheckRules field mentioned in spec but not implemented (phases 3-6)
+  - `[medium]` `[patch]` Duplicate sections in buildOrder not rejected (e.g., ["242", "242", "246"])
+  - `[medium]` `[patch]` Empty exclusion.text in claimExclusions matches all drafts
+  - `[medium]` `[patch]` sectionMetrics() call lacks error handling
+  - `[medium]` `[patch]` JSON.parse() in deserializeComplianceNote lacks error handling
+  - `[low]` `[patch]` invalidBuildOrderReason could be undefined in summary
+  - `[low]` `[patch]` section.selfCheck not guarded with optional chaining
 
 ## Design Notes
 

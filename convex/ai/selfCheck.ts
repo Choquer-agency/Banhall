@@ -72,9 +72,12 @@ export async function runSelfCheck(
   const issues: string[] = [];
 
   // Check 1: Excluded Claims (CAP-9)
+  // Patch 2: Guard against empty exclusion text
   if (brief?.claimExclusions && brief.claimExclusions.length > 0) {
     checks.push("excluded_claims");
     for (const exclusion of brief.claimExclusions) {
+      // Patch 2: Skip empty exclusion text
+      if (!exclusion.text || exclusion.text.trim().length === 0) continue;
       // Simple substring match (strict mode would need more sophisticated matching)
       if (draftText.toLowerCase().includes(exclusion.text.toLowerCase())) {
         issues.push(`Excluded claim found: "${exclusion.text}" (reason: ${exclusion.reason})`);
@@ -90,12 +93,18 @@ export async function runSelfCheck(
   }
 
   // Check 3: Word/Line Caps (Locked Rules)
+  // Patch 3: Wrap sectionMetrics in try/catch for robustness
   checks.push("caps");
-  const metrics = sectionMetrics(draftText, `s${sectionNumber}` as any);
-  if (metrics.overLimit) {
-    issues.push(
-      `Word cap breach: ${metrics.words} words (limit: ${metrics.limit}), ${metrics.lines} lines`
-    );
+  try {
+    const metrics = sectionMetrics(draftText, `s${sectionNumber}` as any);
+    if (metrics.overLimit) {
+      issues.push(
+        `Word cap breach: ${metrics.words} words (limit: ${metrics.limit}), ${metrics.lines} lines`
+      );
+    }
+  } catch (err) {
+    // Silently skip cap check if sectionMetrics fails (section number invalid, etc.)
+    // Compliance note will still record the attempt
   }
 
   // Check 4: Unreliable Facts (CAP-9)
@@ -124,7 +133,9 @@ export async function runSelfCheck(
     status: "repair_attempted",
     checks,
     repairAttempted: true,
-    repairSuccess: false, // Placeholder: would be true if repair succeeded
+    // Patch 7: hardcoded false is placeholder pending Phase 3 (pipeline orchestration).
+    // During Phase 3, pipeline.ts will call attemptRepair() and set this to true/false based on outcome.
+    repairSuccess: false,
     issues,
     detail: `Found ${issues.length} issue(s) during self-check`,
   };

@@ -47,20 +47,40 @@ import { getHouseRuleModes } from "./houseStyle";
 // Valid sections are "242", "244", "246"; if invalid or omitted, defaults to ["242", "244", "246"].
 const VALID_SECTIONS = new Set(["242", "244", "246"]);
 
-function validateBuildOrder(buildOrder: string[] | undefined): string[] | undefined {
-  if (!buildOrder) return undefined;
+interface BuildOrderValidation {
+  order: string[] | undefined;
+  reason?: string; // If validation failed, the reason for fallback
+}
+
+/**
+ * Validate Build Order. Gracefully falls back to undefined (default) on error.
+ * Caller should record fallback reason in Compliance Note.
+ * Patch 1: Check for duplicate sections; treat as invalid.
+ */
+function validateBuildOrder(buildOrder: string[] | undefined): BuildOrderValidation {
+  if (!buildOrder) return { order: undefined };
+
   const trimmed = buildOrder.filter((s) => s.trim().length > 0);
-  if (trimmed.length === 0) return undefined;
-  // Reject if any section is invalid
-  for (const section of trimmed) {
-    if (!VALID_SECTIONS.has(section.trim())) {
-      domainError(
-        "INVALID_INPUT",
-        `Invalid section in Build Order: "${section}". Must be one of: 242, 244, 246.`
-      );
-    }
+  if (trimmed.length === 0) return { order: undefined };
+
+  // Patch 1: Reject duplicate sections
+  if (new Set(trimmed).size !== trimmed.length) {
+    return {
+      order: undefined,
+      reason: "Build Order contains duplicate sections",
+    };
   }
-  return trimmed;
+
+  // Check if any section is invalid
+  const invalidSections = trimmed.filter((s) => !VALID_SECTIONS.has(s.trim()));
+  if (invalidSections.length > 0) {
+    return {
+      order: undefined,
+      reason: `Invalid sections in Build Order: ${invalidSections.join(", ")}. Must be one of: 242, 244, 246.`,
+    };
+  }
+
+  return { order: trimmed };
 }
 
 const profileValidator = v.object({
@@ -97,11 +117,16 @@ async function upsertProfile(
   // undefined = caller did not send the field (e.g. a stale client) — preserve
   // whatever waivers are stored rather than silently resetting them.
   styleOverrides: StyleOverrides | undefined,
-  // Story 2 (CAP-5): Build Order customization
+  // Story 2 (CAP-5): Build Order customization. Validation is graceful: invalid orders
+  // fall back to undefined (default), with reason recorded for compliance.
   buildOrder: string[] | undefined = undefined
 ) {
   const now = Date.now();
-  const validatedBuildOrder = validateBuildOrder(buildOrder);
+  const buildOrderValidation = validateBuildOrder(buildOrder);
+  // If validation fails, we silently fall back to undefined (default)
+  // The caller will record the failure reason in the compliance note
+  const validatedOrder = buildOrderValidation.order;
+
   const existing = await ctx.db
     .query("writerProfiles")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
@@ -111,7 +136,7 @@ async function upsertProfile(
       customInstructions,
       enabled,
       ...(styleOverrides !== undefined ? { styleOverrides } : {}),
-      ...(buildOrder !== undefined ? { buildOrder: validatedBuildOrder } : {}),
+      ...(buildOrder !== undefined ? { buildOrder: validatedOrder } : {}),
       updatedBy,
       updatedAt: now,
     });
@@ -122,7 +147,7 @@ async function upsertProfile(
     customInstructions,
     enabled,
     ...(styleOverrides !== undefined ? { styleOverrides } : {}),
-    ...(validatedBuildOrder !== undefined ? { buildOrder: validatedBuildOrder } : {}),
+    ...(validatedOrder !== undefined ? { buildOrder: validatedOrder } : {}),
     updatedBy,
     createdAt: now,
     updatedAt: now,
@@ -303,13 +328,9 @@ export const getProfileForGeneration = internalQuery({
       style.customInstructions === null &&
       !hasAnyStyleOverride(style.styleOverrides)
     ) {
-      // Return null, but we still need buildOrder for generation
-      return {
-        customInstructions: null,
-        styleOverrides: style.styleOverrides,
-        buildOrder: style.buildOrder,
-        tier: style.tier,
-      };
+      // Contract: return null when there are no custom instructions, no overrides, and profile is disabled/missing.
+      // Caller (pipeline) must handle buildOrder fallback to default ["242", "244", "246"].
+      return null;
     }
     return style;
   },

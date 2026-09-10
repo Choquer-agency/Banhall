@@ -245,6 +245,7 @@ describe("generation prompt program", () => {
   test("manifest is complete, JSON-compatible, and names runtime slots", () => {
     expect(Object.keys(generationPromptProgram.calls).sort()).toEqual([
       "analyzer",
+      "brief",
       "chronology",
       "compression",
       // transcripts-7-condense-digests: over-budget transcript sets are

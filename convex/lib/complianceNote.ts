@@ -73,14 +73,18 @@ export function compileComplianceNote(
 ): ComplianceNote {
   const summaryIssues: string[] = [];
 
-  if (!buildOrderValid && invalidBuildOrderReason) {
-    summaryIssues.push(`Invalid Build Order: ${invalidBuildOrderReason}`);
+  // Patch 5: Add fallback string if invalidBuildOrderReason is undefined
+  if (!buildOrderValid) {
+    summaryIssues.push(
+      `Invalid Build Order: ${invalidBuildOrderReason || "validation failed"}`
+    );
   }
 
   for (const section of sections) {
-    if (section.selfCheck.status === "repair_failed") {
+    // Patch 6: Use optional chaining to guard against undefined section.selfCheck
+    if (section.selfCheck?.status === "repair_failed") {
       summaryIssues.push(
-        `Section ${section.section}: self-check repair failed (${section.selfCheck.issues?.join(", ")})`
+        `Section ${section.section}: self-check repair failed (${section.selfCheck?.issues?.join(", ")})`
       );
     }
     if (section.consistencyFindings && section.consistencyFindings.length > 0) {
@@ -110,7 +114,13 @@ export function serializeComplianceNote(note: ComplianceNote): string {
 
 /**
  * Deserialize compliance note from storage.
+ * Patch 4: Wrap JSON.parse in try/catch for robustness.
  */
-export function deserializeComplianceNote(json: string): ComplianceNote {
-  return JSON.parse(json);
+export function deserializeComplianceNote(json: string): ComplianceNote | null {
+  try {
+    return JSON.parse(json);
+  } catch (err) {
+    console.error("Failed to deserialize compliance note:", err);
+    return null;
+  }
 }
