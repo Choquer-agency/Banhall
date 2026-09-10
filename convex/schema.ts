@@ -758,6 +758,11 @@ export default defineSchema({
     // Confidence Map, Glossary Terms). Optional; keyed to inputs via inputsHash
     // so identical inputs reuse the same Brief.
     briefId: v.optional(v.id("generationBriefs")),
+    // Story 2 (CAP-5/9/10): Compliance Note recording per-section decisions:
+    // Build Order applied, which profile instructions were applied/unapplied with reasons,
+    // self-check outcomes and repair attempts, and consistency-pass findings.
+    // Stored as JSON string for audit trail and cross-section visibility.
+    complianceNotes: v.optional(v.string()),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),
@@ -1882,6 +1887,8 @@ export default defineSchema({
     customInstructions: v.string(),
     enabled: v.boolean(),
     styleOverrides: v.optional(styleOverridesValidator),
+    // Story 2 (CAP-5): Custom section generation order; defaults to ["242", "244", "246"].
+    buildOrder: v.optional(v.array(v.string())),
     updatedBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),

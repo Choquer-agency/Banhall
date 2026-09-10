@@ -252,7 +252,31 @@ export const generationPromptProgram = {
       // Story 1 (CAP-1/2/4): Brief stage after analyzer, before sections.
       // Derives or reuses Storyline, Claim Exclusions, Confidence Map, Glossary Terms.
       "brief",
-      ["section242", "section244", "section246"],
+      // Story 2 (CAP-5/9): Ordered, ungated section generation with prior-section context
+      // and self-check before display. Default order: 242 → 244 → 246.
+      // Each section receives prior-section context via prompt injection.
+      // Self-check runs after generation; one repair attempt if needed.
+      // Consistency pass runs once after all sections drafted, before last section shown.
+      {
+        orderedSections: [
+          {
+            name: "section242",
+            priorContextInjection: false, // no prior sections
+            selfCheckNeeded: true,
+          },
+          {
+            name: "section244",
+            priorContextInjection: true, // inject s242 context
+            selfCheckNeeded: true,
+          },
+          {
+            name: "section246",
+            priorContextInjection: true, // inject s242+s244 context
+            selfCheckNeeded: true,
+          },
+        ],
+      },
+      "consistency-pass-over-assembled-draft",
       {
         conditionalCompression: [
           COMPRESSION_REQUEST.squeezes[0],

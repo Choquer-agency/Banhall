@@ -43,6 +43,26 @@ import { getHouseRuleModes } from "./houseStyle";
 // full prompt documents. The shared MAX_INSTRUCTIONS_CHARS limit is a backstop against runaway
 // payloads and keeps both writer/admin clients aligned with server validation.
 
+// Story 2 (CAP-5/9): Build Order customization — the order sections are generated.
+// Valid sections are "242", "244", "246"; if invalid or omitted, defaults to ["242", "244", "246"].
+const VALID_SECTIONS = new Set(["242", "244", "246"]);
+
+function validateBuildOrder(buildOrder: string[] | undefined): string[] | undefined {
+  if (!buildOrder) return undefined;
+  const trimmed = buildOrder.filter((s) => s.trim().length > 0);
+  if (trimmed.length === 0) return undefined;
+  // Reject if any section is invalid
+  for (const section of trimmed) {
+    if (!VALID_SECTIONS.has(section.trim())) {
+      domainError(
+        "INVALID_INPUT",
+        `Invalid section in Build Order: "${section}". Must be one of: 242, 244, 246.`
+      );
+    }
+  }
+  return trimmed;
+}
+
 const profileValidator = v.object({
   _id: v.id("writerProfiles"),
   _creationTime: v.number(),
@@ -50,6 +70,8 @@ const profileValidator = v.object({
   customInstructions: v.string(),
   enabled: v.boolean(),
   styleOverrides: v.optional(styleOverridesValidator),
+  // Story 2 (CAP-5): Custom section generation order; defaults to ["242", "244", "246"] if omitted/disabled.
+  buildOrder: v.optional(v.array(v.string())),
   updatedBy: v.id("users"),
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -74,9 +96,12 @@ async function upsertProfile(
   updatedBy: Id<"users">,
   // undefined = caller did not send the field (e.g. a stale client) — preserve
   // whatever waivers are stored rather than silently resetting them.
-  styleOverrides: StyleOverrides | undefined
+  styleOverrides: StyleOverrides | undefined,
+  // Story 2 (CAP-5): Build Order customization
+  buildOrder: string[] | undefined = undefined
 ) {
   const now = Date.now();
+  const validatedBuildOrder = validateBuildOrder(buildOrder);
   const existing = await ctx.db
     .query("writerProfiles")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
@@ -86,6 +111,7 @@ async function upsertProfile(
       customInstructions,
       enabled,
       ...(styleOverrides !== undefined ? { styleOverrides } : {}),
+      ...(buildOrder !== undefined ? { buildOrder: validatedBuildOrder } : {}),
       updatedBy,
       updatedAt: now,
     });
@@ -96,6 +122,7 @@ async function upsertProfile(
     customInstructions,
     enabled,
     ...(styleOverrides !== undefined ? { styleOverrides } : {}),
+    ...(validatedBuildOrder !== undefined ? { buildOrder: validatedBuildOrder } : {}),
     updatedBy,
     createdAt: now,
     updatedAt: now,
@@ -121,6 +148,7 @@ export const saveMyProfile = mutation({
     customInstructions: v.string(),
     enabled: v.boolean(),
     styleOverrides: v.optional(styleOverridesValidator),
+    buildOrder: v.optional(v.array(v.string())),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -134,7 +162,8 @@ export const saveMyProfile = mutation({
       user._id,
       args.styleOverrides === undefined
         ? undefined
-        : normalizeStyleOverrides(args.styleOverrides)
+        : normalizeStyleOverrides(args.styleOverrides),
+      args.buildOrder
     );
     return null;
   },
@@ -183,6 +212,7 @@ export const saveProfileForUser = mutation({
     customInstructions: v.string(),
     enabled: v.boolean(),
     styleOverrides: v.optional(styleOverridesValidator),
+    buildOrder: v.optional(v.array(v.string())),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -198,7 +228,8 @@ export const saveProfileForUser = mutation({
       admin._id,
       args.styleOverrides === undefined
         ? undefined
-        : normalizeStyleOverrides(args.styleOverrides)
+        : normalizeStyleOverrides(args.styleOverrides),
+      args.buildOrder
     );
     return null;
   },
@@ -211,11 +242,17 @@ export const saveProfileForUser = mutation({
  * writer waivers; "writer_choice" defers to the profile. Shared by generation
  * (via getProfileForGeneration), research, and proposal-apply paths so the
  * precedence contract cannot drift per call site.
+ * Story 2 (CAP-5/6): Returns buildOrder and tier for compliance reporting.
  */
 export async function getEffectiveWriterStyle(
   ctx: QueryCtx | MutationCtx,
   userId: Id<"users"> | undefined
-): Promise<{ customInstructions: string | null; styleOverrides: StyleOverrides }> {
+): Promise<{
+  customInstructions: string | null;
+  styleOverrides: StyleOverrides;
+  buildOrder: string[];
+  tier: "house_rules" | "writer_profile";
+}> {
   const [modes, profile] = await Promise.all([
     getHouseRuleModes(ctx),
     userId
@@ -230,9 +267,15 @@ export async function getEffectiveWriterStyle(
   const writerOverrides = applyProfile
     ? normalizeStyleOverrides(profile.styleOverrides)
     : NO_STYLE_OVERRIDES;
+  // Story 2: Build Order defaults to House Rules if profile missing/disabled
+  const buildOrder = applyProfile && profile?.buildOrder && profile.buildOrder.length > 0
+    ? profile.buildOrder
+    : ["242", "244", "246"];
   return {
     customInstructions: instructions.length > 0 ? instructions : null,
     styleOverrides: resolveEffectiveOverrides(modes, writerOverrides),
+    buildOrder,
+    tier: applyProfile ? "writer_profile" : "house_rules",
   };
 }
 
@@ -241,6 +284,7 @@ export async function getEffectiveWriterStyle(
  * house-style waivers (see getEffectiveWriterStyle). Returns null only when
  * there is nothing to apply. Called from generation entry points inside a
  * try/catch — a failure here must never break generation.
+ * Story 2 (CAP-5): Includes buildOrder and tier for compliance reporting.
  */
 export const getProfileForGeneration = internalQuery({
   args: { userId: v.optional(v.id("users")) },
@@ -248,6 +292,8 @@ export const getProfileForGeneration = internalQuery({
     v.object({
       customInstructions: v.union(v.string(), v.null()),
       styleOverrides: normalizedStyleOverridesValidator,
+      buildOrder: v.array(v.string()),
+      tier: v.union(v.literal("house_rules"), v.literal("writer_profile")),
     }),
     v.null()
   ),
@@ -257,7 +303,13 @@ export const getProfileForGeneration = internalQuery({
       style.customInstructions === null &&
       !hasAnyStyleOverride(style.styleOverrides)
     ) {
-      return null;
+      // Return null, but we still need buildOrder for generation
+      return {
+        customInstructions: null,
+        styleOverrides: style.styleOverrides,
+        buildOrder: style.buildOrder,
+        tier: style.tier,
+      };
     }
     return style;
   },
