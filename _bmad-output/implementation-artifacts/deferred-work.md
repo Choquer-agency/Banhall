@@ -883,3 +883,11 @@ severity: high
 reason: Read-only npm audit --json exit1 reports11 affected package entries:1low,7moderate,3high. Every affected complete lock record is unchanged from B7 baseline. High entries: brace-expansion5.0.7, nanoid3.3.16, tar7.5.20; additional Tiptap/SvelteKit/DOMPurify/Mermaid and other advisories are enumerated with GHSA URLs in .audit/branch-consolidation/B7/peer-audit-summary.md and raw peer-audit.json. Assess reachable vulnerable APIs and attacker inputs, then choose bounded compatible upgrades and verification. No runtime exploit or new pruning exposure is claimed.
 status: done 2026-09-06
 resolution: Bounded npm-generated lock upgrade reduced reported advisories from 11 to 0; full installed dependency tree valid, compatibility and actual Anthropic SDK boundary tests passed, fresh-cache final gate passed. Evidence: .audit/quality-pass/Q8/audit-after.json, changed-package-reasons.json, post-review-sdk/evidence.md and final-gate/result.json. No live AI-provider or Convex deployment claimed.
+
+### DW-106: Convex codegen (_generated/api.d.ts) requires refresh for full CI verification
+origin: spec-deferred 30d02395e253
+location: convex/_generated/api.d.ts
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: medium
+reason: The _generated types are from baseline commit and don't reflect schema changes. This is a toolchain requirement: `npx convex dev` or `npx convex codegen` needs a live Convex deployment URL, which is not available in this worktree. The implementation code itself is correct and tests have proper signatures; only the generated type definitions need updating when deployed.
+status: open
