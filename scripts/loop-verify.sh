@@ -6,9 +6,9 @@ cd "$(dirname "$0")/.."
 
 VERIFY_COMPONENT="${VERIFY_COMPONENT:-0}"
 if [ "$VERIFY_COMPONENT" = "1" ]; then
-  STEP_TOTAL=9
+  STEP_TOTAL=10
 else
-  STEP_TOTAL=8
+  STEP_TOTAL=9
 fi
 STEP_INDEX=0
 
@@ -108,7 +108,22 @@ NODE
   return 0
 }
 
+# A skipped or vacuous test is a silenced failure, not a passing one. The gate
+# refuses tracked test files that skip cases or assert nothing (added 2026-09-10
+# after a cheap-model dev session turned a failing suite into test.skip).
+no_skipped_tests() {
+  local hits
+  hits="$(git grep -n -E '\b(test|it|describe)\.skip\(|\b(test|it)\.todo\(|expect\(true\)\.toBe\(true\)' -- '*.test.ts' || true)"
+  if [ -n "$hits" ]; then
+    echo "loop-verify: skipped or vacuous tests are not allowed:"
+    echo "$hits"
+    return 1
+  fi
+  return 0
+}
+
 step preflight preflight
+step "no skipped tests" no_skipped_tests
 step "convex typecheck" npx tsc -p convex/tsconfig.json --noEmit
 step "svelte-check" npm run check
 step "unit tests" npm test
