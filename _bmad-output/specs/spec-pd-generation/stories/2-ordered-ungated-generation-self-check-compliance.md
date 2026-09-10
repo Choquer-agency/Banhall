@@ -2,7 +2,7 @@
 title: 'Ordered, ungated generation with Self-check and Compliance Notes'
 type: 'feature'
 created: '2026-09-10'
-status: 'in-review'
+status: 'in-progress'
 baseline_revision: 'fefeb82b0fed01f5c130e449cee57badc9b44254'
 review_loop_iteration: 0
 followup_review_recommended: false
