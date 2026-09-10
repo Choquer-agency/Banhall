@@ -249,6 +249,9 @@ export const generationPromptProgram = {
     },
     candidatePipeline: [
       "analyzer",
+      // Story 1 (CAP-1/2/4): Brief stage after analyzer, before sections.
+      // Derives or reuses Storyline, Claim Exclusions, Confidence Map, Glossary Terms.
+      "brief",
       ["section242", "section244", "section246"],
       {
         conditionalCompression: [
@@ -308,6 +311,17 @@ export const generationPromptProgram = {
       },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
+    },
+    // Story 1 (CAP-1/2/4): Generation Brief stage
+    brief: {
+      kind: "structured",
+      // System prompt and request defined separately (will be added to prompts.ts)
+      // For now, placeholder structure to establish the call
+      model: { kind: "candidate", fallbackModelId: MODEL },
+      thinking: { kind: "omitted" },
+      structuredPolicy: "two-attempt-repair",
+      // Slot label for aiUsage tracking (AD-27)
+      callSite: "generation:brief",
     },
     section242: {
       kind: "text",

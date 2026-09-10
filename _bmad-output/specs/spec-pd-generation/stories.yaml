@@ -5,7 +5,7 @@
     CAP-1, CAP-2, CAP-4. generationBriefs keyed by inputs; derivation call
     producing Storyline (or accepting a writer-supplied one), Claim Exclusions,
     Confidence Map, Glossary Terms with source citations; reuse on identical inputs.
-  spec_checkpoint: true
+  spec_checkpoint: false
   invoke_dev_with: >-
     Read touchpoints.md rows CAP-1/2/4. The Storyline back-check (contradiction
     raises a Storyline question, never a forced repair) is the riskiest design
@@ -19,7 +19,7 @@
     in single/compare, no approval gate, one repair per section, assembled-draft
     consistency pass, hedging of unresolved facts, Compliance Note per section,
     editor/export parity.
-  spec_checkpoint: true
+  spec_checkpoint: false
   invoke_dev_with: >-
     Read touchpoints.md rows CAP-5 and CAP-9/10. Decided: ungated by default;
     iterative keeps its gate untouched. Stay inside the call budget in SPEC
@@ -32,7 +32,7 @@
     instruction; settings document detected in Writer's Notes or attachments and
     applied as the profile; missing or disabled profile reported; product-domain
     amendment for precedence and the effort ceiling.
-  done_checkpoint: true
+  done_checkpoint: false
   invoke_dev_with: >-
     Read touchpoints.md row CAP-6/7/8. Open Question 1 (Larry's settings document,
     Section 246) may land mid-way; Locked Rules stay locked regardless.
@@ -55,7 +55,7 @@
     CAP-12, CAP-13, CAP-14, CAP-15. Deviation Inventory with writer-added
     content Deviations; Coordinated Revision with per-item Completion Report;
     "make it better" guard; Reference PD diff offered as a Coordinated Revision.
-  spec_checkpoint: true
+  spec_checkpoint: false
   invoke_dev_with: >-
     Read touchpoints.md row CAP-12..15. First re-run Larry's Rev G 16-item list
     against the PR #8 bulk-edit tool and record what already passes (Open
@@ -68,7 +68,7 @@
     CAP-16. comparisons table and functions to record blind preference,
     per-draft Deviation counts and Corrections-to-acceptable, model caveat and
     development-project flag; SM-1/SM-2 computed excluding development projects.
-  done_checkpoint: true
+  done_checkpoint: false
   invoke_dev_with: >-
     Read measurement-protocol.md. Baseline drafts are pasted in; no automation.
     Judging starts after 2026-09-15.

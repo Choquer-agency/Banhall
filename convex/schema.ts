@@ -754,6 +754,10 @@ export default defineSchema({
     // The Haiku-extracted retrieval brief (JSON) behind the section queries —
     // kept for retrieval-quality evals.
     brainRetrievalBrief: v.optional(v.string()),
+    // Story 1 (CAP-1/2/4): the generation's Brief (Storyline, Claim Exclusions,
+    // Confidence Map, Glossary Terms). Optional; keyed to inputs via inputsHash
+    // so identical inputs reuse the same Brief.
+    briefId: v.optional(v.id("generationBriefs")),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),
@@ -1466,7 +1470,9 @@ export default defineSchema({
       v.literal("project_document"),
       // 2026-09-03 widen: a digest enters the pipeline as its own frozen
       // source row, never as live text.
-      v.literal("transcript_digest")
+      v.literal("transcript_digest"),
+      // Story 1 (CAP-1/2/4): writer-supplied Storyline frozen as a source row
+      v.literal("writer_storyline")
     ),
     transcriptId: v.optional(v.id("transcripts")),
     digestId: v.optional(v.id("transcriptDigests")),
@@ -2058,6 +2064,113 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_pairGroupKey", ["pairGroupKey"])
     .index("by_pairStatus", ["pairStatus"]),
+
+  // ─── Story 1 (CAP-1/2/4): Generation Brief ────────────────────────────────
+  // Stores the Brief: Storyline, Claim Exclusions, Confidence Map, Glossary Terms.
+  // Keyed by (projectId, inputsHash); reused across generations with identical inputs.
+  generationBriefs: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    // Hash over frozen generationSources rows (excluding writer_storyline and
+    // transcript_digest kinds) to detect when inputs change. Determines reuse.
+    inputsHash: v.string(),
+    // Version for this (projectId, inputsHash): starts at 1, increments on edits
+    version: v.number(),
+    // Origin of the Storyline: writer-supplied, derived from analysis, or
+    // writer-edited after derivation.
+    origin: v.union(
+      v.literal("writer"),
+      v.literal("derived"),
+      v.literal("edited")
+    ),
+    // The Storyline text (writer-supplied or derived). Updated only on origin=writer
+    // or when an edit changes the Storyline itself (story 4 mutation).
+    storylineText: v.string(),
+    // When origin=edited, the edit magnitude (changed entries count + Storyline edit distance).
+    editMagnitude: v.optional(
+      v.object({
+        changedEntriesCount: v.number(),
+        storylineEditDistance: v.number(),
+      })
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_projectId_and_inputsHash", ["projectId", "inputsHash"])
+    .index("by_generationId", ["generationId"]),
+
+  // Child rows of generationBriefs: individual entries (Storyline questions,
+  // Claim Exclusions, Confidence Map items, Glossary Terms). Never stored as
+  // arrays on the parent (Convex guideline).
+  generationBriefEntries: defineTable({
+    briefId: v.id("generationBriefs"),
+    projectId: v.id("projects"),
+    // Entry group: storyline (primary narrative), storylineQuestion (Self-check
+    // raises these), claimExclusion (eligibility reason required), confidenceMap
+    // (confidence classification + source), glossaryTerm (rule-based matcher + model).
+    group: v.union(
+      v.literal("storyline"),
+      v.literal("storylineQuestion"),
+      v.literal("claimExclusion"),
+      v.literal("confidenceMap"),
+      v.literal("glossaryTerm")
+    ),
+    // Entry text content (the Storyline claim, exclusion statement, etc.)
+    text: v.string(),
+    // For claimExclusion: the eligibility reason (one of the fixed set)
+    reason: v.optional(
+      v.union(
+        v.literal("business_risk"),
+        v.literal("routine_engineering"),
+        v.literal("outside_claim_period"),
+        v.literal("not_technological")
+      )
+    ),
+    // For confidenceMap: the confidence level of the fact
+    confidence: v.optional(
+      v.union(
+        v.literal("established"),
+        v.literal("partial"),
+        v.literal("unresolved"),
+        v.literal("unreliable")
+      )
+    ),
+    // The frozen generationSources row this entry cites
+    sourceId: v.id("generationSources"),
+    // Byte-match validation: the source's contentHash
+    sourceContentHash: v.string(),
+    // Exact passage range in the source (byte offsets)
+    startOffset: v.number(),
+    endOffset: v.number(),
+    // The exact excerpt from the source (for validation)
+    exactExcerpt: v.string(),
+    // When re-deriving (inputs changed), mark whether this entry was added,
+    // removed, or unchanged compared to the previous version.
+    change: v.optional(
+      v.union(
+        v.literal("added"),
+        v.literal("removed"),
+        v.literal("unchanged")
+      )
+    ),
+    // For storylineQuestion group: the question text and resolution state
+    // (story 2's Self-check raises these; story 4's saveEntryEdit resolves them)
+    question: v.optional(
+      v.object({
+        questionText: v.string(),
+        // Set when the question is resolved via saveEntryEdit (story 4)
+        resolvedBy: v.optional(
+          v.union(
+            v.literal("use_evidence"),
+            v.literal("keep_storyline")
+          )
+        ),
+        // Storyline text when resolvedBy=use_evidence (the evidence-based alternative)
+        alternativeText: v.optional(v.string()),
+      })
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_briefId", ["briefId"]),
 
   // Admin-tunable app settings, one row per key. Currently: "defaultModel" —
   // the generation model used when a writer doesn't pick one explicitly.
