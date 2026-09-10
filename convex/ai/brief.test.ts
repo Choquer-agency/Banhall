@@ -312,6 +312,62 @@ describe("Generation Brief derivation (story 1, CAP-1/2/4)", () => {
     expect(entries.some((e) => e.text === "hysteresis compensation")).toBe(false);
   });
 
+  it("dedupes two flagged glossary candidates that share a canonical term (case-insensitive)", async () => {
+    const t = convexTest(schema, modules);
+    const { userId, projectId } = await makeProject(t);
+    // "control loop" never appears verbatim (or as an obvious inflection)
+    // anywhere in this text, so the rule-based matcher flags it — same setup
+    // as the classification test above, but the model echoes the same
+    // canonical term twice (case-varied), as it can when a concept comes up
+    // more than once in its own reasoning.
+    const text =
+      "The team relied on a closed feedback mechanism to hold output steady. Marketing decided to redesign the logo, which is unrelated to engineering. Response time under load was not measured.";
+    network.create.mockReset().mockImplementation(async (params: GenerationMessageParams) => {
+      const name = params.tool_choice?.name;
+      const input =
+        name === "submit_transcript_analysis"
+          ? analysisOutput
+          : name === "submit_generation_brief"
+            ? {
+                storyline: "The team pursued a control loop to hold output steady.",
+                storylineClaims: [
+                  { text: "Control loop pursued.", quote: "The team relied on a closed feedback mechanism to hold output steady." },
+                ],
+                claimExclusions: [
+                  { text: "Logo redesign is out of scope.", quote: "Marketing decided to redesign the logo", reason: "business_risk" },
+                ],
+                confidenceMap: [
+                  { text: "Response time under load is unresolved.", quote: "Response time under load was not measured.", confidence: "unresolved" },
+                ],
+                glossaryTerms: [
+                  { term: "control loop", quote: "closed feedback mechanism" },
+                  // Same canonical term, different casing — must not become a
+                  // second entry.
+                  { term: "Control Loop", quote: "closed feedback mechanism" },
+                ],
+              }
+            : { entries: [] };
+      return {
+        content: name ? [{ type: "tool_use", id: "tool-1", name, input }] : [{ type: "text", text }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      };
+    });
+
+    const generationId = await makeGeneration(t, projectId, userId, text, "dedup-hash");
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+
+    const generation = await t.run((ctx) => ctx.db.get(generationId));
+    const brief = await t.run((ctx) => ctx.db.get(generation!.briefId!));
+    const entries = await t.run((ctx) =>
+      ctx.db
+        .query("generationBriefEntries")
+        .withIndex("by_briefId", (q) => q.eq("briefId", brief!._id))
+        .collect()
+    );
+    const glossaryEntries = entries.filter((e) => e.group === "glossaryTerm");
+    expect(glossaryEntries).toHaveLength(1);
+  });
+
   it("drops an entry whose citation fails byte-match and counts the drop on the Brief", async () => {
     mockNetwork({ includeBadQuote: true });
     const t = convexTest(schema, modules);
@@ -492,6 +548,113 @@ describe("Generation Brief derivation (story 1, CAP-1/2/4)", () => {
     expect(entries.some((e) => e.group === "storyline")).toBe(false);
     // Other groups are still derived from the (non-writer) evidence.
     expect(entries.some((e) => e.group === "claimExclusion")).toBe(true);
+  });
+
+  it("persistDerivedBrief drops a candidate entry whose source belongs to a different project/generation", async () => {
+    // Direct unit test of convex/generations.ts:persistDerivedBrief's
+    // tenant-scoping check (parity with reports.createProvenance). Not
+    // reachable through deriveOrReuseBrief's normal flow — its own
+    // evidenceSources are already scoped to this generationId by
+    // getGenerationSourcesForBrief — so this exercises the mutation's own
+    // defense-in-depth check directly, the way reports.test.ts tests
+    // createProvenance's ownership check.
+    const t = convexTest(schema, modules);
+    const { userId: ownUserId, projectId: ownProjectId } = await makeProject(t);
+    const ownGenerationId = await makeGeneration(t, ownProjectId, ownUserId, TRANSCRIPT_TEXT, "own-hash");
+
+    const { userId: otherUserId, projectId: otherProjectId } = await makeProject(t);
+    const otherGenerationId = await makeGeneration(
+      t,
+      otherProjectId,
+      otherUserId,
+      "Unrelated content belonging to a different client entirely.",
+      "other-hash"
+    );
+    const otherSource = await t.run((ctx) =>
+      ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", otherGenerationId))
+        .first()
+    );
+
+    const briefId = await t.mutation(internal.generations.persistDerivedBrief, {
+      projectId: ownProjectId,
+      generationId: ownGenerationId,
+      inputsHash: "own-hash",
+      origin: "derived",
+      storylineText: "A storyline for the owning project.",
+      entries: [
+        {
+          group: "storyline",
+          text: "A claim citing another client's source.",
+          sourceId: otherSource!._id,
+          sourceContentHash: otherSource!.contentHash,
+          startOffset: 0,
+          endOffset: otherSource!.content.length,
+          exactExcerpt: otherSource!.content,
+        },
+      ],
+    });
+
+    const brief = await t.run((ctx) => ctx.db.get(briefId));
+    expect(brief?.droppedEntryCount).toBe(1);
+    const entries = await t.run((ctx) =>
+      ctx.db.query("generationBriefEntries").withIndex("by_briefId", (q) => q.eq("briefId", briefId)).collect()
+    );
+    expect(entries).toHaveLength(0);
+  });
+
+  it("persistDerivedBrief drops a candidate entry whose source belongs to a different generation in the same project", async () => {
+    // Isolates the `generationId` half of the tenant-scoping check from the
+    // `projectId` half: the sibling test above differs in both fields at
+    // once, so a regression that dropped only the generationId comparison
+    // (while leaving the projectId comparison intact) would still pass it —
+    // the projectId mismatch alone would still trip the guard. Two
+    // generations in the same project give a source with a matching
+    // projectId but a different generationId, exercising that comparison on
+    // its own.
+    const t = convexTest(schema, modules);
+    const { userId, projectId } = await makeProject(t);
+    const ownGenerationId = await makeGeneration(t, projectId, userId, TRANSCRIPT_TEXT, "own-hash-2");
+    const siblingGenerationId = await makeGeneration(
+      t,
+      projectId,
+      userId,
+      "Sibling generation content, same project, different generation.",
+      "sibling-hash"
+    );
+    const siblingSource = await t.run((ctx) =>
+      ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", siblingGenerationId))
+        .first()
+    );
+
+    const briefId = await t.mutation(internal.generations.persistDerivedBrief, {
+      projectId,
+      generationId: ownGenerationId,
+      inputsHash: "own-hash-2",
+      origin: "derived",
+      storylineText: "A storyline for the owning generation.",
+      entries: [
+        {
+          group: "storyline",
+          text: "A claim citing a sibling generation's source.",
+          sourceId: siblingSource!._id,
+          sourceContentHash: siblingSource!.contentHash,
+          startOffset: 0,
+          endOffset: siblingSource!.content.length,
+          exactExcerpt: siblingSource!.content,
+        },
+      ],
+    });
+
+    const brief = await t.run((ctx) => ctx.db.get(briefId));
+    expect(brief?.droppedEntryCount).toBe(1);
+    const entries = await t.run((ctx) =>
+      ctx.db.query("generationBriefEntries").withIndex("by_briefId", (q) => q.eq("briefId", briefId)).collect()
+    );
+    expect(entries).toHaveLength(0);
   });
 });
 

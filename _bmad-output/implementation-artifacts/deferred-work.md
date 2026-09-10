@@ -891,3 +891,67 @@ source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: medium
 reason: The _generated types are from baseline commit and don't reflect schema changes. This is a toolchain requirement: `npx convex dev` or `npx convex codegen` needs a live Convex deployment URL, which is not available in this worktree. The implementation code itself is correct and tests have proper signatures; only the generated type definitions need updating when deployed.
 status: open
+
+### DW-107: Brief-derivation source and diff-baseline reads are hard-capped (200/500 rows) with no overflow signal.
+origin: spec-deferred 54d8bfa899f4
+location: convex/generations.ts (getGenerationSourcesForBrief, persistDerivedBrief, renderBriefForGeneration)
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: medium
+reason: getGenerationSourcesForBrief caps at .take(200) and persistDerivedBrief's previous-Brief diff read caps at .take(500) (both convex/generations.ts), neither records a truncation flag or count. A project with more frozen sources, or a Brief with more accumulated entries than the cap, would silently derive from (or diff against) an incomplete set.
+status: open
+
+### DW-108: One malformed enum value anywhere in the model's Brief output discards the entire derived Brief, unlike citation failures which drop only the offending entry.
+origin: spec-deferred 2cb4ab4f3058
+location: convex/ai/brief.ts (briefOutputSchema), convex/ai/structured.ts
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: medium
+reason: briefOutputSchema (convex/ai/brief.ts) validates the whole structured-call payload as one object; once the two-attempt-repair policy is exhausted, generateStructured throws and the whole Brief (Storyline, every Claim Exclusion, Confidence Map entry, Glossary Term) is discarded rather than degrading per-entry the way a failed citation byte-match does.
+status: open
+
+### DW-109: Brief-derivation failures are only console.error-logged; nothing is persisted to distinguish "no evidence to derive from" from "the call failed".
+origin: spec-deferred 5b0ba126b9cd
+location: convex/ai/pipeline.ts, convex/ai/iterative.ts
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: low
+reason: pipeline.ts and iterative.ts catch and log any deriveOrReuseBrief rejection so the generation continues with no Brief (by design), but repeated failures across generations are invisible beyond an absent Brief in the (not-yet-built) UI — nothing on aiUsage or the QA scorecard records that a Brief was attempted and failed versus never attempted.
+status: open
+
+### DW-110: A writer-supplied Storyline has no length cap, and the derivation call still asks the model for a competing Storyline it then discards.
+origin: spec-deferred a1d0fd6f098e
+location: convex/generations.ts (reserveGeneration), convex/ai/brief.ts
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: low
+reason: reserveGeneration stores the writer Storyline with no cap analogous to TRANSCRIPT_BUDGET_CHARS, and it is appended verbatim into every section prompt. The same structured call also always asks for storyline/ storylineClaims even when origin will be "writer", spending tokens the epic's own SM-C2 2x call/cost budget must absorb.
+status: open
+
+### DW-111: saveEntryEdit checks only that the edited Brief is the latest version for its own inputsHash, never whether that inputsHash is still the project's current one.
+origin: spec-deferred 3ce61774e7b5
+location: convex/briefs.ts (saveEntryEdit)
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: low
+reason: A writer can successfully edit a Brief version whose inputsHash has since been superseded by a new derivation (e.g. after a document was added); the edit succeeds but produces a version findReusableBrief will never surface to a future generation.
+status: open
+
+### DW-112: Two generations that concurrently derive the same brand-new (projectId, inputsHash) for the first time can each insert a version-1 Brief.
+origin: spec-deferred 46a3dcf375ac
+location: convex/generations.ts (findReusableBrief, persistDerivedBrief)
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: medium
+reason: persistDerivedBrief unconditionally inserts a new generationBriefs row without re-checking for an existing row inside its own transaction; the reuse check (findReusableBrief) runs earlier, in a separate action call. Two concurrent first-time derivations for the same key could each pass that check before either persists, leaving MAX(version) reuse and saveEntryEdit's staleness check ambiguous between the two rows.
+status: open
+
+### DW-113: A glossary entry's stored text is the canonical term on the model-classified path but the raw matched surface form (e.g. an inflection) on the rule-matched path.
+origin: spec-deferred af6d193c1a41
+location: convex/lib/glossaryMatcher.ts, convex/ai/brief.ts
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: low
+reason: matchGlossaryTermsAcrossSources stores the matched surface form as `text`; brief.ts's model-classification branch stores the canonical term instead. Pre-existing inconsistency, not introduced by this diff.
+status: open
+
+### DW-114: The I/O matrix's "3+ Transcripts reconciled" Confidence Map expectation has no corresponding instruction in the Brief system prompt.
+origin: spec-deferred b12a780b1462
+location: convex/ai/brief.ts (BRIEF_SYSTEM_PROMPT)
+source_spec: `1-generation-brief-storage-and-derivation-stage.md`
+severity: low
+reason: BRIEF_SYSTEM_PROMPT gives generic established/partial/unresolved/ unreliable classification guidance with no instruction to reconcile disagreements across 3+ transcripts specifically. Plausible under the general instruction, but unverified by any prompt text or test.
+status: open

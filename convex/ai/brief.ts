@@ -401,11 +401,18 @@ export async function deriveOrReuseBrief(
   // didn't classify (no quote) is simply absent, not dropped — it was never
   // a proposed entry to begin with.
   const flagged = flaggedGlossaryTerms(output.glossaryTerms, evidenceSources);
+  // The model can echo the same term twice in its own output; flaggedGlossaryTerms
+  // filters by match status, not uniqueness, so dedupe by canonical term here too
+  // (mirrors matchGlossaryTermsAcrossSources' "at most one entry per canonical term").
+  const classifiedCanonicalTerms = new Set<string>();
   for (const term of flagged) {
+    const canonicalTerm = term.term.toLowerCase();
+    if (classifiedCanonicalTerms.has(canonicalTerm)) continue;
     const classified = output.glossaryTerms.find(
-      (t) => t.term.toLowerCase() === term.term.toLowerCase()
+      (t) => t.term.toLowerCase() === canonicalTerm
     );
     if (!classified?.quote) continue;
+    classifiedCanonicalTerms.add(canonicalTerm);
     const citation = citeQuote(evidenceSources, classified.quote);
     if (!citation) {
       upstreamDroppedEntryCount += 1;

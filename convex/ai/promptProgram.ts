@@ -36,6 +36,7 @@ import {
   ANALYZER_CATEGORY_ORDER,
   ANALYZER_REQUEST,
 } from "./analyzerAgent";
+import { BRIEF_SYSTEM_PROMPT, BRIEF_REQUEST, BRIEF_SCHEMA } from "./brief";
 import { DEFAULT_CONTEXT_BUDGET } from "./trustedContext";
 import {
   CONDENSE_CONCURRENCY,
@@ -342,8 +343,9 @@ export const generationPromptProgram = {
     // Story 1 (CAP-1/2/4): Generation Brief stage
     brief: {
       kind: "structured",
-      // System prompt and request defined separately (will be added to prompts.ts)
-      // For now, placeholder structure to establish the call
+      systemTemplate: BRIEF_SYSTEM_PROMPT,
+      request: BRIEF_REQUEST,
+      schema: BRIEF_SCHEMA,
       model: { kind: "candidate", fallbackModelId: MODEL },
       thinking: { kind: "omitted" },
       structuredPolicy: "two-attempt-repair",
