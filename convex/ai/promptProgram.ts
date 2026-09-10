@@ -236,6 +236,9 @@ export const generationPromptProgram = {
         "retrieval-brief-with-fallback-query",
         "four-sequential-brain-searches-with-optional-rerank",
         "frozen-analyzer-brain-style-artifacts",
+        // Story 1 (CAP-1/2/4): Brief stage after analyzer, before sections —
+        // same position as candidatePipeline's "brief" for single/compare.
+        "brief",
         "section-242-human-review",
         "approved-prior-section-context",
         "section-244-human-review",

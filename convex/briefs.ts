@@ -89,12 +89,26 @@ export const saveEntryEdit = mutation({
     // Authorize the writer to edit the report for this project
     await requireReportEditAccess(ctx, args.projectId);
 
-    // Load the Brief and validate version (OCC fence)
+    // Load the Brief and validate version (OCC fence). Brief rows are
+    // immutable — an edit inserts a NEW row rather than mutating this one —
+    // so staleness isn't visible on `brief` itself; it's whether a newer
+    // version for this (projectId, inputsHash) already exists.
     const brief = await ctx.db.get(args.briefId);
     if (!brief || brief.projectId !== args.projectId) {
       domainError("NOT_FOUND", "Brief not found");
     }
-    if (brief.version !== args.expectedBriefVersion) {
+    const latestForHash = await ctx.db
+      .query("generationBriefs")
+      .withIndex("by_projectId_and_inputsHash", (q) =>
+        q.eq("projectId", brief.projectId).eq("inputsHash", brief.inputsHash)
+      )
+      .order("desc")
+      .first();
+    if (
+      !latestForHash ||
+      latestForHash._id !== brief._id ||
+      brief.version !== args.expectedBriefVersion
+    ) {
       domainError("BRIEF_STALE", "The Brief was edited before this save completed");
     }
 

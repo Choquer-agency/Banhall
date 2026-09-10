@@ -1,5 +1,11 @@
 import { expect, test } from "vitest";
-import { matchGlossaryTerms, validateGlossaryFixture } from "./glossaryMatcher";
+import {
+  flaggedGlossaryTerms,
+  matchGlossaryTerms,
+  matchGlossaryTermsAcrossSources,
+  validateGlossaryFixture,
+} from "./glossaryMatcher";
+import type { Id } from "../_generated/dataModel";
 
 test("glossaryMatcher: exact word matching (case-insensitive)", () => {
   const terms = [
@@ -88,4 +94,52 @@ test("glossaryMatcher: ruleBasedMatch flag", () => {
   expect(matches.length).toBe(1);
   // All matches from the rule-based matcher should be marked as ruleBasedMatch=true
   expect(matches[0].ruleBasedMatch).toBe(true);
+});
+
+test("matchGlossaryTermsAcrossSources: offsets stay relative to each source, not a concatenated blob", () => {
+  const terms = [{ term: "control loop", inflections: [] }];
+  const sources = [
+    { _id: "src1" as Id<"generationSources">, content: "Prelude text.", contentHash: "h1" },
+    { _id: "src2" as Id<"generationSources">, content: "We tuned the control loop carefully.", contentHash: "h2" },
+  ];
+  const matches = matchGlossaryTermsAcrossSources(terms, sources);
+  expect(matches).toHaveLength(1);
+  expect(matches[0].sourceId).toBe("src2");
+  expect(matches[0].sourceContentHash).toBe("h2");
+  expect(
+    sources[1].content.slice(matches[0].startOffset, matches[0].endOffset)
+  ).toBe("control loop");
+});
+
+test("flaggedGlossaryTerms: a term the rules find zero occurrences of is flagged", () => {
+  const terms = [
+    { term: "control loop", inflections: [] },
+    { term: "closed-loop controller", inflections: [] },
+  ];
+  const sources = [
+    { _id: "src1" as Id<"generationSources">, content: "We tuned the control loop carefully.", contentHash: "h1" },
+  ];
+  const flagged = flaggedGlossaryTerms(terms, sources);
+  // "control loop" is found verbatim — not flagged. "closed-loop
+  // controller" never appears anywhere — flagged for model classification.
+  expect(flagged).toEqual([{ term: "closed-loop controller", inflections: [] }]);
+});
+
+test("flaggedGlossaryTerms: nothing is flagged once every term has a rule-based match", () => {
+  const terms = [{ term: "algorithm", inflections: ["algorithms"] }];
+  const sources = [
+    { _id: "src1" as Id<"generationSources">, content: "Multiple algorithms were tested.", contentHash: "h1" },
+  ];
+  expect(flaggedGlossaryTerms(terms, sources)).toEqual([]);
+});
+
+test("matchGlossaryTermsAcrossSources: at most one entry per canonical term, first occurrence wins", () => {
+  const terms = [{ term: "algorithm", inflections: ["algorithms"] }];
+  const sources = [
+    { _id: "src1" as Id<"generationSources">, content: "The algorithm was fast.", contentHash: "h1" },
+    { _id: "src2" as Id<"generationSources">, content: "Multiple algorithms were tested.", contentHash: "h2" },
+  ];
+  const matches = matchGlossaryTermsAcrossSources(terms, sources);
+  expect(matches).toHaveLength(1);
+  expect(matches[0].sourceId).toBe("src1");
 });

@@ -16,6 +16,7 @@ import { v } from "convex/values";
 import { instrumentedAnthropic } from "./instrument";
 import { clientForModel } from "./providers";
 import { runAnalyzerAgent, type TranscriptAnalysis } from "./analyzerAgent";
+import { deriveOrReuseBrief } from "./brief";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
@@ -238,6 +239,20 @@ export const startIterativeGeneration = internalAction({
         }),
       });
 
+      // Story 1 (CAP-1/2/4): derive or reuse the Generation Brief once,
+      // shared by every section below. Never fatal — Brief is read-only
+      // guidance, so a failure here logs and the generation continues
+      // without one.
+      try {
+        await deriveOrReuseBrief(ctx, clientFor("generation:brief"), {
+          projectId,
+          generationId: genId,
+          model: model.id,
+        });
+      } catch (error) {
+        console.error("Generation Brief derivation failed; continuing without a Brief", error);
+      }
+
       const created = await ctx.runMutation(
         internal.generations.createSectionRuns,
         { generationId: genId, model: model.id, label: model.label }
@@ -373,6 +388,11 @@ export const generateSection = internalAction({
           : args.section === "s244"
             ? runSection244Agent
             : runSection246Agent;
+      // Story 1 (CAP-1/2/4): "" when the generation has no Brief yet.
+      const briefBlock = await ctx.runQuery(
+        internal.generations.renderBriefForGeneration,
+        { generationId: args.generationId }
+      );
       const raw = await runAgent(
         clientFor(
           `generation:section:${args.section.slice(1)}`,
@@ -385,7 +405,8 @@ export const generateSection = internalAction({
         input.brainBlock,
         budget,
         styleGuidance,
-        styleOverrides
+        styleOverrides,
+        briefBlock
       );
       let text = scrubBannedWordsUnlessWaived(raw, styleOverrides.bannedWords);
       text = await compressToFit(

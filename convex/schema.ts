@@ -2100,10 +2100,18 @@ export default defineSchema({
         storylineEditDistance: v.number(),
       })
     ),
+    // Count of derived entries whose citation failed byte-match validation
+    // and were dropped rather than inserted (Block-If: the drop is counted
+    // on the Brief, the generation continues). Absent on a writer-edited
+    // version, where no re-derivation ran.
+    droppedEntryCount: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_projectId_and_inputsHash", ["projectId", "inputsHash"])
-    .index("by_generationId", ["generationId"]),
+    .index("by_generationId", ["generationId"])
+    // Latest-brief-for-project lookup (any inputsHash), used to diff a
+    // re-derivation's entries against whatever the project last had.
+    .index("by_projectId", ["projectId"]),
 
   // Child rows of generationBriefs: individual entries (Storyline questions,
   // Claim Exclusions, Confidence Map items, Glossary Terms). Never stored as

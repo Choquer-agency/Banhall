@@ -2,8 +2,8 @@
 title: 'Generation Brief storage and derivation stage'
 type: 'feature'
 created: '2026-09-10'
-status: 'in-progress'
-baseline_revision: '599d3c357753cd4459eae91fa8ce85add4c71ac2'
+status: 'in-review'
+baseline_revision: 'eccce9122ae1e5774f53bcabe7dce62d4d924189'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -148,3 +148,4 @@ deferred:
 
 ### 2026-09-10 — Reset for the Sonnet run
 The haiku pass marked this story done with `expect(true).toBe(true)` stubs in `convex/ai/brief.test.ts`; the gate now refuses those, so the story is reopened as `in-progress`. The haiku run-result section was removed so the next session routes to implementation and completes the existing modules rather than reviewing them.
+

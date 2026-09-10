@@ -8,6 +8,7 @@ import { instrumentedAnthropic } from "./instrument";
 import { clientForModel } from "./providers";
 import type { GenerationClient } from "./openrouterCore";
 import { runAnalyzerAgent, parseTranscriptAnalysis, type TranscriptAnalysis } from "./analyzerAgent";
+import { deriveOrReuseBrief } from "./brief";
 import {
   buildTrustedContext,
   DEFAULT_CONTEXT_BUDGET,
@@ -360,7 +361,11 @@ export async function runPipelineForModel(
   draftStyleDigestId?: Id<"learningDigests">,
   writerFlavor?: string,
   styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES,
-  sharedAnalysis?: TranscriptAnalysis
+  sharedAnalysis?: TranscriptAnalysis,
+  // Story 1 (CAP-1/2/4): the stored Brief, rendered as an AD-11 delimited
+  // data block. "" when the generation has no Brief (not yet derived, or
+  // derivation failed — Brief is read-only guidance, never generation-fatal).
+  briefBlock: string = ""
 ): Promise<{
   content: string;
   agentOutputs: string;
@@ -386,9 +391,9 @@ export async function runPipelineForModel(
       ? [qaCalibrationDigestId]
       : undefined;
   const [raw242, raw244, raw246] = await Promise.all([
-    runSection242Agent(anthropicFor("generation:section:242", styleDigestIds), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget), styleGuidance, styleOverrides),
-    runSection244Agent(anthropicFor("generation:section:244", styleDigestIds), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget), styleGuidance, styleOverrides),
-    runSection246Agent(anthropicFor("generation:section:246", styleDigestIds), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget), styleGuidance, styleOverrides),
+    runSection242Agent(anthropicFor("generation:section:242", styleDigestIds), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget), styleGuidance, styleOverrides, briefBlock),
+    runSection244Agent(anthropicFor("generation:section:244", styleDigestIds), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget), styleGuidance, styleOverrides, briefBlock),
+    runSection246Agent(anthropicFor("generation:section:246", styleDigestIds), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget), styleGuidance, styleOverrides, briefBlock),
   ]);
   // PSOS-49: a bannedWords waiver exempts this writer from the mechanical scrub.
   let section242 = scrubBannedWordsUnlessWaived(raw242, styleOverrides.bannedWords);
@@ -700,6 +705,23 @@ export const generateReport = internalAction({
         }),
       });
 
+      // Story 1 (CAP-1/2/4): derive or reuse the Generation Brief once,
+      // shared across every candidate below (same shape as shared analysis).
+      // Brief is read-only guidance, never required — a failure here is
+      // logged and the generation continues with no Brief rather than
+      // failing outright (Block-If: "a Brief with fewer entries beats a
+      // failed generation" extends to the stage itself).
+      try {
+        await deriveOrReuseBrief(ctx, clientForModel(ctx, analysisModel, {
+          callSite: "generation:brief",
+          projectId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+          attribution: { generationId: genId },
+        }), { projectId, generationId: genId, model: analysisModel });
+      } catch (error) {
+        console.error("Generation Brief derivation failed; continuing without a Brief", error);
+      }
+
       const candidateLabel =
         candidateModels.length === 1 ? "candidate draft" : "candidate drafts";
       await log(
@@ -812,6 +834,11 @@ export const generateCandidate = internalAction({
             contextBudget: args.contextBudget ?? input.contextBudget,
           }).userMessage
         : "";
+      // Story 1 (CAP-1/2/4): "" when the generation has no Brief yet.
+      const briefBlock = await ctx.runQuery(
+        internal.generations.renderBriefForGeneration,
+        { generationId: args.generationId }
+      );
       const { content, agentOutputs, qaScore, claimDrafts } =
         await runPipelineForModel(
           clientFor,
@@ -827,7 +854,8 @@ export const generateCandidate = internalAction({
           args.draftStyleDigestId,
           args.writerFlavor,
           normalizeStyleOverrides(args.styleOverrides),
-          sharedAnalysis
+          sharedAnalysis,
+          briefBlock
         );
       const claims = await Promise.all(
         claimDrafts.map(async (claim) => {

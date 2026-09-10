@@ -49,6 +49,8 @@ import {
   transcriptLabel,
   TRANSCRIPT_BUDGET_CHARS,
 } from "./lib/transcripts";
+import { validateCitation } from "./lib/citations";
+import { renderBriefBlock } from "./lib/briefRender";
 
 // ─── Generation status helpers ───────────────────────────────────────────────
 
@@ -372,7 +374,11 @@ async function reserveGeneration(
   compareModelIds?: string[],
   retryOfGenerationId?: Id<"generations">,
   retryModelIds?: string[],
-  seededCandidates = 0
+  seededCandidates = 0,
+  // Story 1 (CAP-1/2/4): frozen verbatim as a `writer_storyline`
+  // generationSources row — never validated, parsed, or rejected — and used
+  // as-is by the Brief stage (origin "writer"). Excluded from `inputsHash`.
+  writerSuppliedStoryline?: string
 ) {
   // "Default" in single/iterative modes resolves to the admin-set default
   // model (appSettings), persisted here so retries reuse the same model even
@@ -508,6 +514,20 @@ async function reserveGeneration(
       capturedAt: now,
     });
   }
+  if (writerSuppliedStoryline?.trim()) {
+    const content = writerSuppliedStoryline.trim();
+    await ctx.db.insert("generationSources", {
+      generationId,
+      projectId: project._id,
+      kind: "writer_storyline",
+      label: "Writer-supplied Storyline",
+      content,
+      contentHash: await sha256(content),
+      truncated: false,
+      originalLength: content.length,
+      capturedAt: now,
+    });
+  }
   await ctx.db.patch(project._id, {
     activeGenerationId: generationId,
     status: "generating",
@@ -533,6 +553,9 @@ export const requestGeneration = mutation({
     singleModelId: v.optional(singleModelIdValidator),
     compareModelIds: v.optional(v.array(v.string())),
     confirmRegeneration: v.optional(v.boolean()),
+    // Story 1 (CAP-1/2/4): optional writer-supplied Storyline, frozen
+    // verbatim as a `writer_storyline` source and never validated.
+    writerSuppliedStoryline: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { project, user } = await requireInternalProjectAccess(ctx, args.projectId);
@@ -555,7 +578,11 @@ export const requestGeneration = mutation({
       args.lengthTarget ?? "standard",
       candidateMode,
       validatedSingleModelId(candidateMode, args.singleModelId),
-      validatedCompareModelIds(candidateMode, args.compareModelIds)
+      validatedCompareModelIds(candidateMode, args.compareModelIds),
+      undefined,
+      undefined,
+      0,
+      args.writerSuppliedStoryline
     );
   },
 });
@@ -1393,6 +1420,220 @@ export const saveIterativeArtifacts = internalMutation({
         });
       }
     }
+  },
+});
+
+// ─── Story 1 (CAP-1/2/4): Generation Brief internal helpers ────────────────
+// The stage itself (`convex/ai/brief.ts:deriveOrReuseBrief`) is a plain
+// "use node" helper called directly from `pipeline.ts`/`iterative.ts` (same
+// pattern as `runAnalyzerAgent`) — not a registered Convex function, so it
+// never needs an `internal.ai.brief.*` reference. These are its only reads
+// and writes; they live here (an already-registered, non-node module) so a
+// stale `_generated/api.d.ts` never has to learn a brand-new file to
+// typecheck. `deriveOrReuseBrief` and `briefs.saveEntryEdit` are the only two
+// writers of `generationBriefs`/`generationBriefEntries` (AD-23).
+
+/** The frozen `generationSources` rows a Brief derivation reads. */
+export const getGenerationSourcesForBrief = internalQuery({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("generationSources")
+      .withIndex("by_generationId", (q) => q.eq("generationId", args.generationId))
+      .take(200);
+  },
+});
+
+/** MAX(version) Brief for (projectId, inputsHash), regardless of origin — a
+ * writer-edited version is reused too (CAP-4: "the next generation with the
+ * same inputsHash reuses that version"). */
+export const findReusableBrief = internalQuery({
+  args: { projectId: v.id("projects"), inputsHash: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("generationBriefs")
+      .withIndex("by_projectId_and_inputsHash", (q) =>
+        q.eq("projectId", args.projectId).eq("inputsHash", args.inputsHash)
+      )
+      .order("desc")
+      .first();
+  },
+});
+
+/** Reuse path: stamp the reused Brief onto this generation. No new version,
+ * no model call. */
+export const stampGenerationBriefId = internalMutation({
+  args: { generationId: v.id("generations"), briefId: v.id("generationBriefs") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.generationId, { briefId: args.briefId });
+  },
+});
+
+const briefEntryGroupValidator = v.union(
+  v.literal("storyline"),
+  v.literal("claimExclusion"),
+  v.literal("confidenceMap"),
+  v.literal("glossaryTerm")
+);
+const briefEntryReasonValidator = v.union(
+  v.literal("business_risk"),
+  v.literal("routine_engineering"),
+  v.literal("outside_claim_period"),
+  v.literal("not_technological")
+);
+const briefEntryConfidenceValidator = v.union(
+  v.literal("established"),
+  v.literal("partial"),
+  v.literal("unresolved"),
+  v.literal("unreliable")
+);
+const briefCandidateEntryValidator = v.object({
+  group: briefEntryGroupValidator,
+  text: v.string(),
+  reason: v.optional(briefEntryReasonValidator),
+  confidence: v.optional(briefEntryConfidenceValidator),
+  sourceId: v.id("generationSources"),
+  sourceContentHash: v.string(),
+  startOffset: v.number(),
+  endOffset: v.number(),
+  exactExcerpt: v.string(),
+});
+
+/**
+ * New-derivation path: re-validates every candidate entry's citation against
+ * the live frozen source (defense in depth — the caller already validated
+ * against the same in-memory sources), drops failures and counts them,
+ * inserts the new `generationBriefs` version, diffs against the project's
+ * previous Brief (any inputsHash) by `(group, sourceContentHash,
+ * startOffset, endOffset)` and stamps `change` on every entry — including a
+ * "removed" marker row for anything the previous version had that this one
+ * doesn't — then stamps `briefId` on the generation.
+ */
+export const persistDerivedBrief = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    inputsHash: v.string(),
+    origin: v.union(v.literal("writer"), v.literal("derived")),
+    storylineText: v.string(),
+    entries: v.array(briefCandidateEntryValidator),
+    // Entries the caller already dropped before reaching here (its own
+    // citeQuote pass never found a byte-match — see `brief.ts`). Added to
+    // whatever this mutation's own re-validation additionally drops, so
+    // `droppedEntryCount` reflects every entry the model proposed that never
+    // made it into the Brief.
+    upstreamDroppedEntryCount: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    let droppedEntryCount = args.upstreamDroppedEntryCount ?? 0;
+    const validatedEntries: Array<
+      (typeof args.entries)[number]
+    > = [];
+    for (const entry of args.entries) {
+      const source = await ctx.db.get(entry.sourceId);
+      if (!validateCitation(source, entry)) {
+        droppedEntryCount += 1;
+        continue;
+      }
+      validatedEntries.push(entry);
+    }
+
+    // The project's previous Brief (any inputsHash) — the diff baseline.
+    const previousBrief = await ctx.db
+      .query("generationBriefs")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .first();
+    const previousEntries = previousBrief
+      ? await ctx.db
+          .query("generationBriefEntries")
+          .withIndex("by_briefId", (q) => q.eq("briefId", previousBrief._id))
+          .take(500)
+      : [];
+    const diffKey = (e: {
+      group: string;
+      sourceContentHash: string;
+      startOffset: number;
+      endOffset: number;
+    }) => `${e.group}|${e.sourceContentHash}|${e.startOffset}|${e.endOffset}`;
+    const previousByKey = new Map(previousEntries.map((e) => [diffKey(e), e]));
+
+    const briefId = await ctx.db.insert("generationBriefs", {
+      projectId: args.projectId,
+      generationId: args.generationId,
+      inputsHash: args.inputsHash,
+      version: 1,
+      origin: args.origin,
+      storylineText: args.storylineText,
+      droppedEntryCount,
+      createdAt: Date.now(),
+    });
+
+    for (const entry of validatedEntries) {
+      const key = diffKey(entry);
+      const change = !previousBrief
+        ? undefined
+        : previousByKey.has(key)
+          ? ("unchanged" as const)
+          : ("added" as const);
+      previousByKey.delete(key);
+      await ctx.db.insert("generationBriefEntries", {
+        briefId,
+        projectId: args.projectId,
+        group: entry.group,
+        text: entry.text,
+        reason: entry.reason,
+        confidence: entry.confidence,
+        sourceId: entry.sourceId,
+        sourceContentHash: entry.sourceContentHash,
+        startOffset: entry.startOffset,
+        endOffset: entry.endOffset,
+        exactExcerpt: entry.exactExcerpt,
+        change,
+        createdAt: Date.now(),
+      });
+    }
+    // Whatever's left in previousByKey existed before and doesn't now.
+    for (const removed of previousByKey.values()) {
+      await ctx.db.insert("generationBriefEntries", {
+        briefId,
+        projectId: args.projectId,
+        group: removed.group,
+        text: removed.text,
+        reason: removed.reason,
+        confidence: removed.confidence,
+        sourceId: removed.sourceId,
+        sourceContentHash: removed.sourceContentHash,
+        startOffset: removed.startOffset,
+        endOffset: removed.endOffset,
+        exactExcerpt: removed.exactExcerpt,
+        change: "removed",
+        createdAt: Date.now(),
+      });
+    }
+
+    await ctx.db.patch(args.generationId, { briefId });
+    return briefId;
+  },
+});
+
+/** The stored Brief rendered as an AD-11 delimited data block, ready to
+ * append to a section prompt. "" when the generation has no Brief yet. */
+export const renderBriefForGeneration = internalQuery({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation?.briefId) return "";
+    const brief = await ctx.db.get(generation.briefId);
+    if (!brief) return "";
+    const entries = await ctx.db
+      .query("generationBriefEntries")
+      .withIndex("by_briefId", (q) => q.eq("briefId", brief._id))
+      .take(500);
+    return renderBriefBlock(
+      brief.storylineText,
+      entries.filter((e) => e.group !== "storylineQuestion")
+    );
   },
 });
 
