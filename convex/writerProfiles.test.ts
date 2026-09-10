@@ -237,12 +237,7 @@ describe("writer profile style overrides", () => {
       t.query(internal.writerProfiles.getProfileForGeneration, {
         userId: ids.writerId,
       })
-    ).resolves.toEqual({
-      customInstructions: null,
-      styleOverrides: NO_STYLE_OVERRIDES,
-      buildOrder: ["242", "244", "246"],
-      tier: "house_rules",
-    });
+    ).resolves.toBeNull();
 
     // Explicitly clearing the toggles (empty object → all-false) with
     // whitespace-only instructions leaves nothing to apply.
@@ -255,11 +250,6 @@ describe("writer profile style overrides", () => {
       t.query(internal.writerProfiles.getProfileForGeneration, {
         userId: ids.writerId,
       })
-    ).resolves.toEqual({
-      customInstructions: null,
-      styleOverrides: NO_STYLE_OVERRIDES,
-      buildOrder: ["242", "244", "246"],
-      tier: "writer_profile",
-    });
+    ).resolves.toBeNull();
   });
 });
