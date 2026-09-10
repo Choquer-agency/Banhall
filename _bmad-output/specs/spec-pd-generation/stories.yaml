@@ -1,0 +1,74 @@
+- id: "1"
+  lane: schema
+  title: Generation Brief storage and derivation stage
+  description: >-
+    CAP-1, CAP-2, CAP-4. generationBriefs keyed by inputs; derivation call
+    producing Storyline (or accepting a writer-supplied one), Claim Exclusions,
+    Confidence Map, Glossary Terms with source citations; reuse on identical inputs.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Read touchpoints.md rows CAP-1/2/4. The Storyline back-check (contradiction
+    raises a Storyline question, never a forced repair) is the riskiest design
+    point; prove it with the contradiction fixture. Citations validate against
+    frozen generationSources rows like provenance. Glossary matcher is rule-based.
+- id: "2"
+  lane: pipeline
+  title: Ordered, ungated generation with Self-check and Compliance Notes
+  description: >-
+    CAP-5, CAP-7, CAP-9, CAP-10. Build Order with drafted prior-section context
+    in single/compare, no approval gate, one repair per section, assembled-draft
+    consistency pass, hedging of unresolved facts, Compliance Note per section,
+    editor/export parity.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Read touchpoints.md rows CAP-5 and CAP-9/10. Decided: ungated by default;
+    iterative keeps its gate untouched. Stay inside the call budget in SPEC
+    Constraints and record overruns in the scorecard.
+- id: "3"
+  lane: profile
+  title: Precedence and Writer Profile fidelity
+  description: >-
+    CAP-6, CAP-8. Four-tier precedence with no silent tier reported per
+    instruction; settings document detected in Writer's Notes or attachments and
+    applied as the profile; missing or disabled profile reported; product-domain
+    amendment for precedence and the effort ceiling.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Read touchpoints.md row CAP-6/7/8. Open Question 1 (Larry's settings document,
+    Section 246) may land mid-way; Locked Rules stay locked regardless.
+- id: "4"
+  lane: ui
+  title: Brief panel and context-inclusion visibility
+  description: >-
+    CAP-3, CAP-11, CAP-17. Brief shown beside the draft, editable and optional
+    with edit magnitude stored; per-document included/condensed/not included
+    list with the configured cap shown; 40 attachments accepted; "no Writer
+    Profile applied" line.
+  invoke_dev_with: >-
+    Read touchpoints.md row CAP-3/11/17. Design-system rules apply (bits-ui
+    primitives, max font weight 500, gray ramp tokens). Browser component test
+    under vitest.component.config.ts; run test:component locally.
+- id: "5"
+  lane: chat
+  title: One-pass convergence and Reference PD comparison
+  description: >-
+    CAP-12, CAP-13, CAP-14, CAP-15. Deviation Inventory with writer-added
+    content Deviations; Coordinated Revision with per-item Completion Report;
+    "make it better" guard; Reference PD diff offered as a Coordinated Revision.
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Read touchpoints.md row CAP-12..15. First re-run Larry's Rev G 16-item list
+    against the PR #8 bulk-edit tool and record what already passes (Open
+    Question 7). Proposals only; applyProposal is untouched. Live-model fixtures
+    go in scripts/chat-behavior-eval.mjs.
+- id: "6"
+  lane: eval
+  title: Paired Comparison records and success-metric computation
+  description: >-
+    CAP-16. comparisons table and functions to record blind preference,
+    per-draft Deviation counts and Corrections-to-acceptable, model caveat and
+    development-project flag; SM-1/SM-2 computed excluding development projects.
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Read measurement-protocol.md. Baseline drafts are pasted in; no automation.
+    Judging starts after 2026-09-15.

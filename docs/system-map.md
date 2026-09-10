@@ -426,6 +426,10 @@ Full register (51 rows, 8 fixed) is in the spine.
 
 svelte 5.56.6, @sveltejs/kit 2.70.1, vite 8.1.5, tailwindcss 4.3.3, bits-ui 2.18, svelte-tiptap 3.0, convex 1.42.3, convex-svelte 0.14, @convex-dev/agent 0.6.4, @convex-dev/rag 0.7.5, @convex-dev/better-auth 0.12, ai 6.0.230 (v6 line by decision until AD-11 CAP-4 lands), @ai-sdk/anthropic 3.0, vitest 4.1, Node 24 in CI (from `.nvmrc`). Default model `claude-sonnet-5` direct; `openai/*` and `google/*` via OpenRouter; Voyage `voyage-3-large` + `rerank-2.5`.
 
+## 15a. 2026-09-09 addition: PD generation better than the dump
+
+Spec `_bmad-output/specs/spec-pd-generation` (17 capabilities, six stories) with UX spines `ux-Banhall-2026-09-09` and spine AD-23 to AD-30. What changes in the picture above: a **Generation Brief** stage (Storyline, Claim Exclusions, Confidence Map, Glossary Terms; frozen, versioned, citation-validated like provenance) runs between the analyzer and the sections; sections in `single`/`compare` run **in Build Order as a chain of per-section actions**, ungated, with one Self-check and at most one repair each and an assembled-draft pass (`iterative` keeps its gate); every section stores **Compliance Notes** (applied / not applied, with tier) that the Editor's section-end line, the QA rail and the chat Deviation Inventory read; the bulk-edit tool's findings become a persisted **Completion Report** (resolved / blocked / conflicting) and the human-apply path is unchanged; a human-entered **comparisons** table proves "better than ChatGPT" per project. Style precedence is four tiers with no silent tier; the 12-document context cap stays and inclusion is recorded per source. Open: Q15 Sol equivalence, Q16 cap-raise trigger, Q17 Claim Exclusions retention, Q18 who may write comparisons. Deck and diagrams above predate this addition.
+
 ## 16. Where to go next
 
 1. Owner decisions taken 2026-09-04 (Q1, Q5, Q10, Q12, Q13, Q14). Still owner-level: Q2, Q3, Q6, Q11, and the Q12 threshold number.
@@ -433,3 +437,4 @@ svelte 5.56.6, @sveltejs/kit 2.70.1, vite 8.1.5, tailwindcss 4.3.3, bits-ui 2.18
 3. Run the two Sprint 2 specs (`spec-ai-engine-sprint-2-boundary`, `spec-ai-engine-sprint-2-learn-chat`) through sprint planning; they build AD-11, AD-12, AD-13.
 4. New stories not in either spec: AD-19 erasure cascade, `reportBranches` + `productionOutcomes` (Q1), Owner-or-Admin interim gate (Q10), in-app alerts (Q12, Q13), CI codegen diff and build (AD-22).
 5. NFR evidence audit (`bmad-testarch-nfr`) once AD-11a and AD-19 land.
+6. 2026-09-09: commit the planning artifacts, then `bmad-loop validate --spec _bmad-output/specs/spec-pd-generation` and `bmad-loop run --spec …` (stories 1→2→3, then 4/5/6 in parallel; spec checkpoints on 1, 2, 5; done checkpoints on 3, 6). Before story 1 dispatches: Larry's settings document (PRD OQ1) and his generation mode (OQ2).

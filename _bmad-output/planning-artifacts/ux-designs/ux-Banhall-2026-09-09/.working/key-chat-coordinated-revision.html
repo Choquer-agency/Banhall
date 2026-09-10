@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Chat — Coordinated Revision</title>
+<style>
+/*
+  Spine sections illustrated (EXPERIENCE.md / DESIGN.md, ux-Banhall-2026-09-09):
+  - IA: "Coordinated Revision" (chat, after the Inventory action or a typed list)
+  - Component Patterns: completion-row, status-pill (resolved / blocked /
+    conflicting), ProposedEditCard's existing actions (Replace / Review one
+    by one / Reject)
+  - State Patterns: "Blocked-only Completion Report" family (here: mixed
+    resolved/blocked/conflicting) — "Copy questions for the client" ghost action
+  - Voice and Tone: "Blocked — the transcript does not give the date …";
+    "Conflicting — would exceed the 244 word cap (700). Alternative: …"
+  - Flow: UJ-2 steps 3-5 (Larry, sixteen Deviations in one pass) incl. the
+    "how can I help you converge?" edge case
+  - DESIGN.md: Colors (status-pill trio), Components.completion-row
+*/
+:root{
+  --canvas:#F9FCFB; --surface:#FFFFFF; --chrome:#EAF2F1; --navy:#0A3A38;
+  --primary:#0DACA5; --primary-selected:#087A75; --primary-wash:#F1FAF9;
+  --gap-bg:#FEF3C7; --gap-text:#92400E;
+  --ink:#0F1F1E; --ink-secondary:#3E5553; --ink-muted:#6B807E; --ink-faint:#9AABA9;
+  --line:#D6E3E1; --line-soft:#E6EFEE;
+  --gray-50:#F4F8F7; --gray-100:#E6EFEE; --gray-700:#3E5553;
+  --font-ui: -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  --font-mono: ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:#dce7e5;font-family:var(--font-ui);padding:28px 16px 60px;}
+.text-label{font:500 11px/1.2 var(--font-ui);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);}
+.caption{max-width:760px;margin:0 auto 10px;font:500 12px/1.4 var(--font-ui);color:var(--ink-secondary);}
+
+.browser-frame{max-width:760px;margin:0 auto;border-radius:12px;overflow:hidden;box-shadow:0 20px 50px rgba(10,58,56,.18);background:#fff;border:1px solid var(--line);}
+.browser-toolbar{display:flex;align-items:center;gap:10px;padding:9px 14px;background:#EDEFEF;border-bottom:1px solid var(--line);}
+.dots{display:flex;gap:6px;}
+.dots span{width:10px;height:10px;border-radius:50%;background:#D2D5D4;display:block;}
+.urlbar{flex:1;background:#fff;border:1px solid var(--line);border-radius:7px;padding:5px 12px;font:400 12px/1.3 var(--font-ui);color:var(--ink-muted);}
+.appbar{background:var(--navy);color:#fff;display:flex;align-items:center;padding:0 20px;height:52px;}
+.appbar .brand{font:500 14px var(--font-ui);}
+.appbar .crumb{font:400 13px var(--font-ui);color:rgba(255,255,255,.72);margin-left:14px;}
+
+.chat{background:var(--canvas);
+  background-image:repeating-linear-gradient(to bottom, transparent 0 31px, rgba(10,58,56,.032) 31px 32px);
+  padding:26px 24px 32px;}
+
+.turn{margin-bottom:22px;}
+.answer{font:400 14px/1.55 var(--font-ui);color:var(--ink-secondary);margin:0 0 14px;max-width:56ch;}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;}
+.card-header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px;}
+.card-header .title{font:500 14px var(--font-ui);color:var(--ink);}
+.card-header .sub{font:400 12px var(--font-mono);color:var(--ink-muted);}
+
+.crow{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:11px 0;border-bottom:1px solid var(--line-soft);}
+.crow .locator{font:400 12px var(--font-mono);color:var(--ink-muted);flex-shrink:0;width:64px;}
+.crow .body{flex:1;}
+.crow .reason{font:400 13.5px/1.5 var(--font-ui);color:var(--ink-secondary);}
+.crow .subreason{display:block;margin-top:3px;font:400 12.5px/1.5 var(--font-ui);color:var(--ink-muted);}
+.crow .pill{margin-left:10px;flex-shrink:0;}
+
+.pill{display:inline-flex;align-items:center;padding:2px 9px;border-radius:9999px;font:500 10.5px var(--font-ui);letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;}
+.pill-resolved{background:var(--primary-wash);color:var(--primary-selected);}
+.pill-blocked{background:var(--gap-bg);color:var(--gap-text);}
+.pill-conflicting{background:var(--gray-100);color:var(--gray-700);}
+
+.more-note{padding:9px 0 9px 76px;font:400 12px var(--font-ui);color:var(--ink-faint);}
+
+.diff-toggle{margin-top:10px;padding-top:10px;border-top:1px solid var(--line-soft);font:500 12.5px var(--font-ui);color:var(--primary-selected);}
+
+.actions{display:flex;gap:8px;margin-top:16px;}
+.btn-primary{background:var(--primary-selected);color:#fff;border:none;border-radius:7px;padding:8px 14px;font:500 12.5px var(--font-ui);}
+.btn-secondary{background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:8px 14px;font:500 12.5px var(--font-ui);color:var(--ink-secondary);}
+
+.writer-msg{margin:22px 0 16px;display:flex;justify-content:flex-end;}
+.writer-bubble{background:var(--chrome);border-radius:12px 12px 2px 12px;padding:10px 14px;font:400 14px/1.5 var(--font-ui);color:var(--ink-secondary);max-width:70%;}
+
+.reply p{font:400 14px/1.55 var(--font-ui);color:var(--ink-secondary);margin:0 0 8px;max-width:56ch;}
+.reply ol{margin:0 0 14px;padding-left:20px;}
+.reply li{font:400 14px/1.6 var(--font-ui);color:var(--ink-secondary);margin-bottom:4px;}
+.reply li .cite{font-family:var(--font-mono);font-size:12px;color:var(--ink-muted);}
+
+.btn-ghost-sm{background:transparent;border:1px solid var(--line);border-radius:7px;padding:7px 12px;font:500 12px var(--font-ui);color:var(--ink-secondary);}
+</style>
+</head>
+<body>
+
+<p class="caption">3 — Chat: Coordinated Revision card with Completion Report, then the writer's "converge" follow-up.</p>
+
+<div class="browser-frame">
+  <div class="browser-toolbar">
+    <div class="dots"><span></span><span></span><span></span></div>
+    <div class="urlbar">banhall.app/project/client-co-fy2025 — Client Co · FY ending 2025-03-31</div>
+  </div>
+  <div class="appbar"><span class="brand">Banhall</span><span class="crumb">Client Co — FY2025-03-31 · Chat</span></div>
+
+  <div class="chat">
+    <div class="turn">
+      <p class="answer">16 items checked against your settings. 14 are ready to bring into alignment; 2 need a decision from you first.</p>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="title">Coordinated Revision</span>
+          <span class="sub">16 items — 14 resolved, 1 blocked, 1 conflicting</span>
+        </div>
+
+        <div class="crow">
+          <span class="locator">244 ¶3</span>
+          <div class="body"><span class="reason">Open with the uncertainty, not the fix.</span></div>
+          <span class="pill pill-resolved">resolved</span>
+        </div>
+        <div class="crow">
+          <span class="locator">246 ¶1</span>
+          <div class="body"><span class="reason">Use "consistency model," not "replication strategy."</span></div>
+          <span class="pill pill-resolved">resolved</span>
+        </div>
+        <div class="crow">
+          <span class="locator">242 ¶2</span>
+          <div class="body"><span class="reason">Past tense throughout.</span></div>
+          <span class="pill pill-resolved">resolved</span>
+        </div>
+        <div class="more-note">11 more resolved rows</div>
+        <div class="crow">
+          <span class="locator">244 ¶6</span>
+          <div class="body"><span class="reason">Needs the date the redesign started
+            <span class="subreason">Blocked — not in the transcript. Ask the client.</span>
+          </span></div>
+          <span class="pill pill-blocked">blocked</span>
+        </div>
+        <div class="crow" style="border-bottom:none;">
+          <span class="locator">244 ¶5</span>
+          <div class="body"><span class="reason">Would exceed the Section 244 word cap (700)
+            <span class="subreason">Conflicting — alternative: move the second example to 246.</span>
+          </span></div>
+          <span class="pill pill-conflicting">conflicting</span>
+        </div>
+
+        <div class="diff-toggle">▸ Show changes</div>
+
+        <div class="actions">
+          <button class="btn-primary">Replace</button>
+          <button class="btn-secondary">Review one by one</button>
+          <button class="btn-secondary">Reject</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="writer-msg"><div class="writer-bubble">how can I help you converge?</div></div>
+
+    <div class="turn reply">
+      <p>Two facts would close the gap:</p>
+      <ol>
+        <li>The date the redesign started <span class="cite">244 ¶6</span></li>
+        <li>Whether the write-conflict rate was measured before or after the September outage <span class="cite">242 ¶3</span></li>
+      </ol>
+      <button class="btn-ghost-sm">Copy questions for the client</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
