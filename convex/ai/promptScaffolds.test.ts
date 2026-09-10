@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildTrustedContext, DEFAULT_CONTEXT_BUDGET } from "./trustedContext";
 import { CONDENSE_SCHEMA, CONDENSE_SYSTEM_PROMPT } from "./condenseAgent";
+import { BRIEF_REQUEST, BRIEF_SCHEMA, BRIEF_SYSTEM_PROMPT } from "./brief";
 import { generationPromptProgram, hashPromptProgram } from "./promptProgram";
 import {
   CONDENSE_VERSION,
@@ -193,6 +194,24 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     expect(TRANSCRIPT_BUDGET_CHARS).toBe(200_000);
     expect(CONDENSE_WINDOW_CHARS).toBe(160_000);
     expect(DIGEST_TARGET_CHARS).toBe(24_000);
+  });
+
+  it("declares the brief call with the real Brief prompt, request and schema (story 1, AD-27)", () => {
+    // Story 1 wired calls.brief to BRIEF_SYSTEM_PROMPT/BRIEF_REQUEST/BRIEF_SCHEMA
+    // in place of the original placeholder. Unlike calls.condense/calls.analyzer,
+    // nothing pinned this wiring against drift — a future edit to those constants
+    // (or to calls.brief itself) without this assertion could silently diverge
+    // without moving promptVersion the way the sibling calls do.
+    expect(generationPromptProgram.calls.brief).toEqual({
+      kind: "structured",
+      systemTemplate: BRIEF_SYSTEM_PROMPT,
+      request: BRIEF_REQUEST,
+      schema: BRIEF_SCHEMA,
+      model: { kind: "candidate", fallbackModelId: generationPromptProgram.calls.brief.model.fallbackModelId },
+      thinking: { kind: "omitted" },
+      structuredPolicy: "two-attempt-repair",
+      callSite: "generation:brief",
+    });
   });
 
   it("moves promptVersion, so no generation reports a stale contract", async () => {

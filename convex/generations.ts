@@ -1531,7 +1531,15 @@ export const persistDerivedBrief = internalMutation({
     > = [];
     for (const entry of args.entries) {
       const source = await ctx.db.get(entry.sourceId);
-      if (!validateCitation(source, entry)) {
+      // Tenant-scoping parity with reports.createProvenance (convex/reports.ts:108-118):
+      // a citation must resolve to a source belonging to this project and generation,
+      // not just pass the byte-match check.
+      if (
+        !source ||
+        source.projectId !== args.projectId ||
+        source.generationId !== args.generationId ||
+        !validateCitation(source, entry)
+      ) {
         droppedEntryCount += 1;
         continue;
       }
