@@ -1,157 +1,286 @@
 "use node";
 
-import type { TranscriptAnalysis } from "./analyzerAgent";
-import type { StyleOverrides } from "../../shared/styleOverrides";
-import { sectionMetrics } from "../lib/lineLimits";
+import type Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
+import type { GenerationClient } from "./openrouterCore";
+import { generateStructured } from "./structured";
+import { CONSISTENCY_SYSTEM_PROMPT, SELF_CHECK_SYSTEM_PROMPT } from "./prompts";
+import {
+  CONSISTENCY_REQUEST,
+  CONSISTENCY_SCHEMA,
+  ORDERED_SECTION_TITLES,
+  SELF_CHECK_REQUEST,
+  SELF_CHECK_SCHEMA,
+} from "./promptDefinitions";
+import { sectionParagraphs } from "../lib/tiptapReport";
+import {
+  isSectionNumber,
+  type SectionNumber,
+} from "../lib/orderedChain";
+import type {
+  ConsistencyFinding,
+  ModelCheckKind,
+  ModelVerdict,
+} from "../lib/selfCheckRules";
 
 /**
- * Story 2 (CAP-9): Self-check module for validating sections before display.
- * Checks: Claim Exclusions, Glossary Terms, word/line caps, section contradictions,
- * profile paragraph rules, and unreliable facts (based on Confidence Map calibration).
+ * Story 2 (CAP-9/10, AD-25): the model half of the Self-check and the
+ * assembled-draft consistency pass. Plain helpers (no registered functions),
+ * called by convex/ai/orderedGeneration.ts through the action's counting
+ * client factory, labelled `generation:selfCheck:<n>` and
+ * `generation:consistency`. Both use the `two-attempt-repair` structured
+ * policy. Repair of the prose is never done here: it is the section agent
+ * itself, re-run with the repair guidance (orderedGeneration.ts).
  */
 
-export type SelfCheckStatus =
-  | "pass"
-  | "repair_attempted"
-  | "repair_failed";
+const MODEL_CHECKS = ["storyline", "confidence", "glossary", "instruction"] as const;
 
-export interface SelfCheckOutcome {
-  status: SelfCheckStatus;
-  checks: string[]; // which checks were performed
-  repairAttempted?: boolean;
-  repairSuccess?: boolean;
-  issues?: string[];
-  detail?: string;
+type RawVerdict = {
+  paragraph: number;
+  check: ModelCheckKind;
+  instruction: string;
+  outcome: "applied" | "not_applied";
+  reason: string;
+  repairGuidance?: string;
+};
+type RawStorylineQuestion = {
+  question: string;
+  sectionClaim: string;
+  confidenceEntry: number;
+  storylineAlternative: string;
+};
+type RawSelfCheck = {
+  verdicts: RawVerdict[];
+  storylineQuestion?: RawStorylineQuestion | null;
+};
+
+const selfCheckOutputSchema: z.ZodType<RawSelfCheck> = z.object({
+  verdicts: z
+    .array(
+      z.object({
+        paragraph: z.number().default(0),
+        check: z.enum(MODEL_CHECKS),
+        instruction: z.string().default(""),
+        outcome: z.enum(["applied", "not_applied"]),
+        reason: z.string().default(""),
+        repairGuidance: z.string().optional(),
+      })
+    )
+    .default([]),
+  storylineQuestion: z
+    .object({
+      question: z.string(),
+      sectionClaim: z.string(),
+      confidenceEntry: z.number(),
+      storylineAlternative: z.string(),
+    })
+    .nullable()
+    .optional(),
+});
+
+type RawFinding = {
+  section: SectionNumber;
+  paragraph: number;
+  sections: SectionNumber[];
+  kind: ConsistencyFinding["kind"];
+  issue: string;
+};
+const SECTION_ENUM = ["242", "244", "246"] as const;
+const consistencyOutputSchema: z.ZodType<{ findings: RawFinding[] }> = z.object({
+  findings: z
+    .array(
+      z.object({
+        section: z.enum(SECTION_ENUM),
+        paragraph: z.number().default(1),
+        sections: z.array(z.enum(SECTION_ENUM)).default([]),
+        kind: z.enum(["contradiction", "excluded_claim", "terminology"]),
+        issue: z.string(),
+      })
+    )
+    .default([]),
+});
+
+function block(label: string, body: string): string {
+  return `--- BEGIN [${label}] ---\n${body}\n--- END [${label}] ---`;
 }
 
-export interface Brief {
-  storyline?: Array<{
-    claim: string;
-    confidence?: string;
-  }>;
-  claimExclusions?: Array<{
-    text: string;
-    reason: "business_risk" | "routine_engineering" | "outside_claim_period" | "not_technological";
-  }>;
-  glossaryTerms?: Array<{
-    term: string;
-    concept: string;
-  }>;
-  confidenceMap?: Array<{
-    fact: string;
-    confidence: "established" | "partially_established" | "unresolved" | "unreliable";
-    source?: string;
-  }>;
+/** [P1]-numbered paragraphs, indices matching sectionParagraphs. */
+export function numberedSectionParagraphs(text: string): string {
+  return sectionParagraphs(text)
+    .map((paragraph, index) => `[P${index + 1}] ${paragraph.replace(/\s+/g, " ").trim()}`)
+    .join("\n\n");
 }
 
-/**
- * Run self-check on a section draft before display.
- *
- * Checks (in order):
- * 1. Excluded Claims: Any excluded claim text found in draft → needs repair
- * 2. Glossary Calibration: Off-glossary synonyms → needs repair
- * 3. Word/Line Caps: Over the Locked Rules limits → needs compression
- * 4. Profile Rules: Violates custom paragraph rules → needs repair
- * 5. Unreliable Facts: Unhedged unreliable/unresolved facts → needs hedging
- * 6. Section Contradictions: Prior sections contain contradictory facts → flags for writer
- *
- * Returns:
- * - "pass": All checks passed
- * - "repair_attempted": At least one issue was found and repair was attempted (check detail for success)
- * - "repair_failed": Repair failed and section should be shown with flag
- */
-export async function runSelfCheck(
-  sectionNumber: string,
-  draftText: string,
-  brief: Brief | null,
-  priorSections: Array<{ text: string; wordCount: number }> = [],
-  analysis: TranscriptAnalysis | null = null,
-  styleOverrides: StyleOverrides | null = null
-): Promise<SelfCheckOutcome> {
-  const checks: string[] = [];
-  const issues: string[] = [];
+/** 1-based model paragraph (0 = whole section) → a valid 0-based index. */
+function clampParagraph(paragraph: number, count: number): number {
+  if (count <= 0) return 0;
+  const index = Number.isFinite(paragraph) && paragraph >= 1 ? Math.floor(paragraph) - 1 : 0;
+  return Math.min(Math.max(index, 0), count - 1);
+}
 
-  // Check 1: Excluded Claims (CAP-9)
-  // Patch 2: Guard against empty exclusion text
-  if (brief?.claimExclusions && brief.claimExclusions.length > 0) {
-    checks.push("excluded_claims");
-    for (const exclusion of brief.claimExclusions) {
-      // Patch 2: Skip empty exclusion text
-      if (!exclusion.text || exclusion.text.trim().length === 0) continue;
-      // Simple substring match (strict mode would need more sophisticated matching)
-      if (draftText.toLowerCase().includes(exclusion.text.toLowerCase())) {
-        issues.push(`Excluded claim found: "${exclusion.text}" (reason: ${exclusion.reason})`);
-      }
-    }
+export type SelfCheckModelInput = {
+  section: SectionNumber;
+  text: string;
+  storylineText: string;
+  confidenceMap: Array<{ text: string; confidence?: string }>;
+  glossaryCandidates: string[];
+  writerInstructions?: string;
+  rules: Array<{ instruction: string; paragraphIndex?: number }>;
+  model: string;
+};
+
+export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
+  const blocks = [
+    block(
+      `SECTION DRAFT: ${ORDERED_SECTION_TITLES[input.section]}`,
+      numberedSectionParagraphs(input.text)
+    ),
+  ];
+  if (input.storylineText.trim()) {
+    blocks.push(block("STORYLINE", input.storylineText.trim()));
   }
-
-  // Check 2: Glossary Calibration (CAP-9)
-  if (brief?.glossaryTerms && brief.glossaryTerms.length > 0) {
-    checks.push("glossary_calibration");
-    // Placeholder: would need sophisticated synonym detection
-    // For now, exact-term checking
+  if (input.confidenceMap.length > 0) {
+    blocks.push(
+      block(
+        "CONFIDENCE MAP",
+        input.confidenceMap
+          .map((entry, index) => `[C${index + 1}] (${entry.confidence ?? "unresolved"}) ${entry.text}`)
+          .join("\n")
+      )
+    );
   }
-
-  // Check 3: Word/Line Caps (Locked Rules)
-  // Patch 3: Wrap sectionMetrics in try/catch for robustness
-  checks.push("caps");
-  try {
-    const metrics = sectionMetrics(draftText, `s${sectionNumber}` as any);
-    if (metrics.overLimit) {
-      issues.push(
-        `Word cap breach: ${metrics.words} words (limit: ${metrics.limit}), ${metrics.lines} lines`
-      );
-    }
-  } catch (err) {
-    // Silently skip cap check if sectionMetrics fails (section number invalid, etc.)
-    // Compliance note will still record the attempt
+  if (input.glossaryCandidates.length > 0) {
+    blocks.push(
+      block(
+        "GLOSSARY CANDIDATES (Glossary Terms not found verbatim in the section)",
+        input.glossaryCandidates.map((term) => `- ${term}`).join("\n")
+      )
+    );
   }
-
-  // Check 4: Unreliable Facts (CAP-9)
-  if (analysis) {
-    checks.push("facts_reliability");
-    // Placeholder: check if unreliable facts appear unhedged
-    // Would check Brief.confidenceMap for "unreliable" or "unresolved" facts
+  const instructionLines: string[] = [];
+  if (input.writerInstructions?.trim()) {
+    instructionLines.push(input.writerInstructions.trim());
   }
-
-  // Check 5: Section Contradictions (implicit in consistency pass)
-  if (priorSections.length > 0) {
-    checks.push("contradictions");
-    // Placeholder: would compare established facts
+  input.rules.forEach((rule, index) => {
+    const scope =
+      rule.paragraphIndex !== undefined ? ` (paragraph ${rule.paragraphIndex + 1})` : "";
+    instructionLines.push(`[R${index + 1}]${scope} ${rule.instruction}`);
+  });
+  if (instructionLines.length > 0) {
+    blocks.push(block("WRITER INSTRUCTIONS", instructionLines.join("\n\n")));
   }
+  return `${SELF_CHECK_REQUEST.userScaffold.prefix}${blocks.join(SELF_CHECK_REQUEST.userScaffold.blockSeparator)}`;
+}
 
-  // Determine outcome
-  if (issues.length === 0) {
-    return {
-      status: "pass",
-      checks,
-    };
-  }
+export type ModelSelfCheckResult = {
+  verdicts: ModelVerdict[];
+  storylineQuestion: {
+    question: string;
+    sectionClaim: string;
+    storylineAlternative: string;
+    /** 0-based index into the Confidence Map entries sent, or null. */
+    confidenceEntryIndex: number | null;
+  } | null;
+};
 
-  // If issues found, attempt repair (placeholder — actual repair would call LLM)
+/** One structured Self-check call for one drafted section. */
+export async function runModelSelfCheck(
+  client: GenerationClient,
+  input: SelfCheckModelInput
+): Promise<ModelSelfCheckResult> {
+  const raw = await generateStructured<RawSelfCheck>(client, {
+    system: SELF_CHECK_SYSTEM_PROMPT,
+    user: buildSelfCheckUserMessage(input),
+    toolName: SELF_CHECK_REQUEST.toolName,
+    description: SELF_CHECK_REQUEST.toolDescription,
+    schema: SELF_CHECK_SCHEMA as unknown as Anthropic.Tool.InputSchema,
+    maxTokens: SELF_CHECK_REQUEST.maxTokens,
+    model: input.model,
+    validate: selfCheckOutputSchema,
+  });
+  const count = sectionParagraphs(input.text).length;
+  const verdicts: ModelVerdict[] = raw.verdicts
+    .slice(0, SELF_CHECK_REQUEST.maxVerdicts)
+    .map((verdict) => ({
+      paragraphIndex: clampParagraph(verdict.paragraph, count),
+      check: verdict.check,
+      instruction: verdict.instruction.trim() || `${verdict.check} check`,
+      outcome: verdict.outcome,
+      reason: verdict.reason.trim(),
+      ...(verdict.repairGuidance?.trim()
+        ? { repairGuidance: verdict.repairGuidance.trim() }
+        : {}),
+    }));
+  const question = raw.storylineQuestion;
+  const entryIndex =
+    question && Number.isInteger(question.confidenceEntry) &&
+    question.confidenceEntry >= 1 &&
+    question.confidenceEntry <= input.confidenceMap.length
+      ? question.confidenceEntry - 1
+      : null;
   return {
-    status: "repair_attempted",
-    checks,
-    repairAttempted: true,
-    // Patch 7: hardcoded false is placeholder pending Phase 3 (pipeline orchestration).
-    // During Phase 3, pipeline.ts will call attemptRepair() and set this to true/false based on outcome.
-    repairSuccess: false,
-    issues,
-    detail: `Found ${issues.length} issue(s) during self-check`,
+    verdicts,
+    storylineQuestion: question?.question.trim()
+      ? {
+          question: question.question.trim(),
+          sectionClaim: question.sectionClaim.trim(),
+          storylineAlternative: question.storylineAlternative.trim(),
+          confidenceEntryIndex: entryIndex,
+        }
+      : null,
   };
 }
 
-/**
- * Placeholder for repair attempt logic.
- * Story 2 spec says: one repair attempt per section, using same generation pipeline.
- * This would call the section generation agent with repair guidance.
- */
-export async function attemptRepair(
-  sectionNumber: string,
-  draftText: string,
-  issue: string
-): Promise<string | null> {
-  // Placeholder: would call generation with repair prompt
-  // e.g., "The draft has [issue]. Revise to fix it."
-  return null;
+export type ConsistencyInput = {
+  sections: Array<{ section: SectionNumber; text: string }>;
+  claimExclusions: string[];
+  glossaryTerms: string[];
+  model: string;
+};
+
+export function buildConsistencyUserMessage(input: ConsistencyInput): string {
+  const blocks = input.sections.map(({ section, text }) =>
+    block(ORDERED_SECTION_TITLES[section].toUpperCase(), numberedSectionParagraphs(text))
+  );
+  if (input.claimExclusions.length > 0) {
+    blocks.push(
+      block("CLAIM EXCLUSIONS", input.claimExclusions.map((text) => `- ${text}`).join("\n"))
+    );
+  }
+  if (input.glossaryTerms.length > 0) {
+    blocks.push(
+      block("GLOSSARY TERMS", input.glossaryTerms.map((term) => `- ${term}`).join("\n"))
+    );
+  }
+  return `${CONSISTENCY_REQUEST.userScaffold.prefix}${blocks.join(CONSISTENCY_REQUEST.userScaffold.blockSeparator)}`;
+}
+
+/** The one structured consistency call over the assembled draft. */
+export async function runConsistencyPass(
+  client: GenerationClient,
+  input: ConsistencyInput
+): Promise<ConsistencyFinding[]> {
+  const raw = await generateStructured<{ findings: RawFinding[] }>(client, {
+    system: CONSISTENCY_SYSTEM_PROMPT,
+    user: buildConsistencyUserMessage(input),
+    toolName: CONSISTENCY_REQUEST.toolName,
+    description: CONSISTENCY_REQUEST.toolDescription,
+    schema: CONSISTENCY_SCHEMA as unknown as Anthropic.Tool.InputSchema,
+    maxTokens: CONSISTENCY_REQUEST.maxTokens,
+    model: input.model,
+    validate: consistencyOutputSchema,
+  });
+  const counts = new Map(
+    input.sections.map(({ section, text }) => [section, sectionParagraphs(text).length])
+  );
+  return raw.findings
+    .filter((finding) => isSectionNumber(finding.section) && counts.has(finding.section))
+    .slice(0, CONSISTENCY_REQUEST.maxFindings)
+    .map((finding) => ({
+      section: finding.section,
+      paragraphIndex: clampParagraph(finding.paragraph, counts.get(finding.section) ?? 0),
+      sections: [...new Set([finding.section, ...finding.sections])].sort(),
+      kind: finding.kind,
+      issue: finding.issue.trim(),
+    }));
 }

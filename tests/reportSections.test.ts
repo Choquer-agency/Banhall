@@ -3,6 +3,11 @@ import {
   parseCanonicalReport,
   reportSectionMetrics,
 } from "../src/lib/reportSections";
+import {
+  NOT_GENERATED_PLACEHOLDER,
+  buildTiptapDocument,
+  sectionParagraphs,
+} from "../convex/lib/tiptapReport";
 
 type InlineNode = {
   type: string;
@@ -145,5 +150,37 @@ describe("parseCanonicalReport", () => {
       { code: "CONTENT_OUTSIDE_SECTION", section: undefined },
       { code: "MISSING_SECTION", section: "s242" },
     ]);
+  });
+});
+
+// Story 2 (CAP-10, AD-8/AD-24): what the ordered chain assembles is exactly
+// what the export path reads back — same three headings, same paragraphs —
+// including a stopped generation's [NOT GENERATED] bodies.
+describe("ordered chain editor/export parity", () => {
+  test("assembled chain content parses back into the same three sections and paragraphs", () => {
+    const sections = {
+      s242: "First uncertainty.\n\nSecond uncertainty with a soft\nwrap.",
+      s244: "Work one.\n\nWork two.\n\nWork three.",
+      s246: "Advancement stated once.",
+    };
+    const content = JSON.stringify(
+      buildTiptapDocument("FY2026 project", sections.s242, sections.s244, sections.s246)
+    );
+    const parsed = parseCanonicalReport(content);
+    expect(parsed.diagnostics).toEqual([]);
+    for (const key of ["s242", "s244", "s246"] as const) {
+      expect(parsed.sections[key].blocks.map((block) => block.text)).toEqual(
+        sectionParagraphs(sections[key])
+      );
+    }
+  });
+
+  test("a stopped chain keeps every section present with a [NOT GENERATED] body", () => {
+    const content = JSON.stringify(buildTiptapDocument("T", "Only Line 242 was drafted.", null, null));
+    const parsed = parseCanonicalReport(content);
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.sections.s242.plainText).toBe("Only Line 242 was drafted.");
+    expect(parsed.sections.s244.blocks).toEqual([{ kind: "paragraph", text: NOT_GENERATED_PLACEHOLDER }]);
+    expect(parsed.sections.s246.blocks).toEqual([{ kind: "paragraph", text: NOT_GENERATED_PLACEHOLDER }]);
   });
 });

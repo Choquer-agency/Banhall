@@ -102,6 +102,40 @@ async function runCandidates(t: ReturnType<typeof convexTest>) {
     const args = job.args[0] as FunctionArgs<typeof internal.ai.pipeline.generateCandidate>;
     await t.action(internal.ai.pipeline.generateCandidate, args);
   }
+  await drainOrderedChains(t);
+}
+
+// Story 2 (AD-24): single/compare candidates run the ordered chain — one
+// scheduled action per section, then finalize. Run exactly those persisted
+// payloads (cancel first so a fake-timer flush can never run one twice).
+const ORDERED_SECTION_JOB = "ai/orderedGeneration:generateOrderedSection";
+const ORDERED_FINALIZE_JOB = "ai/orderedGeneration:finalizeOrderedCandidate";
+async function drainOrderedChains(t: ReturnType<typeof convexTest>) {
+  for (let round = 0; round < 50; round += 1) {
+    const jobs = await t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) =>
+          (job.name === ORDERED_SECTION_JOB || job.name === ORDERED_FINALIZE_JOB) &&
+          job.state.kind === "pending"
+      )
+    );
+    if (jobs.length === 0) return;
+    for (const job of jobs) {
+      await t.run((ctx) => ctx.scheduler.cancel(job._id));
+      if (job.name === ORDERED_SECTION_JOB) {
+        await t.action(
+          internal.ai.orderedGeneration.generateOrderedSection,
+          job.args[0] as FunctionArgs<typeof internal.ai.orderedGeneration.generateOrderedSection>
+        );
+      } else {
+        await t.action(
+          internal.ai.orderedGeneration.finalizeOrderedCandidate,
+          job.args[0] as FunctionArgs<typeof internal.ai.orderedGeneration.finalizeOrderedCandidate>
+        );
+      }
+    }
+  }
+  throw new Error("The ordered section chain did not drain");
 }
 
 function userText(params: Anthropic.MessageCreateParamsNonStreaming): string {
@@ -187,9 +221,12 @@ describe("shared generation analysis", () => {
     const runs = await t.run((ctx) => ctx.db.query("generationCandidateRuns").collect());
     for (const run of runs) {
       const owned = usage.filter((row) => row.candidateRunId === run._id);
+      // Ordered chain: per section one draft and one Self-check (no repair
+      // needed here), then one consistency pass, QA and chronology.
       expect(owned.map((row) => row.callSite).sort()).toEqual([
-        "generation:chronology", "generation:qa", "generation:section:242",
-        "generation:section:244", "generation:section:246",
+        "generation:chronology", "generation:consistency", "generation:qa",
+        "generation:section:242", "generation:section:244", "generation:section:246",
+        "generation:selfCheck:242", "generation:selfCheck:244", "generation:selfCheck:246",
       ]);
       expect(owned.every((row) => row.generationId === generationId && row.model === run.model)).toBe(true);
     }
@@ -284,6 +321,7 @@ describe("shared analysis failure and compatibility", () => {
     const { analysis: _analysis, ...legacy } = job.args[0] as FunctionArgs<typeof internal.ai.pipeline.generateCandidate>;
     network.create.mockClear();
     await t.action(internal.ai.pipeline.generateCandidate, legacy);
+    await drainOrderedChains(t);
     expect(analyzerCalls()).toHaveLength(1);
     expect(analyzerCalls()[0][0].model).toBe(pair[index]);
     expect(generationPromptProgram.calls.analyzer.model.legacyCandidate).toEqual({
@@ -331,7 +369,8 @@ it("shares one analysis across Anthropic and OpenRouter candidates without chang
   const candidates = await t.run((ctx) => ctx.db.query("reportCandidates").collect());
   expect(candidates.map((row) => row.model).sort()).toEqual([pair[0], gatewayModel].sort());
   for (const candidate of candidates) expect(JSON.parse(candidate.agentOutputs).analyzer).toEqual(analysis);
-  expect(requests).toHaveLength(5);
+  // 3 section drafts + 3 Self-checks + 1 consistency pass + QA + chronology.
+  expect(requests).toHaveLength(9);
   for (const request of requests) {
     expect(request.model).toBe(gatewayModel);
     expect(request.messages.every((message) => typeof message.content === "string")).toBe(true);

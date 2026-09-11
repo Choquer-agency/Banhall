@@ -1,4 +1,9 @@
 import { defineSchema, defineTable } from "convex/server";
+import { complianceNoteDraftValidator } from "./lib/complianceNote";
+import {
+  sectionNumberValidator,
+  selfCheckRuleValidator,
+} from "./lib/orderedChain";
 import { v } from "convex/values";
 import {
   projectTypeValidator,
@@ -758,11 +763,13 @@ export default defineSchema({
     // Confidence Map, Glossary Terms). Optional; keyed to inputs via inputsHash
     // so identical inputs reuse the same Brief.
     briefId: v.optional(v.id("generationBriefs")),
-    // Story 2 (CAP-5/9/10): Compliance Note recording per-section decisions:
-    // Build Order applied, which profile instructions were applied/unapplied with reasons,
-    // self-check outcomes and repair attempts, and consistency-pass findings.
-    // Stored as JSON string for audit trail and cross-section visibility.
-    complianceNotes: v.optional(v.string()),
+    // Story 2 (CAP-5, AD-24): ordered, ungated generation in single/compare.
+    // The writer's stop request (stopOrderedGeneration), the section the
+    // chain stopped after when fewer than all sections were drafted, and the
+    // Build Order actually run. Compliance Notes live in their own table.
+    stopRequestedAt: v.optional(v.number()),
+    stoppedAfterSection: v.optional(sectionNumberValidator),
+    productionOrder: v.optional(v.array(sectionNumberValidator)),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),
@@ -1420,6 +1427,10 @@ export default defineSchema({
     queuedAt: v.number(),
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
+    // Story 2 (AD-24): when this candidate's one assembled-draft consistency
+    // pass was recorded. The last section in production order is withheld
+    // from getOrderedSectionDrafts until it is set.
+    consistencyCheckedAt: v.optional(v.number()),
   })
     .index("by_generationId", ["generationId"])
     .index("by_generationId_and_model", ["generationId", "model"])
@@ -1439,7 +1450,10 @@ export default defineSchema({
       v.literal("running"), // drafting in flight
       v.literal("awaiting_review"), // draft ready; writer reviewing
       v.literal("approved"), // writer approved (possibly edited) text
-      v.literal("failed") // drafting failed; writer can regenerate
+      v.literal("failed"), // drafting failed; writer can regenerate
+      // Story 2 (AD-24): an ordered (single/compare) section finished its
+      // draft, Self-check and at most one repair. Ungated: no writer review.
+      v.literal("drafted")
     ),
     draftText: v.optional(v.string()), // what the model produced
     approvedText: v.optional(v.string()), // what the writer approved
@@ -1450,12 +1464,20 @@ export default defineSchema({
     attempt: v.number(),
     guidance: v.optional(v.string()), // writer's regeneration guidance
     error: v.optional(v.string()),
+    // Story 2 (AD-24): ordered-chain rows only. Iterative generations never
+    // create these, so iterative's (generationId, section) lookups never meet
+    // one. candidateRunId scopes the row to its compare/single candidate.
+    candidateRunId: v.optional(v.id("generationCandidateRuns")),
+    orderIndex: v.optional(v.number()), // position in the production order
+    selfCheck: v.optional(v.string()), // SelfCheckSummary (JSON)
+    slotCounts: v.optional(v.string()), // AD-27 per-slot call counts (JSON)
     queuedAt: v.number(),
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
   })
     .index("by_generationId", ["generationId"])
-    .index("by_generationId_and_section", ["generationId", "section"]),
+    .index("by_generationId_and_section", ["generationId", "section"])
+    .index("by_candidateRunId_and_section", ["candidateRunId", "section"]),
 
   // Frozen per-generation artifacts for the iterative flow (analysis JSON,
   // brain-block JSON). Kept out of the live-subscribed generations row so the
@@ -1887,8 +1909,12 @@ export default defineSchema({
     customInstructions: v.string(),
     enabled: v.boolean(),
     styleOverrides: v.optional(styleOverridesValidator),
-    // Story 2 (CAP-5): Custom section generation order; defaults to ["242", "244", "246"].
+    // Story 2 (CAP-5): custom section generation order, stored as sent
+    // (trimmed) and validated on read (convex/lib/orderedChain.ts
+    // resolveBuildOrder); an invalid order falls back to 242 → 244 → 246.
     buildOrder: v.optional(v.array(v.string())),
+    // Story 2 (CAP-9): per-paragraph / per-section Self-check rules.
+    selfCheckRules: v.optional(v.array(selfCheckRuleValidator)),
     updatedBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2186,6 +2212,23 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_briefId", ["briefId"]),
+
+  // Story 2 (CAP-7, AD-25): one row per Self-check / consistency decision for
+  // one section of one generation (and, per candidate, its candidateRunId).
+  // Written only by the ordered section-chain mutations in generations.ts;
+  // read only through complianceNotes.listForGeneration.
+  complianceNotes: defineTable({
+    projectId: v.id("projects"),
+    generationId: v.id("generations"),
+    candidateRunId: v.optional(v.id("generationCandidateRuns")),
+    ...complianceNoteDraftValidator.fields,
+  })
+    .index("by_generationId_and_section", ["generationId", "section"])
+    .index("by_generationId_and_candidateRunId_and_section", [
+      "generationId",
+      "candidateRunId",
+      "section",
+    ]),
 
   // Admin-tunable app settings, one row per key. Currently: "defaultModel" —
   // the generation model used when a writer doesn't pick one explicitly.

@@ -31,6 +31,7 @@ import type { GenerationMessageParams } from "./openrouterCore";
 import { SECTION_242_REQUEST } from "./section242Agent";
 import { SECTION_244_REQUEST } from "./section244Agent";
 import { SECTION_246_REQUEST } from "./section246Agent";
+import { ORDERED_PROMPT_SCAFFOLDS } from "./promptDefinitions";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -205,6 +206,40 @@ async function runCandidates(t: ReturnType<typeof convexTest>) {
     const args = job.args[0] as FunctionArgs<typeof internal.ai.pipeline.generateCandidate>;
     await t.action(internal.ai.pipeline.generateCandidate, args);
   }
+  await drainOrderedChains(t);
+}
+
+// Story 2 (AD-24): single/compare candidates run the ordered chain — one
+// scheduled action per section, then finalize. Run exactly those persisted
+// payloads (cancel first so a fake-timer flush can never run one twice).
+const ORDERED_SECTION_JOB = "ai/orderedGeneration:generateOrderedSection";
+const ORDERED_FINALIZE_JOB = "ai/orderedGeneration:finalizeOrderedCandidate";
+async function drainOrderedChains(t: ReturnType<typeof convexTest>) {
+  for (let round = 0; round < 50; round += 1) {
+    const jobs = await t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) =>
+          (job.name === ORDERED_SECTION_JOB || job.name === ORDERED_FINALIZE_JOB) &&
+          job.state.kind === "pending"
+      )
+    );
+    if (jobs.length === 0) return;
+    for (const job of jobs) {
+      await t.run((ctx) => ctx.scheduler.cancel(job._id));
+      if (job.name === ORDERED_SECTION_JOB) {
+        await t.action(
+          internal.ai.orderedGeneration.generateOrderedSection,
+          job.args[0] as FunctionArgs<typeof internal.ai.orderedGeneration.generateOrderedSection>
+        );
+      } else {
+        await t.action(
+          internal.ai.orderedGeneration.finalizeOrderedCandidate,
+          job.args[0] as FunctionArgs<typeof internal.ai.orderedGeneration.finalizeOrderedCandidate>
+        );
+      }
+    }
+  }
+  throw new Error("The ordered section chain did not drain");
 }
 
 function userText(params: Anthropic.MessageCreateParamsNonStreaming): string {
@@ -234,8 +269,12 @@ describe("Generation Brief reaches the drafting pipeline (story 1 wiring)", () =
     expect(generation?.briefId).toBeDefined();
 
     for (const section of sectionRequests) {
-      const drafts = network.create.mock.calls.filter(([params]) =>
-        userText(params).startsWith(section.userPrefix)
+      // The fixture transcript contains the Brief's Claim Exclusion, so each
+      // section's Self-check triggers its one repair; count first drafts only.
+      const drafts = network.create.mock.calls.filter(
+        ([params]) =>
+          userText(params).startsWith(section.userPrefix) &&
+          !userText(params).includes(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.prefix)
       );
       expect(drafts).toHaveLength(1);
       const prompt = userText(drafts[0][0]);

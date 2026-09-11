@@ -5,6 +5,8 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { MAX_INSTRUCTIONS_CHARS } from "../shared/writerProfileLimits";
 import { NO_STYLE_OVERRIDES } from "../shared/styleOverrides";
+import { runDeterministicSelfCheck } from "./lib/selfCheckRules";
+import type { OrderedProfileContext } from "./lib/orderedChain";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -150,8 +152,6 @@ describe("writer profile style overrides", () => {
     expect(forGeneration).toEqual({
       customInstructions: "Legacy instructions.",
       styleOverrides: NO_STYLE_OVERRIDES,
-      buildOrder: ["242", "244", "246"],
-      tier: "writer_profile",
     });
   });
 
@@ -169,8 +169,6 @@ describe("writer profile style overrides", () => {
     expect(result).toEqual({
       customInstructions: null,
       styleOverrides: { ...NO_STYLE_OVERRIDES, repetitionCaps: true },
-      buildOrder: ["242", "244", "246"],
-      tier: "writer_profile",
     });
   });
 
@@ -251,5 +249,222 @@ describe("writer profile style overrides", () => {
         userId: ids.writerId,
       })
     ).resolves.toBeNull();
+  });
+});
+
+// ─── Story 2 (CAP-5/6/9, AD-26): ordered-generation profile context ─────────
+
+const ALL_WRITER_CHOICE = {
+  bannedWords: "writer_choice",
+  paragraphDensity: "writer_choice",
+  sentenceConstruction: "writer_choice",
+  repetitionCaps: "writer_choice",
+  openingClauses: "writer_choice",
+  reportSkeleton: "writer_choice",
+} as const;
+
+describe("ordered generation profile context", () => {
+  test("a custom Build Order is stored as sent (trimmed) and returned", async () => {
+    const { t, writer, ids } = await setup();
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "Findings first.",
+      enabled: true,
+      buildOrder: [" 246", "242 ", "244"],
+    });
+    expect((await writer.query(api.writerProfiles.getMyProfile, {}))?.buildOrder).toEqual([
+      "246",
+      "242",
+      "244",
+    ]);
+    const context = await t.query(internal.writerProfiles.getGenerationProfileContext, {
+      userId: ids.writerId,
+    });
+    expect(context.profileState).toBe("applied");
+    expect(context.buildOrder).toEqual(["246", "242", "244"]);
+    expect(context.buildOrderFallbackReason).toBeUndefined();
+  });
+
+  test.each([
+    [["242", "245", "246"], /^invalid section in Build Order: 245; House Rules default 242 → 244 → 246 used$/],
+    [["242", "242", "246"], /^Build Order repeats section 242; /],
+    [["246", "242"], /^Build Order is missing section 244; /],
+  ])("Build Order %j falls back to 242 → 244 → 246 with a reason and never throws", async (order, reason) => {
+    const { t, writer, ids } = await setup();
+    await expect(
+      writer.mutation(api.writerProfiles.saveMyProfile, {
+        customInstructions: "",
+        enabled: true,
+        buildOrder: order,
+      })
+    ).resolves.toBeNull();
+    // Stored as sent: validity is decided on read so the reason survives.
+    expect((await writer.query(api.writerProfiles.getMyProfile, {}))?.buildOrder).toEqual(order);
+    const context = await t.query(internal.writerProfiles.getGenerationProfileContext, {
+      userId: ids.writerId,
+    });
+    expect(context.buildOrder).toEqual(["242", "244", "246"]);
+    expect(context.buildOrderFallbackReason).toMatch(reason);
+  });
+
+  test("disabled and missing profiles report profileState and still yield the default order", async () => {
+    const { t, writer, ids } = await setup();
+    const missing = await t.query(internal.writerProfiles.getGenerationProfileContext, {
+      userId: ids.writerId,
+    });
+    expect(missing).toMatchObject({
+      profileState: "missing",
+      buildOrder: ["242", "244", "246"],
+      selfCheckRules: [],
+    });
+    expect(missing.buildOrderFallbackReason).toBeUndefined();
+    expect(
+      (await t.query(internal.writerProfiles.getGenerationProfileContext, {})).profileState
+    ).toBe("missing");
+
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "Ignored while disabled.",
+      enabled: false,
+      buildOrder: ["246", "242", "244"],
+      selfCheckRules: [{ instruction: "Lead with the uncertainty.", maxWords: 120 }],
+    });
+    const disabled = await t.query(internal.writerProfiles.getGenerationProfileContext, {
+      userId: ids.writerId,
+    });
+    expect(disabled).toMatchObject({
+      profileState: "disabled",
+      buildOrder: ["242", "244", "246"],
+      selfCheckRules: [],
+    });
+    expect(disabled.buildOrderFallbackReason).toBeUndefined();
+  });
+
+  test("category tier is org_enforced for enforced and off modes, none otherwise", async () => {
+    const { t, admin, writer, ids } = await setup();
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "My rules.",
+      enabled: true,
+      styleOverrides: { bannedWords: true, repetitionCaps: true },
+    });
+    await admin.mutation(api.houseStyle.setModes, {
+      modes: { ...ALL_WRITER_CHOICE, bannedWords: "enforced", paragraphDensity: "off" },
+    });
+    const context = await t.query(internal.writerProfiles.getGenerationProfileContext, {
+      userId: ids.writerId,
+    });
+    const byCategory = Object.fromEntries(
+      context.categoryOutcomes.map((outcome) => [outcome.category, outcome])
+    );
+    expect(context.categoryOutcomes).toHaveLength(6);
+    expect(byCategory.bannedWords).toEqual({
+      category: "bannedWords",
+      mode: "enforced",
+      effective: false,
+      tier: "org_enforced",
+    });
+    expect(byCategory.paragraphDensity).toEqual({
+      category: "paragraphDensity",
+      mode: "off",
+      effective: true,
+      tier: "org_enforced",
+    });
+    expect(byCategory.repetitionCaps).toEqual({
+      category: "repetitionCaps",
+      mode: "writer_choice",
+      effective: true,
+      tier: "none",
+    });
+    expect(byCategory.openingClauses).toMatchObject({ effective: false, tier: "none" });
+  });
+
+  test("category tier is copied verbatim into Compliance Note rows, never recomputed", async () => {
+    const { t, admin, ids } = await setup();
+    await admin.mutation(api.houseStyle.setModes, {
+      modes: { ...ALL_WRITER_CHOICE, bannedWords: "enforced" },
+    });
+    const context = await t.query(internal.writerProfiles.getGenerationProfileContext, {
+      userId: ids.writerId,
+    });
+    const categoryRows = (profile: OrderedProfileContext) =>
+      runDeterministicSelfCheck({
+        section: "242",
+        text: "The team could not predict the response under load.",
+        brief: null,
+        profile,
+        isFirstInOrder: true,
+      }).entries.filter((entry) => entry.key.startsWith("category:"));
+
+    const rows = categoryRows(context);
+    expect(rows).toHaveLength(6);
+    for (const outcome of context.categoryOutcomes) {
+      const row = rows.find((entry) => entry.key === `category:${outcome.category}`);
+      expect(row?.row.tier, outcome.category).toBe(outcome.tier);
+    }
+    // A tier that contradicts its own mode still lands verbatim: the rows
+    // copy getEffectiveWriterStyle's outcome and never re-derive it.
+    const flipped: OrderedProfileContext = {
+      ...context,
+      categoryOutcomes: context.categoryOutcomes.map((outcome) => ({
+        ...outcome,
+        tier: outcome.tier === "none" ? ("org_enforced" as const) : ("none" as const),
+      })),
+    };
+    for (const outcome of flipped.categoryOutcomes) {
+      const row = categoryRows(flipped).find(
+        (entry) => entry.key === `category:${outcome.category}`
+      );
+      expect(row?.row.tier, outcome.category).toBe(outcome.tier);
+    }
+  });
+
+  test("getProfileForGeneration keeps its pre-story shape and null contract", async () => {
+    const { t, writer, ids } = await setup();
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "Short sentences.",
+      enabled: true,
+      buildOrder: ["246", "242", "244"],
+      selfCheckRules: [{ instruction: "Lead with the uncertainty." }],
+    });
+    const applied = await t.query(internal.writerProfiles.getProfileForGeneration, {
+      userId: ids.writerId,
+    });
+    expect(applied).toEqual({
+      customInstructions: "Short sentences.",
+      styleOverrides: NO_STYLE_OVERRIDES,
+    });
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "Short sentences.",
+      enabled: false,
+    });
+    await expect(
+      t.query(internal.writerProfiles.getProfileForGeneration, { userId: ids.writerId })
+    ).resolves.toBeNull();
+  });
+
+  test("Self-check rules are validated on save and returned for an applied profile", async () => {
+    const { t, writer, ids } = await setup();
+    const save = (selfCheckRules: Array<Record<string, unknown>>) =>
+      writer.mutation(api.writerProfiles.saveMyProfile, {
+        customInstructions: "",
+        enabled: true,
+        selfCheckRules: selfCheckRules as never,
+      });
+    await expect(
+      save(Array.from({ length: 21 }, (_, index) => ({ instruction: `Rule ${index}` })))
+    ).rejects.toThrow(/at most 20/);
+    await expect(save([{ instruction: "x".repeat(501) }])).rejects.toThrow(/500/);
+    await expect(save([{ instruction: "   " }])).rejects.toThrow(/needs an instruction/);
+    await expect(save([{ instruction: "Cap it.", maxWords: 0 }])).rejects.toThrow(/positive whole number/);
+    await expect(save([{ instruction: "Cap it.", maxLines: 2.5 }])).rejects.toThrow(/positive whole number/);
+    await expect(save([{ instruction: "Cap it.", paragraphIndex: -1 }])).rejects.toThrow(/non-negative/);
+
+    await save([
+      { section: "242", paragraphIndex: 0, instruction: "  Lead with the uncertainty.  ", maxWords: 500 },
+    ]);
+    const context = await t.query(internal.writerProfiles.getGenerationProfileContext, {
+      userId: ids.writerId,
+    });
+    expect(context.selfCheckRules).toEqual([
+      { section: "242", paragraphIndex: 0, instruction: "Lead with the uncertainty.", maxWords: 500 },
+    ]);
   });
 });

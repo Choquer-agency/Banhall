@@ -2,8 +2,7 @@
 title: 'Ordered, ungated generation with Self-check and Compliance Notes'
 type: 'feature'
 created: '2026-09-10'
-status: 'in-progress'
-baseline_revision: 'fefeb82b0fed01f5c130e449cee57badc9b44254'
+status: 'in-review'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -17,21 +16,27 @@ context:
 warnings: []
 deferred:
   - summary: >-
-      Phases 3-6 (pipeline orchestration, consistency pass, prompts, comprehensive tests) deferred to next implementation cycle. Phases 1-2 complete (schema, profiles, selfCheck types, compliance note structures).
+      UI surfaces for this story's backend: rendering drafted sections as they complete, a Stop button calling
+      generations.stopOrderedGeneration, and the Compliance line/QA rail reading complianceNotes.listForGeneration.
     evidence: |-
-      Implementation agent completed phases 1-2:
-      - convex/schema.ts: complianceNotes field added ✓
-      - convex/writerProfiles.ts: buildOrder support + tier tracking ✓
-      - convex/ai/selfCheck.ts: self-check module with types ✓
-      - convex/lib/complianceNote.ts: compliance record structures ✓
-      - convex/ai/promptProgram.ts: ordered topology documented ✓
-      
-      Remaining work (phases 3-6):
-      - Pipeline.ts: ordered section generation loop, prior-context injection
-      - PostQa.ts: consistency pass detection
-      - Prompts.ts: self-check + prior-context templates
-      - Tests: selfCheck.test.ts, pipeline.test.ts (ordering), coverage for all matrix rows
+      AD-25 names stories 4 and 5 as the readers of complianceNotes; story 4 (ui lane) owns the Brief panel and the
+      "no Writer Profile applied" line. This story ships the stored rows, the one read query, the stop mutation and the
+      drafted-section query those surfaces consume.
     severity: medium
+  - summary: >-
+      "Generate the rest" after a stop: a new generation carrying resumesGenerationId with the drafted sections as prior
+      context (AD-24).
+    evidence: |-
+      Needs a request surface and a generation-writer path through createGeneratedReportArtifacts; no caller exists
+      until the stop UI ships. This story records stoppedAfterSection and renders [NOT GENERATED] placeholders so the
+      resume path has a well-formed report to extend.
+    severity: medium
+  - summary: >-
+      Writer Profile settings UI for buildOrder and selfCheckRules.
+    evidence: |-
+      Both fields are accepted by saveMyProfile/saveProfileForUser and read by generation here; story 3 (profile lane)
+      owns profile fidelity and the settings-document path that populates them.
+    severity: low
 ---
 
 <intent-contract>
@@ -91,45 +96,52 @@ deferred:
 
 ## Code Map
 
-- `convex/writerProfiles.ts:46-100` -- Add `buildOrder` (v.optional array of section names) and `selfCheckRules` (per-paragraph customization) to profile validator and upsert flow
-- `convex/writerProfiles.ts:215-237` -- Extend `getEffectiveWriterStyle` to return `{ customInstructions, styleOverrides, buildOrder, selfCheckRules }` and report which tier applies (House Rules | Writer Profile | Org Mode | Locked Rules)
-- `convex/schema.ts` -- Add optional `complianceNotes` field to `generations` table to store per-section compliance and self-check outcomes
-- `convex/ai/promptProgram.ts:250-263` -- Replace parallel `["section242", "section244", "section246"]` in `candidatePipeline` with ordered array and conditional prior-section context injection; keep `iterative` mode unchanged
-- `convex/ai/selfCheck.ts` -- New module or extend `convex/ai/qaAgent.ts` with `runSelfCheck(section, sectionNumber, brief, profile, priorSections) → { pass: boolean, repairs: Repair[], outcome: string }` using the rubric from CAP-9 (exclusions, glossary calibration, paragraph rules, Locked Rules)
-- `convex/ai/promptProgram.ts:235-260` -- Add a self-check stage after each section generation: `{ selfCheck: ["selfCheck242", "selfCheck244", "selfCheck246"] }` at the same indentation level as sections; conditionally run repair if check fails
-- `convex/ai/postQa.ts` -- Extend assembled-draft consistency pass: detect claim contradictions, section-level consistency, record flagged sections and reasons
-- `convex/lib/complianceNote.ts` -- New: `compileComplianceNote(generation, repairOutcomes, profileTiers) → ComplianceNote` object with per-section records: `{ section, appliedInstructions[], notAppliedReasons[], repairAttempted, repairOutcome }`
-- `convex/ai/pipeline.ts` -- Modify the generation orchestration to: (1) read Build Order after analyzer, (2) wire prior-section context into each section call, (3) insert self-check after each section, (4) collect repair outcomes, (5) run consistency pass once at the end
-- `convex/ai/prompts.ts` -- Add self-check system prompts and request schemas for each section (qaSystemTemplates extension or new selfCheckSystemTemplates); add Compliance Note instruction injections per section
-- `shared/generationModels.ts` -- Verify call budget accounting: per-section is `1 generation + 1 self-check + 0–1 repair`; consistency pass is 1 call; total per generation is roughly 3 sections × (2–3 calls) + 1 consistency = 7–10 calls
-- `convex/_generated/ai/guidelines.md` -- Verify no new schema tables; all data fits in `generations` `complianceNotes` field and existing audit structures
+Line numbers drift; grep the symbol. Partial work from commits 1ce273b/76c8e2f is the starting point, corrected as below.
+
+- `convex/schema.ts` -- REMOVE `generations.complianceNotes` (the partial's JSON string field). ADD table `complianceNotes` `{projectId, generationId, candidateRunId?: v.id("generationCandidateRuns"), section: "242"|"244"|"246", paragraphIndex?: number, source: "deterministic"|"model", instruction: string, outcome: "applied"|"not_applied", tier: "locked"|"org_enforced"|"conflict"|"missing_fact"|"none", reason: string, repaired: boolean}` with indexes `by_generationId_and_section` and `by_generationId_and_candidateRunId_and_section` (AD-25). ADD to `generations`: `stopRequestedAt?: number`, `stoppedAfterSection?: "242"|"244"|"246"`, `productionOrder?: array of "242"|"244"|"246"` (AD-24; the order actually run). ADD to `generationSectionRuns`: `candidateRunId?: v.id("generationCandidateRuns")`, `orderIndex?: number`, `selfCheck?: string` (JSON summary), `slotCounts?: string` (JSON), status literal `"drafted"`, index `by_candidateRunId_and_section`. ADD to `generationCandidateRuns`: `consistencyCheckedAt?: number`. ADD to `writerProfiles`: `selfCheckRules?: array of {section?: "242"|"244"|"246", paragraphIndex?: number, instruction: string, maxWords?: number, maxLines?: number}` (keep the partial's `buildOrder`).
+- `convex/writerProfiles.ts` -- Build Order is stored as sent (trimmed) and validated on READ, not dropped on save: it must be a permutation of exactly 242/244/246, otherwise the default 242 -> 244 -> 246 is used and a `buildOrderFallbackReason` is returned. `selfCheckRules` validated on save (max 20 rules, instruction <= 500 chars, positive integer caps). `getEffectiveWriterStyle` returns, per AD-26, `profileState: "applied"|"disabled"|"missing"` and `categoryOutcomes: [{category, mode, effective, tier}]` for the six `STYLE_OVERRIDE_KEYS` (tier: `org_enforced` when the org mode is `enforced` or `off`, otherwise `none`), plus `buildOrder`, `buildOrderFallbackReason?`, `selfCheckRules`. Replace the partial's `tier: house_rules|writer_profile` field with this shape. `getProfileForGeneration` keeps its pre-story return shape and its null-when-nothing-to-apply contract (restored in 6e0beaa); revert the partial's `buildOrder`/`tier` additions there. New `internalQuery getGenerationProfileContext({userId?})` always returns the ordered-generation context above (never null).
+- `convex/ai/instrument.ts` -- AD-27 slot enum: `GENERATION_CALL_SLOTS` const covering every label the codebase emits: fixed `analyzer`, `retrieval_brief`, `condense`, `brief`, `consistency`, `qa`, `chronology`, `post_qa`, `post_chronology`; per-section `section:<n>`, `selfCheck:<n>`, `repair:<n>`, `compression:<n>` with n in 242/244/246. `assertGenerationCallSite(callSite)` throws on any other `generation:*` label (non-`generation:` labels pass untouched); called from `instrumentedAnthropic` and `clientForModel` (`convex/ai/providers.ts`). Pure `summarizeSlotUsage(counts)` returns per-slot counts and `overrun: string[]` against the allowances: per candidate `brief` <= 1, `section:<n>` / `selfCheck:<n>` / `repair:<n>` <= 1 each, `compression:<n>` <= 2, `consistency` <= 1. Recorded, never enforced (Q12).
+- `convex/lib/selfCheckRules.ts` (new, no `"use node"`) -- deterministic Self-check: Claim Exclusions (normalized substring, empty text skipped), Glossary via `convex/lib/glossaryMatcher.ts` (flagged candidates handed to the model call), Locked caps via `sectionMetrics`, profile `selfCheckRules` caps clipped to Locked caps (`tier: conflict`, reason like `cap met at 350/350 words`), six category rows copying `tier` verbatim from `categoryOutcomes`, the Writer Profile row (`no Writer Profile applied (disabled|missing)` when `profileState` is not `applied`), the Build Order row on the first section in production order. Paragraph indices come from the same paragraph split `src/lib/reportSections.ts` uses. Returns row drafts plus `needsRepair` and repair guidance.
+- `convex/ai/selfCheck.ts` -- replace the placeholders: one structured model call per section (`generation:selfCheck:<n>`, `two-attempt-repair` structured policy) returning at most 30 paragraph-scoped verdicts against the Storyline, Confidence Map calibration (a fact marked unresolved/unreliable stated without hedging fails, `tier: missing_fact`), glossary flagged candidates, and each free-text profile instruction / `selfCheckRules.instruction` (quoted verbatim in `instruction`). A Storyline contradiction backed by stronger section evidence is returned as a `storylineQuestion`, never as a repair reason. Delete `attemptRepair`; repair is the section agent (next item).
+- `convex/ai/orderedGeneration.ts` (new, `"use node"`, actions only) -- `generateOrderedSection` internal action: claim via `generations.claimOrderedSectionRun`; draft with the section agent (`runSection242Agent`/`244`/`246`, label `generation:section:<n>`) and a DRAFTED prior-sections block (new `draftedPriorSections` scaffold; not the iterative "approved" wording) plus the Brief block and frozen style guidance; banned-word scrub; `compressToFit` (<= 2 calls); deterministic + model Self-check; at most one repair through the same section agent with the repair guidance appended (label `generation:repair:<n>`), re-scrubbed, deterministic re-check only; then `completeOrderedSectionRun`. Worst case 1 + 2 + 1 + 1 = 5 sequential calls = `SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE`. `finalizeOrderedCandidate` internal action: one structured assembled-draft consistency call (`generation:consistency`, at most 20 findings, each naming sections and paragraphIndex) stored as model rows and stamped `consistencyCheckedAt`; then QA and chronology via `Promise.allSettled` as today; `buildTiptapDocument`; `provenanceDrafts` + `createProvenance`; `completeCandidateRun` with `agentOutputs` carrying `selfCheck` summary, `callBudget` (`summarizeSlotUsage` over the section rows' `slotCounts` plus finalize's own) and `productionOrder`. Slot counts come from a counting wrapper around the action's client factory (one increment per `messages.create`).
+- `convex/ai/pipeline.ts` -- `generateReport` reads `getGenerationProfileContext` once beside `fetchWriterStyle` and passes the ordered context to every candidate, so compare candidates share one Build Order. `generateCandidate`: ghost runs (iterative's one-shot comparison) keep `runPipelineForModel` unchanged; non-ghost runs (single/compare) create the ordered section rows and schedule the first `generateOrderedSection` instead of calling `runPipelineForModel`. Chain args carry the same frozen payload `generateCandidate` receives (analysis, brain blocks, style fields, ordered context).
+- `convex/generations.ts` -- new internal mutations `createOrderedSectionRuns`, `claimOrderedSectionRun` (CAS: row `queued`, candidate run `running`, generation `running`, `project.activeGenerationId` matches; returns this candidate's drafted prior sections in production order), `completeOrderedSectionRun` (CAS; stores draft/metrics/selfCheck/slotCounts, inserts that section's `complianceNotes` rows, inserts at most one `storylineQuestion` `generationBriefEntries` row on the generation's Brief, appends a progress line, then schedules the next section, or `finalizeOrderedCandidate` when the order is exhausted or `stopRequestedAt` is set), `failOrderedSectionRun` (marks the row failed and fails the candidate through `completeCandidateRun` with an error), `insertConsistencyNotes`. Public `stopOrderedGeneration({generationId})` (single/compare only; same auth and CAS on `activeGenerationId` as `cancelIterativeGeneration`; sets `stopRequestedAt`; idempotent). `completeCandidateRun` stamps `productionOrder` and, when stopped, `stoppedAfterSection`. Public query `getOrderedSectionDrafts({generationId, candidateRunId?})`: drafted sections in production order, withholding the last section in order until `consistencyCheckedAt` is set. `failStaleGenerations` is unchanged (AD-24: the existing reaper recovers a stalled chain). `getSectionRun` (iterative) must never see ordered rows: iterative generations create none, because their ghost stays one-shot.
+- `convex/complianceNotes.ts` (new) -- the one read query `listForGeneration({generationId, candidateRunId?})` with the same project-access check as `getGeneration`; when `candidateRunId` is absent on a compare generation that has a selected report, it returns the selected candidate's rows (`selectReportCandidate` inheritance). Bounded `take(1000)`. No other module inserts `complianceNotes` except the section-chain mutations above.
+- `convex/lib/complianceNote.ts` -- replace the JSON aggregate/serialize/deserialize with typed row builders shared by the chain mutations (`ComplianceNoteRow` matching the table validator). No JSON blob anywhere.
+- `convex/lib/tiptapReport.ts` -- `buildTiptapDocument` accepts a missing section and renders a `[NOT GENERATED]` placeholder paragraph under its H2, so AD-8's three-heading contract holds for a stopped generation.
+- `convex/ai/promptProgram.ts` -- `single`/`compare` topology: replace the partial's `orderedSections` object with a declared shape: `{ orderedSectionChain: { defaultBuildOrder: ["242","244","246"], perSection: ["section", "conditionalCompression", "selfCheck", "atMostOneRepair"], gate: "none" } }`, then `"assembled-draft-consistency-pass"`, then `{ allSettled: ["qa","chronology"] }`. Add `calls.selfCheck`, `calls.repair` (section-agent reuse), `calls.consistency`. `iterative` topology unchanged apart from story 1's `brief`.
+- `convex/ai/prompts.ts` / `convex/ai/promptDefinitions.ts` -- Self-check and consistency system prompts, request schemas and the `draftedPriorSections` and repair-guidance scaffolds, in the existing scaffold style.
 
 ## Tasks & Acceptance
 
-**Execution:**
-- `convex/writerProfiles.ts` -- Add `buildOrder` and `selfCheckRules` to validator; extend upsert to accept and store them; add index `by_userId_and_buildOrder` if custom ordering needs fast queries
-- `convex/writerProfiles.ts:215+` -- Extend `getEffectiveWriterStyle` to return compliance tier info and Build Order; update `getProfileForGeneration` query to include tier and order info
-- `convex/schema.ts` -- Add `complianceNotes: v.optional(v.string())` to generations table to store JSON-serialized compliance outcomes per section
-- `convex/ai/selfCheck.ts` -- Implement self-check rubric for CAP-9: check each section against Brief (Claim Exclusions, Glossary Terms), profile paragraph rules, Locked Rules (caps, skeleton); return pass/fail + repair guidance
-- `convex/ai/promptProgram.ts` -- Update `candidatePipeline` to order sections by Build Order; add conditional prior-section context to section requests; keep `iterative` mode topology unchanged
-- `convex/ai/pipeline.ts` -- Wire orchestration: read Build Order after analyzer, pass prior-section context, insert self-check stages, run one consistency pass before final section
-- `convex/lib/complianceNote.ts` -- Compile compliance records from repair outcomes and profile tier decisions; store as JSON on generation
-- `convex/ai/postQa.ts` -- Extend consistency pass to flag section contradictions and record findings
-- `convex/ai/prompts.ts` -- Add self-check prompts and Compliance Note injections per section
-- Tests: `convex/ai/selfCheck.test.ts` (new) -- Test self-check against excluded claims, off-glossary terms, cap breaches, unresolved facts; fixture for one repair pass
-- Tests: `convex/ai/pipeline.test.ts` (extend) -- Ordered generation produces sections in custom Build Order; prior-section context is passed; consistency pass runs once
-- Tests: `convex/writerProfiles.test.ts` (extend) -- Profile with custom Build Order returns correct order; disabled profile uses default; tier decisions recorded in compliance notes
+**Execution (every item is in scope for this run; nothing here is deferred):**
+- [ ] `convex/schema.ts` -- apply the Code Map schema changes; remove `generations.complianceNotes`.
+- [ ] `convex/writerProfiles.ts` -- Build Order read-validation with fallback reason; `selfCheckRules`; AD-26 `profileState` + `categoryOutcomes`; restore the `getProfileForGeneration` shape; add `getGenerationProfileContext`.
+- [ ] `convex/ai/instrument.ts` + `convex/ai/providers.ts` -- slot enum, `assertGenerationCallSite`, `summarizeSlotUsage`; update any test fixture labels that are not real slots.
+- [ ] `convex/lib/selfCheckRules.ts`, `convex/ai/selfCheck.ts`, `convex/lib/complianceNote.ts` -- deterministic rules, the model Self-check call, row builders.
+- [ ] `convex/ai/orderedGeneration.ts`, `convex/ai/pipeline.ts`, `convex/generations.ts` -- the scheduled per-section chain, finalize action, stop mutation, drafted-section query.
+- [ ] `convex/complianceNotes.ts` -- `listForGeneration`.
+- [ ] `convex/lib/tiptapReport.ts` -- `[NOT GENERATED]` placeholder.
+- [ ] `convex/ai/promptProgram.ts`, `convex/ai/prompts.ts`/`promptDefinitions.ts` -- topology and prompts; update the manifest key list in `tests/aiUsage.test.ts` for the new calls.
+- [ ] Tests (convex-test with the provider stubbed at the client boundary, as the existing pipeline tests do; never `test.skip`, never vacuous):
+  - `convex/ai/promptProgram.test.ts` (new): single and compare run the chain in Build Order (default and custom 246 -> 242 -> 244) with each section's prompt containing exactly the prior drafted sections; no generation passes through `awaiting_input` in single/compare; the consistency pass runs exactly once per candidate, before the last section is exposed by `getOrderedSectionDrafts`; `productionOrder` is recorded; compare rows carry `candidateRunId`; iterative still stops at `awaiting_input` after its first section and its ghost still calls `runPipelineForModel`; `stopOrderedGeneration` after the first section yields a completed generation with `stoppedAfterSection` and `[NOT GENERATED]` bodies.
+  - `convex/ai/selfCheck.test.ts` (new): excluded claim -> one repair -> row `repaired: true`; off-glossary synonym -> repair to the Glossary Term; s242 cap breach -> repair, and when the repair still breaches -> `not_applied` with the actual word count and a repair-failed status; unreliable fact stated flat fails the check (`missing_fact`), and the hedged fixture passes; never more than one repair call; `paragraphIndex` set on paragraph-scoped rows; Storyline contradiction inserts one `storylineQuestion` entry and no repair; every section repair-failing still completes the generation with all three sections flagged.
+  - `convex/ai/instrument.test.ts` (extend): slot enum accepts every emitted label, rejects an unknown `generation:*` label, per-slot counts and `overrun`.
+  - `convex/ai/providers.test.ts` (extend): the ordered section action's worst case (1 + squeezes + 1 + 1) equals `SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE`, and the per-action arithmetic is unchanged.
+  - `convex/writerProfiles.test.ts` (extend): custom Build Order returned; invalid, duplicate or partial orders fall back with a reason; disabled and missing profiles report `profileState` and still yield the default order; category `tier` is copied verbatim into complianceNotes rows (never recomputed); the `getProfileForGeneration` null contract holds.
+  - `convex/lib/tiptapReport.test.ts` + `tests/reportSections.test.ts` / `tests/exportValidation.test.ts` (extend): editor/export parity: the chain's assembled content, including the placeholder case, parses back into the same three headings and paragraphs the export path consumes.
 
 **Acceptance Criteria:**
-- Given a project in `single` mode with a Writer Profile, when generation is requested, then sections are generated in the profile's Build Order (or default 242 → 244 → 246 if profile is missing/disabled), each section receives prior-section context, and no approval gate exists between sections
-- Given a section draft that contains an excluded claim from the Brief, when self-check runs, then a repair is attempted and the outcome (success or failure) is recorded in the Compliance Note
-- Given a section draft with a word cap breach, when self-check runs, then a repair is attempted up to the cap, and the Compliance Note reports the breach and repair outcome
-- Given a Writer Profile with a custom Build Order, when generation is requested, then sections are generated in that custom order; if the order is invalid (contains non-existent section), the default order is used and reported in Compliance Note
-- Given a Writer Profile with custom paragraph rules, when a section violates a rule, then the Compliance Note records the rule name, the instruction applied/waived, and the reason (e.g., "cap met at 350/350 words")
-- Given a disabled or missing Writer Profile, when generation is requested, then the Compliance Note reports "no Writer Profile applied" and sections are generated using House Rules only
-- Given all three sections drafted, when the consistency pass runs, then any claim contradictions are detected and flagged in the Compliance Note with section references and specific text passages
-- Given `iterative` mode generation, when a request is made, then the gated section-by-section workflow with human approval is unchanged; Build Order and Compliance Notes are stored the same way
-- Given the generation is completed, when the writer views the report, then the Compliance Note is visible alongside the draft and lists per-section: applied instructions, un-applied instructions with reasons, repair attempts and outcomes, and consistency-pass findings
+- Given a `single` generation with an enabled Writer Profile whose Build Order is 246 -> 242 -> 244, when the chain runs, then the sections are drafted by separate scheduled actions in that order, each section's prompt carries the previously drafted sections, the generation never enters `awaiting_input`, and `productionOrder` equals the Build Order.
+- Given a disabled or missing Writer Profile (or an invalid Build Order), when generation runs, then the order is 242 -> 244 -> 246 and every section's `complianceNotes` include a `not_applied` Writer Profile row reading "no Writer Profile applied" (or the Build Order fallback reason).
+- Given a section draft containing a Claim Exclusion, an off-glossary synonym or a cap breach, when its Self-check runs, then exactly one repair call (`generation:repair:<n>`) runs and the `complianceNotes` rows record the instruction, outcome, tier, reason and `repaired`; a repair that fails leaves the section shown with a repair-failed Self-check status.
+- Given a Confidence Map fact marked unreliable stated without hedging, when Self-check runs, then the check fails with `tier: missing_fact` and the repaired prose hedges it.
+- Given a profile rule demanding more than a Locked cap, when the section is checked, then the rule is applied up to the cap and the row reads `tier: conflict` with the actual values.
+- Given all sections drafted, when `finalizeOrderedCandidate` runs, then exactly one `generation:consistency` call runs, its findings are stored as rows naming sections and paragraphs, and `getOrderedSectionDrafts` withholds the last section in order until that pass is recorded.
+- Given `compare` mode, when the chain runs, then it runs once per candidate, and every section row and complianceNotes row carries that candidate's `candidateRunId`; `listForGeneration` returns the selected candidate's rows after selection.
+- Given the writer calls `stopOrderedGeneration` after the first section, when the current section action finishes, then no further section is scheduled and the generation completes with `stoppedAfterSection` set and `[NOT GENERATED]` under each remaining H2.
+- Given `iterative` mode, when a generation runs, then its section-by-section approval gate and one-shot ghost behave exactly as before.
+- Given any generation-owned call, when it is made, then its `aiUsage.callSite` is a member of `GENERATION_CALL_SLOTS`, and the candidate's scorecard reports per-slot counts and any `overrun`.
 
 ## Spec Change Log
 
@@ -153,6 +165,21 @@ deferred:
 **KEEP instructions:**
 - Schema additions (complianceNotes, buildOrder fields) and data structures (selfCheckOutcome, complianceNote types) are correct and must survive re-derivation.
 - writerProfiles.ts tier tracking and buildOrder storage are correct; fix only the validation error handling and return type contract.
+
+### 2026-09-10 — Dispatch corrections folded in (bmad-build-auto, story 2 re-drive)
+
+**Trigger:** the caller's dispatch for this re-drive requires two corrections to the partial work (1ce273b, 76c8e2f) and names AD-24, AD-25 and AD-27 as binding.
+
+**Amended (outside the intent-contract):** Code Map, Tasks & Acceptance, Design Notes, Verification and frontmatter `deferred`.
+- Compliance Notes are rows in a `complianceNotes` table (AD-25 fields and indexes), replacing `generations.complianceNotes: v.optional(v.string())` and the JSON serialize/deserialize helpers. This supersedes the old Code Map/Tasks lines that said "no new schema tables".
+- Ordered generation is a chain of per-section scheduled actions plus one finalize action (AD-24), never a loop inside one action; each action stays within the five-slot AD-9 budget.
+- Every generation call carries an AD-27 slot label validated against `GENERATION_CALL_SLOTS`.
+- The stale "phases 3-6 deferred" item is superseded: all of it is in scope for this run. The remaining deferrals (UI surfaces read by stories 4/5, "Generate the rest", profile settings UI) are recorded in frontmatter with reasons.
+- Decided by the caller: ungated by default in `single`/`compare`; `iterative` keeps its gate untouched.
+
+**Known-bad states avoided:** a JSON blob that stories 4/5 cannot index by section or candidate; three sections plus checks in one 600 s action; unlabeled extra calls hiding a budget overrun.
+
+**KEEP:** the partial's `buildOrder` storage field and `validateBuildOrder` duplicate/invalid detection (moved to the read path so the fallback reason reaches the Compliance Note); the empty-exclusion guard; the prior loop's rule that Build Order errors never throw and never block generation.
 
 ## Review Triage Log
 
@@ -184,16 +211,17 @@ deferred:
 
 **Consistency pass:** Runs once over the assembled draft (all three sections together) after they are all drafted. Detects contradictions (e.g., a claim established in 242 contradicted in 246) and flags them for the writer to resolve. The pass does NOT auto-repair; it flags and records.
 
+**Chain mechanics (AD-24, corrected):** `generateCandidate` (non-ghost) -> `generateOrderedSection` x N (one scheduled action per section, each fenced by `claimOrderedSectionRun`'s CAS, like iterative's `claimSectionRun` minus `approveSectionDraft`) -> `finalizeOrderedCandidate`. The completion mutation schedules the next step atomically with the section's writes, so a crash between sections leaves a `queued` row that the existing `failStaleGenerations` reaper fails with the generation. Per-action worst case: section 1 + compression 2 + selfCheck 1 + repair 1 = 5; finalize: consistency 1 + (QA || chronology) 1 = 2. The ghost draft in `iterative` stays one-shot, so iterative's `(generationId, section)` section-run lookups never meet an ordered row.
+
+**Compliance rows (AD-25, corrected):** one row per decision, written only by the chain's mutations. Deterministic rows: six style categories (tier copied from `getEffectiveWriterStyle.categoryOutcomes`), the Writer Profile state, the Build Order, Locked caps, profile `selfCheckRules` caps, Claim Exclusions, glossary rule hits. Model rows: free-text instructions quoted verbatim, Storyline and Confidence Map calibration verdicts, consistency findings. `paragraphIndex` is set on every paragraph-scoped row. Intent reason codes map into `reason` text (e.g. `cap met at 350/350 words`, `instruction waived via override`, `no Writer Profile applied (disabled)`).
+
 ## Verification
 
 **Commands:**
-- `bash scripts/loop-verify.sh` -- Convex typecheck, svelte-check, vitest (incl. `selfCheck.test.ts`, `pipeline.test.ts` ordered generation tests), discovery guard, build, uploader harnesses
-- `npm test -- selfCheck` -- Self-check rubric: excluded claims, off-glossary terms, cap breaches, one repair pass, stale section detection
-- `npm test -- pipeline` -- Ordered generation: custom Build Order respected, prior-section context passed, consistency pass runs once
-- `npm test -- writerProfiles` -- Profile Build Order parsing, disabled/missing profile fallback, compliance tier recording
-- `npm run build` -- Ensure TypeScript compiles, schema validates
+- `bash scripts/loop-verify.sh` -- full gate: preflight, Convex typecheck, `npm run check`, `npm test` (including the new and extended suites below), the discovery guard (fails on skipped or vacuous tests), `npm run build`, uploader harnesses.
+- `npx vitest run convex/ai/promptProgram.test.ts convex/ai/selfCheck.test.ts convex/ai/instrument.test.ts convex/ai/providers.test.ts convex/writerProfiles.test.ts convex/lib/tiptapReport.test.ts tests/reportSections.test.ts tests/exportValidation.test.ts tests/aiUsage.test.ts` -- focused run of every suite this story adds or extends.
 
-**Manual checks (if no CLI):**
-- Verify `generationBriefs` and `generationBriefEntries` are queried as read-only in selfCheck.ts (Story 1 data)
-- Confirm `complianceNotes` field is optional on `generations` and never mutated directly (route all updates through `compileComplianceNote`)
-- Check that `iterative` mode's approval gates remain unchanged in `promptProgram.ts`
+**Manual checks:**
+- `grep -rn "complianceNotes" convex --include=*.ts | grep -v _generated` shows inserts only in `convex/generations.ts`'s chain mutations, and a read only in `convex/complianceNotes.ts`.
+- `grep -rn "complianceNotes: v.optional(v.string())" convex/schema.ts` returns nothing.
+- `iterative` topology in `promptProgram.ts` and `approveSectionDraft`/`cancelIterativeGeneration` are unchanged apart from story 1's `brief`.

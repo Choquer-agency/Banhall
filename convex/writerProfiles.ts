@@ -11,12 +11,26 @@ import {
 } from "./lib/styleOverrides";
 import {
   NO_STYLE_OVERRIDES,
+  STYLE_OVERRIDE_KEYS,
   hasAnyStyleOverride,
   normalizeStyleOverrides,
   resolveEffectiveOverrides,
   type StyleOverrides,
 } from "../shared/styleOverrides";
 import { getHouseRuleModes } from "./houseStyle";
+import {
+  DEFAULT_BUILD_ORDER,
+  MAX_SELF_CHECK_INSTRUCTION_CHARS,
+  MAX_SELF_CHECK_RULES,
+  orderedProfileContextValidator,
+  resolveBuildOrder,
+  selfCheckRuleValidator,
+  type CategoryOutcome,
+  type OrderedProfileContext,
+  type ProfileState,
+  type SectionNumber,
+  type SelfCheckRule,
+} from "./lib/orderedChain";
 
 /**
  * Per-writer "flavor" (Phase A): free-text personal writing instructions,
@@ -27,6 +41,9 @@ import { getHouseRuleModes } from "./houseStyle";
  * can waive individual categories via styleOverrides — a waived category's
  * rule text is removed from the prompts and its scrub/QA enforcement is
  * skipped, so the writer's instructions govern that area.
+ *
+ * Story 2 (CAP-5/9): the profile also carries a Build Order (stored as sent,
+ * validated on read) and per-paragraph Self-check rules (validated on save).
  *
  * Roadmap:
  * - Phase B: per-user learning digests — learningDigests now carries an
@@ -43,46 +60,6 @@ import { getHouseRuleModes } from "./houseStyle";
 // full prompt documents. The shared MAX_INSTRUCTIONS_CHARS limit is a backstop against runaway
 // payloads and keeps both writer/admin clients aligned with server validation.
 
-// Story 2 (CAP-5/9): Build Order customization — the order sections are generated.
-// Valid sections are "242", "244", "246"; if invalid or omitted, defaults to ["242", "244", "246"].
-const VALID_SECTIONS = new Set(["242", "244", "246"]);
-
-interface BuildOrderValidation {
-  order: string[] | undefined;
-  reason?: string; // If validation failed, the reason for fallback
-}
-
-/**
- * Validate Build Order. Gracefully falls back to undefined (default) on error.
- * Caller should record fallback reason in Compliance Note.
- * Patch 1: Check for duplicate sections; treat as invalid.
- */
-function validateBuildOrder(buildOrder: string[] | undefined): BuildOrderValidation {
-  if (!buildOrder) return { order: undefined };
-
-  const trimmed = buildOrder.filter((s) => s.trim().length > 0);
-  if (trimmed.length === 0) return { order: undefined };
-
-  // Patch 1: Reject duplicate sections
-  if (new Set(trimmed).size !== trimmed.length) {
-    return {
-      order: undefined,
-      reason: "Build Order contains duplicate sections",
-    };
-  }
-
-  // Check if any section is invalid
-  const invalidSections = trimmed.filter((s) => !VALID_SECTIONS.has(s.trim()));
-  if (invalidSections.length > 0) {
-    return {
-      order: undefined,
-      reason: `Invalid sections in Build Order: ${invalidSections.join(", ")}. Must be one of: 242, 244, 246.`,
-    };
-  }
-
-  return { order: trimmed };
-}
-
 const profileValidator = v.object({
   _id: v.id("writerProfiles"),
   _creationTime: v.number(),
@@ -90,8 +67,8 @@ const profileValidator = v.object({
   customInstructions: v.string(),
   enabled: v.boolean(),
   styleOverrides: v.optional(styleOverridesValidator),
-  // Story 2 (CAP-5): Custom section generation order; defaults to ["242", "244", "246"] if omitted/disabled.
   buildOrder: v.optional(v.array(v.string())),
+  selfCheckRules: v.optional(v.array(selfCheckRuleValidator)),
   updatedBy: v.id("users"),
   createdAt: v.number(),
   updatedAt: v.number(),
@@ -108,6 +85,61 @@ function validateInstructions(raw: string): string {
   return trimmed;
 }
 
+function isPositiveInteger(value: number): boolean {
+  return Number.isInteger(value) && value > 0;
+}
+
+/** Save-time validation of Self-check rules; returns the trimmed rules. */
+function validateSelfCheckRules(rules: SelfCheckRule[]): SelfCheckRule[] {
+  if (rules.length > MAX_SELF_CHECK_RULES) {
+    domainError(
+      "INVALID_INPUT",
+      `A Writer Profile holds at most ${MAX_SELF_CHECK_RULES} Self-check rules.`
+    );
+  }
+  return rules.map((rule) => {
+    const instruction = rule.instruction.trim();
+    if (!instruction) {
+      domainError("INVALID_INPUT", "A Self-check rule needs an instruction.");
+    }
+    if (instruction.length > MAX_SELF_CHECK_INSTRUCTION_CHARS) {
+      domainError(
+        "INVALID_INPUT",
+        `A Self-check rule instruction is limited to ${MAX_SELF_CHECK_INSTRUCTION_CHARS} characters.`
+      );
+    }
+    for (const [label, cap] of [
+      ["maxWords", rule.maxWords],
+      ["maxLines", rule.maxLines],
+    ] as const) {
+      if (cap !== undefined && !isPositiveInteger(cap)) {
+        domainError(
+          "INVALID_INPUT",
+          `A Self-check rule's ${label} must be a positive whole number.`
+        );
+      }
+    }
+    if (
+      rule.paragraphIndex !== undefined &&
+      !(Number.isInteger(rule.paragraphIndex) && rule.paragraphIndex >= 0)
+    ) {
+      domainError(
+        "INVALID_INPUT",
+        "A Self-check rule's paragraph must be a non-negative whole number."
+      );
+    }
+    return {
+      ...(rule.section !== undefined ? { section: rule.section } : {}),
+      ...(rule.paragraphIndex !== undefined
+        ? { paragraphIndex: rule.paragraphIndex }
+        : {}),
+      instruction,
+      ...(rule.maxWords !== undefined ? { maxWords: rule.maxWords } : {}),
+      ...(rule.maxLines !== undefined ? { maxLines: rule.maxLines } : {}),
+    };
+  });
+}
+
 async function upsertProfile(
   ctx: MutationCtx,
   userId: Id<"users">,
@@ -115,17 +147,21 @@ async function upsertProfile(
   enabled: boolean,
   updatedBy: Id<"users">,
   // undefined = caller did not send the field (e.g. a stale client) — preserve
-  // whatever waivers are stored rather than silently resetting them.
+  // whatever is stored rather than silently resetting it. Same rule for the
+  // Build Order and the Self-check rules.
   styleOverrides: StyleOverrides | undefined,
-  // Story 2 (CAP-5): Build Order customization. Validation is graceful: invalid orders
-  // fall back to undefined (default), with reason recorded for compliance.
-  buildOrder: string[] | undefined = undefined
+  buildOrder: string[] | undefined,
+  selfCheckRules: SelfCheckRule[] | undefined
 ) {
   const now = Date.now();
-  const buildOrderValidation = validateBuildOrder(buildOrder);
-  // If validation fails, we silently fall back to undefined (default)
-  // The caller will record the failure reason in the compliance note
-  const validatedOrder = buildOrderValidation.order;
+  // Stored as sent (trimmed); validity is decided on read so an invalid order
+  // reaches the Compliance Note as a fallback reason instead of vanishing.
+  const storedOrder = buildOrder?.map((entry) => entry.trim());
+  const optionalFields = {
+    ...(styleOverrides !== undefined ? { styleOverrides } : {}),
+    ...(storedOrder !== undefined ? { buildOrder: storedOrder } : {}),
+    ...(selfCheckRules !== undefined ? { selfCheckRules } : {}),
+  };
 
   const existing = await ctx.db
     .query("writerProfiles")
@@ -135,8 +171,7 @@ async function upsertProfile(
     await ctx.db.patch(existing._id, {
       customInstructions,
       enabled,
-      ...(styleOverrides !== undefined ? { styleOverrides } : {}),
-      ...(buildOrder !== undefined ? { buildOrder: validatedOrder } : {}),
+      ...optionalFields,
       updatedBy,
       updatedAt: now,
     });
@@ -146,8 +181,7 @@ async function upsertProfile(
     userId,
     customInstructions,
     enabled,
-    ...(styleOverrides !== undefined ? { styleOverrides } : {}),
-    ...(validatedOrder !== undefined ? { buildOrder: validatedOrder } : {}),
+    ...optionalFields,
     updatedBy,
     createdAt: now,
     updatedAt: now,
@@ -174,6 +208,7 @@ export const saveMyProfile = mutation({
     enabled: v.boolean(),
     styleOverrides: v.optional(styleOverridesValidator),
     buildOrder: v.optional(v.array(v.string())),
+    selfCheckRules: v.optional(v.array(selfCheckRuleValidator)),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -188,7 +223,10 @@ export const saveMyProfile = mutation({
       args.styleOverrides === undefined
         ? undefined
         : normalizeStyleOverrides(args.styleOverrides),
-      args.buildOrder
+      args.buildOrder,
+      args.selfCheckRules === undefined
+        ? undefined
+        : validateSelfCheckRules(args.selfCheckRules)
     );
     return null;
   },
@@ -238,6 +276,7 @@ export const saveProfileForUser = mutation({
     enabled: v.boolean(),
     styleOverrides: v.optional(styleOverridesValidator),
     buildOrder: v.optional(v.array(v.string())),
+    selfCheckRules: v.optional(v.array(selfCheckRuleValidator)),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -254,30 +293,36 @@ export const saveProfileForUser = mutation({
       args.styleOverrides === undefined
         ? undefined
         : normalizeStyleOverrides(args.styleOverrides),
-      args.buildOrder
+      args.buildOrder,
+      args.selfCheckRules === undefined
+        ? undefined
+        : validateSelfCheckRules(args.selfCheckRules)
     );
     return null;
   },
 });
 
+export type EffectiveWriterStyle = {
+  customInstructions: string | null;
+  styleOverrides: StyleOverrides;
+} & OrderedProfileContext;
+
 /**
- * THE effective-style policy (PSOS-49/50): the org's global modes resolved
- * against the writer's (enabled) profile toggles. "off" waives a category for
- * everyone — userId absent / profile missing included; "enforced" ignores
- * writer waivers; "writer_choice" defers to the profile. Shared by generation
- * (via getProfileForGeneration), research, and proposal-apply paths so the
- * precedence contract cannot drift per call site.
- * Story 2 (CAP-5/6): Returns buildOrder and tier for compliance reporting.
+ * THE effective-style policy (PSOS-49/50, AD-26): the org's global modes
+ * resolved against the writer's (enabled) profile toggles. "off" waives a
+ * category for everyone — userId absent / profile missing included;
+ * "enforced" ignores writer waivers; "writer_choice" defers to the profile.
+ * Shared by generation, research, and proposal-apply paths so the precedence
+ * contract cannot drift per call site.
+ *
+ * AD-26: this is the only place a category `tier` is computed —
+ * `org_enforced` when the org mode is `enforced` or `off`, otherwise `none` —
+ * and the profile is never silent: `profileState` says whether it applied.
  */
 export async function getEffectiveWriterStyle(
   ctx: QueryCtx | MutationCtx,
   userId: Id<"users"> | undefined
-): Promise<{
-  customInstructions: string | null;
-  styleOverrides: StyleOverrides;
-  buildOrder: string[];
-  tier: "house_rules" | "writer_profile";
-}> {
+): Promise<EffectiveWriterStyle> {
   const [modes, profile] = await Promise.all([
     getHouseRuleModes(ctx),
     userId
@@ -287,20 +332,41 @@ export async function getEffectiveWriterStyle(
           .unique()
       : Promise.resolve(null),
   ]);
+  const profileState: ProfileState =
+    profile === null ? "missing" : profile.enabled ? "applied" : "disabled";
   const applyProfile = profile !== null && profile.enabled;
   const instructions = applyProfile ? profile.customInstructions.trim() : "";
   const writerOverrides = applyProfile
     ? normalizeStyleOverrides(profile.styleOverrides)
     : NO_STYLE_OVERRIDES;
-  // Story 2: Build Order defaults to House Rules if profile missing/disabled
-  const buildOrder = applyProfile && profile?.buildOrder && profile.buildOrder.length > 0
-    ? profile.buildOrder
-    : ["242", "244", "246"];
+  const styleOverrides = resolveEffectiveOverrides(modes, writerOverrides);
+  const categoryOutcomes: CategoryOutcome[] = STYLE_OVERRIDE_KEYS.map(
+    (category) => ({
+      category,
+      mode: modes[category],
+      effective: styleOverrides[category],
+      tier:
+        modes[category] === "enforced" || modes[category] === "off"
+          ? ("org_enforced" as const)
+          : ("none" as const),
+    })
+  );
+  // A disabled or missing profile contributes no Build Order: the default
+  // applies and profileState reports why. Only an applied profile's stored
+  // order is validated, and only its invalid order carries a fallback reason.
+  const order = applyProfile
+    ? resolveBuildOrder(profile.buildOrder)
+    : { buildOrder: [...DEFAULT_BUILD_ORDER] as SectionNumber[] };
   return {
     customInstructions: instructions.length > 0 ? instructions : null,
-    styleOverrides: resolveEffectiveOverrides(modes, writerOverrides),
-    buildOrder,
-    tier: applyProfile ? "writer_profile" : "house_rules",
+    styleOverrides,
+    profileState,
+    categoryOutcomes,
+    buildOrder: order.buildOrder,
+    ...(order.fallbackReason
+      ? { buildOrderFallbackReason: order.fallbackReason }
+      : {}),
+    selfCheckRules: applyProfile ? (profile.selfCheckRules ?? []) : [],
   };
 }
 
@@ -308,8 +374,8 @@ export async function getEffectiveWriterStyle(
  * Pipeline read: the requesting writer's instructions plus their EFFECTIVE
  * house-style waivers (see getEffectiveWriterStyle). Returns null only when
  * there is nothing to apply. Called from generation entry points inside a
- * try/catch — a failure here must never break generation.
- * Story 2 (CAP-5): Includes buildOrder and tier for compliance reporting.
+ * try/catch — a failure here must never break generation. The ordered
+ * generation context is a separate read (getGenerationProfileContext).
  */
 export const getProfileForGeneration = internalQuery({
   args: { userId: v.optional(v.id("users")) },
@@ -317,8 +383,6 @@ export const getProfileForGeneration = internalQuery({
     v.object({
       customInstructions: v.union(v.string(), v.null()),
       styleOverrides: normalizedStyleOverridesValidator,
-      buildOrder: v.array(v.string()),
-      tier: v.union(v.literal("house_rules"), v.literal("writer_profile")),
     }),
     v.null()
   ),
@@ -328,10 +392,34 @@ export const getProfileForGeneration = internalQuery({
       style.customInstructions === null &&
       !hasAnyStyleOverride(style.styleOverrides)
     ) {
-      // Contract: return null when there are no custom instructions, no overrides, and profile is disabled/missing.
-      // Caller (pipeline) must handle buildOrder fallback to default ["242", "244", "246"].
       return null;
     }
-    return style;
+    return {
+      customInstructions: style.customInstructions,
+      styleOverrides: style.styleOverrides,
+    };
+  },
+});
+
+/**
+ * Story 2 (CAP-5/6/9, AD-26): everything ordered generation reads from the
+ * Writer Profile — profile state, per-category outcomes, the validated Build
+ * Order (with its fallback reason) and the Self-check rules. Never null: a
+ * missing or disabled profile still yields the House Rules default order.
+ */
+export const getGenerationProfileContext = internalQuery({
+  args: { userId: v.optional(v.id("users")) },
+  returns: orderedProfileContextValidator,
+  handler: async (ctx, args): Promise<OrderedProfileContext> => {
+    const style = await getEffectiveWriterStyle(ctx, args.userId);
+    return {
+      profileState: style.profileState,
+      categoryOutcomes: style.categoryOutcomes,
+      buildOrder: style.buildOrder,
+      ...(style.buildOrderFallbackReason
+        ? { buildOrderFallbackReason: style.buildOrderFallbackReason }
+        : {}),
+      selfCheckRules: style.selfCheckRules,
+    };
   },
 });

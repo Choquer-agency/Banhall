@@ -33,6 +33,110 @@ export type GenerationAttribution = {
   learningDigestIds?: Id<"learningDigests">[];
 };
 
+// ─── AD-27: named generation call slots ─────────────────────────────────────
+
+/**
+ * Every label a generation-owned provider call may carry, after the
+ * `generation:` prefix. Fixed slots run once per generation or candidate;
+ * per-section slots carry the T661 line. Any other `generation:*` label is a
+ * programming error (assertGenerationCallSite).
+ */
+export const GENERATION_CALL_SLOTS = [
+  "analyzer",
+  "retrieval_brief",
+  "condense",
+  "brief",
+  "consistency",
+  "qa",
+  "chronology",
+  "post_qa",
+  "post_chronology",
+  "section:242",
+  "section:244",
+  "section:246",
+  "selfCheck:242",
+  "selfCheck:244",
+  "selfCheck:246",
+  "repair:242",
+  "repair:244",
+  "repair:246",
+  "compression:242",
+  "compression:244",
+  "compression:246",
+] as const;
+export type GenerationCallSlot = (typeof GENERATION_CALL_SLOTS)[number];
+
+const GENERATION_PREFIX = "generation:";
+const SLOT_SET: ReadonlySet<string> = new Set(GENERATION_CALL_SLOTS);
+
+/**
+ * Per-candidate allowance by slot family (AD-27). Slots without an entry are
+ * unbounded here. Recorded, never enforced: `summarizeSlotUsage` flags an
+ * overrun; nothing refuses a call (Q12).
+ */
+export const GENERATION_SLOT_ALLOWANCES: Readonly<Record<string, number>> = {
+  brief: 1,
+  consistency: 1,
+  section: 1,
+  selfCheck: 1,
+  repair: 1,
+  compression: 2,
+};
+
+/** Throws on a `generation:*` label that is not a declared slot. */
+export function assertGenerationCallSite(callSite: string): void {
+  if (!callSite.startsWith(GENERATION_PREFIX)) return;
+  const slot = callSite.slice(GENERATION_PREFIX.length);
+  if (!SLOT_SET.has(slot)) {
+    throw new Error(`Unknown generation call slot: ${callSite}`);
+  }
+}
+
+/** The slot a label names (text after the first colon), or null. */
+export function generationSlotOf(label: string): string | null {
+  const slot = label.startsWith(GENERATION_PREFIX)
+    ? label.slice(GENERATION_PREFIX.length)
+    : label;
+  return SLOT_SET.has(slot) ? slot : null;
+}
+
+/**
+ * Per-slot call counts plus every slot over its allowance. Accepts labels
+ * with or without the `generation:` prefix; unknown labels are counted under
+ * their own key and never flagged. Pure.
+ */
+export function summarizeSlotUsage(counts: Readonly<Record<string, number>>): {
+  counts: Record<string, number>;
+  overrun: string[];
+} {
+  const merged: Record<string, number> = {};
+  for (const [label, count] of Object.entries(counts)) {
+    if (!Number.isFinite(count) || count <= 0) continue;
+    const slot = generationSlotOf(label) ?? label;
+    merged[slot] = (merged[slot] ?? 0) + count;
+  }
+  const overrun = Object.keys(merged)
+    .filter((slot) => {
+      const allowance = GENERATION_SLOT_ALLOWANCES[slot.split(":")[0]];
+      return allowance !== undefined && merged[slot] > allowance;
+    })
+    .sort();
+  return { counts: merged, overrun };
+}
+
+/** Sum per-slot count maps (section rows plus the finalize action's own). */
+export function mergeSlotCounts(
+  ...maps: ReadonlyArray<Readonly<Record<string, number>>>
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const map of maps) {
+    for (const [slot, count] of Object.entries(map)) {
+      if (Number.isFinite(count) && count > 0) out[slot] = (out[slot] ?? 0) + count;
+    }
+  }
+  return out;
+}
+
 export type ProviderCallMeta = {
   callSite: string;
   projectId?: Id<"projects">;
@@ -192,6 +296,7 @@ export function instrumentedAnthropic(
     capability?: AnthropicCapability;
   }
 ): Anthropic {
+  assertGenerationCallSite(meta.callSite);
   const client = createAnthropicClient(meta.capability ?? "generation");
   const messages = client.messages;
   const originalCreate = messages.create.bind(messages);

@@ -9,7 +9,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   getCurrentUserOrNull,
@@ -51,6 +51,17 @@ import {
 } from "./lib/transcripts";
 import { validateCitation } from "./lib/citations";
 import { renderBriefBlock } from "./lib/briefRender";
+import {
+  complianceNoteDraftValidator,
+  complianceNoteRow,
+} from "./lib/complianceNote";
+import {
+  orderedPayloadValidator,
+  sectionKeyOf,
+  sectionNumberValidator,
+  type SectionNumber,
+} from "./lib/orderedChain";
+import { ORDERED_SECTION_TITLES } from "./ai/promptDefinitions";
 
 // ─── Generation status helpers ───────────────────────────────────────────────
 
@@ -1025,6 +1036,8 @@ export const claimCandidateRun = internalMutation({
       projectId: run.projectId,
       model: run.model,
       label: run.label,
+      // Story 2: non-ghost runs start the ordered chain; ghosts stay one-shot.
+      ghost: run.ghost ?? false,
     };
   },
 });
@@ -1098,16 +1111,33 @@ async function createGeneratedReportArtifacts(
   return reportId;
 }
 
+const completeCandidateRunArgs = v.object({
+  candidateRunId: v.id("generationCandidateRuns"),
+  content: v.optional(v.string()),
+  agentOutputs: v.optional(v.string()),
+  qaScore: v.optional(v.number()),
+  provenanceId: v.optional(v.id("reportProvenance")),
+  error: v.optional(v.string()),
+  // Story 2 (AD-24): the Build Order the ordered chain ran, and the section
+  // it stopped after when the writer stopped before the last section.
+  productionOrder: v.optional(v.array(sectionNumberValidator)),
+  stoppedAfterSection: v.optional(sectionNumberValidator),
+});
+
 export const completeCandidateRun = internalMutation({
-  args: {
-    candidateRunId: v.id("generationCandidateRuns"),
-    content: v.optional(v.string()),
-    agentOutputs: v.optional(v.string()),
-    qaScore: v.optional(v.number()),
-    provenanceId: v.optional(v.id("reportProvenance")),
-    error: v.optional(v.string()),
-  },
+  args: completeCandidateRunArgs.fields,
   handler: async (ctx, args) => {
+    await settleCandidateRun(ctx, args);
+  },
+});
+
+/** completeCandidateRun's body, shared with the ordered chain's failure path
+ * (failOrderedSectionRun) so a failed section fails its candidate the same
+ * way a failed one-shot run does. */
+async function settleCandidateRun(
+  ctx: MutationCtx,
+  args: Infer<typeof completeCandidateRunArgs>
+) {
     const run = await ctx.db.get(args.candidateRunId);
     if (!run || run.status !== "running") return;
     const generation = await ctx.db.get(run.generationId);
@@ -1202,6 +1232,18 @@ export const completeCandidateRun = internalMutation({
       return;
     }
 
+    // Story 2 (AD-24): stamp the production order (shared by every compare
+    // candidate, one Build Order per generation) and, for a stopped chain,
+    // the section it stopped after (first stop recorded wins).
+    if (args.productionOrder || args.stoppedAfterSection) {
+      await ctx.db.patch(generation._id, {
+        ...(args.productionOrder ? { productionOrder: args.productionOrder } : {}),
+        ...(args.stoppedAfterSection && !generation.stoppedAfterSection
+          ? { stoppedAfterSection: args.stoppedAfterSection }
+          : {}),
+      });
+    }
+
     const runs = await ctx.db
       .query("generationCandidateRuns")
       .withIndex("by_generationId", (q) => q.eq("generationId", run.generationId))
@@ -1288,8 +1330,7 @@ export const completeCandidateRun = internalMutation({
       updatedAt: Date.now(),
     });
     await refreshProjectGenerationActivity(ctx, generation.projectId);
-  },
-});
+}
 
 /**
  * A generation going terminal must settle its in-flight candidate runs too:
@@ -3403,5 +3444,534 @@ export const getCandidateScoreSummary = query({
           chosen: score.model === chosenModel,
         })),
     };
+  },
+});
+
+
+// ─── Story 2: ordered, ungated section chain (single/compare, AD-24) ─────────
+//
+// generateCandidate (non-ghost) → createOrderedSectionRuns → one scheduled
+// ai/orderedGeneration.generateOrderedSection per section, fenced by
+// claimOrderedSectionRun's CAS → completeOrderedSectionRun schedules the next
+// section (or finalizeOrderedCandidate) atomically with its writes. No
+// approval gate: iterative's approveSectionDraft is never in this path, and
+// iterative generations never create these rows. A chain stalled between
+// sections is recovered by the existing failStaleGenerations reaper.
+
+async function orderedRunsForCandidate(
+  ctx: { db: QueryCtx["db"] },
+  candidateRunId: Id<"generationCandidateRuns">
+) {
+  const rows = await ctx.db
+    .query("generationSectionRuns")
+    .withIndex("by_candidateRunId_and_section", (q) =>
+      q.eq("candidateRunId", candidateRunId)
+    )
+    .take(3);
+  return rows.sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+}
+
+async function orderedRunForSection(
+  ctx: { db: QueryCtx["db"] },
+  candidateRunId: Id<"generationCandidateRuns">,
+  section: SectionNumber
+) {
+  return await ctx.db
+    .query("generationSectionRuns")
+    .withIndex("by_candidateRunId_and_section", (q) =>
+      q.eq("candidateRunId", candidateRunId).eq("section", sectionKeyOf(section))
+    )
+    .unique();
+}
+
+function sectionNumberOfRow(row: Doc<"generationSectionRuns">): SectionNumber {
+  return row.section.slice(1) as SectionNumber;
+}
+
+function selfCheckStatusOf(selfCheck: string | undefined): string | null {
+  if (!selfCheck) return null;
+  try {
+    const parsed: unknown = JSON.parse(selfCheck);
+    return parsed && typeof parsed === "object" && "status" in parsed &&
+      typeof parsed.status === "string"
+      ? parsed.status
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The CAS every chain write re-checks: a live non-ghost candidate run of a
+ * running generation that still owns its project's active pointer. */
+async function orderedChainFence(
+  ctx: MutationCtx,
+  generationId: Id<"generations">,
+  candidateRunId: Id<"generationCandidateRuns">
+) {
+  const run = await ctx.db.get(candidateRunId);
+  if (!run || run.ghost || run.status !== "running" || run.generationId !== generationId) {
+    return null;
+  }
+  const generation = await ctx.db.get(generationId);
+  if (!generation || generation.status !== "running") return null;
+  const project = await ctx.db.get(generation.projectId);
+  if (!project || project.activeGenerationId !== generation._id) return null;
+  return { run, generation, project };
+}
+
+/** One row per section in Build Order (first queued, rest pending), then the
+ * first section's action, scheduled atomically with the rows. */
+export const createOrderedSectionRuns = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    payload: orderedPayloadValidator,
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const fence = await orderedChainFence(ctx, args.generationId, args.candidateRunId);
+    if (!fence) return false;
+    if ((fence.generation.candidateMode ?? "compare") === "iterative") return false;
+    const order = args.payload.orderedContext.buildOrder;
+    if (order.length === 0) return false;
+    if ((await orderedRunsForCandidate(ctx, fence.run._id)).length > 0) return false;
+    const now = Date.now();
+    for (const [index, section] of order.entries()) {
+      await ctx.db.insert("generationSectionRuns", {
+        generationId: fence.generation._id,
+        projectId: fence.generation.projectId,
+        section: sectionKeyOf(section),
+        status: index === 0 ? "queued" : "pending",
+        model: fence.run.model,
+        label: fence.run.label,
+        attempt: 1,
+        candidateRunId: fence.run._id,
+        orderIndex: index,
+        queuedAt: now,
+      });
+    }
+    await ctx.db.patch(fence.generation._id, {
+      progressLog: [
+        ...(fence.generation.progressLog ?? []),
+        `${fence.run.label}: drafting ${order.join(" → ")} in order; each section is Self-checked before it is shown.`,
+      ],
+    });
+    await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.generateOrderedSection, {
+      generationId: args.generationId,
+      candidateRunId: args.candidateRunId,
+      section: order[0],
+      payload: args.payload,
+    });
+    return true;
+  },
+});
+
+/** The Brief a section is drafted with and checked against: the same rows
+ * renderBriefForGeneration renders into the prompt. */
+async function loadBriefCheck(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">
+) {
+  const briefDoc = generation.briefId ? await ctx.db.get(generation.briefId) : null;
+  if (!briefDoc) return { briefBlock: "", brief: null };
+  const entries = (
+    await ctx.db
+      .query("generationBriefEntries")
+      .withIndex("by_briefId", (q) => q.eq("briefId", briefDoc._id))
+      .take(500)
+  ).filter((entry) => entry.group !== "storylineQuestion");
+  return {
+    briefBlock: renderBriefBlock(briefDoc.storylineText, entries),
+    brief: {
+      storylineText: briefDoc.storylineText,
+      claimExclusions: entries
+        .filter((entry) => entry.group === "claimExclusion")
+        .map((entry) => ({
+          text: entry.text,
+          exactExcerpt: entry.exactExcerpt,
+          ...(entry.reason ? { reason: entry.reason } : {}),
+        })),
+      confidenceMap: entries
+        .filter((entry) => entry.group === "confidenceMap")
+        .map((entry) => ({
+          entryId: entry._id,
+          text: entry.text,
+          ...(entry.confidence ? { confidence: entry.confidence } : {}),
+        })),
+      glossaryTerms: entries
+        .filter((entry) => entry.group === "glossaryTerm")
+        .map((entry) => entry.text),
+    },
+  };
+}
+
+/** CAS claim of one queued section (row queued, candidate run running,
+ * generation running, project pointer matching). Returns this candidate's
+ * drafted prior sections in production order and the Brief it checks
+ * against, or null when the claim is stale. */
+export const claimOrderedSectionRun = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    section: sectionNumberValidator,
+  },
+  handler: async (ctx, args) => {
+    const row = await orderedRunForSection(ctx, args.candidateRunId, args.section);
+    if (!row || row.status !== "queued" || row.generationId !== args.generationId) {
+      return null;
+    }
+    const fence = await orderedChainFence(ctx, args.generationId, args.candidateRunId);
+    if (!fence) return null;
+    const orderIndex = row.orderIndex ?? 0;
+    // Stopped between sections (AD-24): this section is never drafted and
+    // the action finalizes what was. The first section is always drafted, so
+    // a stopped generation still has something to assemble.
+    if (fence.generation.stopRequestedAt !== undefined && orderIndex > 0) {
+      await ctx.db.patch(row._id, { status: "pending" });
+      return { stopped: true as const };
+    }
+    await ctx.db.patch(row._id, { status: "running", startedAt: Date.now() });
+    const priorSections = (await orderedRunsForCandidate(ctx, fence.run._id))
+      .filter(
+        (prior) =>
+          prior.status === "drafted" &&
+          (prior.orderIndex ?? 0) < orderIndex &&
+          prior.draftText !== undefined
+      )
+      .map((prior) => ({
+        section: sectionNumberOfRow(prior),
+        text: prior.draftText ?? "",
+      }));
+
+    const { briefBlock, brief } = await loadBriefCheck(ctx, fence.generation);
+    return {
+      projectId: fence.generation.projectId,
+      model: row.model,
+      label: row.label,
+      requestedBy: fence.generation.requestedBy,
+      lengthTarget: fence.generation.lengthTarget ?? "standard",
+      orderIndex,
+      isFirstInOrder: orderIndex === 0,
+      priorSections,
+      briefBlock,
+      brief,
+    };
+  },
+});
+
+/** Persist one finished section (draft, metrics, Self-check summary, slot
+ * counts, its Compliance Note rows, at most one Storyline question) and
+ * schedule the next section — or finalize when the order is exhausted or the
+ * writer asked to stop. */
+export const completeOrderedSectionRun = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    section: sectionNumberValidator,
+    draftText: v.string(),
+    metrics: v.string(),
+    selfCheck: v.string(),
+    slotCounts: v.string(),
+    notes: v.array(complianceNoteDraftValidator),
+    storylineQuestion: v.optional(
+      v.object({
+        question: v.string(),
+        sectionClaim: v.string(),
+        storylineAlternative: v.string(),
+        evidenceEntryId: v.id("generationBriefEntries"),
+      })
+    ),
+    payload: orderedPayloadValidator,
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const row = await orderedRunForSection(ctx, args.candidateRunId, args.section);
+    if (!row || row.status !== "running" || row.generationId !== args.generationId) {
+      return false;
+    }
+    const fence = await orderedChainFence(ctx, args.generationId, args.candidateRunId);
+    if (!fence) return false;
+    const now = Date.now();
+    await ctx.db.patch(row._id, {
+      status: "drafted",
+      draftText: args.draftText,
+      metrics: args.metrics,
+      selfCheck: args.selfCheck,
+      slotCounts: args.slotCounts,
+      error: undefined,
+      completedAt: now,
+    });
+    const owner = {
+      projectId: fence.generation.projectId,
+      generationId: fence.generation._id,
+      candidateRunId: fence.run._id,
+    };
+    for (const note of args.notes) {
+      // A section's rows belong to that section only.
+      if (note.section !== args.section) continue;
+      await ctx.db.insert("complianceNotes", complianceNoteRow(note, owner));
+    }
+    // AD-23/AD-25: the chain's one write outside complianceNotes. The
+    // question cites the Confidence Map entry the section's stronger evidence
+    // rests on, so it carries a byte-validated citation like every entry.
+    if (args.storylineQuestion && fence.generation.briefId) {
+      const evidence = await ctx.db.get(args.storylineQuestion.evidenceEntryId);
+      if (
+        evidence &&
+        evidence.briefId === fence.generation.briefId &&
+        evidence.group === "confidenceMap"
+      ) {
+        await ctx.db.insert("generationBriefEntries", {
+          briefId: evidence.briefId,
+          projectId: evidence.projectId,
+          group: "storylineQuestion",
+          text: args.storylineQuestion.sectionClaim,
+          sourceId: evidence.sourceId,
+          sourceContentHash: evidence.sourceContentHash,
+          startOffset: evidence.startOffset,
+          endOffset: evidence.endOffset,
+          exactExcerpt: evidence.exactExcerpt,
+          question: {
+            questionText: args.storylineQuestion.question,
+            alternativeText: args.storylineQuestion.storylineAlternative,
+          },
+          createdAt: now,
+        });
+      }
+    }
+    const status = selfCheckStatusOf(args.selfCheck)?.replace(/_/g, " ") ?? "recorded";
+    await ctx.db.patch(fence.generation._id, {
+      progressLog: [
+        ...(fence.generation.progressLog ?? []),
+        `✓ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} drafted (Self-check: ${status}).`,
+      ],
+    });
+    const next = (await orderedRunsForCandidate(ctx, fence.run._id)).find(
+      (candidate) => (candidate.orderIndex ?? 0) === (row.orderIndex ?? 0) + 1
+    );
+    if (next && next.status === "pending" && fence.generation.stopRequestedAt === undefined) {
+      await ctx.db.patch(next._id, { status: "queued", queuedAt: now });
+      await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.generateOrderedSection, {
+        generationId: args.generationId,
+        candidateRunId: args.candidateRunId,
+        section: sectionNumberOfRow(next),
+        payload: args.payload,
+      });
+    } else {
+      await ctx.scheduler.runAfter(0, internal.ai.orderedGeneration.finalizeOrderedCandidate, {
+        generationId: args.generationId,
+        candidateRunId: args.candidateRunId,
+        payload: args.payload,
+      });
+    }
+    return true;
+  },
+});
+
+/** A section action failed outright: fail the section, mark the sections
+ * after it undrafted, and fail the candidate through completeCandidateRun's
+ * own body. */
+export const failOrderedSectionRun = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    section: sectionNumberValidator,
+    error: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    for (const row of await orderedRunsForCandidate(ctx, args.candidateRunId)) {
+      if (row.generationId !== args.generationId) continue;
+      if (
+        row.section === sectionKeyOf(args.section) &&
+        (row.status === "running" || row.status === "queued")
+      ) {
+        await ctx.db.patch(row._id, {
+          status: "failed",
+          error: args.error.slice(0, 500),
+          completedAt: now,
+        });
+      } else if (row.status === "pending" || row.status === "queued") {
+        await ctx.db.patch(row._id, {
+          status: "failed",
+          error: "Not drafted: an earlier section failed.",
+          completedAt: now,
+        });
+      }
+    }
+    await settleCandidateRun(ctx, {
+      candidateRunId: args.candidateRunId,
+      error: `Line ${args.section} draft failed: ${args.error}`,
+    });
+    return null;
+  },
+});
+
+/** Store the consistency pass's rows once per candidate and stamp
+ * consistencyCheckedAt, which releases the last section to the writer. */
+export const insertConsistencyNotes = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+    notes: v.array(complianceNoteDraftValidator),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const fence = await orderedChainFence(ctx, args.generationId, args.candidateRunId);
+    if (!fence || fence.run.consistencyCheckedAt !== undefined) return false;
+    const owner = {
+      projectId: fence.generation.projectId,
+      generationId: fence.generation._id,
+      candidateRunId: fence.run._id,
+    };
+    for (const note of args.notes) {
+      await ctx.db.insert("complianceNotes", complianceNoteRow(note, owner));
+    }
+    const now = Date.now();
+    await ctx.db.patch(fence.run._id, { consistencyCheckedAt: now });
+    const findings = args.notes.filter((note) => note.source === "model").length;
+    await ctx.db.patch(fence.generation._id, {
+      progressLog: [
+        ...(fence.generation.progressLog ?? []),
+        `✓ ${fence.run.label}: consistency pass over the assembled draft (${findings} finding(s)).`,
+      ],
+    });
+    return true;
+  },
+});
+
+/** Finalize input: this candidate's section rows in production order. */
+export const getOrderedCandidateDrafts = internalQuery({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.id("generationCandidateRuns"),
+  },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    const run = await ctx.db.get(args.candidateRunId);
+    if (!generation || !run || run.generationId !== generation._id) return null;
+    const rows = await orderedRunsForCandidate(ctx, run._id);
+    const { brief } = await loadBriefCheck(ctx, generation);
+    return {
+      model: run.model,
+      label: run.label,
+      runStatus: run.status,
+      brief,
+      stopRequested: generation.stopRequestedAt !== undefined,
+      consistencyCheckedAt: run.consistencyCheckedAt ?? null,
+      sections: rows.map((row) => ({
+        section: sectionNumberOfRow(row),
+        orderIndex: row.orderIndex ?? 0,
+        status: row.status,
+        draftText: row.draftText ?? null,
+        metrics: row.metrics ?? null,
+        selfCheck: row.selfCheck ?? null,
+        slotCounts: row.slotCounts ?? null,
+      })),
+    };
+  },
+});
+
+/**
+ * The writer stops an ungated single/compare generation (AD-24). Same auth
+ * and CAS on activeGenerationId as cancelIterativeGeneration. The section in
+ * progress finishes, no further section is scheduled, and the generation
+ * completes with stoppedAfterSection and [NOT GENERATED] bodies. Idempotent.
+ */
+export const stopOrderedGeneration = mutation({
+  args: { generationId: v.id("generations") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) domainError("NOT_FOUND", "Generation not found");
+    const { project } = await requireInternalProjectAccess(ctx, generation.projectId);
+    if ((generation.candidateMode ?? "compare") === "iterative") {
+      domainError(
+        "INVALID_STATE",
+        "Section-by-section generations are cancelled, not stopped"
+      );
+    }
+    if (project.activeGenerationId !== generation._id) {
+      domainError("STALE_REVISION", "This generation is no longer active");
+    }
+    if (generation.stopRequestedAt !== undefined) return null;
+    if (generation.status !== "reserved" && generation.status !== "running") {
+      domainError("INVALID_STATE", "This generation is no longer drafting");
+    }
+    await ctx.db.patch(generation._id, {
+      stopRequestedAt: Date.now(),
+      progressLog: [
+        ...(generation.progressLog ?? []),
+        "Stop requested: the section in progress finishes, then the draft is assembled.",
+      ],
+    });
+    return null;
+  },
+});
+
+/**
+ * Drafted sections of an ungated single/compare generation, in production
+ * order, for rendering sections as they complete. The last section in a
+ * candidate's order is withheld until that candidate's consistency pass is
+ * recorded (AD-24). Iterative generations have no ordered rows.
+ */
+export const getOrderedSectionDrafts = query({
+  args: {
+    generationId: v.id("generations"),
+    candidateRunId: v.optional(v.id("generationCandidateRuns")),
+  },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (
+      !generation ||
+      !(await getInternalProjectAccessOrNull(ctx, generation.projectId))
+    ) {
+      return null;
+    }
+    if ((generation.candidateMode ?? "compare") === "iterative") return [];
+    const rows = (
+      await ctx.db
+        .query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+        .take(30)
+    ).filter(
+      (row) =>
+        row.candidateRunId !== undefined &&
+        (args.candidateRunId === undefined || row.candidateRunId === args.candidateRunId)
+    );
+    const lastIndex = new Map<string, number>();
+    for (const row of rows) {
+      const key = row.candidateRunId as string;
+      lastIndex.set(key, Math.max(lastIndex.get(key) ?? -1, row.orderIndex ?? 0));
+    }
+    const checkedAt = new Map<string, number | undefined>();
+    for (const key of lastIndex.keys()) {
+      const run = await ctx.db.get(key as Id<"generationCandidateRuns">);
+      checkedAt.set(key, run?.consistencyCheckedAt);
+    }
+    return rows
+      .filter((row) => row.status === "drafted" && row.draftText !== undefined)
+      .filter((row) => {
+        const key = row.candidateRunId as string;
+        return (
+          (row.orderIndex ?? 0) !== lastIndex.get(key) ||
+          checkedAt.get(key) !== undefined
+        );
+      })
+      .sort((a, b) =>
+        a.candidateRunId === b.candidateRunId
+          ? (a.orderIndex ?? 0) - (b.orderIndex ?? 0)
+          : String(a.candidateRunId) < String(b.candidateRunId)
+            ? -1
+            : 1
+      )
+      .map((row) => ({
+        candidateRunId: row.candidateRunId as Id<"generationCandidateRuns">,
+        section: sectionNumberOfRow(row),
+        orderIndex: row.orderIndex ?? 0,
+        text: row.draftText ?? "",
+        selfCheckStatus: selfCheckStatusOf(row.selfCheck),
+      }));
   },
 });

@@ -65,6 +65,11 @@ import { fetchWriterStyle } from "./writerStyle";
 import { detectFirstPersonPreference } from "../../shared/humanProse";
 import { currentPromptVersion } from "./promptProgram";
 import {
+  DEFAULT_BUILD_ORDER,
+  orderedProfileContextValidator,
+  type OrderedProfileContext,
+} from "../lib/orderedChain";
+import {
   COMPRESSION_REQUEST,
   LENGTH_BUDGET_SCAFFOLD,
   STYLE_GUIDANCE_SCAFFOLDS,
@@ -287,14 +292,14 @@ export async function recordContextBudget(
   });
 }
 
-type ProvenanceDraft = {
+export type ProvenanceDraft = {
   claimId: string;
   section: "242" | "244" | "246";
   claimText: string;
   sourceQuote?: string;
 };
 
-function provenanceDrafts(
+export function provenanceDrafts(
   sections: Array<{ section: ProvenanceDraft["section"]; text: string }>,
   transcript: string,
   usefulQuotes: string[]
@@ -335,6 +340,75 @@ function provenanceDrafts(
     });
   }
   return drafts;
+}
+
+/** Map claim drafts onto frozen transcript parts and store provenance — the
+ * one path shared by the one-shot pipeline and the ordered chain's finalize. */
+export async function recordCandidateProvenance(
+  ctx: ActionCtx,
+  args: {
+    projectId: Id<"projects">;
+    generationId: Id<"generations">;
+    input: {
+      transcriptParts: Parameters<typeof mapClaimToPart>[0];
+      transcriptId?: Id<"transcripts">;
+      transcriptIds?: Id<"transcripts">[];
+      digestIds?: Id<"transcriptDigests">[];
+    };
+    content: string;
+    claimDrafts: ProvenanceDraft[];
+  }
+) {
+  const claims = await Promise.all(
+    args.claimDrafts.map(async (claim) => {
+      const citation = mapClaimToPart(args.input.transcriptParts, claim);
+      return {
+        claimId: claim.claimId,
+        section: claim.section,
+        material: true,
+        claimText: claim.claimText,
+        claimTextHash: await sha256(claim.claimText),
+        state: citation ? ("needs_review" as const) : ("unsupported" as const),
+        sources: citation ? [citation] : [],
+      };
+    })
+  );
+  return await ctx.runMutation(internal.reports.createProvenance, {
+    projectId: args.projectId,
+    generationId: args.generationId,
+    sourceTranscriptId: args.input.transcriptId,
+    sourceTranscriptIds: args.input.transcriptIds,
+    digestIds: args.input.digestIds,
+    content: args.content,
+    claims,
+  });
+}
+
+/**
+ * Story 2 (CAP-5/6, AD-26): the ordered-generation profile context. Never
+ * fails generation: an unreadable profile degrades to the House Rules
+ * default order with the reason recorded.
+ */
+export async function readOrderedProfileContext(
+  ctx: Pick<ActionCtx, "runQuery">,
+  requestedBy: Id<"users"> | undefined
+): Promise<OrderedProfileContext> {
+  try {
+    return await ctx.runQuery(
+      internal.writerProfiles.getGenerationProfileContext,
+      requestedBy ? { userId: requestedBy } : {}
+    );
+  } catch (error) {
+    console.error("ordered profile context read failed", error);
+    return {
+      profileState: "missing",
+      categoryOutcomes: [],
+      buildOrder: [...DEFAULT_BUILD_ORDER],
+      buildOrderFallbackReason:
+        "the Writer Profile could not be read; House Rules default 242 → 244 → 246 used",
+      selfCheckRules: [],
+    };
+  }
 }
 
 /**
@@ -676,6 +750,19 @@ export const generateReport = internalAction({
 
       const { writerFlavor, styleOverrides } = await writerStylePromise;
 
+      // Story 2 (CAP-5/6, AD-26): read once, handed to every candidate, so
+      // compare candidates share one Build Order. Never silent: a profile
+      // that does not apply is reported as "no effective writer profile".
+      const orderedContext = await readOrderedProfileContext(ctx, input.requestedBy);
+      if (orderedContext.profileState !== "applied") {
+        await log(
+          `No effective writer profile (${orderedContext.profileState}): House Rules apply and sections draft in the default order 242 → 244 → 246.`
+        );
+      }
+      if (orderedContext.buildOrderFallbackReason) {
+        await log(`Build Order not applied: ${orderedContext.buildOrderFallbackReason}.`);
+      }
+
       // Compare analysis uses the default model, independent of pair order.
       // Single mode preserves its selected model, as in iterative generation.
       const analysisModel = input.candidateMode === "compare"
@@ -754,6 +841,7 @@ export const generateReport = internalAction({
             ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
             ...(writerFlavor ? { writerFlavor } : {}),
             ...(styleOverrides ? { styleOverrides } : {}),
+            orderedContext,
           }
         );
         await ctx.runMutation(internal.generations.setCandidateRunJob, {
@@ -791,6 +879,9 @@ export const generateCandidate = internalAction({
     // Resolved by generateReport when it recorded the budget report; absent
     // only for a candidate scheduled before this field existed.
     contextBudget: v.optional(contextBudgetValidator),
+    // Story 2: the ordered profile context generateReport read once; absent
+    // for ghost runs and for candidates queued before this field existed.
+    orderedContext: v.optional(orderedProfileContextValidator),
   },
   handler: async (ctx, args) => {
     const run = await ctx.runMutation(internal.generations.claimCandidateRun, {
@@ -834,6 +925,40 @@ export const generateCandidate = internalAction({
             contextBudget: args.contextBudget ?? input.contextBudget,
           }).userMessage
         : "";
+      // Story 2 (AD-24): single/compare candidates run the ordered chain —
+      // one scheduled action per section in Build Order, then finalize.
+      // Only iterative's one-shot ghost keeps the parallel pipeline below.
+      if (!run.ghost) {
+        const analysis = sharedAnalysis ?? await runAnalyzerAgent(
+          clientFor("generation:analyzer"),
+          analyzerUserMessage,
+          run.model,
+          args.brainExemplars.analyzer
+        );
+        const orderedContext =
+          args.orderedContext ?? (await readOrderedProfileContext(ctx, input.requestedBy));
+        await ctx.runMutation(internal.generations.createOrderedSectionRuns, {
+          generationId: args.generationId,
+          candidateRunId: args.candidateRunId,
+          payload: {
+            analysis: JSON.stringify(analysis),
+            brainExemplars: args.brainExemplars,
+            ...(args.qaCalibration ? { qaCalibration: args.qaCalibration } : {}),
+            ...(args.draftStyle ? { draftStyle: args.draftStyle } : {}),
+            ...(args.qaCalibrationDigestId
+              ? { qaCalibrationDigestId: args.qaCalibrationDigestId }
+              : {}),
+            ...(args.draftStyleDigestId
+              ? { draftStyleDigestId: args.draftStyleDigestId }
+              : {}),
+            ...(args.writerFlavor ? { writerFlavor: args.writerFlavor } : {}),
+            ...(args.styleOverrides ? { styleOverrides: args.styleOverrides } : {}),
+            orderedContext,
+          },
+        });
+        return;
+      }
+
       // Story 1 (CAP-1/2/4): "" when the generation has no Brief yet.
       const briefBlock = await ctx.runQuery(
         internal.generations.renderBriefForGeneration,
@@ -857,32 +982,13 @@ export const generateCandidate = internalAction({
           sharedAnalysis,
           briefBlock
         );
-      const claims = await Promise.all(
-        claimDrafts.map(async (claim) => {
-          const citation = mapClaimToPart(input.transcriptParts, claim);
-          return {
-            claimId: claim.claimId,
-            section: claim.section,
-            material: true,
-            claimText: claim.claimText,
-            claimTextHash: await sha256(claim.claimText),
-            state: citation ? ("needs_review" as const) : ("unsupported" as const),
-            sources: citation ? [citation] : [],
-          };
-        })
-      );
-      const provenanceId = await ctx.runMutation(
-        internal.reports.createProvenance,
-        {
-          projectId: run.projectId,
-          generationId: run.generationId,
-          sourceTranscriptId: input.transcriptId,
-          sourceTranscriptIds: input.transcriptIds,
-          digestIds: input.digestIds,
-          content,
-          claims,
-        }
-      );
+      const provenanceId = await recordCandidateProvenance(ctx, {
+        projectId: run.projectId,
+        generationId: run.generationId,
+        input,
+        content,
+        claimDrafts,
+      });
       await ctx.runMutation(internal.generations.completeCandidateRun, {
         candidateRunId: args.candidateRunId,
         content,

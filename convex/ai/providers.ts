@@ -16,9 +16,11 @@ import {
 } from "../lib/providerConfig";
 import { gatewayForModel } from "../../shared/generationModels";
 import {
+  assertGenerationCallSite,
   instrumentedAnthropic,
   type GenerationAttribution,
 } from "./instrument";
+import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import { instrumentedOpenRouter } from "./openrouter";
 import type { GenerationClient } from "./openrouterCore";
 
@@ -67,8 +69,23 @@ export const ANTHROPIC_TIMEOUT_MS = 240_000;
  * Slots 3 and 4 only run for sections still over the CRA form limit, so the
  * typical chain is shorter. New candidates have four slots at most, but
  * retain the five-slot bound while legacy queued payloads remain supported.
+ *
+ * Story 2 (AD-24): single/compare candidates no longer run that chain in one
+ * action; each section is its own scheduled action (orderedGeneration.ts
+ * generateOrderedSection) whose worst case is ORDERED_SECTION_ACTION_SLOTS:
+ * one draft + the compression squeezes + one Self-check + at most one repair
+ * = 5, the same bound. Finalize adds consistency + (QA || chronology) = 2.
+ * Iterative's one-shot ghost still runs the five-slot chain above.
  */
 export const SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE = 5;
+
+/** Worst-case sequential provider calls inside one ordered section action. */
+export const ORDERED_SECTION_ACTION_SLOTS = {
+  section: 1,
+  compression: COMPRESSION_REQUEST.squeezes.length,
+  selfCheck: 1,
+  repair: 1,
+} as const;
 
 /**
  * Named reserve for every part of the action that is not a provider request
@@ -105,6 +122,7 @@ export function clientForModel(
     attribution?: GenerationAttribution;
   }
 ): GenerationClient {
+  assertGenerationCallSite(meta.callSite);
   if (gatewayForModel(modelId) === "openrouter") {
     return instrumentedOpenRouter(ctx, meta);
   }

@@ -1,126 +1,108 @@
-/**
- * Story 2 (CAP-6/7): Compliance Note compilation.
- * Records per-section decisions: which profile instructions were applied,
- * which were not applied and why, and repair/consistency outcomes.
- */
-
-export type ProfileTier = "locked_rules" | "house_rules" | "writer_profile" | "org_mode";
-
-export type ReasonCode =
-  | "cap_met"
-  | "cap_breach"
-  | "instruction_applied"
-  | "instruction_waived"
-  | "disabled_profile"
-  | "missing_profile"
-  | "override"
-  | "conflict";
-
-export interface AppliedInstruction {
-  instruction: string;
-  source: ProfileTier;
-  appliedHow: string; // e.g., "applied fully", "applied up to cap"
-}
-
-export interface NotAppliedReason {
-  instruction: string;
-  reason: ReasonCode;
-  detail: string; // e.g., "350/350 words", "profile disabled"
-}
-
-export interface SelfCheckRecord {
-  status: "pass" | "repair_attempted" | "repair_failed";
-  checks: string[]; // which checks ran
-  issues: string[];
-  repairOutcome?: string;
-}
-
-export interface ConsistencyFinding {
-  type: "contradiction" | "storyline_deviation" | "unresolved_fact";
-  description: string;
-  location: string; // e.g., "S246 paragraph 2"
-  evidence?: string;
-}
-
-export interface ComplianceRecord {
-  section: string;
-  appliedInstructions: AppliedInstruction[];
-  notAppliedReasons: NotAppliedReason[];
-  selfCheck: SelfCheckRecord;
-  consistencyFindings?: ConsistencyFinding[];
-}
-
-export interface ComplianceNote {
-  buildOrder: string[];
-  buildOrderTier: ProfileTier;
-  buildOrderValid: boolean;
-  invalidBuildOrderReason?: string;
-  sections: ComplianceRecord[];
-  summaryIssues: string[]; // top-level findings
-  generatedAt: number;
-}
+import { v, type Infer } from "convex/values";
+import type { Id } from "../_generated/dataModel";
+import {
+  complianceTierValidator,
+  sectionNumberValidator,
+  type ComplianceTier,
+  type SectionNumber,
+} from "./orderedChain";
 
 /**
- * Compile compliance note from generation artifacts.
- * Called once at the end of generation, before returning to the user.
+ * Story 2 (CAP-7, AD-25): Compliance Notes are rows, one per decision, in the
+ * `complianceNotes` table. These are the typed builders the section-chain
+ * mutations share; there is no JSON aggregate anywhere.
  */
-export function compileComplianceNote(
-  buildOrder: string[],
-  buildOrderTier: ProfileTier,
-  buildOrderValid: boolean,
-  invalidBuildOrderReason: string | undefined,
-  sections: ComplianceRecord[]
-): ComplianceNote {
-  const summaryIssues: string[] = [];
 
-  // Patch 5: Add fallback string if invalidBuildOrderReason is undefined
-  if (!buildOrderValid) {
-    summaryIssues.push(
-      `Invalid Build Order: ${invalidBuildOrderReason || "validation failed"}`
-    );
-  }
+export const complianceNoteSourceValidator = v.union(
+  v.literal("deterministic"),
+  v.literal("model")
+);
 
-  for (const section of sections) {
-    // Patch 6: Use optional chaining to guard against undefined section.selfCheck
-    if (section.selfCheck?.status === "repair_failed") {
-      summaryIssues.push(
-        `Section ${section.section}: self-check repair failed (${section.selfCheck?.issues?.join(", ")})`
-      );
-    }
-    if (section.consistencyFindings && section.consistencyFindings.length > 0) {
-      summaryIssues.push(
-        `Section ${section.section}: ${section.consistencyFindings.length} consistency finding(s)`
-      );
-    }
-  }
+export const complianceOutcomeValidator = v.union(
+  v.literal("applied"),
+  v.literal("not_applied")
+);
 
+/** The per-decision fields; the table adds its owner ids. */
+export const complianceNoteDraftValidator = v.object({
+  section: sectionNumberValidator,
+  paragraphIndex: v.optional(v.number()),
+  source: complianceNoteSourceValidator,
+  instruction: v.string(),
+  outcome: complianceOutcomeValidator,
+  tier: complianceTierValidator,
+  reason: v.string(),
+  repaired: v.boolean(),
+});
+export type ComplianceNoteDraft = Infer<typeof complianceNoteDraftValidator>;
+
+/** One `complianceNotes` insert, matching the table validator. */
+export type ComplianceNoteRow = ComplianceNoteDraft & {
+  projectId: Id<"projects">;
+  generationId: Id<"generations">;
+  candidateRunId?: Id<"generationCandidateRuns">;
+};
+
+const MAX_TEXT_CHARS = 1000;
+
+function bounded(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.length > MAX_TEXT_CHARS
+    ? `${trimmed.slice(0, MAX_TEXT_CHARS - 1)}…`
+    : trimmed;
+}
+
+export function noteDraft(fields: {
+  section: SectionNumber;
+  paragraphIndex?: number;
+  source: "deterministic" | "model";
+  instruction: string;
+  outcome: "applied" | "not_applied";
+  tier: ComplianceTier;
+  reason: string;
+  repaired?: boolean;
+}): ComplianceNoteDraft {
   return {
-    buildOrder,
-    buildOrderTier,
-    buildOrderValid,
-    invalidBuildOrderReason,
-    sections,
-    summaryIssues,
-    generatedAt: Date.now(),
+    section: fields.section,
+    ...(fields.paragraphIndex !== undefined
+      ? { paragraphIndex: fields.paragraphIndex }
+      : {}),
+    source: fields.source,
+    instruction: bounded(fields.instruction),
+    outcome: fields.outcome,
+    tier: fields.tier,
+    reason: bounded(fields.reason),
+    repaired: fields.repaired ?? false,
   };
 }
 
-/**
- * Serialize compliance note for storage in generation.complianceNotes.
- */
-export function serializeComplianceNote(note: ComplianceNote): string {
-  return JSON.stringify(note, null, 2);
+/** Attach the owner ids a chain mutation knows; nothing else is added. */
+export function complianceNoteRow(
+  draft: ComplianceNoteDraft,
+  owner: {
+    projectId: Id<"projects">;
+    generationId: Id<"generations">;
+    candidateRunId?: Id<"generationCandidateRuns">;
+  }
+): ComplianceNoteRow {
+  return {
+    projectId: owner.projectId,
+    generationId: owner.generationId,
+    ...(owner.candidateRunId ? { candidateRunId: owner.candidateRunId } : {}),
+    ...draft,
+  };
 }
 
-/**
- * Deserialize compliance note from storage.
- * Patch 4: Wrap JSON.parse in try/catch for robustness.
- */
-export function deserializeComplianceNote(json: string): ComplianceNote | null {
-  try {
-    return JSON.parse(json);
-  } catch (err) {
-    console.error("Failed to deserialize compliance note:", err);
-    return null;
-  }
-}
+/** Per-section Self-check outcome stored on the section run (JSON summary). */
+export type SelfCheckStatus = "pass" | "repair_attempted" | "repair_failed";
+
+export type SelfCheckSummary = {
+  status: SelfCheckStatus;
+  repairAttempted: boolean;
+  /** Rows that were not_applied before any repair. */
+  failedChecks: number;
+  /** Deterministic rows still not_applied after the (re-)check. */
+  remainingFailures: number;
+  /** Whether the structured model Self-check call returned verdicts. */
+  modelCheck: "ok" | "failed";
+};

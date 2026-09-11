@@ -682,7 +682,7 @@ describe("generation provenance", () => {
     await t.mutation(internal.aiUsage.logUsage, {
       generationId: failedId,
       durationMs: 21,
-      callSite: "generation:failed-attempt",
+      callSite: "generation:section:244",
       model: "claude-sonnet-5",
       inputTokens: 10,
       outputTokens: 2,
@@ -691,7 +691,7 @@ describe("generation provenance", () => {
     await t.mutation(internal.aiUsage.logUsage, {
       generationId: retryId,
       durationMs: 34,
-      callSite: "generation:retry-attempt",
+      callSite: "generation:section:246",
       model: "claude-sonnet-5",
       inputTokens: 12,
       outputTokens: 3,
@@ -716,14 +716,14 @@ describe("generation provenance", () => {
     expect(state.failedUsage).toEqual([
       expect.objectContaining({
         generationId: failedId,
-        callSite: "generation:failed-attempt",
+        callSite: "generation:section:244",
         durationMs: 21,
       }),
     ]);
     expect(state.retryUsage).toEqual([
       expect.objectContaining({
         generationId: retryId,
-        callSite: "generation:retry-attempt",
+        callSite: "generation:section:246",
         durationMs: 34,
       }),
     ]);
@@ -1115,7 +1115,7 @@ describe("generation-owned usage persistence", () => {
       generationId: ids.generationId,
       candidateRunId: ids.candidateRunId,
       durationMs: 0,
-      callSite: "generation:candidate:242",
+      callSite: "generation:section:242",
       model: "claude-sonnet-5",
       inputTokens: 0,
       outputTokens: 0,
@@ -1127,7 +1127,7 @@ describe("generation-owned usage persistence", () => {
     await t.mutation(internal.aiUsage.logUsage, {
       generationId: ids.generationId,
       durationMs: 17,
-      callSite: "generation:post-qa",
+      callSite: "generation:post_qa",
       model: "claude-sonnet-5",
       inputTokens: 4,
       outputTokens: 2,
@@ -1136,7 +1136,7 @@ describe("generation-owned usage persistence", () => {
     await t.mutation(internal.aiUsage.logUsage, {
       generationId: ids.otherGenerationId,
       durationMs: 3,
-      callSite: "generation:other",
+      callSite: "generation:post_chronology",
       model: "claude-sonnet-5",
       inputTokens: 8,
       outputTokens: 3,
@@ -1172,12 +1172,12 @@ describe("generation-owned usage persistence", () => {
         expect.objectContaining({
           generationId: ids.generationId,
           durationMs: 17,
-          callSite: "generation:post-qa",
+          callSite: "generation:post_qa",
         }),
       ]),
     );
     const postQa = state.rows.find(
-      (row) => row.callSite === "generation:post-qa",
+      (row) => row.callSite === "generation:post_qa",
     );
     expect(postQa?.candidateRunId).toBeUndefined();
     expect(state.legacy).toMatchObject({
@@ -1379,6 +1379,15 @@ describe("generation entry handoffs through the real actions", () => {
       qaCalibrationDigestId: qaId,
       draftStyleDigestId: styleId,
     });
+    // Story 2 (AD-24): a single-mode candidate now runs the ordered chain —
+    // one scheduled action per section, then finalize. Under real timers
+    // they run on their own; wait for the candidate to settle (and leave no
+    // chain running into the next test) before counting provider calls.
+    for (let round = 0; round < 40; round += 1) {
+      await flushScheduledUsage(t);
+      const status = (await t.run((ctx) => ctx.db.get(candidateRunId)))?.status;
+      if (status === "succeeded" || status === "failed") break;
+    }
     const providerCalls = fetchMock.mock.calls.length;
 
     const state = await t.run(async (ctx) => ({
@@ -1609,10 +1618,10 @@ describe("getGeneration attributable cost", () => {
       { generationId, callSite: "generation:analyzer", costUsd: 0.25, createdAt: 1 },
       // A call whose generation later failed, and a retried call: both are
       // recorded spend and must count.
-      { generationId, callSite: "generation:failed-attempt", costUsd: 0.5, createdAt: 2 },
-      { generationId, callSite: "generation:retry-attempt", costUsd: 0.125, createdAt: 3 },
+      { generationId, callSite: "generation:section:244", costUsd: 0.5, createdAt: 2 },
+      { generationId, callSite: "generation:section:246", costUsd: 0.125, createdAt: 3 },
       // Noise that must not contribute.
-      { generationId: otherGenerationId, callSite: "generation:other", costUsd: 99, createdAt: 4 },
+      { generationId: otherGenerationId, callSite: "generation:post_chronology", costUsd: 99, createdAt: 4 },
       { callSite: "chat", costUsd: 42, createdAt: 5 },
       // Same project, no generationId: aggregating by project instead of by
       // generation would pull this in, so its absence from the sum is the
@@ -1714,7 +1723,7 @@ describe("getGeneration attributable cost", () => {
       }),
     );
     await seedUsage(t, [
-      { generationId: legacyId, callSite: "generation:legacy", costUsd: 7, createdAt: 1 },
+      { generationId: legacyId, callSite: "generation:condense", costUsd: 7, createdAt: 1 },
     ]);
 
     const view = await t
@@ -2141,11 +2150,32 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
   const DIGEST_FULL_TEXT = `${"F".repeat(200)} FULL-TEXT SENTINEL`;
   const DIGEST_TEXT = "DIGEST SENTINEL";
 
+  // These entry actions run under real timers, so the work they schedule
+  // (story 2's ordered section chain, iterative's ghost) keeps running after
+  // the assertions. Settle it while this test's fetch stub is still in place,
+  // so no request lands in the next test's capture.
+  const opened: Array<ReturnType<typeof convexTest>> = [];
+  afterEach(async () => {
+    for (const t of opened.splice(0)) {
+      for (let round = 0; round < 60; round += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await t.finishInProgressScheduledFunctions();
+        const open = await t.run(async (ctx) =>
+          (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+            (job) => job.state.kind === "pending" || job.state.kind === "inProgress",
+          ),
+        );
+        if (open.length === 0) break;
+      }
+    }
+  });
+
   async function reservedGenerationWithSources(
     t: ReturnType<typeof convexTest>,
     candidateMode: "single" | "iterative",
     inputMode: "full" | "digest" = "full",
   ) {
+    opened.push(t);
     return await t.run(async (ctx) => {
       const now = Date.now();
       const transcriptText =
