@@ -1,6 +1,6 @@
 # Client uploader — dev hand-off checklist
 
-The kit in this folder is what gets zipped and sent to the client (Michael).
+The kit in this folder is what gets zipped and sent to the client.
 Windows runs `banhall-uploader.ps1` (stock PowerShell 5.1+), Mac runs
 `banhall-uploader.sh` (stock bash/curl/shasum). Both hit
 `POST /ingestion/upload` (convex/http.ts) and land files in the
@@ -25,7 +25,11 @@ recipient is `bash banhall-uploader.sh` from Terminal). Send it + tell the
 client to read README.txt (double-click, type y).
 
 `root` stays `""` in the config (auto-detects `OneDrive…/Applications`); set
-it explicitly only if the client's folder lives somewhere unusual.
+it explicitly only if the client's folder lives somewhere unusual. Any root
+under an Applications folder works: the `Client/Fiscal year/…` prefix the
+server needs is rebuilt from the root's own absolute path in every mode (see
+the root-prefix note below), so a client who picks one client folder, one
+fiscal year or a `Submitted` folder still sends correctly labelled paths.
 
 ## Local dry-run of the kit
 
@@ -91,7 +95,71 @@ unset or shorter than 32 chars.
   (`LOG_WRITTEN` on the Mac), set only after the append returns: when the kit folder is read-only the
   run asks for a screenshot instead of pointing the client at a file that was
   never written.
-- Client folder names hold wildcard characters (`Applications [2024]`). Every
+- Root prefix (Sept 9 bug): `convex/http.ts` rejects a one-segment `?path`;
+  for two or more it strips the last segment (the file) and calls
+  `classify()` with the directory part, which reads `clientName` from the
+  first segment and `fiscalYearLabel` from the second. A two-segment rel
+  (`Client/file.docx`) is therefore accepted but has no fiscal year: it lands
+  as docKind `unknown` with pair key `Client::?`. Three segments are what
+  classification needs. A rel relative to the chosen folder is only right
+  when that folder is the Applications folder itself. The client chose a root shaped
+  `…\1. Applications\<Client>\2025-03-31\Submitted` and every file came back
+  `Invalid or missing ?path`. `Get-RootPrefix` (`uploader-lib.ps1`) and
+  `root_prefix` (Mac) now rebuild the `Client/Fiscal year/…/` prefix from the
+  root's own absolute path in every mode, not just drag-and-drop: the anchor
+  is the last segment containing "applications" (case-insensitive, so
+  `1. Applications` and `Applications [2024]` count - kept loose on purpose,
+  Sept 9; a client folder whose name contains "applications" would become the
+  anchor, a documented risk), the segments after it become the prefix, and the
+  Applications folder itself yields an empty prefix so existing uploads keep
+  their `local:<rel>` dedupe keys. A root with no anchor also yields an empty
+  prefix (it is taken to be the corpus folder, exactly as every run did
+  before), and `Get-UploadRefusal` / `upload_refusal` then check that root's
+  own rels, counting segments the way the server's `sanitizeRelPath` does
+  (trimmed; empty, `.` and `..` dropped): if any rel has fewer than three
+  segments, or any *folder* segment of a rel (never the file name) matches
+  the anchor pattern - the root sits one or more levels above an Applications
+  folder - the run prints guidance naming the folder to choose (every
+  matching Applications folder by full path, in the root's own separator),
+  logs `REFUSED\t<reason>` and exits before the upload question. An anchored root is never refused: a stray file
+  directly in the Applications folder is the server's per-file `REJECTED`,
+  not a reason to stop the batch. Before the `y` question the scan prints
+  `Labels: <Client> / <Fiscal year> (N files)` for the top five pairs and one
+  `Labels: (and N more)` line past that (`Format-LabelSummary` /
+  `label_summary`), counts only, never a document name; a rel with fewer than
+  three segments is counted under `(missing Client/Fiscal year folders)`. The
+  payloads go to `upload-log.txt` as `LABELS\t<Client> / <Fiscal year> (N
+  files)` (bare payload after the tab, like every other record), a no-anchor
+  root that passed the check as `WARN\t…`, a refusal as `REFUSED\t…`. Row
+  order: Windows `Sort-Object` is culture-aware and case-insensitive, the Mac
+  sorts with `LC_ALL=C` (byte order); each is deterministic on its own
+  platform, and mixed-case ties may order differently between the two. The
+  five-row cap is `Get-LabelRowCap` / `LABEL_ROW_CAP`. Both auto-detect
+  probes go through `Get-ApplicationsGuess` / `guess_applications_root`
+  (exact `Applications` wins, else the first folder containing
+  "applications"). Both harnesses also execute the uploader itself in
+  folder-argument mode against a throwaway kit with stdin closed, which is
+  what surfaced that `Read-Host` returns `$null` on closed stdin and
+  `$null -notmatch` is an empty array (falsy): every answer is now compared
+  as `"$answer"`, so a closed stdin cancels instead of uploading.
+  Operator note: a remembered root that was BELOW the Applications folder
+  and previously uploaded two-segment rels successfully (a client folder as
+  root gives `FY/file`) will re-stage those files under their corrected
+  `Client/FY/file` keys on the next run; expect duplicates in the review
+  queue for that population and clear the old `unknown` rows by hand. Both harnesses run
+  the screenshot's root shape with placeholder names
+  (`C:\Users\writer\Firm Ltd\Production - Documents\1. Applications\Client
+  Co\2025-03-31\Submitted`) as a fixture; no real person or client name is
+  committed. The Mac `root_segments` turns globbing off around its IFS split
+  (a segment `Client [2]` would otherwise match a file `Client 2` in cwd), and
+  the Windows lib wraps `Get-RootSegments` in `@()` (a one-segment path comes
+  off the pipeline as a string). Both auto-detect probes now use the same
+  loose match, so a `1. Applications` folder is offered. Not fixed here: the
+  probes only search `$env:OneDrive*` / `$HOME/OneDrive*`, and the client's
+  corpus is a SharePoint library synced under `…\<Firm> Ltd\…`, so it is never
+  offered and the user always picks manually.
+- Corpus-root names hold wildcard characters (`Applications [2024]` is one
+  real shape; the same is possible for any client folder below it). Every
   path read parses literally - `Get-Item -LiteralPath`, `Get-FileHash
   -LiteralPath`, `Test-RootUsable` (which uses `Test-Path -LiteralPath`) - and
   `-InFile`, which has no literal twin, is fed a
