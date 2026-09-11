@@ -20,7 +20,6 @@ import { settingsSupplyLabel } from "../lib/settingsDocument";
 import { MODEL } from "./model";
 import type { GenerationClient } from "./openrouterCore";
 import { normalizeProviderError } from "./providers";
-import { waivedCategoryLabels } from "./prompts";
 import {
   ANALYSIS_TOOL_SCHEMA,
   STYLE_ANALYSIS_REQUEST,
@@ -30,7 +29,12 @@ import {
   type StyleAnalysis,
 } from "./styleAnalysis";
 import { generateStructured } from "./structured";
-import { fetchWriterStyle, readOrderedProfileContext } from "./writerStyle";
+import {
+  APPLYING_WRITER_STYLE_LOG,
+  fetchWriterStyle,
+  readOrderedProfileContext,
+  waivingHouseRulesLog,
+} from "./writerStyle";
 
 /**
  * Story 3 (CAP-6/8, AD-26/27): the ONE generation-entry resolver of a
@@ -71,14 +75,54 @@ export function stableStringHash(text: string): string {
   );
 }
 
+/** Every input that decides the settings classifier's answer. */
+export type SettingsClassifierInputs = {
+  systemText: string;
+  /** The user template with an empty document: the House Rule and Locked catalogs. */
+  userTemplate: string;
+  toolSchema: unknown;
+  toolName: string;
+  toolDescription: string;
+  maxTokens: number;
+  /** How much of the document the classifier reads. */
+  inputCharLimit: number;
+  model: string;
+};
+
 /**
- * The classifier's identity for the waiver cache: a stable hash of its
- * system text and tool schema. A prompt or schema change moves it, so a
- * cached analysis from an older classifier is never served.
+ * The classifier's identity for the waiver cache: a stable hash of every
+ * input that decides its answer. Any of them changing moves it, so a cached
+ * analysis from an older classifier is never served. Pure.
  */
-export const SETTINGS_CLASSIFIER_VERSION = `style-classifier-${stableStringHash(
-  `${STYLE_ANALYSIS_SYSTEM_PROMPT}\n${JSON.stringify(ANALYSIS_TOOL_SCHEMA)}`
-)}`;
+export function settingsClassifierVersion(inputs: SettingsClassifierInputs): string {
+  return `style-classifier-${stableStringHash(
+    JSON.stringify([
+      inputs.systemText,
+      inputs.userTemplate,
+      inputs.toolSchema,
+      inputs.toolName,
+      inputs.toolDescription,
+      inputs.maxTokens,
+      inputs.inputCharLimit,
+      inputs.model,
+    ])
+  )}`;
+}
+
+/**
+ * settingsClassifierVersion applied to the real inputs. Passed to the
+ * candidate query and to recordSettingsAnalysis, and nowhere else.
+ */
+export const SETTINGS_CLASSIFIER_VERSION = settingsClassifierVersion({
+  systemText: STYLE_ANALYSIS_SYSTEM_PROMPT,
+  userTemplate: buildStyleAnalysisPrompt("").user,
+  toolSchema: ANALYSIS_TOOL_SCHEMA,
+  toolName: STYLE_ANALYSIS_REQUEST.toolName,
+  toolDescription: STYLE_ANALYSIS_REQUEST.description,
+  maxTokens: STYLE_ANALYSIS_REQUEST.maxTokens,
+  inputCharLimit: STYLE_ANALYSIS_REQUEST.inputCharLimit,
+  model: MODEL,
+});
 
 export type ResolvedWriterSettings = {
   writerFlavor?: string;
@@ -105,7 +149,7 @@ async function safeLog(log: ResolverArgs["log"], line: string): Promise<void> {
   try {
     await log(line);
   } catch (error) {
-    console.error("generation progress log write failed", reasonOf(error));
+    console.error("generation progress log write failed", reasonOf(error), error);
   }
 }
 
@@ -135,16 +179,9 @@ async function logAppliedStyle(
   writerFlavor: string | undefined,
   styleOverrides: StyleOverrides | undefined
 ): Promise<void> {
-  // The same two lines the saved-profile read has always written.
-  if (writerFlavor) {
-    await safeLog(log, "Applying the requesting writer's personal style preferences.");
-  }
-  if (styleOverrides) {
-    await safeLog(
-      log,
-      `Waiving default house-style rules: ${waivedCategoryLabels(styleOverrides).join("; ")}.`
-    );
-  }
+  // The same two lines the saved-profile read writes (shared constants).
+  if (writerFlavor) await safeLog(log, APPLYING_WRITER_STYLE_LOG);
+  if (styleOverrides) await safeLog(log, waivingHouseRulesLog(styleOverrides));
 }
 
 async function resolve(ctx: ResolverCtx, args: ResolverArgs): Promise<ResolvedWriterSettings> {
@@ -190,14 +227,17 @@ async function resolve(ctx: ResolverCtx, args: ResolverArgs): Promise<ResolvedWr
         } catch (error) {
           // The analysis still applies to this generation; only the cache
           // is lost, so the next generation classifies again.
-          console.error("settings analysis cache write failed", reasonOf(error));
+          console.error("settings analysis cache write failed", reasonOf(error), error);
         }
       } catch (error) {
         addressed = null;
         waiverAnalysis = "failed";
+        console.error("settings document classification failed", reasonOf(error), error);
+        // Never "every House Rule is in force": a category an org set to
+        // `off` stays waived. The document itself waives nothing.
         await safeLog(
           args.log,
-          `The settings document ${detected.fileName} could not be analysed for House Rule waivers (${reasonOf(error)}); its instructions apply with every House Rule in force.`
+          `The settings document ${detected.fileName} could not be analysed for House Rule waivers (${reasonOf(error)}); its instructions apply with no Writer Profile waivers.`
         );
       }
     }
@@ -249,6 +289,13 @@ async function resolve(ctx: ResolverCtx, args: ResolverArgs): Promise<ResolvedWr
         ? "profile"
         : "none",
     truncated: documentApplied && detected !== null && detected.truncated,
+    // The waivers the applied document legislates, as this generation
+    // resolved them: the save offer's only source (never re-read from the
+    // cache, so a failed cache write or a later classifier version cannot
+    // drop them).
+    ...(documentApplied && settingsDocument?.addressedCategories
+      ? { addressedCategories: [...settingsDocument.addressedCategories] }
+      : {}),
   };
   try {
     await ctx.runMutation(internal.generations.recordWriterSettings, {
@@ -257,7 +304,7 @@ async function resolve(ctx: ResolverCtx, args: ResolverArgs): Promise<ResolvedWr
     });
   } catch (error) {
     // The record is for display; the resolved style still governs drafting.
-    console.error("writer settings record failed", reasonOf(error));
+    console.error("writer settings record failed", reasonOf(error), error);
   }
 
   const overrides = normalizeStyleOverrides(style.styleOverrides);
@@ -278,7 +325,9 @@ async function degrade(
   error: unknown
 ): Promise<ResolvedWriterSettings> {
   const reason = reasonOf(error);
-  console.error("writer settings resolution failed; using the saved Writer Profile", reason);
+  // Server logs keep the raw error (message and stack) beside the reason
+  // code; the writer-facing progress log carries only the normalized reason.
+  console.error("writer settings resolution failed; using the saved Writer Profile", reason, error);
   await safeLog(
     args.log,
     `Writer settings could not be resolved (${reason}); the saved Writer Profile applies and no settings document is read.`
@@ -299,7 +348,7 @@ async function degrade(
       },
     });
   } catch (recordError) {
-    console.error("writer settings record failed", reasonOf(recordError));
+    console.error("writer settings record failed", reasonOf(recordError), recordError);
   }
   return { ...style, orderedContext };
 }

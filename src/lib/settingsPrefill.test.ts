@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  settingsPrefillDecision,
+  settingsPrefillKeptEditsNotice,
   settingsPrefillNotice,
   settingsPrefillOverrides,
-  settingsPrefillText,
   settingsPrefillUnavailableNotice,
   type SettingsOffer,
+  type SettingsPrefillInput,
 } from "./settingsPrefill";
 import {
   DEFAULT_HOUSE_RULE_MODES,
@@ -19,32 +21,97 @@ const offer: SettingsOffer = {
   addressedCategories: ["bannedWords", "paragraphDensity", "reportSkeleton"],
 };
 
-describe("settingsPrefillText", () => {
-  it("waits for the saved-profile seed", () => {
-    expect(
-      settingsPrefillText({ seeded: false, alreadyPrefilled: false, offer, current: "" })
-    ).toBeNull();
-    expect(
-      settingsPrefillText({ seeded: true, alreadyPrefilled: false, offer, current: "Old profile." })
-    ).toBe(offer.text);
+function input(overrides: Partial<SettingsPrefillInput> = {}): SettingsPrefillInput {
+  return {
+    fromGeneration: "generation-1",
+    prefilledFor: null,
+    seeded: true,
+    modesLoaded: true,
+    profileError: undefined,
+    modesError: undefined,
+    query: { data: { offer }, error: undefined },
+    userEdited: false,
+    currentText: "Old profile.",
+    currentOverrides: NO_STYLE_OVERRIDES,
+    modes: DEFAULT_HOUSE_RULE_MODES,
+    ...overrides,
+  };
+}
+
+describe("settingsPrefillDecision", () => {
+  it("idle with no fromGeneration, or once it was decided", () => {
+    expect(settingsPrefillDecision(input({ fromGeneration: null }))).toEqual({ kind: "idle" });
+    expect(settingsPrefillDecision(input({ fromGeneration: "" }))).toEqual({ kind: "idle" });
+    expect(settingsPrefillDecision(input({ prefilledFor: "generation-1" }))).toEqual({ kind: "idle" });
   });
 
-  it("prefills once", () => {
+  it("decides again for a new fromGeneration after an earlier one was decided", () => {
     expect(
-      settingsPrefillText({ seeded: true, alreadyPrefilled: true, offer, current: "Old profile." })
-    ).toBeNull();
+      settingsPrefillDecision(input({ fromGeneration: "generation-2", prefilledFor: "generation-1" }))
+    ).toMatchObject({ kind: "apply", text: offer.text });
   });
 
-  it("gives null with no offer or when the offer equals the draft", () => {
+  it("unavailable on a profile, modes or query error, even while other reads are pending", () => {
+    for (const failing of [
+      { profileError: new Error("profile") },
+      { modesError: new Error("modes") },
+      { query: { data: undefined, error: new Error("not found") } },
+    ]) {
+      expect(settingsPrefillDecision(input({ seeded: false, modesLoaded: false, ...failing }))).toEqual({
+        kind: "unavailable",
+        notice: settingsPrefillUnavailableNotice,
+      });
+    }
+  });
+
+  it("waits for the seed, the modes and the query", () => {
+    expect(settingsPrefillDecision(input({ seeded: false }))).toEqual({ kind: "wait" });
+    expect(settingsPrefillDecision(input({ modesLoaded: false }))).toEqual({ kind: "wait" });
+    expect(settingsPrefillDecision(input({ query: { data: undefined, error: undefined } }))).toEqual({
+      kind: "wait",
+    });
+  });
+
+  it("unavailable when the query gives null or no offer", () => {
+    for (const data of [null, { offer: null }]) {
+      expect(settingsPrefillDecision(input({ query: { data, error: undefined } }))).toEqual({
+        kind: "unavailable",
+        notice: settingsPrefillUnavailableNotice,
+      });
+    }
+  });
+
+  it("keeps unsaved edits and says so", () => {
+    expect(settingsPrefillDecision(input({ userEdited: true }))).toEqual({
+      kind: "kept-edits",
+      notice: "Your unsaved edits were kept; the settings document was not loaded.",
+    });
+    expect(settingsPrefillKeptEditsNotice).toBe(
+      "Your unsaved edits were kept; the settings document was not loaded."
+    );
+  });
+
+  it("unchanged, with no notice, when the text and the resulting overrides equal the draft", () => {
+    const ticked = { ...NO_STYLE_OVERRIDES, bannedWords: true, paragraphDensity: true, reportSkeleton: true };
     expect(
-      settingsPrefillText({ seeded: true, alreadyPrefilled: false, offer: null, current: "" })
-    ).toBeNull();
-    expect(
-      settingsPrefillText({ seeded: true, alreadyPrefilled: false, offer: undefined, current: "" })
-    ).toBeNull();
-    expect(
-      settingsPrefillText({ seeded: true, alreadyPrefilled: false, offer, current: `  ${offer.text}\n` })
-    ).toBeNull();
+      settingsPrefillDecision(input({ currentText: `  ${offer.text}\n`, currentOverrides: ticked }))
+    ).toEqual({ kind: "unchanged" });
+    // Same text, but the waivers still need ticking: apply.
+    expect(settingsPrefillDecision(input({ currentText: offer.text }))).toMatchObject({
+      kind: "apply",
+      overrides: ticked,
+    });
+  });
+
+  it("applies the text, the pre-ticked writer_choice waivers and the notice", () => {
+    const modes = { ...DEFAULT_HOUSE_RULE_MODES, reportSkeleton: "enforced" as const };
+    expect(settingsPrefillDecision(input({ modes }))).toEqual({
+      kind: "apply",
+      text: offer.text,
+      overrides: { ...NO_STYLE_OVERRIDES, bannedWords: true, paragraphDensity: true },
+      notice:
+        "Loaded from PD Writing Customized Settings.docx in Writer's Notes. Review, then save to your Writer Profile.",
+    });
   });
 });
 
@@ -68,7 +135,7 @@ describe("settingsPrefillOverrides", () => {
     });
   });
 
-  it("leaves the toggles unchanged when the analysis failed or is absent", () => {
+  it("leaves the toggles as they are when the categories are null or there is no offer", () => {
     const current = { ...NO_STYLE_OVERRIDES, repetitionCaps: true };
     expect(
       settingsPrefillOverrides({
@@ -92,9 +159,9 @@ describe("notices", () => {
 
   it("names an attachment", () => {
     expect(
-      settingsPrefillNotice({ ...offer, supplyPath: "attachment", fileName: "Style settings.pdf" })
+      settingsPrefillNotice({ ...offer, supplyPath: "attachment", fileName: "Writing settings.pdf" })
     ).toBe(
-      "Loaded from Style settings.pdf in an attachment. Review, then save to your Writer Profile."
+      "Loaded from Writing settings.pdf in an attachment. Review, then save to your Writer Profile."
     );
   });
 

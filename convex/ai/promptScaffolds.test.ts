@@ -243,11 +243,23 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
     expect(STYLE_ANALYSIS_REQUEST.userTemplate).toBe(built.user);
     expect(STYLE_ANALYSIS_REQUEST.userTemplate).toContain(HOUSE_RULE_TEXTS.reportSkeleton);
     expect(STYLE_ANALYSIS_REQUEST.toolName).toBe("submit_style_analysis");
-    // A classifier prompt change moves promptVersion.
-    const { settingsAnalysis: _settings, ...callsWithout } = generationPromptProgram.calls;
-    expect(
-      await hashPromptProgram({ ...generationPromptProgram, calls: callsWithout })
-    ).not.toBe(await hashPromptProgram(generationPromptProgram));
+  });
+
+  it("editing the classifier system text changes the computed promptVersion (story 3)", async () => {
+    const current = await hashPromptProgram(generationPromptProgram);
+    const edited = await hashPromptProgram({
+      ...generationPromptProgram,
+      calls: {
+        ...generationPromptProgram.calls,
+        settingsAnalysis: {
+          ...generationPromptProgram.calls.settingsAnalysis,
+          systemTemplate: `${STYLE_ANALYSIS_SYSTEM_PROMPT}\nAlso mark addressed=true for any mention of tone.`,
+        },
+      },
+    });
+    expect(edited).not.toBe(current);
+    // The unedited program hashes stably.
+    expect(await hashPromptProgram({ ...generationPromptProgram })).toBe(current);
   });
 
   it("moves promptVersion, so no generation reports a stale contract", async () => {

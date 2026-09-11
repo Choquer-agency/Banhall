@@ -544,15 +544,32 @@ describe("AD-27 generation call slots", () => {
       counts: { settings: 3 },
       overrun: ["settings"],
     });
-    // Recorded, never enforced: an over-allowance slot still builds a client.
-    const providerCreate = vi.fn();
+  });
+
+  it("a generation:settings call after a recorded overrun still goes to the provider and is recorded (never refused)", async () => {
+    const generationId = testId<"generations">("generation-settings-overrun");
+    // The generation's usage already shows the settings slot over its allowance.
+    expect(summarizeSlotUsage({ "generation:settings": 2 }).overrun).toEqual(["settings"]);
+    const providerCreate = vi.fn(async () => textResponse({ input_tokens: 7, output_tokens: 3 }));
     providerMocks.createAnthropicClient.mockReturnValue({
       messages: { create: providerCreate },
     });
-    const { ctx } = fakeCtx();
-    expect(() =>
-      instrumentedAnthropic(ctx, { callSite: "generation:settings" })
-    ).not.toThrow();
+    const { ctx, runAfter } = fakeCtx();
+    const client = instrumentedAnthropic(ctx, {
+      callSite: "generation:settings",
+      attribution: { generationId },
+    });
+    await expect(client.messages.create(request)).resolves.toMatchObject({
+      content: [{ type: "text", text: "provider response" }],
+    });
+    expect(providerCreate).toHaveBeenCalledTimes(1);
+    expect(runAfter).toHaveBeenCalledTimes(1);
+    expect(runAfter.mock.calls[0][2]).toMatchObject({
+      generationId,
+      callSite: "generation:settings",
+      inputTokens: 7,
+      outputTokens: 3,
+    });
   });
 
   it("sums the section rows' counts with the finalize action's own", () => {

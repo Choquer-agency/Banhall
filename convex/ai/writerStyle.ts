@@ -13,6 +13,19 @@ import {
 import { waivedCategoryLabels } from "./prompts";
 
 /**
+ * The two progress-log lines for an applied Writer Profile. Shared with the
+ * writer-settings resolver (convex/ai/writerSettings.ts) so the saved-profile
+ * read and the resolver cannot drift.
+ */
+export const APPLYING_WRITER_STYLE_LOG =
+  "Applying the requesting writer's personal style preferences.";
+export function waivingHouseRulesLog(overrides: StyleOverrides): string {
+  // Neutral copy: a waiver may come from the writer's profile OR an
+  // org-wide mode set by an admin.
+  return `Waiving default house-style rules: ${waivedCategoryLabels(overrides).join("; ")}.`;
+}
+
+/**
  * PSOS-49: the saved-profile read of a requesting writer's style (free-text
  * flavor + house-style waivers). Story 3: generation entry points resolve
  * writer settings through convex/ai/writerSettings.ts, which also applies a
@@ -36,16 +49,12 @@ export async function fetchWriterStyle(
     if (!profile) return result;
     if (profile.customInstructions) {
       result.writerFlavor = profile.customInstructions;
-      await log("Applying the requesting writer's personal style preferences.");
+      await log(APPLYING_WRITER_STYLE_LOG);
     }
     const overrides = normalizeStyleOverrides(profile.styleOverrides);
     if (hasAnyStyleOverride(overrides)) {
       result.styleOverrides = overrides;
-      // Neutral copy: a waiver may come from the writer's profile OR an
-      // org-wide mode set by an admin.
-      await log(
-        `Waiving default house-style rules: ${waivedCategoryLabels(overrides).join("; ")}.`
-      );
+      await log(waivingHouseRulesLog(overrides));
     }
   } catch (err) {
     console.error("writer style fetch failed for generation", err);

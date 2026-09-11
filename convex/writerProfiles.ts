@@ -47,6 +47,7 @@ import {
   type SectionNumber,
   type SelfCheckRule,
   type WriterSettingsSource,
+  waiverAnalysisValidator,
 } from "./lib/orderedChain";
 import {
   detectSettingsDocument,
@@ -58,7 +59,6 @@ import {
 } from "./lib/settingsDocument";
 import { extractSettingsRules } from "./lib/settingsExtraction";
 import { MAX_TRANSCRIPTS_PER_PROJECT } from "./lib/transcripts";
-import { SETTINGS_CLASSIFIER_VERSION } from "./ai/writerSettings";
 
 /**
  * Per-writer "flavor" (Phase A): free-text personal writing instructions,
@@ -710,6 +710,7 @@ export const getGenerationWriterSettings = query({
       fileName: v.optional(v.string()),
       matchesProfile: v.boolean(),
       savedProfileSuperseded: v.boolean(),
+      waiverAnalysis: waiverAnalysisValidator,
       noProfileLine: v.union(v.string(), v.null()),
       offer: v.union(
         v.null(),
@@ -748,20 +749,16 @@ export const getGenerationWriterSettings = query({
       const source = await ctx.db.get(record.generationSourceId);
       const text = source ? settingsDocumentText(source.content) : "";
       if (source && text) {
-        // The waivers the resolver cached for this exact text, at the
-        // current classifier version; null when the analysis failed or is
-        // absent, so saving the prefill never invents a waiver.
-        const cached = await readSettingsAnalysis(ctx, {
-          projectId: generation.projectId,
-          contentHash: await sha256(text),
-          classifierVersion: SETTINGS_CLASSIFIER_VERSION,
-        });
         offer = {
           supplyPath,
           fileName: record.fileName ?? parseSourceLabel(source.label).fileName,
           text,
           truncated: record.truncated,
-          addressedCategories: cached ? cached.addressedCategories : null,
+          // Exactly the waivers this generation applied, recorded at
+          // resolution; null when the analysis failed or is absent, so saving
+          // the prefill never invents a waiver. The analysis cache is never
+          // read here.
+          addressedCategories: record.addressedCategories ?? null,
         };
       }
     }
@@ -771,6 +768,7 @@ export const getGenerationWriterSettings = query({
       ...(record.fileName !== undefined ? { fileName: record.fileName } : {}),
       matchesProfile: record.matchesProfile,
       savedProfileSuperseded: record.savedProfileSuperseded,
+      waiverAnalysis: record.waiverAnalysis,
       noProfileLine: record.profileState === "applied" ? null : NO_PROFILE_LINE,
       offer,
     };

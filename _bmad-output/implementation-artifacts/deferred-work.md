@@ -1035,3 +1035,27 @@ source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260910-135728-7834; this entry preserves the lingering recommendation for a deliberate later review.
 status: open
+
+### DW-125: Story 4 surfaces for the settings record: the Brief rail's "No Writer Profile applied" line, the save banner, and a link to /settings/writing?fromGeneration=<id>.
+origin: spec-deferred 0a7305c0522d
+location: convex/writerProfiles.ts getGenerationWriterSettings; src/routes/settings/writing/+page.svelte
+source_spec: `3-precedence-and-writer-profile-fidelity.md`
+severity: medium
+reason: getGenerationWriterSettings and the page prefill exist, but nothing in src/ renders noProfileLine or links to the offer (final review pass). The intent defers story 4's Brief rail and save banner.
+status: open
+
+### DW-126: Chat apply, research saves and the proposal-apply scrub still resolve only the saved Writer Profile, so a settings document's waivers stop at generation.
+origin: spec-deferred f7cd23499cb2
+location: convex/chatV2.ts:477; convex/research.ts:716
+source_spec: `3-precedence-and-writer-profile-fidelity.md`
+severity: medium
+reason: convex/chatV2.ts:477 and convex/research.ts:716 call getEffectiveWriterStyle without a settings document (final review pass). The intent defers changing chat's profile resolution.
+status: open
+
+### DW-127: A structured Build Order and Self-check editor on the settings page; extraction from profile text is the only way to populate either today.
+origin: spec-deferred 7770a5a46c95
+location: src/routes/settings/writing/+page.svelte
+source_spec: `3-precedence-and-writer-profile-fidelity.md`
+severity: low
+reason: Listed under the spec's Design Notes "Deferred on purpose", still open at the final review.
+status: open
