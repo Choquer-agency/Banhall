@@ -202,6 +202,24 @@ export interface TrustedContextSource {
   truncated: boolean;
 }
 
+/** What the analyzer's context budget did with one frozen source row. */
+export type SourceInclusion = "included" | "condensed" | "not_included";
+
+/**
+ * Story 4 (CAP-11): the one inclusion decision. A source counts as
+ * `included` only when at least one of its characters entered the analyzer's
+ * context; a cut source is `condensed`. Pure — no DB access.
+ */
+export function sourceInclusion(outcome: {
+  included: boolean;
+  includedLength: number;
+  truncated: boolean;
+}): SourceInclusion {
+  if (!outcome.included || outcome.includedLength === 0) return "not_included";
+  if (outcome.truncated) return "condensed";
+  return "included";
+}
+
 /**
  * Report shape parameterized by the budget that produced it. The analyzer uses
  * `ContextBudget`; chat evidence uses its own budget with the same source rows

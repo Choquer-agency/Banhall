@@ -285,6 +285,7 @@ export async function recordContextBudget(
   await ctx.runMutation(internal.generations.recordContextBudget, {
     generationId,
     budgetTokens: report.budget.totalTokens,
+    maxDocuments: report.budget.maxDocuments,
     applied,
   });
 }

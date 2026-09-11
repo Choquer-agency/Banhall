@@ -1059,3 +1059,59 @@ source_spec: `3-precedence-and-writer-profile-fidelity.md`
 severity: low
 reason: Listed under the spec's Design Notes "Deferred on purpose", still open at the final review.
 status: open
+
+### DW-128: A failed Brief read renders exactly like a legacy generation: the rail and its launcher simply disappear, with no error surfaced.
+origin: spec-deferred 35aadf42fd0c
+location: src/lib/components/brief/BriefRailPanel.svelte
+source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
+severity: medium
+reason: BriefRailPanel.svelte reads only briefQ.data / inclusionQ.data / writerQ.data; `.error` and `.isLoading` are never consulted, and `available` is false while any of them is undefined. A writer cannot tell a broken read from a project that has no Brief. Fixing it needs an error state and its copy, not a one-line change.
+status: open
+
+### DW-129: A Storyline question raised while the writer is in chat or QA is never announced and leaves no trace on the Brief launcher.
+origin: spec-deferred 50e48de70c67
+location: src/lib/components/brief/BriefRail.svelte; src/lib/components/brief/BriefLauncher.svelte
+source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
+severity: medium
+reason: The aria-live region lives inside BriefRail, which is mounted only while railView === "brief" and sits inside a container carrying inert={!open}. EXPERIENCE.md's count pill ("Brief · 1", its own [ASSUMPTION: toggle badge]) is not implemented, so there is no out-of-rail signal at all.
+status: open
+
+### DW-130: In compare and iterative modes every candidate re-records the context budget over the same generationSources rows, last writer wins, and no test covers it.
+origin: spec-deferred f35f1060d93b
+location: convex/generations.ts recordContextBudget
+source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
+severity: medium
+reason: recordContextBudget runs once per candidate (convex/ai/pipeline.ts, iterative.ts), each pass patching `inclusion` on the same rows. getGenerationInput's own comment notes an admin retune mid-generation can disagree with what was already recorded. The Brief presents one authoritative inclusion set with no candidate attribution; both inclusion suites exercise a single recording pass only.
+status: open
+
+### DW-131: Inclusion rows are inert: EXPERIENCE.md specifies that clicking a document opens it in FilesPanel.
+origin: spec-deferred 98201954e508
+location: src/lib/components/brief/BriefRail.svelte
+source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
+severity: low
+reason: EXPERIENCE.md Component Patterns > inclusion-row says "Clicking a document opens it in FilesPanel behaviour (existing)". BriefRail renders each row as a plain <li> with a label span and a status span, so a writer cannot get from "not included - could not read" to the file that caused it.
+status: open
+
+### DW-132: BriefRailPanel and BriefLauncher are imported eagerly, while every other rail occupant loads through LazyModule.
+origin: spec-deferred c8fb51a92a72
+location: src/lib/components/project/CurrentProjectPage.svelte
+source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
+severity: low
+reason: CurrentProjectPage.svelte statically imports both, whereas QARailPanel and AgentChatPanel go through LazyModule. The Brief subtree, including the bits-ui Popover pulled in by BriefSourceChip, now loads on every visit to the report route, including legacy projects where the rail never appears. Bundle weight only; no behavioural effect.
+status: open
+
+### DW-133: A project with more than 100 total documents can silently undercount the Brief's Inputs band: attached documents past the fetch bound vanish from documentsTotal and the not-captured reasons list.
+origin: spec-deferred 7e746ba6d58c
+location: convex/generations.ts getContextInclusion
+source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
+severity: medium
+reason: getContextInclusion reads projectDocuments with a flat `.take(100)` (no pagination), while documents.uploadDocument has no count limit — the Code Map notes this directly. The reservation itself is bounded at 50 documents per generation, so the frozen-source side is safe, but a project's cumulative document count is unbounded across its lifetime. No test exercises a project anywhere near 100 total documents; the largest covers 51.
+status: open
+
+### DW-134: BriefEditableText gives no visual feedback while a save is in flight.
+origin: spec-deferred a7710ae92858
+location: src/lib/components/brief/BriefEditableText.svelte
+source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
+severity: low
+reason: `busy` is a plain (non-reactive) local variable checked only inside `commit()`'s early-return guard; the template never reads it, so the textarea stays fully editable and unstyled during the awaited `onSave` call. A slow save leaves the writer with no "saving" indication.
+status: open

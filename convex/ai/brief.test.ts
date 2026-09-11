@@ -689,7 +689,9 @@ describe("Generation Brief editing and questions (briefs.ts, story 1 shape / sto
     const edited = await t.run((ctx) => ctx.db.get(editedBriefId));
     expect(edited).toMatchObject({ origin: "edited", version: 2 });
     expect(edited?.editMagnitude?.changedEntriesCount).toBe(1);
-    expect(edited?.storylineText).toBe("The writer's corrected Storyline claim.");
+    // Story 4: editing a Storyline *claim* changes that claim only; the
+    // Brief-level Storyline (`storylineText`) is untouched.
+    expect(edited?.storylineText).toBe(briefOutput().storyline);
 
     // Stale-version edit is refused.
     await expect(
@@ -749,11 +751,16 @@ describe("Generation Brief editing and questions (briefs.ts, story 1 shape / sto
   it("getBrief and listBriefEntries read the stored Brief for the UI panel", async () => {
     const t = convexTest(schema, modules);
     const { generationId, briefId } = await briefFixture(t);
-    const read = await t.query(anyApi.briefs.getBrief, { generationId });
+    // Story 4: both reads require project access.
+    const asWriter = t.withIdentity({ subject: "brief-writer" });
+    const read = await asWriter.query(anyApi.briefs.getBrief, { generationId });
     expect(read?._id).toBe(briefId);
     expect(read?.entries.length).toBeGreaterThan(0);
 
-    const entries = await t.query(anyApi.briefs.listBriefEntries, { briefId });
-    expect(entries.length).toBe(read!.entries.length);
+    // Story 4: null is reserved for an outsider and for a Brief that does
+    // not exist; an insider reading a real Brief still gets the array.
+    const entries = await asWriter.query(anyApi.briefs.listBriefEntries, { briefId });
+    expect(entries).not.toBeNull();
+    expect(entries!.length).toBe(read!.entries.length);
   });
 });
