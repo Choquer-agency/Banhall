@@ -16,6 +16,11 @@ export type SectionKeyOf = "s242" | "s244" | "s246";
 /** House Rules default Build Order: the Locked Rules presentation order. */
 export const DEFAULT_BUILD_ORDER: readonly SectionNumber[] = SECTION_NUMBERS;
 
+// A valid Build Order is a permutation of SECTION_NUMBERS (length 3); this is
+// a write-time input-size backstop, not the read-time validity check
+// (resolveBuildOrder below), which stays the source of truth for shape.
+export const MAX_BUILD_ORDER_ENTRIES = 10;
+
 export const sectionNumberValidator = v.union(
   v.literal("242"),
   v.literal("244"),

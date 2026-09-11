@@ -270,7 +270,9 @@ describe("Generation Brief reaches the drafting pipeline (story 1 wiring)", () =
 
     for (const section of sectionRequests) {
       // The fixture transcript contains the Brief's Claim Exclusion, so each
-      // section's Self-check triggers its one repair; count first drafts only.
+      // section's deterministic Self-check triggers its one repair (this
+      // mock's model Self-check call has no submit_self_check branch and
+      // fails, contributing no verdicts of its own); count first drafts only.
       const drafts = network.create.mock.calls.filter(
         ([params]) =>
           userText(params).startsWith(section.userPrefix) &&

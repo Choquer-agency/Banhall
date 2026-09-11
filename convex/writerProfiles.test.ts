@@ -306,6 +306,17 @@ describe("ordered generation profile context", () => {
     expect(context.buildOrderFallbackReason).toMatch(reason);
   });
 
+  test("a Build Order longer than the write-time cap is rejected before it reaches storage", async () => {
+    const { writer } = await setup();
+    await expect(
+      writer.mutation(api.writerProfiles.saveMyProfile, {
+        customInstructions: "",
+        enabled: true,
+        buildOrder: Array.from({ length: 11 }, () => "242"),
+      })
+    ).rejects.toThrow(/at most 10 entries/);
+  });
+
   test("disabled and missing profiles report profileState and still yield the default order", async () => {
     const { t, writer, ids } = await setup();
     const missing = await t.query(internal.writerProfiles.getGenerationProfileContext, {

@@ -56,6 +56,7 @@ import {
   complianceNoteRow,
 } from "./lib/complianceNote";
 import {
+  isSectionNumber,
   orderedPayloadValidator,
   sectionKeyOf,
   sectionNumberValidator,
@@ -1233,14 +1234,16 @@ async function settleCandidateRun(
     }
 
     // Story 2 (AD-24): stamp the production order (shared by every compare
-    // candidate, one Build Order per generation) and, for a stopped chain,
-    // the section it stopped after (first stop recorded wins).
-    if (args.productionOrder || args.stoppedAfterSection) {
+    // candidate, one Build Order per generation) and, for a stopped single
+    // chain, the section it stopped after. Compare candidates stop
+    // independently, so there the selected candidate's value is copied on
+    // selectReportCandidate instead.
+    const stampStop =
+      args.stoppedAfterSection !== undefined && generation.candidateMode === "single";
+    if (args.productionOrder || stampStop) {
       await ctx.db.patch(generation._id, {
         ...(args.productionOrder ? { productionOrder: args.productionOrder } : {}),
-        ...(args.stoppedAfterSection && !generation.stoppedAfterSection
-          ? { stoppedAfterSection: args.stoppedAfterSection }
-          : {}),
+        ...(stampStop ? { stoppedAfterSection: args.stoppedAfterSection } : {}),
       });
     }
 
@@ -3143,6 +3146,17 @@ export const getCandidates = query({
   },
 });
 
+/** The section an ordered candidate stopped after, from its agentOutputs. */
+function stoppedAfterSectionOf(agentOutputs: string): SectionNumber | undefined {
+  try {
+    const value = (JSON.parse(agentOutputs) as { stoppedAfterSection?: unknown })
+      ?.stoppedAfterSection;
+    return typeof value === "string" && isSectionNumber(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const selectReportCandidate = mutation({
   args: {
     generationId: v.id("generations"),
@@ -3198,6 +3212,8 @@ export const selectReportCandidate = mutation({
       status: "completed",
       currentStep: "Complete",
       agentOutputs: candidate.agentOutputs,
+      // Story 2 (AD-24): the selected candidate's own stop, if it stopped.
+      stoppedAfterSection: stoppedAfterSectionOf(candidate.agentOutputs),
       completedAt: now,
     });
     await refreshProjectGenerationActivity(ctx, generation.projectId);
@@ -3579,7 +3595,11 @@ async function loadBriefCheck(
       .query("generationBriefEntries")
       .withIndex("by_briefId", (q) => q.eq("briefId", briefDoc._id))
       .take(500)
-  ).filter((entry) => entry.group !== "storylineQuestion");
+  ).filter(
+    // A re-derivation carries the previous version's dropped entries as
+    // change: "removed" markers for the diff; they are no longer in force.
+    (entry) => entry.group !== "storylineQuestion" && entry.change !== "removed"
+  );
   return {
     briefBlock: renderBriefBlock(briefDoc.storylineText, entries),
     brief: {
@@ -3739,11 +3759,16 @@ export const completeOrderedSectionRun = internalMutation({
         });
       }
     }
-    const status = selfCheckStatusOf(args.selfCheck)?.replace(/_/g, " ") ?? "recorded";
+    const status = selfCheckStatusOf(args.selfCheck);
+    // The intent's flag wording for a repair that did not clear the check.
+    const checkLabel =
+      status === "repair_failed"
+        ? "Self-check repair failed"
+        : `Self-check: ${status?.replace(/_/g, " ") ?? "recorded"}`;
     await ctx.db.patch(fence.generation._id, {
       progressLog: [
         ...(fence.generation.progressLog ?? []),
-        `✓ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} drafted (Self-check: ${status}).`,
+        `✓ ${fence.run.label}: ${ORDERED_SECTION_TITLES[args.section]} drafted (${checkLabel}).`,
       ],
     });
     const next = (await orderedRunsForCandidate(ctx, fence.run._id)).find(
@@ -3780,8 +3805,13 @@ export const failOrderedSectionRun = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    // Fenced like every other chain write: a stale call (the candidate run,
+    // generation or project pointer already moved on) must not overwrite
+    // rows a newer owner may be writing; the reaper covers recovery instead.
+    const fence = await orderedChainFence(ctx, args.generationId, args.candidateRunId);
+    if (!fence) return null;
     const now = Date.now();
-    for (const row of await orderedRunsForCandidate(ctx, args.candidateRunId)) {
+    for (const row of await orderedRunsForCandidate(ctx, fence.run._id)) {
       if (row.generationId !== args.generationId) continue;
       if (
         row.section === sectionKeyOf(args.section) &&
@@ -3946,12 +3976,20 @@ export const getOrderedSectionDrafts = query({
       lastIndex.set(key, Math.max(lastIndex.get(key) ?? -1, row.orderIndex ?? 0));
     }
     const checkedAt = new Map<string, number | undefined>();
+    const runStatus = new Map<string, string | undefined>();
     for (const key of lastIndex.keys()) {
       const run = await ctx.db.get(key as Id<"generationCandidateRuns">);
       checkedAt.set(key, run?.consistencyCheckedAt);
+      runStatus.set(key, run?.status);
     }
     return rows
       .filter((row) => row.status === "drafted" && row.draftText !== undefined)
+      .filter((row) => {
+        const key = row.candidateRunId as string;
+        // A failed candidate's earlier drafted sections are not a valid
+        // draft to show: the run never reached completion.
+        return runStatus.get(key) !== "failed";
+      })
       .filter((row) => {
         const key = row.candidateRunId as string;
         return (

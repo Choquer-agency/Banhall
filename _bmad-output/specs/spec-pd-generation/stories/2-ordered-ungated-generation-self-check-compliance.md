@@ -2,9 +2,9 @@
 title: 'Ordered, ungated generation with Self-check and Compliance Notes'
 type: 'feature'
 created: '2026-09-10'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - convex/_generated/ai/guidelines.md
   - _bmad-output/specs/spec-pd-generation/SPEC.md
@@ -37,6 +37,77 @@ deferred:
       Both fields are accepted by saveMyProfile/saveProfileForUser and read by generation here; story 3 (profile lane)
       owns profile fidelity and the settings-document path that populates them.
     severity: low
+  - summary: >-
+      A Brief re-derivation re-inserts the previous version's "removed" and storylineQuestion rows as fresh
+      change: "removed" markers, and renderBriefForGeneration (iterative sections and the one-shot ghost) still
+      renders "removed" rows into the prompt as live Claim Exclusions, Confidence Map items and Glossary Terms.
+    evidence: |-
+      persistDerivedBrief diffs against every previous-version row without filtering change === "removed" or
+      group === "storylineQuestion", so markers accumulate across versions; renderBriefForGeneration filters by
+      group only. Story 1 code (c3ba3fc). This story's ordered chain reads the Brief through loadBriefCheck, which
+      now skips "removed" rows; the story 1 readers do not.
+    location: >-
+      convex/generations.ts persistDerivedBrief, renderBriefForGeneration
+    severity: medium
+  - summary: >-
+      failStaleGenerations fails any non-iterative running generation 30 minutes after startedAt without checking
+      whether its ordered chain is still progressing, so a slow but live chain can be reaped mid-flight.
+    evidence: |-
+      The reaper (convex/crons.ts, every 10 minutes, olderThanMinutes 30) has per-section handling for iterative
+      only. A single generation now runs generateReport, generateCandidate, three sequential section actions (up
+      to five provider calls each, 240 s per attempt) and finalize. AD-24 binds recovery to the existing reaper and
+      forbids a new one, so a progress-aware threshold is an architecture-level change.
+    location: >-
+      convex/generations.ts failStaleGenerations
+    severity: medium
+  - summary: >-
+      A Brief-derivation failure inside generateReport is only logged with console.error, not the writer-facing
+      progress log, so a silently Brief-less generation gives no visible signal of why.
+    evidence: |-
+      convex/ai/pipeline.ts generateReport's deriveOrReuseBrief catch block predates this story (introduced in
+      c3ba3fc, story 1) and is unchanged here; every other fallback in the same function (Build Order, Writer
+      Profile) does call the progress-log helper. Pre-existing, not caused by this story's diff.
+    location: >-
+      convex/ai/pipeline.ts generateReport (Brief-derivation catch block)
+    severity: low
+  - summary: >-
+      getOrderedSectionDrafts takes(30) on generationSectionRuns before filtering by candidateRunId, so a
+      generation that has accumulated more than 30 section-run rows across many regenerations could have a
+      newer candidate's rows silently excluded.
+    evidence: |-
+      convex/generations.ts getOrderedSectionDrafts queries by_generationId with .take(30) first, then filters by
+      candidateRunId in memory. Not reachable under this story's own acceptance criteria or tests (a generation
+      normally accumulates a handful of rows per candidate), and a correct fix needs a candidateRunId-first index
+      strategy rather than a one-line change.
+    location: >-
+      convex/generations.ts getOrderedSectionDrafts
+    severity: low
+  - summary: >-
+      complianceNotes.listForGeneration takes(10) on generationCandidateRuns before matching the selected
+      candidateId, so a generation that has accumulated more than 10 candidate runs across many regenerations
+      could fail to resolve the selected run and silently fall back to returning every candidate's unscoped notes.
+    evidence: |-
+      convex/complianceNotes.ts queries by_generationId with .take(10) then Array.find()s by candidateId in
+      memory — the same shape as the already-deferred getOrderedSectionDrafts .take(30) truncation above. Not
+      reachable under this story's own acceptance criteria or tests; a correct fix needs a candidateRunId-first
+      index rather than a one-line change.
+    location: >-
+      convex/complianceNotes.ts listForGeneration
+    severity: medium
+  - summary: >-
+      In compare mode, two candidates can each independently insert a storylineQuestion row for the same
+      Confidence Map entry into the generation's shared Brief; the row carries no candidateRunId to attribute or
+      dedupe against, so duplicate or conflicting questions can accumulate on one generation's Brief.
+    evidence: |-
+      convex/generations.ts completeOrderedSectionRun inserts a generationBriefEntries "storylineQuestion" row
+      per section whenever the model's Self-check verdict cites Confidence Map evidence, with no check for an
+      existing row citing the same evidenceEntryId and no candidateRunId field on the insert. AD-23 names the
+      mechanism but not compare-mode attribution. Not reachable under this story's own acceptance criteria or
+      tests (the readers of this data are deferred to stories 4/5); a correct fix needs either a candidateRunId
+      column or a dedup pass, not a one-line change.
+    location: >-
+      convex/generations.ts completeOrderedSectionRun
+    severity: medium
 ---
 
 <intent-contract>
@@ -201,6 +272,55 @@ Line numbers drift; grep the symbol. Partial work from commits 1ce273b/76c8e2f i
   - `[low]` `[patch]` invalidBuildOrderReason could be undefined in summary
   - `[low]` `[patch]` section.selfCheck not guarded with optional chaining
 
+### 2026-09-11 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 11: (high 0, medium 7, low 4)
+- defer: 2: (high 0, medium 2, low 0)
+- reject: 26: (high 0, medium 8, low 18)
+- addressed_findings:
+  - `[medium]` `[patch]` `loadBriefCheck` fed a re-derived Brief's `change: "removed"` rows into section prompts and the deterministic Self-check, so a dropped Claim Exclusion was still enforced and repaired against: those rows are now skipped.
+  - `[medium]` `[patch]` The Storyline Compliance Note said "Storyline question raised in the Brief" even when no Confidence Map evidence resolved and no entry was inserted: `assembleSectionNotes` now takes `recorded` and words the row "not recorded in the Brief" in that case.
+  - `[medium]` `[patch]` In compare, `generations.stoppedAfterSection` recorded whichever candidate stopped first although candidates stop independently: `settleCandidateRun` now stamps it only in single mode, and `selectReportCandidate` copies the selected candidate's own stop from its agentOutputs.
+  - `[medium]` `[patch]` No test reached `failOrderedSectionRun`: added a chain test where 244's draft call fails (rows failed and undrafted, candidate failed, single generation ended, project pointer cleared).
+  - `[medium]` `[patch]` No test covered a failed model Self-check call: added one proving the section still completes with a per-section "Model Self-check" `not_applied` row and `modelCheck: failed`.
+  - `[medium]` `[patch]` No test covered a failed consistency call: added one proving the advisory row, completion, and release of the last section.
+  - `[medium]` `[patch]` Moving the Brief wiring test to the ordered chain left the iterative one-shot ghost's Brief-in-prompt path untested: added a ghost test asserting all three section prompts carry the stored Brief block.
+  - `[low]` `[patch]` An empty repair output could replace the draft: blank text already throws in `requireTextResponse`; a repair the banned-word scrub empties is now also treated as a failed repair (`EMPTY_OUTPUT`) and the draft is kept. Tested with an empty repair response.
+  - `[low]` `[patch]` `listForGeneration` resolved the selected run with `.unique()` on `(generationId, model)`, which throws if two runs share a model: it now resolves the run by the selection's `candidateId`.
+  - `[low]` `[patch]` The intent's Block-If flag wording "Self-check repair failed" appeared nowhere: the section progress line now reads "drafted (Self-check repair failed)" for that status (asserted in the removed-entries test).
+  - `[low]` `[patch]` `readOrderedProfileContext`'s degrade-not-fail fallback was untested: added a unit test with a throwing profile read.
+
+### 2026-09-11 — Review pass (follow-up)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 5: (high 0, medium 2, low 3)
+- defer: 2: (medium 0, low 2)
+- reject: 14: (high 0, medium 0, low 14)
+- addressed_findings:
+  - `[medium]` `[patch]` `generateOrderedSection`'s initial section draft had no guard against the banned-word scrub reducing a non-empty model response to an empty string (the raw response is already guarded by `requireTextResponse`, but nothing re-checked after the scrub, unlike the repair path's existing `EMPTY_OUTPUT` handling): now throws and fails the section instead of persisting an empty body. Tested with a draft response consisting only of a banned connective the scrub deletes outright.
+  - `[medium]` `[patch]` `getOrderedSectionDrafts` returned a failed candidate's earlier successfully-drafted section rows (their own row status stays `"drafted"` even after the candidate fails): the query now also excludes rows whose owning candidate run's status is `"failed"`. Tested by extending the existing section-draft-failure chain test.
+  - `[low]` `[patch]` `writerProfiles.ts` validated `selfCheckRules` length on save but not `buildOrder` length, leaving it an unbounded array: added a `MAX_BUILD_ORDER_ENTRIES` write-time cap (input-size backstop only; validity is still decided on read, unchanged). Tested with an 11-entry Build Order.
+  - `[low]` `[patch]` A story-2 test in `briefPipelineWiring.test.ts` claimed each section's Self-check triggers its one repair, but the shared network mock has no `submit_self_check` branch, so the model Self-check call always fails there and the repair is actually driven by the deterministic checker: corrected the comment to say so; the test's own assertions were already accurate.
+  - `[low]` `[patch]` No test covered QA and chronology failing at the same time (both run via `Promise.allSettled` in `finalizeOrderedCandidate`, only single-agent failure was covered elsewhere): added one asserting the candidate still completes with `agentOutputs.qa` and `.chronology` both `null`.
+  - `[low]` `[defer]` Brief-derivation failures inside `generateReport` are logged with `console.error` only, not the writer-facing progress log (unlike the Build Order/Writer Profile fallbacks a few lines below). Pre-existing from story 1 (c3ba3fc), not caused by this story's diff.
+  - `[low]` `[defer]` `getOrderedSectionDrafts` takes(30) on `generationSectionRuns` before filtering by `candidateRunId`, so a generation with more than 30 accumulated section-run rows could have a newer candidate's rows silently excluded. Not reachable under this story's acceptance criteria or tests; a correct fix needs a candidateRunId-first index rather than a one-line change.
+
+### 2026-09-11 — Review pass (second follow-up)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (medium 2, low 2)
+- defer: 2: (medium 2, low 0)
+- reject: 23: (medium 10, low 13)
+- addressed_findings:
+  - `[medium]` `[patch]` `compressToFit`'s squeeze re-scrub had no guard against the banned-word scrub reducing an already-non-empty compressed draft to nothing (the initial pre-compression draft already had this guard; the post-compression path did not): now throws and fails the section instead of persisting an empty body. Tested with an over-cap draft whose compression response is a banned connective the scrub deletes outright.
+  - `[medium]` `[patch]` `clampParagraph` mapped both an explicit whole-section verdict (`paragraph: 0`, documented in the Self-check schema) and paragraph 1 to the same `paragraphIndex: 0`, so a section-wide Self-check finding was indistinguishable from a first-paragraph finding in the stored Compliance Note and in repair guidance text ("Paragraph 1: ..."). `ModelVerdict.paragraphIndex` is now optional; a whole-section verdict stores no `paragraphIndex` and its repair-guidance line reads "Whole section: ...". The consistency pass (no whole-section concept) is unaffected. Tested with one whole-section and one paragraph-1 verdict in the same Self-check response.
+  - `[low]` `[patch]` `GENERATION_SLOT_ALLOWANCES.compression` in `convex/ai/instrument.ts` was a hardcoded `2`, duplicating `COMPRESSION_REQUEST.squeezes.length` (already derived the same way in `convex/ai/providers.ts`); the two constants could silently drift. Now imports and derives from the same source.
+  - `[low]` `[patch]` `failOrderedSectionRun`, unlike every sibling ordered-chain write, patched `generationSectionRuns` rows with no `orderedChainFence` liveness check first, so a stale call (candidate run, generation or project pointer already moved on) could write stale `failed` rows. Now fenced like its siblings; `settleCandidateRun`'s own guard already protected the terminal state, so this is a defensive-consistency fix, not a demonstrated data-loss bug.
+  - `[medium]` `[defer]` `complianceNotes.listForGeneration` takes(10) on `generationCandidateRuns` before matching the selection's `candidateId`, the same truncation shape as the already-deferred `getOrderedSectionDrafts` .take(30): a generation with more than 10 accumulated candidate runs could silently fall back to unscoped notes. Needs a candidateRunId-first index, not a one-line change.
+  - `[medium]` `[defer]` In compare mode, two candidates can each independently insert a `storylineQuestion` Brief row for the same Confidence Map entry, with no `candidateRunId` to attribute it and no dedup, so duplicate/conflicting questions can accumulate. Needs a schema or dedup change; the readers of this data are deferred to stories 4/5.
+  - 23 findings rejected: 3 restated already-recorded frontmatter deferrals or already-resolved Spec Change Log tensions (no UI consumer, Build Order HALT-vs-fallback, reason codes as typed codes); several described already-correct, intentionally disclosed design (the one-repair-not-re-verified-by-model tradeoff explicit in the row text; `claimOrderedSectionRun`'s "stop only after the first section" behavior explicit in its own code comment; `selfCheckRules`' cross-section fan-out, already capped at 20 rules on save; the AD-27 overrun list, explicitly "recorded, never enforced" by design; additive `stopOrderedGeneration`/`storylineQuestion` scope, authorized by AD-23/AD-24); one (`generateCandidate`'s legacy `orderedContext` fallback for pre-deploy candidates) matches an already-accepted, identically-shaped `contextBudget` pattern in the same function; `finalizeOrderedCandidate`'s "frozen generation input unavailable" recovery attempt was traced through `settleCandidateRun` and found to always no-op in the one scenario it can fire (the project-pointer mismatch that triggers it is also what `settleCandidateRun`'s own guard treats as "not this candidate's business"), but AD-24 already binds recovery for exactly this class of stuck-running row to the existing stale-generation reaper, so the dead branch has no behavioral consequence beyond what the accepted design already produces; the rest were low-consequence robustness/perf/coverage-only observations (a UTF-16 surrogate-pair truncation edge case, a non-exact string-literal "duplication", an unlogged defensive filter, a verified-already-correct `selfCheckRules: []` clearing path, a redundant double profile read, an unbounded `"pending"` status after a stop with no demonstrated query impact) below the bar for action.
+
 ## Design Notes
 
 **Ordered generation with prior-section context:** The default Build Order (242 → 244 → 246) matches the Locked Rules structure, but writers need flexibility to reorder sections based on narrative flow (e.g., 246 "Findings" first to establish facts, then 242 "Executive Summary" second). Prior-section context is injected as a delimited data block into the section prompt so the model can reference established facts and avoid repeating claims.
@@ -225,3 +345,39 @@ Line numbers drift; grep the symbol. Partial work from commits 1ce273b/76c8e2f i
 - `grep -rn "complianceNotes" convex --include=*.ts | grep -v _generated` shows inserts only in `convex/generations.ts`'s chain mutations, and a read only in `convex/complianceNotes.ts`.
 - `grep -rn "complianceNotes: v.optional(v.string())" convex/schema.ts` returns nothing.
 - `iterative` topology in `promptProgram.ts` and `approveSectionDraft`/`cancelIterativeGeneration` are unchanged apart from story 1's `brief`.
+
+## Auto Run Result
+
+Status: done
+
+**Summary.** This run started from `done` (per the frontmatter `followup_review_recommended: true` left by the prior review pass) and executed a fresh, independent review pass over the whole story-2 diff, not an implementation change. No new feature work was in scope; the four parallel review layers (Blind Hunter, Edge Case Hunter, Verification Gap, Intent Alignment) reviewed the diff from the merge base to `HEAD` (`df5eb1e..HEAD`, restricted to non-generated, non-`_bmad-output` files — narrower and cleaner than the prior pass's best-effort range, since no `baseline_revision` is recorded and this range excludes story 1's already-reviewed commits). Every finding was independently verified against the actual code before triage, not taken on a reviewing subagent's word: several were traced deep enough to overturn the reviewer's own framing (a claimed dead branch in `finalizeOrderedCandidate` turned out to converge with the already-accepted AD-24 reaper design once followed through `settleCandidateRun`'s own guard; a claimed "unguarded fan-out" in `selfCheckRules` turned out to already be capped at save time), and 3 findings restated ground already settled by frontmatter deferrals or the 2026-09-10 Spec Change Log, so they were rejected as already-addressed rather than re-opened.
+
+**Files changed in this pass:**
+- `convex/ai/orderedGeneration.ts`: the post-compression draft is now guarded against the banned-word scrub emptying it, matching the guard the pre-compression draft already had.
+- `convex/ai/selfCheck.ts`: `clampParagraph` now distinguishes an explicit whole-section verdict (`paragraph: 0`) from paragraph 1 instead of colliding them.
+- `convex/lib/selfCheckRules.ts`: `ModelVerdict.paragraphIndex` is now optional (whole-section); `repairIssues` labels a whole-section repair guidance line accordingly.
+- `convex/ai/instrument.ts`: `GENERATION_SLOT_ALLOWANCES.compression` now derives from `COMPRESSION_REQUEST.squeezes.length` instead of a hardcoded duplicate.
+- `convex/generations.ts`: `failOrderedSectionRun` is now fenced like every sibling ordered-chain write.
+- `convex/ai/selfCheck.test.ts`: added a whole-section-vs-paragraph-1 Self-check test.
+- `convex/ai/promptProgram.test.ts`: added a compression-scrub-empties-the-draft test.
+- This spec: triage log, 2 new deferrals, this result.
+
+**Review findings.**
+- Patches applied: 4 (medium 2, low 2).
+- Deferred: 2 (medium): a `.take(10)` truncation risk in `complianceNotes.listForGeneration` symmetric to the already-deferred `getOrderedSectionDrafts` `.take(30)`; a compare-mode `storylineQuestion` attribution/dedup gap needing a schema or logic change bigger than a one-line patch.
+- Rejected: 23 (medium 10, low 13). See the triage log entry above for the full breakdown; the most substantive were confirming several reviewer claims described already-correct, intentionally disclosed design (the one-repair-not-model-re-verified tradeoff; the stop-only-after-first-section behavior; the AD-27 "recorded, never enforced" overrun list) and tracing the `finalizeOrderedCandidate` frozen-input branch deep enough to find it converges with the accepted AD-24 reaper-based recovery design rather than constituting an unhandled failure.
+- intent_gap: 0. bad_spec: 0.
+
+**Follow-up review recommendation:** `true`. Patched findings in this pass were 0 high, 2 medium and 2 low; score = 3 × 2 + 1 × 2 = 8, which is 5 or more.
+
+**Verification:**
+- Focused run before the full gate: `npx vitest run convex/ai/promptProgram.test.ts convex/ai/selfCheck.test.ts convex/ai/instrument.test.ts convex/ai/providers.test.ts convex/writerProfiles.test.ts` — 5 files, 87 tests, all passing.
+- `npx tsc -p convex/tsconfig.json --noEmit` — 0 errors (verifies the `paragraphIndex` optionality change across all consumers).
+- `bash scripts/loop-verify.sh` — 9/9 steps: preflight, no skipped tests, Convex typecheck, svelte-check, unit tests (170 files, 2211 tests — 2 more than the prior pass's 2209, matching the 2 new test cases added here), discovery guard, production build, both uploader harnesses (93/0 and 47/0). Exit 0.
+- Every claim in the Review findings section above — the design-intent matches, the `contextBudget`-pattern precedent, the `settleCandidateRun` trace — was checked directly against the source, not taken on a reviewing subagent's word.
+
+**Residual risks:**
+- Same as the prior passes: AD-25's QA-scorecard summary field (`generations.qa`) is not written; Self-check/repair outcomes live only in `agentOutputs.selfCheck`/`.callBudget`. The UI surfaces (drafted-section rendering, Stop button, Compliance line) remain deferred to stories 4 and 5, unchanged by this pass.
+- The two new deferrals (`complianceNotes.listForGeneration`'s `.take(10)`; compare-mode `storylineQuestion` attribution) are both medium-severity but not reachable under this story's own acceptance criteria today; they become worth revisiting once a project accumulates enough regeneration history, or once stories 4/5 give compare-mode Brief questions a real UI consumer.
+- `baseline_revision` remains unset on this spec; this pass used `df5eb1e..HEAD` (the merge point before story 2's own commits) as a cleaner best-effort range than the prior pass's, but a future pass will again need to reconstruct the diff. This pass did not touch the deferred-work ledger's own entries beyond what the orchestrator had already written there.
+

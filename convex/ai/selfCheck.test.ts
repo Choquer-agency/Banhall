@@ -21,7 +21,7 @@ import { SECTION_246_REQUEST } from "./section246Agent";
 import { COMPRESSION_REQUEST, ORDERED_PROMPT_SCAFFOLDS } from "./promptDefinitions";
 import { SEQUENTIAL_CALLS_PER_GENERATE_CANDIDATE } from "./providers";
 import { sectionMetrics } from "../lib/lineLimits";
-import { runDeterministicSelfCheck } from "../lib/selfCheckRules";
+import { assembleSectionNotes, runDeterministicSelfCheck } from "../lib/selfCheckRules";
 import type { OrderedProfileContext } from "../lib/orderedChain";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
@@ -365,6 +365,37 @@ describe("Self-check before display (CAP-9)", () => {
     expect(rowFor(sectionRows, "246").row.draftText).toBe(CLEAN["246"]);
   });
 
+  it("a whole-section verdict (paragraph 0) is not confused with a paragraph-1 verdict", async () => {
+    const { notes } = await generate({
+      selfCheck: (section) =>
+        section === "244"
+          ? {
+              verdicts: [
+                {
+                  paragraph: 0,
+                  check: "instruction",
+                  instruction: "Whole-section rule",
+                  outcome: "applied",
+                  reason: "satisfied across the section",
+                },
+                {
+                  paragraph: 1,
+                  check: "instruction",
+                  instruction: "Paragraph-one rule",
+                  outcome: "applied",
+                  reason: "satisfied in the first paragraph",
+                },
+              ],
+            }
+          : { verdicts: [] },
+    });
+    const rows = notes.filter((note) => note.section === "244" && note.source === "model");
+    const whole = rows.find((note) => note.instruction === "Whole-section rule");
+    const paragraphOne = rows.find((note) => note.instruction === "Paragraph-one rule");
+    expect(whole?.paragraphIndex).toBeUndefined();
+    expect(paragraphOne?.paragraphIndex).toBe(0);
+  });
+
   it("an s242 cap breach gets one repair; a repair that still breaches is recorded not_applied with the word count", async () => {
     // Over the 350-word cap across several paragraphs, as a real over-long
     // draft is (one giant paragraph would exceed a provenance claim's limit).
@@ -632,6 +663,32 @@ describe("deterministic Self-check rules", () => {
     expect(keys({ ...PROFILE, buildOrderFallbackReason: "invalid section in Build Order: 245" }, false)).toContain(
       "buildOrder"
     );
+  });
+
+  it("words the Storyline row by whether the question actually reached the Brief", () => {
+    const before = runDeterministicSelfCheck({
+      section: "242",
+      text: "Text.",
+      brief: null,
+      profile: PROFILE,
+      isFirstInOrder: false,
+    });
+    const reasonFor = (recorded: boolean) =>
+      assembleSectionNotes({
+        section: "242",
+        before,
+        after: null,
+        verdicts: [],
+        modelCheck: { ok: true },
+        storylineQuestion: { question: "Which result holds?", recorded },
+        repair: { attempted: false, succeeded: false },
+        finalText: "Text.",
+      })
+        .rows.filter((row) => row.instruction === "Storyline")
+        .at(-1)?.reason;
+    expect(reasonFor(true)).toContain("Storyline question raised in the Brief: Which result holds?");
+    expect(reasonFor(false)).toContain("Storyline question not recorded in the Brief");
+    expect(reasonFor(false)).not.toContain("raised in the Brief");
   });
 });
 

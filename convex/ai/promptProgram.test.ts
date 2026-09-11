@@ -19,6 +19,8 @@ import { SECTION_244_REQUEST } from "./section244Agent";
 import { SECTION_246_REQUEST } from "./section246Agent";
 import { COMPRESSION_REQUEST, ORDERED_PROMPT_SCAFFOLDS } from "./promptDefinitions";
 import { generationPromptProgram } from "./promptProgram";
+import { readOrderedProfileContext } from "./pipeline";
+import { sectionMetrics } from "../lib/lineLimits";
 import { parseCanonicalReport } from "../../src/lib/reportSections";
 import { NOT_GENERATED_PLACEHOLDER } from "../lib/tiptapReport";
 
@@ -688,5 +690,352 @@ describe("assembled-draft consistency pass (CAP-10)", () => {
       ctx.db.query("reports").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).first()
     );
     expect(report?.content).toContain(DRAFTS["246"]);
+  });
+});
+
+/** A stored Brief on the generation carrying only Claim Exclusions. */
+async function seedBrief(
+  t: ReturnType<typeof convexTest>,
+  ids: { projectId: Id<"projects">; generationId: Id<"generations"> },
+  exclusions: Array<{ text: string; change?: "added" | "removed" }>
+) {
+  await t.run(async (ctx) => {
+    const source = (await ctx.db.query("generationSources").collect()).find(
+      (row) => row.generationId === ids.generationId
+    );
+    if (!source) throw new Error("frozen source missing");
+    const now = Date.now();
+    const briefId = await ctx.db.insert("generationBriefs", {
+      projectId: ids.projectId,
+      generationId: ids.generationId,
+      inputsHash: "seeded-brief",
+      version: 1,
+      origin: "derived",
+      storylineText: "",
+      createdAt: now,
+    });
+    for (const exclusion of exclusions) {
+      await ctx.db.insert("generationBriefEntries", {
+        briefId,
+        projectId: ids.projectId,
+        group: "claimExclusion",
+        text: exclusion.text,
+        reason: "business_risk",
+        sourceId: source._id,
+        sourceContentHash: source.contentHash,
+        startOffset: 0,
+        endOffset: exclusion.text.length,
+        exactExcerpt: exclusion.text,
+        ...(exclusion.change ? { change: exclusion.change } : {}),
+        createdAt: now,
+      });
+    }
+    await ctx.db.patch(ids.generationId, { briefId });
+  });
+}
+
+/** This generation's section rows, in insertion (production) order. */
+async function sectionRowsOf(t: ReturnType<typeof convexTest>, generationId: Id<"generations">) {
+  const rows = await t.run((ctx) => ctx.db.query("generationSectionRuns").collect());
+  return rows.filter((row) => row.generationId === generationId) as Doc<"generationSectionRuns">[];
+}
+
+describe("chain failure paths never strand a candidate", () => {
+  it("a section whose draft call fails fails its candidate, marks the later sections undrafted and ends a single generation", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, projectId, asWriter } = await fixture(t, { mode: "single" });
+    const base = network.create.getMockImplementation();
+    if (!base) throw new Error("provider stub not installed");
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      const user = userText(params);
+      if (!params.tool_choice && draftSectionOf(user) === "244" && !isRepair(user)) {
+        throw new Error("provider unavailable");
+      }
+      return base(params);
+    });
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    expect(await drainChain(t)).toEqual(["242", "244"]);
+
+    const rows = await sectionRowsOf(t, generationId);
+    expect(rows.map((row) => [row.section, row.status])).toEqual([
+      ["s242", "drafted"],
+      ["s244", "failed"],
+      ["s246", "failed"],
+    ]);
+    expect(rows[2].error).toBe("Not drafted: an earlier section failed.");
+    const [run] = await t.run((ctx) =>
+      ctx.db.query("generationCandidateRuns").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
+    );
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("Line 244 draft failed");
+    expect((await generationOf(t, generationId)).status).toBe("failed");
+    const project = await t.run((ctx) => ctx.db.get(projectId));
+    expect(project?.activeGenerationId).toBeUndefined();
+
+    // 242 is still status "drafted" on its own row, but its candidate run
+    // failed: getOrderedSectionDrafts must not surface it as a valid draft.
+    const drafts = await asWriter.query(api.generations.getOrderedSectionDrafts, { generationId });
+    expect(drafts).toEqual([]);
+  });
+
+  it("a section draft the banned-word scrub empties fails the section instead of persisting an empty body", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId } = await fixture(t, { mode: "single" });
+    const base = network.create.getMockImplementation();
+    if (!base) throw new Error("provider stub not installed");
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      const user = userText(params);
+      if (!params.tool_choice && draftSectionOf(user) === "242" && !isRepair(user)) {
+        // Non-empty raw text (passes requireTextResponse); the scrub deletes
+        // this connective outright and leaves nothing behind.
+        return { content: [{ type: "text", text: "fundamentally" }], usage: { input_tokens: 10, output_tokens: 5 } };
+      }
+      return base(params);
+    });
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    expect(await drainChain(t)).toEqual(["242"]);
+
+    const rows = await sectionRowsOf(t, generationId);
+    expect(rows.map((row) => [row.section, row.status])).toEqual([
+      ["s242", "failed"],
+      ["s244", "failed"],
+      ["s246", "failed"],
+    ]);
+    expect(rows[0].error).toContain("empty after the banned-word scrub");
+    expect((await generationOf(t, generationId)).status).toBe("failed");
+  });
+
+  it("a compression pass the banned-word scrub empties fails the section instead of persisting an empty body", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId } = await fixture(t, { mode: "single" });
+    // Over the 350-word cap, so compressToFit's first squeeze actually runs.
+    const long = Array.from({ length: 10 }, (_, paragraph) =>
+      Array.from({ length: 38 }, (_, index) => `measurement${(paragraph + index) % 7}`).join(" ")
+    ).join("\n\n");
+    expect(sectionMetrics(long, "s242").overLimit).toBe(true);
+    const base = network.create.getMockImplementation();
+    if (!base) throw new Error("provider stub not installed");
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      const user = userText(params);
+      if (!params.tool_choice && draftSectionOf(user) === "242" && !isRepair(user)) {
+        return { content: [{ type: "text", text: long }], usage: { input_tokens: 10, output_tokens: 5 } };
+      }
+      if (systemText(params) === COMPRESSION_REQUEST.system) {
+        // Non-empty compressed text (compressSection's own empty-response
+        // fallback never fires); the banned-word scrub deletes this
+        // connective outright and leaves nothing behind.
+        return { content: [{ type: "text", text: "fundamentally" }], usage: { input_tokens: 10, output_tokens: 5 } };
+      }
+      return base(params);
+    });
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    expect(await drainChain(t)).toEqual(["242"]);
+
+    const rows = await sectionRowsOf(t, generationId);
+    expect(rows.map((row) => [row.section, row.status])).toEqual([
+      ["s242", "failed"],
+      ["s244", "failed"],
+      ["s246", "failed"],
+    ]);
+    expect(rows[0].error).toContain("empty after compression");
+    expect((await generationOf(t, generationId)).status).toBe("failed");
+  });
+
+  it("a failed model Self-check call never blocks a section: deterministic checks only, recorded per section", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, asWriter } = await fixture(t, { mode: "single" });
+    const base = network.create.getMockImplementation();
+    if (!base) throw new Error("provider stub not installed");
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      if (params.tool_choice?.name === "submit_self_check") throw new Error("self-check unavailable");
+      return base(params);
+    });
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    expect(await drainChain(t)).toEqual(["242", "244", "246", "finalize"]);
+    expect((await generationOf(t, generationId)).status).toBe("completed");
+
+    const notes = await asWriter.query(api.complianceNotes.listForGeneration, { generationId });
+    const failed = notes.filter((note) => note.instruction === "Model Self-check");
+    expect(failed.map((note) => note.section).sort()).toEqual(["242", "244", "246"]);
+    expect(failed.every((note) => note.outcome === "not_applied" && note.reason.includes("Self-check call failed"))).toBe(true);
+    const rows = await sectionRowsOf(t, generationId);
+    expect(rows.map((row) => JSON.parse(row.selfCheck ?? "{}").modelCheck)).toEqual(["failed", "failed", "failed"]);
+  });
+
+  it("a failed consistency call is recorded as advisory, still releases the last section and completes", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, asWriter } = await fixture(t, { mode: "single" });
+    const base = network.create.getMockImplementation();
+    if (!base) throw new Error("provider stub not installed");
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      if (params.tool_choice?.name === "submit_consistency_findings") throw new Error("consistency unavailable");
+      return base(params);
+    });
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    await drainChain(t);
+    expect((await generationOf(t, generationId)).status).toBe("completed");
+
+    const notes = await asWriter.query(api.complianceNotes.listForGeneration, { generationId });
+    const summary = notes.filter((note) => note.instruction === "Consistency pass");
+    expect(summary).toHaveLength(1);
+    expect(summary[0]).toMatchObject({ section: "246", outcome: "not_applied" });
+    expect(summary[0].reason).toContain("consistency pass call failed");
+    const drafts = await asWriter.query(api.generations.getOrderedSectionDrafts, { generationId });
+    expect((drafts ?? []).map((draft) => draft.section)).toEqual(["242", "244", "246"]);
+  });
+
+  it("QA and chronology failing at the same time are both advisory: the candidate still completes with neither recorded", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId } = await fixture(t, { mode: "single" });
+    const base = network.create.getMockImplementation();
+    if (!base) throw new Error("provider stub not installed");
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      const name = params.tool_choice?.name;
+      if (name === "submit_qa_scorecard" || name === "submit_chronology_table") {
+        throw new Error(`${name} unavailable`);
+      }
+      return base(params);
+    });
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    await drainChain(t);
+    const generation = await generationOf(t, generationId);
+    expect(generation.status).toBe("completed");
+    const outputs = JSON.parse(generation.agentOutputs ?? "null");
+    expect(outputs.qa).toBeNull();
+    expect(outputs.chronology).toBeNull();
+  });
+
+  it("an unreadable Writer Profile degrades to the House Rules order with the reason instead of failing", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    const context = await readOrderedProfileContext(
+      {
+        runQuery: async () => {
+          throw new Error("profile read failed");
+        },
+      } as unknown as Parameters<typeof readOrderedProfileContext>[0],
+      undefined
+    );
+    quiet.mockRestore();
+    expect(context.buildOrder).toEqual(["242", "244", "246"]);
+    expect(context.profileState).toBe("missing");
+    expect(context.buildOrderFallbackReason).toContain("could not be read");
+  });
+});
+
+describe("the Brief a section is drafted with and checked against", () => {
+  it("enforces live Claim Exclusions only; an empty repair keeps the draft and flags Self-check repair failed", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, projectId, asWriter } = await fixture(t, { mode: "single" });
+    const base = network.create.getMockImplementation();
+    if (!base) throw new Error("provider stub not installed");
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      const user = userText(params);
+      if (!params.tool_choice && draftSectionOf(user) !== null && isRepair(user)) {
+        return { content: [{ type: "text", text: "" }], usage: { input_tokens: 10, output_tokens: 5 } };
+      }
+      return base(params);
+    });
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    // A re-derivation dropped the 242 exclusion; only its "removed" marker remains.
+    await seedBrief(t, { projectId, generationId }, [
+      { text: "three prototype controllers", change: "added" },
+      { text: "controller response under load", change: "removed" },
+    ]);
+    await runCandidates(t);
+    expect(await drainChain(t)).toEqual(["242", "244", "246", "finalize"]);
+
+    const prompts = firstDraftPrompts();
+    const promptFor = (section: Section) => prompts.find((prompt) => draftSectionOf(prompt) === section) ?? "";
+    expect(promptFor("244")).toContain("- three prototype controllers (business risk)");
+    expect(promptFor("242")).not.toContain("controller response under load");
+    const repairs = network.create.mock.calls
+      .map(([params]) => userText(params as GenerationMessageParams))
+      .filter((user) => draftSectionOf(user) !== null && isRepair(user));
+    expect(repairs.map(draftSectionOf)).toEqual(["244"]);
+
+    const row244 = (await sectionRowsOf(t, generationId)).find((row) => row.section === "s244");
+    expect(row244?.draftText).toBe(DRAFTS["244"]);
+    expect(JSON.parse(row244?.selfCheck ?? "{}").status).toBe("repair_failed");
+    const generation = await generationOf(t, generationId);
+    expect(generation.status).toBe("completed");
+    expect(
+      (generation.progressLog ?? []).filter((line) => line.includes("drafted (Self-check repair failed)"))
+    ).toHaveLength(1);
+    const notes = await asWriter.query(api.complianceNotes.listForGeneration, { generationId });
+    expect(
+      notes.some((note) => note.section === "244" && note.outcome === "not_applied" && note.reason.includes("repair call failed"))
+    ).toBe(true);
+    expect(
+      notes.some(
+        (note) =>
+          note.instruction.includes("controller response under load") || note.reason.includes("controller response under load")
+      )
+    ).toBe(false);
+  });
+
+  it("iterative's one-shot ghost still drafts every section with the stored Brief block (story 1 wiring)", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, projectId } = await fixture(t, { mode: "iterative" });
+    await t.action(internal.ai.iterative.startIterativeGeneration, { generationId });
+    const [sectionJob] = await pending(t, [ITERATIVE_SECTION_JOB]);
+    await runJob(t, sectionJob);
+    await seedBrief(t, { projectId, generationId }, [{ text: "three prototype controllers" }]);
+
+    const [ghostJob] = await pending(t, [CANDIDATE_JOB]);
+    network.create.mockClear();
+    await runJob(t, ghostJob);
+    const ghostPrompts = firstDraftPrompts();
+    expect(ghostPrompts.map(draftSectionOf).sort()).toEqual(["242", "244", "246"]);
+    for (const prompt of ghostPrompts) {
+      expect(prompt).toContain("--- BEGIN [GENERATION BRIEF] ---");
+      expect(prompt).toContain("- three prototype controllers (business risk)");
+    }
+  });
+});
+
+describe("stopOrderedGeneration in compare", () => {
+  it("candidates stop independently and the generation takes the selected candidate's stop", async () => {
+    const t = convexTest(schema, modules);
+    const { generationId, asWriter } = await fixture(t, { mode: "compare" });
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    for (const job of await pending(t, [SECTION_JOB])) await runJob(t, job);
+    // One candidate also drafts 244 before the writer stops.
+    const [ahead] = await pending(t, [SECTION_JOB]);
+    const aheadRunId = (ahead.args[0] as { candidateRunId: Id<"generationCandidateRuns"> }).candidateRunId;
+    await runJob(t, ahead);
+    await asWriter.mutation(api.generations.stopOrderedGeneration, { generationId });
+    await drainChain(t);
+
+    let generation = await generationOf(t, generationId);
+    expect(generation.status).toBe("awaiting_selection");
+    expect(generation.stoppedAfterSection).toBeUndefined();
+    const runs = await t.run((ctx) =>
+      ctx.db.query("generationCandidateRuns").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
+    );
+    const candidates = await t.run((ctx) => ctx.db.query("reportCandidates").collect());
+    const stopOf = (runId: Id<"generationCandidateRuns">) => {
+      const run = runs.find((row) => row._id === runId);
+      const candidate = candidates.find((row) => row._id === run?.candidateId);
+      return JSON.parse(candidate?.agentOutputs ?? "{}").stoppedAfterSection;
+    };
+    const behind = runs.find((run) => run._id !== aheadRunId);
+    if (!behind?.candidateId) throw new Error("the behind candidate did not complete");
+    expect(stopOf(aheadRunId)).toBe("244");
+    expect(stopOf(behind._id)).toBe("242");
+
+    await asWriter.mutation(api.generations.selectReportCandidate, {
+      generationId,
+      candidateId: behind.candidateId,
+    });
+    generation = await generationOf(t, generationId);
+    expect(generation.status).toBe("completed");
+    expect(generation.stoppedAfterSection).toBe("242");
   });
 });

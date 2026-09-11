@@ -955,3 +955,83 @@ source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: low
 reason: BRIEF_SYSTEM_PROMPT gives generic established/partial/unresolved/ unreliable classification guidance with no instruction to reconcile disagreements across 3+ transcripts specifically. Plausible under the general instruction, but unverified by any prompt text or test.
 status: open
+
+### DW-115: UI surfaces for this story's backend: rendering drafted sections as they complete, a Stop button calling generations.stopOrderedGeneration, and the Compliance line/QA rail reading complianceNotes.list
+origin: spec-deferred f87855653e9d
+location: n/a
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: medium
+reason: AD-25 names stories 4 and 5 as the readers of complianceNotes; story 4 (ui lane) owns the Brief panel and the "no Writer Profile applied" line. This story ships the stored rows, the one read query, the stop mutation and the drafted-section query those surfaces consume.
+status: open
+
+### DW-116: "Generate the rest" after a stop: a new generation carrying resumesGenerationId with the drafted sections as prior context (AD-24).
+origin: spec-deferred e1f7641f6342
+location: n/a
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: medium
+reason: Needs a request surface and a generation-writer path through createGeneratedReportArtifacts; no caller exists until the stop UI ships. This story records stoppedAfterSection and renders [NOT GENERATED] placeholders so the resume path has a well-formed report to extend.
+status: open
+
+### DW-117: Writer Profile settings UI for buildOrder and selfCheckRules.
+origin: spec-deferred b432d002513d
+location: n/a
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: low
+reason: Both fields are accepted by saveMyProfile/saveProfileForUser and read by generation here; story 3 (profile lane) owns profile fidelity and the settings-document path that populates them.
+status: open
+
+### DW-118: A Brief re-derivation re-inserts the previous version's "removed" and storylineQuestion rows as fresh change: "removed" markers, and renderBriefForGeneration (iterative sections and the one-shot ghost
+origin: spec-deferred 0243750d9cb3
+location: convex/generations.ts persistDerivedBrief, renderBriefForGeneration
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: medium
+reason: persistDerivedBrief diffs against every previous-version row without filtering change === "removed" or group === "storylineQuestion", so markers accumulate across versions; renderBriefForGeneration filters by group only. Story 1 code (c3ba3fc). This story's ordered chain reads the Brief through loadBriefCheck, which now skips "removed" rows; the story 1 readers do not.
+status: open
+
+### DW-119: failStaleGenerations fails any non-iterative running generation 30 minutes after startedAt without checking whether its ordered chain is still progressing, so a slow but live chain can be reaped mid-f
+origin: spec-deferred c14bcf6ddcbd
+location: convex/generations.ts failStaleGenerations
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: medium
+reason: The reaper (convex/crons.ts, every 10 minutes, olderThanMinutes 30) has per-section handling for iterative only. A single generation now runs generateReport, generateCandidate, three sequential section actions (up to five provider calls each, 240 s per attempt) and finalize. AD-24 binds recovery to the existing reaper and forbids a new one, so a progress-aware threshold is an architecture-level change.
+status: open
+
+### DW-120: A Brief-derivation failure inside generateReport is only logged with console.error, not the writer-facing progress log, so a silently Brief-less generation gives no visible signal of why.
+origin: spec-deferred 25ee33812071
+location: convex/ai/pipeline.ts generateReport (Brief-derivation catch block)
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: low
+reason: convex/ai/pipeline.ts generateReport's deriveOrReuseBrief catch block predates this story (introduced in c3ba3fc, story 1) and is unchanged here; every other fallback in the same function (Build Order, Writer Profile) does call the progress-log helper. Pre-existing, not caused by this story's diff.
+status: open
+
+### DW-121: getOrderedSectionDrafts takes(30) on generationSectionRuns before filtering by candidateRunId, so a generation that has accumulated more than 30 section-run rows across many regenerations could have a
+origin: spec-deferred 62d5e0fedd8d
+location: convex/generations.ts getOrderedSectionDrafts
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: low
+reason: convex/generations.ts getOrderedSectionDrafts queries by_generationId with .take(30) first, then filters by candidateRunId in memory. Not reachable under this story's own acceptance criteria or tests (a generation normally accumulates a handful of rows per candidate), and a correct fix needs a candidateRunId-first index strategy rather than a one-line change.
+status: open
+
+### DW-122: complianceNotes.listForGeneration takes(10) on generationCandidateRuns before matching the selected candidateId, so a generation that has accumulated more than 10 candidate runs across many regenerati
+origin: spec-deferred 5b48ffe75e42
+location: convex/complianceNotes.ts listForGeneration
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: medium
+reason: convex/complianceNotes.ts queries by_generationId with .take(10) then Array.find()s by candidateId in memory — the same shape as the already-deferred getOrderedSectionDrafts .take(30) truncation above. Not reachable under this story's own acceptance criteria or tests; a correct fix needs a candidateRunId-first index rather than a one-line change.
+status: open
+
+### DW-123: In compare mode, two candidates can each independently insert a storylineQuestion row for the same Confidence Map entry into the generation's shared Brief; the row carries no candidateRunId to attribu
+origin: spec-deferred 1e44bdb1f444
+location: convex/generations.ts completeOrderedSectionRun
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: medium
+reason: convex/generations.ts completeOrderedSectionRun inserts a generationBriefEntries "storylineQuestion" row per section whenever the model's Self-check verdict cites Confidence Map evidence, with no check for an existing row citing the same evidenceEntryId and no candidateRunId field on the insert. AD-23 names the mechanism but not compare-mode attribution. Not reachable under this story's own acceptance criteria or tests (the readers of this data are deferred to stories 4/5); a correct fix needs either a candidateRunId column or a dedup pass, not a one-line change.
+status: open
+
+### DW-124: Follow-up review still recommended for 2 after the damping cap was spent
+origin: review-budget-followup
+location: n/a
+source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
+severity: low
+reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260910-135728-7834; this entry preserves the lingering recommendation for a deliberate later review.
+status: open

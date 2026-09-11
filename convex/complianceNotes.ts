@@ -39,12 +39,13 @@ export const listForGeneration = query({
         )
         .first();
       if (selection) {
-        const selectedRun = await ctx.db
+        // The run that produced the selected candidate (candidate rows are
+        // deleted on selection; the run keeps its candidateId).
+        const runs = await ctx.db
           .query("generationCandidateRuns")
-          .withIndex("by_generationId_and_model", (q) =>
-            q.eq("generationId", generation._id).eq("model", selection.model)
-          )
-          .unique();
+          .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+          .take(10);
+        const selectedRun = runs.find((run) => run.candidateId === selection.candidateId);
         if (selectedRun) candidateRunId = selectedRun._id;
       }
     }

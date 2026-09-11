@@ -227,7 +227,20 @@ export const generateOrderedSection = internalAction({
         );
 
       let text = await draftWith(`generation:section:${section}`);
+      if (!text.trim()) {
+        // The raw model response is non-empty (requireTextResponse already
+        // guards that); only the banned-word scrub can empty it here. There
+        // is no repair fallback for the first draft, so this fails the
+        // section run rather than persisting an empty body.
+        throw new Error("Section draft empty after the banned-word scrub");
+      }
       text = await compressToFit(clientFor, claim.model, key, text, lengthTarget, styleOverrides);
+      if (!text.trim()) {
+        // Same guard as the initial draft above: only the banned-word scrub
+        // inside compressToFit's re-scrub step can empty an already-non-empty
+        // compressed draft. There is no repair fallback for this stage.
+        throw new Error("Section draft empty after compression");
+      }
 
       const brief = claim.brief;
       const check = (draft: string): DeterministicSelfCheck =>
@@ -273,31 +286,41 @@ export const generateOrderedSection = internalAction({
         try {
           // The same section agent that drafted it, with the repair guidance
           // appended: a separate model interaction, never an inline edit.
-          finalText = await draftWith(
+          const repaired = await draftWith(
             `generation:repair:${section}`,
             repairGuidanceBlock(issues, text)
           );
-          repair.succeeded = true;
-          after = check(finalText);
+          if (repaired.trim()) {
+            finalText = repaired;
+            repair.succeeded = true;
+            after = check(finalText);
+          } else {
+            // An empty repair never replaces the draft it was meant to fix.
+            repair.failureReason = "EMPTY_OUTPUT";
+          }
         } catch (error) {
           repair.failureReason = normalizeProviderError(error).code;
         }
       }
 
+      // The question is stored only when it cites a Confidence Map entry of
+      // this Brief; the note must not claim a question the Brief never got.
+      const evidence =
+        storylineQuestion && storylineQuestion.confidenceEntryIndex !== null
+          ? brief?.confidenceMap[storylineQuestion.confidenceEntryIndex]
+          : undefined;
       const { rows, summary } = assembleSectionNotes({
         section,
         before,
         after,
         verdicts,
         modelCheck,
-        storylineQuestion: storylineQuestion ? { question: storylineQuestion.question } : null,
+        storylineQuestion: storylineQuestion
+          ? { question: storylineQuestion.question, recorded: evidence !== undefined }
+          : null,
         repair,
         finalText,
       });
-      const evidence =
-        storylineQuestion && storylineQuestion.confidenceEntryIndex !== null
-          ? brief?.confidenceMap[storylineQuestion.confidenceEntryIndex]
-          : undefined;
       await ctx.runMutation(internal.generations.completeOrderedSectionRun, {
         generationId: args.generationId,
         candidateRunId: args.candidateRunId,

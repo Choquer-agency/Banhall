@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createAnthropicClient } from "./providers";
+import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import type { AnthropicCapability } from "../lib/providerConfig";
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
@@ -80,7 +81,7 @@ export const GENERATION_SLOT_ALLOWANCES: Readonly<Record<string, number>> = {
   section: 1,
   selfCheck: 1,
   repair: 1,
-  compression: 2,
+  compression: COMPRESSION_REQUEST.squeezes.length,
 };
 
 /** Throws on a `generation:*` label that is not a declared slot. */

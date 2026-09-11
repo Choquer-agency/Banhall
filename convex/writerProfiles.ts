@@ -20,6 +20,7 @@ import {
 import { getHouseRuleModes } from "./houseStyle";
 import {
   DEFAULT_BUILD_ORDER,
+  MAX_BUILD_ORDER_ENTRIES,
   MAX_SELF_CHECK_INSTRUCTION_CHARS,
   MAX_SELF_CHECK_RULES,
   orderedProfileContextValidator,
@@ -87,6 +88,18 @@ function validateInstructions(raw: string): string {
 
 function isPositiveInteger(value: number): boolean {
   return Number.isInteger(value) && value > 0;
+}
+
+/** Save-time input-size backstop for Build Order; shape/validity is decided
+ * on read (resolveBuildOrder). Returns the array unchanged. */
+function validateBuildOrderLength(buildOrder: string[]): string[] {
+  if (buildOrder.length > MAX_BUILD_ORDER_ENTRIES) {
+    domainError(
+      "INVALID_INPUT",
+      `A Writer Profile Build Order holds at most ${MAX_BUILD_ORDER_ENTRIES} entries.`
+    );
+  }
+  return buildOrder;
 }
 
 /** Save-time validation of Self-check rules; returns the trimmed rules. */
@@ -223,7 +236,7 @@ export const saveMyProfile = mutation({
       args.styleOverrides === undefined
         ? undefined
         : normalizeStyleOverrides(args.styleOverrides),
-      args.buildOrder,
+      args.buildOrder === undefined ? undefined : validateBuildOrderLength(args.buildOrder),
       args.selfCheckRules === undefined
         ? undefined
         : validateSelfCheckRules(args.selfCheckRules)
@@ -293,7 +306,7 @@ export const saveProfileForUser = mutation({
       args.styleOverrides === undefined
         ? undefined
         : normalizeStyleOverrides(args.styleOverrides),
-      args.buildOrder,
+      args.buildOrder === undefined ? undefined : validateBuildOrderLength(args.buildOrder),
       args.selfCheckRules === undefined
         ? undefined
         : validateSelfCheckRules(args.selfCheckRules)

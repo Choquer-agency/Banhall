@@ -111,8 +111,17 @@ export function numberedSectionParagraphs(text: string): string {
     .join("\n\n");
 }
 
-/** 1-based model paragraph (0 = whole section) → a valid 0-based index. */
-function clampParagraph(paragraph: number, count: number): number {
+/**
+ * 1-based model paragraph → a valid 0-based index. `wholeSectionAtZero`
+ * (Self-check only; the consistency pass has no whole-section concept)
+ * returns undefined for an explicit 0 instead of colliding with paragraph 1.
+ */
+function clampParagraph(
+  paragraph: number,
+  count: number,
+  wholeSectionAtZero = false
+): number | undefined {
+  if (wholeSectionAtZero && paragraph === 0) return undefined;
   if (count <= 0) return 0;
   const index = Number.isFinite(paragraph) && paragraph >= 1 ? Math.floor(paragraph) - 1 : 0;
   return Math.min(Math.max(index, 0), count - 1);
@@ -202,7 +211,7 @@ export async function runModelSelfCheck(
   const verdicts: ModelVerdict[] = raw.verdicts
     .slice(0, SELF_CHECK_REQUEST.maxVerdicts)
     .map((verdict) => ({
-      paragraphIndex: clampParagraph(verdict.paragraph, count),
+      paragraphIndex: clampParagraph(verdict.paragraph, count, true),
       check: verdict.check,
       instruction: verdict.instruction.trim() || `${verdict.check} check`,
       outcome: verdict.outcome,
@@ -278,7 +287,8 @@ export async function runConsistencyPass(
     .slice(0, CONSISTENCY_REQUEST.maxFindings)
     .map((finding) => ({
       section: finding.section,
-      paragraphIndex: clampParagraph(finding.paragraph, counts.get(finding.section) ?? 0),
+      // Consistency findings have no whole-section concept: always a number.
+      paragraphIndex: clampParagraph(finding.paragraph, counts.get(finding.section) ?? 0) ?? 0,
       sections: [...new Set([finding.section, ...finding.sections])].sort(),
       kind: finding.kind,
       issue: finding.issue.trim(),

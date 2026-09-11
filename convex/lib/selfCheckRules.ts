@@ -30,7 +30,8 @@ export type ModelCheckKind = "storyline" | "confidence" | "glossary" | "instruct
 
 /** One paragraph-scoped verdict from the structured Self-check call. */
 export type ModelVerdict = {
-  paragraphIndex: number;
+  /** undefined = the verdict is about the whole section, not one paragraph. */
+  paragraphIndex?: number;
   check: ModelCheckKind;
   instruction: string;
   outcome: "applied" | "not_applied";
@@ -380,7 +381,11 @@ export function repairIssues(
   for (const verdict of verdicts) {
     if (verdict.outcome !== "not_applied") continue;
     const fix = verdict.repairGuidance?.trim() || verdict.reason;
-    issues.push(`Paragraph ${verdict.paragraphIndex + 1}: ${fix}`);
+    const where =
+      verdict.paragraphIndex === undefined
+        ? "Whole section"
+        : `Paragraph ${verdict.paragraphIndex + 1}`;
+    issues.push(`${where}: ${fix}`);
   }
   return issues;
 }
@@ -407,7 +412,8 @@ export function assembleSectionNotes(input: {
   after: DeterministicSelfCheck | null;
   verdicts: ModelVerdict[];
   modelCheck: { ok: true } | { ok: false; reason: string };
-  storylineQuestion: { question: string } | null;
+  /** `recorded`: a storylineQuestion entry is inserted on the Brief. */
+  storylineQuestion: { question: string; recorded: boolean } | null;
   repair: { attempted: boolean; succeeded: boolean; failureReason?: string };
   finalText: string;
 }): { rows: ComplianceNoteDraft[]; summary: SelfCheckSummary } {
@@ -486,7 +492,9 @@ export function assembleSectionNotes(input: {
         instruction: "Storyline",
         outcome: "not_applied",
         tier: "none",
-        reason: `Storyline question raised in the Brief: ${input.storylineQuestion.question} (the section's evidence is stronger than the Storyline's basis; not repaired)`,
+        reason: input.storylineQuestion.recorded
+          ? `Storyline question raised in the Brief: ${input.storylineQuestion.question} (the section's evidence is stronger than the Storyline's basis; not repaired)`
+          : `Storyline question not recorded in the Brief (no Confidence Map entry cited as evidence): ${input.storylineQuestion.question} (not repaired)`,
       })
     );
   }
