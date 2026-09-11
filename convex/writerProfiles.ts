@@ -1,9 +1,18 @@
-import { query, mutation, internalQuery } from "./_generated/server";
+import {
+  query,
+  mutation,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server";
 import { v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { requireCurrentUser, requireRole } from "./lib/auth";
-import { domainError } from "./lib/contracts";
+import {
+  getInternalProjectAccessOrNull,
+  requireCurrentUser,
+  requireRole,
+} from "./lib/auth";
+import { domainError, sha256 } from "./lib/contracts";
 import { MAX_INSTRUCTIONS_CHARS } from "../shared/writerProfileLimits";
 import {
   styleOverridesValidator,
@@ -15,6 +24,7 @@ import {
   hasAnyStyleOverride,
   normalizeStyleOverrides,
   resolveEffectiveOverrides,
+  type StyleOverrideKey,
   type StyleOverrides,
 } from "../shared/styleOverrides";
 import { getHouseRuleModes } from "./houseStyle";
@@ -24,14 +34,31 @@ import {
   MAX_SELF_CHECK_INSTRUCTION_CHARS,
   MAX_SELF_CHECK_RULES,
   orderedProfileContextValidator,
+  pickOrderedProfileContext,
+  profileStateValidator,
   resolveBuildOrder,
   selfCheckRuleValidator,
+  settingsSupplyPathValidator,
+  styleCategoryValidator,
+  writerSettingsSourceValidator,
   type CategoryOutcome,
   type OrderedProfileContext,
   type ProfileState,
   type SectionNumber,
   type SelfCheckRule,
+  type WriterSettingsSource,
 } from "./lib/orderedChain";
+import {
+  detectSettingsDocument,
+  normalizeSettingsText,
+  parseSourceLabel,
+  settingsDocumentText,
+  settingsSupplyLabel,
+  type SettingsSupplyPath,
+} from "./lib/settingsDocument";
+import { extractSettingsRules } from "./lib/settingsExtraction";
+import { MAX_TRANSCRIPTS_PER_PROJECT } from "./lib/transcripts";
+import { SETTINGS_CLASSIFIER_VERSION } from "./ai/writerSettings";
 
 /**
  * Per-writer "flavor" (Phase A): free-text personal writing instructions,
@@ -315,10 +342,52 @@ export const saveProfileForUser = mutation({
   },
 });
 
+/**
+ * Story 3 (CAP-8): a settings document detected in a generation's frozen
+ * sources, as the effective-style policy receives it. `addressedCategories`
+ * is the style classifier's result; `null` means the analysis failed.
+ */
+export type SettingsDocumentInput = {
+  text: string;
+  supplyPath: SettingsSupplyPath;
+  addressedCategories: StyleOverrideKey[] | null;
+  fileName?: string;
+};
+
+export const settingsDocumentInputValidator = v.object({
+  text: v.string(),
+  supplyPath: settingsSupplyPathValidator,
+  addressedCategories: v.union(v.array(styleCategoryValidator), v.null()),
+  fileName: v.optional(v.string()),
+});
+
 export type EffectiveWriterStyle = {
   customInstructions: string | null;
   styleOverrides: StyleOverrides;
+  /** Where the applied Writer Profile came from ("none" when none applied). */
+  settingsSource: WriterSettingsSource;
+  /** A settings document replaced an enabled saved profile it differs from. */
+  savedProfileSuperseded: boolean;
+  /** A settings document equals the enabled saved profile, which applies. */
+  matchesProfile: boolean;
 } & OrderedProfileContext;
+
+const effectiveWriterStyleValidator = v.object({
+  customInstructions: v.union(v.string(), v.null()),
+  styleOverrides: normalizedStyleOverridesValidator,
+  settingsSource: writerSettingsSourceValidator,
+  savedProfileSuperseded: v.boolean(),
+  matchesProfile: v.boolean(),
+  ...orderedProfileContextValidator.fields,
+});
+
+function overridesFromCategories(
+  categories: readonly StyleOverrideKey[] | null
+): StyleOverrides {
+  const out = { ...NO_STYLE_OVERRIDES };
+  for (const category of categories ?? []) out[category] = true;
+  return out;
+}
 
 /**
  * THE effective-style policy (PSOS-49/50, AD-26): the org's global modes
@@ -330,11 +399,22 @@ export type EffectiveWriterStyle = {
  *
  * AD-26: this is the only place a category `tier` is computed —
  * `org_enforced` when the org mode is `enforced` or `off`, otherwise `none` —
- * and the profile is never silent: `profileState` says whether it applied.
+ * and the profile is never silent: `profileState` says whether it applied,
+ * and `requested` says which waivers the applied profile asked for, so a
+ * waiver an `enforced` mode ignores is reported, not dropped.
+ *
+ * Story 3 (CAP-8): a detected settings document is applied as the Writer
+ * Profile for that generation. When its whitespace-normalized text equals an
+ * enabled saved profile's instructions the saved profile applies unchanged
+ * (`matchesProfile`); otherwise the document replaces it, never merges
+ * (`savedProfileSuperseded`). Build Order and cap rules are extracted from
+ * the effective instruction text only where the source holds none
+ * structurally (`undefined`; an explicitly stored `[]` stays empty).
  */
 export async function getEffectiveWriterStyle(
   ctx: QueryCtx | MutationCtx,
-  userId: Id<"users"> | undefined
+  userId: Id<"users"> | undefined,
+  settingsDocument?: SettingsDocumentInput
 ): Promise<EffectiveWriterStyle> {
   const [modes, profile] = await Promise.all([
     getHouseRuleModes(ctx),
@@ -345,13 +425,46 @@ export async function getEffectiveWriterStyle(
           .unique()
       : Promise.resolve(null),
   ]);
-  const profileState: ProfileState =
-    profile === null ? "missing" : profile.enabled ? "applied" : "disabled";
-  const applyProfile = profile !== null && profile.enabled;
-  const instructions = applyProfile ? profile.customInstructions.trim() : "";
-  const writerOverrides = applyProfile
-    ? normalizeStyleOverrides(profile.styleOverrides)
-    : NO_STYLE_OVERRIDES;
+  const savedEnabled = profile !== null && profile.enabled;
+  const matchesProfile =
+    settingsDocument !== undefined &&
+    profile !== null &&
+    profile.enabled &&
+    normalizeSettingsText(settingsDocument.text) ===
+      normalizeSettingsText(profile.customInstructions);
+  const document = settingsDocument !== undefined && !matchesProfile ? settingsDocument : undefined;
+
+  let profileState: ProfileState;
+  let instructions: string;
+  let writerOverrides: StyleOverrides;
+  let storedBuildOrder: string[] | undefined;
+  let storedSelfCheckRules: SelfCheckRule[] | undefined;
+  let settingsSource: WriterSettingsSource;
+  if (document) {
+    profileState = "applied";
+    instructions = document.text.trim();
+    writerOverrides = overridesFromCategories(document.addressedCategories);
+    // A document holds no structured Build Order or Self-check rules.
+    storedBuildOrder = undefined;
+    storedSelfCheckRules = undefined;
+    settingsSource = document.supplyPath;
+  } else if (profile !== null && profile.enabled) {
+    profileState = "applied";
+    instructions = profile.customInstructions.trim();
+    writerOverrides = normalizeStyleOverrides(profile.styleOverrides);
+    storedBuildOrder = profile.buildOrder;
+    storedSelfCheckRules = profile.selfCheckRules;
+    settingsSource = "profile";
+  } else {
+    profileState = profile === null ? "missing" : "disabled";
+    instructions = "";
+    writerOverrides = NO_STYLE_OVERRIDES;
+    storedBuildOrder = undefined;
+    storedSelfCheckRules = undefined;
+    settingsSource = "none";
+  }
+  const applied = profileState === "applied";
+
   const styleOverrides = resolveEffectiveOverrides(modes, writerOverrides);
   const categoryOutcomes: CategoryOutcome[] = STYLE_OVERRIDE_KEYS.map(
     (category) => ({
@@ -362,24 +475,48 @@ export async function getEffectiveWriterStyle(
         modes[category] === "enforced" || modes[category] === "off"
           ? ("org_enforced" as const)
           : ("none" as const),
+      requested: writerOverrides[category],
     })
   );
+
+  // Extraction fills only what the applied source does not hold structurally.
+  const extracted =
+    applied && (storedBuildOrder === undefined || storedSelfCheckRules === undefined)
+      ? extractSettingsRules(instructions)
+      : null;
   // A disabled or missing profile contributes no Build Order: the default
-  // applies and profileState reports why. Only an applied profile's stored
-  // order is validated, and only its invalid order carries a fallback reason.
-  const order = applyProfile
-    ? resolveBuildOrder(profile.buildOrder)
+  // applies and profileState reports why. Only an applied profile's order
+  // (stored or extracted) is validated, and only an invalid one carries a
+  // fallback reason.
+  const order = applied
+    ? resolveBuildOrder(storedBuildOrder ?? extracted?.buildOrder)
     : { buildOrder: [...DEFAULT_BUILD_ORDER] as SectionNumber[] };
+  const selfCheckRules = applied
+    ? (storedSelfCheckRules ?? extracted?.selfCheckRules ?? [])
+    : [];
+
+  const savedProfileSuperseded = document !== undefined && savedEnabled;
+  const profileReason =
+    document && savedProfileSuperseded
+      ? `Writer Profile applied from the settings document${document.fileName ? ` ${document.fileName}` : ""} ${settingsSupplyLabel(document.supplyPath)}; the saved Writer Profile was superseded for this generation`
+      : undefined;
   return {
     customInstructions: instructions.length > 0 ? instructions : null,
     styleOverrides,
+    settingsSource,
+    savedProfileSuperseded,
+    matchesProfile,
     profileState,
     categoryOutcomes,
     buildOrder: order.buildOrder,
     ...(order.fallbackReason
       ? { buildOrderFallbackReason: order.fallbackReason }
       : {}),
-    selfCheckRules: applyProfile ? (profile.selfCheckRules ?? []) : [],
+    selfCheckRules,
+    ...(profileReason ? { profileReason } : {}),
+    ...(document && document.addressedCategories === null
+      ? { waiverAnalysisFailed: true }
+      : {}),
   };
 }
 
@@ -425,14 +562,217 @@ export const getGenerationProfileContext = internalQuery({
   returns: orderedProfileContextValidator,
   handler: async (ctx, args): Promise<OrderedProfileContext> => {
     const style = await getEffectiveWriterStyle(ctx, args.userId);
+    return pickOrderedProfileContext(style);
+  },
+});
+
+// ─── Story 3 (CAP-6/8, AD-26): settings documents at generation entry ───────
+
+/** Story 4's "no Writer Profile applied" line. */
+export const NO_PROFILE_LINE = "No Writer Profile applied — House Rules in full.";
+
+const settingsCandidateValidator = v.object({
+  generationSourceId: v.id("generationSources"),
+  projectDocumentId: v.optional(v.id("projectDocuments")),
+  fileName: v.string(),
+  supplyPath: settingsSupplyPathValidator,
+  text: v.string(),
+  truncated: v.boolean(),
+  /** sha256 of `text`: the classifier cache key with the projectId. */
+  contentHash: v.string(),
+});
+
+// Every frozen source a generation can hold: one transcript and one digest
+// row per transcript, 50 context documents, and a writer Storyline.
+const MAX_GENERATION_SOURCES = 2 * MAX_TRANSCRIPTS_PER_PROJECT + 52;
+
+/** A cached waiver analysis at exactly this classifier version, or null. */
+async function readSettingsAnalysis(
+  ctx: QueryCtx | MutationCtx,
+  key: { projectId: Id<"projects">; contentHash: string; classifierVersion: string }
+) {
+  return await ctx.db
+    .query("settingsDocumentAnalyses")
+    .withIndex("by_projectId_and_contentHash_and_classifierVersion", (q) =>
+      q
+        .eq("projectId", key.projectId)
+        .eq("contentHash", key.contentHash)
+        .eq("classifierVersion", key.classifierVersion)
+    )
+    .first();
+}
+
+/**
+ * The settings document a generation would apply (trust floor and title
+ * pattern in convex/lib/settingsDocument.ts), whether it equals the
+ * requester's enabled saved profile, and its cached waiver analysis at the
+ * caller's classifier version (a row at another version is never served).
+ */
+export const getSettingsDocumentCandidate = internalQuery({
+  args: {
+    generationId: v.id("generations"),
+    userId: v.optional(v.id("users")),
+    classifierVersion: v.string(),
+  },
+  returns: v.object({
+    document: v.union(settingsCandidateValidator, v.null()),
+    matchesProfile: v.boolean(),
+    cachedAddressed: v.union(v.array(styleCategoryValidator), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const none = { document: null, matchesProfile: false, cachedAddressed: null };
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) return none;
+    const sources = await ctx.db
+      .query("generationSources")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      .take(MAX_GENERATION_SOURCES);
+    const detected = detectSettingsDocument(sources);
+    if (!detected) return none;
+    const contentHash = await sha256(detected.text);
+    const userId = args.userId;
+    const profile = userId
+      ? await ctx.db
+          .query("writerProfiles")
+          .withIndex("by_userId", (q) => q.eq("userId", userId))
+          .unique()
+      : null;
+    const matchesProfile =
+      profile !== null &&
+      profile.enabled &&
+      normalizeSettingsText(detected.text) ===
+        normalizeSettingsText(profile.customInstructions);
+    let cachedAddressed: StyleOverrideKey[] | null = null;
+    if (!matchesProfile) {
+      const cached = await readSettingsAnalysis(ctx, {
+        projectId: generation.projectId,
+        contentHash,
+        classifierVersion: args.classifierVersion,
+      });
+      cachedAddressed = cached ? cached.addressedCategories : null;
+    }
+    return { document: { ...detected, contentHash }, matchesProfile, cachedAddressed };
+  },
+});
+
+/**
+ * Cache one classifier result per (projectId, contentHash, classifierVersion).
+ * Idempotent: an existing row wins. The only writer of
+ * `settingsDocumentAnalyses`.
+ */
+export const recordSettingsAnalysis = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    contentHash: v.string(),
+    classifierVersion: v.string(),
+    addressedCategories: v.array(styleCategoryValidator),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const existing = await readSettingsAnalysis(ctx, args);
+    if (existing) return null;
+    await ctx.db.insert("settingsDocumentAnalyses", {
+      projectId: args.projectId,
+      contentHash: args.contentHash,
+      classifierVersion: args.classifierVersion,
+      addressedCategories: [...new Set(args.addressedCategories)],
+      analyzedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+/** The effective style for a generation, settings document included. */
+export const getGenerationWriterStyle = internalQuery({
+  args: {
+    userId: v.optional(v.id("users")),
+    settingsDocument: v.optional(settingsDocumentInputValidator),
+  },
+  returns: effectiveWriterStyleValidator,
+  handler: async (ctx, args): Promise<EffectiveWriterStyle> => {
+    return await getEffectiveWriterStyle(ctx, args.userId, args.settingsDocument);
+  },
+});
+
+/**
+ * The Writer Profile a generation ran under, for the Brief's "no Writer
+ * Profile applied" line and the save offer (story 4), and for the settings
+ * page prefill. Null for an outsider, a missing generation, or a legacy row
+ * with no record.
+ */
+export const getGenerationWriterSettings = query({
+  args: { generationId: v.id("generations") },
+  returns: v.union(
+    v.null(),
+    v.object({
+      profileState: profileStateValidator,
+      source: writerSettingsSourceValidator,
+      fileName: v.optional(v.string()),
+      matchesProfile: v.boolean(),
+      savedProfileSuperseded: v.boolean(),
+      noProfileLine: v.union(v.string(), v.null()),
+      offer: v.union(
+        v.null(),
+        v.object({
+          supplyPath: settingsSupplyPathValidator,
+          fileName: v.string(),
+          text: v.string(),
+          truncated: v.boolean(),
+          addressedCategories: v.union(v.array(styleCategoryValidator), v.null()),
+        })
+      ),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (
+      !generation ||
+      !(await getInternalProjectAccessOrNull(ctx, generation.projectId))
+    ) {
+      return null;
+    }
+    const record = generation.writerSettings;
+    if (!record) return null;
+    let offer: {
+      supplyPath: SettingsSupplyPath;
+      fileName: string;
+      text: string;
+      truncated: boolean;
+      addressedCategories: StyleOverrideKey[] | null;
+    } | null = null;
+    const supplyPath =
+      record.source === "writer_notes" || record.source === "attachment"
+        ? record.source
+        : null;
+    if (supplyPath && record.generationSourceId) {
+      const source = await ctx.db.get(record.generationSourceId);
+      const text = source ? settingsDocumentText(source.content) : "";
+      if (source && text) {
+        // The waivers the resolver cached for this exact text, at the
+        // current classifier version; null when the analysis failed or is
+        // absent, so saving the prefill never invents a waiver.
+        const cached = await readSettingsAnalysis(ctx, {
+          projectId: generation.projectId,
+          contentHash: await sha256(text),
+          classifierVersion: SETTINGS_CLASSIFIER_VERSION,
+        });
+        offer = {
+          supplyPath,
+          fileName: record.fileName ?? parseSourceLabel(source.label).fileName,
+          text,
+          truncated: record.truncated,
+          addressedCategories: cached ? cached.addressedCategories : null,
+        };
+      }
+    }
     return {
-      profileState: style.profileState,
-      categoryOutcomes: style.categoryOutcomes,
-      buildOrder: style.buildOrder,
-      ...(style.buildOrderFallbackReason
-        ? { buildOrderFallbackReason: style.buildOrderFallbackReason }
-        : {}),
-      selfCheckRules: style.selfCheckRules,
+      profileState: record.profileState,
+      source: record.source,
+      ...(record.fileName !== undefined ? { fileName: record.fileName } : {}),
+      matchesProfile: record.matchesProfile,
+      savedProfileSuperseded: record.savedProfileSuperseded,
+      noProfileLine: record.profileState === "applied" ? null : NO_PROFILE_LINE,
+      offer,
     };
   },
 });

@@ -135,17 +135,27 @@ function uniqueTerms(terms: string[]): string[] {
   return out;
 }
 
-function categoryReason(outcome: CategoryOutcome): string {
+function categoryReason(
+  outcome: CategoryOutcome,
+  waiverAnalysisFailed: boolean
+): string {
   if (outcome.mode === "enforced") {
     return "House Rule applied: org-enforced (writer waivers are ignored)";
   }
   if (outcome.mode === "off") {
     return "House Rule waived for everyone (org mode off)";
   }
-  return outcome.effective
-    ? "instruction waived via override: the Writer Profile waives this House Rule"
+  if (outcome.effective) {
+    return "instruction waived via override: the Writer Profile waives this House Rule";
+  }
+  return waiverAnalysisFailed
+    ? "House Rule applied: the settings document could not be analysed for waivers"
     : "House Rule applied (no Writer Profile waiver)";
 }
+
+/** Story 3 (AD-26): the reason on a waiver row an org-enforced mode ignored. */
+export const ORG_ENFORCED_WAIVER_REASON =
+  "org-enforced: this House Rule applies regardless of the Writer Profile";
 
 export function runDeterministicSelfCheck(input: {
   section: SectionNumber;
@@ -184,7 +194,12 @@ export function runDeterministicSelfCheck(input: {
   add(
     "profile",
     profile.profileState === "applied"
-      ? { instruction: "Writer Profile", outcome: "applied", tier: "none", reason: "Writer Profile applied" }
+      ? {
+          instruction: "Writer Profile",
+          outcome: "applied",
+          tier: "none",
+          reason: profile.profileReason ?? "Writer Profile applied",
+        }
       : {
           instruction: "Writer Profile",
           outcome: "not_applied",
@@ -214,13 +229,23 @@ export function runDeterministicSelfCheck(input: {
 
   // Six House Rule categories: tier copied verbatim from the per-category
   // outcome getEffectiveWriterStyle computed (AD-26), never recomputed here.
+  // Story 3: a requested waiver the org ignored gets its own row, so no
+  // tier applies silently.
   for (const outcome of profile.categoryOutcomes) {
     add(`category:${outcome.category}`, {
       instruction: `House Rule category: ${CATEGORY_LABELS[outcome.category]}`,
       outcome: outcome.effective ? "not_applied" : "applied",
       tier: outcome.tier,
-      reason: categoryReason(outcome),
+      reason: categoryReason(outcome, profile.waiverAnalysisFailed === true),
     });
+    if (outcome.requested === true && !outcome.effective) {
+      add(`waiver:${outcome.category}`, {
+        instruction: `Writer Profile waiver: ${CATEGORY_LABELS[outcome.category]}`,
+        outcome: "not_applied",
+        tier: outcome.tier,
+        reason: ORG_ENFORCED_WAIVER_REASON,
+      });
+    }
   }
 
   // Locked caps (never overridable).

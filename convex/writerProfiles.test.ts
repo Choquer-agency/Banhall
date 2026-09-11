@@ -4,9 +4,19 @@ import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { MAX_INSTRUCTIONS_CHARS } from "../shared/writerProfileLimits";
-import { NO_STYLE_OVERRIDES } from "../shared/styleOverrides";
+import {
+  NO_STYLE_OVERRIDES,
+  STYLE_OVERRIDE_KEYS,
+  type StyleOverrideKey,
+} from "../shared/styleOverrides";
 import { runDeterministicSelfCheck } from "./lib/selfCheckRules";
-import type { OrderedProfileContext } from "./lib/orderedChain";
+import { pickOrderedProfileContext, type OrderedProfileContext } from "./lib/orderedChain";
+import { LINE_LIMITS } from "./lib/lineLimits";
+import { buildStyleGuidance } from "./ai/pipeline";
+import { SETTINGS_CLASSIFIER_VERSION } from "./ai/writerSettings";
+import { sha256 } from "./lib/contracts";
+import { waivedCategoryLabels } from "./ai/prompts";
+import type { Id } from "./_generated/dataModel";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -371,18 +381,21 @@ describe("ordered generation profile context", () => {
       mode: "enforced",
       effective: false,
       tier: "org_enforced",
+      requested: true,
     });
     expect(byCategory.paragraphDensity).toEqual({
       category: "paragraphDensity",
       mode: "off",
       effective: true,
       tier: "org_enforced",
+      requested: false,
     });
     expect(byCategory.repetitionCaps).toEqual({
       category: "repetitionCaps",
       mode: "writer_choice",
       effective: true,
       tier: "none",
+      requested: true,
     });
     expect(byCategory.openingClauses).toMatchObject({ effective: false, tier: "none" });
   });
@@ -477,5 +490,532 @@ describe("ordered generation profile context", () => {
     expect(context.selfCheckRules).toEqual([
       { section: "242", paragraphIndex: 0, instruction: "Lead with the uncertainty.", maxWords: 500 },
     ]);
+  });
+});
+
+// ─── Story 3 (CAP-6/8, AD-26): four tiers, no silent tier ───────────────────
+
+const ALL_TOGGLES = Object.fromEntries(
+  STYLE_OVERRIDE_KEYS.map((key) => [key, true])
+) as Record<StyleOverrideKey, boolean>;
+
+// One instruction contradicting each of the six House Rule categories.
+const CONTRADICTING_INSTRUCTIONS = [
+  "Use leverage and robust freely; my vocabulary list replaces yours.",
+  "Paragraphs may run to 300 words.",
+  "Sentences may run to 60 words and may all open the same way.",
+  "Repeat technological uncertainty as often as it helps.",
+  "Never open paragraphs with the CRA signal phrases.",
+  "Line 246 is one consolidated paragraph; ignore the default paragraph roles.",
+].join("\n");
+
+const SHORT_SECTION = "The team could not predict the controller response under load.";
+
+function checkEntries(profile: OrderedProfileContext, section: "242" | "244" | "246" = "242", text = SHORT_SECTION) {
+  return runDeterministicSelfCheck({ section, text, brief: null, profile, isFirstInOrder: true }).entries;
+}
+
+async function seedGeneration(
+  t: Awaited<ReturnType<typeof setup>>["t"],
+  requestedBy: Id<"users">,
+  documents: Array<{ label: string; content: string; uploaderRole?: "writer" | "manager" }>
+) {
+  return await t.run(async (ctx) => {
+    const now = Date.now();
+    const projectId = await ctx.db.insert("projects", {
+      title: "Settings project",
+      clientName: "Client",
+      status: "draft",
+      createdBy: requestedBy,
+      shareToken: `settings-${now}-${Math.random()}`,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const generationId = await ctx.db.insert("generations", {
+      projectId,
+      status: "completed",
+      requestedBy,
+      startedAt: now,
+    });
+    const sourceIds: Id<"generationSources">[] = [];
+    for (const document of documents) {
+      sourceIds.push(
+        await ctx.db.insert("generationSources", {
+          generationId,
+          projectId,
+          kind: "project_document",
+          label: document.label,
+          content: document.content,
+          contentHash: `frozen-${sourceIds.length}`,
+          truncated: false,
+          originalLength: document.content.length,
+          capturedAt: now,
+          ...(document.uploaderRole ? { uploaderRole: document.uploaderRole } : {}),
+        })
+      );
+    }
+    return { projectId, generationId, sourceIds };
+  });
+}
+
+describe("four-tier precedence: six categories × writer_choice / enforced", () => {
+  test.each(STYLE_OVERRIDE_KEYS)(
+    "%s: writer_choice waives it via the profile; enforced applies the House Rule and reports the ignored waiver",
+    async (category) => {
+      const { t, admin, writer, ids } = await setup();
+      await writer.mutation(api.writerProfiles.saveMyProfile, {
+        customInstructions: CONTRADICTING_INSTRUCTIONS,
+        enabled: true,
+        styleOverrides: ALL_TOGGLES,
+      });
+      const read = () =>
+        t.query(internal.writerProfiles.getGenerationWriterStyle, { userId: ids.writerId });
+      const label = waivedCategoryLabels({ ...NO_STYLE_OVERRIDES, [category]: true })[0];
+      expect(label).toBeTruthy();
+
+      // Every category writer_choice (the default): every waiver applies.
+      let style = await read();
+      expect(style.categoryOutcomes).toHaveLength(6);
+      expect(
+        style.categoryOutcomes.every(
+          (outcome) => outcome.effective && outcome.tier === "none" && outcome.requested
+        )
+      ).toBe(true);
+      let entries = checkEntries(pickOrderedProfileContext(style));
+      const waived = entries.find((entry) => entry.key === `category:${category}`);
+      expect(waived?.row).toMatchObject({ outcome: "not_applied", tier: "none" });
+      expect(waived?.row.reason).toMatch(/^instruction waived via override/);
+      expect(entries.filter((entry) => entry.key.startsWith("waiver:"))).toEqual([]);
+      // House Rule omitted: the waived area is handed to the writer's text.
+      expect(
+        buildStyleGuidance(undefined, style.customInstructions ?? undefined, style.styleOverrides)
+      ).toContain(label);
+
+      // This category enforced by the org.
+      await admin.mutation(api.houseStyle.setModes, {
+        modes: { ...ALL_WRITER_CHOICE, [category]: "enforced" },
+      });
+      style = await read();
+      expect(style.categoryOutcomes.find((outcome) => outcome.category === category)).toEqual({
+        category,
+        mode: "enforced",
+        effective: false,
+        tier: "org_enforced",
+        requested: true,
+      });
+      expect(style.styleOverrides[category]).toBe(false);
+      entries = checkEntries(pickOrderedProfileContext(style));
+      expect(entries.find((entry) => entry.key === `category:${category}`)?.row).toMatchObject({
+        outcome: "applied",
+        tier: "org_enforced",
+        reason: "House Rule applied: org-enforced (writer waivers are ignored)",
+      });
+      const waiverRows = entries.filter((entry) => entry.key.startsWith("waiver:"));
+      expect(waiverRows.map((entry) => entry.key)).toEqual([`waiver:${category}`]);
+      expect(waiverRows[0].row).toMatchObject({
+        outcome: "not_applied",
+        tier: "org_enforced",
+        reason: "org-enforced: this House Rule applies regardless of the Writer Profile",
+      });
+      expect(waiverRows[0].row.instruction).toMatch(/^Writer Profile waiver: /);
+      // House Rule present: the enforced area is no longer handed over.
+      expect(
+        buildStyleGuidance(undefined, style.customInstructions ?? undefined, style.styleOverrides)
+      ).not.toContain(label);
+    }
+  );
+
+  test("an enforced category with no requested waiver adds no waiver row", async () => {
+    const { t, admin, writer, ids } = await setup();
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "My rules.",
+      enabled: true,
+      styleOverrides: { repetitionCaps: true },
+    });
+    await admin.mutation(api.houseStyle.setModes, {
+      modes: { ...ALL_WRITER_CHOICE, bannedWords: "enforced" },
+    });
+    const style = await t.query(internal.writerProfiles.getGenerationWriterStyle, { userId: ids.writerId });
+    expect(style.categoryOutcomes.find((outcome) => outcome.category === "bannedWords")?.requested).toBe(false);
+    expect(
+      checkEntries(pickOrderedProfileContext(style)).filter((entry) => entry.key.startsWith("waiver:"))
+    ).toEqual([]);
+  });
+});
+
+describe("cap and Build Order extraction from profile text", () => {
+  test("a cap above the Locked cap is extracted, clipped to it and reported as a conflict", async () => {
+    const { t, writer, ids } = await setup();
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "Line 246: no more than 80 lines.",
+      enabled: true,
+    });
+    const context = await t.query(internal.writerProfiles.getGenerationProfileContext, {
+      userId: ids.writerId,
+    });
+    expect(context.selfCheckRules).toEqual([
+      { section: "246", instruction: "Line 246: no more than 80 lines.", maxLines: 80 },
+    ]);
+    const row = checkEntries(context, "246", "The work established how the controller behaves under load.").find(
+      (entry) => entry.key === "rule:0"
+    );
+    expect(row?.row).toMatchObject({ outcome: "applied", tier: "conflict" });
+    expect(row?.row.reason).toMatch(/^cap met at \d+\/50 lines \(rule asked 80; the Locked cap applies\)$/);
+    // No Locked cap changes.
+    expect(LINE_LIMITS.s246).toBe(50);
+  });
+
+  test("extraction fills only what the profile does not hold structurally; a stored [] stays empty", async () => {
+    const { t, writer, ids } = await setup();
+    const text = "Build order: 246, 242, 244.\nLine 242: at most 30 lines.";
+    await writer.mutation(api.writerProfiles.saveMyProfile, { customInstructions: text, enabled: true });
+    let context = await t.query(internal.writerProfiles.getGenerationProfileContext, { userId: ids.writerId });
+    expect(context.buildOrder).toEqual(["246", "242", "244"]);
+    expect(context.selfCheckRules).toEqual([
+      { section: "242", instruction: "Line 242: at most 30 lines.", maxLines: 30 },
+    ]);
+
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: text,
+      enabled: true,
+      buildOrder: ["242", "244", "246"],
+      selfCheckRules: [],
+    });
+    context = await t.query(internal.writerProfiles.getGenerationProfileContext, { userId: ids.writerId });
+    expect(context.buildOrder).toEqual(["242", "244", "246"]);
+    expect(context.selfCheckRules).toEqual([]);
+  });
+
+  test("an extracted partial Build Order falls back with the resolveBuildOrder reason", async () => {
+    const { t, writer, ids } = await setup();
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "Drafting order: 246 then 242.",
+      enabled: true,
+    });
+    const context = await t.query(internal.writerProfiles.getGenerationProfileContext, { userId: ids.writerId });
+    expect(context.buildOrder).toEqual(["242", "244", "246"]);
+    expect(context.buildOrderFallbackReason).toMatch(/^Build Order is missing section 244; /);
+  });
+});
+
+describe("settings documents in the effective-style policy", () => {
+  const document = (text: string, addressedCategories: StyleOverrideKey[] | null) => ({
+    text,
+    supplyPath: "writer_notes" as const,
+    addressedCategories,
+    fileName: "PD Writing Customized Settings.docx",
+  });
+
+  test("a document equal to the enabled profile matches it: the profile applies with its own toggles", async () => {
+    const { t, writer, ids } = await setup();
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "Short sentences.\nLine 242: at most 30 lines.",
+      enabled: true,
+      styleOverrides: { bannedWords: true },
+    });
+    const style = await t.query(internal.writerProfiles.getGenerationWriterStyle, {
+      userId: ids.writerId,
+      settingsDocument: document("  Short sentences.   Line 242: at most 30 lines. ", ["paragraphDensity"]),
+    });
+    expect(style).toMatchObject({
+      matchesProfile: true,
+      settingsSource: "profile",
+      savedProfileSuperseded: false,
+      profileState: "applied",
+      customInstructions: "Short sentences.\nLine 242: at most 30 lines.",
+    });
+    expect(style.styleOverrides).toEqual({ ...NO_STYLE_OVERRIDES, bannedWords: true });
+    expect(style.profileReason).toBeUndefined();
+  });
+
+  test("a differing document supersedes the enabled profile, and the Writer Profile row says so", async () => {
+    const { t, writer, ids } = await setup();
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "Line 242: at most 30 lines.",
+      enabled: true,
+      styleOverrides: { bannedWords: true },
+      buildOrder: ["246", "242", "244"],
+    });
+    const style = await t.query(internal.writerProfiles.getGenerationWriterStyle, {
+      userId: ids.writerId,
+      settingsDocument: document("Findings first.", ["paragraphDensity"]),
+    });
+    expect(style).toMatchObject({
+      matchesProfile: false,
+      settingsSource: "writer_notes",
+      savedProfileSuperseded: true,
+      profileState: "applied",
+      customInstructions: "Findings first.",
+      // Replaced, not merged: nothing of the saved profile carries over.
+      buildOrder: ["242", "244", "246"],
+      selfCheckRules: [],
+    });
+    expect(style.styleOverrides).toEqual({ ...NO_STYLE_OVERRIDES, paragraphDensity: true });
+    expect(style.profileReason).toBe(
+      "Writer Profile applied from the settings document PD Writing Customized Settings.docx in Writer's Notes; the saved Writer Profile was superseded for this generation"
+    );
+    const profileRow = checkEntries(pickOrderedProfileContext(style)).find((entry) => entry.key === "profile");
+    expect(profileRow?.row).toMatchObject({ outcome: "applied", reason: style.profileReason });
+  });
+
+  test("over a disabled profile a document applies without superseding; a failed analysis waives nothing and says why", async () => {
+    const { t, writer, ids } = await setup();
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "Short sentences.",
+      enabled: false,
+    });
+    const style = await t.query(internal.writerProfiles.getGenerationWriterStyle, {
+      userId: ids.writerId,
+      settingsDocument: document("Short sentences.", null),
+    });
+    expect(style).toMatchObject({
+      matchesProfile: false,
+      settingsSource: "writer_notes",
+      savedProfileSuperseded: false,
+      profileState: "applied",
+      waiverAnalysisFailed: true,
+    });
+    expect(style.profileReason).toBeUndefined();
+    expect(style.styleOverrides).toEqual(NO_STYLE_OVERRIDES);
+    const categoryRows = checkEntries(pickOrderedProfileContext(style)).filter((entry) =>
+      entry.key.startsWith("category:")
+    );
+    expect(categoryRows).toHaveLength(6);
+    expect(
+      categoryRows.every(
+        (entry) =>
+          entry.row.outcome === "applied" &&
+          entry.row.reason === "House Rule applied: the settings document could not be analysed for waivers"
+      )
+    ).toBe(true);
+  });
+
+  test("the same settings as a profile and as a document give identical ordered context, flavor and overrides", async () => {
+    const { t, writer, ids } = await setup();
+    const text = "Use my own vocabulary.\nLine 246: no more than 80 lines.\nBuild order: 246, 242, 244";
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: text,
+      enabled: true,
+      styleOverrides: { bannedWords: true, reportSkeleton: true },
+    });
+    const fromProfile = await t.query(internal.writerProfiles.getGenerationWriterStyle, {
+      userId: ids.writerId,
+    });
+    // The admin has no saved profile: only the document applies.
+    const fromDocument = await t.query(internal.writerProfiles.getGenerationWriterStyle, {
+      userId: ids.adminId,
+      settingsDocument: document(text, ["bannedWords", "reportSkeleton"]),
+    });
+    expect(pickOrderedProfileContext(fromDocument)).toEqual(pickOrderedProfileContext(fromProfile));
+    expect(fromDocument.customInstructions).toBe(fromProfile.customInstructions);
+    expect(fromDocument.styleOverrides).toEqual(fromProfile.styleOverrides);
+    expect(fromProfile.buildOrder).toEqual(["246", "242", "244"]);
+  });
+});
+
+describe("settings-document candidate, analysis cache and the generation record", () => {
+  test("the candidate query applies the trust floor, prefers Writer's Notes and reads the per-project cache", async () => {
+    const { t, ids } = await setup();
+    const { projectId, generationId, sourceIds } = await seedGeneration(t, ids.writerId, [
+      { label: "writer_notes:PD Writing Customized Settings.docx", content: "Client-uploaded settings." },
+      { label: "other:Style settings.docx", content: "Attachment settings.", uploaderRole: "writer" },
+      {
+        label: "writer_notes:Writer's notes (pasted)",
+        content: "PD Writing Customized Settings\nNotes settings.",
+        uploaderRole: "manager",
+      },
+    ]);
+    const candidate = await t.query(internal.writerProfiles.getSettingsDocumentCandidate, {
+      generationId,
+      userId: ids.writerId,
+      classifierVersion: SETTINGS_CLASSIFIER_VERSION,
+    });
+    expect(candidate.document).toMatchObject({
+      generationSourceId: sourceIds[2],
+      supplyPath: "writer_notes",
+      fileName: "Writer's notes (pasted)",
+      text: "PD Writing Customized Settings\nNotes settings.",
+      truncated: false,
+    });
+    expect(candidate.matchesProfile).toBe(false);
+    expect(candidate.cachedAddressed).toBeNull();
+
+    const contentHash = candidate.document?.contentHash ?? "";
+    await t.mutation(internal.writerProfiles.recordSettingsAnalysis, {
+      projectId,
+      contentHash,
+      classifierVersion: SETTINGS_CLASSIFIER_VERSION,
+      addressedCategories: ["bannedWords"],
+    });
+    // Idempotent per key: the first analysis wins.
+    await t.mutation(internal.writerProfiles.recordSettingsAnalysis, {
+      projectId,
+      contentHash,
+      classifierVersion: SETTINGS_CLASSIFIER_VERSION,
+      addressedCategories: ["reportSkeleton"],
+    });
+    expect(
+      (
+        await t.query(internal.writerProfiles.getSettingsDocumentCandidate, {
+          generationId,
+          classifierVersion: SETTINGS_CLASSIFIER_VERSION,
+        })
+      ).cachedAddressed
+    ).toEqual(["bannedWords"]);
+    expect(await t.run((ctx) => ctx.db.query("settingsDocumentAnalyses").collect())).toHaveLength(1);
+
+    // A client-trust settings document alone never qualifies.
+    const clientOnly = await seedGeneration(t, ids.writerId, [
+      { label: "writer_notes:PD Writing Customized Settings.docx", content: "Client-uploaded settings." },
+    ]);
+    expect(
+      (
+        await t.query(internal.writerProfiles.getSettingsDocumentCandidate, {
+          generationId: clientOnly.generationId,
+          classifierVersion: SETTINGS_CLASSIFIER_VERSION,
+        })
+      ).document
+    ).toBeNull();
+  });
+
+  test("a cached analysis at another classifierVersion is never served", async () => {
+    const { t, ids } = await setup();
+    const { projectId, generationId } = await seedGeneration(t, ids.writerId, [
+      { label: "other:Style settings.docx", content: "Findings first.", uploaderRole: "writer" },
+    ]);
+    const read = () =>
+      t.query(internal.writerProfiles.getSettingsDocumentCandidate, {
+        generationId,
+        classifierVersion: SETTINGS_CLASSIFIER_VERSION,
+      });
+    const contentHash = (await read()).document?.contentHash ?? "";
+    expect(contentHash).toBe(await sha256("Findings first."));
+    await t.mutation(internal.writerProfiles.recordSettingsAnalysis, {
+      projectId,
+      contentHash,
+      classifierVersion: "style-classifier-previous",
+      addressedCategories: ["bannedWords"],
+    });
+    expect((await read()).cachedAddressed).toBeNull();
+    // The current version gets its own row; the stale one is left alone.
+    await t.mutation(internal.writerProfiles.recordSettingsAnalysis, {
+      projectId,
+      contentHash,
+      classifierVersion: SETTINGS_CLASSIFIER_VERSION,
+      addressedCategories: ["reportSkeleton"],
+    });
+    expect((await read()).cachedAddressed).toEqual(["reportSkeleton"]);
+    expect(await t.run((ctx) => ctx.db.query("settingsDocumentAnalyses").collect())).toHaveLength(2);
+  });
+
+  test("the candidate reports a document equal to the requester's enabled profile and skips the cache", async () => {
+    const { t, writer, ids } = await setup();
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "Notes settings.",
+      enabled: true,
+    });
+    const { generationId } = await seedGeneration(t, ids.writerId, [
+      { label: "writer_notes:Style settings.md", content: "  Notes   settings. ", uploaderRole: "writer" },
+    ]);
+    const candidate = await t.query(internal.writerProfiles.getSettingsDocumentCandidate, {
+      generationId,
+      userId: ids.writerId,
+      classifierVersion: SETTINGS_CLASSIFIER_VERSION,
+    });
+    expect(candidate.matchesProfile).toBe(true);
+    expect(candidate.cachedAddressed).toBeNull();
+  });
+
+  test("getGenerationWriterSettings: outsiders get null, legacy rows null, the no-profile line and the offer", async () => {
+    const { t, writer, ids } = await setup();
+    await t.run((ctx) => ctx.db.insert("users", { authId: "auth-outsider" }));
+    const outsider = t.withIdentity({ subject: "auth-outsider" });
+    const fileName = "PD Writing Customized Settings.docx";
+    const { projectId, generationId, sourceIds } = await seedGeneration(t, ids.writerId, [
+      { label: `writer_notes:${fileName}`, content: "  Findings first.  ", uploaderRole: "writer" },
+    ]);
+    // Legacy row: no record yet.
+    expect(await writer.query(api.writerProfiles.getGenerationWriterSettings, { generationId })).toBeNull();
+
+    const record = {
+      profileState: "applied" as const,
+      source: "writer_notes" as const,
+      generationSourceId: sourceIds[0],
+      fileName,
+      matchesProfile: false,
+      savedProfileSuperseded: true,
+      waiverAnalysis: "analyzed" as const,
+      truncated: false,
+    };
+    await t.mutation(internal.generations.recordWriterSettings, { generationId, writerSettings: record });
+    expect(await outsider.query(api.writerProfiles.getGenerationWriterSettings, { generationId })).toBeNull();
+    expect(await t.query(api.writerProfiles.getGenerationWriterSettings, { generationId })).toBeNull();
+    const withOffer = (offer: Record<string, unknown>) => ({
+      profileState: "applied",
+      source: "writer_notes",
+      fileName,
+      matchesProfile: false,
+      savedProfileSuperseded: true,
+      noProfileLine: null,
+      offer: { supplyPath: "writer_notes", fileName, text: "Findings first.", ...offer },
+    });
+    // No cached analysis: the offer carries no categories.
+    expect(await writer.query(api.writerProfiles.getGenerationWriterSettings, { generationId })).toEqual(
+      withOffer({ truncated: false, addressedCategories: null })
+    );
+
+    // Only the analysis at the current classifier version reaches the offer.
+    const contentHash = await sha256("Findings first.");
+    await t.mutation(internal.writerProfiles.recordSettingsAnalysis, {
+      projectId,
+      contentHash,
+      classifierVersion: "style-classifier-previous",
+      addressedCategories: ["repetitionCaps"],
+    });
+    expect(
+      (await writer.query(api.writerProfiles.getGenerationWriterSettings, { generationId }))?.offer
+        ?.addressedCategories
+    ).toBeNull();
+    await t.mutation(internal.writerProfiles.recordSettingsAnalysis, {
+      projectId,
+      contentHash,
+      classifierVersion: SETTINGS_CLASSIFIER_VERSION,
+      addressedCategories: ["bannedWords", "paragraphDensity"],
+    });
+    expect(await writer.query(api.writerProfiles.getGenerationWriterSettings, { generationId })).toEqual(
+      withOffer({ truncated: false, addressedCategories: ["bannedWords", "paragraphDensity"] })
+    );
+
+    // Truncation recorded at resolution time is carried on the offer.
+    await t.mutation(internal.generations.recordWriterSettings, {
+      generationId,
+      writerSettings: { ...record, truncated: true },
+    });
+    expect(
+      (await writer.query(api.writerProfiles.getGenerationWriterSettings, { generationId }))?.offer
+    ).toMatchObject({ truncated: true, addressedCategories: ["bannedWords", "paragraphDensity"] });
+
+    for (const profileState of ["missing", "disabled"] as const) {
+      const { generationId: none } = await seedGeneration(t, ids.writerId, []);
+      await t.mutation(internal.generations.recordWriterSettings, {
+        generationId: none,
+        writerSettings: {
+          profileState,
+          source: "none",
+          matchesProfile: false,
+          savedProfileSuperseded: false,
+          waiverAnalysis: "none",
+          truncated: false,
+        },
+      });
+      expect(await writer.query(api.writerProfiles.getGenerationWriterSettings, { generationId: none })).toEqual({
+        profileState,
+        source: "none",
+        matchesProfile: false,
+        savedProfileSuperseded: false,
+        noProfileLine: "No Writer Profile applied — House Rules in full.",
+        offer: null,
+      });
+    }
   });
 });

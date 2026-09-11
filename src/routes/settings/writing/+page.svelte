@@ -8,9 +8,18 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { LockSimpleIcon, ArrowsOutSimpleIcon } from "phosphor-svelte";
   import { Dialog } from "bits-ui";
+  import { untrack } from "svelte";
+  import { page } from "$app/state";
   import { overlayFade, modalPop } from "$lib/motion";
+  import {
+    settingsPrefillNotice,
+    settingsPrefillOverrides,
+    settingsPrefillText,
+    settingsPrefillUnavailableNotice,
+  } from "$lib/settingsPrefill";
   import type { FunctionReturnType } from "convex/server";
   import { api } from "../../../../convex/_generated/api";
+  import type { Id } from "../../../../convex/_generated/dataModel";
   import { MAX_INSTRUCTIONS_CHARS } from "../../../../shared/writerProfileLimits";
   import {
     STYLE_OVERRIDE_KEYS,
@@ -90,8 +99,57 @@
   );
   const modes = $derived(modesQ.data ?? DEFAULT_HOUSE_RULE_MODES);
 
+  // Story 3 (CAP-8): ?fromGeneration=<id> accepts that generation's save
+  // offer as a prefill. Once the saved profile has seeded the page and the
+  // org modes are loaded, the settings document it applied loads into the
+  // draft and its analysed writer_choice waivers are pre-ticked (the Analyze
+  // flow's rule), so the draft is dirty and Save is enabled. Nothing is
+  // saved until the writer saves. A malformed or stale id, or a generation
+  // with no offer, stops waiting and says so.
+  const fromGeneration = $derived(page.url.searchParams.get("fromGeneration"));
+  const writerSettingsQ = useQuery(api.writerProfiles.getGenerationWriterSettings, () =>
+    auth.isAuthenticated && fromGeneration
+      ? { generationId: fromGeneration as Id<"generations"> }
+      : "skip"
+  );
+  let prefilled = $state(false);
+  let prefillNotice = $state("");
+  $effect(() => {
+    if (!fromGeneration || prefilled) return;
+    if (writerSettingsQ.error) {
+      prefilled = true;
+      prefillNotice = settingsPrefillUnavailableNotice;
+      return;
+    }
+    const data = writerSettingsQ.data;
+    const seeded = prefSeed !== null;
+    const loadedModes = modesQ.data;
+    if (data === undefined || !seeded || loadedModes === undefined) return;
+    prefilled = true;
+    const offer = data?.offer ?? null;
+    if (!offer) {
+      prefillNotice = settingsPrefillUnavailableNotice;
+      return;
+    }
+    const current = untrack(() => ({ text: customInstructions, overrides: { ...overrides } }));
+    const text = settingsPrefillText({
+      seeded,
+      alreadyPrefilled: false,
+      offer,
+      current: current.text,
+    });
+    const nextOverrides = settingsPrefillOverrides({
+      offer,
+      modes: loadedModes,
+      current: current.overrides,
+    });
+    if (text !== null) customInstructions = text;
+    if (!styleOverridesEqual(nextOverrides, current.overrides)) overrides = nextOverrides;
+    prefillNotice = settingsPrefillNotice(offer);
+  });
+
   // "Analyze my instructions": classify the free-text preferences against
-  // the five categories, pre-tick the writer-choice waivers it addresses,
+  // the six categories, pre-tick the writer-choice waivers it addresses,
   // and report what will/won't apply. Transient page state, not persisted.
   type StyleAnalysis = FunctionReturnType<
     typeof api.ai.styleAnalysis.analyzeMyInstructions
@@ -191,6 +249,9 @@
         >
           {customInstructions.length.toLocaleString()} / {MAX_INSTRUCTIONS_CHARS.toLocaleString()} characters
         </span>
+        {#if prefillNotice}
+          <p role="status" class="mt-2 text-body text-ink-secondary">{prefillNotice}</p>
+        {/if}
       </div>
 
       <div class="mt-5">

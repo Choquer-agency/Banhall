@@ -60,6 +60,7 @@ import {
   orderedPayloadValidator,
   sectionKeyOf,
   sectionNumberValidator,
+  writerSettingsValidator,
   type SectionNumber,
 } from "./lib/orderedChain";
 import { ORDERED_SECTION_TITLES } from "./ai/promptDefinitions";
@@ -2987,6 +2988,25 @@ export const appendProgress = internalMutation({
     await ctx.db.patch(args.generationId, {
       progressLog: [...(gen.progressLog ?? []), args.line],
     });
+  },
+});
+
+/**
+ * Story 3 (CAP-8, AD-26): record the Writer Profile a generation ran under.
+ * The only writer of `generations.writerSettings`; patches the generation
+ * row only, never `projects` (AD-2).
+ */
+export const recordWriterSettings = internalMutation({
+  args: {
+    generationId: v.id("generations"),
+    writerSettings: writerSettingsValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation) return null;
+    await ctx.db.patch(args.generationId, { writerSettings: args.writerSettings });
+    return null;
   },
 });
 

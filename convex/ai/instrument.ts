@@ -47,6 +47,9 @@ export const GENERATION_CALL_SLOTS = [
   "retrieval_brief",
   "condense",
   "brief",
+  // Story 3 (CAP-8): the settings-document style classifier, at most once
+  // per (projectId, contentHash); a cache hit makes no call.
+  "settings",
   "consistency",
   "qa",
   "chronology",
@@ -77,6 +80,7 @@ const SLOT_SET: ReadonlySet<string> = new Set(GENERATION_CALL_SLOTS);
  */
 export const GENERATION_SLOT_ALLOWANCES: Readonly<Record<string, number>> = {
   brief: 1,
+  settings: 1,
   consistency: 1,
   section: 1,
   selfCheck: 1,

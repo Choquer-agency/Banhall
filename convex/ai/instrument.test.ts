@@ -15,6 +15,7 @@ vi.mock("./providers", () => ({
 import { instrumentedAnthropic } from "./instrument";
 import {
   GENERATION_CALL_SLOTS,
+  GENERATION_SLOT_ALLOWANCES,
   assertGenerationCallSite,
   mergeSlotCounts,
   summarizeSlotUsage,
@@ -528,6 +529,30 @@ describe("AD-27 generation call slots", () => {
     });
     expect(summary.overrun).toEqual(["brief", "compression:246", "selfCheck:242"]);
     expect(summarizeSlotUsage({ "section:244": 1, "selfCheck:244": 1, consistency: 1 }).overrun).toEqual([]);
+  });
+
+  it("declares the settings-document classifier slot with an allowance of one, recorded not enforced (story 3)", () => {
+    expect(GENERATION_CALL_SLOTS).toContain("settings");
+    expect(() => assertGenerationCallSite("generation:settings")).not.toThrow();
+    expect(emittedGenerationLabels()).toContain("generation:settings");
+    expect(GENERATION_SLOT_ALLOWANCES.settings).toBe(1);
+    expect(summarizeSlotUsage({ "generation:settings": 1 })).toEqual({
+      counts: { settings: 1 },
+      overrun: [],
+    });
+    expect(summarizeSlotUsage({ "generation:settings": 2, settings: 1 })).toEqual({
+      counts: { settings: 3 },
+      overrun: ["settings"],
+    });
+    // Recorded, never enforced: an over-allowance slot still builds a client.
+    const providerCreate = vi.fn();
+    providerMocks.createAnthropicClient.mockReturnValue({
+      messages: { create: providerCreate },
+    });
+    const { ctx } = fakeCtx();
+    expect(() =>
+      instrumentedAnthropic(ctx, { callSite: "generation:settings" })
+    ).not.toThrow();
   });
 
   it("sums the section rows' counts with the finalize action's own", () => {

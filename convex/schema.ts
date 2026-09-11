@@ -3,6 +3,8 @@ import { complianceNoteDraftValidator } from "./lib/complianceNote";
 import {
   sectionNumberValidator,
   selfCheckRuleValidator,
+  styleCategoryValidator,
+  writerSettingsValidator,
 } from "./lib/orderedChain";
 import { v } from "convex/values";
 import {
@@ -770,6 +772,11 @@ export default defineSchema({
     stopRequestedAt: v.optional(v.number()),
     stoppedAfterSection: v.optional(sectionNumberValidator),
     productionOrder: v.optional(v.array(sectionNumberValidator)),
+    // Story 3 (CAP-8, AD-26): the Writer Profile this generation ran under —
+    // saved profile, or a settings document supplied as Writer's Notes or an
+    // attachment — and the save offer. Written only by
+    // generations.recordWriterSettings; absent on legacy rows.
+    writerSettings: v.optional(writerSettingsValidator),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),
@@ -2229,6 +2236,24 @@ export default defineSchema({
       "candidateRunId",
       "section",
     ]),
+
+  // Story 3 (CAP-8, AD-26/27): the House Rule categories a settings document
+  // legislates, from the PSOS-50 style classifier, cached so a document costs
+  // one `generation:settings` call per (projectId, contentHash) for a given
+  // classifier version and none after. A row with a different
+  // `classifierVersion` is never served. Written only by
+  // writerProfiles.recordSettingsAnalysis. Carries projectId directly (AD-19).
+  settingsDocumentAnalyses: defineTable({
+    projectId: v.id("projects"),
+    contentHash: v.string(),
+    classifierVersion: v.string(),
+    addressedCategories: v.array(styleCategoryValidator),
+    analyzedAt: v.number(),
+  }).index("by_projectId_and_contentHash_and_classifierVersion", [
+    "projectId",
+    "contentHash",
+    "classifierVersion",
+  ]),
 
   // Admin-tunable app settings, one row per key. Currently: "defaultModel" —
   // the generation model used when a writer doesn't pick one explicitly.

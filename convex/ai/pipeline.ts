@@ -61,14 +61,11 @@ import {
 } from "../../shared/styleOverrides";
 import { styleOverridesValidator } from "../lib/styleOverrides";
 import { waivedCategoryLabels } from "./prompts";
-import { fetchWriterStyle } from "./writerStyle";
+import { readOrderedProfileContext } from "./writerStyle";
+import { resolveGenerationWriterSettings } from "./writerSettings";
 import { detectFirstPersonPreference } from "../../shared/humanProse";
 import { currentPromptVersion } from "./promptProgram";
-import {
-  DEFAULT_BUILD_ORDER,
-  orderedProfileContextValidator,
-  type OrderedProfileContext,
-} from "../lib/orderedChain";
+import { orderedProfileContextValidator } from "../lib/orderedChain";
 import {
   COMPRESSION_REQUEST,
   LENGTH_BUDGET_SCAFFOLD,
@@ -385,31 +382,14 @@ export async function recordCandidateProvenance(
 }
 
 /**
- * Story 2 (CAP-5/6, AD-26): the ordered-generation profile context. Never
- * fails generation: an unreadable profile degrades to the House Rules
- * default order with the reason recorded.
+ * Story 2 (CAP-5/6, AD-26): the saved-profile read of the ordered-generation
+ * context, generateCandidate's fallback for payloads without one. Defined in
+ * convex/ai/writerStyle.ts since story 3, so the writer-settings resolver
+ * (convex/ai/writerSettings.ts) can degrade to it without importing this
+ * "use node" module; re-exported here because promptProgram.test.ts imports
+ * it from ./pipeline.
  */
-export async function readOrderedProfileContext(
-  ctx: Pick<ActionCtx, "runQuery">,
-  requestedBy: Id<"users"> | undefined
-): Promise<OrderedProfileContext> {
-  try {
-    return await ctx.runQuery(
-      internal.writerProfiles.getGenerationProfileContext,
-      requestedBy ? { userId: requestedBy } : {}
-    );
-  } catch (error) {
-    console.error("ordered profile context read failed", error);
-    return {
-      profileState: "missing",
-      categoryOutcomes: [],
-      buildOrder: [...DEFAULT_BUILD_ORDER],
-      buildOrderFallbackReason:
-        "the Writer Profile could not be read; House Rules default 242 → 244 → 246 used",
-      selfCheckRules: [],
-    };
-  }
-}
+export { readOrderedProfileContext };
 
 /**
  * Run the full pipeline once for a single model → a complete candidate report
@@ -709,10 +689,26 @@ export const generateReport = internalAction({
         status: "running",
         currentStep: "Generating candidate drafts...",
       });
-      // Per-writer flavor (Phase A) + style overrides (PSOS-49/50): shared
-      // policy in writerStyle.ts. Started here so it loads in parallel with
-      // the learning digests (data-independent; it swallows its own errors).
-      const writerStylePromise = fetchWriterStyle(ctx, input.requestedBy, log);
+      // Per-writer flavor, style overrides and the ordered profile context
+      // (PSOS-49/50, story 3): one resolver in writerSettings.ts applies the
+      // saved profile or a settings document supplied as Writer's Notes or
+      // an attachment, and records generations.writerSettings. Started here
+      // so it loads in parallel with the learning digests; it degrades to
+      // the saved-profile read instead of throwing.
+      const writerStylePromise = resolveGenerationWriterSettings(ctx, {
+        generationId: genId,
+        projectId,
+        requestedBy: input.requestedBy,
+        clientFor: (callSite) =>
+          instrumentedAnthropic(ctx, {
+            callSite,
+            capability: "generation",
+            projectId,
+            ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+            attribution: { generationId: genId },
+          }),
+        log,
+      });
 
       // Learning loop: fetch the active digests once per generation so every
       // candidate drafts and scores under the same learned guidance.
@@ -748,12 +744,10 @@ export const generateReport = internalAction({
         console.error("learning digest fetch failed for generation", genId, err);
       }
 
-      const { writerFlavor, styleOverrides } = await writerStylePromise;
-
       // Story 2 (CAP-5/6, AD-26): read once, handed to every candidate, so
       // compare candidates share one Build Order. Never silent: a profile
       // that does not apply is reported as "no effective writer profile".
-      const orderedContext = await readOrderedProfileContext(ctx, input.requestedBy);
+      const { writerFlavor, styleOverrides, orderedContext } = await writerStylePromise;
       if (orderedContext.profileState !== "applied") {
         await log(
           `No effective writer profile (${orderedContext.profileState}): House Rules apply and sections draft in the default order 242 → 244 → 246.`
