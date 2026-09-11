@@ -3005,7 +3005,16 @@ export const recordWriterSettings = internalMutation({
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return null;
-    await ctx.db.patch(args.generationId, { writerSettings: args.writerSettings });
+    // The validator admits only the six categories; dedupe bounds the list.
+    const { addressedCategories, ...record } = args.writerSettings;
+    await ctx.db.patch(args.generationId, {
+      writerSettings: {
+        ...record,
+        ...(addressedCategories
+          ? { addressedCategories: [...new Set(addressedCategories)] }
+          : {}),
+      },
+    });
     return null;
   },
 });

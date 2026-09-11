@@ -25,7 +25,17 @@ import {
 import {
   SETTINGS_CLASSIFIER_VERSION,
   resolveGenerationWriterSettings,
+  settingsClassifierVersion,
+  type SettingsClassifierInputs,
 } from "./writerSettings";
+import {
+  ANALYSIS_TOOL_SCHEMA,
+  STYLE_ANALYSIS_REQUEST,
+  STYLE_ANALYSIS_SYSTEM_PROMPT,
+  buildStyleAnalysisPrompt,
+} from "./styleAnalysis";
+import { MODEL } from "./model";
+import { APPLYING_WRITER_STYLE_LOG, waivingHouseRulesLog } from "./writerStyle";
 import type { OrderedProfileContext } from "../lib/orderedChain";
 import { MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
 
@@ -64,7 +74,7 @@ const SETTINGS_TEXT = [
 const ADDRESSED: StyleOverrideKey[] = ["bannedWords", "paragraphDensity"];
 const TOGGLES = { bannedWords: true, paragraphDensity: true };
 
-const classifier = { fail: false };
+const classifier = { fail: false, noTool: false };
 
 const analysisOutput = {
   company_context: "Test company",
@@ -127,6 +137,11 @@ function install() {
     if (name === "submit_style_analysis" && classifier.fail) {
       throw new Error("classifier unavailable");
     }
+    if (name === "submit_style_analysis" && classifier.noTool) {
+      // A repairable failure: generateStructured would re-prompt it on a
+      // second attempt, so this is what pins attempts: 1.
+      return { content: [{ type: "text", text: "No tool call." }], usage };
+    }
     if (name) {
       const input =
         name === "submit_transcript_analysis"
@@ -163,6 +178,7 @@ beforeEach(() => {
     throw new Error("Network disabled in test");
   }));
   classifier.fail = false;
+  classifier.noTool = false;
   install();
 });
 afterEach(() => {
@@ -478,12 +494,28 @@ describe("three supply paths, one Writer Profile (CAP-8)", () => {
       savedProfileSuperseded: false,
       waiverAnalysis: "analyzed",
       truncated: false,
+      addressedCategories: ADDRESSED,
     });
-    expect(attachment.generation.writerSettings).toMatchObject({ source: "attachment", waiverAnalysis: "analyzed" });
+    expect(attachment.generation.writerSettings).toMatchObject({
+      source: "attachment",
+      waiverAnalysis: "analyzed",
+      addressedCategories: ADDRESSED,
+    });
     expect(results.map((result) => result.classifierCalls)).toEqual([0, 1, 1]);
     expect(notes.generation.progressLog).toContain(
       `Applying the settings document ${FILE} in Writer's Notes as the Writer Profile for this generation.`
     );
+    expect(attachment.generation.progressLog).toContain(
+      `Applying the settings document ${FILE} in an attachment as the Writer Profile for this generation.`
+    );
+    // The applied-style and waiver lines are the shared constants, the same
+    // in every supply path.
+    for (const result of results) {
+      expect(result.generation.progressLog, result.path).toContain(APPLYING_WRITER_STYLE_LOG);
+      expect(result.generation.progressLog, result.path).toContain(
+        waivingHouseRulesLog({ ...NO_STYLE_OVERRIDES, ...TOGGLES })
+      );
+    }
   });
 });
 
@@ -522,9 +554,40 @@ describe("classifier caching (AD-27)", () => {
     expect((await frozenStyle(t, second)).styleOverrides).toEqual((await frozenStyle(t, first)).styleOverrides);
   });
 
-  it("a classifier failure still completes: the text applies with no waivers and every section says why", async () => {
-    classifier.fail = true;
+  it("settingsClassifierVersion moves with every classifier input, and the constant is it applied to the real inputs", () => {
+    const real: SettingsClassifierInputs = {
+      systemText: STYLE_ANALYSIS_SYSTEM_PROMPT,
+      userTemplate: buildStyleAnalysisPrompt("").user,
+      toolSchema: ANALYSIS_TOOL_SCHEMA,
+      toolName: STYLE_ANALYSIS_REQUEST.toolName,
+      toolDescription: STYLE_ANALYSIS_REQUEST.description,
+      maxTokens: STYLE_ANALYSIS_REQUEST.maxTokens,
+      inputCharLimit: STYLE_ANALYSIS_REQUEST.inputCharLimit,
+      model: MODEL,
+    };
+    const base = settingsClassifierVersion(real);
+    expect(SETTINGS_CLASSIFIER_VERSION).toBe(base);
+    expect(settingsClassifierVersion({ ...real })).toBe(base);
+    const variants: Array<[keyof SettingsClassifierInputs, SettingsClassifierInputs]> = [
+      ["systemText", { ...real, systemText: `${real.systemText} Be brief.` }],
+      ["userTemplate", { ...real, userTemplate: `${real.userTemplate}\n- extra locked rule` }],
+      ["toolSchema", { ...real, toolSchema: { ...ANALYSIS_TOOL_SCHEMA, required: ["categories"] } }],
+      ["toolName", { ...real, toolName: "submit_style_analysis_v2" }],
+      ["toolDescription", { ...real, toolDescription: `${real.toolDescription} Quote evidence.` }],
+      ["maxTokens", { ...real, maxTokens: real.maxTokens + 1 }],
+      ["inputCharLimit", { ...real, inputCharLimit: real.inputCharLimit + 1 }],
+      ["model", { ...real, model: `${real.model}-next` }],
+    ];
+    expect(variants.map(([key]) => key).sort()).toEqual(Object.keys(real).sort());
+    for (const [key, variant] of variants) {
+      expect(settingsClassifierVersion(variant), key).not.toBe(base);
+    }
+  });
+
+  it("a repairable classifier failure (no tool call) is not re-prompted: one call, one generation:settings row", async () => {
+    classifier.noTool = true;
     const quiet = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const quietError = vi.spyOn(console, "error").mockImplementation(() => {});
     const t = convexTest(schema, modules);
     const ids = await project(t);
     const generationId = await reserve(t, ids, [
@@ -532,6 +595,36 @@ describe("classifier caching (AD-27)", () => {
     ]);
     const payload = await runSingle(t, generationId);
     quiet.mockRestore();
+    quietError.mockRestore();
+
+    const generation = await generationOf(t, generationId);
+    expect(generation.status).toBe("completed");
+    expect(classifierCalls()).toHaveLength(1);
+    expect((await usageCallSites(t, generationId)).filter((site) => site === "generation:settings")).toHaveLength(1);
+    expect(generation.writerSettings).toMatchObject({ source: "writer_notes", waiverAnalysis: "failed" });
+    expect(payload.writerFlavor).toBe(SETTINGS_TEXT);
+    expect(payload.styleOverrides).toBeUndefined();
+    expect(await t.run((ctx) => ctx.db.query("settingsDocumentAnalyses").collect())).toHaveLength(0);
+  });
+
+  it("a classifier failure still completes: the text applies with no waivers and every section says why", async () => {
+    classifier.fail = true;
+    const quiet = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const quietError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const t = convexTest(schema, modules);
+    const ids = await project(t);
+    const generationId = await reserve(t, ids, [
+      { category: "writer_notes", fileName: FILE, content: SETTINGS_TEXT, uploaderRole: "writer" },
+    ]);
+    const payload = await runSingle(t, generationId);
+    const errorCalls = quietError.mock.calls.map((call) => [...call]);
+    quiet.mockRestore();
+    quietError.mockRestore();
+    // The server log keeps the raw error beside its reason code.
+    const classifyCall = errorCalls.find((call) =>
+      String(call[0]).startsWith("settings document classification failed")
+    );
+    expect(classifyCall?.[2]).toBeInstanceOf(Error);
 
     const generation = await generationOf(t, generationId);
     expect(generation.status).toBe("completed");
@@ -546,11 +639,23 @@ describe("classifier caching (AD-27)", () => {
     expect(payload.styleOverrides).toBeUndefined();
     expect(payload.orderedContext?.waiverAnalysisFailed).toBe(true);
     expect(await t.run((ctx) => ctx.db.query("settingsDocumentAnalyses").collect())).toHaveLength(0);
-    expect(
-      generation.progressLog?.some((line) =>
-        line.startsWith(`The settings document ${FILE} could not be analysed for House Rule waivers`)
+    // The writer-facing line: the document waives nothing, and it never
+    // claims every House Rule is in force (an org `off` category stays
+    // waived).
+    const failureLines = (generation.progressLog ?? []).filter((line) =>
+      line.startsWith(`The settings document ${FILE} could not be analysed for House Rule waivers`)
+    );
+    expect(failureLines).toHaveLength(1);
+    expect(failureLines[0]).toMatch(
+      new RegExp(
+        `^The settings document ${FILE.replace(/\./g, "\\.")} could not be analysed for House Rule waivers \\([a-z_]+\\); its instructions apply with no Writer Profile waivers\\.$`
       )
-    ).toBe(true);
+    );
+    expect(failureLines[0]).not.toMatch(/every House Rule/i);
+    expect(generation.progressLog).toContain(APPLYING_WRITER_STYLE_LOG);
+    expect(generation.progressLog?.some((line) => line.startsWith("Waiving default house-style rules"))).toBe(
+      false
+    );
 
     const notes = await notesOf(t, generationId);
     const categoryRows = notes.filter((note) => String(note.instruction).startsWith("House Rule category:"));
@@ -600,6 +705,41 @@ describe("trust floor and the no-profile line", () => {
     });
   });
 
+  it("a client-uploaded settings document beside an enabled saved profile: the saved profile rules as before, with no classifier call", async () => {
+    const saved = "Old saved preferences.";
+    const t = convexTest(schema, modules);
+    const ids = await project(t, { customInstructions: saved, enabled: true, styleOverrides: TOGGLES });
+    const generationId = await reserve(t, ids, [
+      { category: "writer_notes", fileName: FILE, content: SETTINGS_TEXT },
+    ]);
+    const payload = await runSingle(t, generationId);
+    expect(classifierCalls()).toHaveLength(0);
+    expect(payload.writerFlavor).toBe(saved);
+    expect(payload.styleOverrides).toEqual({ ...NO_STYLE_OVERRIDES, ...TOGGLES });
+    const generation = await generationOf(t, generationId);
+    expect(generation.status).toBe("completed");
+    expect(generation.writerSettings).toEqual({
+      profileState: "applied",
+      source: "profile",
+      matchesProfile: false,
+      savedProfileSuperseded: false,
+      waiverAnalysis: "profile",
+      truncated: false,
+    });
+    // The document's Build Order never reached the chain.
+    expect(generation.productionOrder).toEqual(["242", "244", "246"]);
+    expect(await t.run((ctx) => ctx.db.query("settingsDocumentAnalyses").collect())).toHaveLength(0);
+    const notes = await notesOf(t, generationId);
+    expect(
+      notes.filter((note) => note.instruction === "Writer Profile").map((row) => row.reason)
+    ).toEqual(Array(3).fill("Writer Profile applied"));
+    expect(notes.some((note) => note.instruction === "Line 246: no more than 80 lines.")).toBe(false);
+    const settings = await t
+      .withIdentity({ subject: AUTH_ID })
+      .query(api.writerProfiles.getGenerationWriterSettings, { generationId });
+    expect(settings).toMatchObject({ source: "profile", savedProfileSuperseded: false, offer: null });
+  });
+
   it("a disabled profile with no document is reported disabled on every section", async () => {
     const t = convexTest(schema, modules);
     const ids = await project(t, { customInstructions: SETTINGS_TEXT, enabled: false, styleOverrides: TOGGLES });
@@ -628,6 +768,12 @@ describe("trust floor and the no-profile line", () => {
         `Writer Profile applied from the settings document ${FILE} in Writer's Notes; the saved Writer Profile was superseded for this generation`
       )
     );
+    const { progressLog } = await generationOf(t, generationId);
+    expect(progressLog).toContain(
+      `Applying the settings document ${FILE} in Writer's Notes as the Writer Profile for this generation; it supersedes the saved Writer Profile.`
+    );
+    expect(progressLog).toContain(APPLYING_WRITER_STYLE_LOG);
+    expect(progressLog).toContain(waivingHouseRulesLog({ ...NO_STYLE_OVERRIDES, ...TOGGLES }));
     const settings = await t
       .withIdentity({ subject: AUTH_ID })
       .query(api.writerProfiles.getGenerationWriterSettings, { generationId });
@@ -637,6 +783,7 @@ describe("trust floor and the no-profile line", () => {
       fileName: FILE,
       matchesProfile: false,
       savedProfileSuperseded: true,
+      waiverAnalysis: "analyzed",
       noProfileLine: null,
       offer: {
         supplyPath: "writer_notes",
@@ -775,7 +922,14 @@ describe("the resolver's match, truncation and cache-write cases", () => {
       { category: "other", fileName: FILE, content: SETTINGS_TEXT, uploaderRole: "writer" },
     ]);
     const { result } = await resolveDirect(t, ids, generationId, { failCacheWrite: true });
+    const errorCalls = quiet.mock.calls.map((call) => [...call]);
     quiet.mockRestore();
+    // The server log keeps the raw error beside its reason code, even though
+    // only the cache write failed and the classification itself succeeded.
+    const cacheWriteCall = errorCalls.find((call) =>
+      String(call[0]).startsWith("settings analysis cache write failed")
+    );
+    expect(cacheWriteCall?.[2]).toBeInstanceOf(Error);
     expect(classifierCalls()).toHaveLength(1);
     expect(result.writerFlavor).toBe(SETTINGS_TEXT);
     expect(result.styleOverrides).toEqual({ ...NO_STYLE_OVERRIDES, ...TOGGLES });
@@ -784,7 +938,96 @@ describe("the resolver's match, truncation and cache-write cases", () => {
     expect((await generationOf(t, generationId)).writerSettings).toMatchObject({
       source: "attachment",
       waiverAnalysis: "analyzed",
+      addressedCategories: ADDRESSED,
     });
+    // The offer keeps the waivers this generation applied, with no cache row.
+    const settings = await t
+      .withIdentity({ subject: AUTH_ID })
+      .query(api.writerProfiles.getGenerationWriterSettings, { generationId });
+    expect(settings?.offer).toMatchObject({ text: SETTINGS_TEXT, addressedCategories: ADDRESSED });
+  });
+});
+
+describe("four-tier precedence through a generation run (AC 2)", () => {
+  it("a profile waiving all six categories, one of them enforced: frozen styleOverrides, category rows and the waiver row", async () => {
+    const t = convexTest(schema, modules);
+    const allWaived = Object.fromEntries(STYLE_OVERRIDE_KEYS.map((key) => [key, true])) as Record<
+      StyleOverrideKey,
+      boolean
+    >;
+    const ids = await project(t, {
+      customInstructions: [
+        "Use whatever vocabulary fits, including words the house list bans.",
+        "Let paragraphs run as long as the evidence needs.",
+        "Vary sentence construction freely.",
+        "Repeat key terms as often as needed.",
+        "Open sentences with any clause.",
+        "Use my own report architecture.",
+      ].join("\n"),
+      enabled: true,
+      styleOverrides: allWaived,
+    });
+    const enforced: StyleOverrideKey = "sentenceConstruction";
+    await t.withIdentity({ subject: AUTH_ID }).mutation(api.houseStyle.setModes, {
+      modes: {
+        ...(Object.fromEntries(STYLE_OVERRIDE_KEYS.map((key) => [key, "writer_choice"])) as Record<
+          StyleOverrideKey,
+          "writer_choice"
+        >),
+        [enforced]: "enforced",
+      },
+    });
+    const generationId = await reserve(t, ids, []);
+    const payload = await runSingle(t, generationId);
+    expect((await generationOf(t, generationId)).status).toBe("completed");
+
+    // Frozen into the chain payload and the generation artifacts: five
+    // waivers, the enforced category's House Rule back in force.
+    const expected = { ...allWaived, [enforced]: false };
+    expect(payload.styleOverrides).toEqual(expected);
+    expect((await frozenStyle(t, generationId)).styleOverrides).toEqual(expected);
+    expect(
+      payload.orderedContext?.categoryOutcomes.map((outcome) => [outcome.category, outcome.effective, outcome.tier])
+    ).toEqual(
+      STYLE_OVERRIDE_KEYS.map((key) => [key, key !== enforced, key === enforced ? "org_enforced" : "none"])
+    );
+
+    const notes = await notesOf(t, generationId);
+    const categoryRows = notes.filter((note) => String(note.instruction).startsWith("House Rule category:"));
+    expect(categoryRows).toHaveLength(18);
+    const enforcedRows = categoryRows.filter((row) => row.tier === "org_enforced");
+    expect(enforcedRows).toHaveLength(3);
+    expect(new Set(enforcedRows.map((row) => row.instruction)).size).toBe(1);
+    expect(
+      enforcedRows.every(
+        (row) =>
+          row.outcome === "applied" &&
+          row.reason === "House Rule applied: org-enforced (writer waivers are ignored)"
+      )
+    ).toBe(true);
+    const waivedRows = categoryRows.filter((row) => row.tier !== "org_enforced");
+    expect(waivedRows).toHaveLength(15);
+    expect(
+      waivedRows.every(
+        (row) =>
+          row.tier === "none" &&
+          row.reason === "instruction waived via override: the Writer Profile waives this House Rule"
+      )
+    ).toBe(true);
+
+    // The requested waiver the org ignored gets its own row, once per section.
+    const waiverRows = notes.filter((note) => String(note.instruction).startsWith("Writer Profile waiver:"));
+    expect(waiverRows.map((row) => row.section).sort()).toEqual(["242", "244", "246"]);
+    expect(
+      waiverRows.every(
+        (row) =>
+          row.instruction ===
+            String(enforcedRows[0].instruction).replace("House Rule category:", "Writer Profile waiver:") &&
+          row.outcome === "not_applied" &&
+          row.tier === "org_enforced" &&
+          row.reason === "org-enforced: this House Rule applies regardless of the Writer Profile"
+      )
+    ).toBe(true);
   });
 });
 
@@ -799,11 +1042,12 @@ describe("a resolver failure never fails generation", () => {
     };
     const mutations: Array<[string, unknown]> = [];
     const lines: string[] = [];
+    const candidateFailure = new Error("candidate read failed");
     const ctx = {
       runQuery: async (reference: unknown) => {
         const name = getFunctionName(reference as never);
         if (name === "writerProfiles:getSettingsDocumentCandidate") {
-          throw new Error("candidate read failed");
+          throw candidateFailure;
         }
         if (name === "writerProfiles:getProfileForGeneration") {
           return {
@@ -830,7 +1074,15 @@ describe("a resolver failure never fails generation", () => {
         lines.push(line);
       },
     });
+    const errorCalls = quiet.mock.calls.map((call) => [...call]);
     quiet.mockRestore();
+    // The server log keeps the raw error object (message and stack) beside
+    // the reason code; the writer-facing line carries the reason only.
+    const resolutionCall = errorCalls.find((call) =>
+      String(call[0]).startsWith("writer settings resolution failed")
+    );
+    expect(resolutionCall?.[2]).toBe(candidateFailure);
+    expect(lines[0]).not.toContain("candidate read failed");
     expect(result).toEqual({
       writerFlavor: "Saved flavor.",
       styleOverrides: { ...NO_STYLE_OVERRIDES, bannedWords: true },

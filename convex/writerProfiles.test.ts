@@ -686,6 +686,41 @@ describe("cap and Build Order extraction from profile text", () => {
     expect(context.selfCheckRules).toEqual([]);
   });
 
+  test("mixed stored fields: each stored field wins and extraction fills only the other", async () => {
+    const text = "Build order: 246, 242, 244.\nLine 242: at most 30 lines.";
+
+    // Only a Build Order stored: it wins, and the text's cap rule still applies.
+    const onlyOrder = await setup();
+    await onlyOrder.writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: text,
+      enabled: true,
+      buildOrder: ["244", "242", "246"],
+    });
+    const orderContext = await onlyOrder.t.query(internal.writerProfiles.getGenerationProfileContext, {
+      userId: onlyOrder.ids.writerId,
+    });
+    expect(orderContext.buildOrder).toEqual(["244", "242", "246"]);
+    expect(orderContext.buildOrderFallbackReason).toBeUndefined();
+    expect(orderContext.selfCheckRules).toEqual([
+      { section: "242", instruction: "Line 242: at most 30 lines.", maxLines: 30 },
+    ]);
+
+    // Only Self-check rules stored: they win, and the text's Build Order still applies.
+    const onlyRules = await setup();
+    await onlyRules.writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: text,
+      enabled: true,
+      selfCheckRules: [{ section: "246", instruction: "Stored rule for 246.", maxWords: 300 }],
+    });
+    const rulesContext = await onlyRules.t.query(internal.writerProfiles.getGenerationProfileContext, {
+      userId: onlyRules.ids.writerId,
+    });
+    expect(rulesContext.buildOrder).toEqual(["246", "242", "244"]);
+    expect(rulesContext.selfCheckRules).toEqual([
+      { section: "246", instruction: "Stored rule for 246.", maxWords: 300 },
+    ]);
+  });
+
   test("an extracted partial Build Order falls back with the resolveBuildOrder reason", async () => {
     const { t, writer, ids } = await setup();
     await writer.mutation(api.writerProfiles.saveMyProfile, {
@@ -695,6 +730,15 @@ describe("cap and Build Order extraction from profile text", () => {
     const context = await t.query(internal.writerProfiles.getGenerationProfileContext, { userId: ids.writerId });
     expect(context.buildOrder).toEqual(["242", "244", "246"]);
     expect(context.buildOrderFallbackReason).toMatch(/^Build Order is missing section 244; /);
+
+    // A one-section instruction is never dropped without a reason.
+    await writer.mutation(api.writerProfiles.saveMyProfile, {
+      customInstructions: "Build order: 246 first.",
+      enabled: true,
+    });
+    const single = await t.query(internal.writerProfiles.getGenerationProfileContext, { userId: ids.writerId });
+    expect(single.buildOrder).toEqual(["242", "244", "246"]);
+    expect(single.buildOrderFallbackReason).toMatch(/^Build Order is missing section 242, 244; /);
   });
 });
 
@@ -818,7 +862,7 @@ describe("settings-document candidate, analysis cache and the generation record"
     const { t, ids } = await setup();
     const { projectId, generationId, sourceIds } = await seedGeneration(t, ids.writerId, [
       { label: "writer_notes:PD Writing Customized Settings.docx", content: "Client-uploaded settings." },
-      { label: "other:Style settings.docx", content: "Attachment settings.", uploaderRole: "writer" },
+      { label: "other:Writing settings.docx", content: "Attachment settings.", uploaderRole: "writer" },
       {
         label: "writer_notes:Writer's notes (pasted)",
         content: "PD Writing Customized Settings\nNotes settings.",
@@ -881,7 +925,7 @@ describe("settings-document candidate, analysis cache and the generation record"
   test("a cached analysis at another classifierVersion is never served", async () => {
     const { t, ids } = await setup();
     const { projectId, generationId } = await seedGeneration(t, ids.writerId, [
-      { label: "other:Style settings.docx", content: "Findings first.", uploaderRole: "writer" },
+      { label: "other:Writing settings.docx", content: "Findings first.", uploaderRole: "writer" },
     ]);
     const read = () =>
       t.query(internal.writerProfiles.getSettingsDocumentCandidate, {
@@ -915,7 +959,7 @@ describe("settings-document candidate, analysis cache and the generation record"
       enabled: true,
     });
     const { generationId } = await seedGeneration(t, ids.writerId, [
-      { label: "writer_notes:Style settings.md", content: "  Notes   settings. ", uploaderRole: "writer" },
+      { label: "writer_notes:Writing settings.md", content: "  Notes   settings. ", uploaderRole: "writer" },
     ]);
     const candidate = await t.query(internal.writerProfiles.getSettingsDocumentCandidate, {
       generationId,
@@ -956,44 +1000,47 @@ describe("settings-document candidate, analysis cache and the generation record"
       fileName,
       matchesProfile: false,
       savedProfileSuperseded: true,
+      waiverAnalysis: "analyzed",
       noProfileLine: null,
       offer: { supplyPath: "writer_notes", fileName, text: "Findings first.", ...offer },
     });
-    // No cached analysis: the offer carries no categories.
+    // No categories recorded: the offer carries none.
     expect(await writer.query(api.writerProfiles.getGenerationWriterSettings, { generationId })).toEqual(
       withOffer({ truncated: false, addressedCategories: null })
     );
 
-    // Only the analysis at the current classifier version reaches the offer.
-    const contentHash = await sha256("Findings first.");
+    // The query never reads the analysis cache: a cached row, even at the
+    // current classifier version, changes nothing.
     await t.mutation(internal.writerProfiles.recordSettingsAnalysis, {
       projectId,
-      contentHash,
-      classifierVersion: "style-classifier-previous",
+      contentHash: await sha256("Findings first."),
+      classifierVersion: SETTINGS_CLASSIFIER_VERSION,
       addressedCategories: ["repetitionCaps"],
     });
     expect(
       (await writer.query(api.writerProfiles.getGenerationWriterSettings, { generationId }))?.offer
         ?.addressedCategories
     ).toBeNull();
-    await t.mutation(internal.writerProfiles.recordSettingsAnalysis, {
-      projectId,
-      contentHash,
-      classifierVersion: SETTINGS_CLASSIFIER_VERSION,
-      addressedCategories: ["bannedWords", "paragraphDensity"],
-    });
-    expect(await writer.query(api.writerProfiles.getGenerationWriterSettings, { generationId })).toEqual(
-      withOffer({ truncated: false, addressedCategories: ["bannedWords", "paragraphDensity"] })
-    );
 
-    // Truncation recorded at resolution time is carried on the offer.
+    // Truncation and categories recorded at resolution reach the offer even
+    // when the cache table is empty; the record keeps one entry per category.
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("settingsDocumentAnalyses").collect()) {
+        await ctx.db.delete(row._id);
+      }
+    });
     await t.mutation(internal.generations.recordWriterSettings, {
       generationId,
-      writerSettings: { ...record, truncated: true },
+      writerSettings: {
+        ...record,
+        truncated: true,
+        addressedCategories: ["bannedWords", "paragraphDensity", "bannedWords"],
+      },
     });
-    expect(
-      (await writer.query(api.writerProfiles.getGenerationWriterSettings, { generationId }))?.offer
-    ).toMatchObject({ truncated: true, addressedCategories: ["bannedWords", "paragraphDensity"] });
+    expect(await t.run((ctx) => ctx.db.query("settingsDocumentAnalyses").collect())).toHaveLength(0);
+    expect(await writer.query(api.writerProfiles.getGenerationWriterSettings, { generationId })).toEqual(
+      withOffer({ truncated: true, addressedCategories: ["bannedWords", "paragraphDensity"] })
+    );
 
     for (const profileState of ["missing", "disabled"] as const) {
       const { generationId: none } = await seedGeneration(t, ids.writerId, []);
@@ -1013,6 +1060,7 @@ describe("settings-document candidate, analysis cache and the generation record"
         source: "none",
         matchesProfile: false,
         savedProfileSuperseded: false,
+        waiverAnalysis: "none",
         noProfileLine: "No Writer Profile applied — House Rules in full.",
         offer: null,
       });

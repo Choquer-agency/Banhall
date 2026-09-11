@@ -168,6 +168,13 @@ export const writerSettingsValidator = v.object({
   savedProfileSuperseded: v.boolean(),
   waiverAnalysis: waiverAnalysisValidator,
   truncated: v.boolean(),
+  /**
+   * The House Rule categories the applied settings document legislates, as
+   * the classifier found them when this generation resolved (analysed or
+   * cached). Absent when no document applied or its analysis failed. The
+   * save offer's only source; at most one entry per category (six).
+   */
+  addressedCategories: v.optional(v.array(styleCategoryValidator)),
 });
 export type WriterSettingsRecord = Infer<typeof writerSettingsValidator>;
 
