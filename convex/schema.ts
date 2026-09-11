@@ -1537,7 +1537,21 @@ export default defineSchema({
         included: v.boolean(),
         includedLength: v.number(),
         truncated: v.boolean(),
+        // Story 4 (CAP-11): the document cap the budget ran under, so the
+        // Brief's Inputs band can show "cap N". Absent on pre-feature rows.
+        maxDocuments: v.optional(v.number()),
       })
+    ),
+    // Story 4 (CAP-11, AD-30): the one per-row inclusion outcome the Brief
+    // reads. Written only by generations.recordContextBudget (from
+    // `sourceInclusion` in convex/ai/trustedContext.ts); absent on legacy rows
+    // and on any row the analyzer never read. Never backfilled.
+    inclusion: v.optional(
+      v.union(
+        v.literal("included"),
+        v.literal("condensed"),
+        v.literal("not_included")
+      )
     ),
   })
     .index("by_generationId", ["generationId"])
@@ -2138,6 +2152,12 @@ export default defineSchema({
     // on the Brief, the generation continues). Absent on a writer-edited
     // version, where no re-derivation ran.
     droppedEntryCount: v.optional(v.number()),
+    // Story 4: who last shaped `storylineText` — `writer` when typed into an
+    // empty Storyline, `edited` after any other Storyline change, otherwise
+    // carried over. Absent on pre-story-4 rows, where `origin` stands in.
+    storylineOrigin: v.optional(
+      v.union(v.literal("writer"), v.literal("derived"), v.literal("edited"))
+    ),
     createdAt: v.number(),
   })
     .index("by_projectId_and_inputsHash", ["projectId", "inputsHash"])
@@ -2216,6 +2236,9 @@ export default defineSchema({
         alternativeText: v.optional(v.string()),
       })
     ),
+    // Story 4: true on the copy of an entry a writer changed through
+    // briefs.saveEntryEdit (the *edited* origin chip). Absent = derived.
+    edited: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_briefId", ["briefId"]),

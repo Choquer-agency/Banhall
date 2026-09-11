@@ -35,6 +35,11 @@ import {
 import { randomComparePair, resolveCompareModels } from "./ai/model";
 import { findActiveGeneration } from "./lib/activeGeneration";
 import { analyzerContextBudget, defaultModelId } from "./appSettings";
+import { sourceInclusion } from "./ai/trustedContext";
+import {
+  assembleContextInclusion,
+  type UnfrozenDocument,
+} from "./lib/contextInclusion";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { sectionMetrics } from "./lib/lineLimits";
 import { deidentify } from "./lib/deidentify";
@@ -940,6 +945,8 @@ export const recordContextBudget = internalMutation({
   args: {
     generationId: v.id("generations"),
     budgetTokens: v.number(),
+    // Story 4: the document cap the report ran under ("cap N" in the Brief).
+    maxDocuments: v.optional(v.number()),
     applied: v.array(
       v.object({
         sourceId: v.id("generationSources"),
@@ -962,10 +969,73 @@ export const recordContextBudget = internalMutation({
           included: entry.included,
           includedLength: entry.includedLength,
           truncated: entry.truncated,
+          ...(args.maxDocuments !== undefined
+            ? { maxDocuments: args.maxDocuments }
+            : {}),
         },
+        // Story 4 (AD-30): the only writer of `inclusion`.
+        inclusion: sourceInclusion(entry),
       });
     }
     return null;
+  },
+});
+
+/**
+ * Story 4 (CAP-11, AD-30): the Brief's Inputs band — one inclusion row per
+ * frozen Transcript and Supporting Document, plus the project documents the
+ * reservation skipped (archived or unreadable at the time), with the cap.
+ * The one inclusion read. Null for an outsider or a missing generation.
+ */
+export const getContextInclusion = query({
+  args: { generationId: v.id("generations") },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (
+      !generation ||
+      !(await getInternalProjectAccessOrNull(ctx, generation.projectId))
+    ) {
+      return null;
+    }
+    const sources = await ctx.db
+      .query("generationSources")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      .take(200);
+    const frozenDocumentIds = new Set(
+      sources.flatMap((row) => (row.projectDocumentId ? [row.projectDocumentId] : []))
+    );
+    const documents = await ctx.db
+      .query("projectDocuments")
+      .withIndex("by_projectId", (q) => q.eq("projectId", generation.projectId))
+      .take(100);
+    // CAP-17: every document attached before the reservation is listed. The
+    // reasons mirror reserveGeneration's skip rule (archived, no readable
+    // text); a readable one it never captured — the reservation freezes a
+    // bounded number of documents — is listed as not captured rather than
+    // silently dropped from the band and its counts.
+    const unfrozenDocuments = documents.flatMap((document): UnfrozenDocument[] => {
+      if (document.createdAt > generation.startedAt) return [];
+      if (frozenDocumentIds.has(document._id)) return [];
+      const reason = document.archived
+        ? ("archived" as const)
+        : !document.content.trim()
+          ? ("unreadable" as const)
+          : ("not_captured" as const);
+      return [{ _id: document._id, fileName: document.fileName, reason }];
+    });
+    const budget = await analyzerContextBudget(ctx);
+    return assembleContextInclusion({
+      sources: sources.map((row) => ({
+        _id: row._id,
+        kind: row.kind,
+        label: row.label,
+        ...(row.transcriptId ? { transcriptId: row.transcriptId } : {}),
+        ...(row.inclusion ? { inclusion: row.inclusion } : {}),
+        ...(row.contextBudget ? { contextBudget: row.contextBudget } : {}),
+      })),
+      unfrozenDocuments,
+      fallbackCap: budget.maxDocuments,
+    });
   },
 });
 
