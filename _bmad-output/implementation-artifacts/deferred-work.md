@@ -204,7 +204,8 @@ location: convex/generations.ts (recordContextBudget) / no consumer
 source_spec: `2-trusted-context-module-for-generation-input.md`
 severity: medium
 reason: A writer can receive a report generated from a halved transcript or with documents dropped and see only the progress-log document count. The data is persisted per source row but has no read side.
-status: open
+status: done 2026-09-12
+resolution: already resolved: convex/generations.ts:988 implements getContextInclusion with persisted contextBudget at :1034; BriefRailPanel.svelte:39 and CurrentProjectPage.svelte:953 consume it.
 
 ### DW-26: Chat and research still assemble their own context inline, so plan Phase 2's "one trusted-context module shared by chat, generation and research" is only half met after this story.
 origin: spec-deferred 25b33403de81
@@ -301,7 +302,8 @@ location: convex/ai/trustedContext.ts (sanitizeFileName) / convex/ai/chatEvidenc
 source_spec: `5-injection-boundary-test-suite.md`
 severity: medium
 reason: Generation uses sanitizeFileName, which collapses only ASCII hyphen runs (`/-{3,}/g`); chat adds a local markerFileName for Unicode dash runs (chatEvidence.ts:145-152). A file name of the shape `--- BEGIN [WRITER'S NOTES (unreliable narrator)] x.md` built from Unicode dashes may therefore behave differently in the two pipelines, which is exactly the divergence this corpus exists to catch. Every slot hard-codes a benign name (`appendix.txt`, `client-notes.txt`). chatEvidence.test.ts:267-284 covers the chat half with a hand-written string; the generation half is uncovered for Unicode runs.
-status: open
+status: done 2026-09-12
+resolution: already resolved: convex/ai/trustedContext.ts:270-293 shares Unicode dash sanitization with chatEvidence.ts:169; trustedContext.test.ts:390-399 tests malicious Unicode marker filenames through generation.
 
 ### DW-38: The corpus never interacts with the context budget, so containment under truncation and under a fully dropped source is untested.
 origin: spec-deferred 88c5ac0852f0
@@ -350,7 +352,8 @@ location: src/lib/components/project/ProjectWorkflowMenu.svelte:288
 source_spec: `7-review-decisions-required-to-leave-internal-review.md`
 severity: medium
 reason: ProjectWorkflowMenu.svelte submitStage is the sole setWorkflowStage client. Every reviewDecision assertion lives in convex/projectWorkflow.test.ts and constructs the arguments itself. No ProjectWorkflowMenu component test exists; ProjectHighlights.component.test.ts mounts the menu with workflowStage "drafting" and never opens the dialog. Removing the conditional spread breaks review completion in the app and fails no test.
-status: open
+status: done 2026-09-12
+resolution: already resolved: 97e32b7 adds ProjectWorkflowMenu.component.test.ts:48-63, driving the production menu and asserting reviewDecision and workflow version; :71-81 covers omission on other transitions.
 
 ### DW-44: The decision is pinned to whatever revision is current at commit time, with no caller-supplied fence proving the reviewer read that revision.
 origin: spec-deferred 340ddc7b1883
@@ -425,7 +428,8 @@ location: docs/system-map.md:359
 source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: docs/system-map.md:359 reads `PED[reports.postEditDistance query] -.->|DEAD-END: computed on read, never stored, no UI caller| NW2((no reader))`. Half of that is now false. Left for CAP-3, which adds the UI reader and makes the other half false too, so the line can be rewritten once instead of twice.
-status: open
+status: done 2026-09-12
+resolution: already resolved: docs/system-map.md:360 now connects persisted reportEditDistance milestone samples to learningHealth.getHealth; the obsolete never-stored dead-end label is gone.
 
 ### DW-53: Neither restoreSnapshot nor finalizeProject takes a reading, so a restore and every round of client-review rework are invisible to the series.
 origin: spec-deferred 02963021049d
@@ -901,7 +905,8 @@ location: convex/_generated/api.d.ts
 source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: medium
 reason: The _generated types are from baseline commit and don't reflect schema changes. This is a toolchain requirement: `npx convex dev` or `npx convex codegen` needs a live Convex deployment URL, which is not available in this worktree. The implementation code itself is correct and tests have proper signatures; only the generated type definitions need updating when deployed.
-status: open
+status: done 2026-09-12
+resolution: already resolved: convex/_generated/api.d.ts:20,58,64,96,102 imports ai/brief, ai/writerSettings, briefs, lib/completionReport and lib/deviationInventory; generated API refresh is present in c860875.
 
 ### DW-107: Brief-derivation source and diff-baseline reads are hard-capped (200/500 rows) with no overflow signal.
 origin: spec-deferred 54d8bfa899f4
@@ -1045,7 +1050,8 @@ location: n/a
 source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260910-135728-7834; this entry preserves the lingering recommendation for a deliberate later review.
-status: open
+status: done 2026-09-12
+resolution: already resolved: .audit/resume-story6-20260912T105856Z/branch-review-a953bff/triage.json and triage-validation.json establish the complete four-layer Astra-medium review at a953bff, including unchanged story 2 code. Current source differs only in five independently reviewed comparison files; review obligation is fulfilled, findings remain open.
 
 ### DW-125: Story 4 surfaces for the settings record: the Brief rail's "No Writer Profile applied" line, the save banner, and a link to /settings/writing?fromGeneration=<id>.
 origin: spec-deferred 0a7305c0522d
@@ -1053,7 +1059,8 @@ location: convex/writerProfiles.ts getGenerationWriterSettings; src/routes/setti
 source_spec: `3-precedence-and-writer-profile-fidelity.md`
 severity: medium
 reason: getGenerationWriterSettings and the page prefill exist, but nothing in src/ renders noProfileLine or links to the offer (final review pass). The intent defers story 4's Brief rail and save banner.
-status: open
+status: done 2026-09-12
+resolution: already resolved: BriefRail.svelte:229-244 renders noProfileLine and save offer/link; BriefRail.component.test.ts:201-211 checks the line and /settings/writing?fromGeneration=gen-1 link, introduced by ba845a8.
 
 ### DW-126: Chat apply, research saves and the proposal-apply scrub still resolve only the saved Writer Profile, so a settings document's waivers stop at generation.
 origin: spec-deferred f7cd23499cb2
@@ -1229,7 +1236,8 @@ location: n/a
 source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260911-120649-26de; this entry preserves the lingering recommendation for a deliberate later review.
-status: open
+status: done 2026-09-12
+resolution: already resolved: .audit/resume-story6-20260912T105856Z/branch-review-a953bff/triage.json SHA256 c62ce6579987883aabbab2e98198798a1aa79765b28a798eebc2c05c083d5348 matches triage-validation.json: all four Astra-medium layers completed and all 40 raw findings map to 34 claims. Story 5 source is unchanged; repair findings remain separate.
 
 ### DW-148: Follow-up review still recommended for 6 after the damping cap was spent
 origin: review-budget-followup
@@ -1237,4 +1245,5 @@ location: n/a
 source_spec: `6-paired-comparison-records-and-success-metric-computation.md`
 severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260911-120649-26de; this entry preserves the lingering recommendation for a deliberate later review.
-status: open
+status: done 2026-09-12
+resolution: already resolved: .audit/resume-story6-20260912T105856Z/branch-review-delta-700be59/delta-coverage.json records complete Astra-medium review of five comparison files with zero new findings; current hashes match and git diff 700be59 HEAD over convex/src/scripts/shared is empty. native-six-story-completion.json records native finalization at 5db0c183e5f7aaed0286aa719e776a1c56a12d15; epic acceptance remains separate.
