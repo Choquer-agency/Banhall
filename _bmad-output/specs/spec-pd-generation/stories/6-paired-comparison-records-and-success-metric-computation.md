@@ -2,7 +2,8 @@
 title: 'Paired Comparison records and success-metric computation'
 type: 'feature'
 created: '2026-09-11'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'cd3f30cf6f1d72d5f0b05e189ba6efb07055b7fa'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -114,6 +115,23 @@ Line numbers drift; grep the symbol. Baseline `b2475c0`.
 
 ## Spec Change Log
 
+### 2026-09-12 — R12 amends the Design Notes normalization example
+
+The recovery finding R12 required one documented rule for both sides of the draft
+comparison, proven not to flag unchanged prose when only the wrapping differs. A
+Tiptap revision emits one line per paragraph while a blinded plain-text strip is
+hard-wrapped at some column, so any rule that preserved line breaks reports
+identical prose as a mismatch. `comparisonPlainText` therefore collapses every
+whitespace run — newlines included — to a single space.
+
+That is a deliberate deviation from the Design Notes golden example as written,
+which preserved the paragraph `\n`. The example has been amended above to the
+value the mandated rule produces. The note's actual claim — the result is the
+same whether the strip kept or dropped the section heading — is unchanged, and
+the rule still distinguishes a real word change. No intent-contract text changed:
+the I/O Matrix's "Blinded reformat → draftTextMatches: true" row is what R12
+strengthens.
+
 ## Original attempt review triage (2026-09-11)
 
 ### 2026-09-11 — Review pass not performed (reviewer unavailable)
@@ -139,6 +157,71 @@ The reviewable diff is built and preserved at
 `.../scratchpad/story6.diff` (2378 lines: the four tracked-file diffs plus the seven new
 files). Re-running review needs only that diff and an available reviewer.
 
+## Review Triage Log
+
+### 2026-09-12 — Review pass
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 11: (high 0, medium 7, low 4)
+- defer: 0
+- reject: 7
+- addressed_findings:
+  - `[medium]` `[patch]` P1 `convex/comparisons.ts` — the read budget could not bound the read: `rowBytes` measured UTF-16 code units while Convex stores UTF-8 (a max-length 3-byte-character draft is ~360 KB, not 120 KB), the five provenance fields were covered by a flat 512-byte allowance, and the budget was consulted only *after* `.take(25)` had already fetched the batch. Added `utf8Bytes`, charged all seven strings at their encoded size, derived `MAX_ROW_BYTES` as the worst-case row, and now reserve budget *before* each read (page size `floor(remaining / MAX_ROW_BYTES)`), in both the corpus walk and `listRecordTargets`. Covered by a test seeding maximum-length CJK drafts and maximum-length provenance fields.
+  - `[medium]` `[patch]` P5 `src/routes/admin/comparisons/+page.svelte` — stale-revision dead end: the error told the admin to re-select the project, but the reset effect fires only when `projectId` *changes*, so re-selecting the current project was a no-op and the pin could not be refreshed without a page reload. Added an explicit "Start a new judgement on the current revision" action that re-freezes the pin and states that entered data is discarded.
+  - `[medium]` `[patch]` P6 `src/routes/admin/comparisons/+page.svelte` — the `suggestedBanhallModel` effect stayed reactive after the pin froze, so a blank field could take model provenance from a different generation than the pinned report. The suggestion is now captured with the pin.
+  - `[medium]` `[patch]` P7 `src/routes/admin/comparisons/comparisonsRecord.component.test.ts` — the stale-revision test asserted only that some alert was non-empty, which the pre-existing "report moved" warning already satisfied; it now asserts the server's exact message.
+  - `[medium]` `[patch]` P8 `src/routes/admin/comparisons/+page.svelte:consentToCorrection` — the checkbox consent path was unexercised (the existing test used "Void and re-enter", whose handler assigns the target independently). Added executing coverage for capture on check, withdrawal on uncheck, and a concurrent correction submitting the captured id.
+  - `[medium]` `[patch]` P9 `src/routes/admin/comparisons/+page.svelte` — picker paging was proven only through a direct backend call, so a no-op `showOlderProjects` would have left the suite green; R7's proof now exists at the control (page forward, select and correct a later-page project, page back, selection and label survive).
+  - `[medium]` `[patch]` P10 `convex/comparisons.test.ts` — the multi-batch *success* path was unproven: every complete-corpus test used fewer than 25 rows and the 26-row test expected an incomplete result, so returning `complete: false` after the first batch satisfied the suite. Added a corpus spanning two batches with a correction pair straddling the boundary, asserting `corpusComplete: true`.
+  - `[low]` `[patch]` P2 `convex/comparisons.ts:listForProject` — `hasMore` was `rows.length === 12`, claiming older records at exactly 12; now a lookahead row.
+  - `[low]` `[patch]` P3 `convex/comparisons.ts:successMetrics` — `METRIC_DETAIL_CAP` truncated the eligible and development detail arrays silently while `corpusComplete` could still be true; totals and explicit truncation flags are now returned and surfaced.
+  - `[low]` `[patch]` P4 `src/routes/admin/comparisons/+page.svelte:reportMovedOn` — the warning compared revision numbers only, so a *different* report at the same revision raised no warning; it now compares report identity too.
+  - `[low]` `[patch]` P11 `convex/comparisons.ts:scanComparisonsNewestFirst` — a single millisecond holding a full batch stranded the `recordedAt` cursor and permanently withheld metrics; the cursor is now the full index key `{recordedAt, _creationTime}` with the tie drained before falling through to older stamps.
+
+Rejected (7): the 12-row `listForProject` window without a continuation (a project holds one live row plus a handful of corrections, and the UI says so); draft text typed *during* an in-flight submit being cleared by the response (R3's requirement is cross-project isolation, and the window is sub-second); `successMetrics` withholding rather than continuing once the caps are exceeded (R8 explicitly sanctions withholding); anonymous callers returning `NOT_AUTHENTICATED` rather than the matrix's `NOT_AUTHORIZED` (settled by review disposition R20 — the tests were made exact per caller this pass); `.paginate` in the picker against the intent's `.take(...)` phrasing (R6/R7 explicitly authorise supported bounded pagination); the Banhall-model field being pre-filled from a known model (predates this change, is an editable default, and P6 removes the unsafe part); and the observation that schema/field-list compliance is not established by this diff (the table landed in the recovery base and is unchanged).
+
+Reviewer: Codex `gpt-6-astra`, reasoning effort `medium`, per `_bmad/custom/reviewer-policy.md`, run through `CODEX_HOME=/Users/johnnynguyen/.codex2`. All four layers ran; no fallback to `gpt-5.6-sol` was needed. Reviewer subprocesses ran with `BMAD_LOOP_TASK_ID` unset so they emitted no native parent-task hook events, and the working tree was hash-verified unchanged across the review.
+
+### 2026-09-12: Fresh follow-up review
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 10: (high 0, medium 6, low 4)
+- defer: 0
+- reject: 2
+- addressed_findings:
+  - `[medium]` `[patch]` F1: Corrected the replacement-report warning and tested submission against the unchanged original pin. No new latest-report authorization or revision policy.
+  - `[medium]` `[patch]` F2: Bounded project pagination and ancillary project, financial-summary, and judge reads before fetching. Corrected UTF-8 surrogate accounting and the read-budget documentation.
+  - `[low]` `[patch]` F3: Added a budget-reserved lookahead so exactly 500 corpus rows can be complete; 501 still withholds conclusions.
+  - `[medium]` `[patch]` F4: Incomplete metric cards now report unavailable instead of claiming the countable clauses are not met.
+  - `[low]` `[patch]` F5: Empty partial results now describe the scanned window instead of asserting that no comparison has ever been recorded.
+  - `[low]` `[patch]` F6: Clarified that whitespace normalization applies to extracted prose and that plaintext heading recognition requires one-line labels. The blinding protocol removes headings; parser behavior is unchanged.
+  - `[medium]` `[patch]` F7: Pending success and error tests now enter distinct project B drafts before project A settles and assert their exact preservation.
+  - `[medium]` `[patch]` F8: Added executing frontend validation at unsafe and maximum-safe integer boundaries.
+  - `[low]` `[patch]` F9: Reset tests now populate and inspect every count, the development flag, and captured correction consent, for both project changes and explicit restarts.
+  - `[medium]` `[patch]` F12: Added observation of actual convex-test database returns for large ancillary documents, including paged picker progress and bounded judge-label reads.
+
+All four rendered review layers used `gpt-6-astra`, reasoning effort `medium`, per reviewer policy. The intent auditor confirmed the documented recovery reading; established dispositions for authentication, bounded pagination, editable model suggestions, and incomplete-corpus withholding remain unchanged. Full disposition evidence is in `.audit/pd-generation-story-6-followup-20260912/review.md`. No deferred-work ledger entries were authored or changed. Patched severity score: `3 * 6 + 4 = 22`; follow-up review remains recommended.
+
+### 2026-09-12: Second fresh follow-up review
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7: (high 0, medium 1, low 6)
+- defer: 0
+- reject: 5
+- addressed_findings:
+  - `[medium]` `[patch]` B1: Preserve count text until decimal-digit validation, preventing fractional entries from rounding into accepted integers; reproduced in the real browser form before repair.
+  - `[low]` `[patch]` B2: State the supported maximum in count feedback and verify it at the UI.
+  - `[low]` `[patch]` B3: Prove through the backend that an unchanged original report pin remains valid after a replacement becomes latest.
+  - `[low]` `[patch]` B6: Exercise a delayed project context and prove the previous project's pin cannot be submitted while loading.
+  - `[low]` `[patch]` B10: Preserve prior regression configurations and add a portable original-source reproduction runner with isolated caches.
+  - `[low]` `[patch]` B11: Align native and application validation on original count text, including surrounding whitespace.
+  - `[low]` `[patch]` V1: Exercise the history truncation disclosure and its removal when the query becomes complete.
+
+All four rendered review layers used gpt-6-astra at medium effort. A scoped patch audit found B11, which was repaired before final verification. Full dispositions and evidence are in `.audit/pd-generation-story-6-followup2-20260912/`. No existing deferred-work ledger entry was changed. Patched severity score: `3 * 1 + 6 = 9`; follow-up review remains recommended.
+
 ## Design Notes
 
 **Why one live record per project.** CAP-16 says "record a Paired Comparison **per project**", and AD-29 gives exactly one correction path: void by re-entry. Together they fix the data model at one live row per project, which is what makes SM-1/SM-2 computable without inventing an aggregation rule (whose record wins when two judges disagree? newest? the owner's?). Enforcing it at write time turns that question into a refusal the admin resolves deliberately — record Michael's judgement as a correction of Larry's, or leave Larry's standing — instead of a silent tie-break inside a metric query. The protocol's "Michael as second judge where available" stays a human cross-check; it is not a second metric input.
@@ -153,7 +236,7 @@ Line 242 — Technological Uncertainty
 
 The alloy failed early.
 ```
-normalizes to `"The team could not predict the fatigue limit.\nThe alloy failed early."` — identical whether the strip kept the section heading or dropped it.
+normalizes to `"The team could not predict the fatigue limit. The alloy failed early."` — identical whether the strip kept the section heading or dropped it, and identical however the prose is wrapped. (Amended by R12; see the Spec Change Log.)
 
 **What SM-1/SM-2 refuse to compute.** `measurement-protocol.md` makes SM-1 conditional on "≥ 1 small (100–200-hour)" project and SM-2 on the 16-item harness reporting 16/16. Neither is in `comparisons`, no project row carries claim hours, and `financialSummaries` exists only where someone uploaded timesheets. So `computedMet` covers only the countable clauses and `manualConditions` names the rest, with each eligible project's `totalHours`/`sredHours` shown beside it where a summary exists. A `computedMet: true` that silently swallowed an unverified clause would be the one failure mode this metric cannot afford.
 
@@ -188,35 +271,35 @@ Keep AD-29's exact fields, its two indexes, immutable correction records, Admin 
 
 ### Review Findings
 
-- [ ] [Review][Patch] R1 Freeze the report pin for the judgement [src/routes/admin/comparisons/+page.svelte:194]
+- [x] [Review][Patch] R1 Freeze the report pin for the judgement [src/routes/admin/comparisons/+page.svelte:194]
   Capture report ID and revision when the form begins. Live query updates must not advance an existing judgement. Prove a report edit after form load yields STALE_REVISION with no write.
-- [ ] [Review][Patch] R2 Freeze the correction target when consent is given [src/routes/admin/comparisons/+page.svelte:211]
+- [x] [Review][Patch] R2 Freeze the correction target when consent is given [src/routes/admin/comparisons/+page.svelte:211]
   Capture the comparison ID the administrator agrees to replace. If another administrator corrects it meanwhile, submit the captured ID and let the backend refuse the stale target.
-- [ ] [Review][Patch] R3 Keep pending requests tied to their original form [src/routes/admin/comparisons/+page.svelte:217]
+- [x] [Review][Patch] R3 Keep pending requests tied to their original form [src/routes/admin/comparisons/+page.svelte:217]
   A response for project A must not clear drafts or display success/error on project B. Guard by form/request identity or prevent project changes while submitting. Test success and failure paths.
-- [ ] [Review][Patch] R4 Require an explicit preference selection [src/routes/admin/comparisons/+page.svelte:84]
+- [x] [Review][Patch] R4 Require an explicit preference selection [src/routes/admin/comparisons/+page.svelte:84]
   The initial and reset value defaults to Banhall. Every judgement field is human-entered, so start preference unselected and require a deliberate choice.
-- [ ] [Review][Patch] R5 Reset the baseline product with the other judgement fields [src/routes/admin/comparisons/+page.svelte:110]
+- [x] [Review][Patch] R5 Reset the baseline product with the other judgement fields [src/routes/admin/comparisons/+page.svelte:110]
   Selecting a new project resets model and counts but keeps baselineProduct. Reset it consistently and verify project changes cannot carry unintended provenance.
-- [ ] [Review][Patch] R6 Keep comparison reads within transaction limits [convex/comparisons.ts:59]
+- [x] [Review][Patch] R6 Keep comparison reads within transaction limits [convex/comparisons.ts:59]
   Rows hold both permitted 120,000-character drafts. Reading 200 per project or 500 globally can exceed 16 MiB; the project picker multiplies these reads. Bound bytes and work per request, use supported bounded pagination where needed, and avoid history scans merely to find the current row. Preserve AD-29 fields, immutable rows and its two indexes. Prove with large valid drafts. https://docs.convex.dev/production/state/limits#transactions
-- [ ] [Review][Patch] R7 Make older projects reachable [convex/comparisons.ts:263]
+- [x] [Review][Patch] R7 Make older projects reachable [convex/comparisons.ts:263]
   The latest-200 picker has no continuation or search. Add bounded access to older projects and prove a target beyond the initial page can be selected and corrected.
-- [ ] [Review][Patch] R8 Do not report complete success metrics from a truncated history [convex/comparisons.ts:372]
+- [x] [Review][Patch] R8 Do not report complete success metrics from a truncated history [convex/comparisons.ts:372]
   Taking 500 rows before excluding corrections lets recent history evict unrelated live projects. Compute from a complete eligible corpus through bounded pages, or explicitly withhold a conclusive metric until completeness is established. Never silently turn a partial window into a full result.
-- [ ] [Review][Patch] R10 Do not invent historical model provenance [convex/comparisons.ts:132]
+- [x] [Review][Patch] R10 Do not invent historical model provenance [convex/comparisons.ts:132]
   When neither the pinned generation selection nor its actual model ID is known, return no suggestion. The current registry default is not evidence of the historical generation model.
-- [ ] [Review][Patch] R12 Ignore line-wrap differences in draft comparison [convex/lib/comparisonText.ts:21]
+- [x] [Review][Patch] R12 Ignore line-wrap differences in draft comparison [convex/lib/comparisonText.ts:21]
   The match is described as whitespace-insensitive, but preserving soft wraps can flag unchanged prose as different. Use one documented rule for both sides and prove wrapping/section formatting does not change prose equality, while actual word changes do.
-- [ ] [Review][Patch] R14 Reject unsafe integer counts [convex/comparisons.ts:76]
+- [x] [Review][Patch] R14 Reject unsafe integer counts [convex/comparisons.ts:76]
   Number.isInteger accepts imprecise values above MAX_SAFE_INTEGER. Validate safe nonnegative integers at both boundaries and test rejection instead of storing rounded judgement counts.
-- [ ] [Review][Patch] R15 Do not label two empty normalized drafts as a match [convex/comparisons.ts:230]
+- [x] [Review][Patch] R15 Do not label two empty normalized drafts as a match [convex/comparisons.ts:230]
   Nonblank serialized input can normalize to no prose. Preserve record acceptance as required, but only report a positive match when normalized prose is nonempty and equal.
-- [ ] [Review][Patch] R16 Execute the real form submission and correction path in tests [src/routes/admin/comparisons/+page.svelte:187]
+- [x] [Review][Patch] R16 Execute the real form submission and correction path in tests [src/routes/admin/comparisons/+page.svelte:187]
   Direct mutation and source-shell tests cannot catch the proven form pin/consent/request defects. Add executing route/component coverage, retain real Svelte behavior, and exercise stored payloads, correction, and stale responses. No need to modify shared components.
-- [ ] [Review][Patch] R17 Verify match and mismatch messages at their UI consumer [src/routes/admin/comparisons/+page.svelte:495]
+- [x] [Review][Patch] R17 Verify match and mismatch messages at their UI consumer [src/routes/admin/comparisons/+page.svelte:495]
   Render records with each flag and assert the corresponding visible evidence message. A backend-only assertion does not protect the display branch.
-- [ ] [Review][Patch] R18 Preserve human-entered judgement strings verbatim [convex/comparisons.ts:82]
+- [x] [Review][Patch] R18 Preserve human-entered judgement strings verbatim [convex/comparisons.ts:82]
   Validate trimmed nonemptiness and original-size limits while preserving the caller string for storage. Add exact equality assertions for whitespace-bearing draft and provenance fields; match normalization remains separate.
 - [x] [Review][Patch] R19 Produce generated API bindings with Convex codegen [convex/_generated/api.d.ts:69]
   RESOLVED before recovery: canonical npx --no-install convex codegen --typecheck disable succeeded using existing selected deployment credentials; no finishPush/deployment. It produced 18 required type lines, including missing earlier story helpers. Only api.d.ts changed; post-generation type/browser checks are in progress.
@@ -224,3 +307,23 @@ Keep AD-29's exact fields, its two indexes, immutable correction records, Admin 
 ### Review dispositions that do not change the product contract
 
 R9: a stored-draft inspection screen is not an acceptance requirement. R11: adding recordedBy would change AD-29's fixed field list. R13: do not invent automatic eligibility from free-text product/model names; retain manual protocol and caveat evidence. R20: the mandated auth helper returns NOT_AUTHENTICATED for absent identity and NOT_AUTHORIZED for authenticated non-admins. Preserve that established authorization behavior and make exact tests/documentation agree. These are review dispositions, not native deferred-work entries.
+
+## Auto Run Result
+
+Status: done.
+
+The recovered Paired Comparison feature retains admin-only immutable records, exact report pins, human-entered measurement evidence, bounded reads, and explicitly qualified SM-1/SM-2 results. This pass repaired count-entry rounding and added missing verification at the report, loading, and history-disclosure boundaries.
+
+Files reviewed since the workflow baseline:
+- `convex/comparisons.ts`: immutable recording, provenance, bounded queries, and qualified metrics from the recovery implementation.
+- `convex/lib/comparisonText.ts` and its tests: extracted-prose normalization and nonempty match evidence.
+- `convex/comparisons.test.ts`: backend boundary coverage, including this pass's retained-original-pin case.
+- `src/routes/admin/comparisons/+page.svelte`: frozen judgement state and disclosures; this pass adds exact decimal count validation and maximum feedback.
+- `src/routes/admin/comparisons/comparisonsRecord.component.test.ts`: executing route coverage, now 23 tests.
+- This story and `.audit/pd-generation-story-6-followup2-20260912/`: review dispositions, portable regression reproduction, verification logs, and preservation evidence.
+
+Review result: 7 patches (0 high, 1 medium, 6 low), 0 deferred, 5 rejected, no intent gap or bad-spec loopback. Follow-up score is 9; `followup_review_recommended: true`.
+
+Verification: `npm ci` exited 0 with manifest and lock unchanged. The original-source count regression failed as expected, as did the two prior UI and three prior backend regression cases reconstructed by the portable runner. `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` exited 0 on the final source with a fresh canonical optimizer cache: all ten steps passed, 2,639 unit tests and 636 browser tests, zero Svelte errors or warnings, production build and both uploader harnesses passed. Source inspection confirms one comparison insert, no patch/delete path, no tool-derived metric reads, and unchanged shared component source. Ledger hashes remain identical.
+
+Limits: boundary tests use the real Svelte form and convex-test database with transport stubbed; they do not claim a hosted browser-to-Convex result. Manual metric conditions and honest incomplete-corpus withholding remain as designed. Native ledger status and final run acceptance belong to the orchestrator.

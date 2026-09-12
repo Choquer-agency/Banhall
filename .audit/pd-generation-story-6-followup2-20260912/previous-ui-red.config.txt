@@ -1,0 +1,9 @@
+import { defineConfig, mergeConfig } from "vitest/config";
+import { readFileSync } from "node:fs";
+import base from "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/vitest.component.config.ts";
+export default mergeConfig(base, defineConfig({
+  cacheDir: "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/.vitest-attachments/story-6-ui-review/optimizer-red",
+  plugins: [{name: "original-comparison-page", enforce: "pre", load(id) {
+    if (id === "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/src/routes/admin/comparisons/+page.svelte") return readFileSync("/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/.vitest-attachments/story-6-ui-review/original-page.svelte.txt", "utf8");
+  }}],
+}));
