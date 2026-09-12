@@ -191,7 +191,13 @@ export interface TrustedContextSource {
    * only ever produces `transcript` and `document`; the chat evidence builder
    * (`convex/ai/chatEvidence.ts`) reuses this row shape for its own slots.
    */
-  kind: "transcript" | "document" | "report" | "analysis" | "decisions";
+  kind:
+    | "transcript"
+    | "document"
+    | "report"
+    | "analysis"
+    | "decisions"
+    | "openQuestions";
   sourceId?: Id<"generationSources">;
   label: string;
   trust: TrustLevel;

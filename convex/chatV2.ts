@@ -31,15 +31,29 @@ import {
   type PMNode,
 } from "./lib/reportEdits";
 import { getEffectiveWriterStyle } from "./writerProfiles";
+import { selectedCandidateRunId } from "./complianceNotes";
 import { applyPassageEdits } from "./lib/passageEdits";
+import {
+  completionReportAnchorIssues,
+  completionReportItemValidator,
+  completionReportRows,
+  paragraphCounts,
+  paragraphCountsSentence,
+} from "./lib/completionReport";
+import { extractReportSections, sectionParagraphs } from "./lib/tiptapReport";
+import type {
+  InventoryNote,
+  InventorySections,
+} from "./lib/deviationInventory";
 import { publicChatDelta, publicChatMessage } from "./lib/chatPublicOutput";
 import { safeErrorDetails } from "./lib/safeErrorDetails";
 import { domainError, sha256 } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { proposalPairs } from "../shared/chatProposals";
 import { chatAdmissionLimits, chatEvidenceBudget } from "./appSettings";
+import type { ChatOpenQuestion } from "./ai/chatEvidence";
 import { projectRollingCostUsdUnits, usdDecimalUnits } from "./aiUsage";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -900,6 +914,10 @@ export const saveProposal = internalMutation({
     ),
     references: v.optional(v.array(v.string())),
     requireUniqueTargets: v.optional(v.boolean()),
+    // Story 5 (CAP-13, AD-28): the Coordinated Revision's Completion Report.
+    // One `chatProposalItems` child row per item, written in this transaction
+    // and nowhere else. Absent for every other proposal producer.
+    items: v.optional(v.array(completionReportItemValidator)),
   },
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.agentThreadId);
@@ -991,6 +1009,25 @@ export const saveProposal = internalMutation({
       args.references = references;
     }
 
+    // CAP-12/CAP-13: every Completion Report item must name a paragraph the
+    // CURRENT report actually has. Checked before the parent insert, so a bad
+    // anchor writes neither the proposal nor a single item row, and the reason
+    // hands the model the real counts to retry against.
+    const items = args.items ?? [];
+    if (items.length) {
+      const counts = paragraphCounts(extractReportSections(report.content));
+      const issues = completionReportAnchorIssues(items, counts);
+      if (issues.length) {
+        // Written to be EMBEDDED, like every other `saveProposal` reason: the
+        // tool result adds the "Proposal NOT created" prefix and its own retry
+        // instruction, so neither belongs here.
+        return {
+          ok: false as const,
+          reason: `${issues.join(" ")} In the current report, ${paragraphCountsSentence(counts)}.`,
+        };
+      }
+    }
+
     const proposalId = await ctx.db.insert("chatProposals", {
       agentThreadId: args.agentThreadId,
       toolCallId: args.toolCallId,
@@ -1008,6 +1045,17 @@ export const saveProposal = internalMutation({
       state: args.kind === "references" ? "applied" : "pending",
       createdAt: Date.now(),
     });
+    // AD-28: the findings persist as child rows, one per item, in input order.
+    // `saveProposal` is the only writer of this table, and the `toolCallId`
+    // short-circuit above returns before here, so a retried tool call cannot
+    // double-write them.
+    for (const row of completionReportRows(items, {
+      proposalId,
+      projectId: thread.projectId,
+      createdAt: Date.now(),
+    })) {
+      await ctx.db.insert("chatProposalItems", row);
+    }
     return { ok: true as const, proposalId };
   },
 });
@@ -1026,6 +1074,266 @@ export const getThreadBrainContext = internalQuery({
   },
 });
 
+const MAX_INVENTORY_NOTES = 1000;
+const MAX_PROJECT_DOCUMENT_ROWS = 200;
+
+/** Why rule Deviations are or are not in the inventory. Three distinguishable
+ * states, because "no linked generation" and "a generation that found nothing"
+ * need different sentences and only one of them is a clean bill. */
+type RulesStatus = "available" | "no_generation" | "no_notes";
+
+/**
+ * What happened when the tool tried to resolve a Reference PD. Every non
+ * `resolved` value is something the assistant must SAY, not work around.
+ */
+type ReferenceStatus =
+  | "none"
+  | "resolved"
+  | "unknown_name"
+  | "unreadable"
+  | "unparsed"
+  | "ambiguous";
+
+/**
+ * A `previous_pd` row is comparable only when its text was actually extracted.
+ * `could_not_read` and `reference_only` are the two intake outcomes that store a
+ * row with no usable body (an image-only PDF, a file kept for reference), and a
+ * blank `content` fails closed the same way whatever its status says.
+ */
+function isComparableReference(row: Doc<"projectDocuments">): boolean {
+  if (
+    row.processingStatus === "could_not_read" ||
+    row.processingStatus === "reference_only"
+  ) {
+    return false;
+  }
+  return (row.content ?? "").trim().length > 0;
+}
+
+/**
+ * Did the Reference PD's text actually parse into the 242/244/246 skeleton?
+ *
+ * All three, not "at least one paragraph somewhere": `extractReportSections`
+ * treats leading prose with no recognizable heading as Line 242, so a plain docx
+ * or PDF extract of last year's PD parses to one fat 242 and two empty sections.
+ * Comparing against that attaches "the Reference PD's Line 244 has 0
+ * paragraph(s), so this paragraph has no counterpart" to every 244 and 246
+ * paragraph of the draft: invented differences, offered as a Coordinated
+ * Revision. A PD that can be compared has all three Locked sections.
+ */
+function parsedIntoSections(sections: InventorySections): boolean {
+  return (
+    sectionParagraphs(sections.s242).length > 0 &&
+    sectionParagraphs(sections.s244).length > 0 &&
+    sectionParagraphs(sections.s246).length > 0
+  );
+}
+
+/**
+ * Story 5 (CAP-12/CAP-15): everything the `deviationInventory` and
+ * `compareReferencePd` tools read, resolved server-side from the thread. The
+ * tools take no project, report or generation argument, so neither can be
+ * steered at another project. Bounded reads only.
+ */
+export const getDeviationInventoryContext = internalQuery({
+  args: {
+    agentThreadId: v.string(),
+    /** A `previous_pd` document of THIS project, by file name. */
+    referenceFileName: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    found: boolean;
+    sections: InventorySections;
+    notes: InventoryNote[];
+    rulesStatus: RulesStatus;
+    rulesAvailable: boolean;
+    reference: { fileName: string; sections: InventorySections } | null;
+    referenceStatus: ReferenceStatus;
+    /** Non-archived `previous_pd` rows whose text can actually be compared. */
+    referenceFileNames: string[];
+    /** Attached `previous_pd` rows whose text could not be extracted at upload. */
+    unreadableReferenceFileNames: string[];
+    /** The row the tool tried to use, named so its copy can say which file. */
+    selectedReferenceFileName: string | null;
+  }> => {
+    const empty: InventorySections = { s242: "", s244: "", s246: "" };
+    const thread = await threadRow(ctx, args.agentThreadId);
+    if (!thread) {
+      return {
+        found: false,
+        sections: empty,
+        notes: [],
+        rulesStatus: "no_generation",
+        rulesAvailable: false,
+        reference: null,
+        referenceStatus: "none",
+        referenceFileNames: [],
+        unreadableReferenceFileNames: [],
+        selectedReferenceFileName: null,
+      };
+    }
+    const report = await ctx.db.get(thread.reportId);
+    const sections = report ? extractReportSections(report.content) : empty;
+
+    // ONLY the report's own generation. There is deliberately no fallback to
+    // the project's newest generation: `complianceNotes.paragraphIndex` is an
+    // index into the paragraphs of the draft that generation produced, so
+    // anchoring another generation's rows onto this report's paragraphs would
+    // present another draft's rule Deviations as this one's. No linked
+    // generation means rule Deviations are UNAVAILABLE, never fabricated.
+    const generation = report?.generationId
+      ? await ctx.db.get(report.generationId)
+      : null;
+
+    let notes: InventoryNote[] = [];
+    if (generation) {
+      const candidateRunId = await selectedCandidateRunId(ctx, generation);
+      const rows =
+        candidateRunId !== undefined
+          ? await ctx.db
+              .query("complianceNotes")
+              .withIndex("by_generationId_and_candidateRunId_and_section", (q) =>
+                q
+                  .eq("generationId", generation._id)
+                  .eq("candidateRunId", candidateRunId)
+              )
+              .take(MAX_INVENTORY_NOTES)
+          : await ctx.db
+              .query("complianceNotes")
+              .withIndex("by_generationId_and_section", (q) =>
+                q.eq("generationId", generation._id)
+              )
+              .take(MAX_INVENTORY_NOTES);
+      notes = rows.map((row) => ({
+        section: row.section,
+        ...(row.paragraphIndex !== undefined
+          ? { paragraphIndex: row.paragraphIndex }
+          : {}),
+        instruction: row.instruction,
+        outcome: row.outcome,
+        tier: row.tier,
+        reason: row.reason,
+      }));
+    }
+    const rulesStatus: RulesStatus = !generation
+      ? "no_generation"
+      : notes.length === 0
+        ? "no_notes"
+        : "available";
+
+    // The Reference PD is a `previous_pd` document of THIS project. Archived
+    // rows are already out of AI context, so they are out of here too.
+    const documents = await ctx.db
+      .query("projectDocuments")
+      .withIndex("by_projectId", (q) => q.eq("projectId", thread.projectId))
+      .take(MAX_PROJECT_DOCUMENT_ROWS);
+    const attached = documents.filter(
+      (row) => row.category === "previous_pd" && !row.archived
+    );
+    // A row whose extraction produced nothing carries no text to compare. It is
+    // NOT offered as a choice, because a blank Reference PD parses to three
+    // empty sections and would make every draft paragraph look like a
+    // difference from it.
+    const readable = attached.filter((row) => isComparableReference(row));
+    const unreadable = attached.filter((row) => !isComparableReference(row));
+
+    let selected: (typeof attached)[number] | null = null;
+    let referenceStatus: ReferenceStatus;
+    if (attached.length === 0) {
+      referenceStatus = "none";
+    } else if (args.referenceFileName !== undefined) {
+      selected = readable.find((row) => row.fileName === args.referenceFileName) ?? null;
+      referenceStatus = selected
+        ? "resolved"
+        : unreadable.some((row) => row.fileName === args.referenceFileName)
+          ? "unreadable"
+          : "unknown_name";
+    } else if (readable.length === 1 && readable[0]) {
+      selected = readable[0];
+      referenceStatus = "resolved";
+    } else if (readable.length === 0) {
+      referenceStatus = "unreadable";
+    } else {
+      referenceStatus = "ambiguous";
+    }
+
+    let reference: { fileName: string; sections: InventorySections } | null = null;
+    if (selected) {
+      const parsed = extractReportSections(selected.content ?? "");
+      // Text that carries no `Line 242/244/246` skeleton has nothing this
+      // comparison can anchor. Saying so beats inventing a difference per
+      // paragraph against an empty section.
+      if (!parsedIntoSections(parsed)) {
+        referenceStatus = "unparsed";
+      } else {
+        reference = { fileName: selected.fileName, sections: parsed };
+      }
+    }
+
+    return {
+      found: report !== null,
+      sections,
+      notes,
+      rulesStatus,
+      rulesAvailable: rulesStatus === "available",
+      reference,
+      referenceStatus,
+      referenceFileNames: readable.map((row) => row.fileName),
+      unreadableReferenceFileNames: unreadable.map((row) => row.fileName),
+      selectedReferenceFileName:
+        selected?.fileName ?? args.referenceFileName ?? null,
+    };
+  },
+});
+
+/** Brief entries read per version; the derivation writes far fewer. */
+const MAX_BRIEF_ENTRY_ROWS = 500;
+/** CAP-14's evidence block is a prompt for the writer's next client call, not
+ * a dump of the Confidence Map. */
+export const MAX_OPEN_QUESTIONS = 20;
+
+/**
+ * Story 5 (CAP-14): the Confidence Map entries that are still open, from the
+ * Brief the generation actually used (`briefId`). `established` and `partial`
+ * are not open questions and never appear. Empty for a generation with no
+ * Brief, which keeps the byte-stability contract for legacy projects intact
+ * (the evidence block is omitted entirely for an empty list).
+ */
+async function openQuestionsFor(
+  ctx: QueryCtx,
+  generation: Doc<"generations"> | null
+): Promise<ChatOpenQuestion[]> {
+  if (!generation?.briefId) return [];
+  const entries = await ctx.db
+    .query("generationBriefEntries")
+    .withIndex("by_briefId", (q) => q.eq("briefId", generation.briefId!))
+    .take(MAX_BRIEF_ENTRY_ROWS);
+  const open: ChatOpenQuestion[] = [];
+  const labels = new Map<Id<"generationSources">, string>();
+  for (const entry of entries) {
+    if (open.length >= MAX_OPEN_QUESTIONS) break;
+    if (entry.group !== "confidenceMap") continue;
+    // Narrowed, not defaulted: a Brief confidence value this block has no
+    // wording for must be left out rather than relabelled as unresolved.
+    if (entry.confidence !== "unresolved" && entry.confidence !== "unreliable") {
+      continue;
+    }
+    if (!labels.has(entry.sourceId)) {
+      const source = await ctx.db.get(entry.sourceId);
+      if (source) labels.set(entry.sourceId, source.label);
+    }
+    open.push({
+      text: entry.text,
+      confidence: entry.confidence,
+      sourceLabel: labels.get(entry.sourceId) ?? null,
+    });
+  }
+  return open;
+}
+
 /** Grounding context for streamChatReply — thread history stays componentside. */
 export const getChatContextV2 = internalQuery({
   args: { reportId: v.id("reports"), agentThreadId: v.string() },
@@ -1040,9 +1348,10 @@ export const getChatContextV2 = internalQuery({
     // generation stored no agentOutputs, and then only to a completed
     // generation that has agentOutputs to offer — a best-effort grounding
     // that can still describe an older draft of this project.
-    let generation = report.generationId
+    const ownGeneration = report.generationId
       ? await ctx.db.get(report.generationId)
       : null;
+    let generation = ownGeneration;
     if (!generation?.agentOutputs) {
       const completed = await ctx.db
         .query("generations")
@@ -1096,6 +1405,14 @@ export const getChatContextV2 = internalQuery({
           ...(d.uploaderRole ? { uploaderRole: d.uploaderRole } : {}),
         })),
       decisions,
+      // CAP-14: the unresolved and unreliable Confidence Map facts of THIS
+      // report's Brief. The trigger is a question, so under the prompt's own
+      // routing the assistant must answer without calling a tool; the facts
+      // therefore have to be in the turn already, as evidence. `ownGeneration`,
+      // never the analysis fallback: a report with no `generationId` (a copied
+      // project's report) would otherwise be handed another draft's open
+      // questions as its own.
+      openQuestions: await openQuestionsFor(ctx, ownGeneration),
       // Resolved in the query, exactly as `getGenerationInput` resolves the
       // analyzer's: the action sends context, it does not decide policy.
       evidenceBudget: await chatEvidenceBudget(ctx),

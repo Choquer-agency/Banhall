@@ -276,3 +276,257 @@ describe("getChatContextV2 evidence inputs", () => {
     });
   });
 });
+
+
+/**
+ * Story 5 (CAP-14): the unresolved and unreliable Confidence Map facts of THIS
+ * report's Brief reach the turn as evidence, because the converge question must
+ * be answered without a tool call. `established` and `partial` are facts, not
+ * open questions, and never appear.
+ */
+describe("getChatContextV2 open questions", () => {
+  async function seedBrief(
+    t: ReturnType<typeof convexTest>,
+    entries: Array<{ text: string; confidence?: string; group?: string }>
+  ) {
+    const { projectId, transcriptId } = await seedProject(t);
+    const generationId = await insertGeneration(t, {
+      projectId,
+      transcriptId,
+      status: "completed",
+      agentOutputs: JSON.stringify({ analyzer: "OWN-ANALYSIS" }),
+    });
+    return await t.run(async (ctx) => {
+      const now = Date.now();
+      const sourceId = await ctx.db.insert("generationSources", {
+        generationId,
+        projectId,
+        kind: "transcript",
+        label: "March interview",
+        content: "Interview content",
+        contentHash: "hash-1",
+        truncated: false,
+        originalLength: 17,
+        capturedAt: now,
+      });
+      const briefId = await ctx.db.insert("generationBriefs", {
+        projectId,
+        generationId,
+        inputsHash: "inputs-1",
+        version: 1,
+        origin: "derived",
+        storylineText: "The controlling narrative.",
+        createdAt: now,
+      });
+      for (const entry of entries) {
+        await ctx.db.insert("generationBriefEntries", {
+          briefId,
+          projectId,
+          group: (entry.group ?? "confidenceMap") as "confidenceMap",
+          text: entry.text,
+          ...(entry.confidence
+            ? { confidence: entry.confidence as "unresolved" }
+            : {}),
+          sourceId,
+          sourceContentHash: "hash-1",
+          startOffset: 0,
+          endOffset: 17,
+          exactExcerpt: "Interview content",
+          createdAt: now,
+        });
+      }
+      await ctx.db.patch(generationId, { briefId });
+      const reportId = await ctx.db.insert("reports", {
+        projectId,
+        generationId,
+        content: JSON.stringify({ type: "doc", content: [] }),
+        version: 1,
+        generatedAt: now,
+        updatedAt: now,
+      });
+      return { reportId, projectId, generationId };
+    });
+  }
+
+  test("returns only unresolved and unreliable confidenceMap entries, with their source", async () => {
+    const t = convexTest(schema, modules);
+    const { reportId } = await seedBrief(t, [
+      { text: "The cycle count was never measured.", confidence: "unresolved" },
+      { text: "The vendor datasheet contradicts the log.", confidence: "unreliable" },
+      { text: "The rig ran at 400 kPa.", confidence: "established" },
+      { text: "Partial evidence for the seal change.", confidence: "partial" },
+      // Another group on the same Brief must not leak in.
+      { text: "Routine maintenance is excluded.", group: "claimExclusion" },
+      // A confidenceMap entry with no stored confidence is not an open question.
+      { text: "Unclassified fact.", group: "confidenceMap" },
+    ]);
+    const context = await t.query(internal.chatV2.getChatContextV2, {
+      reportId,
+      agentThreadId: "thread-open-questions",
+    });
+    expect(context.openQuestions).toEqual([
+      {
+        text: "The cycle count was never measured.",
+        confidence: "unresolved",
+        sourceLabel: "March interview",
+      },
+      {
+        text: "The vendor datasheet contradicts the log.",
+        confidence: "unreliable",
+        sourceLabel: "March interview",
+      },
+    ]);
+    // The type union already forbids it; this is the runtime guard that the
+    // query filtered rather than relabelled.
+    expect(
+      context.openQuestions.map((q) => q.confidence).sort()
+    ).toEqual(["unreliable", "unresolved"]);
+  });
+
+  test("returns at most 20 entries", async () => {
+    const t = convexTest(schema, modules);
+    const { reportId } = await seedBrief(
+      t,
+      Array.from({ length: 26 }, (_, i) => ({
+        text: `Open fact ${i + 1}.`,
+        confidence: i % 2 === 0 ? "unresolved" : "unreliable",
+      }))
+    );
+    const context = await t.query(internal.chatV2.getChatContextV2, {
+      reportId,
+      agentThreadId: "thread-open-questions-many",
+    });
+    expect(context.openQuestions).toHaveLength(20);
+    expect(context.openQuestions[0]?.text).toBe("Open fact 1.");
+  });
+
+  test("returns an empty list for a generation with no Brief", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, transcriptId } = await seedProject(t);
+    const generationId = await insertGeneration(t, {
+      projectId,
+      transcriptId,
+      status: "completed",
+      agentOutputs: JSON.stringify({ analyzer: "OWN-ANALYSIS" }),
+    });
+    const reportId = await t.run(async (ctx) =>
+      await ctx.db.insert("reports", {
+        projectId,
+        generationId,
+        content: JSON.stringify({ type: "doc", content: [] }),
+        version: 1,
+        generatedAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+    );
+    const context = await t.query(internal.chatV2.getChatContextV2, {
+      reportId,
+      agentThreadId: "thread-no-brief",
+    });
+    expect(context.openQuestions).toEqual([]);
+  });
+
+  test("returns an empty list for a report with no generationId", async () => {
+    // A copied project's report has no `generationId` (`projects.ts` inserts it
+    // that way). The analysis grounding may fall back to a project generation;
+    // the open questions must NOT, or another draft's unresolved Confidence Map
+    // entries would be presented as this report's.
+    const t = convexTest(schema, modules);
+    const { reportId: linkedReportId, projectId } = await seedBrief(t, [
+      { text: "Another draft's open fact.", confidence: "unresolved" },
+    ]);
+    const unlinkedReportId = await t.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert("reports", {
+        projectId,
+        content: JSON.stringify({ type: "doc", content: [] }),
+        version: 1,
+        generatedAt: now,
+        updatedAt: now,
+      });
+    });
+    // Control: the linked report does see it.
+    expect(
+      (
+        await t.query(internal.chatV2.getChatContextV2, {
+          reportId: linkedReportId,
+          agentThreadId: "thread-linked",
+        })
+      ).openQuestions
+    ).toHaveLength(1);
+    const context = await t.query(internal.chatV2.getChatContextV2, {
+      reportId: unlinkedReportId,
+      agentThreadId: "thread-unlinked",
+    });
+    // The analysis still falls back, so this is not "no generation was found".
+    expect(context.agentOutputs).toContain("OWN-ANALYSIS");
+    expect(context.openQuestions).toEqual([]);
+  });
+
+  test("reads the Brief of the report's own generation, never a newer one", async () => {
+    const t = convexTest(schema, modules);
+    const { reportId, projectId, generationId } = await seedBrief(t, [
+      { text: "This report's own open fact.", confidence: "unresolved" },
+    ]);
+    // A newer generation on the same project with its own Brief.
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const transcriptId = (
+        await ctx.db
+          .query("transcripts")
+          .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+          .first()
+      )?._id;
+      if (!transcriptId) throw new Error("fixture transcript missing");
+      const newerId = await ctx.db.insert("generations", {
+        projectId,
+        transcriptId,
+        status: "completed",
+        agentOutputs: JSON.stringify({ analyzer: "NEWER" }),
+        startedAt: now,
+      });
+      const sourceId = await ctx.db.insert("generationSources", {
+        generationId: newerId,
+        projectId,
+        kind: "transcript",
+        label: "Newer interview",
+        content: "x",
+        contentHash: "hash-2",
+        truncated: false,
+        originalLength: 1,
+        capturedAt: now,
+      });
+      const newerBriefId = await ctx.db.insert("generationBriefs", {
+        projectId,
+        generationId: newerId,
+        inputsHash: "inputs-2",
+        version: 1,
+        origin: "derived",
+        storylineText: "Another narrative.",
+        createdAt: now,
+      });
+      await ctx.db.insert("generationBriefEntries", {
+        briefId: newerBriefId,
+        projectId,
+        group: "confidenceMap",
+        text: "A NEWER GENERATION open fact.",
+        confidence: "unresolved",
+        sourceId,
+        sourceContentHash: "hash-2",
+        startOffset: 0,
+        endOffset: 1,
+        exactExcerpt: "x",
+        createdAt: now,
+      });
+      await ctx.db.patch(newerId, { briefId: newerBriefId });
+      expect(newerId).not.toBe(generationId);
+    });
+    const context = await t.query(internal.chatV2.getChatContextV2, {
+      reportId,
+      agentThreadId: "thread-own-brief",
+    });
+    expect(context.openQuestions.map((q) => q.text)).toEqual([
+      "This report's own open fact.",
+    ]);
+  });
+});

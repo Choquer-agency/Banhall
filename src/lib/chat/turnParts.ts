@@ -119,6 +119,23 @@ const TOOL_COPY: Record<string, ToolCopy> = {
     done: "Found passages",
     error: "Couldn’t find those passages",
   },
+  proposeBulkEdits: {
+    running: "Writing a coordinated suggestion…",
+    done: "Suggested a coordinated revision",
+    error: "Couldn’t write that suggestion",
+  },
+  // Read-only steps. The writer asked what the draft departs from, so the copy
+  // says what was read, never that anything was changed.
+  deviationInventory: {
+    running: "Checking every paragraph…",
+    done: "Listed the deviations",
+    error: "Couldn’t list the deviations",
+  },
+  compareReferencePd: {
+    running: "Comparing with the reference PD…",
+    done: "Compared with the reference PD",
+    error: "Couldn’t compare with the reference PD",
+  },
   searchBrain: {
     running: "Searching The Brain…",
     done: "Searched The Brain",
@@ -160,6 +177,18 @@ function detailedDoneLabel(toolName: string, input: unknown, fallback: string): 
     if (count) {
       return `Suggested ${count} ${count === 1 ? "replacement" : "replacements"}`;
     }
+  }
+  // The number the writer is actually tracking on a coordinated revision is the
+  // item count of their own list, not the edit count.
+  if (toolName === "proposeBulkEdits" && Array.isArray(record.findings)) {
+    const count = record.findings.length;
+    if (count) {
+      return `Suggested one revision covering ${count} ${count === 1 ? "item" : "items"}`;
+    }
+  }
+  if (toolName === "compareReferencePd") {
+    const fileName = asString(record.fileName);
+    return fileName ? `Compared with “${fileName}”` : fallback;
   }
   return fallback;
 }
@@ -234,8 +263,15 @@ function asString(value: unknown): string | undefined {
 const ARTIFACT_TOOLS = new Set([
   "proposeEdit",
   "proposeReplacements",
+  // Its whole payload becomes one proposal card below the trace, exactly like
+  // the other two edit tools.
+  "proposeBulkEdits",
   "highlightPassages",
 ]);
+// `deviationInventory` and `compareReferencePd` are deliberately NOT artifact
+// tools: they produce no card. Their results are written for the model (they
+// carry retry instructions and DATA framing), so they are summarized by their
+// label alone and never echoed; see `toolOutputDetail`.
 
 function toolInputDetail(toolName: string, input: unknown): ToolDetail | undefined {
   if (ARTIFACT_TOOLS.has(toolName)) return undefined;

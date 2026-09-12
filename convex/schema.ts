@@ -968,6 +968,54 @@ export default defineSchema({
     ])
     .index("by_agentThreadId_and_toolCallId", ["agentThreadId", "toolCallId"]),
 
+  // Story 5 (CAP-13, AD-28): the Completion Report. One child row per item of a
+  // Coordinated Revision, written ONLY by internal.chatV2.saveProposal in the
+  // same transaction as its `chatProposals` parent, and never mutated after.
+  // Carries projectId directly (AD-19).
+  //
+  // The first block is the AD-28 row shape verbatim. `section`,
+  // `paragraphNumber`, `kind` and `rule` are the CAP-12 paragraph anchor, added
+  // as optional fields (AD-10 widen), never a rename of an AD-28 field. The
+  // shape is authored once in `convex/lib/completionReport.ts`
+  // (`completionReportItemValidator`), which `saveProposal` validates against;
+  // it is spelled out here rather than imported so the schema module stays free
+  // of the tool's zod dependency.
+  chatProposalItems: defineTable({
+    proposalId: v.id("chatProposals"),
+    projectId: v.id("projects"),
+    // The id the Deviation Inventory (or the Reference PD comparison) produced,
+    // preserved verbatim so the writer's list and the rows use one numbering.
+    itemId: v.string(),
+    status: v.union(
+      v.literal("resolved"),
+      v.literal("blocked"),
+      v.literal("conflicting")
+    ),
+    reason: v.string(),
+    // `blocked` carries both; `conflicting` carries the locked rule and an
+    // alternative. The tool schema refuses a status without its evidence.
+    missingFact: v.optional(v.string()),
+    missingFactSource: v.optional(v.string()),
+    lockedRule: v.optional(v.string()),
+    alternative: v.optional(v.string()),
+    section: v.optional(sectionNumberValidator),
+    // 1-BASED paragraph within the section: the number the writer sees and the
+    // number the checklist line echoes. Named `paragraphNumber`, not
+    // `paragraphIndex`, precisely so it can never be joined against the 0-based
+    // `complianceNotes.paragraphIndex` by name; the inventory converts once,
+    // where the notes are read.
+    paragraphNumber: v.optional(v.number()),
+    kind: v.optional(
+      v.union(v.literal("rule"), v.literal("content"), v.literal("reference"))
+    ),
+    rule: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_proposalId", ["proposalId"])
+    // Enumerating a project's items without a table scan: the AD-19 cascade
+    // when it lands, and any later reader of the Completion Report.
+    .index("by_projectId", ["projectId"]),
+
   chatMessages: defineTable({
     threadId: v.id("chatThreads"),
     projectId: v.id("projects"),

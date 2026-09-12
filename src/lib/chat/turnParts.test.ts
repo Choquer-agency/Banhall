@@ -147,6 +147,41 @@ describe("normalizeTurnParts — tools", () => {
       "Looking through the report…"
     );
     expect(toolLabel("highlightPassages", "output-available")).toBe("Found passages");
+    // Story 5: the three tools that used to fall through to "Working…".
+    expect(toolLabel("proposeBulkEdits", "input-available")).toBe(
+      "Writing a coordinated suggestion…"
+    );
+    expect(toolLabel("proposeBulkEdits", "output-available")).toBe(
+      "Suggested a coordinated revision"
+    );
+    expect(
+      toolLabel("proposeBulkEdits", "output-available", {
+        edits: [{ targetText: "a", newText: "b" }],
+        findings: [{ id: "r-242-1-1" }, { id: "c-242-2-1" }],
+      })
+    ).toBe("Suggested one revision covering 2 items");
+    expect(toolLabel("deviationInventory", "input-available")).toBe(
+      "Checking every paragraph…"
+    );
+    expect(toolLabel("deviationInventory", "output-available")).toBe(
+      "Listed the deviations"
+    );
+    expect(toolLabel("compareReferencePd", "input-available")).toBe(
+      "Comparing with the reference PD…"
+    );
+    expect(
+      toolLabel("compareReferencePd", "output-available", {
+        fileName: "last-year-pd.docx",
+      })
+    ).toBe("Compared with “last-year-pd.docx”");
+    // None of them reads as "Working…" or "Finished a step" any more.
+    for (const name of ["proposeBulkEdits", "deviationInventory", "compareReferencePd"]) {
+      for (const state of ["input-available", "output-available", "output-error"] as const) {
+        expect(toolLabel(name, state)).not.toBe("Working…");
+        expect(toolLabel(name, state)).not.toBe("Finished a step");
+        expect(toolLabel(name, state)).not.toBe("A step didn’t finish");
+      }
+    }
     expect(toolLabel("searchBrain", "input-available")).toBe("Searching The Brain…");
     expect(toolLabel("searchBrain", "output-available")).toBe("Searched The Brain");
     expect(toolLabel("searchBrain", "output-error")).toBe("Couldn’t reach The Brain");
