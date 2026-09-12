@@ -1,0 +1,12 @@
+ts	phase	decision	why	evidence	result
+2026-09-12T12:40:18.964247+00:00	route	Run fresh review from the supplied done spec	The rendered workflow routes done stories to step 4	_bmad-output/specs/spec-pd-generation/stories/6-paired-comparison-records-and-success-metric-computation.md	four review layers returned
+2026-09-12T12:40:18.964370+00:00	review	Use Astra medium for all four review layers	Project reviewer policy selects this model and effort	_bmad/custom/reviewer-policy.md	no fallback
+2026-09-12T12:40:18.964375+00:00	repair	Retain historical report pins and correct the replacement warning	The contract fences the submitted report revision, not the latest report identity	src/routes/admin/comparisons/+page.svelte	UI repair prepared
+2026-09-12T12:40:18.964380+00:00	repair	Extend transaction budgets to ancillary documents	Project, financial and judge documents can exceed the remaining read allowance	convex/comparisons.ts	repair in progress
+2026-09-12T12:40:18.964385+00:00	verify	Run the canonical gate with the browser suite after npm ci	The feature needs executed form and backend evidence	initial-gate.log	all 10 steps passed; 633 browser tests
+2026-09-12T12:40:18.964389+00:00	preserve	Keep deferred-work ledger and historical evidence untouched	The user reserves ledger state to the orchestrator	ledger-preservation.json	ledger hash unchanged; only intended source edits changed tracked bytes
+2026-09-12T12:46:11.617147+00:00	verify	Reproduce UI and backend regressions with original source loaded virtually	Prove the repairs without replacing tracked source or historical evidence	ui-red.log; backend-red.log	2 expected UI failures and 3 expected backend failures
+2026-09-12T12:46:11.617338+00:00	verify	Execute focused repaired suites	Check the real form and real stored database values	ui-green.log; backend-green.log	20 browser and 34 backend tests passed
+2026-09-12T12:46:11.617344+00:00	audit	Run separate Astra patch and evidence audit	Reviewer policy requires Astra medium, overriding optional cross-family audit instructions	patch-audit.md	no concrete defects; transcript and hosted-enforcement limits disclosed
+2026-09-12T12:46:11.617349+00:00	verify	Narrow the source hex-colour check to whole tokens	The original broad regex matched Svelte #each syntax	source-checks.json	all source checks pass
+2026-09-12T12:49:12.862094+00:00	finalize	Commit verified source repairs	All required checks and the separate patch audit completed	8d0bb99e6dd3539d01e7a872195daaaa6d933704	2638 unit tests and 633 browser tests passed

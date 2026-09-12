@@ -1,0 +1,5 @@
+ts	phase	decision	why	evidence	result
+2026-09-12T12:55:22.711593+00:00	review	Run four Astra medium review layers	Done story routes to fresh step-04 review	_bmad/custom/reviewer-policy.md	All four completed; no fallback
+2026-09-12T12:58:21.017141+00:00	patch	Validate decimal text before numeric conversion	Browser reproduced fractional rounding into an accepted count	initial-gate.log	23 route tests passed after repair
+2026-09-12T13:04:17.026960+00:00	verify	Run complete gate with fresh optimizer cache	Establish final source behavior and CI reproducibility	final-gate.log	All ten steps passed
+2026-09-12T13:04:17.027203+00:00	finalize	Commit reviewed story and source only	Native ledger remains orchestrator-owned	700be59cc6002313bd321ed86c55a2a68d1f43e9	Implementation committed; ledger unstaged and unchanged

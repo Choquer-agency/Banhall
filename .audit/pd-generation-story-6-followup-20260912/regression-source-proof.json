@@ -1,0 +1,14 @@
+{
+  "src/routes/admin/comparisons/+page.svelte": {
+    "original_revision": "a953bff56b1457989a0a8998a5543c56ef0a2136",
+    "original_sha256": "4c0fefd915326a502582481e10fcc70521cf3a65ce04099ed15b42b9651026e6",
+    "virtual_load_artifact": ".vitest-attachments/story-6-ui-review/original-page.svelte.txt",
+    "bytes_match": true
+  },
+  "convex/comparisons.ts": {
+    "original_revision": "a953bff56b1457989a0a8998a5543c56ef0a2136",
+    "original_sha256": "3f36da5d689c40b53ea05cc3432a89c6ddb5b1cf656cdf06a1d78dfff61bbec2",
+    "virtual_load_artifact": ".vitest-attachments/story-6-backend-review/original-comparisons.ts.txt",
+    "bytes_match": true
+  }
+}

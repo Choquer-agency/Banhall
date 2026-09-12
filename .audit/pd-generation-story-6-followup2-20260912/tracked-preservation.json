@@ -1,0 +1,12 @@
+{
+  "tracked_files_checked": 7156,
+  "changed_files": [
+    "_bmad-output/specs/spec-pd-generation/stories/6-paired-comparison-records-and-success-metric-computation.md",
+    "convex/comparisons.test.ts",
+    "src/routes/admin/comparisons/+page.svelte",
+    "src/routes/admin/comparisons/comparisonsRecord.component.test.ts"
+  ],
+  "unexpected_changes": [],
+  "dependency_manifest_and_lock_unchanged": true,
+  "shared_components_and_historical_evidence_unchanged": true
+}

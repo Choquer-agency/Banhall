@@ -1,0 +1,59 @@
+5:39:48 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6 - using default configuration.
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6
+
+5:39:48 AM [vite-plugin-svelte] no Svelte config found at /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6 - using default configuration.
+5:39:51 AM [vite] (client) [optimizer] bundling dependencies...
+ ❯ |component (chromium)| src/routes/admin/comparisons/comparisonsRecord.component.test.ts (20 tests | 2 failed | 18 skipped) 1765ms
+     × warns on replacement and submits the original report pin 655ms
+     × withholds each metric verdict despite successful partial counts and scopes an empty list to its window 1109ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |component (chromium)| src/routes/admin/comparisons/comparisonsRecord.component.test.ts > /admin/comparisons pin and provenance freezing > warns on replacement and submits the original report pin
+AssertionError: expected '? Account Workspace member Search ⌘K …' to contain 'Recording remains valid if that origi…'
+
+Failure screenshot:
+  - src/routes/admin/comparisons/__screenshots__/comparisonsRecord.component.test.ts/-admin-comparisons-pin-and-provenance-freezing-warns-on-replacement-and-submits-the-original-report-pin-1.png
+
+Expected: [32m"[7mRecording remains valid if that original report revision is unchanged[27m."[39m
+Received: [31m"[7m? Account Workspace member Search ⌘K Home Projects What's new Flag issue Settings Paired Comparisons One human-judged record per project, pinned to the revision the judge read. Deviation and Corrections counts are the judge's own manual counts — never read from the tool. Record a Paired Comparison Both drafts are pasted in by the third person who blinded them. The baseline draft is produced outside Banhall. Project Newer projects Older projects Page 1 Judge Pinned revision Revision 3 · report report-a Content hash aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa Generation none (hand-written report) The revision's own text is deliberately not shown here. Paste the blinded strip the judge read; the server compares them and stores the result as evidence. This project's latest report is no longer the one being judged (now report report-replacement, at revision 3). The pin stays on report report-a at revision 3, so recording will be refused. Start a new judgement on the current revision Starting over discards every field entered here — the judgement was made against prose that has since changed. Preference Counting method Banhall Deviations Baseline Deviations Banhall Corrections-to-acceptable Baseline Corrections-to-acceptable Banhall model Baseline product Baseline model Model-equivalence caveat This project was used during development (excluded from SM-1 and SM-2) Banhall draft — blinded plain text Baseline draft — blinded plain text Record comparison A recorded comparison is never edited or deleted. Records on this project No Paired Comparison recorded yet. SM-1 and SM-2 SM-1 · Paired Comparison win 0 of 0 eligible project(s) satisfy the countable clauses · 0 preferred Banhall Countable clauses not met (needs 4 eligible projects and 3 satisfying). Still to confirm by hand at least one 100–200-hour project among the four SM-2 · Corrections-to-acceptable 0 of 0 eligible project(s) at one correction or fewer Countable clauses not met (needs 4 eligible projects and 3 satisfying). Still to confirm by hand the 16-item harness fixture reports 16/16 on every run Eligible projects (0) No live, non-development Paired Comparison has been recorded yet. Excluded 0 voided record(s) · 0 development project(s) Read from 0 record(s) · the whole record history[27m."[39m
+
+ ❯ src/routes/admin/comparisons/comparisonsRecord.component.test.ts:575:23
+    573|     // The pin itself does not move.
+    574|     expect(document.body.textContent).toContain("report report-a");
+    575|     expect(pageText()).toContain("Recording remains valid if that orig…
+       |                       ^
+    576|     expect(pageText()).not.toContain("recording will be refused");
+    577|     await expect.poll(() => submitButton()?.disabled).toBe(false);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |component (chromium)| src/routes/admin/comparisons/comparisonsRecord.component.test.ts > /admin/comparisons readout completeness > withholds each metric verdict despite successful partial counts and scopes an empty list to its window
+AssertionError: expected '? Account Workspace member Search ⌘K …' to contain 'No eligible projects were found in th…'
+
+Failure screenshot:
+  - src/routes/admin/comparisons/__screenshots__/comparisonsRecord.component.test.ts/-admin-comparisons-readout-completeness-withholds-each-metric-verdict-despite-successful-partial-counts-and-scopes-an-empty-list-to-its-window-1.png
+
+Expected: [32m"[7mNo eligible projects were found in the scanned[27m window."[39m
+Received: [31m"[7m? Account Workspace member Search ⌘K Home Projects What's new Flag issue Settings Paired Comparisons One human-judged record per project, pinned to the revision the judge read. Deviation and Corrections counts are the judge's own manual counts — never read from the tool. Record a Paired Comparison Both drafts are pasted in by the third person who blinded them. The baseline draft is produced outside Banhall. Project Newer projects Older projects Page 1 Judge SM-1 and SM-2 The record history is larger than one pass can read, so this readout covers only the 500 most recent records. SM-1 and SM-2 are withheld until the whole corpus can be counted. SM-1 · Paired Comparison win 3 of 4 eligible project(s) satisfy the countable clauses · 3 preferred Banhall Countable clauses not met (needs 4 eligible projects and 3 satisfying). Still to confirm by hand at least one 100–200-hour project among the four SM-2 · Corrections-to-acceptable 3 of 4 eligible project(s) at one correction or fewer Countable clauses not met (needs 4 eligible projects and 3 satisfying). Still to confirm by hand the 16-item harness fixture reports 16/16 on every run Eligible projects (0) No live, non-development Paired Comparison has been recorded yet. Excluded 0 voided record(s) · 0 development project(s) Read from 500 record(s) · a partial[27m window."[39m
+
+ ❯ src/routes/admin/comparisons/comparisonsRecord.component.test.ts:826:32
+    824|     });
+    825|     render(ComparisonsPage);
+    826|     await expect.poll(pageText).toContain("No eligible projects were f…
+       |                                ^
+    827|     expect(pageText()).not.toContain("No live, non-development Paired …
+    828|     const unavailable = "Countable clauses unavailable until the whole…
+
+Caused by: Error: Matcher did not succeed in time.
+ ❯ src/routes/admin/comparisons/comparisonsRecord.component.test.ts:826:4
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 18 skipped (20)
+   Start at  05:39:48
+   Duration  22.43s (transform 0ms, setup 598ms, import 7.92s, tests 1.77s, environment 0ms)
+

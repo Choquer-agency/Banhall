@@ -7,6 +7,13 @@
    * pasted in — the ChatGPT baseline is never generated here (SPEC Non-goals),
    * and the pinned revision's canonical text is never returned to this page, so
    * a match cannot be manufactured by pasting it back.
+   *
+   * The form is a *judgement*, not a live view. Three things are captured at
+   * the moment the human commits to them and never move underneath the form
+   * afterwards: the revision pin (so a report edited mid-judgement fails
+   * `STALE_REVISION` instead of silently re-pinning to prose nobody read), the
+   * comparison the administrator agreed to void, and the identity of the form
+   * a pending request belongs to.
    */
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import { resolve } from "$app/paths";
@@ -24,8 +31,13 @@
 
   const auth = useAuth();
 
+  // The picker is paged: a project older than the first page is still
+  // reachable, and each page reads a bounded number of comparison rows.
+  let pickerCursor = $state<string | null>(null);
+  let pickerHistory = $state<Array<string | null>>([]);
+
   const targetsQ = useQuery(api.comparisons.listRecordTargets, () =>
-    auth.isAuthenticated ? {} : "skip"
+    auth.isAuthenticated ? { cursor: pickerCursor } : "skip"
   );
   const teamQ = useQuery(api.users.listTeam, () =>
     auth.isAuthenticated ? {} : "skip"
@@ -54,25 +66,35 @@
     }
   });
 
-  const targets = $derived(targetsQ.data ?? []);
+  const targetPage = $derived(targetsQ.data ?? null);
+  const targets = $derived(targetPage?.targets ?? []);
   const team = $derived(teamQ.data ?? []);
-  const context = $derived(contextQ.data ?? null);
-  const records = $derived(recordsQ.data ?? []);
+  const liveContext = $derived(contextQ.data ?? null);
+  const records = $derived(recordsQ.data?.records ?? []);
+  const hasOlderRecords = $derived(recordsQ.data?.hasMore ?? false);
   const metrics = $derived(metricsQ.data ?? null);
 
+  // The selected project keeps its label when the picker pages away from it.
+  let selectedLabel = $state("");
   const projectItems = $derived([
-    { value: "", label: "Select a project…" },
+    ...(projectId && !targets.some((t) => String(t.projectId) === projectId)
+      ? [{ value: projectId, label: `${selectedLabel} (selected)` }]
+      : []),
     ...targets.map((target) => ({
       value: String(target.projectId),
-      label: target.hasLiveComparison
-        ? `${target.label} (live record)`
-        : target.label,
+      label:
+        target.hasLiveComparison === null
+          ? target.label
+          : target.hasLiveComparison
+            ? `${target.label} (live record)`
+            : target.label,
     })),
   ]);
   const judgeItems = $derived([
-    { value: "", label: "Select the judge…" },
     ...team.map((member) => ({ value: String(member.id), label: member.name })),
   ]);
+  // No default preference: the preference IS the judgement, so it is chosen,
+  // never inherited from a form default.
   const preferenceItems = [
     { value: "banhall", label: "Banhall draft preferred" },
     { value: "baseline", label: "Baseline draft preferred" },
@@ -81,61 +103,141 @@
 
   // Judgement fields: human-entered, never derived from project data.
   let judgeUserId = $state("");
-  let preference = $state("banhall");
+  let preference = $state("");
   let deviationsBanhall = $state<string | number>("");
   let deviationsBaseline = $state<string | number>("");
   let correctionsBanhall = $state<string | number>("");
   let correctionsBaseline = $state<string | number>("");
   let countingMethod = $state<string | number>("");
   let banhallModel = $state<string | number>("");
-  let baselineProduct = $state<string | number>("ChatGPT");
+  let baselineProduct = $state<string | number>("");
   let baselineModel = $state<string | number>("");
   let modelCaveat = $state<string | number>("");
   let usedInDevelopment = $state(false);
   let banhallDraftText = $state("");
   let baselineDraftText = $state("");
+
+  /** The comparison the administrator agreed to replace, captured at consent. */
+  let correctionTargetId = $state<Id<"comparisons"> | null>(null);
   let recordAsCorrection = $state(false);
+
+  /**
+   * The pin as it stood when this judgement began. A live query may show the
+   * report moving on; the submitted pin does not follow it, so the mutation
+   * refuses a judgement of prose nobody read.
+   */
+  let pinned = $state<{
+    reportId: Id<"reports">;
+    revisionNumber: number;
+    contentHash: string | null;
+    generationId: Id<"generations"> | null;
+    suggestedBanhallModel: string | null;
+  } | null>(null);
 
   let submitting = $state(false);
   let formError = $state<string | null>(null);
   let justRecorded = $state(false);
 
+  /** Identity of the form a pending request belongs to; bumped on every reset. */
+  let formToken = $state(0);
+
   const liveRecord = $derived(records.find((row) => !row.voided) ?? null);
   const hasLiveRecord = $derived(
-    Boolean(context?.liveComparisonId ?? liveRecord)
+    Boolean(liveContext?.liveComparisonId ?? liveRecord)
+  );
+  // The pin names a specific report at a specific revision. A project whose
+  // latest report is REPLACED lands on a different report that may carry the
+  // same revision number, so identity is compared as well as revision.
+  const reportMovedOn = $derived(
+    Boolean(
+      pinned &&
+        liveContext &&
+        (liveContext.revisionNumber !== pinned.revisionNumber ||
+          String(liveContext.reportId) !== String(pinned.reportId))
+    )
   );
 
-  // A project change resets the judgement, so nothing carries across records.
-  let lastProjectId = $state("");
-  $effect(() => {
-    if (projectId === lastProjectId) return;
-    lastProjectId = projectId;
+  /**
+   * Clear the judgement and let the pin re-freeze from the current context.
+   *
+   * Selecting the project that is already selected is a no-op, so without an
+   * explicit restart a stale pin could only be refreshed by reloading the
+   * page — a dead end the STALE_REVISION message itself walks the
+   * administrator into. Every entered judgement field is discarded, which is
+   * the point: the judgement was made against prose that has moved.
+   */
+  function resetJudgement() {
+    formToken += 1;
+    pinned = null;
     judgeUserId = "";
-    preference = "banhall";
+    preference = "";
     deviationsBanhall = "";
     deviationsBaseline = "";
     correctionsBanhall = "";
     correctionsBaseline = "";
     countingMethod = "";
     banhallModel = "";
+    baselineProduct = "";
     baselineModel = "";
     modelCaveat = "";
     usedInDevelopment = false;
     banhallDraftText = "";
     baselineDraftText = "";
     recordAsCorrection = false;
+    correctionTargetId = null;
     formError = null;
     justRecorded = false;
+    // The in-flight request belongs to the form that is being replaced; its
+    // response is discarded by the token guard and must not leave this form
+    // stuck in a submitting state.
+    submitting = false;
+  }
+
+  // A project change resets the judgement, so nothing carries across records —
+  // including the baseline product, which is provenance, not a constant.
+  let lastProjectId = $state("");
+  $effect(() => {
+    if (projectId === lastProjectId) return;
+    lastProjectId = projectId;
+    resetJudgement();
   });
 
-  // The suggestion is a default, not a value: the judge can overwrite it.
+  // Freeze the pin the first time this project's context arrives. Later
+  // updates of the live query are shown as a warning, never folded in.
   $effect(() => {
-    const suggested = context?.suggestedBanhallModel;
-    if (suggested && !banhallModel) banhallModel = suggested;
+    const context = contextQ.data;
+    if (!context || pinned) return;
+    pinned = {
+      reportId: context.reportId,
+      revisionNumber: context.revisionNumber,
+      contentHash: context.contentHash,
+      generationId: context.generationId,
+      suggestedBanhallModel: context.suggestedBanhallModel,
+    };
+    // The suggestion is provenance about the PINNED revision's generation, so
+    // it is captured with the pin and never taken from a later context: a
+    // later value would describe a different generation than the one judged.
+    // It is a default, not a value — the judge can overwrite it.
+    if (context.suggestedBanhallModel && !banhallModel) {
+      banhallModel = context.suggestedBanhallModel;
+    }
   });
+
+  function consentToCorrection(next: boolean) {
+    recordAsCorrection = next;
+    correctionTargetId = next
+      ? ((liveContext?.liveComparisonId ?? liveRecord?._id ?? null) as
+          | Id<"comparisons">
+          | null)
+      : null;
+  }
 
   function text(value: string | number): string {
     return String(value ?? "").trim();
+  }
+
+  function raw(value: string | number): string {
+    return String(value ?? "");
   }
 
   function stamp(ms: number) {
@@ -160,17 +262,20 @@
     { label: "Baseline Corrections-to-acceptable", raw: correctionsBaseline },
   ]);
   const countProblem = $derived(
-    counts.find(({ raw }) => {
-      const value = Number(text(raw));
-      return text(raw) === "" || !Number.isInteger(value) || value < 0;
+    counts.find(({ raw: entered }) => {
+      const value = Number(text(entered));
+      // Validate decimal text before conversion: Number can round a fractional
+      // entry into an apparently safe integer. Text inputs retain that evidence.
+      return !/^[0-9]+$/.test(raw(entered)) || !Number.isSafeInteger(value);
     })?.label ?? null
   );
 
   const canSubmit = $derived(
     Boolean(
-      context &&
+      pinned &&
         projectId &&
         judgeUserId &&
+        preference &&
         !countProblem &&
         banhallDraftText.trim() &&
         baselineDraftText.trim() &&
@@ -179,53 +284,73 @@
         text(baselineProduct) &&
         text(baselineModel) &&
         text(modelCaveat) &&
-        (!hasLiveRecord || recordAsCorrection) &&
+        (!hasLiveRecord || correctionTargetId !== null) &&
         !submitting
     )
   );
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (!context || !canSubmit) return;
+    const pin = pinned;
+    if (!pin || !canSubmit) return;
+    // Everything this request answers for is captured before the await.
+    const token = formToken;
+    const target = correctionTargetId;
     submitting = true;
     formError = null;
     justRecorded = false;
     try {
       await record({
-        reportId: context.reportId,
-        expectedRevisionNumber: context.revisionNumber,
-        banhallModel: text(banhallModel),
-        baselineProduct: text(baselineProduct),
-        baselineModel: text(baselineModel),
-        modelCaveat: text(modelCaveat),
+        reportId: pin.reportId,
+        expectedRevisionNumber: pin.revisionNumber,
+        // Provenance and judgement strings go up exactly as they were typed.
+        banhallModel: raw(banhallModel),
+        baselineProduct: raw(baselineProduct),
+        baselineModel: raw(baselineModel),
+        modelCaveat: raw(modelCaveat),
         judgeUserId: judgeUserId as Id<"users">,
         preference: preference as "banhall" | "baseline" | "tie",
         deviationsBanhall: Number(text(deviationsBanhall)),
         deviationsBaseline: Number(text(deviationsBaseline)),
-        countingMethod: text(countingMethod),
+        countingMethod: raw(countingMethod),
         correctionsBanhall: Number(text(correctionsBanhall)),
         correctionsBaseline: Number(text(correctionsBaseline)),
         usedInDevelopment,
         banhallDraftText,
         baselineDraftText,
-        ...(recordAsCorrection && context.liveComparisonId
-          ? { voidsComparisonId: context.liveComparisonId }
-          : {}),
+        ...(target ? { voidsComparisonId: target } : {}),
       });
+      // A response only ever speaks for the form that sent it.
+      if (token !== formToken) return;
       // draftTextMatches is server-computed and read back off the record list;
       // the page never claims a match it did not observe.
       justRecorded = true;
       banhallDraftText = "";
       baselineDraftText = "";
       recordAsCorrection = false;
+      correctionTargetId = null;
     } catch (error) {
+      if (token !== formToken) return;
       formError = userErrorMessage(
         error,
         "The Paired Comparison could not be recorded."
       );
     } finally {
-      submitting = false;
+      if (token === formToken) submitting = false;
     }
+  }
+
+  function showOlderProjects() {
+    if (!targetPage || targetPage.isDone) return;
+    pickerHistory = [...pickerHistory, pickerCursor];
+    pickerCursor = targetPage.cursor;
+  }
+
+  function showNewerProjects() {
+    if (pickerHistory.length === 0) return;
+    const previous = pickerHistory[pickerHistory.length - 1] ?? null;
+    pickerHistory = pickerHistory.slice(0, -1);
+    pickerCursor = previous;
   }
 </script>
 
@@ -256,7 +381,35 @@
                 items={projectItems}
                 ariaLabel="Project"
                 placeholder="Select a project…"
+                onValueChange={(next) => {
+                  selectedLabel =
+                    targets.find((t) => String(t.projectId) === next)?.label ??
+                    selectedLabel;
+                }}
               />
+              <div class="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  disabled={pickerHistory.length === 0}
+                  onclick={showNewerProjects}
+                >
+                  Newer projects
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  disabled={!targetPage || targetPage.isDone}
+                  onclick={showOlderProjects}
+                >
+                  Older projects
+                </Button>
+                <span class="text-body text-ink-muted">
+                  Page {pickerHistory.length + 1}
+                </span>
+              </div>
             </div>
             <div class="flex flex-col gap-1.5">
               <span class="text-label">Judge</span>
@@ -274,22 +427,22 @@
               <Spinner />
               <span>Loading the project's pinned revision…</span>
             </div>
-          {:else if projectId && !context}
+          {:else if projectId && !pinned}
             <p class="text-body text-red-700">
               This project has no report yet, so there is no revision to pin a
               comparison to.
             </p>
-          {:else if context}
+          {:else if pinned}
             <div class="rounded-lg bg-chrome p-4">
               <p class="text-label">Pinned revision</p>
               <p class="mt-1.5 text-data text-ink">
-                Revision {context.revisionNumber} · report {context.reportId}
+                Revision {pinned.revisionNumber} · report {pinned.reportId}
               </p>
               <p class="mt-1 text-data text-ink-muted">
-                Content hash {context.contentHash ?? "not yet hashed"}
+                Content hash {pinned.contentHash ?? "not yet hashed"}
               </p>
               <p class="mt-1 text-data text-ink-muted">
-                Generation {context.generationId ?? "none (hand-written report)"}
+                Generation {pinned.generationId ?? "none (hand-written report)"}
               </p>
               <p class="mt-2 text-body">
                 The revision's own text is deliberately not shown here. Paste the
@@ -297,6 +450,30 @@
                 the result as evidence.
               </p>
             </div>
+
+            {#if reportMovedOn}
+              <div class="rounded-lg border border-line p-4">
+                <p class="text-body text-red-700" role="alert">
+                  {String(liveContext?.reportId) !== String(pinned.reportId)
+                    ? `This project's latest report is no longer the one being judged (now report ${liveContext?.reportId}, at revision ${liveContext?.revisionNumber}).`
+                    : `This report moved to revision ${liveContext?.revisionNumber} after the judgement began.`}
+                  The pin stays on report {pinned.reportId} at revision
+                  {pinned.revisionNumber}.
+                  {String(liveContext?.reportId) !== String(pinned.reportId)
+                    ? "Recording remains valid if that original report revision is unchanged."
+                    : "Recording will be refused because that report revision changed."}
+                </p>
+                <div class="mt-3">
+                  <Button variant="secondary" size="sm" type="button" onclick={resetJudgement}>
+                    Start a new judgement on the current revision
+                  </Button>
+                </div>
+                <p class="mt-2 text-body text-ink-muted">
+                  Starting over discards every field entered here and starts a
+                  judgement on the latest report revision.
+                </p>
+              </div>
+            {/if}
 
             {#if hasLiveRecord}
               <div class="rounded-lg bg-primary-wash p-4">
@@ -307,6 +484,7 @@
                 <div class="mt-3">
                   <Checkbox
                     bind:checked={recordAsCorrection}
+                    onCheckedChange={(next: boolean) => consentToCorrection(next)}
                     labelText="Record this as a correction that voids the live record"
                   />
                 </div>
@@ -320,7 +498,7 @@
                   bind:value={preference}
                   items={preferenceItems}
                   ariaLabel="Preference"
-                  placeholder="Preference"
+                  placeholder="Select the preference…"
                 />
               </div>
               <Input
@@ -334,37 +512,33 @@
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <Input
                 id="deviations-banhall"
-                type="number"
-                min="0"
-                step="1"
+                type="text"
                 inputmode="numeric"
+                pattern="[0-9]*"
                 label="Banhall Deviations"
                 bind:value={deviationsBanhall}
               />
               <Input
                 id="deviations-baseline"
-                type="number"
-                min="0"
-                step="1"
+                type="text"
                 inputmode="numeric"
+                pattern="[0-9]*"
                 label="Baseline Deviations"
                 bind:value={deviationsBaseline}
               />
               <Input
                 id="corrections-banhall"
-                type="number"
-                min="0"
-                step="1"
+                type="text"
                 inputmode="numeric"
+                pattern="[0-9]*"
                 label="Banhall Corrections-to-acceptable"
                 bind:value={correctionsBanhall}
               />
               <Input
                 id="corrections-baseline"
-                type="number"
-                min="0"
-                step="1"
+                type="text"
                 inputmode="numeric"
+                pattern="[0-9]*"
                 label="Baseline Corrections-to-acceptable"
                 bind:value={correctionsBaseline}
               />
@@ -432,7 +606,8 @@
 
             {#if countProblem}
               <p class="text-body text-ink-muted">
-                {countProblem} must be a whole number of zero or more.
+                {countProblem} must contain only decimal digits, from 0 to
+                {Number.MAX_SAFE_INTEGER}.
               </p>
             {/if}
             {#if formError}
@@ -515,6 +690,7 @@
                         type="button"
                         onclick={() => {
                           recordAsCorrection = true;
+                          correctionTargetId = row._id;
                         }}
                       >
                         Void and re-enter
@@ -524,6 +700,11 @@
                 </li>
               {/each}
             </ul>
+            {#if hasOlderRecords}
+              <p class="mt-3 text-body text-ink-muted">
+                Older records on this project are not shown.
+              </p>
+            {/if}
           {/if}
         </section>
       {/if}
@@ -536,6 +717,13 @@
         {:else if !metrics}
           <p class="mt-2 text-body">Sign in as an administrator to view metrics.</p>
         {:else}
+          {#if !metrics.corpusComplete}
+            <p class="mt-2 text-body text-red-700" role="alert">
+              The record history is larger than one pass can read, so this
+              readout covers only the {metrics.scannedRows} most recent records.
+              SM-1 and SM-2 are withheld until the whole corpus can be counted.
+            </p>
+          {/if}
           <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div class="rounded-lg border border-line p-4">
               <p class="text-label">SM-1 · Paired Comparison win</p>
@@ -545,7 +733,9 @@
                 {metrics.sm1.preferredProjects} preferred Banhall
               </p>
               <p class="mt-1 text-body">
-                Countable clauses {metrics.sm1.computedMet ? "met" : "not met"}
+                Countable clauses {metrics.corpusComplete
+                  ? (metrics.sm1.computedMet ? "met" : "not met")
+                  : "unavailable until the whole corpus is counted"}
                 (needs 4 eligible projects and 3 satisfying).
               </p>
               <p class="mt-2 text-label">Still to confirm by hand</p>
@@ -562,7 +752,9 @@
                 eligible project(s) at one correction or fewer
               </p>
               <p class="mt-1 text-body">
-                Countable clauses {metrics.sm2.computedMet ? "met" : "not met"}
+                Countable clauses {metrics.corpusComplete
+                  ? (metrics.sm2.computedMet ? "met" : "not met")
+                  : "unavailable until the whole corpus is counted"}
                 (needs 4 eligible projects and 3 satisfying).
               </p>
               <p class="mt-2 text-label">Still to confirm by hand</p>
@@ -574,10 +766,20 @@
             </div>
           </div>
 
-          <h3 class="mt-6 text-label">Eligible projects</h3>
+          <h3 class="mt-6 text-label">
+            Eligible projects ({metrics.projectCount})
+          </h3>
+          {#if metrics.projectsTruncated}
+            <p class="mt-2 text-body text-red-700" role="alert">
+              Showing {metrics.projects.length} of {metrics.projectCount} eligible
+              projects; the rest are counted but not listed.
+            </p>
+          {/if}
           {#if metrics.projects.length === 0}
             <p class="mt-2 text-body">
-              No live, non-development Paired Comparison has been recorded yet.
+              {metrics.corpusComplete
+                ? "No live, non-development Paired Comparison has been recorded yet."
+                : "No eligible projects were found in the scanned window."}
             </p>
           {:else}
             <ul class="mt-2 flex flex-col gap-2">
@@ -612,16 +814,25 @@
           <h3 class="mt-6 text-label">Excluded</h3>
           <p class="mt-2 text-body">
             {metrics.excluded.voided} voided record(s) ·
-            {metrics.excluded.development.length} development project(s)
+            {metrics.excluded.developmentCount} development project(s)
           </p>
+          {#if metrics.excluded.developmentTruncated}
+            <p class="mt-1 text-body text-red-700" role="alert">
+              Showing {metrics.excluded.development.length} of
+              {metrics.excluded.developmentCount} excluded development projects;
+              the rest are counted but not listed.
+            </p>
+          {/if}
           {#each metrics.excluded.development as excluded (excluded.comparisonId)}
             <p class="mt-1 text-data text-ink-muted">
               {excluded.label} — reported separately, never counted
             </p>
           {/each}
           <p class="mt-3 text-body text-ink-muted">
-            Read from the {metrics.scannedRows} most recent record(s) (limit
-            {metrics.rowLimit}).
+            Read from {metrics.scannedRows} record(s) ·
+            {metrics.corpusComplete
+              ? "the whole record history"
+              : "a partial window"}.
           </p>
         {/if}
       </section>
