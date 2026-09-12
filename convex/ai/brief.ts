@@ -2,9 +2,15 @@
 
 import { z } from "zod";
 import type Anthropic from "@anthropic-ai/sdk";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import {
+  BRIEF_BASELINE_PAGE_BYTES,
+  MAX_BRIEF_ENTRY_ROWS,
+  briefDiffKey,
+} from "../generations";
 import type { GenerationClient } from "./openrouterCore";
 import { generateStructured } from "./structured";
 import { briefInputsHash } from "../lib/briefInputsHash";
@@ -257,6 +263,142 @@ export function buildBriefUserMessage(
   return `${BRIEF_TASK_GUIDANCE}\n\n${blocks}`;
 }
 
+/** The only database access the publish path needs — an action's, or a test
+ * adapter over `t.query`/`t.mutation`. */
+export type BriefPublishCtx = Pick<ActionCtx, "runQuery" | "runMutation">;
+
+/** Publish attempts before a derivation whose baseline keeps moving gives up. */
+export const BRIEF_PUBLISH_ATTEMPTS = 3;
+
+type PersistDerivedBriefArgs = FunctionArgs<
+  typeof internal.generations.persistDerivedBrief
+>;
+type BaselineRetained = PersistDerivedBriefArgs["baselineRetained"][number];
+type BaselineRemoved = PersistDerivedBriefArgs["baselineRemoved"][number];
+
+/**
+ * The complete diff baseline for a new derivation, already compared with its
+ * candidates: the project's newest Brief (pinned by id) and every one of its
+ * live rows, however many there are, partitioned by `briefDiffKey`.
+ *
+ * Each page is its own bounded query transaction (`getBriefDiffBaselinePage`),
+ * so no single read grows with the Brief. A `SplitRequired` page may be
+ * incomplete, so it is discarded and re-read from the same cursor with half
+ * as many rows; a one-row page that still reports it cannot be read within
+ * the byte budget and throws. The baseline is complete only when an accepted
+ * page reports `isDone` — never a prefix, never a refusal by size.
+ *
+ * Only compact results outlive a page. A live key some candidate shares keeps
+ * a `retained` reference (the row id and the first such candidate's index) and
+ * its old text is dropped with the page; a live key no candidate shares keeps
+ * its full payload in `removed`, because it becomes a marker. As in the
+ * mutation, the last row with a key wins.
+ */
+export async function readCompleteBriefDiffBaseline(
+  ctx: BriefPublishCtx,
+  projectId: Id<"projects">,
+  candidates: ReadonlyArray<Parameters<typeof briefDiffKey>[0]>
+): Promise<{
+  briefId: Id<"generationBriefs"> | null;
+  retained: BaselineRetained[];
+  removed: BaselineRemoved[];
+}> {
+  const briefId = await ctx.runQuery(internal.generations.getBriefDiffBaselineId, {
+    projectId,
+  });
+  if (briefId === null) return { briefId: null, retained: [], removed: [] };
+
+  const candidateIndexByKey = new Map<string, number>();
+  candidates.forEach((candidate, index) => {
+    const key = briefDiffKey(candidate);
+    if (!candidateIndexByKey.has(key)) candidateIndexByKey.set(key, index);
+  });
+  const retainedByKey = new Map<string, BaselineRetained>();
+  const removedByKey = new Map<string, BaselineRemoved>();
+  let cursor: string | null = null;
+  let numItems = MAX_BRIEF_ENTRY_ROWS;
+  for (;;) {
+    const page: FunctionReturnType<typeof internal.generations.getBriefDiffBaselinePage> =
+      await ctx.runQuery(internal.generations.getBriefDiffBaselinePage, {
+        briefId,
+        cursor,
+        numItems,
+      });
+    if (page.pageStatus === "SplitRequired") {
+      if (numItems <= 1) {
+        throw new Error(
+          `Generation Brief ${briefId} diff baseline: one row exceeds the ${BRIEF_BASELINE_PAGE_BYTES}-byte page budget`
+        );
+      }
+      numItems = Math.max(1, Math.floor(numItems / 2));
+      continue;
+    }
+    for (const { entryId, ...payload } of page.entries) {
+      const key = briefDiffKey(payload);
+      const candidateIndex = candidateIndexByKey.get(key);
+      if (candidateIndex === undefined) removedByKey.set(key, payload);
+      else retainedByKey.set(key, { entryId, candidateIndex });
+    }
+    if (page.isDone) {
+      return {
+        briefId,
+        retained: [...retainedByKey.values()],
+        removed: [...removedByKey.values()],
+      };
+    }
+    if (page.continueCursor === cursor) {
+      throw new Error(
+        `Generation Brief ${briefId} diff baseline: a page made no progress`
+      );
+    }
+    cursor = page.continueCursor;
+  }
+}
+
+/**
+ * Publish one derived Brief version against a complete, fenced baseline.
+ *
+ * Reads and compares the baseline (`readCompleteBriefDiffBaseline`), then
+ * publishes the whole version in one `persistDerivedBrief` mutation that
+ * first checks the pinned Brief is still the project's newest. Its argument
+ * carries references, not text, for baseline keys the candidates reuse, so it
+ * stays bounded by what the new version writes rather than by the old
+ * version's size. If another version was published in between (a writer
+ * edit, a concurrent derivation), that mutation writes nothing and returns
+ * `null`; the baseline is re-read and the same candidates re-published — the
+ * model is never re-run. After `BRIEF_PUBLISH_ATTEMPTS` lost fences it
+ * throws, under the derivation's existing fail-open catch, and no version
+ * from this derivation exists.
+ */
+export async function publishDerivedBrief(
+  ctx: BriefPublishCtx,
+  args: Omit<
+    PersistDerivedBriefArgs,
+    "baselineBriefId" | "baselineRetained" | "baselineRemoved"
+  >
+): Promise<Id<"generationBriefs">> {
+  for (let attempt = 1; attempt <= BRIEF_PUBLISH_ATTEMPTS; attempt += 1) {
+    const baseline = await readCompleteBriefDiffBaseline(
+      ctx,
+      args.projectId,
+      args.entries
+    );
+    const briefId: Id<"generationBriefs"> | null = await ctx.runMutation(
+      internal.generations.persistDerivedBrief,
+      {
+        ...args,
+        baselineBriefId: baseline.briefId,
+        baselineRetained: baseline.retained,
+        baselineRemoved: baseline.removed,
+      }
+    );
+    if (briefId !== null) return briefId;
+  }
+  throw new Error(
+    `Generation Brief for generation ${args.generationId} not published: the project's newest Brief changed during each of ${BRIEF_PUBLISH_ATTEMPTS} attempts`
+  );
+}
+
 type CandidateEntry = {
   group: "storyline" | "claimExclusion" | "confidenceMap" | "glossaryTerm";
   text: string;
@@ -432,7 +574,7 @@ export async function deriveOrReuseBrief(
   const storylineText = writerSource ? writerSource.content : output.storyline;
   const origin = writerSource ? ("writer" as const) : ("derived" as const);
 
-  const briefId = await ctx.runMutation(internal.generations.persistDerivedBrief, {
+  return await publishDerivedBrief(ctx, {
     projectId: args.projectId,
     generationId: args.generationId,
     inputsHash,
@@ -441,5 +583,4 @@ export async function deriveOrReuseBrief(
     entries: candidateEntries,
     upstreamDroppedEntryCount,
   });
-  return briefId;
 }
