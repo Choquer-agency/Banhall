@@ -1702,6 +1702,50 @@ export default defineSchema({
     .index("by_user_report", ["userId", "reportId"])
     .index("by_projectId", ["projectId"]),
 
+  // ─── AD-29 (story 6, CAP-16): Paired Comparison records ────────────────────
+  // The Success signal's only durable home. Every judgement field is entered by
+  // a human judge; nothing here is ever derived from tool output
+  // (`chatProposalItems`, `complianceNotes`, `generations.qa`, `writerReviews`).
+  // Pinned to the exact report revision the judge read, exactly like
+  // `writerReviews` and `reviewDecisions`. A recorded row is never patched or
+  // deleted: the only correction path is a new row whose `voidsComparisonId`
+  // names the row it replaces. `generationId` is optional because a
+  // hand-written report has none. Carries `projectId` directly (AD-19).
+  comparisons: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    revisionNumber: v.number(),
+    contentHash: v.string(),
+    generationId: v.optional(v.id("generations")),
+    banhallModel: v.string(),
+    baselineProduct: v.string(),
+    baselineModel: v.string(),
+    // Q15 is unresolved; the model-equivalence caveat is stored per record.
+    modelCaveat: v.string(),
+    judgeUserId: v.id("users"),
+    preference: v.union(
+      v.literal("banhall"),
+      v.literal("baseline"),
+      v.literal("tie")
+    ),
+    deviationsBanhall: v.number(),
+    deviationsBaseline: v.number(),
+    countingMethod: v.string(),
+    correctionsBanhall: v.number(),
+    correctionsBaseline: v.number(),
+    usedInDevelopment: v.boolean(),
+    recordedAt: v.number(),
+    voidsComparisonId: v.optional(v.id("comparisons")),
+    // The stripped plain texts the judge actually read.
+    banhallDraftText: v.string(),
+    baselineDraftText: v.string(),
+    // Evidence, never a gate: a false is stored and surfaced, and the record
+    // still lands.
+    draftTextMatches: v.boolean(),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_recordedAt", ["recordedAt"]),
+
   // ─── Reviewer decision recorded when a project leaves internal review ──────
   // Required (fail-closed, typed REVIEW_DECISION_REQUIRED) on the two
   // internal-review completion edges — `internal_review` → `edits` and

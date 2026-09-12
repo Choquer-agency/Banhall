@@ -9,6 +9,7 @@ export const ADMIN_ROUTES = [
   { href: "/admin/tags", label: "Project tags" },
   { href: "/admin/learning", label: "Learning health" },
   { href: "/admin/reviews", label: "Consultant QA reviews" },
+  { href: "/admin/comparisons", label: "Paired Comparisons" },
   { href: "/admin/backfill", label: "Ownership review" },
   { href: "/admin/users", label: "Users & roles" },
   { href: "/admin/models", label: "Model preferences" },
