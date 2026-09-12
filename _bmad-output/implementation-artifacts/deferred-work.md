@@ -1247,3 +1247,43 @@ severity: low
 reason: The follow-up-review damping cap (limits.max_followup_reviews = 1) was spent with the story finalized (status: done, verify green) while the review pass still recommended an independent follow-up. The work was committed by bmad-loop run 20260911-120649-26de; this entry preserves the lingering recommendation for a deliberate later review.
 status: done 2026-09-12
 resolution: already resolved: .audit/resume-story6-20260912T105856Z/branch-review-delta-700be59/delta-coverage.json records complete Astra-medium review of five comparison files with zero new findings; current hashes match and git diff 700be59 HEAD over convex/src/scripts/shared is empty. native-six-story-completion.json records native finalization at 5db0c183e5f7aaed0286aa719e776a1c56a12d15; epic acceptance remains separate.
+
+### DW-151: convex/ai/brief.test.ts cannot assert on model prompts, because convex-test runs leftover scheduled jobs from earlier cases against the shared module-level Anthropic mock.
+origin: spec-deferred b1a2371cd214
+location: convex/ai/brief.test.ts (fixture and scheduler lifecycle)
+source_spec: `spec-dw-107-dw-118-brief-read-and-diff-integrity.md`
+severity: low
+reason: Confirmed during implementation: 16-18 polluting network.create calls were observed while the case's own database held zero generationBriefs rows, so neither briefCalls() nor mockClear() isolates a case's prompts in that file. Pre-existing property of the file's fixtures, surfaced by this work rather than caused by it. Worked around, not fixed: that file's assertions are database-scoped, and the prompt-level proof lives in convex/ai/promptProgram.test.ts, where every scheduled job is cancelled and run explicitly with mockClear() before each scan. A future prompt-level assertion added to brief.test.ts would be silently unreliable.
+status: open
+
+### DW-152: Generation-consumer Brief reads bound rows but not bytes, so a byte-heavy Brief can exceed the transaction read limit and throw where the ordered chain awaits the read outside its try.
+origin: spec-deferred 5ec82de51ac4
+location: convex/generations.ts readBriefEntryRowsOrOmit; convex/ai/orderedGeneration.ts:174,374
+source_spec: `spec-dw-107-dw-118-brief-read-and-diff-integrity.md`
+severity: high
+reason: renderBriefForGeneration and loadBriefCheck read up to MAX_BRIEF_ENTRY_ROWS + 1 generationBriefEntries rows with no maximumBytesRead (readBriefEntryRowsOrOmit in convex/generations.ts). The same byte-unbounded .take(500) existed at 7b0723b (convex/generations.ts:1755, :3696). Writer edits (briefs.saveEntryEdit) accept any non-empty text, so 501 or fewer rows can exceed 16 MiB. A read-limit exception in claimOrderedSectionRun or getOrderedCandidateDrafts rolls the claim back outside convex/ai/orderedGeneration.ts's try, leaving the section queued until stale-generation recovery. Pre-existing; surfaced by the attempt 2 review (blind hunter), triaged defer by the gpt-6-astra medium review lead.
+status: open
+
+### DW-153: A derived Brief can still be published and stamped after its generation was cancelled or superseded, because publication fences only on the project's newest Brief, not on the generation's lifecycle.
+origin: spec-deferred f09397d72af5
+location: convex/generations.ts persistDerivedBrief
+source_spec: `spec-dw-107-dw-118-brief-read-and-diff-integrity.md`
+severity: medium
+reason: persistDerivedBrief checks the newest-Brief fence and then stamps generations.briefId without checking generation status or project.activeGenerationId. At 7b0723b the same race already spanned the structured model call and publication (convex/ai/brief.ts:313, :435); the paged baseline read adds a short window to it. Pre-existing; surfaced by the attempt 2 review (blind hunter), triaged defer by the review lead.
+status: open
+
+### DW-154: Chat's open-question evidence block still admits change "removed" confidenceMap rows from the Brief a generation used.
+origin: spec-deferred 12e2897b792b
+location: convex/chatV2.ts openQuestionsFor
+source_spec: `spec-dw-107-dw-118-brief-read-and-diff-integrity.md`
+severity: medium
+reason: convex/chatV2.ts openQuestionsFor (around :1311-1318) reads generationBriefEntries by briefId and filters by group and confidence only, identically to 7b0723b. Already owned as finding 6 / story 9 in the reviewed twelve-story intake (commit 09b2403); recorded here because the attempt 2 review lead triaged it defer, not as a new repair owner.
+status: open
+
+### DW-155: The writer-facing Brief rail reads a plain take(MAX_BRIEF_ENTRY_ROWS), so it shows a prefix of an over-bound Brief.
+origin: spec-deferred e3163bebcfb2
+location: convex/briefs.ts briefEntries (getBrief, listBriefEntries)
+source_spec: `spec-dw-107-dw-118-brief-read-and-diff-integrity.md`
+severity: medium
+reason: convex/briefs.ts briefEntries (:46-51) takes MAX_BRIEF_ENTRY_ROWS rows with no overflow probe; the same prefix read existed at 7b0723b (convex/briefs.ts:50 with its local 500). Already tracked as DW-128; recorded here because the attempt 2 review lead triaged it defer, not as a new repair owner.
+status: open
