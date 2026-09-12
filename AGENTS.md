@@ -66,3 +66,10 @@ Read `.factory/AGENTS.factory.md` for the isolate → build → prove → ship r
 ## Native BMAD ledger finalization
 
 The native BMAD orchestrator owns deferred-work ledger content and status. Do not author, revert, regenerate, or manually change ledger entries. During native finalization, you may stage and commit the exact unchanged ledger bytes written by the orchestrator, alongside reviewed artifacts, when native journal/state or the invocation snapshot establishes their provenance. Confirm the working-tree bytes and staged blob match that snapshot and retain the evidence. Do not stage unexplained ledger changes. Committing an existing native close does not itself establish final run acceptance.
+
+## Reviewer model preference
+
+- Use `gpt-6-astra` with reasoning effort `medium` for every code, document, plan and audit review, including review subagents and review-lead judgments. Select the model and effort explicitly.
+- Use `gpt-5.6-sol` with reasoning effort `high` only when an actual Astra availability or access failure prevents the review. Record the failure and the model and effort actually used. A review finding or failed test does not justify switching models.
+- If both reviewers are unavailable, preserve the work and report the review as pending. Never mark an unperformed review as passed.
+- This preference applies to reviewers. Keep implementation and test-execution roles separately configured, and preserve each review workflow's scope, evidence requirements and result contract.
