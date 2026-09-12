@@ -1,3 +1,5 @@
+# Deferred Work
+
 ### DW-1: Restore the ten pre-existing failing cases in the excluded Bun proposal test file.
 origin: spec-deferred 542cee466154
 location: tests/chatProposals.test.ts
@@ -789,10 +791,19 @@ status: done 2026-09-05
 resolution: Independent PED acceptance audit found no actionable defect; later native malformed-content repair was independently reviewed and all eight PED paths remain unchanged from reviewed e13e625. Native acceptanceb984822a8aeb70b7eb48a5d617ed18846392b1d2; .audit/integration-code-review-9da55be/ped-native-acceptance-audit.md and .audit/integration-final-20260905/final-acceptance-preflight.md. Final combined source569158a2b31ad0a7bf8ff1ba1e63a8634cc6f54c passed1970 unit and463 browser tests, both type checks, uploader suites and build; .audit/integration-final-20260905/final-gates/final-verification.json. Review-budget follow-up satisfied.
 
 
-## Deferred from: code review of SPEC-ai-engine-sprint-2-boundary (2026-09-04, integration 9da55be)
+### DW-149: Shared live report can change after publication
 
-- Shared live report can change after publication: Live sharing and mutable report identity predate this branch. The approved QA change gates readiness and publish mutations; pinning shared copies or adding an egress/edit gate changes the domain workflow. Preserve as a separate existing sharing concern, not an unapproved expansion of CAP-8. Evidence: convex/reports.ts:30-35,64-72; convex/projects.ts:1047. Source review: .audit/integration-code-review-9da55be/review.md.
-- Because detector accepts a substring: The existing sentence-level /because/i detector predates the change and is deliberately retained by the frozen QA contract. This specific substring limitation is distinct from the multi-uncertainty case in DW-71; changing the detector requires focused work under its own intent. Evidence: convex/ai/qaChecks.ts:101-104. Source review: .audit/integration-code-review-9da55be/review.md.
+origin: migrated from legacy ledger ("Deferred from: code review of SPEC-ai-engine-sprint-2-boundary (2026-09-04, integration 9da55be)"), 2026-09-12
+location: convex/reports.ts:30-35,64-72; convex/projects.ts:1047
+reason: Live sharing and mutable report identity predate this branch. The approved QA change gates readiness and publish mutations; pinning shared copies or adding an egress/edit gate changes the domain workflow. Preserve as a separate existing sharing concern, not an unapproved expansion of CAP-8. Evidence: convex/reports.ts:30-35,64-72; convex/projects.ts:1047. Source review: .audit/integration-code-review-9da55be/review.md.
+status: open
+
+### DW-150: Because detector accepts a substring
+
+origin: migrated from legacy ledger ("Deferred from: code review of SPEC-ai-engine-sprint-2-boundary (2026-09-04, integration 9da55be)"), 2026-09-12
+location: convex/ai/qaChecks.ts:101-104
+reason: The existing sentence-level /because/i detector predates the change and is deliberately retained by the frozen QA contract. This specific substring limitation is distinct from the multi-uncertainty case in DW-71; changing the detector requires focused work under its own intent. Evidence: convex/ai/qaChecks.ts:101-104. Source review: .audit/integration-code-review-9da55be/review.md.
+status: open
 
 ### DW-96: Follow-up review still recommended for 4 after the damping cap was spent
 origin: review-budget-followup
