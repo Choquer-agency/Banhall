@@ -622,6 +622,24 @@ describe("formatTurnSummary", () => {
     );
   });
 
+  it("reports a zero-edit revision as recorded findings, not a suggestion (DW-135)", () => {
+    const recorded = normalizeTurnParts(
+      assistant([toolPart({ type: "tool-proposeBulkEdits", toolCallId: "b1" })]),
+      [
+        proposal({
+          kind: "replacements",
+          replacements: [],
+          requireUniqueTargets: true,
+          state: "applied",
+          toolCallId: "b1",
+        }),
+      ]
+    );
+    expect(formatTurnSummary(recorded, timing({ stepCount: 1 }), "success", 0)).toBe(
+      "Worked for 12s · findings recorded"
+    );
+  });
+
   it("reports located passages as a found outcome", () => {
     const refs = normalizeTurnParts(
       assistant([toolPart({ type: "tool-highlightPassages", toolCallId: "h1" })]),

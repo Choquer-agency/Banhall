@@ -15,6 +15,7 @@
  */
 import type { UIMessage } from "@convex-dev/agent";
 import type { Doc } from "../../../convex/_generated/dataModel";
+import { isRecordOnlyProposal } from "../../../shared/chatProposals";
 
 export type ToolPartState =
   | "input-streaming"
@@ -641,12 +642,20 @@ export function formatDuration(ms: number): string {
  */
 function outcomeSuffix(turn: NormalizedTurn): string {
   const suggestions = turn.proposalNodes.filter(
-    (node) => node.proposal.kind !== "references"
+    (node) =>
+      node.proposal.kind !== "references" && !isRecordOnlyProposal(node.proposal)
   ).length;
   if (suggestions) {
     return ` · ${suggestions} ${suggestions === 1 ? "suggestion" : "suggestions"}`;
   }
-  const found = turn.proposalNodes.length - suggestions;
+  // DW-135: an all-blocked revision produced findings, not a suggestion; the
+  // card says "Nothing to apply", so the summary must not promise one.
+  if (turn.proposalNodes.some((node) => isRecordOnlyProposal(node.proposal))) {
+    return " · findings recorded";
+  }
+  const found = turn.proposalNodes.filter(
+    (node) => node.proposal.kind === "references"
+  ).length;
   if (found) return " · found passages";
   const searchedBrain = turn.traceNodes.some(
     (node) => node.kind === "tool" && node.toolName === "searchBrain"
