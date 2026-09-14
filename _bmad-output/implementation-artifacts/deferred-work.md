@@ -399,6 +399,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: medium
 reason: convex/projects.ts:1106 enumerates the cascade; reportEditDistance is absent. seriesForWriter keys on writerUserId, not project access, so orphaned rows stay readable. Not patched because the same cascade already omits reportSnapshots, reportProvenance, writerReviews, candidateScores and modelSelections -- a house-wide retention gap -- and the intent restricts convex/projects.ts to the scheduled publish call.
 status: open
+decision: 2026-09-14 Delete linked measurements — Resolve with DW-60 and DW-67 under one approved retention policy and implement bounded cascade with writer-series deletion tests.
 
 ### DW-48: A report whose content JSON fails to parse persists a bogus ped 1 reading instead of recording nothing.
 origin: spec-deferred f8ab36ad866f
@@ -417,6 +418,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: convex/projects.ts schedules internal.reportEditDistance.recordAtPublish with only reportId, and recordAtPublish re-reads the report at drain time. The intent (touchpoints CAP-2) mandates "add a scheduled internal mutation call only" in this file, so passing and enforcing a revision is a change to the contract, not a patch.
 status: open
+decision: 2026-09-14 Measure published revision — Resolve with DW-65 under one approved publication-time contract; freeze published content/revision/ownership in the scheduled handoff and test intervening changes.
 
 ### DW-50: The generated-baseline lookup is duplicated in two files and filters reason over the whole by_reportId range instead of using a [reportId, reason] index.
 origin: spec-deferred 1672ee0e4699
@@ -432,7 +434,9 @@ location: convex/reportEditDistance.ts
 source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: recordReportEditDistance only runs at new triggers, so existing reports get their first row at the next milestone or publish. The data to seed the trend exists (snapshotIdsToDelete never prunes reason:"generated"), so a one-shot internal backfill would work; the intent explicitly excludes backfill from this story.
-status: open
+status: done 2026-09-14
+resolution: closed by human decision: Accept prospective-only history as explicitly scoped.
+decision: 2026-09-14 Keep prospective samples — Accept prospective-only history as explicitly scoped.
 
 ### DW-52: docs/system-map.md still labels reports.postEditDistance a dead end that is "never stored".
 origin: spec-deferred 6c8361a5abe1
@@ -450,6 +454,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: The trigger union stops at client_publish. snapshots.restoreSnapshot can move content arbitrarily far from the AI draft and the next recorded reading jumps with no row explaining why; projects.finalizeProject is where the writer has actually stopped editing. CAP-2's success criterion names only the three implemented triggers, so these are extensions.
 status: open
+decision: 2026-09-14 Keep decision pending
 
 ### DW-54: Both series queries truncate silently at their caps with no cursor or truncated flag, so a long-lived report or writer shows a partial window presented as the full history.
 origin: spec-deferred ca55a403acc7
@@ -458,6 +463,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: SERIES_FOR_REPORT_LIMIT 200 and SERIES_FOR_WRITER_LIMIT 500 keep the newest readings (tested), but neither query accepts a cursor nor reports that it dropped rows; for seriesForReport the dropped row is the ped-0 candidate_selection origin point, so a capped trend appears to start mid-flight. Paging belongs to CAP-3, which owns the dashboard.
 status: open
+decision: 2026-09-14 Expose bounded-window metadata — Resolve DW-54 and DW-68 together with rows and explicit truncation metadata, updating consumers and limit-boundary tests.
 
 ### DW-55: Only the selectReportCandidate candidate path is driven end to end; the single-candidate and iterative-approve paths are covered structurally, not by test.
 origin: spec-deferred deae0a6ac7eb
@@ -474,6 +480,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: recordReportEditDistance resolves writerUserId from project.ownerId at insert time (correct per PSOS-07). Nothing documents or tests what a later ownership transfer does to either writer's trend, and a writer reading their own series still sees reportId/projectId for projects since reassigned away from them, with no access re-check.
 status: open
+decision: 2026-09-14 Preserve attribution and recheck access — Approve the access policy, retain sampling-time attribution and filter disclosures through current project access with transfer tests.
 
 ### DW-57: seriesForWriter hardcodes an admin/manager-or-self role check instead of going through the repo's roleCapabilities matrix.
 origin: spec-deferred b42a05a3908b
@@ -481,7 +488,9 @@ location: convex/reportEditDistance.ts:58
 source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: medium
 reason: convex/projects.ts:27 imports requireCapability from ./lib/roleCapabilities and uses it two lines from the new scheduled call (:1028, :1053), and shared/capabilities.ts is the recorded permission surface. The new query instead reads user.role directly. The behaviour matches the intent's matrix, so it was not patched, but the permission is now invisible to the capability matrix and the /admin permission UI.
-status: open
+status: done 2026-09-14
+resolution: closed by human decision: Retain the explicitly specified query policy.
+decision: 2026-09-14 Keep dedicated policy — Retain the explicitly specified query policy.
 
 ### DW-58: reportEditDistance rows carry no formula version, so the first change to computeEditDistance silently mixes two incompatible scales on one trend.
 origin: spec-deferred e241a28dbc77
@@ -490,6 +499,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: medium
 reason: convex/schema.ts:1270 stores only the ped scalar; the intent contract enumerates the exact columns, so adding a version column was out of scope here. Once rows exist, adding one requires a backfill, and no consumer can tell a v1 reading from a v2 reading.
 status: open
+decision: 2026-09-14 Version readings — Define legacy v1 interpretation and add formula-version metadata to new writes/reads, using a controlled migration only if required by approved compatibility policy.
 
 ### DW-59: reports.postEditDistance still returns PED to a client_review caller holding a share token, exposing an internal staff-quality metric.
 origin: spec-deferred 7f1a8c583f86
@@ -498,6 +508,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: medium
 reason: convex/reports.ts postEditDistance accepts shareToken and returns for access.kind === "client_review"; the new seriesForReport is internal-only, which makes the asymmetry visible. Pre-existing behaviour untouched by this story, and docs/product-domain.md does not record the exposure as reviewed.
 status: open
+decision: 2026-09-14 Restrict to internal users — Approve internal-only PED and deny shared-token callers while preserving internal response behavior.
 
 ### DW-60: reportEditDistance is append-only with no pruning and no cleanup when a report (rather than a project) is deleted.
 origin: spec-deferred 85449beef801
@@ -506,6 +517,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: Distinct from the deleteProject cascade gap above: reportSnapshots has pruneSnapshots (convex/lib/snapshots.ts:237) while the new table has no retention at all, and seriesForReport returns null once the report is gone, so orphaned rows become unreachable but permanent.
 status: open
+decision: 2026-09-14 Cascade deleted samples — Approve bounded PED cleanup alongside report/project deletion, retaining live-report samples.
 
 ### DW-61: seriesForReport caps by insertion order but presents the series ordered by computedAt, so the dropped row need not be the oldest row shown.
 origin: spec-deferred b18dbfbdc69c
@@ -521,7 +533,9 @@ location: convex/reportEditDistance.ts:80
 source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: convex/reportEditDistance.ts computes `since` at execution time; a Convex query only re-runs when its reads change, so the window does not advance with wall-clock time. CAP-3 should either pass an explicit `since` or refresh deliberately.
-status: open
+status: done 2026-09-14
+resolution: closed by human decision: Accept and document execution-time windows for the unused series surface.
+decision: 2026-09-14 Keep execution-time windows — Accept and document execution-time windows for the unused series surface.
 
 ### DW-63: The candidate-selection hook re-reads the report and re-queries the snapshot it just inserted even though the reading is ped 0 by construction.
 origin: spec-deferred 7ca12cdf17a9
@@ -538,6 +552,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: convex/lib/editDistance.ts compares (trigger, revisionNumber, ped) against by_reportId .order("desc").first(). publish then milestone then publish with no edit in between writes a third row because the newest row's trigger differs. This is the literal reading of the intent's repeat-trigger row; a per-trigger comparison would suppress it.
 status: open
+decision: 2026-09-14 Deduplicate per trigger — Amend the repeat-trigger contract and compare latest matching-trigger samples with alternating publish/milestone tests.
 
 ### DW-65: Recovery review reconfirmed that scheduled publish readings use drain-time content and ownership.
 origin: spec-deferred 62f4c7d4491a
@@ -546,6 +561,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: convex/projects.ts schedules recordAtPublish with reportId only; convex/reportEditDistance.ts:119 loads the report when that mutation runs. The existing recovery deferral is retained for orchestrator resolution.
 status: open
+decision: 2026-09-14 Freeze publication inputs — Approve publication-time sampling and pass immutable content, revision and attribution into the scheduled recorder; test intervening edits and transfers.
 
 ### DW-66: Recovery review reconfirmed that malformed JSON is interpreted as empty text by the existing extractor.
 origin: spec-deferred 732eabc3e917
@@ -564,6 +580,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: medium
 reason: convex/reportEditDistance.ts:91 reads the writer index without loading current projects; the existing deletion and ownership deferrals remain reserved for orchestrator resolution.
 status: open
+decision: 2026-09-14 Apply current access rules — Resolve with DW-56 and approved retention policy, rechecking project access without rewriting historical ownership.
 
 ### DW-68: Recovery review reconfirmed that bounded series responses do not include truncation metadata.
 origin: spec-deferred 176045d2b1ac
@@ -572,6 +589,7 @@ source_spec: `3-persist-post-edit-distance-at-milestones.md`
 severity: low
 reason: convex/reportEditDistance.ts uses take(SERIES_FOR_REPORT_LIMIT) and take(SERIES_FOR_WRITER_LIMIT) and returns arrays. The existing pagination deferral remains reserved for CAP-3.
 status: open
+decision: 2026-09-14 Expose bounded-window metadata — Resolve DW-54 and DW-68 together with rows and explicit truncation metadata, updating consumers and limit-boundary tests.
 
 
 ### DW-69: A review records server state at submission, without proving that it is the content the reviewer previously viewed.
