@@ -528,6 +528,80 @@ describe("getChatContextV2 open questions", () => {
     expect(context.openQuestionsOmitted).toEqual({ count: 0, exact: false });
   });
 
+  test("keeps every open question and drops labels when source lookups would exceed the budget", async () => {
+    // Astra review 2 of DW-138: the Brief walk was bounded but the source
+    // label lookups after it were not. ~6.3 MB of scanned Brief rows plus
+    // twenty distinct ~720 KB sources (~20.7 MB) exceed the 16 MiB limit in
+    // one transaction.
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    const { reportId, projectId, generationId } = await seedBrief(t, []);
+    const briefId = await t.run(async (ctx) => (await ctx.db.get(generationId))?.briefId);
+    if (!briefId) throw new Error("fixture brief missing");
+    const bigSource = "source text ".repeat(60_000); // ~720 KB
+    const now = Date.now();
+    for (let i = 0; i < 20; i += 1) {
+      await t.run(async (ctx) => {
+        const sourceId = await ctx.db.insert("generationSources", {
+          generationId,
+          projectId,
+          kind: "transcript",
+          label: `Source ${i + 1}`,
+          content: bigSource,
+          contentHash: `hash-source-${i + 1}`,
+          truncated: false,
+          originalLength: bigSource.length,
+          capturedAt: now,
+        });
+        await ctx.db.insert("generationBriefEntries", {
+          briefId,
+          projectId,
+          group: "confidenceMap",
+          text: `Open fact ${i + 1}.`,
+          confidence: "unresolved",
+          sourceId,
+          sourceContentHash: `hash-source-${i + 1}`,
+          startOffset: 0,
+          endOffset: 11,
+          exactExcerpt: "source text",
+          createdAt: now,
+        });
+      });
+    }
+    const bigText = "brief entry text ".repeat(53_000); // ~900 KB per row
+    for (let i = 0; i < 7; i += 1) {
+      await t.run(async (ctx) => {
+        const first = await ctx.db
+          .query("generationBriefEntries")
+          .withIndex("by_briefId", (q) => q.eq("briefId", briefId))
+          .first();
+        if (!first) throw new Error("fixture entry missing");
+        await ctx.db.insert("generationBriefEntries", {
+          briefId,
+          projectId,
+          group: "storyline",
+          text: bigText,
+          sourceId: first.sourceId,
+          sourceContentHash: first.sourceContentHash,
+          startOffset: 0,
+          endOffset: 11,
+          exactExcerpt: "source text",
+          createdAt: now,
+        });
+      });
+    }
+    const context = await t.query(internal.chatV2.getChatContextV2, {
+      reportId,
+      agentThreadId: "thread-open-questions-source-budget",
+    });
+    // The walk completed (the questions precede the big rows), every question
+    // is kept, and the labels that no longer fit are unavailable, not read.
+    expect(context.openQuestions).toHaveLength(20);
+    expect(context.openQuestionsOmitted).toEqual({ count: 0, exact: true });
+    expect(context.openQuestions[0]?.sourceLabel).toBe("Source 1");
+    expect(context.openQuestions[19]?.sourceLabel).toBeNull();
+    expect(context.openQuestions.some((q) => q.sourceLabel !== null)).toBe(true);
+  });
+
   test("returns an empty list for a generation with no Brief", async () => {
     const t = convexTest(schema, modules);
     const { projectId, transcriptId } = await seedProject(t);

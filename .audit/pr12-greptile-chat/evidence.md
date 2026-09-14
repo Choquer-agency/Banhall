@@ -131,15 +131,21 @@ index of its Reference counterpart or `undefined`. Per section only.
 
 Review copied to `astra-review/`. Logs under `review-fix/`. The
 `review-fix/before.raw.log` run was taken with every source file at
-`fb15c59` and only the test files edited; the two byte-budget cases fail
-there with the platform error itself (`Read too much data in a single
-function execution (limit: 16777216 bytes)`, 2 occurrences), which only the
-unbudgeted code produces.
+`fb15c59` and only the test files edited. CORRECTION (Astra review 2, item
+3): in that log only the two DOCUMENT byte-budget cases fail with the
+platform read error (`Read too much data in a single function execution
+(limit: 16777216 bytes)`); the Brief byte-budget case failed at fixture
+insertion with `Wrote too much data` (its first version seeded all rows in
+one transaction), so the Brief query never ran there. That log is kept as
+the invalid first attempt. The corrected, separately seeded Brief test was
+rerun against `fb15c59` source: `review-fix-2/before-fb15c59-brief.raw.log`
+(source sha in `before-fb15c59-brief.source.sha`) fails inside the query
+with `Read too much data`.
 
 | Review item | Test | Before (fb15c59) | After |
 | --- | --- | --- | --- |
 | 1 High: row bound does not prevent the 16 MiB read limit (documents) | `chatDeviationInventory.test.ts` "stops at its byte budget instead of exceeding the transaction read limit" (`transactionLimits: true`, 20 × ~900 KB attachments; the unbudgeted walk is shown throwing in the same test) | FAIL: query threw `Read too much data` | pass: `documentScanTruncated: true` |
-| 1 High: same for the Brief scan | `chatContext.test.ts` "stops at its byte budget instead of exceeding the transaction read limit" | FAIL: query threw | pass: `{ count: 0, exact: false }`, prefix question kept |
+| 1 High: same for the Brief scan | `chatContext.test.ts` "stops at its byte budget instead of exceeding the transaction read limit" | FAIL: fixture write limit in `review-fix/` (invalid); query threw `Read too much data` in `review-fix-2/before-fb15c59-brief.raw.log` | pass: `{ count: 0, exact: false }`, prefix question kept |
 | 2 Medium: incomplete scan hidden by empty list / zero omissions | `chatEvidence.test.ts` "says the scan was incomplete even with nothing listed or no known omission"; `chatContext.test.ts` "reports an inexact scan when the row bound stops before the Confidence Map" | FAIL (block absent) / pass (guard) | pass |
 | 3 Medium: truncation ignored on auto-resolve and most tool replies | `chatDeviationInventory.test.ts` "does not auto-resolve the only PD seen when the walk was incomplete"; `chatToolBodies.test.ts` × 4 (explicit choice, named PD carries note, unknown-name phrasing, unreadable/unparsed carry note) | FAIL | pass |
 | 4 Medium: quadratic score matrix | `deviationInventory.test.ts` "skips alignment with a notice when a section is too large to compare" (3000 × 3000), "aligns a large shuffled section without a full score matrix" (300 × 300 guard), "pairs duplicated paragraphs positionally when the sections are identical" | FAIL / pass (guard) / FAIL | pass |
@@ -208,12 +214,75 @@ unbudgeted code produces.
    mapping is returned, so boilerplate duplicated on BOTH sides pairs
    (deterministic, 3 lines).
 
+## Astra review 2 fixes (gpt-6-astra, medium, ACCEPT_WITH_FIXES on a5f9ca4)
+
+Review copied to `astra-review-2/`. Logs under `review-fix-2/`.
+`before.raw.log` was taken with every source file at `a5f9ca4` (verified
+`git diff --stat` empty for the four source files) and only the test files
+edited.
+
+| Review item | Test | Before (a5f9ca4) | After |
+| --- | --- | --- | --- |
+| 1 High: source label lookups after the Brief walk not reserved | `chatContext.test.ts` "keeps every open question and drops labels when source lookups would exceed the budget" (`transactionLimits: true`; 20 questions on 20 distinct ~720 KB sources, then 7 × ~900 KB Brief rows) | FAIL: query threw `Read too much data` | pass: 20 questions, `{ count: 0, exact: true }`, first label present, later labels `null` |
+| 1 High: `selectedCandidateRunId` / `chatEvidenceBudget` reads bypass accounting | `deviationInventory.test.ts` "words the unread rules state as a budget limit, never a clean bill" (the degrade path's wording); the reserve itself is by construction (see design) | FAIL | pass |
+| 2 Medium: skipped alignment still blamed a specific paragraph | `deviationInventory.test.ts` "reports only a section-level count difference when a skipped section's lengths differ" (501 vs 500 with an inserted opener, and the reverse, and equal lengths) | FAIL: item `x-242-501-1` on paragraph 501 | pass: one `x-242-1-1 [reference, section-scoped]` item; paragraph 501 clean |
+| 3 Medium: evidence claimed a Brief read-limit reproduction the log did not show | corrected statement above; `review-fix-2/before-fb15c59-brief.raw.log` | — | query fails with `Read too much data` on fb15c59 source |
+
+`review-fix-2/before.raw.log`: `Tests  3 failed | 127 passed (130)`.
+`review-fix-2/after.raw.log`: `Tests  130 passed (130)`.
+
+| Gate | Log | Result |
+| --- | --- | --- |
+| `npx tsc -p convex/tsconfig.json --noEmit` | `review-fix-2/tsc.log` | exit 0 |
+| `npx vitest run` | `review-fix-2/vitest-full.log` | 187 files, 2670 tests passed |
+| `npm run check` | `review-fix-2/check.log` | 5958 files, 0 errors, 0 warnings |
+
+### Design of the fixes
+
+1. `chatReadBudget.read(fn, extraBytes)` reserves one document of headroom
+   BEFORE running `fn`, then charges its return value (when it is a Value)
+   plus `extraBytes` for rows a helper reads that its return does not carry.
+   `{ ok: false }` means the read was never started. Call sites:
+   - Brief source labels: `budget.read(() => ctx.db.get(sourceId))`; when it
+     is refused the question is kept with `sourceLabel: null` (the
+     `ChatOpenQuestion` doc comment now covers "unreadable within the
+     budget" alongside "source row gone").
+   - `selectedCandidateRunId` (one modelSelections row + up to ten small
+     candidate-run rows, `extraBytes = 11 × 2048`): a refused reservation
+     sets the new `RulesStatus` value `"unread"` and reads no notes at all,
+     because falling through to the unfiltered notes index would present
+     every candidate's notes as this report's. `renderInventory` words
+     `unread` as UNAVAILABLE within the read budget, never as a clean bill.
+     By construction the reservation cannot fail there (at most thread +
+     report + generation, ≤ 3 MiB, precede it), so the branch is covered by
+     its wording test rather than a byte fixture.
+   - `chatEvidenceBudget` (three settings rows, `extraBytes = 3 × 1024`) now
+     runs right after the report read, before the document collect; a
+     refused reservation falls back to `DEFAULT_CHAT_EVIDENCE_BUDGET`.
+2. When a section's alignment is skipped, the structural pass attaches at
+   most ONE item: section-scoped on paragraph 1, stating the paragraph-count
+   difference and that which paragraph(s) lack a counterpart is not
+   established. No per-paragraph "no counterpart" claims and no unpaired
+   list. `renderItem` labels it `[reference, section-scoped]`. Equal
+   lengths produce nothing.
+3. Evidence corrected as described at the top of the previous section; the
+   old log is preserved and labelled invalid.
+
 ## Limitations
 
-- The chat context's `projectDocuments.collect()` predates DW-138 and is
-  charged to the budget but not bounded: which documents reach the chat is
-  evidence policy and out of this scope. A project whose documents alone
-  exceed 16 MiB still fails that query as before.
+- PRE-EXISTING, out of scope, to be tracked separately (Astra review 2):
+  the chat context's `projectDocuments.collect()` (`convex/chatV2.ts`,
+  `getChatContextV2`) predates DW-138 and is charged to the budget but not
+  bounded; the generation and proposal `.take`s before and after it are
+  likewise charged, not reserved. Charging after the fact cannot protect
+  those reads: a project whose documents alone approach 16 MiB still fails
+  that query as before, and whole-query safety for `getChatContextV2` is
+  NOT claimed here. Bounding it is evidence policy (which documents reach
+  the chat), not read policy.
+- Both notes walks (`complianceNotes` in the inventory query) can stop on
+  the byte budget with `complete: false`; the partial list is used and the
+  cut is not surfaced as a rules status. Not raised by either review; noted
+  for completeness.
 - The budget is an estimate (`getConvexSize` + 256 B per row) that mirrors
   the learning-health module; it is not the platform's own accounting.
 - Alignment thresholds (0.5 similarity, 0.1 margin) are fixed constants

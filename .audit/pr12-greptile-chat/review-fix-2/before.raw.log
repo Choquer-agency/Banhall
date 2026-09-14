@@ -1,0 +1,161 @@
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-b
+
+ ❯ |convex| convex/lib/deviationInventory.test.ts (32 tests | 2 failed) 77ms
+     × reports only a section-level count difference when a skipped section's lengths differ 9ms
+     × words the unread rules state as a budget limit, never a clean bill 6ms
+ ❯ |convex| convex/chatContext.test.ts (16 tests | 1 failed) 1127ms
+     × keeps every open question and drops labels when source lookups would exceed the budget 279ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/chatContext.test.ts > getChatContextV2 open questions > keeps every open question and drops labels when source lookups would exceed the budget
+Error: Read too much data in a single function execution (limit: 16777216 bytes). This is a Convex limit: https://docs.convex.dev/production/state/limits
+ ❯ performAsyncSyscall node_modules/convex/src/server/impl/syscall.ts:52:10
+ ❯ get node_modules/convex/src/server/impl/database_impl.ts:41:22
+ ❯ Object.get node_modules/convex/src/server/impl/database_impl.ts:55:12
+ ❯ openQuestionsFor convex/chatV2.ts:1447:36
+    1445|     if (entry.confidence !== "unresolved" && entry.confidence !== "unr…
+    1446|     if (!labels.has(entry.sourceId)) {
+    1447|       const source = budget.charge(await ctx.db.get(entry.sourceId));
+       |                                    ^
+    1448|       if (source) labels.set(entry.sourceId, source.label);
+    1449|     }
+ ❯ handler convex/chatV2.ts:1526:27
+ ❯ invokeFunction node_modules/convex/src/server/impl/registration_impl.ts:90:13
+ ❯ invokeQuery node_modules/convex/src/server/impl/registration_impl.ts:350:17
+ ❯ runQueryWithHandler node_modules/convex-test/dist/index.js:1595:31
+ ❯ Object.queryFromPath node_modules/convex-test/dist/index.js:1649:32
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |convex| convex/lib/deviationInventory.test.ts > assembleDeviationInventory Reference PD counterpart alignment (DW-137) > reports only a section-level count difference when a skipped section's lengths differ
+AssertionError: expected { id: 'x-242-501-1', …(5) } to match object { id: 'x-242-1-1', paragraph: 1, …(1) }
+(3 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "id": "x-242-1-1",
+-   "paragraph": 1,
+-   "sectionScoped": true,
++   "id": "x-242-501-1",
++   "paragraph": 501,
++   "sectionScoped": false,
+  }
+
+ ❯ convex/lib/deviationInventory.test.ts:640:22
+    638|     const items = longerDraft.items.filter((i) => i.kind === "referenc…
+    639|     expect(items).toHaveLength(1);
+    640|     expect(items[0]).toMatchObject({ id: "x-242-1-1", paragraph: 1, se…
+       |                      ^
+    641|     expect(items[0]?.instruction).toContain("500 paragraph(s) against …
+    642|     expect(items[0]?.instruction).toContain("not established");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |convex| convex/lib/deviationInventory.test.ts > assembleDeviationInventory Reference PD counterpart alignment (DW-137) > words the unread rules state as a budget limit, never a clean bill
+AssertionError: expected '# DEVIATION INVENTORY\n18 paragraph(s…' to contain 'could not be read within this turn\'s…'
+
+- Expected
++ Received
+
+- could not be read within this turn's read budget
++ # DEVIATION INVENTORY
++ 18 paragraph(s) of the current report, each listed once, in build order 242, 244, 246.
++
++
++ ## Line 242
++ ### Paragraph 1
++ Draft: 242 paragraph 1 body.
++ No Deviation listed.
++
++ ### Paragraph 2
++ Draft: 242 paragraph 2 body.
++ No Deviation listed.
++
++ ### Paragraph 3
++ Draft: 242 paragraph 3 body.
++ No Deviation listed.
++
++ ### Paragraph 4
++ Draft: 242 paragraph 4 body.
++ No Deviation listed.
++
++ ### Paragraph 5
++ Draft: 242 paragraph 5 body.
++ No Deviation listed.
++
++ ## Line 244
++ ### Paragraph 1
++ Draft: 244 paragraph 1 body.
++ No Deviation listed.
++
++ ### Paragraph 2
++ Draft: 244 paragraph 2 body.
++ No Deviation listed.
++
++ ### Paragraph 3
++ Draft: 244 paragraph 3 body.
++ No Deviation listed.
++
++ ### Paragraph 4
++ Draft: 244 paragraph 4 body.
++ No Deviation listed.
++
++ ### Paragraph 5
++ Draft: 244 paragraph 5 body.
++ No Deviation listed.
++
++ ### Paragraph 6
++ Draft: 244 paragraph 6 body.
++ No Deviation listed.
++
++ ### Paragraph 7
++ Draft: 244 paragraph 7 body.
++ No Deviation listed.
++
++ ## Line 246
++ ### Paragraph 1
++ Draft: 246 paragraph 1 body.
++ No Deviation listed.
++
++ ### Paragraph 2
++ Draft: 246 paragraph 2 body.
++ No Deviation listed.
++
++ ### Paragraph 3
++ Draft: 246 paragraph 3 body.
++ No Deviation listed.
++
++ ### Paragraph 4
++ Draft: 246 paragraph 4 body.
++ No Deviation listed.
++
++ ### Paragraph 5
++ Draft: 246 paragraph 5 body.
++ No Deviation listed.
++
++ ### Paragraph 6
++ Draft: 246 paragraph 6 body.
++ No Deviation listed.
++
++ Item ids are stable: reuse them verbatim as the finding ids of one coordinated revision, and report each as resolved, blocked or conflicting. 0 anchored item(s) listed.
+
+ ❯ convex/lib/deviationInventory.test.ts:665:22
+    663|       assembleDeviationInventory({ sections: sections(), notes: [], ru…
+    664|     );
+    665|     expect(rendered).toContain("could not be read within this turn's r…
+       |                      ^
+    666|     expect(rendered).not.toContain("clean bill");
+    667|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  2 failed | 3 passed (5)
+      Tests  3 failed | 127 passed (130)
+   Start at  15:08:25
+   Duration  2.81s (transform 866ms, setup 0ms, import 1.25s, tests 2.93s, environment 348ms)
+

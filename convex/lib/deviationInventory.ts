@@ -97,7 +97,7 @@ export interface UnpairedReferenceParagraph {
  * with no linked generation and a generation whose Self-check found nothing both
  * produce an empty item list, and only the second one is a clean bill.
  */
-export type RulesStatus = "available" | "no_generation" | "no_notes";
+export type RulesStatus = "available" | "no_generation" | "no_notes" | "unread";
 
 export interface DeviationInventory {
   paragraphs: InventoryParagraph[];
@@ -480,6 +480,18 @@ export function assembleDeviationInventory(input: {
       const { referenceTexts, aligned, skipped } = alignments.get(section)!;
       const referenceCount = referenceTexts.length;
       const draftCount = counts.get(section) ?? 0;
+      if (skipped) {
+        // Nothing was aligned, so no paragraph can be said to lack a
+        // counterpart (Astra review 2): the inserted opener would otherwise
+        // blame the LAST paragraph, which may match verbatim. Only the count
+        // difference is a fact, and it is stated once, section-scoped.
+        if (draftCount !== referenceCount) {
+          attach("reference", section, 1, true, {
+            instruction: `Structure: the Reference PD's Line ${section} has ${referenceCount} paragraph(s) against this draft's ${draftCount}. The section was too large to align paragraph by paragraph, so which paragraph(s) lack a counterpart is not established; treat this as a section-level difference only.`,
+          });
+        }
+        continue;
+      }
       const unalignedDraft: number[] = [];
       aligned.forEach((counterpart, index) => {
         if (counterpart === undefined) unalignedDraft.push(index);
@@ -492,16 +504,12 @@ export function assembleDeviationInventory(input: {
           instruction: `Structure: the Reference PD's Line ${section} has ${referenceCount} paragraph(s) against this draft's ${draftCount}, and none of them aligns with this paragraph, so it has no counterpart there.`,
         });
       }
-      // A skipped section lists no unpaired paragraphs: every one of them would
-      // qualify, and the notice already says the pairing was not made.
       const used = new Set(aligned.filter((r): r is number => r !== undefined));
-      if (!skipped) {
-        referenceTexts.forEach((text, index) => {
-          if (!used.has(index)) {
-            unpairedReference.push({ section, paragraph: index + 1, text });
-          }
-        });
-      }
+      referenceTexts.forEach((text, index) => {
+        if (!used.has(index)) {
+          unpairedReference.push({ section, paragraph: index + 1, text });
+        }
+      });
       if (referenceCount > draftCount) {
         // draftCount === 0 has no paragraph to anchor to (the section is
         // entirely missing from the draft, the largest possible structural
@@ -560,6 +568,8 @@ const RULES_STATUS_LINE: Record<RulesStatus, string> = {
     "Rule Deviations are UNAVAILABLE for this report: it is not linked to a generation, so no Compliance Notes describe its paragraphs. Say so. Do not present the list below as a clean bill and do not invent rule Deviations.",
   no_notes:
     "This report's generation stored no Compliance Note that went unapplied, so there is no rule Deviation to list. That is a clean bill on the profile rules only; content Deviations and Reference PD differences are separate.",
+  unread:
+    "Rule Deviations are UNAVAILABLE for this report: its Compliance Notes could not be read within this turn's read budget. Say so. Do not present the list below as a clean bill and do not invent rule Deviations.",
 };
 
 export function renderInventory(result: DeviationInventory): string {
@@ -655,7 +665,9 @@ function renderItem(item: InventoryItem): string {
         : "rule"
       : item.kind === "content"
         ? "content"
-        : "reference";
+        : item.sectionScoped
+          ? "reference, section-scoped"
+          : "reference";
   const tier = item.tier ? `, tier ${item.tier}` : "";
   const reason = item.reason ? ` Reason: ${item.reason}` : "";
   return `${item.id} [${kindLabel}${tier}] ${item.instruction}${reason}`;

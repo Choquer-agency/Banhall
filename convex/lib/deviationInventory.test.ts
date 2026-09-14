@@ -628,6 +628,45 @@ describe("assembleDeviationInventory Reference PD counterpart alignment (DW-137)
     expect(rendered).toContain("Line 242 was not aligned");
   });
 
+  it("reports only a section-level count difference when a skipped section's lengths differ", () => {
+    // Astra review 2: 501 x 500 pairs is over the bound, so nothing aligns,
+    // and the old fallback then blamed paragraph 501 for having no
+    // counterpart although it is reference paragraph 500 verbatim.
+    const reference = Array.from({ length: 500 }, (_, i) => `Reference paragraph number ${i}.`);
+    const longerDraft = withRef(["An inserted opening paragraph.", ...reference], reference);
+    expect(longerDraft.alignmentSkippedSections).toEqual(["242"]);
+    const items = longerDraft.items.filter((i) => i.kind === "reference");
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ id: "x-242-1-1", paragraph: 1, sectionScoped: true });
+    expect(items[0]?.instruction).toContain("500 paragraph(s) against this draft's 501");
+    expect(items[0]?.instruction).toContain("not established");
+    expect(
+      longerDraft.paragraphs.find((p) => p.section === "242" && p.paragraph === 501)?.items
+    ).toEqual([]);
+    expect(renderInventory(longerDraft)).toContain("x-242-1-1 [reference, section-scoped]");
+
+    const shorterDraft = withRef(reference, ["An inserted opening paragraph.", ...reference]);
+    const shorterItems = shorterDraft.items.filter((i) => i.kind === "reference");
+    expect(shorterItems).toHaveLength(1);
+    expect(shorterItems[0]).toMatchObject({ paragraph: 1, sectionScoped: true });
+    expect(shorterItems[0]?.instruction).toContain("501 paragraph(s) against this draft's 500");
+    // Equal lengths: nothing to claim at all.
+    expect(
+      withRef(reference, reference.map((p) => `${p} Revised.`)).items.filter(
+        (i) => i.kind === "reference"
+      )
+    ).toEqual([]);
+  });
+
+  it("words the unread rules state as a budget limit, never a clean bill", () => {
+    const rendered = renderInventory(
+      assembleDeviationInventory({ sections: sections(), notes: [], rulesStatus: "unread" })
+    );
+    expect(rendered).toContain("could not be read within this turn's read budget");
+    expect(rendered).toContain("UNAVAILABLE");
+    expect(rendered).not.toContain("stored no Compliance Note that went unapplied");
+  });
+
   it("aligns within a section only, never across Locked sections", () => {
     const result = assembleDeviationInventory({
       sections: { s242: DRAFT_A, s244: DRAFT_B, s246: "Advancement." },

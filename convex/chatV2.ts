@@ -51,9 +51,10 @@ import { domainError, sha256 } from "./lib/contracts";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { proposalPairs } from "../shared/chatProposals";
 import { chatAdmissionLimits, chatEvidenceBudget } from "./appSettings";
-import type {
-  ChatOpenQuestion,
-  ChatOpenQuestionsOmitted,
+import {
+  DEFAULT_CHAT_EVIDENCE_BUDGET,
+  type ChatOpenQuestion,
+  type ChatOpenQuestionsOmitted,
 } from "./ai/chatEvidence";
 import { projectRollingCostUsdUnits, usdDecimalUnits } from "./aiUsage";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -1126,6 +1127,25 @@ function chatReadBudget() {
       return value;
     },
     /**
+     * Reserve BEFORE a read, then perform and charge it. `{ ok: false }` means
+     * the read was not started: the caller degrades (an unavailable label, a
+     * default) instead of the transaction throwing. `extraBytes` covers rows
+     * a helper reads that its return value does not carry (a selection row,
+     * a settings row); the return value itself is charged when it is a Value.
+     */
+    async read<T>(
+      fn: () => Promise<T>,
+      extraBytes = 0
+    ): Promise<{ ok: true; value: T } | { ok: false }> {
+      if (!reserve()) return { ok: false };
+      const value = await fn();
+      used += extraBytes;
+      if (value !== null && value !== undefined && typeof value === "object") {
+        account(value as Value);
+      }
+      return { ok: true, value };
+    },
+    /**
      * Walk an index range, keeping the rows `keep` accepts, up to `cap` rows
      * scanned and within the byte budget. `complete` is false when either
      * bound stopped the walk before the range ended.
@@ -1162,7 +1182,7 @@ function chatReadBudget() {
 /** Why rule Deviations are or are not in the inventory. Three distinguishable
  * states, because "no linked generation" and "a generation that found nothing"
  * need different sentences and only one of them is a clean bill. */
-type RulesStatus = "available" | "no_generation" | "no_notes";
+type RulesStatus = "available" | "no_generation" | "no_notes" | "unread";
 
 /**
  * What happened when the tool tried to resolve a Reference PD. Every non
@@ -1282,9 +1302,25 @@ export const getDeviationInventoryContext = internalQuery({
       : null;
 
     let notes: InventoryNote[] = [];
+    // The selection lookup reads one modelSelections row and up to ten small
+    // candidate-run rows; reserved before it starts and charged as a flat
+    // estimate on top of its (id) return value. Without it a compare
+    // generation would be read through the unfiltered index and present
+    // every candidate's notes as this report's, so a failed reservation
+    // marks the rules UNREAD rather than falling through.
+    let notesUnread = false;
     if (generation) {
-      const candidateRunId = await selectedCandidateRunId(ctx, generation);
-      const { rows } = await budget.list(
+      const selection = await budget.read(
+        () => selectedCandidateRunId(ctx, generation),
+        11 * 2048
+      );
+      if (!selection.ok) {
+        notesUnread = true;
+      }
+      const candidateRunId = selection.ok ? selection.value : undefined;
+      const { rows } = notesUnread
+        ? { rows: [] as Doc<"complianceNotes">[] }
+        : await budget.list(
         candidateRunId !== undefined
           ? ctx.db
               .query("complianceNotes")
@@ -1313,9 +1349,11 @@ export const getDeviationInventoryContext = internalQuery({
     }
     const rulesStatus: RulesStatus = !generation
       ? "no_generation"
-      : notes.length === 0
-        ? "no_notes"
-        : "available";
+      : notesUnread
+        ? "unread"
+        : notes.length === 0
+          ? "no_notes"
+          : "available";
 
     // The Reference PD is a `previous_pd` document of THIS project. Archived
     // rows are already out of AI context, so they are out of here too. The
@@ -1443,9 +1481,12 @@ async function openQuestionsFor(
       continue;
     }
     if (entry.confidence !== "unresolved" && entry.confidence !== "unreliable") continue;
+    // Source rows carry full content. Each lookup is reserved BEFORE it is
+    // started; when the budget is spent the question is kept with an
+    // unavailable label rather than read (Astra review 2 of DW-138).
     if (!labels.has(entry.sourceId)) {
-      const source = budget.charge(await ctx.db.get(entry.sourceId));
-      if (source) labels.set(entry.sourceId, source.label);
+      const source = await budget.read(() => ctx.db.get(entry.sourceId));
+      if (source.ok && source.value) labels.set(entry.sourceId, source.value.label);
     }
     open.push({
       text: entry.text,
@@ -1467,6 +1508,12 @@ export const getChatContextV2 = internalQuery({
     const budget = chatReadBudget();
     const report = budget.charge(await ctx.db.get(args.reportId));
     if (!report) throw new Error("Report not found");
+    // Three small settings rows, reserved before they are read and charged as
+    // a flat estimate; the defaults stand in if the reservation ever fails.
+    const evidenceBudgetRead = await budget.read(() => chatEvidenceBudget(ctx), 3 * 1024);
+    const evidenceBudget = evidenceBudgetRead.ok
+      ? evidenceBudgetRead.value
+      : DEFAULT_CHAT_EVIDENCE_BUDGET;
 
     // Ground on the generation that actually produced THIS report — the
     // latest project generation can belong to a newer report (or a failed
@@ -1553,7 +1600,7 @@ export const getChatContextV2 = internalQuery({
       openQuestionsOmitted: openQuestions.omitted,
       // Resolved in the query, exactly as `getGenerationInput` resolves the
       // analyzer's: the action sends context, it does not decide policy.
-      evidenceBudget: await chatEvidenceBudget(ctx),
+      evidenceBudget,
     };
   },
 });

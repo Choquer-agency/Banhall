@@ -124,7 +124,7 @@ export interface ChatEvidenceDecision {
  * One unresolved or unreliable Confidence Map entry of this report's Brief
  * (CAP-14). `sourceLabel` is the frozen source the fact came from, so the
  * assistant can say where the gap is, and is null on an entry whose source row
- * is gone.
+ * is gone or could not be read within the query's read budget.
  */
 export interface ChatOpenQuestion {
   text: string;
