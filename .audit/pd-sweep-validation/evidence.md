@@ -31,8 +31,8 @@ That bundle merged without an accepted review (review session stalled). Reviewer
 
 ## Gaps found
 
-1. DW-121/122: the ownership and missing-parent guards in `readRequestedSectionCandidate` have no test that fails when they are removed; the rows sit past the old 30-row cap, so they return nothing at baseline anyway. No duplicate `candidateId` case.
-2. DW-112: the fix rewrote DW-107 fixtures to unique `inputsHash` per call. Same-key writer-edit republish and retry-exhaustion races lost coverage (old tests against new source: 10 fail).
+1. DW-121/122: at baseline the guard rows sat past the old 30-row cap, so the before run could not show the guards. On the fixed source the existing test already catches removing both ownership checks, the missing-parent guard or the failed-run filter. The real gaps were each ownership check alone and duplicate `candidateId`. Closed by `a9b3068` (see `test-hardening/`).
+2. DW-112: the fix rewrote DW-107 fixtures to unique `inputsHash` per call. Same-key writer-edit republish and retry-exhaustion races lost coverage (old tests against new source: 10 fail). Closed by `a9b3068`: 3 same-key tests, each failing under at least three source mutations.
 3. DW-114: only the prompt-text assertions discriminate; the persistence half passes at baseline with the canned response. The `system` equality compares the constant with itself.
 4. DW-107/118: AC3 (attempt-1 lockout red) is not reproducible, and 19 of 29 discriminating tests are API-shape only. The spec's `.audit/dw-brief-read-and-diff-integrity/` directory is absent from the tree.
 5. DW-109/120: final review ran at `xhigh`, not the policy's `medium`. The cited hostile-error red log is absent from the tree.
