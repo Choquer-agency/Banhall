@@ -934,6 +934,7 @@ source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: medium
 reason: briefOutputSchema (convex/ai/brief.ts) validates the whole structured-call payload as one object; once the two-attempt-repair policy is exhausted, generateStructured throws and the whole Brief (Storyline, every Claim Exclusion, Confidence Map entry, Glossary Term) is discarded rather than degrading per-entry the way a failed citation byte-match does.
 status: open
+decision: 2026-09-14 Salvage valid entries — Preserve repair policy, validate entries independently after exhaustion, count malformed drops and expose partial telemetry.
 
 ### DW-109: Brief-derivation failures are only console.error-logged; nothing is persisted to distinguish "no evidence to derive from" from "the call failed".
 origin: spec-deferred 5b0ba126b9cd
@@ -952,6 +953,7 @@ source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: low
 reason: reserveGeneration stores the writer Storyline with no cap analogous to TRANSCRIPT_BUDGET_CHARS, and it is appended verbatim into every section prompt. The same structured call also always asks for storyline/ storylineClaims even when origin will be "writer", spending tokens the epic's own SM-C2 2x call/cost budget must absorb.
 status: open
+decision: 2026-09-14 Preserve text, avoid derivation — Keep writer text verbatim and omit competing Storyline generation when supplied text is authoritative; measure request/token differences.
 
 ### DW-111: saveEntryEdit checks only that the edited Brief is the latest version for its own inputsHash, never whether that inputsHash is still the project's current one.
 origin: spec-deferred 3ce61774e7b5
@@ -960,6 +962,7 @@ source_spec: `1-generation-brief-storage-and-derivation-stage.md`
 severity: low
 reason: A writer can successfully edit a Brief version whose inputsHash has since been superseded by a new derivation (e.g. after a document was added); the edit succeeds but produces a version findReusableBrief will never surface to a future generation.
 status: open
+decision: 2026-09-14 Disclose historical editing — Preserve per-hash edits and disclose historical inputs and future reuse limitations.
 
 ### DW-112: Two generations that concurrently derive the same brand-new (projectId, inputsHash) for the first time can each insert a version-1 Brief.
 origin: spec-deferred 46a3dcf375ac
@@ -1030,6 +1033,7 @@ source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: medium
 reason: The reaper (convex/crons.ts, every 10 minutes, olderThanMinutes 30) has per-section handling for iterative only. A single generation now runs generateReport, generateCandidate, three sequential section actions (up to five provider calls each, 240 s per attempt) and finalize. AD-24 binds recovery to the existing reaper and forbids a new one, so a progress-aware threshold is an architecture-level change.
 status: open
+decision: 2026-09-14 Use progress-aware recovery — Approve timeout semantics in the existing reaper, preserve single recovery ownership and test slow-active versus stalled chains.
 
 ### DW-120: A Brief-derivation failure inside generateReport is only logged with console.error, not the writer-facing progress log, so a silently Brief-less generation gives no visible signal of why.
 origin: spec-deferred 25ee33812071
@@ -1068,6 +1072,7 @@ source_spec: `2-ordered-ungated-generation-self-check-compliance.md`
 severity: medium
 reason: convex/generations.ts completeOrderedSectionRun inserts a generationBriefEntries "storylineQuestion" row per section whenever the model's Self-check verdict cites Confidence Map evidence, with no check for an existing row citing the same evidenceEntryId and no candidateRunId field on the insert. AD-23 names the mechanism but not compare-mode attribution. Not reachable under this story's own acceptance criteria or tests (the readers of this data are deferred to stories 4/5); a correct fix needs either a candidateRunId column or a dedup pass, not a one-line change.
 status: open
+decision: 2026-09-14 Attribute to candidates — Approve candidate ownership, widen storage and consistently scope creation/readers through selection.
 
 ### DW-124: Follow-up review still recommended for 2 after the damping cap was spent
 origin: review-budget-followup
@@ -1126,6 +1131,7 @@ source_spec: `4-brief-panel-and-context-inclusion-visibility.md`
 severity: medium
 reason: recordContextBudget runs once per candidate (convex/ai/pipeline.ts, iterative.ts), each pass patching `inclusion` on the same rows. getGenerationInput's own comment notes an admin retune mid-generation can disagree with what was already recorded. The Brief presents one authoritative inclusion set with no candidate attribution; both inclusion suites exercise a single recording pass only.
 status: open
+decision: 2026-09-14 Freeze generation budget — Define one frozen budget reused by all candidates/iterative consumers, idempotent telemetry and admin-retune/concurrency tests.
 
 ### DW-131: Inclusion rows are inert: EXPERIENCE.md specifies that clicking a document opens it in FilesPanel.
 origin: spec-deferred 98201954e508
@@ -1174,6 +1180,7 @@ source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
 severity: medium
 reason: Ids are positional (`r-<section>-<paragraph>-<n>`), so resolving one deviation, a note flipping to `applied`, or an inserted paragraph renumbers the survivors, while the prompt tells the model never to renumber and `chatProposalItems.itemId` stores them as durable. Pinning needs a content hash or `(reportId, revisionNumber)` on the row, which is a schema and AD-28 change.
 status: open
+decision: 2026-09-14 Pin revision and inventory — Approve AD-28 provenance extension with report revision and deterministic inventory identity, resolving historical meanings against immutable state.
 
 ### DW-137: Reference PD counterpart pairing is positional with no alignment step, so one inserted paragraph shifts every later pair.
 origin: spec-deferred 7cfe7fae0516
@@ -1182,6 +1189,7 @@ source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
 severity: medium
 reason: `assembleDeviationInventory` pairs draft paragraph k with reference paragraph k. The model is then asked to name wording and terminology differences from a counterpart that may belong to a different part of the narrative. Real alignment (structural or similarity-based) is a design addition, not a patch.
 status: open
+decision: 2026-09-14 Add conservative alignment — Define section-local structural/similarity alignment, retain unmatched/ambiguous paragraphs and test insertions/deletions/reordering.
 
 ### DW-138: Every bounded read behind the inventory and the open questions truncates silently, with no signal to the model, and Brief entries are taken before they are filtered.
 origin: spec-deferred 8fa40a85b2ab
@@ -1198,6 +1206,7 @@ source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
 severity: medium
 reason: Defaults are `totalTokens: 60_000` against `report 40_000 + analysis 15_000 + decisions 10_000`, and open questions are spent after the decisions. On a full-length report the remaining total is already exhausted, so the block renders as a bare omission notice while the prompt instructs the model to quote from it. Reordering the spend is a budget-policy decision.
 status: open
+decision: 2026-09-14 Reserve question budget — Approve a bounded reservation within the unchanged total, define which earlier blocks yield and verify saturated-budget convergence.
 
 ### DW-140: No reader exists for chatProposalItems: the rows have one writer and no consumer.
 origin: spec-deferred 8d5a9f63843a
@@ -1230,6 +1239,7 @@ source_spec: `5-one-pass-convergence-and-reference-pd-comparison.md`
 severity: low
 reason: `COMPLETION_REPORT_TARGET_ITEMS` is the spec's N <= 30 bound inside the tool's own 40-edit / 80-finding caps. A 35-item writer list has no sanctioned behaviour, and the most likely reading (two cards) breaks the one-proposal guarantee the harness fixture asserts.
 status: open
+decision: 2026-09-14 Keep bound, explain overflow — Define explicit over-30 handling preserving one-proposal guarantees and identifying unprocessed items; align validation/prompt/harness.
 
 ### DW-144: The harness's mixedProvenance check can pass without the model ever forwarding the writer's content Deviations, because the stubbed inventory ignores its input.
 origin: spec-deferred 72382eeb1a34
