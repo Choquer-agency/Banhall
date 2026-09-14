@@ -1,0 +1,72 @@
+
+## DISCRIMINATING (fail before, pass after-fix): 12
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief | before=failed after-fix=passed head=passed
+    before-msg: AssertionError: expected undefined to deeply equal { kind: 'failed', …(2) }
+- [convex/ai/briefPipelineWiring.test.ts] Generation Brief reaches the drafting pipeline (story 1 wiring) renders the derived Brief into every section-agent prompt | before=failed after-fix=passed head=passed
+    before-msg: AssertionError: expected undefined to deeply equal { kind: 'derived' }
+- [convex/ai/briefPipelineWiring.test.ts] Generation Brief reaches the drafting pipeline (story 1 wiring) never fails the generation when Brief derivation fails — completes with no Brief and no rendered block | before=failed after-fix=passed head=passed
+    before-msg: AssertionError: expected undefined to deeply equal { kind: 'failed', …(2) }
+- [convex/ai/briefPipelineWiring.test.ts] Generation Brief attempt outcomes (DW-109/DW-120) reused: identical frozen inputs stamp the same Brief with no second call, record { kind: reused } and narrate it once | before=failed after-fix=passed head=passed
+    before-msg: AssertionError: expected undefined to deeply equal { kind: 'derived' }
+- [convex/ai/briefPipelineWiring.test.ts] Generation Brief attempt outcomes (DW-109/DW-120) no evidence: zero frozen sources make no Brief call, stamp no Brief, record { kind: no_evidence } and narrate it once | before=failed after-fix=passed head=passed
+    before-msg: AssertionError: expected undefined to deeply equal { kind: 'no_evidence' }
+- [convex/ai/briefPipelineWiring.test.ts] Generation Brief attempt outcomes (DW-109/DW-120) iterative: a failed derivation records the same failed outcome, still schedules s242, and narrates verbatim through getIterativeState | before=failed after-fix=passed head=passed
+    before-msg: AssertionError: expected undefined to deeply equal { kind: 'failed', …(2) }
+- [convex/ai/briefPipelineWiring.test.ts] recordBriefOutcome mutation boundary (DW-109/DW-120) returns null without recreating a missing generation | before=failed after-fix=passed head=passed
+    before-msg: Error: promise rejected "Error: Expected a Convex function exporte…" instead of resolving
+- [convex/ai/briefPipelineWiring.test.ts] runGenerationBriefStage never throws (DW-109) bounds a 1,000-character stage error to BRIEF_OUTCOME_DETAIL_CHARS and still logs the original error | before=failed after-fix=passed head=passed
+    before-msg: TypeError: __vi_import_9__.runGenerationBriefStage is not a function
+- [convex/ai/briefPipelineWiring.test.ts] runGenerationBriefStage never throws (DW-109) resolves when recording the outcome rejects, logging that failure | before=failed after-fix=passed head=passed
+    before-msg: TypeError: __vi_import_9__.runGenerationBriefStage is not a function
+- [convex/ai/briefPipelineWiring.test.ts] runGenerationBriefStage never throws (DW-109) resolves and records an unknown failure when the thrown value defeats stringification and provider normalization | before=failed after-fix=passed head=passed
+    before-msg: TypeError: __vi_import_9__.runGenerationBriefStage is not a function
+- [convex/ai/briefPipelineWiring.test.ts] runGenerationBriefStage never throws (DW-109) resolves when both derivation and recording error logging throw | before=failed after-fix=passed head=passed
+    before-msg: TypeError: __vi_import_9__.runGenerationBriefStage is not a function
+- [convex/ai/briefPipelineWiring.test.ts] runGenerationBriefStage never throws (DW-109) classifies with the provider code, keeps non-Error text, and never cuts a surrogate pair in half | before=failed after-fix=passed head=passed
+    before-msg: TypeError: __vi_import_9__.briefFailureOutcome is not a function
+
+## NON-DISCRIMINATING (pass before and after-fix): 35
+- [convex/ai/brief.test.ts] Generation Brief derivation (story 1, CAP-1/2/4) derives Storyline, Claim Exclusions, Confidence Map and Glossary Terms, each citing a frozen source | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief derivation (story 1, CAP-1/2/4) classifies a flagged glossary candidate via the same call's own quote — no second model call | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief derivation (story 1, CAP-1/2/4) dedupes two flagged glossary candidates that share a canonical term (case-insensitive) | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief derivation (story 1, CAP-1/2/4) drops an entry whose citation fails byte-match and counts the drop on the Brief | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief derivation (story 1, CAP-1/2/4) reuses the stored Brief for identical inputs — no second derivation call | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief derivation (story 1, CAP-1/2/4) re-derives on changed inputs and stamps change: added | unchanged | removed | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief derivation (story 1, CAP-1/2/4) stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief derivation (story 1, CAP-1/2/4) persistDerivedBrief drops a candidate entry whose source belongs to a different project/generation | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief derivation (story 1, CAP-1/2/4) persistDerivedBrief drops a candidate entry whose source belongs to a different generation in the same project | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) saveEntryEdit creates version N+1 with origin=edited and editMagnitude | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) storylineQuestion entries round-trip and saveEntryEdit resolves them | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) getBrief and listBriefEntries read the stored Brief for the UI panel | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) does not re-insert a removed marker across repeated derivations, and stamps a returning entry as added | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) never carries the previous version's storylineQuestion rows forward, as evidence or as a marker | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) renders only live evidence, byte-identically to the Brief the ordered chain checks against | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) diffs against every live row of an over-bound baseline, and a stale fence writes nothing | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) omits an over-bound Brief from both prompt readers instead of throwing | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) reuses an already-over-bound Brief onto a new generation, and both readers omit it | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) persists an oversized derivation in full, then omits it from both readers | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) reads a Brief of exactly MAX_BRIEF_ENTRY_ROWS completely, in both consumers and as a diff baseline | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) reads exactly MAX_BRIEF_SOURCE_ROWS frozen sources completely, without refusing | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) stamps a returning key `added` against a baseline that still carries its removed marker | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) treats a previous version whose rows are all filtered out as a previous version that exists | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) omits a Brief whose live rows alone are under the bound but whose markers push it over | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) re-reads and re-publishes when a writer edit lands between pin and publish | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) gives up after BRIEF_PUBLISH_ATTEMPTS lost fences, leaving no version from the derivation | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) writes nothing when a baseline page read fails part-way, and the next derivation publishes normally | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) marks a retained baseline row removed when every candidate sharing its key fails re-validation | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) aborts the whole publish with INVALID_STATE when a retained reference is not what it claims | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) keeps the last baseline row for a diff key duplicated across pages, when the key is dropped and when its candidates all fail re-validation | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) stamps the first validated duplicate candidate unchanged and later ones added, even when an earlier candidate sharing the key fails re-validation | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) stops without publishing when a one-row page still needs a split or an accepted page makes no progress | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) re-reads a byte-heavy baseline page smaller after SplitRequired and diffs every live row | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) sends no retained baseline text, so a large retained baseline publishes under the argument limit | before=passed after-fix=passed head=passed
+- [convex/ai/brief.test.ts] Generation Brief read completeness and diff baseline (DW-107/DW-118) recovers an over-bound newest Brief on the next changed-input derivation | before=passed after-fix=passed head=passed
+
+## FAIL AFTER-FIX: 0
+
+## ONLY IN HEAD: 3
+- [convex/ai/brief.test.ts] Generation Brief publication idempotency (DW-112) publishes one first version when two same-key derivations reach persistence together | before=absent after-fix=absent head=passed
+- [convex/ai/brief.test.ts] Generation Brief publication idempotency (DW-112) adopts the first publication when it becomes the current baseline before the second baseline read | before=absent after-fix=absent head=passed
+- [convex/ai/brief.test.ts] Generation Brief publication idempotency (DW-112) adopts the latest same-key Brief before a stale project fence or candidate processing | before=absent after-fix=absent head=passed
+
+## OTHER: 0

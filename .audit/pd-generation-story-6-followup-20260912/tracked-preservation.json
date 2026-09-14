@@ -1,0 +1,19 @@
+{
+  "checked_files": 7140,
+  "changed_only_reviewed_files": [
+    "_bmad-output/specs/spec-pd-generation/stories/6-paired-comparison-records-and-success-metric-computation.md",
+    "convex/comparisons.test.ts",
+    "convex/comparisons.ts",
+    "convex/lib/comparisonText.ts",
+    "src/routes/admin/comparisons/+page.svelte",
+    "src/routes/admin/comparisons/comparisonsRecord.component.test.ts"
+  ],
+  "historical_evidence_and_ledger_unchanged": true,
+  "final_source_sha256": {
+    "convex/comparisons.test.ts": "289ad00b60e26f8194fa109bdd43aa46edbd6dbce9f8ea4e2c79ae028525c9ea",
+    "convex/comparisons.ts": "c0b243b71368ed768cddafc81f0445ddb45bf08cd7c712ab14ca59e71c372200",
+    "convex/lib/comparisonText.ts": "6e660e0123088c2ea4f531bcfbf32e4e217308299f9515468becdd03ccd9453a",
+    "src/routes/admin/comparisons/+page.svelte": "6d686f4604c0912a04f794b4ca3086f33e058e969a283c681b6c374e616d419e",
+    "src/routes/admin/comparisons/comparisonsRecord.component.test.ts": "5083e46de2e340c3b142c4bbebf2c83d57889bf68f6d3cd50b907e71d7f7c14e"
+  }
+}

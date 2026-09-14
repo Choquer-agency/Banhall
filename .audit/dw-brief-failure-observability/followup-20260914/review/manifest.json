@@ -1,0 +1,186 @@
+{
+  "base": "4057a582b4d0f45395e0b853ffff93a73ff1b789",
+  "head": "ad36712404333b582e365699c69ae44724e97bdb",
+  "input_sha256": "5c045dadfcf1e860a2939220e007c7ab8cf88beb75074978fd8a85d9bf35dfdf",
+  "input_bytes": 203403,
+  "model": "gpt-6-astra",
+  "reasoning_effort": "xhigh",
+  "codex_home": "/Users/johnnynguyen/.codex",
+  "BMAD_LOOP_TASK_ID_present": false,
+  "max_concurrent_reviewers": 3,
+  "layers": {
+    "blind-hunter": {
+      "prompt_sha256": "c2de959ca47611939f8172be1f457e38c4767ffa38a9c36f877b0a67d7ff0e22",
+      "command": [
+        "codex",
+        "exec",
+        "--model",
+        "gpt-6-astra",
+        "-c",
+        "model_reasoning_effort=\"xhigh\"",
+        "--sandbox",
+        "read-only",
+        "-C",
+        "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability",
+        "--color",
+        "never",
+        "-o",
+        "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability/.audit/dw-brief-failure-observability/followup-20260914/review/blind-hunter.md",
+        "-"
+      ],
+      "started_at": "2026-09-14T10:14:45.101143+00:00",
+      "finished_at": "2026-09-14T10:18:26.919127+00:00",
+      "exit_code": 0,
+      "actual_header": [
+        "workdir: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability",
+        "model: gpt-6-astra",
+        "provider: openai",
+        "approval: never",
+        "sandbox: read-only",
+        "reasoning effort: xhigh",
+        "session id: 01a09f69-7adc-79a3-be39-fc010cdec586"
+      ],
+      "prompt_txt_receipt": {
+        "path": ".audit/dw-brief-failure-observability/followup-20260914/review/blind-hunter.prompt.txt.gz",
+        "sha256_uncompressed": "c2de959ca47611939f8172be1f457e38c4767ffa38a9c36f877b0a67d7ff0e22",
+        "sha256_compressed": "46e498381cefb14dadb768ec3c0ccbddf083967bed27bdebac0d18334bdaef3c"
+      },
+      "cli_log_receipt": {
+        "path": ".audit/dw-brief-failure-observability/followup-20260914/review/blind-hunter.cli.log.gz",
+        "sha256_uncompressed": "e277eb5cd60814d471ded1d71831a6308cb06a5b834952ffdc3fe3616fb7b1ce",
+        "sha256_compressed": "100c4fe77cdd27a40feea3d11f0e95890293026ca92394c9d616e26086854f2b"
+      },
+      "result_sha256": "b30aa0b72823cc676aa548463590c3d746d0054e8ed317c91a78b4d932264c37"
+    },
+    "edge-case-hunter": {
+      "prompt_sha256": "b3b70219764b70a9dd3fac4b09d6c3aa5c07c2940231d822d3611c29e75942ad",
+      "command": [
+        "codex",
+        "exec",
+        "--model",
+        "gpt-6-astra",
+        "-c",
+        "model_reasoning_effort=\"xhigh\"",
+        "--sandbox",
+        "read-only",
+        "-C",
+        "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability",
+        "--color",
+        "never",
+        "-o",
+        "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability/.audit/dw-brief-failure-observability/followup-20260914/review/edge-case-hunter.md",
+        "-"
+      ],
+      "started_at": "2026-09-14T10:14:45.101676+00:00",
+      "finished_at": "2026-09-14T10:15:32.677912+00:00",
+      "exit_code": 0,
+      "actual_header": [
+        "workdir: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability",
+        "model: gpt-6-astra",
+        "provider: openai",
+        "approval: never",
+        "sandbox: read-only",
+        "reasoning effort: xhigh",
+        "session id: 01a09f69-7ade-7000-af56-0a37c87d5363"
+      ],
+      "prompt_txt_receipt": {
+        "path": ".audit/dw-brief-failure-observability/followup-20260914/review/edge-case-hunter.prompt.txt.gz",
+        "sha256_uncompressed": "b3b70219764b70a9dd3fac4b09d6c3aa5c07c2940231d822d3611c29e75942ad",
+        "sha256_compressed": "56aeddd3e121d2e9be76d778d9b6fea0f3f134ffc4e0adac59a5c6d24c3fc4a2"
+      },
+      "cli_log_receipt": {
+        "path": ".audit/dw-brief-failure-observability/followup-20260914/review/edge-case-hunter.cli.log.gz",
+        "sha256_uncompressed": "25881f75472d7bc630753dbdfcf0839c26e2f0f52457cd886d3233ae23f5b15b",
+        "sha256_compressed": "c289663b4cb768c646e8e3e16c48f76b584dbe18d71d63801b39a9be2905eb17"
+      },
+      "result_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "verification-gap": {
+      "prompt_sha256": "ea9d0c664284c701dc0b727535b16f17140797be8cb0dadaffe1e7d0b572b100",
+      "command": [
+        "codex",
+        "exec",
+        "--model",
+        "gpt-6-astra",
+        "-c",
+        "model_reasoning_effort=\"xhigh\"",
+        "--sandbox",
+        "read-only",
+        "-C",
+        "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability",
+        "--color",
+        "never",
+        "-o",
+        "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability/.audit/dw-brief-failure-observability/followup-20260914/review/verification-gap.md",
+        "-"
+      ],
+      "started_at": "2026-09-14T10:14:45.101854+00:00",
+      "finished_at": "2026-09-14T10:15:21.722101+00:00",
+      "exit_code": 0,
+      "actual_header": [
+        "workdir: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability",
+        "model: gpt-6-astra",
+        "provider: openai",
+        "approval: never",
+        "sandbox: read-only",
+        "reasoning effort: xhigh",
+        "session id: 01a09f69-7add-7bf2-a4bb-b1dd7a90613a"
+      ],
+      "prompt_txt_receipt": {
+        "path": ".audit/dw-brief-failure-observability/followup-20260914/review/verification-gap.prompt.txt.gz",
+        "sha256_uncompressed": "ea9d0c664284c701dc0b727535b16f17140797be8cb0dadaffe1e7d0b572b100",
+        "sha256_compressed": "94e4919ac56230dc126415b225824adbf5037c67bbde860ce46c673474753867"
+      },
+      "cli_log_receipt": {
+        "path": ".audit/dw-brief-failure-observability/followup-20260914/review/verification-gap.cli.log.gz",
+        "sha256_uncompressed": "df2b0ea972e1d70f2ff1442b29b4c5e009babf7294c0f50aa616b120b9640aa6",
+        "sha256_compressed": "ec5cf496d0b385078c091cc2ef0f3b2670c968dad2e9052a8c7daa87db48a03d"
+      },
+      "result_sha256": "cf87c32d185d257a566f972441f0b6160112e6bf4ec0bc1cd98dfbbdf87ce05b"
+    },
+    "intent-alignment": {
+      "prompt_sha256": "67823f65a72a54d212c70c7353d8881263f17bd484c1d9bc3c35abd12a8af2c8",
+      "command": [
+        "codex",
+        "exec",
+        "--model",
+        "gpt-6-astra",
+        "-c",
+        "model_reasoning_effort=\"xhigh\"",
+        "--sandbox",
+        "read-only",
+        "-C",
+        "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability",
+        "--color",
+        "never",
+        "-o",
+        "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability/.audit/dw-brief-failure-observability/followup-20260914/review/intent-alignment.md",
+        "-"
+      ],
+      "started_at": "2026-09-14T10:15:21.722786+00:00",
+      "finished_at": "2026-09-14T10:17:22.494450+00:00",
+      "exit_code": 0,
+      "actual_header": [
+        "workdir: /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability",
+        "model: gpt-6-astra",
+        "provider: openai",
+        "approval: never",
+        "sandbox: read-only",
+        "reasoning effort: xhigh",
+        "session id: 01a09f6a-0bcf-7063-b55a-f295b9bd9aa0"
+      ],
+      "prompt_txt_receipt": {
+        "path": ".audit/dw-brief-failure-observability/followup-20260914/review/intent-alignment.prompt.txt.gz",
+        "sha256_uncompressed": "67823f65a72a54d212c70c7353d8881263f17bd484c1d9bc3c35abd12a8af2c8",
+        "sha256_compressed": "f3fd3b98674382c1c7a86669a7d1b7aad671e6b403e2aada7d2fdb58d091b353"
+      },
+      "cli_log_receipt": {
+        "path": ".audit/dw-brief-failure-observability/followup-20260914/review/intent-alignment.cli.log.gz",
+        "sha256_uncompressed": "c9051eea32adf329680bb8809c264b99fad1eeb0e1df149e441f6b21752906d1",
+        "sha256_compressed": "559feda945dc4b18009774be241b02550981c22794ddc11418cab2713434b416"
+      },
+      "result_sha256": "5676d7a0a7b7c9023a4853cd18bef271580fb7c534e24dbbc7766404e8d1b8c5"
+    }
+  },
+  "receipt_storage": "Prompts and full CLI logs are committed as lossless gzip files; uncompressed local copies remain ignored."
+}

@@ -1,0 +1,22 @@
+# label=before-subassert-probe
+# HEAD=087c76b18a8ad462498653651a3fcb971e31baf4
+# git status --short:
+?? convex/candidateScopedBoundedReads.subassert-probe.test.ts
+# date=2026-09-14T18:10:28Z node=v22.22.3
+# env PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site
+# cmd: npx vitest run --config vitest.config.ts --reporter=verbose --reporter=json --outputFile.json=/private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-candidate-scoped-bounded-reads/before-subassert-probe.json convex/candidateScopedBoundedReads.subassert-probe.test.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-b
+
+ ✓ |convex| convex/candidateScopedBoundedReads.subassert-probe.test.ts > candidate-scoped bounded reads > finds a requested section candidate after more than 30 older rows and rejects a cross-generation run 550ms
+ ↓ |convex| convex/candidateScopedBoundedReads.subassert-probe.test.ts > candidate-scoped bounded reads > finds a selected candidate after more than 10 older runs
+ ↓ |convex| convex/candidateScopedBoundedReads.subassert-probe.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for an unresolved legacy selection
+ ↓ |convex| convex/candidateScopedBoundedReads.subassert-probe.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for a legacy selection without candidateId
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 3 skipped (4)
+   Start at  11:10:29
+   Duration  1.03s (transform 520ms, setup 0ms, import 236ms, tests 552ms, environment 65ms)
+
+JSON report written to /private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-candidate-scoped-bounded-reads/before-subassert-probe.json
+# exit=0

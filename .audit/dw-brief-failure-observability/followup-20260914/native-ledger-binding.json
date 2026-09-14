@@ -1,0 +1,80 @@
+{
+  "owning_worktree": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability",
+  "native_journal": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/journal.jsonl",
+  "closure_events": [
+    {
+      "ts": 1789380309.1960971,
+      "kind": "sweep-bundle-closed",
+      "story_key": "dw-brief-failure-observability",
+      "dw_ids": [
+        "DW-109",
+        "DW-120"
+      ],
+      "log_task": "dw-brief-failure-observability-dev-1-g1",
+      "log_pos": 5452123
+    }
+  ],
+  "ledger_invocation_sha256": "56546750658069904780a1c17f2021ed07e91f6c1c4117980e7ccf56daa15e68",
+  "ledger_invocation_git_blob": "2a52f7bd250f121ad4efbc96417b9749b0cef8d0",
+  "ledger_current_matches_invocation": true,
+  "authority": "AGENTS.md Native BMAD ledger finalization permits committing exact unchanged orchestrator bytes with native provenance and staged-blob verification. The user prohibits edits and requires finalization binding preservation.",
+  "acceptance": "This native close establishes ownership only; it is not proof of local verification or final native acceptance.",
+  "native_state_path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/state.json",
+  "native_task_snapshot": {
+    "story_key": "dw-brief-failure-observability",
+    "phase": "review-running",
+    "baseline_commit": "4057a582b4d0f45395e0b853ffff93a73ff1b789",
+    "baseline_ledger_digest": "8dbcca8437400eccd7ade42ba3c8d71f205f79f205d1347059bd13b2a084852d",
+    "post_engine_ledger_digest": null,
+    "bundle_closes_intended": [
+      "DW-109",
+      "DW-120"
+    ],
+    "accepted_dev_session_index": 1,
+    "spec_file": "_bmad-output/implementation-artifacts/spec-dw-109-dw-120-brief-failure-observability-2.md",
+    "commit_sha": null,
+    "bundle_file": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/bundles/brief-failure-observability/intent.md",
+    "worktree_path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability",
+    "branch": "bmad-loop/20260912-061909-feb3"
+  },
+  "native_verification_receipt": {
+    "ts": 1789380309.161122,
+    "kind": "verify-command-result",
+    "story_key": "dw-brief-failure-observability",
+    "attempt": 1,
+    "verification_stage": "dev",
+    "verification_sequence": 1,
+    "command_index": 0,
+    "command": "bash scripts/loop-verify.sh",
+    "returncode": 0,
+    "output_tail": "w-brief-failure-observability/node_modules/safer-buffer/safer.js\". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.\n[plugin rolldown:vite-resolve] Module \"buffer\" has been externalized for browser compatibility, imported by \"/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability/node_modules/safer-buffer/safer.js\". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.\n[plugin rolldown:vite-resolve] Module \"buffer\" has been externalized for browser compatibility, imported by \"/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability/node_modules/safe-buffer/index.js\". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.\n[plugin rolldown:vite-resolve] Module \"buffer\" has been externalized for browser compatibility, imported by \"/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability/node_modules/safe-buffer/index.js\". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.\n\u001b[33m[PLUGIN_TIMINGS] \u001b[0mYour build spent significant time in plugins. Here is a breakdown:\n  - vite-plugin-sveltekit-guard (77%)\n  - vite-plugin-sveltekit-virtual-modules (8%)\n  - vite-plugin-svelte:load-custom (7%)\n  - vite-plugin-svelte:compile (6%)\nSee https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.\n\n\u001b[33m[PLUGIN_TIMINGS] \u001b[0mYour build spent significant time in plugins. Here is a breakdown:\n  - vite-plugin-sveltekit-guard (69%)\n  - vite-plugin-sveltekit-virtual-modules (11%)\n  - vite-plugin-svelte:load-custom (8%)\n  - vite-plugin-svelte:compile (8%)\nSee https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.\n\n",
+    "capture_error": null,
+    "stdout_path": "verify/verify-dw-brief-failure-observability-dev-1-1-0.stdout.log",
+    "stdout_bytes": 55185,
+    "stdout_captured_bytes": 55185,
+    "stdout_truncated": false,
+    "stderr_path": "verify/verify-dw-brief-failure-observability-dev-1-1-0.stderr.log",
+    "stderr_bytes": 2446,
+    "stderr_captured_bytes": 2446,
+    "stderr_truncated": false,
+    "log_task": "dw-brief-failure-observability-dev-1-g1",
+    "log_pos": 5452123
+  },
+  "native_verification_logs": {
+    "stdout": {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/verify/verify-dw-brief-failure-observability-dev-1-1-0.stdout.log",
+      "sha256": "497ae8348b0c1c5e53ed2f158f40c0373cb150d2fde025321a1e30a2b68961eb",
+      "bytes": 55185
+    },
+    "stderr": {
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/verify/verify-dw-brief-failure-observability-dev-1-1-0.stderr.log",
+      "sha256": "40482b386cc6f460fc4f0c96f934dd54586b24a195a22f4dfbff3f81f3c54e13",
+      "bytes": 2446
+    }
+  },
+  "source_binding": {
+    "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-failure-observability/convex/ai/briefPipelineWiring.test.ts",
+    "sha256": "0cf8070f3859c7a80dd67a898cdbc9ffbb21bb1ed75c0d48b8582b859c66f833",
+    "authority": "Current user supervisor guidance explicitly binds native verification to these exact source bytes; parent independently confirmed current hash and no source/package diff since invocation."
+  }
+}

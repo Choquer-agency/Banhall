@@ -1,0 +1,9 @@
+gate_head=c1f6478df3604c8a6ad5231bfa13dcd4dfe8ac47
+source_equiv=e22a4b49c54252cc53010d36ea001bd13fc1b179
+diff_vs_e22a4b4_names:
+_bmad-output/implementation-artifacts/deferred-work.md
+uncommitted:
+M  _bmad-output/implementation-artifacts/deferred-work.md
+node=v22.22.3 npm=10.9.8
+os=Darwin 25.1.0
+gate_exit=exit=0

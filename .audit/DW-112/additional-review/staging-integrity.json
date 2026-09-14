@@ -1,0 +1,15 @@
+{
+  "before": {
+    "command": "git diff --cached --check",
+    "exit_code": 2,
+    "stdout": ".audit/DW-112/additional-review/blind.header.txt:11: new blank line at EOF.\n.audit/DW-112/additional-review/edge.header.txt:11: new blank line at EOF.\n.audit/DW-112/additional-review/intent.header.txt:11: new blank line at EOF.\n.audit/DW-112/additional-review/lead.header.txt:11: new blank line at EOF.\n.audit/DW-112/additional-review/verification.header.txt:11: new blank line at EOF.\n",
+    "stderr": ""
+  },
+  "action": "Preserve the five verbatim CLI header captures and exempt only *.header.txt capture whitespace. Source/spec checks remain enabled.",
+  "after": {
+    "command": "git diff --cached --check",
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  }
+}

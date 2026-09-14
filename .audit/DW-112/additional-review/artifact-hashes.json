@@ -1,0 +1,338 @@
+[
+  {
+    "path": ".audit/DW-112/additional-review/.gitattributes",
+    "sha256": "c4d9350797d6fe08d4c3e6dc25b4d9ef7c300f087e6dac7045fc5c7b7c408851",
+    "bytes": 317,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/.gitignore",
+    "sha256": "d19f1d283ef29fabf9a684792b65d0d3eab419468eb0300f18d8747a25a76e4a",
+    "bytes": 29,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/blind.header.txt",
+    "sha256": "e0dc37f7b554cf3dfccbc6fca6c484aed00a80db2393c396176a03c8fa199ae5",
+    "bytes": 334,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/blind.md",
+    "sha256": "f2f480bb3bdcde4b432aa792b0f263b8cbe60de10fc707dfd3c0cdf16a954fd4",
+    "bytes": 4632,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/blind.prompt",
+    "sha256": "bf51f45b29afc615f339fbf2466fec86ee3270c5c773f9847d6f6bd3651ca711",
+    "bytes": 29424,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/blind.raw.log",
+    "sha256": "b2129391323e07e0b02e084381c69b1a00ae0d119208ec3daf8a9f5280e21729",
+    "bytes": 350934,
+    "retained_in_git": false
+  },
+  {
+    "path": ".audit/DW-112/additional-review/blind.receipt.json",
+    "sha256": "ca61b69b5bebab1d670845a46e217e1c50a036988ac07140f834b4f047d8a3dc",
+    "bytes": 968,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/changed-files.txt",
+    "sha256": "0ba114bf2bb0080952c1abb0485b19b143f803f80c825e070f85353998012dc0",
+    "bytes": 4767,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/core-review.diff",
+    "sha256": "708a8a68d0a6e5fc4e4c8eaec7a17af5437332ba19f97242abc443e0b315c972",
+    "bytes": 27668,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/edge.header.txt",
+    "sha256": "9be05307b16aaa52117a7f638c016c35bf1bd9dad043b3805b38587777a48e7d",
+    "bytes": 334,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/edge.md",
+    "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "bytes": 2,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/edge.prompt",
+    "sha256": "5af26aa2a7dfc2816e6a598a044f3093c0420be634b09324cb9fb103a29faf6c",
+    "bytes": 29495,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/edge.raw.log",
+    "sha256": "0ad1b8a259fc62ef952738aba233e30a4a431c33f54f2161aa60004104547cdf",
+    "bytes": 243607,
+    "retained_in_git": false
+  },
+  {
+    "path": ".audit/DW-112/additional-review/edge.receipt.json",
+    "sha256": "35089312f5ca895a3fd379a07b95f810a7f8090c982751459192366f163756b1",
+    "bytes": 966,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/entry-manifest.json",
+    "sha256": "216cd7fced74cb011ebccf57505bdde3cf4e3dd4e2a68230791f557c5dc5c3b6",
+    "bytes": 975273,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/entry-spec.md",
+    "sha256": "6443fe6ddabd4eb4029c6a131932d145064786e0e549a7054c6a6da3916e65a1",
+    "bytes": 7076,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/entry-working.diff",
+    "sha256": "7fe0a1730091d987c3494541c7a30bb4f58ecd4d4b6f251de9eab5cf69f28a23",
+    "bytes": 3897,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/evidence.md",
+    "sha256": "991460fa49e5a336c9ed5a623957c8e2850e0657be8c4d6abbcfbc3f4172ead7",
+    "bytes": 6135,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/final-trail-review.md",
+    "sha256": "6dea12e443baf83abdf9ed67bd4d6243031ccfc800015812c46c1c3a73cb8cc2",
+    "bytes": 1923,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/final-trail-review.receipt.json",
+    "sha256": "55cdab4dfe083807cda081026fe4cf0983bc5b37c0422d6017ca3e893b2db680",
+    "bytes": 1191,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/full-review.diff",
+    "sha256": "df553a5a8da70d5d831c5a3e128863e62ed6e173f2e9f08d1384a8136aae8672",
+    "bytes": 1810291,
+    "retained_in_git": false
+  },
+  {
+    "path": ".audit/DW-112/additional-review/intent.header.txt",
+    "sha256": "03c205c297cf585582c807411b64e54368e5674e64ea8507a2963a1c5880a600",
+    "bytes": 334,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/intent.md",
+    "sha256": "ed7c448b4e785e1d324050b98c04b0399c60e0b54809795177dc7e6328275508",
+    "bytes": 5449,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/intent.prompt",
+    "sha256": "09f3f632f1f83c1d508f2bd9018c4bb296d1715c24edd89d410bef21b5799882",
+    "bytes": 31803,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/intent.raw.log",
+    "sha256": "193bcfed8b14f49200d348a6134140647eb3fd2d688de4915155eeb90cd3fe1d",
+    "bytes": 219410,
+    "retained_in_git": false
+  },
+  {
+    "path": ".audit/DW-112/additional-review/intent.receipt.json",
+    "sha256": "8595162f1929a550e5b3dccec997fc160fb5fe70d50dda106ab75643c7cb95d1",
+    "bytes": 970,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/lead.header.txt",
+    "sha256": "c7e68f69c8a9f46362a603f681bd0199cce196ac15611256b229b6ed56848d64",
+    "bytes": 334,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/lead.md",
+    "sha256": "6c915f0fb290015c0c8bee144249af05fd1b914b83044505bf4630308929e48c",
+    "bytes": 14658,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/lead.prompt",
+    "sha256": "fadfa7a28b31fa34e43ca5595428ba34199262157c2a5250954e5c6823ba6719",
+    "bytes": 4492,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/lead.raw.log",
+    "sha256": "62aef42393f55d761dbbd85ba05073c7ddd6f145eeaa92d6a527ea4265ddd99c",
+    "bytes": 1514354,
+    "retained_in_git": false
+  },
+  {
+    "path": ".audit/DW-112/additional-review/lead.receipt.json",
+    "sha256": "1dfb2c7275ac56cb63d1cbfcd0375eefb9514d43905e01f515ec7d69c1d3a605",
+    "bytes": 947,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/npm-bootstrap-journal-excerpt.jsonl",
+    "sha256": "adadde150a21ec1a08b571a032f1c3f6ac280301fb20b47cc1f67097f6f862f5",
+    "bytes": 5753,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/npm-bootstrap-provenance.json",
+    "sha256": "17c652f7bf2befa067b49b114956bf6defde25a13744fb460b437e6ec0dcf2cb",
+    "bytes": 7071,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/npm-provenance-binding.json",
+    "sha256": "2b28d3f7fe4ec57e94f671e8e14bd0d5d175925a1782fa43665470bfd27b7334",
+    "bytes": 2161,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/npm-provenance-review.md",
+    "sha256": "9fcb9c3a6ef22b532390693ddc08796153cb512738cb5af1308969bd0651f813",
+    "bytes": 2379,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/npm-provenance-review.receipt.json",
+    "sha256": "3d7d1343872c22624be9f8c10bd3b10f34d8822973e872b42627efc16f9e6196",
+    "bytes": 628,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/patch-convex-tsc-20260914T120527Z.log",
+    "sha256": "de3b27b2586acdd64460d23fff7de5b727ddac82990d54f523ff75681767c96c",
+    "bytes": 558,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/patch-convex-tsc-20260914T120527Z.meta",
+    "sha256": "b8f612ab140d3f5fbc04a1df3379243e9b032b3a74c1cb2af52d90d4037a9c2a",
+    "bytes": 444,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/patch-focused-20260914T120527Z.log",
+    "sha256": "d47016545938b48891293b9489931b4ca0f1b1851ad1d2f8601c94498ff7c9bd",
+    "bytes": 927,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/patch-focused-20260914T120527Z.meta",
+    "sha256": "a80a599f9fa6ff56534eca47d6761ad17a45a273e3c3ecd5604bd8f11079ffad",
+    "bytes": 439,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/patch-integrity-20260914T120527Z.log",
+    "sha256": "cacc16475b7a25c4a032ed04695ac860ffc7031798c1df2e9df62a0a991981b3",
+    "bytes": 668,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/patch-integrity-20260914T120527Z.meta",
+    "sha256": "09199f873885e1876314e393d9ed9218acc690ae1f8bad645c836de397695984",
+    "bytes": 570,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/patch-loop-verify-20260914T120527Z.log",
+    "sha256": "df4c010823b2e9faed24c2e6366af32a403defb699f1793ed5d5ac5064a57194",
+    "bytes": 58204,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/patch-loop-verify-20260914T120527Z.meta",
+    "sha256": "e6a26910e2d89b253df09f0276928e66056bd30b31abd077ba3e7efa16aaf1b9",
+    "bytes": 431,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/patch-review.diff",
+    "sha256": "bd088c50fcc43df3aa679025da6f3111dea627dcb4d6356c056f1b6e646bab3f",
+    "bytes": 595,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/precommit-integrity.json",
+    "sha256": "9254bf07dd217db732060030f88bf6b9217d909b86df2d2b3e1fce764643474e",
+    "bytes": 648,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/review-binding.json",
+    "sha256": "dbd908c2550a0d541f32fdd25569b3007cfb90bfc8ea1f37a15bb954f29300e0",
+    "bytes": 1047,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/sprint-preservation.json",
+    "sha256": "ed71f8a839276445292bb182a1d60c9ea05df146621d481194253aa2b3f16ee1",
+    "bytes": 96,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/staging-integrity.json",
+    "sha256": "dd2e5541ddca85dd1f9c39a9f8042228711d4c77e6b769c7dbaf8c15ca49a4bc",
+    "bytes": 775,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/verification-reuse.md",
+    "sha256": "d9292eb0baab307943eed7d9dbc37c38cd0a1b0fd9d53bceeafe629c8837ac97",
+    "bytes": 14624,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/verification.header.txt",
+    "sha256": "862fd88449e5c0114ea1654e05c9bd2fc380521fc013d6da03ac092f2c213dee",
+    "bytes": 334,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/verification.md",
+    "sha256": "dd5359d4c38f1d4c20bb9c92566c8d28ba098d034d7d610cbc1381f35223e9df",
+    "bytes": 1757,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/verification.prompt",
+    "sha256": "7d7cfffea21b0b674f042449bce0be851deb22e2b379972b47a7d139a8b827eb",
+    "bytes": 29495,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/verification.raw.log",
+    "sha256": "d93db2490e0ad47bfb9bd7867bd32749704c0ee2fff7b545d64ef5d2ba506d28",
+    "bytes": 280468,
+    "retained_in_git": false
+  },
+  {
+    "path": ".audit/DW-112/additional-review/verification.receipt.json",
+    "sha256": "cc3b2730685f594c03cdf32da3276f40a888e23cad610b35559632a83b07cf19",
+    "bytes": 982,
+    "retained_in_git": true
+  },
+  {
+    "path": ".audit/DW-112/additional-review/verified-source-binding.json",
+    "sha256": "a64162b6ef8ab57d4a050728ae9e6f00f95db367f25b6d481c318d05cc6bd2e7",
+    "bytes": 1006,
+    "retained_in_git": true
+  }
+]

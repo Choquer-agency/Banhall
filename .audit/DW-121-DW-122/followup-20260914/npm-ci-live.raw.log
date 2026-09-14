@@ -1,0 +1,45 @@
+CAPTURE live command output (checkout-local installation verification)
+CAPTURED_AT 2026-09-14T17:33:48Z
+HEAD 3d51a3d457a3f98f213db80f299d4e0da8b09b97
+LOCK_HASHES_BEFORE_AND_AFTER
+aafce46345d6f631cb4b86e345c2c786b91a6181 package-lock.json git-blob before
+aafce46345d6f631cb4b86e345c2c786b91a6181 package-lock.json git-blob after
+787b73fb54942d099fa96a6b93770c2a630a163b7f6dcee5b480bed911e91dc4 package-lock.json sha256 before
+787b73fb54942d099fa96a6b93770c2a630a163b7f6dcee5b480bed911e91dc4 package-lock.json sha256 after
+SOURCE_HASHES_AFTER
+9f288fef17a97eed6f94992c5558e8fcd2728f5b convex/schema.ts
+9b74d5ab8330a35ffe11ecab7f01242a2591d1cb convex/generations.ts
+45f352ae4d8fd6cbf47f5ab3f6a76ed2f882306e convex/complianceNotes.ts
+599e980aa81ecce48cb4f50c66e3e5f37eaf1fa6 convex/candidateScopedBoundedReads.test.ts
+UNEXPECTED_TRACKED_DIFF_COUNT_AFTER 0
+COMMAND npm ci
+COMMAND_OUTPUT_BEGIN
+
+> banhall-app@0.1.0 prepare
+> svelte-kit sync || echo ''
+
+
+added 456 packages, and audited 457 packages in 17s
+
+110 packages are looking for funding
+  run `npm fund` for details
+
+6 vulnerabilities (4 moderate, 2 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues, run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+npm warn allow-scripts 4 packages have install scripts not yet covered by allowScripts:
+npm warn allow-scripts   esbuild@0.27.0 (postinstall: node install.js)
+npm warn allow-scripts   esbuild@0.28.1 (postinstall: node install.js)
+npm warn allow-scripts   fsevents@2.3.3 (install: (install scripts present))
+npm warn allow-scripts   fsevents@2.3.2 (install: (install scripts present))
+npm warn allow-scripts
+npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review, or `npm approve-scripts <pkg>` to allow.
+
+COMMAND_OUTPUT_END
+EXIT_CODE=0

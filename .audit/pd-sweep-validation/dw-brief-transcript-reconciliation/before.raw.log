@@ -1,0 +1,90 @@
+# label=before
+# HEAD=750842f5897deacd04ba15519a6aa640a8660fce
+# git status --short:
+A  convex/ai/brief.sdk.test.ts
+# date=2026-09-14T18:08:42Z node=v22.22.3
+# env PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site
+# cmd: npx vitest run --config vitest.config.ts --reporter=verbose --reporter=json --outputFile.json=/private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-brief-transcript-reconciliation/before.json convex/ai/brief.sdk.test.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-b
+
+ × |convex| convex/ai/brief.sdk.test.ts > serializes stable Brief source-kind tags and excludes a writer Storyline 16ms
+   → expected 'Derive the Generation Brief from the …' to contain '--- BEGIN [SOURCE_KIND=transcript] [C…'
+ × |convex| convex/ai/brief.sdk.test.ts > serializes reconciliation instructions through the real Brief SDK and persists a representative reconciled response 78ms
+   → expected 'You derive a Generation Brief for a C…' to contain 'When three or more blocks carry [SOUR…'
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/ai/brief.sdk.test.ts > serializes stable Brief source-kind tags and excludes a writer Storyline
+AssertionError: expected 'Derive the Generation Brief from the …' to contain '--- BEGIN [SOURCE_KIND=transcript] [C…'
+
+- Expected
++ Received
+
+- --- BEGIN [SOURCE_KIND=transcript] [CUSTOM INTERVIEW] ---
+- Transcript bytes.
+- --- END [SOURCE_KIND=transcript] [CUSTOM INTERVIEW] ---
++ Derive the Generation Brief from the evidence below. Every quote you give must be an exact, verbatim substring of one of these blocks.
++
++ --- BEGIN [CUSTOM INTERVIEW] ---
++ Transcript bytes.
++ --- END [CUSTOM INTERVIEW] ---
++
++ --- BEGIN [CONDENSED INTERVIEW] ---
++ Digest bytes.
++ --- END [CONDENSED INTERVIEW] ---
++
++ --- BEGIN [TEST RECORD] ---
++ Document bytes.
++ --- END [TEST RECORD] ---
+
+ ❯ convex/ai/brief.sdk.test.ts:158:19
+    156|   const message = buildBriefUserMessage(sources);
+    157|
+    158|   expect(message).toContain(
+       |                   ^
+    159|     "--- BEGIN [SOURCE_KIND=transcript] [CUSTOM INTERVIEW] ---\nTransc…
+    160|   );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |convex| convex/ai/brief.sdk.test.ts > serializes reconciliation instructions through the real Brief SDK and persists a representative reconciled response
+AssertionError: expected 'You derive a Generation Brief for a C…' to contain 'When three or more blocks carry [SOUR…'
+
+- Expected
++ Received
+
+- When three or more blocks carry [SOURCE_KIND=transcript], reconcile those Transcripts source by source before writing the Brief.
++ You derive a Generation Brief for a Canadian SR&ED (Scientific Research & Experimental Development) project description, before any section is drafted.
++
++ The Brief has four parts:
++ 1. Storyline — the most defensible narrative account of the project against the CRA's Five Questions (technological uncertainty, hypotheses, systematic investigation, technological advancement, records kept). Write it as flowing prose, then restate its individual claims with the exact supporting quote from the evidence.
++ 2. Claim Exclusions — statements in the evidence that must NEVER be claimed as SR&ED work, however prominent, because they fall outside eligible work. Every exclusion needs a reason: business_risk, routine_engineering, outside_claim_period, or not_technological.
++ 3. Confidence Map — the evidence's facts classified established (directly and clearly supported), partial (supported but incomplete or hedged), unresolved (evidence conflicts or is silent), or unreliable (the source itself is suspect, e.g. contradicts itself or another source).
++ 4. Glossary Terms — the handful of technical phrases the project description should use consistently, one name per concept.
++
++ Rules:
++ - Every Storyline claim, Claim Exclusion, and Confidence Map entry MUST carry a "quote" field that is an EXACT, VERBATIM, character-for-character substring copied from the evidence below. Never paraphrase the quote, never invent one. An entry whose quote cannot be found verbatim in the evidence is discarded before it ever reaches the report — so a paraphrased quote is a wasted entry.
++ - Never fabricate a claim, exclusion, or fact absent from the evidence.
++ - Glossary terms are the canonical term string plus, optionally, inflected forms already used in the evidence verbatim (plurals, past tense) — those are matched back into the evidence separately by rule, so no quote is needed for them.
++ - Some concepts appear in the evidence only under a different phrasing than your canonical term (a genuine synonym, not just a plural or tense change) — for those, and ONLY those, also give a "quote" field: an exact, verbatim substring where that different phrasing appears. Leave "quote" empty for any term whose exact wording (or an obvious plural/past-tense form) is already present.
++ - Write in plain, specific, technical language. No filler, no marketing language.
+
+ ❯ convex/ai/brief.sdk.test.ts:315:30
+    313|     ],
+    314|   });
+    315|   expect(requestBody.system).toContain(
+       |                              ^
+    316|     "When three or more blocks carry [SOURCE_KIND=transcript], reconci…
+    317|   );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:08:44
+   Duration  2.61s (transform 1.39s, setup 0ms, import 1.83s, tests 95ms, environment 127ms)
+
+JSON report written to /private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-brief-transcript-reconciliation/before.json
+# exit=1

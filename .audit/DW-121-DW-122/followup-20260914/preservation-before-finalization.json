@@ -1,0 +1,10 @@
+{
+  "captured_at": "2026-09-14T17:31:58.634306+00:00",
+  "snapshot": "invocation-snapshot.json",
+  "changed_tracked_paths": [
+    "_bmad-output/implementation-artifacts/spec-dw-121-dw-122-candidate-scoped-bounded-reads.md"
+  ],
+  "source_and_historical_evidence_preserved": true,
+  "ledger_sha256": "e2a9e2589c56d9fcb6d107d76407f631c30c1e4fa8c08678db160f4aea09d18a",
+  "staging_performed": false
+}

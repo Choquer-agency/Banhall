@@ -1,0 +1,9 @@
+{
+  "prompt-blind.md": "dc8125ebbb7f287d00b2ff35dca639be1c4b4354b76c11b40b96c5b2be11d774",
+  "prompt-gap.md": "372298a0141a6451fa0f6fcf0064671da1960dd03206641a31ddd7f95ea1f0c0",
+  "prompt-edge.md": "5e4a6d96ddd8b9e170be9e1642b7000dca3bd5c4569a48c3b56a3acba2b2ca31",
+  "review-source.diff": "31dda928565a6999c4b058067dbab1265546e8e452c9c6335a374b9045e9ed59",
+  "prompt-intent.md": "a867f84bdb3aec89692902f6dfd15a7286fcb8ea2fb2e81c9662aa4fcacf2b26",
+  "review-input.full.diff": "aa78414fa8eccef40cf57716aa075ca745e7a22a741c62ec9ca1a9c97279ac1c",
+  "invocation-snapshot.json": "ded33da6175e751b3c39724aebe6e8edbaab09b41c76b137c544cbad191f2a05"
+}

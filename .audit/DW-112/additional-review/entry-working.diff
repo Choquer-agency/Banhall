@@ -1,0 +1,33 @@
+diff --git a/_bmad-output/implementation-artifacts/spec-dw-112-brief-derivation-concurrency.md b/_bmad-output/implementation-artifacts/spec-dw-112-brief-derivation-concurrency.md
+index 8f68c36..88605d2 100644
+--- a/_bmad-output/implementation-artifacts/spec-dw-112-brief-derivation-concurrency.md
++++ b/_bmad-output/implementation-artifacts/spec-dw-112-brief-derivation-concurrency.md
+@@ -100,28 +100,3 @@ Four required Astra xhigh review layers completed with exit 0. An independent As
+ - `git diff --check`: expected result is no whitespace errors.
+ - `shasum -a 256 _bmad-output/implementation-artifacts/deferred-work.md`: expected result is `349fb5701b4cfe83cb7463a611b1c443f37f9549437d25f474ba09fb348d2ec8`.
+ 
+-## Auto Run Result
+-
+-Status: done
+-
+-Summary: Reused the existing transaction-local Brief idempotency implementation from commit `09e35062ed132d65403d19f9b9af61675ffcaee6`. Fresh review added coverage for publication with a current same-key baseline and replay, corrected helper documentation, and made progress narration truthful when derivation adopts another publisher's Brief. The publication mutation and frozen product intent are unchanged by this follow-up.
+-
+-Files changed across DW-112:
+-- `convex/generations.ts`: shares the indexed same-key lookup and adopts/stamps the authoritative Brief before the baseline fence.
+-- `convex/ai/brief.test.ts`: proves concurrent first-publication convergence, latest same-key adoption, current-baseline adoption, replay, and preserved changed-input fencing.
+-- `convex/ai/brief.ts`: documents same-key adoption and conditional baseline retries.
+-- `convex/lib/briefRender.ts`: uses neutral Brief-ready progress narration without changing outcome classification.
+-- This spec and `.audit/DW-112/`: preserve review, source binding, verification, and finalization evidence.
+-- `_bmad-output/implementation-artifacts/deferred-work.md`: includes only the exact pre-existing native close bytes, matched to the supervisor's snapshot; no ledger content or status was authored or reverted.
+-
+-Review findings: 3 patches applied (high 0, medium 1, low 2), 0 deferred, 7 rejected. No intent gap or spec repair loop was required. Follow-up recommendation: true, score `3 × 1 + 2 = 5`; the independent follow-up completed with no findings.
+-
+-Verification performed:
+-- Confirmed original production/test bytes against the existing implementation commit and reused the supervisor's native dev gate before any new patch. Its native receipt records exit 0; native close provenance does not establish final run acceptance.
+-- After the review patches, `npm test -- convex/ai/brief.test.ts` passed 39/39, exit 0.
+-- `npx tsc --noEmit -p convex/tsconfig.json` passed, exit 0.
+-- `bash scripts/loop-verify.sh` passed all nine steps, exit 0: 187 test files and 2,677 tests, Svelte check with 0 errors and 0 warnings, build, 93 passing PowerShell harness cases with the existing platform-conditional dotfile sub-case skipped, and 47 passing Bash harness cases.
+-- Source hashes before and after those commands match the independent follow-up review binding. Full command captures and exit-code receipts are in `.audit/DW-112/local-completion/patch-*20260914T1130Z*`.
+-- `git diff --check` passed after finalizing the pre-existing spec EOF change. Ledger SHA-256 remains `349fb5701b4cfe83cb7463a611b1c443f37f9549437d25f474ba09fb348d2ec8`, matching the retained engine close snapshot.
+-
+-Residual limits: `convex-test` serializes top-level transactions, so the regression covers concurrent caller scheduling through the real mutation boundary rather than production optimistic-conflict retries. The original failing control remains preserved in `.audit/DW-112/failing-control.log`. This is local/dev completion; final native run acceptance remains with the orchestrator. No sprint-status file was written or reverted, and nothing was pushed or deployed.

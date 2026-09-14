@@ -1,0 +1,13 @@
+ts	phase	decision	why	evidence	result
+2026-09-14T16:55:13Z	planning	Reuse the existing section-run candidate index	Candidate identity is already stored on each ordered row	convex/schema.ts:1542, convex/generations.ts:3940	selected
+2026-09-14T16:55:13Z	planning	Add generation and candidate lookup index for candidate runs	The selected report exposes candidateId, and the run retains that identity	convex/schema.ts:1482, convex/complianceNotes.ts:15	selected
+2026-09-14T16:55:13Z	compatibility	Preserve first-match and unresolved-selection behavior	The prior bounded scan used Array.find and fell back to unscoped notes when unresolved	convex/complianceNotes.ts at baseline 5318b747b7a272ffde779d51e37a5794028774be	preserved
+2026-09-14T16:55:13Z	verification	Use a registered focused Convex suite with late rows	Both defects require fixtures beyond their old limits	convex/candidateScopedBoundedReads.test.ts	3 tests registered
+2026-09-14T16:55:13Z	preservation	Leave native ledger, generated files, and historical evidence unchanged	The user and repository policy reserve their ownership	git status and reviewed diff	preserved
+2026-09-14T17:04:15Z	review	Add changed-branch semantic coverage	The candidate-first index changes read order and selection lookup behavior	.audit/DW-121-DW-122/review-blind.raw.log, review-gap.raw.log	patched
+2026-09-14T17:04:15Z	review	Reuse the validated explicit candidate document	The changed branch had a redundant database read	convex/generations.ts:4420	patched
+2026-09-14T17:04:15Z	triage	Reject invalid-state and broader workflow expansion	The bundle names two public backend reads and beyond-limit matches; direct Convex query tests reach those surfaces	.audit/DW-121-DW-122/review-intent.raw.log, review-edge.raw.log	rejected
+2026-09-14T17:04:15Z	preservation	Verify protected tracked bytes against baseline	Ledger blob matches HEAD, generated diff is empty, and historical tracked audit diff outside this unit is empty	.audit/DW-121-DW-122/evidence.md	preserved
+2026-09-14T17:13:00Z	trail-audit	Repair three evidence discrepancies	Manifest coverage, line anchors, and final preservation receipt were incomplete	.audit/DW-121-DW-122/trail-audit.raw.log	patched
+2026-09-14T17:16:00Z	trail-audit	Accept bounded evidence trail	Independent follow-up found no discrepancies	.audit/DW-121-DW-122/trail-audit-followup.raw.log	passed
+2026-09-14T17:20:00Z	finalization	Record the reviewed implementation commit	Factory evidence requires a canonical implementation revision	9d899dc0372844db966a5029d96cbbe6610c6723	recorded

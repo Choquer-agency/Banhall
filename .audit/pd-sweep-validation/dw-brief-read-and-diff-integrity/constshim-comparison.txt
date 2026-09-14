@@ -1,0 +1,58 @@
+- Generation Brief derivation (story 1, CAP-1/2/4) persistDerivedBrief drops a candidate entry whose source belongs to a different project/generation
+    before=failed | constshim=failed: Error: Validator error: Unexpected field `baselineBriefId` in object
+- Generation Brief derivation (story 1, CAP-1/2/4) persistDerivedBrief drops a candidate entry whose source belongs to a different generation in the same project
+    before=failed | constshim=failed: Error: Validator error: Unexpected field `baselineBriefId` in object
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) does not re-insert a removed marker across repeated derivations, and stamps a returning entry as added
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) never carries the previous version's storylineQuestion rows forward, as evidence or as a marker
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) renders only live evidence, byte-identically to the Brief the ordered chain checks against
+    before=failed | constshim=failed: AssertionError: expected '\n\n--- BEGIN [GENERATION BRIEF] ---\…' not to contain 'Response time under load is unresolve…'
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+    before=failed | constshim=failed: AssertionError: expected 'NO_ERROR' to be 'INVALID_STATE' // Object.is equality
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) diffs against every live row of an over-bound baseline, and a stale fence writes nothing
+    before=failed | constshim=failed: Error: Validator error: Unexpected field `baselineBriefId` in object
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) omits an over-bound Brief from both prompt readers instead of throwing
+    before=failed | constshim=failed: AssertionError: expected { …(2) } to deeply equal { rendered: '', brief: null }
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) reuses an already-over-bound Brief onto a new generation, and both readers omit it
+    before=failed | constshim=failed: AssertionError: expected { …(2) } to deeply equal { rendered: '', brief: null }
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) persists an oversized derivation in full, then omits it from both readers
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) reads a Brief of exactly MAX_BRIEF_ENTRY_ROWS completely, in both consumers and as a diff baseline
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) reads exactly MAX_BRIEF_SOURCE_ROWS frozen sources completely, without refusing
+    before=failed | constshim=passed: 
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) stamps a returning key `added` against a baseline that still carries its removed marker
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) treats a previous version whose rows are all filtered out as a previous version that exists
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) omits a Brief whose live rows alone are under the bound but whose markers push it over
+    before=failed | constshim=failed: AssertionError: expected { …(2) } to deeply equal { rendered: '', brief: null }
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) re-reads and re-publishes when a writer edit lands between pin and publish
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) gives up after BRIEF_PUBLISH_ATTEMPTS lost fences, leaving no version from the derivation
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) writes nothing when a baseline page read fails part-way, and the next derivation publishes normally
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) marks a retained baseline row removed when every candidate sharing its key fails re-validation
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) aborts the whole publish with INVALID_STATE when a retained reference is not what it claims
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) keeps the last baseline row for a diff key duplicated across pages, when the key is dropped and when its candidates all fail re-validation
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) stamps the first validated duplicate candidate unchanged and later ones added, even when an earlier candidate sharing the key fails re-validation
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) stops without publishing when a one-row page still needs a split or an accepted page makes no progress
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) re-reads a byte-heavy baseline page smaller after SplitRequired and diffs every live row
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) sends no retained baseline text, so a large retained baseline publishes under the argument limit
+    before=failed | constshim=failed: TypeError: __vi_import_5__.publishDerivedBrief is not a function
+- Generation Brief read completeness and diff baseline (DW-107/DW-118) recovers an over-bound newest Brief on the next changed-input derivation
+    before=failed | constshim=failed: AssertionError: expected [ '0000:added', …(511) ] to deeply equal [ '0000:added', …(521) ]
+- the Brief a section is drafted with and checked against iterative's one-shot ghost still drafts every section with the stored Brief block (story 1 wiring)
+    before=failed | constshim=failed: AssertionError: expected 'Here is the structured transcript ana…' not to contain 'controller response under load'
+- the Brief a section is drafted with and checked against omits an over-bound Brief from the ordered chain: every section drafts, none is left queued
+    before=failed | constshim=failed: AssertionError: expected 'Here is the structured transcript ana…' not to contain '--- BEGIN [GENERATION BRIEF] ---'
+- the Brief a section is drafted with and checked against omits an over-bound Brief from iterative's own section and from its one-shot ghost
+    before=failed | constshim=failed: AssertionError: expected 'Here is the structured transcript ana…' not to contain '--- BEGIN [GENERATION BRIEF] ---'

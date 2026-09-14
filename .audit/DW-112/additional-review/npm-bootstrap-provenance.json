@@ -1,0 +1,113 @@
+{
+  "baseline": "d73df4bb9277886ca97e7b8e59caea618baf051d",
+  "reviewed_commit": "0b34a249bac1a7c7e618308ee0416c4826214ccd",
+  "plugin_path": ".bmad-loop/plugins/npm-bootstrap/plugin.toml",
+  "plugin_sha256": "20fb58d4717b0377b3cc47ee3fc7f5074b48e3f6943472dd39c7d521972c687a",
+  "plugin_contains_unconditional_npm_ci": true,
+  "unchanged_dependency_inputs_sha256": {
+    "package.json": "4ecfc408dfb48e141b7d25c43201135a8707c671ee1491c780d00ec4b58a15e6",
+    "package-lock.json": "787b73fb54942d099fa96a6b93770c2a630a163b7f6dcee5b480bed911e91dc4"
+  },
+  "journal_sequence": [
+    {
+      "ts": 1789381699.7049248,
+      "kind": "worktree-opened",
+      "story_key": "dw-brief-derivation-concurrency",
+      "branch": "bmad-loop/20260912-061909-feb3",
+      "path": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency",
+      "log_task": "dw-brief-failure-observability-review-1-g1",
+      "log_pos": 3332884
+    },
+    {
+      "ts": 1789381711.13964,
+      "kind": "plugin-hook",
+      "plugin": "npm-bootstrap",
+      "stage": "pre_worktree_setup",
+      "rc": 0,
+      "blocking": true,
+      "log_task": "dw-brief-failure-observability-review-1-g1",
+      "log_pos": 3332884
+    },
+    {
+      "ts": 1789381711.2135098,
+      "kind": "session-start",
+      "task_id": "dw-brief-derivation-concurrency-dev-1",
+      "role": "dev",
+      "adapter": "codex",
+      "model": "gpt-5.6-sol",
+      "story_key": "dw-brief-derivation-concurrency",
+      "prompt": "/bmad-build-auto Implement the deferred-work bundle described in `/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/bundles/brief-derivation-concurrency/intent.md` \u2014 it carries the intent and the verbatim ledger entries to resolve. Do NOT edit the deferred-work ledger; the orchestrator records resolution.",
+      "log_task": "dw-brief-derivation-concurrency-dev-1",
+      "log_pos": 0
+    },
+    {
+      "ts": 1789384612.0169852,
+      "kind": "session-end",
+      "task_id": "dw-brief-derivation-concurrency-dev-1",
+      "status": "completed",
+      "tokens": 13106443,
+      "tokens_weighted": 1645310,
+      "log_task": "dw-brief-derivation-concurrency-dev-1",
+      "log_pos": 7621354
+    },
+    {
+      "ts": 1789384718.4040809,
+      "kind": "verify-command-result",
+      "story_key": "dw-brief-derivation-concurrency",
+      "attempt": 1,
+      "verification_stage": "dev",
+      "verification_sequence": 1,
+      "command_index": 0,
+      "command": "bash scripts/loop-verify.sh",
+      "returncode": 0,
+      "output_tail": "ef-derivation-concurrency/node_modules/safer-buffer/safer.js\". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.\n[plugin rolldown:vite-resolve] Module \"buffer\" has been externalized for browser compatibility, imported by \"/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency/node_modules/safer-buffer/safer.js\". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.\n[plugin rolldown:vite-resolve] Module \"buffer\" has been externalized for browser compatibility, imported by \"/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency/node_modules/safe-buffer/index.js\". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.\n[plugin rolldown:vite-resolve] Module \"buffer\" has been externalized for browser compatibility, imported by \"/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency/node_modules/safe-buffer/index.js\". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.\n\u001b[33m[PLUGIN_TIMINGS] \u001b[0mYour build spent significant time in plugins. Here is a breakdown:\n  - vite-plugin-sveltekit-guard (77%)\n  - vite-plugin-sveltekit-virtual-modules (8%)\n  - vite-plugin-svelte:load-custom (8%)\n  - vite-plugin-svelte:compile (6%)\nSee https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.\n\n\u001b[33m[PLUGIN_TIMINGS] \u001b[0mYour build spent significant time in plugins. Here is a breakdown:\n  - vite-plugin-sveltekit-guard (67%)\n  - vite-plugin-svelte:load-custom (11%)\n  - vite-plugin-sveltekit-virtual-modules (11%)\n  - vite-plugin-svelte:compile (8%)\nSee https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.\n\n",
+      "capture_error": null,
+      "stdout_path": "verify/verify-dw-brief-derivation-concurrency-dev-1-1-0.stdout.log",
+      "stdout_bytes": 55187,
+      "stdout_captured_bytes": 55187,
+      "stdout_truncated": false,
+      "stderr_path": "verify/verify-dw-brief-derivation-concurrency-dev-1-1-0.stderr.log",
+      "stderr_bytes": 2472,
+      "stderr_captured_bytes": 2472,
+      "stderr_truncated": false,
+      "log_task": "dw-brief-derivation-concurrency-dev-1",
+      "log_pos": 7621354
+    },
+    {
+      "ts": 1789384718.404768,
+      "kind": "dev-decision",
+      "story_key": "dw-brief-derivation-concurrency",
+      "attempt": 1,
+      "session_status": "completed",
+      "action": "proceed",
+      "reason": "",
+      "env_fault": false,
+      "session_vanished": false,
+      "log_task": "dw-brief-derivation-concurrency-dev-1",
+      "log_pos": 7621354
+    },
+    {
+      "ts": 1789384718.425101,
+      "kind": "sweep-bundle-closed",
+      "story_key": "dw-brief-derivation-concurrency",
+      "dw_ids": [
+        "DW-112"
+      ],
+      "log_task": "dw-brief-derivation-concurrency-dev-1",
+      "log_pos": 7621354
+    },
+    {
+      "ts": 1789384718.428363,
+      "kind": "session-start",
+      "task_id": "dw-brief-derivation-concurrency-review-1",
+      "role": "review",
+      "adapter": "codex",
+      "model": "gpt-6-astra",
+      "story_key": "dw-brief-derivation-concurrency",
+      "prompt": "/bmad-build-auto /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency/_bmad-output/implementation-artifacts/spec-dw-112-brief-derivation-concurrency.md \u2014 do NOT modify, re-open, or rewrite existing deferred-work ledger entries; the orchestrator owns their status and resolution. sprint-status.yaml is owned by the orchestrator: never write it, and never revert a change to it. A row at done or awaiting-operator is the orchestrator's own bookkeeping \u2014 not a defect to fix, and not proof that the work is verified. If the story cannot be finished without a human decision, finalize the spec to status: blocked and say why. That is the hand-back channel; the board is not.",
+      "log_task": "dw-brief-derivation-concurrency-review-1",
+      "log_pos": 0
+    }
+  ],
+  "limitation": "Successful blocking native hook and exact manifest establish install provenance; this is not a recovered raw npm ci stdout log."
+}

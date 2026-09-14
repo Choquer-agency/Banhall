@@ -1,0 +1,19 @@
+CAPTURE live command output (post-review focused verification)
+SOURCE_HASHES
+9f288fef17a97eed6f94992c5558e8fcd2728f5b convex/schema.ts
+9b74d5ab8330a35ffe11ecab7f01242a2591d1cb convex/generations.ts
+45f352ae4d8fd6cbf47f5ab3f6a76ed2f882306e convex/complianceNotes.ts
+599e980aa81ecce48cb4f50c66e3e5f37eaf1fa6 convex/candidateScopedBoundedReads.test.ts
+COMMAND npx vitest run convex/candidateScopedBoundedReads.test.ts convex/ai/promptProgram.test.ts convex/chatDeviationInventory.test.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-candidate-scoped-bounded-reads
+
+
+ Test Files  3 passed (3)
+      Tests  40 passed (40)
+   Start at  10:04:15
+   Duration  2.80s (transform 1.87s, setup 0ms, import 2.09s, tests 1.78s, environment 218ms)
+
+
+EXIT_CODE=0
+

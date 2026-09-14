@@ -1,0 +1,25 @@
+[33m[PLUGIN_TIMINGS] [0mYour build spent significant time in plugins. Here is a breakdown:
+  - vite:css (25%)
+  - vite:css-post (25%)
+  - vite:worker (23%)
+  - vite:asset (18%)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+[plugin rolldown:vite-resolve] Module "buffer" has been externalized for browser compatibility, imported by "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency/node_modules/safer-buffer/safer.js". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.
+[plugin rolldown:vite-resolve] Module "buffer" has been externalized for browser compatibility, imported by "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency/node_modules/safer-buffer/safer.js". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.
+[plugin rolldown:vite-resolve] Module "buffer" has been externalized for browser compatibility, imported by "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency/node_modules/safe-buffer/index.js". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.
+[plugin rolldown:vite-resolve] Module "buffer" has been externalized for browser compatibility, imported by "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency/node_modules/safe-buffer/index.js". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.
+[33m[PLUGIN_TIMINGS] [0mYour build spent significant time in plugins. Here is a breakdown:
+  - vite-plugin-sveltekit-guard (77%)
+  - vite-plugin-sveltekit-virtual-modules (8%)
+  - vite-plugin-svelte:load-custom (8%)
+  - vite-plugin-svelte:compile (6%)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+[33m[PLUGIN_TIMINGS] [0mYour build spent significant time in plugins. Here is a breakdown:
+  - vite-plugin-sveltekit-guard (67%)
+  - vite-plugin-svelte:load-custom (11%)
+  - vite-plugin-sveltekit-virtual-modules (11%)
+  - vite-plugin-svelte:compile (8%)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+

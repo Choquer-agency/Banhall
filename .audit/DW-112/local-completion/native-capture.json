@@ -1,0 +1,27 @@
+{
+  "files": [
+    {
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/verify/verify-dw-brief-derivation-concurrency-dev-1-1-0.stdout.log",
+      "retained": ".audit/DW-112/local-completion/native-gate.stdout.log",
+      "sha256": "9bb846664b845a2517a75004e83954ca3e3de7327bb30b07851a0e1ae256fbb5",
+      "bytes": 55187
+    },
+    {
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/verify/verify-dw-brief-derivation-concurrency-dev-1-1-0.stderr.log",
+      "retained": ".audit/DW-112/local-completion/native-gate.stderr.log",
+      "sha256": "e77ebd6883a65e349f14a22b3878bf585ca63cb7fa626e3f3de1b1d40dd93eb2",
+      "bytes": 2472
+    },
+    {
+      "source": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/complete-local-20260914/native-dw112-dev-accepted/ledger-provenance.json",
+      "retained": ".audit/DW-112/local-completion/native-ledger-provenance.json",
+      "sha256": "130eca41556d6b29d542de78d304d35926eb195f17f73f9e009e03b03c616392",
+      "bytes": 597
+    }
+  ],
+  "journal_source": "/Users/johnnynguyen/Documents/Repos/Banhall/.audit/complete-local-20260914/native-dw112-dev-accepted/journal.jsonl",
+  "journal_sha256": "09df7cbeb0c4e8e9b78e04a47088437037493f82b860a141faea2749822e90ec",
+  "selected_event_count": 2,
+  "ledger_working_sha256": "349fb5701b4cfe83cb7463a611b1c443f37f9549437d25f474ba09fb348d2ec8",
+  "ledger_snapshot_sha256": "349fb5701b4cfe83cb7463a611b1c443f37f9549437d25f474ba09fb348d2ec8"
+}

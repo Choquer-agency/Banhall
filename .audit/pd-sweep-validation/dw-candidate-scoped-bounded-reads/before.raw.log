@@ -1,0 +1,96 @@
+# label=before
+# HEAD=087c76b18a8ad462498653651a3fcb971e31baf4
+# git status --short:
+A  convex/candidateScopedBoundedReads.test.ts
+# date=2026-09-14T18:09:47Z node=v22.22.3
+# env PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site
+# cmd: npx vitest run --config vitest.config.ts --reporter=verbose --reporter=json --outputFile.json=/private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-candidate-scoped-bounded-reads/before.json convex/candidateScopedBoundedReads.test.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-b
+
+ × |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a requested section candidate after more than 30 older rows and rejects a cross-generation run 574ms
+   → expected [] to deeply equal [ [ '246', +0 ], [ '242', 1 ] ]
+ × |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a selected candidate after more than 10 older runs 29ms
+   → expected [ { …(12) }, { …(12) } ] to have a length of 1 but got 2
+ ✓ |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for an unresolved legacy selection 12ms
+ × |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for a legacy selection without candidateId 11ms
+   → expected [ 'First absent-ID fallback note' ] to deeply equal [ …(2) ]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a requested section candidate after more than 30 older rows and rejects a cross-generation run
+AssertionError: expected [] to deeply equal [ [ '246', +0 ], [ '242', 1 ] ]
+
+- Expected
++ Received
+
+- [
+-   [
+-     "246",
+-     0,
+-   ],
+-   [
+-     "242",
+-     1,
+-   ],
+- ]
++ []
+
+ ❯ convex/candidateScopedBoundedReads.test.ts:183:76
+    181|       candidateRunId: target.candidateRunId,
+    182|     });
+    183|     expect(beforeConsistency?.map((row) => [row.section, row.orderInde…
+       |                                                                            ^
+    184|       ["246", 0],
+    185|       ["242", 1],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > finds a selected candidate after more than 10 older runs
+AssertionError: expected [ { …(12) }, { …(12) } ] to have a length of 1 but got 2
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ convex/candidateScopedBoundedReads.test.ts:324:19
+    322|
+    323|     const notes = await asWriter.query(api.complianceNotes.listForGene…
+    324|     expect(notes).toHaveLength(1);
+       |                   ^
+    325|     expect(notes[0]?.candidateRunId).toBe(selected.candidateRunId);
+    326|     expect(notes[0]?.instruction).toBe("Selected candidate note");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |convex| convex/candidateScopedBoundedReads.test.ts > candidate-scoped bounded reads > keeps the unscoped Compliance Notes fallback for a legacy selection without candidateId
+AssertionError: expected [ 'First absent-ID fallback note' ] to deeply equal [ …(2) ]
+
+- Expected
++ Received
+
+  [
+    "First absent-ID fallback note",
+-   "Second absent-ID fallback note",
+  ]
+
+ ❯ convex/candidateScopedBoundedReads.test.ts:405:51
+    403|
+    404|     const notes = await asWriter.query(api.complianceNotes.listForGene…
+    405|     expect(notes.map((note) => note.instruction)).toEqual([
+       |                                                   ^
+    406|       "First absent-ID fallback note",
+    407|       "Second absent-ID fallback note",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 1 passed (4)
+   Start at  11:09:49
+   Duration  1.55s (transform 780ms, setup 0ms, import 529ms, tests 628ms, environment 112ms)
+
+JSON report written to /private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-candidate-scoped-bounded-reads/before.json
+# exit=1

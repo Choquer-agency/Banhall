@@ -1,0 +1,5325 @@
+# bundle=dw-brief-read-and-diff-integrity phase=before-constshim date=2026-09-14T18:13:27Z
+# HEAD=7b0723b18cd19fe6e90f9216ff6272674edf2006 overlay=90215c0 test files + shim replacing constant imports with inline consts (500/200/4MiB)
+11:+// EVIDENCE SHIM (not committed)
+# git status:
+MM convex/ai/brief.test.ts
+MM convex/ai/promptProgram.test.ts
+# cmd: npx vitest run --config vitest.config.ts --reporter=verbose --reporter=json --outputFile.json=/private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-brief-read-and-diff-integrity/before-constshim.json convex/ai/brief.test.ts convex/ai/promptProgram.test.ts
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > drafts 242 → 244 → 246 as separate scheduled actions, each with exactly the prior drafted sections, with no gate
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > derives Storyline, Claim Exclusions, Confidence Map and Glossary Terms, each citing a frozen source
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > drafts 242 → 244 → 246 as separate scheduled actions, each with exactly the prior drafted sections, with no gate
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > derives Storyline, Claim Exclusions, Confidence Map and Glossary Terms, each citing a frozen source
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > drafts 242 → 244 → 246 as separate scheduled actions, each with exactly the prior drafted sections, with no gate
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > derives Storyline, Claim Exclusions, Confidence Map and Glossary Terms, each citing a frozen source
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > drafts 242 → 244 → 246 as separate scheduled actions, each with exactly the prior drafted sections, with no gate
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > derives Storyline, Claim Exclusions, Confidence Map and Glossary Terms, each citing a frozen source
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > classifies a flagged glossary candidate via the same call's own quote — no second model call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > classifies a flagged glossary candidate via the same call's own quote — no second model call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > classifies a flagged glossary candidate via the same call's own quote — no second model call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > classifies a flagged glossary candidate via the same call's own quote — no second model call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > dedupes two flagged glossary candidates that share a canonical term (case-insensitive)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > dedupes two flagged glossary candidates that share a canonical term (case-insensitive)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > dedupes two flagged glossary candidates that share a canonical term (case-insensitive)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > dedupes two flagged glossary candidates that share a canonical term (case-insensitive)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > drops an entry whose citation fails byte-match and counts the drop on the Brief
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > drops an entry whose citation fails byte-match and counts the drop on the Brief
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > drops an entry whose citation fails byte-match and counts the drop on the Brief
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > drops an entry whose citation fails byte-match and counts the drop on the Brief
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > runs an enabled Writer Profile's custom Build Order 246 → 242 → 244
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > runs an enabled Writer Profile's custom Build Order 246 → 242 → 244
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > runs an enabled Writer Profile's custom Build Order 246 → 242 → 244
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > runs an enabled Writer Profile's custom Build Order 246 → 242 → 244
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > derives Storyline, Claim Exclusions, Confidence Map and Glossary Terms, each citing a frozen source 739ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > classifies a flagged glossary candidate via the same call's own quote — no second model call 25ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > dedupes two flagged glossary candidates that share a canonical term (case-insensitive) 28ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > drops an entry whose citation fails byte-match and counts the drop on the Brief 25ms
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a disabled Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a disabled Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a disabled Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a disabled Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a missing Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a missing Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a missing Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a missing Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > drafts 242 → 244 → 246 as separate scheduled actions, each with exactly the prior drafted sections, with no gate 370ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > runs an enabled Writer Profile's custom Build Order 246 → 242 → 244 61ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a disabled Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied 36ms
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > an invalid Build Order falls back to 242 → 244 → 246 with the reason on every section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > an invalid Build Order falls back to 242 → 244 → 246 with the reason on every section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > an invalid Build Order falls back to 242 → 244 → 246 with the reason on every section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > an invalid Build Order falls back to 242 → 244 → 246 with the reason on every section
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > reuses the stored Brief for identical inputs — no second derivation call 84ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > re-derives on changed inputs and stamps change: added | unchanged | removed 70ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > stores a writer-supplied Storyline verbatim with origin=writer; other groups still derive 26ms
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (compare) > runs the chain once per candidate, scopes every row by candidateRunId, and the report inherits the selected candidate's notes
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (compare) > runs the chain once per candidate, scopes every row by candidateRunId, and the report inherits the selected candidate's notes
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (compare) > runs the chain once per candidate, scopes every row by candidateRunId, and the report inherits the selected candidate's notes
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > ordered, ungated generation (compare) > runs the chain once per candidate, scopes every row by candidateRunId, and the report inherits the selected candidate's notes
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > storylineQuestion entries round-trip and saveEntryEdit resolves them
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > storylineQuestion entries round-trip and saveEntryEdit resolves them
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > storylineQuestion entries round-trip and saveEntryEdit resolves them
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > storylineQuestion entries round-trip and saveEntryEdit resolves them
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries read the stored Brief for the UI panel
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries read the stored Brief for the UI panel
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries read the stored Brief for the UI panel
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries read the stored Brief for the UI panel
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > a missing Writer Profile drafts 242 → 244 → 246 and every section's note says no Writer Profile applied 33ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > ordered, ungated generation (single) > an invalid Build Order falls back to 242 → 244 → 246 with the reason on every section 40ms
+stderr | convex/ai/promptProgram.test.ts > iterative mode is unchanged > still stops at awaiting_input after its first section, and its ghost still runs the one-shot pipeline
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > iterative mode is unchanged > still stops at awaiting_input after its first section, and its ghost still runs the one-shot pipeline
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > iterative mode is unchanged > still stops at awaiting_input after its first section, and its ghost still runs the one-shot pipeline
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > iterative mode is unchanged > still stops at awaiting_input after its first section, and its ghost still runs the one-shot pipeline
+brain search failed; returning no exemplars {}
+
+ × |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > persistDerivedBrief drops a candidate entry whose source belongs to a different project/generation 7ms
+   → Validator error: Unexpected field `baselineBriefId` in object
+ × |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > persistDerivedBrief drops a candidate entry whose source belongs to a different generation in the same project 3ms
+   → Validator error: Unexpected field `baselineBriefId` in object
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > saveEntryEdit creates version N+1 with origin=edited and editMagnitude 52ms
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > storylineQuestion entries round-trip and saveEntryEdit resolves them 18ms
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration > after the first section, no further section is drafted and the generation completes with [NOT GENERATED] bodies
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration > after the first section, no further section is drafted and the generation completes with [NOT GENERATED] bodies
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration > after the first section, no further section is drafted and the generation completes with [NOT GENERATED] bodies
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration > after the first section, no further section is drafted and the generation completes with [NOT GENERATED] bodies
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > assembled-draft consistency pass (CAP-10) > records a cross-section contradiction as model rows naming the sections and paragraph, and still shows the section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > assembled-draft consistency pass (CAP-10) > records a cross-section contradiction as model rows naming the sections and paragraph, and still shows the section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > assembled-draft consistency pass (CAP-10) > records a cross-section contradiction as model rows naming the sections and paragraph, and still shows the section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > assembled-draft consistency pass (CAP-10) > records a cross-section contradiction as model rows naming the sections and paragraph, and still shows the section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section whose draft call fails fails its candidate, marks the later sections undrafted and ends a single generation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section whose draft call fails fails its candidate, marks the later sections undrafted and ends a single generation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section whose draft call fails fails its candidate, marks the later sections undrafted and ends a single generation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section whose draft call fails fails its candidate, marks the later sections undrafted and ends a single generation
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > ordered, ungated generation (compare) > runs the chain once per candidate, scopes every row by candidateRunId, and the report inherits the selected candidate's notes 66ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > iterative mode is unchanged > still stops at awaiting_input after its first section, and its ghost still runs the one-shot pipeline 26ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > stopOrderedGeneration > after the first section, no further section is drafted and the generation completes with [NOT GENERATED] bodies 23ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > stopOrderedGeneration > is refused for an iterative generation, which is cancelled instead 2ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > assembled-draft consistency pass (CAP-10) > records a cross-section contradiction as model rows naming the sections and paragraph, and still shows the section 35ms
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section draft the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section draft the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section draft the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section draft the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief editing and questions (briefs.ts, story 1 shape / story 4 writer) > getBrief and listBriefEntries read the stored Brief for the UI panel 30ms
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > does not re-insert a removed marker across repeated derivations, and stamps a returning entry as added 2ms
+   → publishDerivedBrief is not a function
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > never carries the previous version's storylineQuestion rows forward, as evidence or as a marker 1ms
+   → publishDerivedBrief is not a function
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > renders only live evidence, byte-identically to the Brief the ordered chain checks against 6ms
+   → expected '\n\n--- BEGIN [GENERATION BRIEF] ---\…' not to contain 'Response time under load is unresolve…'
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief 13ms
+   → expected 'NO_ERROR' to be 'INVALID_STATE' // Object.is equality
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a compression pass the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a compression pass the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a compression pass the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a compression pass the banned-word scrub empties fails the section instead of persisting an empty body
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed model Self-check call never blocks a section: deterministic checks only, recorded per section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed model Self-check call never blocks a section: deterministic checks only, recorded per section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed model Self-check call never blocks a section: deterministic checks only, recorded per section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed model Self-check call never blocks a section: deterministic checks only, recorded per section
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed consistency call is recorded as advisory, still releases the last section and completes
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed consistency call is recorded as advisory, still releases the last section and completes
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed consistency call is recorded as advisory, still releases the last section and completes
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed consistency call is recorded as advisory, still releases the last section and completes
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+ ✓ |convex| convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section whose draft call fails fails its candidate, marks the later sections undrafted and ends a single generation 20ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a section draft the banned-word scrub empties fails the section instead of persisting an empty body 19ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a compression pass the banned-word scrub empties fails the section instead of persisting an empty body 14ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed model Self-check call never blocks a section: deterministic checks only, recorded per section 30ms
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > QA and chronology failing at the same time are both advisory: the candidate still completes with neither recorded
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > QA and chronology failing at the same time are both advisory: the candidate still completes with neither recorded
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > QA and chronology failing at the same time are both advisory: the candidate still completes with neither recorded
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > QA and chronology failing at the same time are both advisory: the candidate still completes with neither recorded
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > QA and chronology failing at the same time are both advisory: the candidate still completes with neither recorded
+QA scorecard failed; continuing without it Error: submit_qa_scorecard unavailable
+    at Object.<anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/promptProgram.test.ts:957:15)
+    at Object.Mock [as create] (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/@vitest/spy/dist/index.js:332:34)
+    at Proxy.<anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/instrument.ts:314:49)
+    at Object.create (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:104:16)
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:101:13)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+Chronology failed; continuing without it Error: submit_chronology_table unavailable
+    at Object.<anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/promptProgram.test.ts:957:15)
+    at Object.Mock [as create] (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/@vitest/spy/dist/index.js:332:34)
+    at Proxy.<anonymous> (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/instrument.ts:314:49)
+    at Object.create (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:104:16)
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:101:13)
+    at runChronologyAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/chronologyAgent.ts:99:15)
+    at async Promise.allSettled (index 1)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > enforces live Claim Exclusions only; an empty repair keeps the draft and flags Self-check repair failed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > enforces live Claim Exclusions only; an empty repair keeps the draft and flags Self-check repair failed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > enforces live Claim Exclusions only; an empty repair keeps the draft and flags Self-check repair failed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > enforces live Claim Exclusions only; an empty repair keeps the draft and flags Self-check repair failed
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > diffs against every live row of an over-bound baseline, and a stale fence writes nothing 83ms
+   → Validator error: Unexpected field `baselineBriefId` in object
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > omits an over-bound Brief from both prompt readers instead of throwing 51ms
+   → expected { …(2) } to deeply equal { rendered: '', brief: null }
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > iterative's one-shot ghost still drafts every section with the stored Brief block (story 1 wiring)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > iterative's one-shot ghost still drafts every section with the stored Brief block (story 1 wiring)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > iterative's one-shot ghost still drafts every section with the stored Brief block (story 1 wiring)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > iterative's one-shot ghost still drafts every section with the stored Brief block (story 1 wiring)
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from the ordered chain: every section drafts, none is left queued
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from the ordered chain: every section drafts, none is left queued
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from the ordered chain: every section drafts, none is left queued
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from the ordered chain: every section drafts, none is left queued
+brain search failed; returning no exemplars {}
+
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it 133ms
+   → expected { …(2) } to deeply equal { rendered: '', brief: null }
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > persists an oversized derivation in full, then omits it from both readers 26ms
+   → publishDerivedBrief is not a function
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reads a Brief of exactly MAX_BRIEF_ENTRY_ROWS completely, in both consumers and as a diff baseline 65ms
+   → publishDerivedBrief is not a function
+ ✓ |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reads exactly MAX_BRIEF_SOURCE_ROWS frozen sources completely, without refusing 11ms
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > stamps a returning key `added` against a baseline that still carries its removed marker 1ms
+   → publishDerivedBrief is not a function
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > treats a previous version whose rows are all filtered out as a previous version that exists 2ms
+   → publishDerivedBrief is not a function
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > omits a Brief whose live rows alone are under the bound but whose markers push it over 66ms
+   → expected { …(2) } to deeply equal { rendered: '', brief: null }
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > re-reads and re-publishes when a writer edit lands between pin and publish 1ms
+   → publishDerivedBrief is not a function
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > gives up after BRIEF_PUBLISH_ATTEMPTS lost fences, leaving no version from the derivation 1ms
+   → publishDerivedBrief is not a function
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > writes nothing when a baseline page read fails part-way, and the next derivation publishes normally 1ms
+   → publishDerivedBrief is not a function
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > marks a retained baseline row removed when every candidate sharing its key fails re-validation 1ms
+   → publishDerivedBrief is not a function
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > aborts the whole publish with INVALID_STATE when a retained reference is not what it claims 1ms
+   → publishDerivedBrief is not a function
+ ✓ |convex| convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > a failed consistency call is recorded as advisory, still releases the last section and completes 42ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > QA and chronology failing at the same time are both advisory: the candidate still completes with neither recorded 34ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > chain failure paths never strand a candidate > an unreadable Writer Profile degrades to the House Rules order with the reason instead of failing 1ms
+ ✓ |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > enforces live Claim Exclusions only; an empty repair keeps the draft and flags Self-check repair failed 31ms
+ × |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > iterative's one-shot ghost still drafts every section with the stored Brief block (story 1 wiring) 20ms
+   → expected 'Here is the structured transcript ana…' not to contain 'controller response under load'
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from iterative's own section and from its one-shot ghost
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from iterative's own section and from its one-shot ghost
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from iterative's own section and from its one-shot ghost
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from iterative's own section and from its one-shot ghost
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration in compare > candidates stop independently and the generation takes the selected candidate's stop
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration in compare > candidates stop independently and the generation takes the selected candidate's stop
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration in compare > candidates stop independently and the generation takes the selected candidate's stop
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/promptProgram.test.ts > stopOrderedGeneration in compare > candidates stop independently and the generation takes the selected candidate's stop
+brain search failed; returning no exemplars {}
+
+ × |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from the ordered chain: every section drafts, none is left queued 306ms
+   → expected 'Here is the structured transcript ana…' not to contain '--- BEGIN [GENERATION BRIEF] ---'
+ × |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from iterative's own section and from its one-shot ghost 39ms
+   → expected 'Here is the structured transcript ana…' not to contain '--- BEGIN [GENERATION BRIEF] ---'
+ ✓ |convex| convex/ai/promptProgram.test.ts > stopOrderedGeneration in compare > candidates stop independently and the generation takes the selected candidate's stop 48ms
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > keeps the last baseline row for a diff key duplicated across pages, when the key is dropped and when its candidates all fail re-validation 34ms
+   → publishDerivedBrief is not a function
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > stamps the first validated duplicate candidate unchanged and later ones added, even when an earlier candidate sharing the key fails re-validation 5ms
+   → publishDerivedBrief is not a function
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > stops without publishing when a one-row page still needs a split or an accepted page makes no progress 2ms
+   → publishDerivedBrief is not a function
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > re-reads a byte-heavy baseline page smaller after SplitRequired and diffs every live row 70ms
+   → publishDerivedBrief is not a function
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+submit_qa_scorecard: tool output failed validation [{"expected":"number","code":"invalid_type","path":["overall_score"],"message":"Invalid input: expected number, received undefined"}]
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+QA scorecard failed; continuing without it Error: submit_qa_scorecard: model returned an unexpected shape — overall_score: Invalid input: expected number, received undefined
+    at generateStructured (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/structured.ts:167:11)
+    at runNextTicks (node:internal/process/task_queues:64:5)
+    at listOnTimeout (node:internal/timers:547:9)
+    at processTimers (node:internal/timers:521:7)
+    at runQAAgent (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/qaAgent.ts:121:10)
+    at async Promise.allSettled (index 0)
+    at handler (/Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/convex/ai/orderedGeneration.ts:466:46)
+    at invokeFunction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:56:14)
+    at invokeAction (file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex/dist/esm/server/impl/registration_impl.js:202:18)
+    at file:///Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-a/node_modules/convex-test/dist/index.js:1631:35
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > sends no retained baseline text, so a large retained baseline publishes under the argument limit 472ms
+   → publishDerivedBrief is not a function
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+stderr | convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+brain search failed; returning no exemplars {}
+
+ × |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation 443ms
+   → expected [ '0000:added', …(511) ] to deeply equal [ '0000:added', …(521) ]
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 28 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > persistDerivedBrief drops a candidate entry whose source belongs to a different project/generation
+Error: Validator error: Unexpected field `baselineBriefId` in object
+ ❯ validateValidator node_modules/convex-test/dist/index.js:871:27
+ ❯ Object.mutationFromPath node_modules/convex-test/dist/index.js:1692:17
+ ❯ mutation node_modules/convex-test/dist/index.js:1739:20
+ ❯ convex/ai/brief.test.ts:592:21
+    590|     );
+    591|
+    592|     const briefId = await t.mutation(internal.generations.persistDeriv…
+       |                     ^
+    593|       projectId: ownProjectId,
+    594|       generationId: ownGenerationId,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief derivation (story 1, CAP-1/2/4) > persistDerivedBrief drops a candidate entry whose source belongs to a different generation in the same project
+Error: Validator error: Unexpected field `baselineBriefId` in object
+ ❯ validateValidator node_modules/convex-test/dist/index.js:871:27
+ ❯ Object.mutationFromPath node_modules/convex-test/dist/index.js:1692:17
+ ❯ mutation node_modules/convex-test/dist/index.js:1739:20
+ ❯ convex/ai/brief.test.ts:650:21
+    648|     );
+    649|
+    650|     const briefId = await t.mutation(internal.generations.persistDeriv…
+       |                     ^
+    651|       projectId,
+    652|       generationId: ownGenerationId,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > does not re-insert a removed marker across repeated derivations, and stamps a returning entry as added
+TypeError: publishDerivedBrief is not a function
+ ❯ derive convex/ai/brief.test.ts:972:7
+    970|     const source = await briefSourceOf(t, generationId);
+    971|     const derive = (entries: ReturnType<typeof candidateEntry>[], ctx …
+    972|       publishDerivedBrief(ctx, {
+       |       ^
+    973|         projectId,
+    974|         generationId,
+ ❯ convex/ai/brief.test.ts:990:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > never carries the previous version's storylineQuestion rows forward, as evidence or as a marker
+TypeError: publishDerivedBrief is not a function
+ ❯ derive convex/ai/brief.test.ts:972:7
+    970|     const source = await briefSourceOf(t, generationId);
+    971|     const derive = (entries: ReturnType<typeof candidateEntry>[], ctx …
+    972|       publishDerivedBrief(ctx, {
+       |       ^
+    973|         projectId,
+    974|         generationId,
+ ❯ convex/ai/brief.test.ts:1027:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > renders only live evidence, byte-identically to the Brief the ordered chain checks against
+AssertionError: expected '\n\n--- BEGIN [GENERATION BRIEF] ---\…' not to contain 'Response time under load is unresolve…'
+
+- Expected
++ Received
+
+- Response time under load is unresolved.
++
++
++ --- BEGIN [GENERATION BRIEF] ---
++ Storyline:
++ A storyline for the render filter.
++
++ Claim Exclusions (never claim these, however prominent):
++ - Logo redesign is out of scope. (business risk)
++ - Response time under load is unresolved. (business risk)
++ --- END [GENERATION BRIEF] ---
+
+ ❯ convex/ai/brief.test.ts:1108:26
+    1106|     });
+    1107|     expect(rendered).toContain(liveText);
+    1108|     expect(rendered).not.toContain(removedText);
+       |                          ^
+    1109|     expect(rendered).not.toContain(questionText);
+    1110|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > refuses a source read above MAX_BRIEF_SOURCE_ROWS; the generation completes with no Brief
+AssertionError: expected 'NO_ERROR' to be 'INVALID_STATE' // Object.is equality
+
+Expected: "INVALID_STATE"
+Received: "NO_ERROR"
+
+ ❯ convex/ai/brief.test.ts:1178:26
+    1176|       t.query(internal.generations.getGenerationSourcesForBrief, { gen…
+    1177|     );
+    1178|     expect(failure.code).toBe("INVALID_STATE");
+       |                          ^
+    1179|     expect(failure.message).toContain(String(MAX_BRIEF_SOURCE_ROWS));
+    1180|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > diffs against every live row of an over-bound baseline, and a stale fence writes nothing
+Error: Validator error: Unexpected field `baselineBriefId` in object
+ ❯ validateValidator node_modules/convex-test/dist/index.js:871:27
+ ❯ Object.mutationFromPath node_modules/convex-test/dist/index.js:1692:17
+ ❯ mutation node_modules/convex-test/dist/index.js:1739:20
+ ❯ convex/ai/brief.test.ts:1293:19
+    1291|     // null before any write.
+    1292|     const before = await briefTables(t);
+    1293|     const stale = await t.mutation(internal.generations.persistDerived…
+       |                   ^
+    1294|       ...publish,
+    1295|       baselineBriefId: null,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > omits an over-bound Brief from both prompt readers instead of throwing
+AssertionError: expected { …(2) } to deeply equal { rendered: '', brief: null }
+
+- Expected
++ Received
+
+  {
+-   "brief": null,
+-   "rendered": "",
++   "brief": {
++     "claimExclusions": [],
++     "confidenceMap": [],
++     "glossaryTerms": [
++       "term-0",
++       "term-1",
++       "term-2",
++       "term-3",
++       "term-4",
++       "term-5",
++       "term-6",
++       "term-7",
++       "term-8",
++       "term-9",
++       "term-10",
++       "term-11",
++       "term-12",
++       "term-13",
++       "term-14",
++       "term-15",
++       "term-16",
++       "term-17",
++       "term-18",
++       "term-19",
++       "term-20",
++       "term-21",
++       "term-22",
++       "term-23",
++       "term-24",
++       "term-25",
++       "term-26",
++       "term-27",
++       "term-28",
++       "term-29",
++       "term-30",
++       "term-31",
++       "term-32",
++       "term-33",
++       "term-34",
++       "term-35",
++       "term-36",
++       "term-37",
++       "term-38",
++       "term-39",
++       "term-40",
++       "term-41",
++       "term-42",
++       "term-43",
++       "term-44",
++       "term-45",
++       "term-46",
++       "term-47",
++       "term-48",
++       "term-49",
++       "term-50",
++       "term-51",
++       "term-52",
++       "term-53",
++       "term-54",
++       "term-55",
++       "term-56",
++       "term-57",
++       "term-58",
++       "term-59",
++       "term-60",
++       "term-61",
++       "term-62",
++       "term-63",
++       "term-64",
++       "term-65",
++       "term-66",
++       "term-67",
++       "term-68",
++       "term-69",
++       "term-70",
++       "term-71",
++       "term-72",
++       "term-73",
++       "term-74",
++       "term-75",
++       "term-76",
++       "term-77",
++       "term-78",
++       "term-79",
++       "term-80",
++       "term-81",
++       "term-82",
++       "term-83",
++       "term-84",
++       "term-85",
++       "term-86",
++       "term-87",
++       "term-88",
++       "term-89",
++       "term-90",
++       "term-91",
++       "term-92",
++       "term-93",
++       "term-94",
++       "term-95",
++       "term-96",
++       "term-97",
++       "term-98",
++       "term-99",
++       "term-100",
++       "term-101",
++       "term-102",
++       "term-103",
++       "term-104",
++       "term-105",
++       "term-106",
++       "term-107",
++       "term-108",
++       "term-109",
++       "term-110",
++       "term-111",
++       "term-112",
++       "term-113",
++       "term-114",
++       "term-115",
++       "term-116",
++       "term-117",
++       "term-118",
++       "term-119",
++       "term-120",
++       "term-121",
++       "term-122",
++       "term-123",
++       "term-124",
++       "term-125",
++       "term-126",
++       "term-127",
++       "term-128",
++       "term-129",
++       "term-130",
++       "term-131",
++       "term-132",
++       "term-133",
++       "term-134",
++       "term-135",
++       "term-136",
++       "term-137",
++       "term-138",
++       "term-139",
++       "term-140",
++       "term-141",
++       "term-142",
++       "term-143",
++       "term-144",
++       "term-145",
++       "term-146",
++       "term-147",
++       "term-148",
++       "term-149",
++       "term-150",
++       "term-151",
++       "term-152",
++       "term-153",
++       "term-154",
++       "term-155",
++       "term-156",
++       "term-157",
++       "term-158",
++       "term-159",
++       "term-160",
++       "term-161",
++       "term-162",
++       "term-163",
++       "term-164",
++       "term-165",
++       "term-166",
++       "term-167",
++       "term-168",
++       "term-169",
++       "term-170",
++       "term-171",
++       "term-172",
++       "term-173",
++       "term-174",
++       "term-175",
++       "term-176",
++       "term-177",
++       "term-178",
++       "term-179",
++       "term-180",
++       "term-181",
++       "term-182",
++       "term-183",
++       "term-184",
++       "term-185",
++       "term-186",
++       "term-187",
++       "term-188",
++       "term-189",
++       "term-190",
++       "term-191",
++       "term-192",
++       "term-193",
++       "term-194",
++       "term-195",
++       "term-196",
++       "term-197",
++       "term-198",
++       "term-199",
++       "term-200",
++       "term-201",
++       "term-202",
++       "term-203",
++       "term-204",
++       "term-205",
++       "term-206",
++       "term-207",
++       "term-208",
++       "term-209",
++       "term-210",
++       "term-211",
++       "term-212",
++       "term-213",
++       "term-214",
++       "term-215",
++       "term-216",
++       "term-217",
++       "term-218",
++       "term-219",
++       "term-220",
++       "term-221",
++       "term-222",
++       "term-223",
++       "term-224",
++       "term-225",
++       "term-226",
++       "term-227",
++       "term-228",
++       "term-229",
++       "term-230",
++       "term-231",
++       "term-232",
++       "term-233",
++       "term-234",
++       "term-235",
++       "term-236",
++       "term-237",
++       "term-238",
++       "term-239",
++       "term-240",
++       "term-241",
++       "term-242",
++       "term-243",
++       "term-244",
++       "term-245",
++       "term-246",
++       "term-247",
++       "term-248",
++       "term-249",
++       "term-250",
++       "term-251",
++       "term-252",
++       "term-253",
++       "term-254",
++       "term-255",
++       "term-256",
++       "term-257",
++       "term-258",
++       "term-259",
++       "term-260",
++       "term-261",
++       "term-262",
++       "term-263",
++       "term-264",
++       "term-265",
++       "term-266",
++       "term-267",
++       "term-268",
++       "term-269",
++       "term-270",
++       "term-271",
++       "term-272",
++       "term-273",
++       "term-274",
++       "term-275",
++       "term-276",
++       "term-277",
++       "term-278",
++       "term-279",
++       "term-280",
++       "term-281",
++       "term-282",
++       "term-283",
++       "term-284",
++       "term-285",
++       "term-286",
++       "term-287",
++       "term-288",
++       "term-289",
++       "term-290",
++       "term-291",
++       "term-292",
++       "term-293",
++       "term-294",
++       "term-295",
++       "term-296",
++       "term-297",
++       "term-298",
++       "term-299",
++       "term-300",
++       "term-301",
++       "term-302",
++       "term-303",
++       "term-304",
++       "term-305",
++       "term-306",
++       "term-307",
++       "term-308",
++       "term-309",
++       "term-310",
++       "term-311",
++       "term-312",
++       "term-313",
++       "term-314",
++       "term-315",
++       "term-316",
++       "term-317",
++       "term-318",
++       "term-319",
++       "term-320",
++       "term-321",
++       "term-322",
++       "term-323",
++       "term-324",
++       "term-325",
++       "term-326",
++       "term-327",
++       "term-328",
++       "term-329",
++       "term-330",
++       "term-331",
++       "term-332",
++       "term-333",
++       "term-334",
++       "term-335",
++       "term-336",
++       "term-337",
++       "term-338",
++       "term-339",
++       "term-340",
++       "term-341",
++       "term-342",
++       "term-343",
++       "term-344",
++       "term-345",
++       "term-346",
++       "term-347",
++       "term-348",
++       "term-349",
++       "term-350",
++       "term-351",
++       "term-352",
++       "term-353",
++       "term-354",
++       "term-355",
++       "term-356",
++       "term-357",
++       "term-358",
++       "term-359",
++       "term-360",
++       "term-361",
++       "term-362",
++       "term-363",
++       "term-364",
++       "term-365",
++       "term-366",
++       "term-367",
++       "term-368",
++       "term-369",
++       "term-370",
++       "term-371",
++       "term-372",
++       "term-373",
++       "term-374",
++       "term-375",
++       "term-376",
++       "term-377",
++       "term-378",
++       "term-379",
++       "term-380",
++       "term-381",
++       "term-382",
++       "term-383",
++       "term-384",
++       "term-385",
++       "term-386",
++       "term-387",
++       "term-388",
++       "term-389",
++       "term-390",
++       "term-391",
++       "term-392",
++       "term-393",
++       "term-394",
++       "term-395",
++       "term-396",
++       "term-397",
++       "term-398",
++       "term-399",
++       "term-400",
++       "term-401",
++       "term-402",
++       "term-403",
++       "term-404",
++       "term-405",
++       "term-406",
++       "term-407",
++       "term-408",
++       "term-409",
++       "term-410",
++       "term-411",
++       "term-412",
++       "term-413",
++       "term-414",
++       "term-415",
++       "term-416",
++       "term-417",
++       "term-418",
++       "term-419",
++       "term-420",
++       "term-421",
++       "term-422",
++       "term-423",
++       "term-424",
++       "term-425",
++       "term-426",
++       "term-427",
++       "term-428",
++       "term-429",
++       "term-430",
++       "term-431",
++       "term-432",
++       "term-433",
++       "term-434",
++       "term-435",
++       "term-436",
++       "term-437",
++       "term-438",
++       "term-439",
++       "term-440",
++       "term-441",
++       "term-442",
++       "term-443",
++       "term-444",
++       "term-445",
++       "term-446",
++       "term-447",
++       "term-448",
++       "term-449",
++       "term-450",
++       "term-451",
++       "term-452",
++       "term-453",
++       "term-454",
++       "term-455",
++       "term-456",
++       "term-457",
++       "term-458",
++       "term-459",
++       "term-460",
++       "term-461",
++       "term-462",
++       "term-463",
++       "term-464",
++       "term-465",
++       "term-466",
++       "term-467",
++       "term-468",
++       "term-469",
++       "term-470",
++       "term-471",
++       "term-472",
++       "term-473",
++       "term-474",
++       "term-475",
++       "term-476",
++       "term-477",
++       "term-478",
++       "term-479",
++       "term-480",
++       "term-481",
++       "term-482",
++       "term-483",
++       "term-484",
++       "term-485",
++       "term-486",
++       "term-487",
++       "term-488",
++       "term-489",
++       "term-490",
++       "term-491",
++       "term-492",
++       "term-493",
++       "term-494",
++       "term-495",
++       "term-496",
++       "term-497",
++       "term-498",
++       "term-499",
++     ],
++     "storylineText": "An over-cap current version.",
++   },
++   "rendered": "
++
++ --- BEGIN [GENERATION BRIEF] ---
++ Storyline:
++ An over-cap current version.
++
++ Glossary Terms (use this exact wording, one name per concept):
++ - term-0
++ - term-1
++ - term-2
++ - term-3
++ - term-4
++ - term-5
++ - term-6
++ - term-7
++ - term-8
++ - term-9
++ - term-10
++ - term-11
++ - term-12
++ - term-13
++ - term-14
++ - term-15
++ - term-16
++ - term-17
++ - term-18
++ - term-19
++ - term-20
++ - term-21
++ - term-22
++ - term-23
++ - term-24
++ - term-25
++ - term-26
++ - term-27
++ - term-28
++ - term-29
++ - term-30
++ - term-31
++ - term-32
++ - term-33
++ - term-34
++ - term-35
++ - term-36
++ - term-37
++ - term-38
++ - term-39
++ - term-40
++ - term-41
++ - term-42
++ - term-43
++ - term-44
++ - term-45
++ - term-46
++ - term-47
++ - term-48
++ - term-49
++ - term-50
++ - term-51
++ - term-52
++ - term-53
++ - term-54
++ - term-55
++ - term-56
++ - term-57
++ - term-58
++ - term-59
++ - term-60
++ - term-61
++ - term-62
++ - term-63
++ - term-64
++ - term-65
++ - term-66
++ - term-67
++ - term-68
++ - term-69
++ - term-70
++ - term-71
++ - term-72
++ - term-73
++ - term-74
++ - term-75
++ - term-76
++ - term-77
++ - term-78
++ - term-79
++ - term-80
++ - term-81
++ - term-82
++ - term-83
++ - term-84
++ - term-85
++ - term-86
++ - term-87
++ - term-88
++ - term-89
++ - term-90
++ - term-91
++ - term-92
++ - term-93
++ - term-94
++ - term-95
++ - term-96
++ - term-97
++ - term-98
++ - term-99
++ - term-100
++ - term-101
++ - term-102
++ - term-103
++ - term-104
++ - term-105
++ - term-106
++ - term-107
++ - term-108
++ - term-109
++ - term-110
++ - term-111
++ - term-112
++ - term-113
++ - term-114
++ - term-115
++ - term-116
++ - term-117
++ - term-118
++ - term-119
++ - term-120
++ - term-121
++ - term-122
++ - term-123
++ - term-124
++ - term-125
++ - term-126
++ - term-127
++ - term-128
++ - term-129
++ - term-130
++ - term-131
++ - term-132
++ - term-133
++ - term-134
++ - term-135
++ - term-136
++ - term-137
++ - term-138
++ - term-139
++ - term-140
++ - term-141
++ - term-142
++ - term-143
++ - term-144
++ - term-145
++ - term-146
++ - term-147
++ - term-148
++ - term-149
++ - term-150
++ - term-151
++ - term-152
++ - term-153
++ - term-154
++ - term-155
++ - term-156
++ - term-157
++ - term-158
++ - term-159
++ - term-160
++ - term-161
++ - term-162
++ - term-163
++ - term-164
++ - term-165
++ - term-166
++ - term-167
++ - term-168
++ - term-169
++ - term-170
++ - term-171
++ - term-172
++ - term-173
++ - term-174
++ - term-175
++ - term-176
++ - term-177
++ - term-178
++ - term-179
++ - term-180
++ - term-181
++ - term-182
++ - term-183
++ - term-184
++ - term-185
++ - term-186
++ - term-187
++ - term-188
++ - term-189
++ - term-190
++ - term-191
++ - term-192
++ - term-193
++ - term-194
++ - term-195
++ - term-196
++ - term-197
++ - term-198
++ - term-199
++ - term-200
++ - term-201
++ - term-202
++ - term-203
++ - term-204
++ - term-205
++ - term-206
++ - term-207
++ - term-208
++ - term-209
++ - term-210
++ - term-211
++ - term-212
++ - term-213
++ - term-214
++ - term-215
++ - term-216
++ - term-217
++ - term-218
++ - term-219
++ - term-220
++ - term-221
++ - term-222
++ - term-223
++ - term-224
++ - term-225
++ - term-226
++ - term-227
++ - term-228
++ - term-229
++ - term-230
++ - term-231
++ - term-232
++ - term-233
++ - term-234
++ - term-235
++ - term-236
++ - term-237
++ - term-238
++ - term-239
++ - term-240
++ - term-241
++ - term-242
++ - term-243
++ - term-244
++ - term-245
++ - term-246
++ - term-247
++ - term-248
++ - term-249
++ - term-250
++ - term-251
++ - term-252
++ - term-253
++ - term-254
++ - term-255
++ - term-256
++ - term-257
++ - term-258
++ - term-259
++ - term-260
++ - term-261
++ - term-262
++ - term-263
++ - term-264
++ - term-265
++ - term-266
++ - term-267
++ - term-268
++ - term-269
++ - term-270
++ - term-271
++ - term-272
++ - term-273
++ - term-274
++ - term-275
++ - term-276
++ - term-277
++ - term-278
++ - term-279
++ - term-280
++ - term-281
++ - term-282
++ - term-283
++ - term-284
++ - term-285
++ - term-286
++ - term-287
++ - term-288
++ - term-289
++ - term-290
++ - term-291
++ - term-292
++ - term-293
++ - term-294
++ - term-295
++ - term-296
++ - term-297
++ - term-298
++ - term-299
++ - term-300
++ - term-301
++ - term-302
++ - term-303
++ - term-304
++ - term-305
++ - term-306
++ - term-307
++ - term-308
++ - term-309
++ - term-310
++ - term-311
++ - term-312
++ - term-313
++ - term-314
++ - term-315
++ - term-316
++ - term-317
++ - term-318
++ - term-319
++ - term-320
++ - term-321
++ - term-322
++ - term-323
++ - term-324
++ - term-325
++ - term-326
++ - term-327
++ - term-328
++ - term-329
++ - term-330
++ - term-331
++ - term-332
++ - term-333
++ - term-334
++ - term-335
++ - term-336
++ - term-337
++ - term-338
++ - term-339
++ - term-340
++ - term-341
++ - term-342
++ - term-343
++ - term-344
++ - term-345
++ - term-346
++ - term-347
++ - term-348
++ - term-349
++ - term-350
++ - term-351
++ - term-352
++ - term-353
++ - term-354
++ - term-355
++ - term-356
++ - term-357
++ - term-358
++ - term-359
++ - term-360
++ - term-361
++ - term-362
++ - term-363
++ - term-364
++ - term-365
++ - term-366
++ - term-367
++ - term-368
++ - term-369
++ - term-370
++ - term-371
++ - term-372
++ - term-373
++ - term-374
++ - term-375
++ - term-376
++ - term-377
++ - term-378
++ - term-379
++ - term-380
++ - term-381
++ - term-382
++ - term-383
++ - term-384
++ - term-385
++ - term-386
++ - term-387
++ - term-388
++ - term-389
++ - term-390
++ - term-391
++ - term-392
++ - term-393
++ - term-394
++ - term-395
++ - term-396
++ - term-397
++ - term-398
++ - term-399
++ - term-400
++ - term-401
++ - term-402
++ - term-403
++ - term-404
++ - term-405
++ - term-406
++ - term-407
++ - term-408
++ - term-409
++ - term-410
++ - term-411
++ - term-412
++ - term-413
++ - term-414
++ - term-415
++ - term-416
++ - term-417
++ - term-418
++ - term-419
++ - term-420
++ - term-421
++ - term-422
++ - term-423
++ - term-424
++ - term-425
++ - term-426
++ - term-427
++ - term-428
++ - term-429
++ - term-430
++ - term-431
++ - term-432
++ - term-433
++ - term-434
++ - term-435
++ - term-436
++ - term-437
++ - term-438
++ - term-439
++ - term-440
++ - term-441
++ - term-442
++ - term-443
++ - term-444
++ - term-445
++ - term-446
++ - term-447
++ - term-448
++ - term-449
++ - term-450
++ - term-451
++ - term-452
++ - term-453
++ - term-454
++ - term-455
++ - term-456
++ - term-457
++ - term-458
++ - term-459
++ - term-460
++ - term-461
++ - term-462
++ - term-463
++ - term-464
++ - term-465
++ - term-466
++ - term-467
++ - term-468
++ - term-469
++ - term-470
++ - term-471
++ - term-472
++ - term-473
++ - term-474
++ - term-475
++ - term-476
++ - term-477
++ - term-478
++ - term-479
++ - term-480
++ - term-481
++ - term-482
++ - term-483
++ - term-484
++ - term-485
++ - term-486
++ - term-487
++ - term-488
++ - term-489
++ - term-490
++ - term-491
++ - term-492
++ - term-493
++ - term-494
++ - term-495
++ - term-496
++ - term-497
++ - term-498
++ - term-499
++ --- END [GENERATION BRIEF] ---",
+  }
+
+ ❯ convex/ai/brief.test.ts:1444:23
+    1442|     try {
+    1443|       const omitted = await readBothConsumers(t, generationId);
+    1444|       expect(omitted).toEqual({ rendered: "", brief: null });
+       |                       ^
+    1445|       // Each omission is diagnosable: the generation id, the Brief id…
+    1446|       // bound are all named.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reuses an already-over-bound Brief onto a new generation, and both readers omit it
+AssertionError: expected { …(2) } to deeply equal { rendered: '', brief: null }
+
+- Expected
++ Received
+
+  {
+-   "brief": null,
+-   "rendered": "",
++   "brief": {
++     "claimExclusions": [
++       {
++         "exactExcerpt": "Marketing decided to redesign the logo",
++         "reason": "business_risk",
++         "text": "Logo redesign is out of scope.",
++       },
++     ],
++     "confidenceMap": [
++       {
++         "confidence": "unresolved",
++         "entryId": "0000010019generationBriefEntries",
++         "text": "Response time under load is unresolved.",
++       },
++     ],
++     "glossaryTerms": [
++       "control loop",
++       "term-1000",
++       "term-1001",
++       "term-1002",
++       "term-1003",
++       "term-1004",
++       "term-1005",
++       "term-1006",
++       "term-1007",
++       "term-1008",
++       "term-1009",
++       "term-1010",
++       "term-1011",
++       "term-1012",
++       "term-1013",
++       "term-1014",
++       "term-1015",
++       "term-1016",
++       "term-1017",
++       "term-1018",
++       "term-1019",
++       "term-1020",
++       "term-1021",
++       "term-1022",
++       "term-1023",
++       "term-1024",
++       "term-1025",
++       "term-1026",
++       "term-1027",
++       "term-1028",
++       "term-1029",
++       "term-1030",
++       "term-1031",
++       "term-1032",
++       "term-1033",
++       "term-1034",
++       "term-1035",
++       "term-1036",
++       "term-1037",
++       "term-1038",
++       "term-1039",
++       "term-1040",
++       "term-1041",
++       "term-1042",
++       "term-1043",
++       "term-1044",
++       "term-1045",
++       "term-1046",
++       "term-1047",
++       "term-1048",
++       "term-1049",
++       "term-1050",
++       "term-1051",
++       "term-1052",
++       "term-1053",
++       "term-1054",
++       "term-1055",
++       "term-1056",
++       "term-1057",
++       "term-1058",
++       "term-1059",
++       "term-1060",
++       "term-1061",
++       "term-1062",
++       "term-1063",
++       "term-1064",
++       "term-1065",
++       "term-1066",
++       "term-1067",
++       "term-1068",
++       "term-1069",
++       "term-1070",
++       "term-1071",
++       "term-1072",
++       "term-1073",
++       "term-1074",
++       "term-1075",
++       "term-1076",
++       "term-1077",
++       "term-1078",
++       "term-1079",
++       "term-1080",
++       "term-1081",
++       "term-1082",
++       "term-1083",
++       "term-1084",
++       "term-1085",
++       "term-1086",
++       "term-1087",
++       "term-1088",
++       "term-1089",
++       "term-1090",
++       "term-1091",
++       "term-1092",
++       "term-1093",
++       "term-1094",
++       "term-1095",
++       "term-1096",
++       "term-1097",
++       "term-1098",
++       "term-1099",
++       "term-1100",
++       "term-1101",
++       "term-1102",
++       "term-1103",
++       "term-1104",
++       "term-1105",
++       "term-1106",
++       "term-1107",
++       "term-1108",
++       "term-1109",
++       "term-1110",
++       "term-1111",
++       "term-1112",
++       "term-1113",
++       "term-1114",
++       "term-1115",
++       "term-1116",
++       "term-1117",
++       "term-1118",
++       "term-1119",
++       "term-1120",
++       "term-1121",
++       "term-1122",
++       "term-1123",
++       "term-1124",
++       "term-1125",
++       "term-1126",
++       "term-1127",
++       "term-1128",
++       "term-1129",
++       "term-1130",
++       "term-1131",
++       "term-1132",
++       "term-1133",
++       "term-1134",
++       "term-1135",
++       "term-1136",
++       "term-1137",
++       "term-1138",
++       "term-1139",
++       "term-1140",
++       "term-1141",
++       "term-1142",
++       "term-1143",
++       "term-1144",
++       "term-1145",
++       "term-1146",
++       "term-1147",
++       "term-1148",
++       "term-1149",
++       "term-1150",
++       "term-1151",
++       "term-1152",
++       "term-1153",
++       "term-1154",
++       "term-1155",
++       "term-1156",
++       "term-1157",
++       "term-1158",
++       "term-1159",
++       "term-1160",
++       "term-1161",
++       "term-1162",
++       "term-1163",
++       "term-1164",
++       "term-1165",
++       "term-1166",
++       "term-1167",
++       "term-1168",
++       "term-1169",
++       "term-1170",
++       "term-1171",
++       "term-1172",
++       "term-1173",
++       "term-1174",
++       "term-1175",
++       "term-1176",
++       "term-1177",
++       "term-1178",
++       "term-1179",
++       "term-1180",
++       "term-1181",
++       "term-1182",
++       "term-1183",
++       "term-1184",
++       "term-1185",
++       "term-1186",
++       "term-1187",
++       "term-1188",
++       "term-1189",
++       "term-1190",
++       "term-1191",
++       "term-1192",
++       "term-1193",
++       "term-1194",
++       "term-1195",
++       "term-1196",
++       "term-1197",
++       "term-1198",
++       "term-1199",
++       "term-1200",
++       "term-1201",
++       "term-1202",
++       "term-1203",
++       "term-1204",
++       "term-1205",
++       "term-1206",
++       "term-1207",
++       "term-1208",
++       "term-1209",
++       "term-1210",
++       "term-1211",
++       "term-1212",
++       "term-1213",
++       "term-1214",
++       "term-1215",
++       "term-1216",
++       "term-1217",
++       "term-1218",
++       "term-1219",
++       "term-1220",
++       "term-1221",
++       "term-1222",
++       "term-1223",
++       "term-1224",
++       "term-1225",
++       "term-1226",
++       "term-1227",
++       "term-1228",
++       "term-1229",
++       "term-1230",
++       "term-1231",
++       "term-1232",
++       "term-1233",
++       "term-1234",
++       "term-1235",
++       "term-1236",
++       "term-1237",
++       "term-1238",
++       "term-1239",
++       "term-1240",
++       "term-1241",
++       "term-1242",
++       "term-1243",
++       "term-1244",
++       "term-1245",
++       "term-1246",
++       "term-1247",
++       "term-1248",
++       "term-1249",
++       "term-1250",
++       "term-1251",
++       "term-1252",
++       "term-1253",
++       "term-1254",
++       "term-1255",
++       "term-1256",
++       "term-1257",
++       "term-1258",
++       "term-1259",
++       "term-1260",
++       "term-1261",
++       "term-1262",
++       "term-1263",
++       "term-1264",
++       "term-1265",
++       "term-1266",
++       "term-1267",
++       "term-1268",
++       "term-1269",
++       "term-1270",
++       "term-1271",
++       "term-1272",
++       "term-1273",
++       "term-1274",
++       "term-1275",
++       "term-1276",
++       "term-1277",
++       "term-1278",
++       "term-1279",
++       "term-1280",
++       "term-1281",
++       "term-1282",
++       "term-1283",
++       "term-1284",
++       "term-1285",
++       "term-1286",
++       "term-1287",
++       "term-1288",
++       "term-1289",
++       "term-1290",
++       "term-1291",
++       "term-1292",
++       "term-1293",
++       "term-1294",
++       "term-1295",
++       "term-1296",
++       "term-1297",
++       "term-1298",
++       "term-1299",
++       "term-1300",
++       "term-1301",
++       "term-1302",
++       "term-1303",
++       "term-1304",
++       "term-1305",
++       "term-1306",
++       "term-1307",
++       "term-1308",
++       "term-1309",
++       "term-1310",
++       "term-1311",
++       "term-1312",
++       "term-1313",
++       "term-1314",
++       "term-1315",
++       "term-1316",
++       "term-1317",
++       "term-1318",
++       "term-1319",
++       "term-1320",
++       "term-1321",
++       "term-1322",
++       "term-1323",
++       "term-1324",
++       "term-1325",
++       "term-1326",
++       "term-1327",
++       "term-1328",
++       "term-1329",
++       "term-1330",
++       "term-1331",
++       "term-1332",
++       "term-1333",
++       "term-1334",
++       "term-1335",
++       "term-1336",
++       "term-1337",
++       "term-1338",
++       "term-1339",
++       "term-1340",
++       "term-1341",
++       "term-1342",
++       "term-1343",
++       "term-1344",
++       "term-1345",
++       "term-1346",
++       "term-1347",
++       "term-1348",
++       "term-1349",
++       "term-1350",
++       "term-1351",
++       "term-1352",
++       "term-1353",
++       "term-1354",
++       "term-1355",
++       "term-1356",
++       "term-1357",
++       "term-1358",
++       "term-1359",
++       "term-1360",
++       "term-1361",
++       "term-1362",
++       "term-1363",
++       "term-1364",
++       "term-1365",
++       "term-1366",
++       "term-1367",
++       "term-1368",
++       "term-1369",
++       "term-1370",
++       "term-1371",
++       "term-1372",
++       "term-1373",
++       "term-1374",
++       "term-1375",
++       "term-1376",
++       "term-1377",
++       "term-1378",
++       "term-1379",
++       "term-1380",
++       "term-1381",
++       "term-1382",
++       "term-1383",
++       "term-1384",
++       "term-1385",
++       "term-1386",
++       "term-1387",
++       "term-1388",
++       "term-1389",
++       "term-1390",
++       "term-1391",
++       "term-1392",
++       "term-1393",
++       "term-1394",
++       "term-1395",
++       "term-1396",
++       "term-1397",
++       "term-1398",
++       "term-1399",
++       "term-1400",
++       "term-1401",
++       "term-1402",
++       "term-1403",
++       "term-1404",
++       "term-1405",
++       "term-1406",
++       "term-1407",
++       "term-1408",
++       "term-1409",
++       "term-1410",
++       "term-1411",
++       "term-1412",
++       "term-1413",
++       "term-1414",
++       "term-1415",
++       "term-1416",
++       "term-1417",
++       "term-1418",
++       "term-1419",
++       "term-1420",
++       "term-1421",
++       "term-1422",
++       "term-1423",
++       "term-1424",
++       "term-1425",
++       "term-1426",
++       "term-1427",
++       "term-1428",
++       "term-1429",
++       "term-1430",
++       "term-1431",
++       "term-1432",
++       "term-1433",
++       "term-1434",
++       "term-1435",
++       "term-1436",
++       "term-1437",
++       "term-1438",
++       "term-1439",
++       "term-1440",
++       "term-1441",
++       "term-1442",
++       "term-1443",
++       "term-1444",
++       "term-1445",
++       "term-1446",
++       "term-1447",
++       "term-1448",
++       "term-1449",
++       "term-1450",
++       "term-1451",
++       "term-1452",
++       "term-1453",
++       "term-1454",
++       "term-1455",
++       "term-1456",
++       "term-1457",
++       "term-1458",
++       "term-1459",
++       "term-1460",
++       "term-1461",
++       "term-1462",
++       "term-1463",
++       "term-1464",
++       "term-1465",
++       "term-1466",
++       "term-1467",
++       "term-1468",
++       "term-1469",
++       "term-1470",
++       "term-1471",
++       "term-1472",
++       "term-1473",
++       "term-1474",
++       "term-1475",
++       "term-1476",
++       "term-1477",
++       "term-1478",
++       "term-1479",
++       "term-1480",
++       "term-1481",
++       "term-1482",
++       "term-1483",
++       "term-1484",
++       "term-1485",
++       "term-1486",
++       "term-1487",
++       "term-1488",
++       "term-1489",
++       "term-1490",
++       "term-1491",
++       "term-1492",
++       "term-1493",
++       "term-1494",
++       "term-1495",
++     ],
++     "storylineText": "The team pursued a custom control loop to stabilize output.",
++   },
++   "rendered": "
++
++ --- BEGIN [GENERATION BRIEF] ---
++ Storyline:
++ The team pursued a custom control loop to stabilize output.
++
++ Claim Exclusions (never claim these, however prominent):
++ - Logo redesign is out of scope. (business risk)
++
++ Confidence Map:
++ - [unresolved] Response time under load is unresolved.
++
++ Glossary Terms (use this exact wording, one name per concept):
++ - control loop
++ - term-1000
++ - term-1001
++ - term-1002
++ - term-1003
++ - term-1004
++ - term-1005
++ - term-1006
++ - term-1007
++ - term-1008
++ - term-1009
++ - term-1010
++ - term-1011
++ - term-1012
++ - term-1013
++ - term-1014
++ - term-1015
++ - term-1016
++ - term-1017
++ - term-1018
++ - term-1019
++ - term-1020
++ - term-1021
++ - term-1022
++ - term-1023
++ - term-1024
++ - term-1025
++ - term-1026
++ - term-1027
++ - term-1028
++ - term-1029
++ - term-1030
++ - term-1031
++ - term-1032
++ - term-1033
++ - term-1034
++ - term-1035
++ - term-1036
++ - term-1037
++ - term-1038
++ - term-1039
++ - term-1040
++ - term-1041
++ - term-1042
++ - term-1043
++ - term-1044
++ - term-1045
++ - term-1046
++ - term-1047
++ - term-1048
++ - term-1049
++ - term-1050
++ - term-1051
++ - term-1052
++ - term-1053
++ - term-1054
++ - term-1055
++ - term-1056
++ - term-1057
++ - term-1058
++ - term-1059
++ - term-1060
++ - term-1061
++ - term-1062
++ - term-1063
++ - term-1064
++ - term-1065
++ - term-1066
++ - term-1067
++ - term-1068
++ - term-1069
++ - term-1070
++ - term-1071
++ - term-1072
++ - term-1073
++ - term-1074
++ - term-1075
++ - term-1076
++ - term-1077
++ - term-1078
++ - term-1079
++ - term-1080
++ - term-1081
++ - term-1082
++ - term-1083
++ - term-1084
++ - term-1085
++ - term-1086
++ - term-1087
++ - term-1088
++ - term-1089
++ - term-1090
++ - term-1091
++ - term-1092
++ - term-1093
++ - term-1094
++ - term-1095
++ - term-1096
++ - term-1097
++ - term-1098
++ - term-1099
++ - term-1100
++ - term-1101
++ - term-1102
++ - term-1103
++ - term-1104
++ - term-1105
++ - term-1106
++ - term-1107
++ - term-1108
++ - term-1109
++ - term-1110
++ - term-1111
++ - term-1112
++ - term-1113
++ - term-1114
++ - term-1115
++ - term-1116
++ - term-1117
++ - term-1118
++ - term-1119
++ - term-1120
++ - term-1121
++ - term-1122
++ - term-1123
++ - term-1124
++ - term-1125
++ - term-1126
++ - term-1127
++ - term-1128
++ - term-1129
++ - term-1130
++ - term-1131
++ - term-1132
++ - term-1133
++ - term-1134
++ - term-1135
++ - term-1136
++ - term-1137
++ - term-1138
++ - term-1139
++ - term-1140
++ - term-1141
++ - term-1142
++ - term-1143
++ - term-1144
++ - term-1145
++ - term-1146
++ - term-1147
++ - term-1148
++ - term-1149
++ - term-1150
++ - term-1151
++ - term-1152
++ - term-1153
++ - term-1154
++ - term-1155
++ - term-1156
++ - term-1157
++ - term-1158
++ - term-1159
++ - term-1160
++ - term-1161
++ - term-1162
++ - term-1163
++ - term-1164
++ - term-1165
++ - term-1166
++ - term-1167
++ - term-1168
++ - term-1169
++ - term-1170
++ - term-1171
++ - term-1172
++ - term-1173
++ - term-1174
++ - term-1175
++ - term-1176
++ - term-1177
++ - term-1178
++ - term-1179
++ - term-1180
++ - term-1181
++ - term-1182
++ - term-1183
++ - term-1184
++ - term-1185
++ - term-1186
++ - term-1187
++ - term-1188
++ - term-1189
++ - term-1190
++ - term-1191
++ - term-1192
++ - term-1193
++ - term-1194
++ - term-1195
++ - term-1196
++ - term-1197
++ - term-1198
++ - term-1199
++ - term-1200
++ - term-1201
++ - term-1202
++ - term-1203
++ - term-1204
++ - term-1205
++ - term-1206
++ - term-1207
++ - term-1208
++ - term-1209
++ - term-1210
++ - term-1211
++ - term-1212
++ - term-1213
++ - term-1214
++ - term-1215
++ - term-1216
++ - term-1217
++ - term-1218
++ - term-1219
++ - term-1220
++ - term-1221
++ - term-1222
++ - term-1223
++ - term-1224
++ - term-1225
++ - term-1226
++ - term-1227
++ - term-1228
++ - term-1229
++ - term-1230
++ - term-1231
++ - term-1232
++ - term-1233
++ - term-1234
++ - term-1235
++ - term-1236
++ - term-1237
++ - term-1238
++ - term-1239
++ - term-1240
++ - term-1241
++ - term-1242
++ - term-1243
++ - term-1244
++ - term-1245
++ - term-1246
++ - term-1247
++ - term-1248
++ - term-1249
++ - term-1250
++ - term-1251
++ - term-1252
++ - term-1253
++ - term-1254
++ - term-1255
++ - term-1256
++ - term-1257
++ - term-1258
++ - term-1259
++ - term-1260
++ - term-1261
++ - term-1262
++ - term-1263
++ - term-1264
++ - term-1265
++ - term-1266
++ - term-1267
++ - term-1268
++ - term-1269
++ - term-1270
++ - term-1271
++ - term-1272
++ - term-1273
++ - term-1274
++ - term-1275
++ - term-1276
++ - term-1277
++ - term-1278
++ - term-1279
++ - term-1280
++ - term-1281
++ - term-1282
++ - term-1283
++ - term-1284
++ - term-1285
++ - term-1286
++ - term-1287
++ - term-1288
++ - term-1289
++ - term-1290
++ - term-1291
++ - term-1292
++ - term-1293
++ - term-1294
++ - term-1295
++ - term-1296
++ - term-1297
++ - term-1298
++ - term-1299
++ - term-1300
++ - term-1301
++ - term-1302
++ - term-1303
++ - term-1304
++ - term-1305
++ - term-1306
++ - term-1307
++ - term-1308
++ - term-1309
++ - term-1310
++ - term-1311
++ - term-1312
++ - term-1313
++ - term-1314
++ - term-1315
++ - term-1316
++ - term-1317
++ - term-1318
++ - term-1319
++ - term-1320
++ - term-1321
++ - term-1322
++ - term-1323
++ - term-1324
++ - term-1325
++ - term-1326
++ - term-1327
++ - term-1328
++ - term-1329
++ - term-1330
++ - term-1331
++ - term-1332
++ - term-1333
++ - term-1334
++ - term-1335
++ - term-1336
++ - term-1337
++ - term-1338
++ - term-1339
++ - term-1340
++ - term-1341
++ - term-1342
++ - term-1343
++ - term-1344
++ - term-1345
++ - term-1346
++ - term-1347
++ - term-1348
++ - term-1349
++ - term-1350
++ - term-1351
++ - term-1352
++ - term-1353
++ - term-1354
++ - term-1355
++ - term-1356
++ - term-1357
++ - term-1358
++ - term-1359
++ - term-1360
++ - term-1361
++ - term-1362
++ - term-1363
++ - term-1364
++ - term-1365
++ - term-1366
++ - term-1367
++ - term-1368
++ - term-1369
++ - term-1370
++ - term-1371
++ - term-1372
++ - term-1373
++ - term-1374
++ - term-1375
++ - term-1376
++ - term-1377
++ - term-1378
++ - term-1379
++ - term-1380
++ - term-1381
++ - term-1382
++ - term-1383
++ - term-1384
++ - term-1385
++ - term-1386
++ - term-1387
++ - term-1388
++ - term-1389
++ - term-1390
++ - term-1391
++ - term-1392
++ - term-1393
++ - term-1394
++ - term-1395
++ - term-1396
++ - term-1397
++ - term-1398
++ - term-1399
++ - term-1400
++ - term-1401
++ - term-1402
++ - term-1403
++ - term-1404
++ - term-1405
++ - term-1406
++ - term-1407
++ - term-1408
++ - term-1409
++ - term-1410
++ - term-1411
++ - term-1412
++ - term-1413
++ - term-1414
++ - term-1415
++ - term-1416
++ - term-1417
++ - term-1418
++ - term-1419
++ - term-1420
++ - term-1421
++ - term-1422
++ - term-1423
++ - term-1424
++ - term-1425
++ - term-1426
++ - term-1427
++ - term-1428
++ - term-1429
++ - term-1430
++ - term-1431
++ - term-1432
++ - term-1433
++ - term-1434
++ - term-1435
++ - term-1436
++ - term-1437
++ - term-1438
++ - term-1439
++ - term-1440
++ - term-1441
++ - term-1442
++ - term-1443
++ - term-1444
++ - term-1445
++ - term-1446
++ - term-1447
++ - term-1448
++ - term-1449
++ - term-1450
++ - term-1451
++ - term-1452
++ - term-1453
++ - term-1454
++ - term-1455
++ - term-1456
++ - term-1457
++ - term-1458
++ - term-1459
++ - term-1460
++ - term-1461
++ - term-1462
++ - term-1463
++ - term-1464
++ - term-1465
++ - term-1466
++ - term-1467
++ - term-1468
++ - term-1469
++ - term-1470
++ - term-1471
++ - term-1472
++ - term-1473
++ - term-1474
++ - term-1475
++ - term-1476
++ - term-1477
++ - term-1478
++ - term-1479
++ - term-1480
++ - term-1481
++ - term-1482
++ - term-1483
++ - term-1484
++ - term-1485
++ - term-1486
++ - term-1487
++ - term-1488
++ - term-1489
++ - term-1490
++ - term-1491
++ - term-1492
++ - term-1493
++ - term-1494
++ - term-1495
++ --- END [GENERATION BRIEF] ---",
+  }
+
+ ❯ convex/ai/brief.test.ts:1497:21
+    1495|
+    1496|     const omitted = await readBothConsumers(t, nextGenerationId);
+    1497|     expect(omitted).toEqual({ rendered: "", brief: null });
+       |                     ^
+    1498|   });
+    1499|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > persists an oversized derivation in full, then omits it from both readers
+TypeError: publishDerivedBrief is not a function
+ ❯ convex/ai/brief.test.ts:1537:30
+    1535|       };
+    1536|     });
+    1537|     const newBriefId = await publishDerivedBrief(briefPublishCtx(t).ct…
+       |                              ^
+    1538|       projectId,
+    1539|       generationId,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > reads a Brief of exactly MAX_BRIEF_ENTRY_ROWS completely, in both consumers and as a diff baseline
+TypeError: publishDerivedBrief is not a function
+ ❯ convex/ai/brief.test.ts:1593:31
+    1591|       exactExcerpt: source.content.slice(i, i + 1),
+    1592|     }));
+    1593|     const nextBriefId = await publishDerivedBrief(briefPublishCtx(t).c…
+       |                               ^
+    1594|       projectId,
+    1595|       generationId,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > stamps a returning key `added` against a baseline that still carries its removed marker
+TypeError: publishDerivedBrief is not a function
+ ❯ derive convex/ai/brief.test.ts:972:7
+    970|     const source = await briefSourceOf(t, generationId);
+    971|     const derive = (entries: ReturnType<typeof candidateEntry>[], ctx …
+    972|       publishDerivedBrief(ctx, {
+       |       ^
+    973|         projectId,
+    974|         generationId,
+ ❯ convex/ai/brief.test.ts:1648:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > treats a previous version whose rows are all filtered out as a previous version that exists
+TypeError: publishDerivedBrief is not a function
+ ❯ derive convex/ai/brief.test.ts:972:7
+    970|     const source = await briefSourceOf(t, generationId);
+    971|     const derive = (entries: ReturnType<typeof candidateEntry>[], ctx …
+    972|       publishDerivedBrief(ctx, {
+       |       ^
+    973|         projectId,
+    974|         generationId,
+ ❯ convex/ai/brief.test.ts:1714:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > omits a Brief whose live rows alone are under the bound but whose markers push it over
+AssertionError: expected { …(2) } to deeply equal { rendered: '', brief: null }
+
+- Expected
++ Received
+
+  {
+-   "brief": null,
+-   "rendered": "",
++   "brief": {
++     "claimExclusions": [],
++     "confidenceMap": [],
++     "glossaryTerms": [
++       "term-0",
++       "term-1",
++       "term-2",
++       "term-3",
++       "term-4",
++       "term-5",
++       "term-6",
++       "term-7",
++       "term-8",
++       "term-9",
++       "term-10",
++       "term-11",
++       "term-12",
++       "term-13",
++       "term-14",
++       "term-15",
++       "term-16",
++       "term-17",
++       "term-18",
++       "term-19",
++       "term-20",
++       "term-21",
++       "term-22",
++       "term-23",
++       "term-24",
++       "term-25",
++       "term-26",
++       "term-27",
++       "term-28",
++       "term-29",
++       "term-30",
++       "term-31",
++       "term-32",
++       "term-33",
++       "term-34",
++       "term-35",
++       "term-36",
++       "term-37",
++       "term-38",
++       "term-39",
++       "term-40",
++       "term-41",
++       "term-42",
++       "term-43",
++       "term-44",
++       "term-45",
++       "term-46",
++       "term-47",
++       "term-48",
++       "term-49",
++       "term-50",
++       "term-51",
++       "term-52",
++       "term-53",
++       "term-54",
++       "term-55",
++       "term-56",
++       "term-57",
++       "term-58",
++       "term-59",
++       "term-60",
++       "term-61",
++       "term-62",
++       "term-63",
++       "term-64",
++       "term-65",
++       "term-66",
++       "term-67",
++       "term-68",
++       "term-69",
++       "term-70",
++       "term-71",
++       "term-72",
++       "term-73",
++       "term-74",
++       "term-75",
++       "term-76",
++       "term-77",
++       "term-78",
++       "term-79",
++       "term-80",
++       "term-81",
++       "term-82",
++       "term-83",
++       "term-84",
++       "term-85",
++       "term-86",
++       "term-87",
++       "term-88",
++       "term-89",
++       "term-90",
++       "term-91",
++       "term-92",
++       "term-93",
++       "term-94",
++       "term-95",
++       "term-96",
++       "term-97",
++       "term-98",
++       "term-99",
++       "term-100",
++       "term-101",
++       "term-102",
++       "term-103",
++       "term-104",
++       "term-105",
++       "term-106",
++       "term-107",
++       "term-108",
++       "term-109",
++       "term-110",
++       "term-111",
++       "term-112",
++       "term-113",
++       "term-114",
++       "term-115",
++       "term-116",
++       "term-117",
++       "term-118",
++       "term-119",
++       "term-120",
++       "term-121",
++       "term-122",
++       "term-123",
++       "term-124",
++       "term-125",
++       "term-126",
++       "term-127",
++       "term-128",
++       "term-129",
++       "term-130",
++       "term-131",
++       "term-132",
++       "term-133",
++       "term-134",
++       "term-135",
++       "term-136",
++       "term-137",
++       "term-138",
++       "term-139",
++       "term-140",
++       "term-141",
++       "term-142",
++       "term-143",
++       "term-144",
++       "term-145",
++       "term-146",
++       "term-147",
++       "term-148",
++       "term-149",
++       "term-150",
++       "term-151",
++       "term-152",
++       "term-153",
++       "term-154",
++       "term-155",
++       "term-156",
++       "term-157",
++       "term-158",
++       "term-159",
++       "term-160",
++       "term-161",
++       "term-162",
++       "term-163",
++       "term-164",
++       "term-165",
++       "term-166",
++       "term-167",
++       "term-168",
++       "term-169",
++       "term-170",
++       "term-171",
++       "term-172",
++       "term-173",
++       "term-174",
++       "term-175",
++       "term-176",
++       "term-177",
++       "term-178",
++       "term-179",
++       "term-180",
++       "term-181",
++       "term-182",
++       "term-183",
++       "term-184",
++       "term-185",
++       "term-186",
++       "term-187",
++       "term-188",
++       "term-189",
++       "term-190",
++       "term-191",
++       "term-192",
++       "term-193",
++       "term-194",
++       "term-195",
++       "term-196",
++       "term-197",
++       "term-198",
++       "term-199",
++       "term-200",
++       "term-201",
++       "term-202",
++       "term-203",
++       "term-204",
++       "term-205",
++       "term-206",
++       "term-207",
++       "term-208",
++       "term-209",
++       "term-210",
++       "term-211",
++       "term-212",
++       "term-213",
++       "term-214",
++       "term-215",
++       "term-216",
++       "term-217",
++       "term-218",
++       "term-219",
++       "term-220",
++       "term-221",
++       "term-222",
++       "term-223",
++       "term-224",
++       "term-225",
++       "term-226",
++       "term-227",
++       "term-228",
++       "term-229",
++       "term-230",
++       "term-231",
++       "term-232",
++       "term-233",
++       "term-234",
++       "term-235",
++       "term-236",
++       "term-237",
++       "term-238",
++       "term-239",
++       "term-240",
++       "term-241",
++       "term-242",
++       "term-243",
++       "term-244",
++       "term-245",
++       "term-246",
++       "term-247",
++       "term-248",
++       "term-249",
++       "term-250",
++       "term-251",
++       "term-252",
++       "term-253",
++       "term-254",
++       "term-255",
++       "term-256",
++       "term-257",
++       "term-258",
++       "term-259",
++       "term-260",
++       "term-261",
++       "term-262",
++       "term-263",
++       "term-264",
++       "term-265",
++       "term-266",
++       "term-267",
++       "term-268",
++       "term-269",
++       "term-270",
++       "term-271",
++       "term-272",
++       "term-273",
++       "term-274",
++       "term-275",
++       "term-276",
++       "term-277",
++       "term-278",
++       "term-279",
++       "term-280",
++       "term-281",
++       "term-282",
++       "term-283",
++       "term-284",
++       "term-285",
++       "term-286",
++       "term-287",
++       "term-288",
++       "term-289",
++       "term-290",
++       "term-291",
++       "term-292",
++       "term-293",
++       "term-294",
++       "term-295",
++       "term-296",
++       "term-297",
++       "term-298",
++       "term-299",
++       "term-300",
++       "term-301",
++       "term-302",
++       "term-303",
++       "term-304",
++       "term-305",
++       "term-306",
++       "term-307",
++       "term-308",
++       "term-309",
++       "term-310",
++       "term-311",
++       "term-312",
++       "term-313",
++       "term-314",
++       "term-315",
++       "term-316",
++       "term-317",
++       "term-318",
++       "term-319",
++       "term-320",
++       "term-321",
++       "term-322",
++       "term-323",
++       "term-324",
++       "term-325",
++       "term-326",
++       "term-327",
++       "term-328",
++       "term-329",
++       "term-330",
++       "term-331",
++       "term-332",
++       "term-333",
++       "term-334",
++       "term-335",
++       "term-336",
++       "term-337",
++       "term-338",
++       "term-339",
++       "term-340",
++       "term-341",
++       "term-342",
++       "term-343",
++       "term-344",
++       "term-345",
++       "term-346",
++       "term-347",
++       "term-348",
++       "term-349",
++       "term-350",
++       "term-351",
++       "term-352",
++       "term-353",
++       "term-354",
++       "term-355",
++       "term-356",
++       "term-357",
++       "term-358",
++       "term-359",
++       "term-360",
++       "term-361",
++       "term-362",
++       "term-363",
++       "term-364",
++       "term-365",
++       "term-366",
++       "term-367",
++       "term-368",
++       "term-369",
++       "term-370",
++       "term-371",
++       "term-372",
++       "term-373",
++       "term-374",
++       "term-375",
++       "term-376",
++       "term-377",
++       "term-378",
++       "term-379",
++       "term-380",
++       "term-381",
++       "term-382",
++       "term-383",
++       "term-384",
++       "term-385",
++       "term-386",
++       "term-387",
++       "term-388",
++       "term-389",
++       "term-390",
++       "term-391",
++       "term-392",
++       "term-393",
++       "term-394",
++       "term-395",
++       "term-396",
++       "term-397",
++       "term-398",
++       "term-399",
++       "term-400",
++       "term-401",
++       "term-402",
++       "term-403",
++       "term-404",
++       "term-405",
++       "term-406",
++       "term-407",
++       "term-408",
++       "term-409",
++       "term-410",
++       "term-411",
++       "term-412",
++       "term-413",
++       "term-414",
++       "term-415",
++       "term-416",
++       "term-417",
++       "term-418",
++       "term-419",
++       "term-420",
++       "term-421",
++       "term-422",
++       "term-423",
++       "term-424",
++       "term-425",
++       "term-426",
++       "term-427",
++       "term-428",
++       "term-429",
++       "term-430",
++       "term-431",
++       "term-432",
++       "term-433",
++       "term-434",
++       "term-435",
++       "term-436",
++       "term-437",
++       "term-438",
++       "term-439",
++       "term-440",
++       "term-441",
++       "term-442",
++       "term-443",
++       "term-444",
++       "term-445",
++       "term-446",
++       "term-447",
++       "term-448",
++       "term-449",
++       "term-450",
++       "term-451",
++       "term-452",
++       "term-453",
++       "term-454",
++       "term-455",
++       "term-456",
++       "term-457",
++       "term-458",
++       "term-459",
++       "term-460",
++       "term-461",
++       "term-462",
++       "term-463",
++       "term-464",
++       "term-465",
++       "term-466",
++       "term-467",
++       "term-468",
++       "term-469",
++       "term-470",
++       "term-471",
++       "term-472",
++       "term-473",
++       "term-474",
++       "term-475",
++       "term-476",
++       "term-477",
++       "term-478",
++       "term-479",
++     ],
++     "storylineText": "480 live rows and 30 historical markers.",
++   },
++   "rendered": "
++
++ --- BEGIN [GENERATION BRIEF] ---
++ Storyline:
++ 480 live rows and 30 historical markers.
++
++ Glossary Terms (use this exact wording, one name per concept):
++ - term-0
++ - term-1
++ - term-2
++ - term-3
++ - term-4
++ - term-5
++ - term-6
++ - term-7
++ - term-8
++ - term-9
++ - term-10
++ - term-11
++ - term-12
++ - term-13
++ - term-14
++ - term-15
++ - term-16
++ - term-17
++ - term-18
++ - term-19
++ - term-20
++ - term-21
++ - term-22
++ - term-23
++ - term-24
++ - term-25
++ - term-26
++ - term-27
++ - term-28
++ - term-29
++ - term-30
++ - term-31
++ - term-32
++ - term-33
++ - term-34
++ - term-35
++ - term-36
++ - term-37
++ - term-38
++ - term-39
++ - term-40
++ - term-41
++ - term-42
++ - term-43
++ - term-44
++ - term-45
++ - term-46
++ - term-47
++ - term-48
++ - term-49
++ - term-50
++ - term-51
++ - term-52
++ - term-53
++ - term-54
++ - term-55
++ - term-56
++ - term-57
++ - term-58
++ - term-59
++ - term-60
++ - term-61
++ - term-62
++ - term-63
++ - term-64
++ - term-65
++ - term-66
++ - term-67
++ - term-68
++ - term-69
++ - term-70
++ - term-71
++ - term-72
++ - term-73
++ - term-74
++ - term-75
++ - term-76
++ - term-77
++ - term-78
++ - term-79
++ - term-80
++ - term-81
++ - term-82
++ - term-83
++ - term-84
++ - term-85
++ - term-86
++ - term-87
++ - term-88
++ - term-89
++ - term-90
++ - term-91
++ - term-92
++ - term-93
++ - term-94
++ - term-95
++ - term-96
++ - term-97
++ - term-98
++ - term-99
++ - term-100
++ - term-101
++ - term-102
++ - term-103
++ - term-104
++ - term-105
++ - term-106
++ - term-107
++ - term-108
++ - term-109
++ - term-110
++ - term-111
++ - term-112
++ - term-113
++ - term-114
++ - term-115
++ - term-116
++ - term-117
++ - term-118
++ - term-119
++ - term-120
++ - term-121
++ - term-122
++ - term-123
++ - term-124
++ - term-125
++ - term-126
++ - term-127
++ - term-128
++ - term-129
++ - term-130
++ - term-131
++ - term-132
++ - term-133
++ - term-134
++ - term-135
++ - term-136
++ - term-137
++ - term-138
++ - term-139
++ - term-140
++ - term-141
++ - term-142
++ - term-143
++ - term-144
++ - term-145
++ - term-146
++ - term-147
++ - term-148
++ - term-149
++ - term-150
++ - term-151
++ - term-152
++ - term-153
++ - term-154
++ - term-155
++ - term-156
++ - term-157
++ - term-158
++ - term-159
++ - term-160
++ - term-161
++ - term-162
++ - term-163
++ - term-164
++ - term-165
++ - term-166
++ - term-167
++ - term-168
++ - term-169
++ - term-170
++ - term-171
++ - term-172
++ - term-173
++ - term-174
++ - term-175
++ - term-176
++ - term-177
++ - term-178
++ - term-179
++ - term-180
++ - term-181
++ - term-182
++ - term-183
++ - term-184
++ - term-185
++ - term-186
++ - term-187
++ - term-188
++ - term-189
++ - term-190
++ - term-191
++ - term-192
++ - term-193
++ - term-194
++ - term-195
++ - term-196
++ - term-197
++ - term-198
++ - term-199
++ - term-200
++ - term-201
++ - term-202
++ - term-203
++ - term-204
++ - term-205
++ - term-206
++ - term-207
++ - term-208
++ - term-209
++ - term-210
++ - term-211
++ - term-212
++ - term-213
++ - term-214
++ - term-215
++ - term-216
++ - term-217
++ - term-218
++ - term-219
++ - term-220
++ - term-221
++ - term-222
++ - term-223
++ - term-224
++ - term-225
++ - term-226
++ - term-227
++ - term-228
++ - term-229
++ - term-230
++ - term-231
++ - term-232
++ - term-233
++ - term-234
++ - term-235
++ - term-236
++ - term-237
++ - term-238
++ - term-239
++ - term-240
++ - term-241
++ - term-242
++ - term-243
++ - term-244
++ - term-245
++ - term-246
++ - term-247
++ - term-248
++ - term-249
++ - term-250
++ - term-251
++ - term-252
++ - term-253
++ - term-254
++ - term-255
++ - term-256
++ - term-257
++ - term-258
++ - term-259
++ - term-260
++ - term-261
++ - term-262
++ - term-263
++ - term-264
++ - term-265
++ - term-266
++ - term-267
++ - term-268
++ - term-269
++ - term-270
++ - term-271
++ - term-272
++ - term-273
++ - term-274
++ - term-275
++ - term-276
++ - term-277
++ - term-278
++ - term-279
++ - term-280
++ - term-281
++ - term-282
++ - term-283
++ - term-284
++ - term-285
++ - term-286
++ - term-287
++ - term-288
++ - term-289
++ - term-290
++ - term-291
++ - term-292
++ - term-293
++ - term-294
++ - term-295
++ - term-296
++ - term-297
++ - term-298
++ - term-299
++ - term-300
++ - term-301
++ - term-302
++ - term-303
++ - term-304
++ - term-305
++ - term-306
++ - term-307
++ - term-308
++ - term-309
++ - term-310
++ - term-311
++ - term-312
++ - term-313
++ - term-314
++ - term-315
++ - term-316
++ - term-317
++ - term-318
++ - term-319
++ - term-320
++ - term-321
++ - term-322
++ - term-323
++ - term-324
++ - term-325
++ - term-326
++ - term-327
++ - term-328
++ - term-329
++ - term-330
++ - term-331
++ - term-332
++ - term-333
++ - term-334
++ - term-335
++ - term-336
++ - term-337
++ - term-338
++ - term-339
++ - term-340
++ - term-341
++ - term-342
++ - term-343
++ - term-344
++ - term-345
++ - term-346
++ - term-347
++ - term-348
++ - term-349
++ - term-350
++ - term-351
++ - term-352
++ - term-353
++ - term-354
++ - term-355
++ - term-356
++ - term-357
++ - term-358
++ - term-359
++ - term-360
++ - term-361
++ - term-362
++ - term-363
++ - term-364
++ - term-365
++ - term-366
++ - term-367
++ - term-368
++ - term-369
++ - term-370
++ - term-371
++ - term-372
++ - term-373
++ - term-374
++ - term-375
++ - term-376
++ - term-377
++ - term-378
++ - term-379
++ - term-380
++ - term-381
++ - term-382
++ - term-383
++ - term-384
++ - term-385
++ - term-386
++ - term-387
++ - term-388
++ - term-389
++ - term-390
++ - term-391
++ - term-392
++ - term-393
++ - term-394
++ - term-395
++ - term-396
++ - term-397
++ - term-398
++ - term-399
++ - term-400
++ - term-401
++ - term-402
++ - term-403
++ - term-404
++ - term-405
++ - term-406
++ - term-407
++ - term-408
++ - term-409
++ - term-410
++ - term-411
++ - term-412
++ - term-413
++ - term-414
++ - term-415
++ - term-416
++ - term-417
++ - term-418
++ - term-419
++ - term-420
++ - term-421
++ - term-422
++ - term-423
++ - term-424
++ - term-425
++ - term-426
++ - term-427
++ - term-428
++ - term-429
++ - term-430
++ - term-431
++ - term-432
++ - term-433
++ - term-434
++ - term-435
++ - term-436
++ - term-437
++ - term-438
++ - term-439
++ - term-440
++ - term-441
++ - term-442
++ - term-443
++ - term-444
++ - term-445
++ - term-446
++ - term-447
++ - term-448
++ - term-449
++ - term-450
++ - term-451
++ - term-452
++ - term-453
++ - term-454
++ - term-455
++ - term-456
++ - term-457
++ - term-458
++ - term-459
++ - term-460
++ - term-461
++ - term-462
++ - term-463
++ - term-464
++ - term-465
++ - term-466
++ - term-467
++ - term-468
++ - term-469
++ - term-470
++ - term-471
++ - term-472
++ - term-473
++ - term-474
++ - term-475
++ - term-476
++ - term-477
++ - term-478
++ - term-479
++ - term-480
++ - term-481
++ - term-482
++ - term-483
++ - term-484
++ - term-485
++ - term-486
++ - term-487
++ - term-488
++ - term-489
++ - term-490
++ - term-491
++ - term-492
++ - term-493
++ - term-494
++ - term-495
++ - term-496
++ - term-497
++ - term-498
++ - term-499
++ --- END [GENERATION BRIEF] ---",
+  }
+
+ ❯ convex/ai/brief.test.ts:1751:21
+    1749|
+    1750|     const omitted = await readBothConsumers(t, generationId);
+    1751|     expect(omitted).toEqual({ rendered: "", brief: null });
+       |                     ^
+    1752|   });
+    1753|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > re-reads and re-publishes when a writer edit lands between pin and publish
+TypeError: publishDerivedBrief is not a function
+ ❯ derive convex/ai/brief.test.ts:972:7
+    970|     const source = await briefSourceOf(t, generationId);
+    971|     const derive = (entries: ReturnType<typeof candidateEntry>[], ctx …
+    972|       publishDerivedBrief(ctx, {
+       |       ^
+    973|         projectId,
+    974|         generationId,
+ ❯ convex/ai/brief.test.ts:1770:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > gives up after BRIEF_PUBLISH_ATTEMPTS lost fences, leaving no version from the derivation
+TypeError: publishDerivedBrief is not a function
+ ❯ derive convex/ai/brief.test.ts:972:7
+    970|     const source = await briefSourceOf(t, generationId);
+    971|     const derive = (entries: ReturnType<typeof candidateEntry>[], ctx …
+    972|       publishDerivedBrief(ctx, {
+       |       ^
+    973|         projectId,
+    974|         generationId,
+ ❯ convex/ai/brief.test.ts:1829:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > writes nothing when a baseline page read fails part-way, and the next derivation publishes normally
+TypeError: publishDerivedBrief is not a function
+ ❯ derive convex/ai/brief.test.ts:972:7
+    970|     const source = await briefSourceOf(t, generationId);
+    971|     const derive = (entries: ReturnType<typeof candidateEntry>[], ctx …
+    972|       publishDerivedBrief(ctx, {
+       |       ^
+    973|         projectId,
+    974|         generationId,
+ ❯ convex/ai/brief.test.ts:1885:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > marks a retained baseline row removed when every candidate sharing its key fails re-validation
+TypeError: publishDerivedBrief is not a function
+ ❯ derive convex/ai/brief.test.ts:972:7
+    970|     const source = await briefSourceOf(t, generationId);
+    971|     const derive = (entries: ReturnType<typeof candidateEntry>[], ctx …
+    972|       publishDerivedBrief(ctx, {
+       |       ^
+    973|         projectId,
+    974|         generationId,
+ ❯ convex/ai/brief.test.ts:1923:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > aborts the whole publish with INVALID_STATE when a retained reference is not what it claims
+TypeError: publishDerivedBrief is not a function
+ ❯ derive convex/ai/brief.test.ts:972:7
+    970|     const source = await briefSourceOf(t, generationId);
+    971|     const derive = (entries: ReturnType<typeof candidateEntry>[], ctx …
+    972|       publishDerivedBrief(ctx, {
+       |       ^
+    973|         projectId,
+    974|         generationId,
+ ❯ convex/ai/brief.test.ts:1964:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > keeps the last baseline row for a diff key duplicated across pages, when the key is dropped and when its candidates all fail re-validation
+TypeError: publishDerivedBrief is not a function
+ ❯ Object.publish convex/ai/brief.test.ts:2071:7
+    2069|     };
+    2070|     const publish = (entries: Array<typeof middle[number] | typeof dup…
+    2071|       publishDerivedBrief(ctx, {
+       |       ^
+    2072|         projectId,
+    2073|         generationId,
+ ❯ convex/ai/brief.test.ts:2092:37
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > stamps the first validated duplicate candidate unchanged and later ones added, even when an earlier candidate sharing the key fails re-validation
+TypeError: publishDerivedBrief is not a function
+ ❯ derive convex/ai/brief.test.ts:972:7
+    970|     const source = await briefSourceOf(t, generationId);
+    971|     const derive = (entries: ReturnType<typeof candidateEntry>[], ctx …
+    972|       publishDerivedBrief(ctx, {
+       |       ^
+    973|         projectId,
+    974|         generationId,
+ ❯ convex/ai/brief.test.ts:2158:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > stops without publishing when a one-row page still needs a split or an accepted page makes no progress
+TypeError: publishDerivedBrief is not a function
+ ❯ derive convex/ai/brief.test.ts:972:7
+    970|     const source = await briefSourceOf(t, generationId);
+    971|     const derive = (entries: ReturnType<typeof candidateEntry>[], ctx …
+    972|       publishDerivedBrief(ctx, {
+       |       ^
+    973|         projectId,
+    974|         generationId,
+ ❯ convex/ai/brief.test.ts:2190:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > re-reads a byte-heavy baseline page smaller after SplitRequired and diffs every live row
+TypeError: publishDerivedBrief is not a function
+ ❯ convex/ai/brief.test.ts:2300:26
+    2298|     }));
+    2299|     const { ctx, calls } = briefPublishCtx(t);
+    2300|     const nextId = await publishDerivedBrief(ctx, {
+       |                          ^
+    2301|       projectId,
+    2302|       generationId,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > sends no retained baseline text, so a large retained baseline publishes under the argument limit
+TypeError: publishDerivedBrief is not a function
+ ❯ convex/ai/brief.test.ts:2440:26
+    2438|     }));
+    2439|     const { ctx, calls } = briefPublishCtx(t);
+    2440|     const nextId = await publishDerivedBrief(ctx, {
+       |                          ^
+    2441|       projectId,
+    2442|       generationId,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/28]⎯
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief read completeness and diff baseline (DW-107/DW-118) > recovers an over-bound newest Brief on the next changed-input derivation
+AssertionError: expected [ '0000:added', …(511) ] to deeply equal [ '0000:added', …(521) ]
+
+- Expected
++ Received
+
+@@ -498,27 +498,17 @@
+    "0795:removed",
+    "0796:removed",
+    "0797:removed",
+    "0798:removed",
+    "0799:removed",
+-   "0800:removed",
+-   "0801:removed",
+-   "0802:removed",
+-   "0803:removed",
+-   "0804:removed",
+-   "0805:removed",
+-   "0806:removed",
+-   "0807:removed",
+-   "0808:removed",
+-   "0809:removed",
+-   "0810:unchanged",
+-   "0811:unchanged",
+-   "0812:unchanged",
+-   "0813:unchanged",
+-   "0814:unchanged",
+-   "0815:unchanged",
+-   "0816:unchanged",
+-   "0817:unchanged",
+-   "0818:unchanged",
+-   "0819:unchanged",
++   "0810:added",
++   "0811:added",
++   "0812:added",
++   "0813:added",
++   "0814:added",
++   "0815:added",
++   "0816:added",
++   "0817:added",
++   "0818:added",
++   "0819:added",
+    "0900:added",
+  ]
+
+ ❯ convex/ai/brief.test.ts:2725:34
+    2723|       expect(third.briefId).not.toBe(second.briefId);
+    2724|       const v3Rows = await entriesOf(t, third.briefId!);
+    2725|       expect(factRowsOf(v3Rows)).toEqual(
+       |                                  ^
+    2726|         [
+    2727|           ...factRows(kept, "unchanged"),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/28]⎯
+
+ FAIL  |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > iterative's one-shot ghost still drafts every section with the stored Brief block (story 1 wiring)
+AssertionError: expected 'Here is the structured transcript ana…' not to contain 'controller response under load'
+
+- Expected
++ Received
+
+- controller response under load
++ Here is the structured transcript analysis. Use ONLY this information to draft Section 242.
++
++ {
++   "company_context": "Test company",
++   "project_goal": "Resolve the control uncertainty",
++   "business_problem": "Existing control fails",
++   "scientific_technical_problem": "Response under load is unknown",
++   "passive_uncertainties": [],
++   "active_uncertainties": [],
++   "technological_objective": "A repeatable control",
++   "work_performed": {
++     "prior_year_status": null,
++     "workplan_steps": [],
++     "hypothesis": "",
++     "experiments_iterations": []
++   },
++   "advancements_achieved": [],
++   "remaining_uncertainties": [],
++   "project_status": "completed",
++   "unreliable_narrator_flags": [],
++   "gaps": [],
++   "useful_quotes": []
++ }
++
++ # LENGTH BUDGET (CRA form constraint — hard requirement)
++ The CRA form field for this section holds at most 50 lines of 78 characters, and EVERY blank line between paragraphs also costs one full line. Write AT MOST 337 words total. Prefer fewer, denser paragraphs (each blank line spent on a paragraph break is a line of content lost). Do NOT pad. If the material exceeds the budget, keep the most technically load-bearing content and cut the rest.
++
++ --- BEGIN [GENERATION BRIEF] ---
++ Claim Exclusions (never claim these, however prominent):
++ - three prototype controllers (business risk)
++ - controller response under load (business risk)
++ --- END [GENERATION BRIEF] ---
+
+ ❯ convex/ai/promptProgram.test.ts:1061:26
+    1059|       expect(prompt).toContain("--- BEGIN [GENERATION BRIEF] ---");
+    1060|       expect(prompt).toContain("- three prototype controllers (busines…
+    1061|       expect(prompt).not.toContain("controller response under load");
+       |                          ^
+    1062|     }
+    1063|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/28]⎯
+
+ FAIL  |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from the ordered chain: every section drafts, none is left queued
+AssertionError: expected 'Here is the structured transcript ana…' not to contain '--- BEGIN [GENERATION BRIEF] ---'
+
+- Expected
++ Received
+
++ Here is the structured transcript analysis. Use ONLY this information to draft Section 242.
++
++ {
++   "company_context": "Test company",
++   "project_goal": "Resolve the control uncertainty",
++   "business_problem": "Existing control fails",
++   "scientific_technical_problem": "Response under load is unknown",
++   "passive_uncertainties": [],
++   "active_uncertainties": [],
++   "technological_objective": "A repeatable control",
++   "work_performed": {
++     "prior_year_status": null,
++     "workplan_steps": [],
++     "hypothesis": "",
++     "experiments_iterations": []
++   },
++   "advancements_achieved": [],
++   "remaining_uncertainties": [],
++   "project_status": "completed",
++   "unreliable_narrator_flags": [],
++   "gaps": [],
++   "useful_quotes": []
++ }
++
++ # LENGTH BUDGET (CRA form constraint — hard requirement)
++ The CRA form field for this section holds at most 50 lines of 78 characters, and EVERY blank line between paragraphs also costs one full line. Write AT MOST 337 words total. Prefer fewer, denser paragraphs (each blank line spent on a paragraph break is a line of content lost). Do NOT pad. If the material exceeds the budget, keep the most technically load-bearing content and cut the rest.
++
+  --- BEGIN [GENERATION BRIEF] ---
++ Storyline:
++ A Storyline no prompt may ever see in part.
++
++ Claim Exclusions (never claim these, however prominent):
++ - over-bound exclusion 0 (business risk)
++ - over-bound exclusion 1 (business risk)
++ - over-bound exclusion 2 (business risk)
++ - over-bound exclusion 3 (business risk)
++ - over-bound exclusion 4 (business risk)
++ - over-bound exclusion 5 (business risk)
++ - over-bound exclusion 6 (business risk)
++ - over-bound exclusion 7 (business risk)
++ - over-bound exclusion 8 (business risk)
++ - over-bound exclusion 9 (business risk)
++ - over-bound exclusion 10 (business risk)
++ - over-bound exclusion 11 (business risk)
++ - over-bound exclusion 12 (business risk)
++ - over-bound exclusion 13 (business risk)
++ - over-bound exclusion 14 (business risk)
++ - over-bound exclusion 15 (business risk)
++ - over-bound exclusion 16 (business risk)
++ - over-bound exclusion 17 (business risk)
++ - over-bound exclusion 18 (business risk)
++ - over-bound exclusion 19 (business risk)
++ - over-bound exclusion 20 (business risk)
++ - over-bound exclusion 21 (business risk)
++ - over-bound exclusion 22 (business risk)
++ - over-bound exclusion 23 (business risk)
++ - over-bound exclusion 24 (business risk)
++ - over-bound exclusion 25 (business risk)
++ - over-bound exclusion 26 (business risk)
++ - over-bound exclusion 27 (business risk)
++ - over-bound exclusion 28 (business risk)
++ - over-bound exclusion 29 (business risk)
++ - over-bound exclusion 30 (business risk)
++ - over-bound exclusion 31 (business risk)
++ - over-bound exclusion 32 (business risk)
++ - over-bound exclusion 33 (business risk)
++ - over-bound exclusion 34 (business risk)
++ - over-bound exclusion 35 (business risk)
++ - over-bound exclusion 36 (business risk)
++ - over-bound exclusion 37 (business risk)
++ - over-bound exclusion 38 (business risk)
++ - over-bound exclusion 39 (business risk)
++ - over-bound exclusion 40 (business risk)
++ - over-bound exclusion 41 (business risk)
++ - over-bound exclusion 42 (business risk)
++ - over-bound exclusion 43 (business risk)
++ - over-bound exclusion 44 (business risk)
++ - over-bound exclusion 45 (business risk)
++ - over-bound exclusion 46 (business risk)
++ - over-bound exclusion 47 (business risk)
++ - over-bound exclusion 48 (business risk)
++ - over-bound exclusion 49 (business risk)
++ - over-bound exclusion 50 (business risk)
++ - over-bound exclusion 51 (business risk)
++ - over-bound exclusion 52 (business risk)
++ - over-bound exclusion 53 (business risk)
++ - over-bound exclusion 54 (business risk)
++ - over-bound exclusion 55 (business risk)
++ - over-bound exclusion 56 (business risk)
++ - over-bound exclusion 57 (business risk)
++ - over-bound exclusion 58 (business risk)
++ - over-bound exclusion 59 (business risk)
++ - over-bound exclusion 60 (business risk)
++ - over-bound exclusion 61 (business risk)
++ - over-bound exclusion 62 (business risk)
++ - over-bound exclusion 63 (business risk)
++ - over-bound exclusion 64 (business risk)
++ - over-bound exclusion 65 (business risk)
++ - over-bound exclusion 66 (business risk)
++ - over-bound exclusion 67 (business risk)
++ - over-bound exclusion 68 (business risk)
++ - over-bound exclusion 69 (business risk)
++ - over-bound exclusion 70 (business risk)
++ - over-bound exclusion 71 (business risk)
++ - over-bound exclusion 72 (business risk)
++ - over-bound exclusion 73 (business risk)
++ - over-bound exclusion 74 (business risk)
++ - over-bound exclusion 75 (business risk)
++ - over-bound exclusion 76 (business risk)
++ - over-bound exclusion 77 (business risk)
++ - over-bound exclusion 78 (business risk)
++ - over-bound exclusion 79 (business risk)
++ - over-bound exclusion 80 (business risk)
++ - over-bound exclusion 81 (business risk)
++ - over-bound exclusion 82 (business risk)
++ - over-bound exclusion 83 (business risk)
++ - over-bound exclusion 84 (business risk)
++ - over-bound exclusion 85 (business risk)
++ - over-bound exclusion 86 (business risk)
++ - over-bound exclusion 87 (business risk)
++ - over-bound exclusion 88 (business risk)
++ - over-bound exclusion 89 (business risk)
++ - over-bound exclusion 90 (business risk)
++ - over-bound exclusion 91 (business risk)
++ - over-bound exclusion 92 (business risk)
++ - over-bound exclusion 93 (business risk)
++ - over-bound exclusion 94 (business risk)
++ - over-bound exclusion 95 (business risk)
++ - over-bound exclusion 96 (business risk)
++ - over-bound exclusion 97 (business risk)
++ - over-bound exclusion 98 (business risk)
++ - over-bound exclusion 99 (business risk)
++ - over-bound exclusion 100 (business risk)
++ - over-bound exclusion 101 (business risk)
++ - over-bound exclusion 102 (business risk)
++ - over-bound exclusion 103 (business risk)
++ - over-bound exclusion 104 (business risk)
++ - over-bound exclusion 105 (business risk)
++ - over-bound exclusion 106 (business risk)
++ - over-bound exclusion 107 (business risk)
++ - over-bound exclusion 108 (business risk)
++ - over-bound exclusion 109 (business risk)
++ - over-bound exclusion 110 (business risk)
++ - over-bound exclusion 111 (business risk)
++ - over-bound exclusion 112 (business risk)
++ - over-bound exclusion 113 (business risk)
++ - over-bound exclusion 114 (business risk)
++ - over-bound exclusion 115 (business risk)
++ - over-bound exclusion 116 (business risk)
++ - over-bound exclusion 117 (business risk)
++ - over-bound exclusion 118 (business risk)
++ - over-bound exclusion 119 (business risk)
++ - over-bound exclusion 120 (business risk)
++ - over-bound exclusion 121 (business risk)
++ - over-bound exclusion 122 (business risk)
++ - over-bound exclusion 123 (business risk)
++ - over-bound exclusion 124 (business risk)
++ - over-bound exclusion 125 (business risk)
++ - over-bound exclusion 126 (business risk)
++ - over-bound exclusion 127 (business risk)
++ - over-bound exclusion 128 (business risk)
++ - over-bound exclusion 129 (business risk)
++ - over-bound exclusion 130 (business risk)
++ - over-bound exclusion 131 (business risk)
++ - over-bound exclusion 132 (business risk)
++ - over-bound exclusion 133 (business risk)
++ - over-bound exclusion 134 (business risk)
++ - over-bound exclusion 135 (business risk)
++ - over-bound exclusion 136 (business risk)
++ - over-bound exclusion 137 (business risk)
++ - over-bound exclusion 138 (business risk)
++ - over-bound exclusion 139 (business risk)
++ - over-bound exclusion 140 (business risk)
++ - over-bound exclusion 141 (business risk)
++ - over-bound exclusion 142 (business risk)
++ - over-bound exclusion 143 (business risk)
++ - over-bound exclusion 144 (business risk)
++ - over-bound exclusion 145 (business risk)
++ - over-bound exclusion 146 (business risk)
++ - over-bound exclusion 147 (business risk)
++ - over-bound exclusion 148 (business risk)
++ - over-bound exclusion 149 (business risk)
++ - over-bound exclusion 150 (business risk)
++ - over-bound exclusion 151 (business risk)
++ - over-bound exclusion 152 (business risk)
++ - over-bound exclusion 153 (business risk)
++ - over-bound exclusion 154 (business risk)
++ - over-bound exclusion 155 (business risk)
++ - over-bound exclusion 156 (business risk)
++ - over-bound exclusion 157 (business risk)
++ - over-bound exclusion 158 (business risk)
++ - over-bound exclusion 159 (business risk)
++ - over-bound exclusion 160 (business risk)
++ - over-bound exclusion 161 (business risk)
++ - over-bound exclusion 162 (business risk)
++ - over-bound exclusion 163 (business risk)
++ - over-bound exclusion 164 (business risk)
++ - over-bound exclusion 165 (business risk)
++ - over-bound exclusion 166 (business risk)
++ - over-bound exclusion 167 (business risk)
++ - over-bound exclusion 168 (business risk)
++ - over-bound exclusion 169 (business risk)
++ - over-bound exclusion 170 (business risk)
++ - over-bound exclusion 171 (business risk)
++ - over-bound exclusion 172 (business risk)
++ - over-bound exclusion 173 (business risk)
++ - over-bound exclusion 174 (business risk)
++ - over-bound exclusion 175 (business risk)
++ - over-bound exclusion 176 (business risk)
++ - over-bound exclusion 177 (business risk)
++ - over-bound exclusion 178 (business risk)
++ - over-bound exclusion 179 (business risk)
++ - over-bound exclusion 180 (business risk)
++ - over-bound exclusion 181 (business risk)
++ - over-bound exclusion 182 (business risk)
++ - over-bound exclusion 183 (business risk)
++ - over-bound exclusion 184 (business risk)
++ - over-bound exclusion 185 (business risk)
++ - over-bound exclusion 186 (business risk)
++ - over-bound exclusion 187 (business risk)
++ - over-bound exclusion 188 (business risk)
++ - over-bound exclusion 189 (business risk)
++ - over-bound exclusion 190 (business risk)
++ - over-bound exclusion 191 (business risk)
++ - over-bound exclusion 192 (business risk)
++ - over-bound exclusion 193 (business risk)
++ - over-bound exclusion 194 (business risk)
++ - over-bound exclusion 195 (business risk)
++ - over-bound exclusion 196 (business risk)
++ - over-bound exclusion 197 (business risk)
++ - over-bound exclusion 198 (business risk)
++ - over-bound exclusion 199 (business risk)
++ - over-bound exclusion 200 (business risk)
++ - over-bound exclusion 201 (business risk)
++ - over-bound exclusion 202 (business risk)
++ - over-bound exclusion 203 (business risk)
++ - over-bound exclusion 204 (business risk)
++ - over-bound exclusion 205 (business risk)
++ - over-bound exclusion 206 (business risk)
++ - over-bound exclusion 207 (business risk)
++ - over-bound exclusion 208 (business risk)
++ - over-bound exclusion 209 (business risk)
++ - over-bound exclusion 210 (business risk)
++ - over-bound exclusion 211 (business risk)
++ - over-bound exclusion 212 (business risk)
++ - over-bound exclusion 213 (business risk)
++ - over-bound exclusion 214 (business risk)
++ - over-bound exclusion 215 (business risk)
++ - over-bound exclusion 216 (business risk)
++ - over-bound exclusion 217 (business risk)
++ - over-bound exclusion 218 (business risk)
++ - over-bound exclusion 219 (business risk)
++ - over-bound exclusion 220 (business risk)
++ - over-bound exclusion 221 (business risk)
++ - over-bound exclusion 222 (business risk)
++ - over-bound exclusion 223 (business risk)
++ - over-bound exclusion 224 (business risk)
++ - over-bound exclusion 225 (business risk)
++ - over-bound exclusion 226 (business risk)
++ - over-bound exclusion 227 (business risk)
++ - over-bound exclusion 228 (business risk)
++ - over-bound exclusion 229 (business risk)
++ - over-bound exclusion 230 (business risk)
++ - over-bound exclusion 231 (business risk)
++ - over-bound exclusion 232 (business risk)
++ - over-bound exclusion 233 (business risk)
++ - over-bound exclusion 234 (business risk)
++ - over-bound exclusion 235 (business risk)
++ - over-bound exclusion 236 (business risk)
++ - over-bound exclusion 237 (business risk)
++ - over-bound exclusion 238 (business risk)
++ - over-bound exclusion 239 (business risk)
++ - over-bound exclusion 240 (business risk)
++ - over-bound exclusion 241 (business risk)
++ - over-bound exclusion 242 (business risk)
++ - over-bound exclusion 243 (business risk)
++ - over-bound exclusion 244 (business risk)
++ - over-bound exclusion 245 (business risk)
++ - over-bound exclusion 246 (business risk)
++ - over-bound exclusion 247 (business risk)
++ - over-bound exclusion 248 (business risk)
++ - over-bound exclusion 249 (business risk)
++ - over-bound exclusion 250 (business risk)
++ - over-bound exclusion 251 (business risk)
++ - over-bound exclusion 252 (business risk)
++ - over-bound exclusion 253 (business risk)
++ - over-bound exclusion 254 (business risk)
++ - over-bound exclusion 255 (business risk)
++ - over-bound exclusion 256 (business risk)
++ - over-bound exclusion 257 (business risk)
++ - over-bound exclusion 258 (business risk)
++ - over-bound exclusion 259 (business risk)
++ - over-bound exclusion 260 (business risk)
++ - over-bound exclusion 261 (business risk)
++ - over-bound exclusion 262 (business risk)
++ - over-bound exclusion 263 (business risk)
++ - over-bound exclusion 264 (business risk)
++ - over-bound exclusion 265 (business risk)
++ - over-bound exclusion 266 (business risk)
++ - over-bound exclusion 267 (business risk)
++ - over-bound exclusion 268 (business risk)
++ - over-bound exclusion 269 (business risk)
++ - over-bound exclusion 270 (business risk)
++ - over-bound exclusion 271 (business risk)
++ - over-bound exclusion 272 (business risk)
++ - over-bound exclusion 273 (business risk)
++ - over-bound exclusion 274 (business risk)
++ - over-bound exclusion 275 (business risk)
++ - over-bound exclusion 276 (business risk)
++ - over-bound exclusion 277 (business risk)
++ - over-bound exclusion 278 (business risk)
++ - over-bound exclusion 279 (business risk)
++ - over-bound exclusion 280 (business risk)
++ - over-bound exclusion 281 (business risk)
++ - over-bound exclusion 282 (business risk)
++ - over-bound exclusion 283 (business risk)
++ - over-bound exclusion 284 (business risk)
++ - over-bound exclusion 285 (business risk)
++ - over-bound exclusion 286 (business risk)
++ - over-bound exclusion 287 (business risk)
++ - over-bound exclusion 288 (business risk)
++ - over-bound exclusion 289 (business risk)
++ - over-bound exclusion 290 (business risk)
++ - over-bound exclusion 291 (business risk)
++ - over-bound exclusion 292 (business risk)
++ - over-bound exclusion 293 (business risk)
++ - over-bound exclusion 294 (business risk)
++ - over-bound exclusion 295 (business risk)
++ - over-bound exclusion 296 (business risk)
++ - over-bound exclusion 297 (business risk)
++ - over-bound exclusion 298 (business risk)
++ - over-bound exclusion 299 (business risk)
++ - over-bound exclusion 300 (business risk)
++ - over-bound exclusion 301 (business risk)
++ - over-bound exclusion 302 (business risk)
++ - over-bound exclusion 303 (business risk)
++ - over-bound exclusion 304 (business risk)
++ - over-bound exclusion 305 (business risk)
++ - over-bound exclusion 306 (business risk)
++ - over-bound exclusion 307 (business risk)
++ - over-bound exclusion 308 (business risk)
++ - over-bound exclusion 309 (business risk)
++ - over-bound exclusion 310 (business risk)
++ - over-bound exclusion 311 (business risk)
++ - over-bound exclusion 312 (business risk)
++ - over-bound exclusion 313 (business risk)
++ - over-bound exclusion 314 (business risk)
++ - over-bound exclusion 315 (business risk)
++ - over-bound exclusion 316 (business risk)
++ - over-bound exclusion 317 (business risk)
++ - over-bound exclusion 318 (business risk)
++ - over-bound exclusion 319 (business risk)
++ - over-bound exclusion 320 (business risk)
++ - over-bound exclusion 321 (business risk)
++ - over-bound exclusion 322 (business risk)
++ - over-bound exclusion 323 (business risk)
++ - over-bound exclusion 324 (business risk)
++ - over-bound exclusion 325 (business risk)
++ - over-bound exclusion 326 (business risk)
++ - over-bound exclusion 327 (business risk)
++ - over-bound exclusion 328 (business risk)
++ - over-bound exclusion 329 (business risk)
++ - over-bound exclusion 330 (business risk)
++ - over-bound exclusion 331 (business risk)
++ - over-bound exclusion 332 (business risk)
++ - over-bound exclusion 333 (business risk)
++ - over-bound exclusion 334 (business risk)
++ - over-bound exclusion 335 (business risk)
++ - over-bound exclusion 336 (business risk)
++ - over-bound exclusion 337 (business risk)
++ - over-bound exclusion 338 (business risk)
++ - over-bound exclusion 339 (business risk)
++ - over-bound exclusion 340 (business risk)
++ - over-bound exclusion 341 (business risk)
++ - over-bound exclusion 342 (business risk)
++ - over-bound exclusion 343 (business risk)
++ - over-bound exclusion 344 (business risk)
++ - over-bound exclusion 345 (business risk)
++ - over-bound exclusion 346 (business risk)
++ - over-bound exclusion 347 (business risk)
++ - over-bound exclusion 348 (business risk)
++ - over-bound exclusion 349 (business risk)
++ - over-bound exclusion 350 (business risk)
++ - over-bound exclusion 351 (business risk)
++ - over-bound exclusion 352 (business risk)
++ - over-bound exclusion 353 (business risk)
++ - over-bound exclusion 354 (business risk)
++ - over-bound exclusion 355 (business risk)
++ - over-bound exclusion 356 (business risk)
++ - over-bound exclusion 357 (business risk)
++ - over-bound exclusion 358 (business risk)
++ - over-bound exclusion 359 (business risk)
++ - over-bound exclusion 360 (business risk)
++ - over-bound exclusion 361 (business risk)
++ - over-bound exclusion 362 (business risk)
++ - over-bound exclusion 363 (business risk)
++ - over-bound exclusion 364 (business risk)
++ - over-bound exclusion 365 (business risk)
++ - over-bound exclusion 366 (business risk)
++ - over-bound exclusion 367 (business risk)
++ - over-bound exclusion 368 (business risk)
++ - over-bound exclusion 369 (business risk)
++ - over-bound exclusion 370 (business risk)
++ - over-bound exclusion 371 (business risk)
++ - over-bound exclusion 372 (business risk)
++ - over-bound exclusion 373 (business risk)
++ - over-bound exclusion 374 (business risk)
++ - over-bound exclusion 375 (business risk)
++ - over-bound exclusion 376 (business risk)
++ - over-bound exclusion 377 (business risk)
++ - over-bound exclusion 378 (business risk)
++ - over-bound exclusion 379 (business risk)
++ - over-bound exclusion 380 (business risk)
++ - over-bound exclusion 381 (business risk)
++ - over-bound exclusion 382 (business risk)
++ - over-bound exclusion 383 (business risk)
++ - over-bound exclusion 384 (business risk)
++ - over-bound exclusion 385 (business risk)
++ - over-bound exclusion 386 (business risk)
++ - over-bound exclusion 387 (business risk)
++ - over-bound exclusion 388 (business risk)
++ - over-bound exclusion 389 (business risk)
++ - over-bound exclusion 390 (business risk)
++ - over-bound exclusion 391 (business risk)
++ - over-bound exclusion 392 (business risk)
++ - over-bound exclusion 393 (business risk)
++ - over-bound exclusion 394 (business risk)
++ - over-bound exclusion 395 (business risk)
++ - over-bound exclusion 396 (business risk)
++ - over-bound exclusion 397 (business risk)
++ - over-bound exclusion 398 (business risk)
++ - over-bound exclusion 399 (business risk)
++ - over-bound exclusion 400 (business risk)
++ - over-bound exclusion 401 (business risk)
++ - over-bound exclusion 402 (business risk)
++ - over-bound exclusion 403 (business risk)
++ - over-bound exclusion 404 (business risk)
++ - over-bound exclusion 405 (business risk)
++ - over-bound exclusion 406 (business risk)
++ - over-bound exclusion 407 (business risk)
++ - over-bound exclusion 408 (business risk)
++ - over-bound exclusion 409 (business risk)
++ - over-bound exclusion 410 (business risk)
++ - over-bound exclusion 411 (business risk)
++ - over-bound exclusion 412 (business risk)
++ - over-bound exclusion 413 (business risk)
++ - over-bound exclusion 414 (business risk)
++ - over-bound exclusion 415 (business risk)
++ - over-bound exclusion 416 (business risk)
++ - over-bound exclusion 417 (business risk)
++ - over-bound exclusion 418 (business risk)
++ - over-bound exclusion 419 (business risk)
++ - over-bound exclusion 420 (business risk)
++ - over-bound exclusion 421 (business risk)
++ - over-bound exclusion 422 (business risk)
++ - over-bound exclusion 423 (business risk)
++ - over-bound exclusion 424 (business risk)
++ - over-bound exclusion 425 (business risk)
++ - over-bound exclusion 426 (business risk)
++ - over-bound exclusion 427 (business risk)
++ - over-bound exclusion 428 (business risk)
++ - over-bound exclusion 429 (business risk)
++ - over-bound exclusion 430 (business risk)
++ - over-bound exclusion 431 (business risk)
++ - over-bound exclusion 432 (business risk)
++ - over-bound exclusion 433 (business risk)
++ - over-bound exclusion 434 (business risk)
++ - over-bound exclusion 435 (business risk)
++ - over-bound exclusion 436 (business risk)
++ - over-bound exclusion 437 (business risk)
++ - over-bound exclusion 438 (business risk)
++ - over-bound exclusion 439 (business risk)
++ - over-bound exclusion 440 (business risk)
++ - over-bound exclusion 441 (business risk)
++ - over-bound exclusion 442 (business risk)
++ - over-bound exclusion 443 (business risk)
++ - over-bound exclusion 444 (business risk)
++ - over-bound exclusion 445 (business risk)
++ - over-bound exclusion 446 (business risk)
++ - over-bound exclusion 447 (business risk)
++ - over-bound exclusion 448 (business risk)
++ - over-bound exclusion 449 (business risk)
++ - over-bound exclusion 450 (business risk)
++ - over-bound exclusion 451 (business risk)
++ - over-bound exclusion 452 (business risk)
++ - over-bound exclusion 453 (business risk)
++ - over-bound exclusion 454 (business risk)
++ - over-bound exclusion 455 (business risk)
++ - over-bound exclusion 456 (business risk)
++ - over-bound exclusion 457 (business risk)
++ - over-bound exclusion 458 (business risk)
++ - over-bound exclusion 459 (business risk)
++ - over-bound exclusion 460 (business risk)
++ - over-bound exclusion 461 (business risk)
++ - over-bound exclusion 462 (business risk)
++ - over-bound exclusion 463 (business risk)
++ - over-bound exclusion 464 (business risk)
++ - over-bound exclusion 465 (business risk)
++ - over-bound exclusion 466 (business risk)
++ - over-bound exclusion 467 (business risk)
++ - over-bound exclusion 468 (business risk)
++ - over-bound exclusion 469 (business risk)
++ - over-bound exclusion 470 (business risk)
++ - over-bound exclusion 471 (business risk)
++ - over-bound exclusion 472 (business risk)
++ - over-bound exclusion 473 (business risk)
++ - over-bound exclusion 474 (business risk)
++ - over-bound exclusion 475 (business risk)
++ - over-bound exclusion 476 (business risk)
++ - over-bound exclusion 477 (business risk)
++ - over-bound exclusion 478 (business risk)
++ - over-bound exclusion 479 (business risk)
++ - over-bound exclusion 480 (business risk)
++ - over-bound exclusion 481 (business risk)
++ - over-bound exclusion 482 (business risk)
++ - over-bound exclusion 483 (business risk)
++ - over-bound exclusion 484 (business risk)
++ - over-bound exclusion 485 (business risk)
++ - over-bound exclusion 486 (business risk)
++ - over-bound exclusion 487 (business risk)
++ - over-bound exclusion 488 (business risk)
++ - over-bound exclusion 489 (business risk)
++ - over-bound exclusion 490 (business risk)
++ - over-bound exclusion 491 (business risk)
++ - over-bound exclusion 492 (business risk)
++ - over-bound exclusion 493 (business risk)
++ - over-bound exclusion 494 (business risk)
++ - over-bound exclusion 495 (business risk)
++ - over-bound exclusion 496 (business risk)
++ - over-bound exclusion 497 (business risk)
++ - over-bound exclusion 498 (business risk)
++ - over-bound exclusion 499 (business risk)
++ --- END [GENERATION BRIEF] ---
+
+ ❯ convex/ai/promptProgram.test.ts:1078:54
+    1076|     const prompts = firstDraftPrompts();
+    1077|     expect(prompts.map(draftSectionOf)).toEqual(["242", "244", "246"]);
+    1078|     for (const prompt of prompts) expect(prompt).not.toContain(BRIEF_B…
+       |                                                      ^
+    1079|     // Not one of the 501 rows leaked either: omission is whole, not a…
+    1080|     for (const prompt of prompts) expect(prompt).not.toContain(OVER_BO…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/28]⎯
+
+ FAIL  |convex| convex/ai/promptProgram.test.ts > the Brief a section is drafted with and checked against > omits an over-bound Brief from iterative's own section and from its one-shot ghost
+AssertionError: expected 'Here is the structured transcript ana…' not to contain '--- BEGIN [GENERATION BRIEF] ---'
+
+- Expected
++ Received
+
++ Here is the structured transcript analysis. Use ONLY this information to draft Section 242.
++
++ {
++   "company_context": "Test company",
++   "project_goal": "Resolve the control uncertainty",
++   "business_problem": "Existing control fails",
++   "scientific_technical_problem": "Response under load is unknown",
++   "passive_uncertainties": [],
++   "active_uncertainties": [],
++   "technological_objective": "A repeatable control",
++   "work_performed": {
++     "prior_year_status": null,
++     "workplan_steps": [],
++     "hypothesis": "",
++     "experiments_iterations": []
++   },
++   "advancements_achieved": [],
++   "remaining_uncertainties": [],
++   "project_status": "completed",
++   "unreliable_narrator_flags": [],
++   "gaps": [],
++   "useful_quotes": []
++ }
++
++ # LENGTH BUDGET (CRA form constraint — hard requirement)
++ The CRA form field for this section holds at most 50 lines of 78 characters, and EVERY blank line between paragraphs also costs one full line. Write AT MOST 337 words total. Prefer fewer, denser paragraphs (each blank line spent on a paragraph break is a line of content lost). Do NOT pad. If the material exceeds the budget, keep the most technically load-bearing content and cut the rest.
++
+  --- BEGIN [GENERATION BRIEF] ---
++ Storyline:
++ A Storyline no prompt may ever see in part.
++
++ Claim Exclusions (never claim these, however prominent):
++ - over-bound exclusion 0 (business risk)
++ - over-bound exclusion 1 (business risk)
++ - over-bound exclusion 2 (business risk)
++ - over-bound exclusion 3 (business risk)
++ - over-bound exclusion 4 (business risk)
++ - over-bound exclusion 5 (business risk)
++ - over-bound exclusion 6 (business risk)
++ - over-bound exclusion 7 (business risk)
++ - over-bound exclusion 8 (business risk)
++ - over-bound exclusion 9 (business risk)
++ - over-bound exclusion 10 (business risk)
++ - over-bound exclusion 11 (business risk)
++ - over-bound exclusion 12 (business risk)
++ - over-bound exclusion 13 (business risk)
++ - over-bound exclusion 14 (business risk)
++ - over-bound exclusion 15 (business risk)
++ - over-bound exclusion 16 (business risk)
++ - over-bound exclusion 17 (business risk)
++ - over-bound exclusion 18 (business risk)
++ - over-bound exclusion 19 (business risk)
++ - over-bound exclusion 20 (business risk)
++ - over-bound exclusion 21 (business risk)
++ - over-bound exclusion 22 (business risk)
++ - over-bound exclusion 23 (business risk)
++ - over-bound exclusion 24 (business risk)
++ - over-bound exclusion 25 (business risk)
++ - over-bound exclusion 26 (business risk)
++ - over-bound exclusion 27 (business risk)
++ - over-bound exclusion 28 (business risk)
++ - over-bound exclusion 29 (business risk)
++ - over-bound exclusion 30 (business risk)
++ - over-bound exclusion 31 (business risk)
++ - over-bound exclusion 32 (business risk)
++ - over-bound exclusion 33 (business risk)
++ - over-bound exclusion 34 (business risk)
++ - over-bound exclusion 35 (business risk)
++ - over-bound exclusion 36 (business risk)
++ - over-bound exclusion 37 (business risk)
++ - over-bound exclusion 38 (business risk)
++ - over-bound exclusion 39 (business risk)
++ - over-bound exclusion 40 (business risk)
++ - over-bound exclusion 41 (business risk)
++ - over-bound exclusion 42 (business risk)
++ - over-bound exclusion 43 (business risk)
++ - over-bound exclusion 44 (business risk)
++ - over-bound exclusion 45 (business risk)
++ - over-bound exclusion 46 (business risk)
++ - over-bound exclusion 47 (business risk)
++ - over-bound exclusion 48 (business risk)
++ - over-bound exclusion 49 (business risk)
++ - over-bound exclusion 50 (business risk)
++ - over-bound exclusion 51 (business risk)
++ - over-bound exclusion 52 (business risk)
++ - over-bound exclusion 53 (business risk)
++ - over-bound exclusion 54 (business risk)
++ - over-bound exclusion 55 (business risk)
++ - over-bound exclusion 56 (business risk)
++ - over-bound exclusion 57 (business risk)
++ - over-bound exclusion 58 (business risk)
++ - over-bound exclusion 59 (business risk)
++ - over-bound exclusion 60 (business risk)
++ - over-bound exclusion 61 (business risk)
++ - over-bound exclusion 62 (business risk)
++ - over-bound exclusion 63 (business risk)
++ - over-bound exclusion 64 (business risk)
++ - over-bound exclusion 65 (business risk)
++ - over-bound exclusion 66 (business risk)
++ - over-bound exclusion 67 (business risk)
++ - over-bound exclusion 68 (business risk)
++ - over-bound exclusion 69 (business risk)
++ - over-bound exclusion 70 (business risk)
++ - over-bound exclusion 71 (business risk)
++ - over-bound exclusion 72 (business risk)
++ - over-bound exclusion 73 (business risk)
++ - over-bound exclusion 74 (business risk)
++ - over-bound exclusion 75 (business risk)
++ - over-bound exclusion 76 (business risk)
++ - over-bound exclusion 77 (business risk)
++ - over-bound exclusion 78 (business risk)
++ - over-bound exclusion 79 (business risk)
++ - over-bound exclusion 80 (business risk)
++ - over-bound exclusion 81 (business risk)
++ - over-bound exclusion 82 (business risk)
++ - over-bound exclusion 83 (business risk)
++ - over-bound exclusion 84 (business risk)
++ - over-bound exclusion 85 (business risk)
++ - over-bound exclusion 86 (business risk)
++ - over-bound exclusion 87 (business risk)
++ - over-bound exclusion 88 (business risk)
++ - over-bound exclusion 89 (business risk)
++ - over-bound exclusion 90 (business risk)
++ - over-bound exclusion 91 (business risk)
++ - over-bound exclusion 92 (business risk)
++ - over-bound exclusion 93 (business risk)
++ - over-bound exclusion 94 (business risk)
++ - over-bound exclusion 95 (business risk)
++ - over-bound exclusion 96 (business risk)
++ - over-bound exclusion 97 (business risk)
++ - over-bound exclusion 98 (business risk)
++ - over-bound exclusion 99 (business risk)
++ - over-bound exclusion 100 (business risk)
++ - over-bound exclusion 101 (business risk)
++ - over-bound exclusion 102 (business risk)
++ - over-bound exclusion 103 (business risk)
++ - over-bound exclusion 104 (business risk)
++ - over-bound exclusion 105 (business risk)
++ - over-bound exclusion 106 (business risk)
++ - over-bound exclusion 107 (business risk)
++ - over-bound exclusion 108 (business risk)
++ - over-bound exclusion 109 (business risk)
++ - over-bound exclusion 110 (business risk)
++ - over-bound exclusion 111 (business risk)
++ - over-bound exclusion 112 (business risk)
++ - over-bound exclusion 113 (business risk)
++ - over-bound exclusion 114 (business risk)
++ - over-bound exclusion 115 (business risk)
++ - over-bound exclusion 116 (business risk)
++ - over-bound exclusion 117 (business risk)
++ - over-bound exclusion 118 (business risk)
++ - over-bound exclusion 119 (business risk)
++ - over-bound exclusion 120 (business risk)
++ - over-bound exclusion 121 (business risk)
++ - over-bound exclusion 122 (business risk)
++ - over-bound exclusion 123 (business risk)
++ - over-bound exclusion 124 (business risk)
++ - over-bound exclusion 125 (business risk)
++ - over-bound exclusion 126 (business risk)
++ - over-bound exclusion 127 (business risk)
++ - over-bound exclusion 128 (business risk)
++ - over-bound exclusion 129 (business risk)
++ - over-bound exclusion 130 (business risk)
++ - over-bound exclusion 131 (business risk)
++ - over-bound exclusion 132 (business risk)
++ - over-bound exclusion 133 (business risk)
++ - over-bound exclusion 134 (business risk)
++ - over-bound exclusion 135 (business risk)
++ - over-bound exclusion 136 (business risk)
++ - over-bound exclusion 137 (business risk)
++ - over-bound exclusion 138 (business risk)
++ - over-bound exclusion 139 (business risk)
++ - over-bound exclusion 140 (business risk)
++ - over-bound exclusion 141 (business risk)
++ - over-bound exclusion 142 (business risk)
++ - over-bound exclusion 143 (business risk)
++ - over-bound exclusion 144 (business risk)
++ - over-bound exclusion 145 (business risk)
++ - over-bound exclusion 146 (business risk)
++ - over-bound exclusion 147 (business risk)
++ - over-bound exclusion 148 (business risk)
++ - over-bound exclusion 149 (business risk)
++ - over-bound exclusion 150 (business risk)
++ - over-bound exclusion 151 (business risk)
++ - over-bound exclusion 152 (business risk)
++ - over-bound exclusion 153 (business risk)
++ - over-bound exclusion 154 (business risk)
++ - over-bound exclusion 155 (business risk)
++ - over-bound exclusion 156 (business risk)
++ - over-bound exclusion 157 (business risk)
++ - over-bound exclusion 158 (business risk)
++ - over-bound exclusion 159 (business risk)
++ - over-bound exclusion 160 (business risk)
++ - over-bound exclusion 161 (business risk)
++ - over-bound exclusion 162 (business risk)
++ - over-bound exclusion 163 (business risk)
++ - over-bound exclusion 164 (business risk)
++ - over-bound exclusion 165 (business risk)
++ - over-bound exclusion 166 (business risk)
++ - over-bound exclusion 167 (business risk)
++ - over-bound exclusion 168 (business risk)
++ - over-bound exclusion 169 (business risk)
++ - over-bound exclusion 170 (business risk)
++ - over-bound exclusion 171 (business risk)
++ - over-bound exclusion 172 (business risk)
++ - over-bound exclusion 173 (business risk)
++ - over-bound exclusion 174 (business risk)
++ - over-bound exclusion 175 (business risk)
++ - over-bound exclusion 176 (business risk)
++ - over-bound exclusion 177 (business risk)
++ - over-bound exclusion 178 (business risk)
++ - over-bound exclusion 179 (business risk)
++ - over-bound exclusion 180 (business risk)
++ - over-bound exclusion 181 (business risk)
++ - over-bound exclusion 182 (business risk)
++ - over-bound exclusion 183 (business risk)
++ - over-bound exclusion 184 (business risk)
++ - over-bound exclusion 185 (business risk)
++ - over-bound exclusion 186 (business risk)
++ - over-bound exclusion 187 (business risk)
++ - over-bound exclusion 188 (business risk)
++ - over-bound exclusion 189 (business risk)
++ - over-bound exclusion 190 (business risk)
++ - over-bound exclusion 191 (business risk)
++ - over-bound exclusion 192 (business risk)
++ - over-bound exclusion 193 (business risk)
++ - over-bound exclusion 194 (business risk)
++ - over-bound exclusion 195 (business risk)
++ - over-bound exclusion 196 (business risk)
++ - over-bound exclusion 197 (business risk)
++ - over-bound exclusion 198 (business risk)
++ - over-bound exclusion 199 (business risk)
++ - over-bound exclusion 200 (business risk)
++ - over-bound exclusion 201 (business risk)
++ - over-bound exclusion 202 (business risk)
++ - over-bound exclusion 203 (business risk)
++ - over-bound exclusion 204 (business risk)
++ - over-bound exclusion 205 (business risk)
++ - over-bound exclusion 206 (business risk)
++ - over-bound exclusion 207 (business risk)
++ - over-bound exclusion 208 (business risk)
++ - over-bound exclusion 209 (business risk)
++ - over-bound exclusion 210 (business risk)
++ - over-bound exclusion 211 (business risk)
++ - over-bound exclusion 212 (business risk)
++ - over-bound exclusion 213 (business risk)
++ - over-bound exclusion 214 (business risk)
++ - over-bound exclusion 215 (business risk)
++ - over-bound exclusion 216 (business risk)
++ - over-bound exclusion 217 (business risk)
++ - over-bound exclusion 218 (business risk)
++ - over-bound exclusion 219 (business risk)
++ - over-bound exclusion 220 (business risk)
++ - over-bound exclusion 221 (business risk)
++ - over-bound exclusion 222 (business risk)
++ - over-bound exclusion 223 (business risk)
++ - over-bound exclusion 224 (business risk)
++ - over-bound exclusion 225 (business risk)
++ - over-bound exclusion 226 (business risk)
++ - over-bound exclusion 227 (business risk)
++ - over-bound exclusion 228 (business risk)
++ - over-bound exclusion 229 (business risk)
++ - over-bound exclusion 230 (business risk)
++ - over-bound exclusion 231 (business risk)
++ - over-bound exclusion 232 (business risk)
++ - over-bound exclusion 233 (business risk)
++ - over-bound exclusion 234 (business risk)
++ - over-bound exclusion 235 (business risk)
++ - over-bound exclusion 236 (business risk)
++ - over-bound exclusion 237 (business risk)
++ - over-bound exclusion 238 (business risk)
++ - over-bound exclusion 239 (business risk)
++ - over-bound exclusion 240 (business risk)
++ - over-bound exclusion 241 (business risk)
++ - over-bound exclusion 242 (business risk)
++ - over-bound exclusion 243 (business risk)
++ - over-bound exclusion 244 (business risk)
++ - over-bound exclusion 245 (business risk)
++ - over-bound exclusion 246 (business risk)
++ - over-bound exclusion 247 (business risk)
++ - over-bound exclusion 248 (business risk)
++ - over-bound exclusion 249 (business risk)
++ - over-bound exclusion 250 (business risk)
++ - over-bound exclusion 251 (business risk)
++ - over-bound exclusion 252 (business risk)
++ - over-bound exclusion 253 (business risk)
++ - over-bound exclusion 254 (business risk)
++ - over-bound exclusion 255 (business risk)
++ - over-bound exclusion 256 (business risk)
++ - over-bound exclusion 257 (business risk)
++ - over-bound exclusion 258 (business risk)
++ - over-bound exclusion 259 (business risk)
++ - over-bound exclusion 260 (business risk)
++ - over-bound exclusion 261 (business risk)
++ - over-bound exclusion 262 (business risk)
++ - over-bound exclusion 263 (business risk)
++ - over-bound exclusion 264 (business risk)
++ - over-bound exclusion 265 (business risk)
++ - over-bound exclusion 266 (business risk)
++ - over-bound exclusion 267 (business risk)
++ - over-bound exclusion 268 (business risk)
++ - over-bound exclusion 269 (business risk)
++ - over-bound exclusion 270 (business risk)
++ - over-bound exclusion 271 (business risk)
++ - over-bound exclusion 272 (business risk)
++ - over-bound exclusion 273 (business risk)
++ - over-bound exclusion 274 (business risk)
++ - over-bound exclusion 275 (business risk)
++ - over-bound exclusion 276 (business risk)
++ - over-bound exclusion 277 (business risk)
++ - over-bound exclusion 278 (business risk)
++ - over-bound exclusion 279 (business risk)
++ - over-bound exclusion 280 (business risk)
++ - over-bound exclusion 281 (business risk)
++ - over-bound exclusion 282 (business risk)
++ - over-bound exclusion 283 (business risk)
++ - over-bound exclusion 284 (business risk)
++ - over-bound exclusion 285 (business risk)
++ - over-bound exclusion 286 (business risk)
++ - over-bound exclusion 287 (business risk)
++ - over-bound exclusion 288 (business risk)
++ - over-bound exclusion 289 (business risk)
++ - over-bound exclusion 290 (business risk)
++ - over-bound exclusion 291 (business risk)
++ - over-bound exclusion 292 (business risk)
++ - over-bound exclusion 293 (business risk)
++ - over-bound exclusion 294 (business risk)
++ - over-bound exclusion 295 (business risk)
++ - over-bound exclusion 296 (business risk)
++ - over-bound exclusion 297 (business risk)
++ - over-bound exclusion 298 (business risk)
++ - over-bound exclusion 299 (business risk)
++ - over-bound exclusion 300 (business risk)
++ - over-bound exclusion 301 (business risk)
++ - over-bound exclusion 302 (business risk)
++ - over-bound exclusion 303 (business risk)
++ - over-bound exclusion 304 (business risk)
++ - over-bound exclusion 305 (business risk)
++ - over-bound exclusion 306 (business risk)
++ - over-bound exclusion 307 (business risk)
++ - over-bound exclusion 308 (business risk)
++ - over-bound exclusion 309 (business risk)
++ - over-bound exclusion 310 (business risk)
++ - over-bound exclusion 311 (business risk)
++ - over-bound exclusion 312 (business risk)
++ - over-bound exclusion 313 (business risk)
++ - over-bound exclusion 314 (business risk)
++ - over-bound exclusion 315 (business risk)
++ - over-bound exclusion 316 (business risk)
++ - over-bound exclusion 317 (business risk)
++ - over-bound exclusion 318 (business risk)
++ - over-bound exclusion 319 (business risk)
++ - over-bound exclusion 320 (business risk)
++ - over-bound exclusion 321 (business risk)
++ - over-bound exclusion 322 (business risk)
++ - over-bound exclusion 323 (business risk)
++ - over-bound exclusion 324 (business risk)
++ - over-bound exclusion 325 (business risk)
++ - over-bound exclusion 326 (business risk)
++ - over-bound exclusion 327 (business risk)
++ - over-bound exclusion 328 (business risk)
++ - over-bound exclusion 329 (business risk)
++ - over-bound exclusion 330 (business risk)
++ - over-bound exclusion 331 (business risk)
++ - over-bound exclusion 332 (business risk)
++ - over-bound exclusion 333 (business risk)
++ - over-bound exclusion 334 (business risk)
++ - over-bound exclusion 335 (business risk)
++ - over-bound exclusion 336 (business risk)
++ - over-bound exclusion 337 (business risk)
++ - over-bound exclusion 338 (business risk)
++ - over-bound exclusion 339 (business risk)
++ - over-bound exclusion 340 (business risk)
++ - over-bound exclusion 341 (business risk)
++ - over-bound exclusion 342 (business risk)
++ - over-bound exclusion 343 (business risk)
++ - over-bound exclusion 344 (business risk)
++ - over-bound exclusion 345 (business risk)
++ - over-bound exclusion 346 (business risk)
++ - over-bound exclusion 347 (business risk)
++ - over-bound exclusion 348 (business risk)
++ - over-bound exclusion 349 (business risk)
++ - over-bound exclusion 350 (business risk)
++ - over-bound exclusion 351 (business risk)
++ - over-bound exclusion 352 (business risk)
++ - over-bound exclusion 353 (business risk)
++ - over-bound exclusion 354 (business risk)
++ - over-bound exclusion 355 (business risk)
++ - over-bound exclusion 356 (business risk)
++ - over-bound exclusion 357 (business risk)
++ - over-bound exclusion 358 (business risk)
++ - over-bound exclusion 359 (business risk)
++ - over-bound exclusion 360 (business risk)
++ - over-bound exclusion 361 (business risk)
++ - over-bound exclusion 362 (business risk)
++ - over-bound exclusion 363 (business risk)
++ - over-bound exclusion 364 (business risk)
++ - over-bound exclusion 365 (business risk)
++ - over-bound exclusion 366 (business risk)
++ - over-bound exclusion 367 (business risk)
++ - over-bound exclusion 368 (business risk)
++ - over-bound exclusion 369 (business risk)
++ - over-bound exclusion 370 (business risk)
++ - over-bound exclusion 371 (business risk)
++ - over-bound exclusion 372 (business risk)
++ - over-bound exclusion 373 (business risk)
++ - over-bound exclusion 374 (business risk)
++ - over-bound exclusion 375 (business risk)
++ - over-bound exclusion 376 (business risk)
++ - over-bound exclusion 377 (business risk)
++ - over-bound exclusion 378 (business risk)
++ - over-bound exclusion 379 (business risk)
++ - over-bound exclusion 380 (business risk)
++ - over-bound exclusion 381 (business risk)
++ - over-bound exclusion 382 (business risk)
++ - over-bound exclusion 383 (business risk)
++ - over-bound exclusion 384 (business risk)
++ - over-bound exclusion 385 (business risk)
++ - over-bound exclusion 386 (business risk)
++ - over-bound exclusion 387 (business risk)
++ - over-bound exclusion 388 (business risk)
++ - over-bound exclusion 389 (business risk)
++ - over-bound exclusion 390 (business risk)
++ - over-bound exclusion 391 (business risk)
++ - over-bound exclusion 392 (business risk)
++ - over-bound exclusion 393 (business risk)
++ - over-bound exclusion 394 (business risk)
++ - over-bound exclusion 395 (business risk)
++ - over-bound exclusion 396 (business risk)
++ - over-bound exclusion 397 (business risk)
++ - over-bound exclusion 398 (business risk)
++ - over-bound exclusion 399 (business risk)
++ - over-bound exclusion 400 (business risk)
++ - over-bound exclusion 401 (business risk)
++ - over-bound exclusion 402 (business risk)
++ - over-bound exclusion 403 (business risk)
++ - over-bound exclusion 404 (business risk)
++ - over-bound exclusion 405 (business risk)
++ - over-bound exclusion 406 (business risk)
++ - over-bound exclusion 407 (business risk)
++ - over-bound exclusion 408 (business risk)
++ - over-bound exclusion 409 (business risk)
++ - over-bound exclusion 410 (business risk)
++ - over-bound exclusion 411 (business risk)
++ - over-bound exclusion 412 (business risk)
++ - over-bound exclusion 413 (business risk)
++ - over-bound exclusion 414 (business risk)
++ - over-bound exclusion 415 (business risk)
++ - over-bound exclusion 416 (business risk)
++ - over-bound exclusion 417 (business risk)
++ - over-bound exclusion 418 (business risk)
++ - over-bound exclusion 419 (business risk)
++ - over-bound exclusion 420 (business risk)
++ - over-bound exclusion 421 (business risk)
++ - over-bound exclusion 422 (business risk)
++ - over-bound exclusion 423 (business risk)
++ - over-bound exclusion 424 (business risk)
++ - over-bound exclusion 425 (business risk)
++ - over-bound exclusion 426 (business risk)
++ - over-bound exclusion 427 (business risk)
++ - over-bound exclusion 428 (business risk)
++ - over-bound exclusion 429 (business risk)
++ - over-bound exclusion 430 (business risk)
++ - over-bound exclusion 431 (business risk)
++ - over-bound exclusion 432 (business risk)
++ - over-bound exclusion 433 (business risk)
++ - over-bound exclusion 434 (business risk)
++ - over-bound exclusion 435 (business risk)
++ - over-bound exclusion 436 (business risk)
++ - over-bound exclusion 437 (business risk)
++ - over-bound exclusion 438 (business risk)
++ - over-bound exclusion 439 (business risk)
++ - over-bound exclusion 440 (business risk)
++ - over-bound exclusion 441 (business risk)
++ - over-bound exclusion 442 (business risk)
++ - over-bound exclusion 443 (business risk)
++ - over-bound exclusion 444 (business risk)
++ - over-bound exclusion 445 (business risk)
++ - over-bound exclusion 446 (business risk)
++ - over-bound exclusion 447 (business risk)
++ - over-bound exclusion 448 (business risk)
++ - over-bound exclusion 449 (business risk)
++ - over-bound exclusion 450 (business risk)
++ - over-bound exclusion 451 (business risk)
++ - over-bound exclusion 452 (business risk)
++ - over-bound exclusion 453 (business risk)
++ - over-bound exclusion 454 (business risk)
++ - over-bound exclusion 455 (business risk)
++ - over-bound exclusion 456 (business risk)
++ - over-bound exclusion 457 (business risk)
++ - over-bound exclusion 458 (business risk)
++ - over-bound exclusion 459 (business risk)
++ - over-bound exclusion 460 (business risk)
++ - over-bound exclusion 461 (business risk)
++ - over-bound exclusion 462 (business risk)
++ - over-bound exclusion 463 (business risk)
++ - over-bound exclusion 464 (business risk)
++ - over-bound exclusion 465 (business risk)
++ - over-bound exclusion 466 (business risk)
++ - over-bound exclusion 467 (business risk)
++ - over-bound exclusion 468 (business risk)
++ - over-bound exclusion 469 (business risk)
++ - over-bound exclusion 470 (business risk)
++ - over-bound exclusion 471 (business risk)
++ - over-bound exclusion 472 (business risk)
++ - over-bound exclusion 473 (business risk)
++ - over-bound exclusion 474 (business risk)
++ - over-bound exclusion 475 (business risk)
++ - over-bound exclusion 476 (business risk)
++ - over-bound exclusion 477 (business risk)
++ - over-bound exclusion 478 (business risk)
++ - over-bound exclusion 479 (business risk)
++ - over-bound exclusion 480 (business risk)
++ - over-bound exclusion 481 (business risk)
++ - over-bound exclusion 482 (business risk)
++ - over-bound exclusion 483 (business risk)
++ - over-bound exclusion 484 (business risk)
++ - over-bound exclusion 485 (business risk)
++ - over-bound exclusion 486 (business risk)
++ - over-bound exclusion 487 (business risk)
++ - over-bound exclusion 488 (business risk)
++ - over-bound exclusion 489 (business risk)
++ - over-bound exclusion 490 (business risk)
++ - over-bound exclusion 491 (business risk)
++ - over-bound exclusion 492 (business risk)
++ - over-bound exclusion 493 (business risk)
++ - over-bound exclusion 494 (business risk)
++ - over-bound exclusion 495 (business risk)
++ - over-bound exclusion 496 (business risk)
++ - over-bound exclusion 497 (business risk)
++ - over-bound exclusion 498 (business risk)
++ - over-bound exclusion 499 (business risk)
++ --- END [GENERATION BRIEF] ---
+
+ ❯ convex/ai/promptProgram.test.ts:1100:35
+    1098|     const sectionPrompts = firstDraftPrompts();
+    1099|     expect(sectionPrompts.map(draftSectionOf)).toEqual(["242"]);
+    1100|     expect(sectionPrompts[0]).not.toContain(BRIEF_BLOCK_MARKER);
+       |                                   ^
+    1101|     // Omission is whole: not one of the 501 rows leaks in either.
+    1102|     expect(sectionPrompts[0]).not.toContain(OVER_BOUND_ENTRY_TEXT);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/28]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  28 failed | 30 passed (58)
+   Start at  11:13:29
+   Duration  3.39s (transform 1.48s, setup 0ms, import 1.50s, tests 3.90s, environment 146ms)
+
+JSON report written to /private/tmp/claude-501/-Users-johnnynguyen-Documents-Repos-Banhall/74c117b1-0ee2-4aa9-a3bd-3095316a1935/scratchpad/evidence/dw-brief-read-and-diff-integrity/before-constshim.json
+EXIT_CODE=1

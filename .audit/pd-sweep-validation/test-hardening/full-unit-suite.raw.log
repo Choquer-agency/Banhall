@@ -1,0 +1,15 @@
+# HEAD=2b6e59d6237303a7f940ee04051c1431048f9cd0 node=v22.22.3 date=2026-09-14T18:23:59Z PUBLIC_CONVEX_URL=https://placeholder.convex.cloud PUBLIC_CONVEX_SITE_URL=https://placeholder.convex.site
+ convex/ai/brief.test.ts                    | 221 +++++++++++++++++++++++++++
+ convex/candidateScopedBoundedReads.test.ts | 235 +++++++++++++++++++++++++++++
+ 2 files changed, 456 insertions(+)
+# cmd: npx vitest run
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.factory/worktrees/pd-validate-b
+
+
+ Test Files  189 passed (189)
+      Tests  2692 passed (2692)
+   Start at  11:24:00
+   Duration  48.00s (transform 8.30s, setup 0ms, import 17.66s, tests 32.77s, environment 7.62s)
+
+EXIT_CODE=0

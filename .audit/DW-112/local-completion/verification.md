@@ -1,0 +1,9 @@
+### Same-key adoption with a current baseline is unverified
+
+- **Changed surface:** `convex/generations.ts:1952` makes persistence adopt an existing same-key Brief regardless of the supplied baseline.
+- **Impacted consumer or site:** `publishDerivedBrief` at `convex/ai/brief.ts:387` reads its baseline after the initial reuse lookup and model call. A competing publisher can commit between those operations, so the baseline can already equal the authoritative same-key Brief.
+- **Existing test evidence:** **Regression gap.** The barrier at `convex/ai/brief.test.ts:991` ensures both publishers read their empty baselines before either persists. The adoption test at `convex/ai/brief.test.ts:1110` explicitly supplies a stale baseline. Sequential reuse tests at `convex/ai/brief.test.ts:408` and `convex/ai/briefPipelineWiring.test.ts:426` take the earlier query-and-stamp path instead. Repository-wide symbol and import-reference searches, followed by inspection of the publication tests, found no assertion covering adoption with a current same-key baseline.
+- **Missing verification:** When `baselineBriefId` equals the existing same-key Brief, persistence must return that id, stamp the second generation, and leave Brief and entry rows unchanged.
+- **Demonstration:** Restricting adoption to `reusable && args.baselineBriefId !== reusable._id` would preserve the checked assertions. It would fail when both generations initially miss reuse, but the first publication commits before the second publisher reads its baseline.
+- **Consequence:** That regression could publish another version-1 Brief and give the two generations different Brief ids without the checked tests failing.
+- **Suggested test shape:** After both reuse misses, complete the first publication before allowing the second baseline read. Assert identical returned ids, both generation references, and unchanged parent and child rows after the second publication.

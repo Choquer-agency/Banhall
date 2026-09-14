@@ -1,0 +1,9 @@
+import { defineConfig, mergeConfig } from "vitest/config";
+import { readFileSync } from "node:fs";
+import base from "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/vitest.config.ts";
+export default mergeConfig(base, defineConfig({
+  cacheDir: "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/.vitest-attachments/story-6-backend-review/optimizer-red",
+  plugins: [{ name: "original-comparisons", enforce: "pre", load(id) {
+    if (id === "/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/convex/comparisons.ts") return readFileSync("/Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260911-120649-26de/worktrees/6/.vitest-attachments/story-6-backend-review/original-comparisons.ts.txt", "utf8");
+  }}],
+}));

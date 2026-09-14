@@ -1,0 +1,39 @@
+DW-112 failing control
+Command: npm test -- convex/ai/brief.test.ts
+Exit: 1
+Baseline commit: d73df4bb9277886ca97e7b8e59caea618baf051d
+Production source at run time: convex/generations.ts matched the baseline commit (Git blob b86b8f1).
+
+> banhall-app@0.1.0 test
+> vitest run convex/ai/brief.test.ts
+
+
+ RUN  v4.1.10 /Users/johnnynguyen/Documents/Repos/Banhall/.bmad-loop/runs/20260912-061909-feb3/worktrees/dw-brief-derivation-concurrency
+
+ ❯ |convex| convex/ai/brief.test.ts (38 tests | 2 failed) 2687ms
+     × publishes one first version when two same-key derivations reach persistence together 5ms
+     × adopts the latest same-key Brief before a stale project fence or candidate processing 2ms
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > publishes one first version when two same-key derivations reach persistence together
+AssertionError: expected '0000000000010010generationBriefs' to be '0000000000010008generationBriefs' // Object.is equality
+
+Expected: "0000000000010008generationBriefs"
+Received: "0000000000010010generationBriefs"
+
+ ❯ convex/ai/brief.test.ts:1018:26
+
+ FAIL  |convex| convex/ai/brief.test.ts > Generation Brief publication idempotency (DW-112) > adopts the latest same-key Brief before a stale project fence or candidate processing
+AssertionError: expected null to be '0000000000010009generationBriefs' // Object.is equality
+
+- Expected:
+"0000000000010009generationBriefs"
+
++ Received:
+null
+
+ ❯ convex/ai/brief.test.ts:1127:20
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 36 passed (38)
+   Start at  03:39:37
+   Duration  3.42s (transform 639ms, setup 0ms, import 586ms, tests 2.69s, environment 40ms)
